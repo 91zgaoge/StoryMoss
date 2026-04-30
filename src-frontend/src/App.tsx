@@ -128,6 +128,8 @@ function App() {
         }
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
+        // 强制触发 resize 帮助重绘
+        window.dispatchEvent(new Event('resize'));
       } catch (e) {
         console.error('Failed to refresh on window shown:', e);
       }
@@ -136,19 +138,20 @@ function App() {
     // 组件 mount 时执行一次
     handleWindowShown();
 
-    // 监听 Tauri 窗口焦点事件（窗口从隐藏到显示时会触发）
-    let unlistenFocus: (() => void) | undefined;
-    const setupFocusListener = async () => {
+    // 监听 backstage-shown 事件（Rust 端 show_backstage 命令在窗口显示后发射）
+    // 这比不可靠的 tauri://focus 全局事件更可靠
+    let unlistenShown: (() => void) | undefined;
+    const setupShownListener = async () => {
       try {
-        unlistenFocus = await listen('tauri://focus', handleWindowShown);
+        unlistenShown = await listen('backstage-shown', handleWindowShown);
       } catch (e) {
-        // tauri://focus 可能不可用，忽略错误
+        console.error('Failed to setup backstage-shown listener:', e);
       }
     };
-    setupFocusListener();
+    setupShownListener();
 
     return () => {
-      if (unlistenFocus) unlistenFocus();
+      if (unlistenShown) unlistenShown();
     };
   }, []);
 

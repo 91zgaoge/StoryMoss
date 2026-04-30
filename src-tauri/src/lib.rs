@@ -38,7 +38,7 @@ mod auth;
 #[cfg(test)]
 mod test_utils;
 
-use tauri::{Manager, AppHandle};
+use tauri::{Manager, AppHandle, Emitter};
 
 use db::{DbPool, init_db, StoryRepository, CharacterRepository, ChapterRepository, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
 use config::AppConfig;
@@ -1634,10 +1634,10 @@ fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), 
 /// 显示 backstage 窗口
 #[tauri::command]
 fn show_backstage(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("backstage") {
+    let window = if let Some(window) = app.get_webview_window("backstage") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
-        Ok(())
+        window
     } else {
         // 窗口可能被关闭，重新创建
         let window = tauri::WebviewWindowBuilder::new(
@@ -1652,8 +1652,32 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
-        Ok(())
-    }
+        window
+    };
+
+    // v5.0.0 修复：强制 WebView 重排/重绘，防止隐藏后重新显示出现白屏
+    let _ = window.eval(r#"
+        (function() {
+            const body = document.body;
+            if (body) {
+                const originalDisplay = body.style.display;
+                body.style.display = 'none';
+                void body.offsetHeight;
+                body.style.display = originalDisplay || '';
+            }
+            window.dispatchEvent(new Event('resize'));
+        })();
+    "#);
+
+    // 通知前端窗口已显示，需要刷新数据（解决 bootstrap 完成时 backstage 被隐藏导致事件丢失的问题）
+    let _ = window.emit("backstage-shown", serde_json::json!({
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    }));
+
+    Ok(())
 }
 
 /// 获取故事的规范状态快照

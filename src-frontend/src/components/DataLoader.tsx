@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import { healthCheck, listStories } from '@services/tauri';
@@ -9,7 +9,6 @@ export function DataLoader() {
   const setStories = useAppStore((s) => s.setStories);
   const setError = useAppStore((s) => s.setError);
   const setIsLoading = useAppStore((s) => s.setIsLoading);
-  const hasAttemptedRef = useRef(false);
 
   // First check if Tauri is available
   const { data: health, isSuccess: isHealthOk } = useQuery({
@@ -18,7 +17,6 @@ export function DataLoader() {
     retry: 2,
     retryDelay: 1000,
     staleTime: 30000,
-    // Only run once on mount
     refetchOnWindowFocus: false,
   });
 
@@ -46,10 +44,11 @@ export function DataLoader() {
     }
   }, [error, setError]);
 
-  // Sync stories to store - only once per unique data
+  // Sync stories to store whenever data changes (not just first time)
+  // This ensures that when the window is re-shown after being hidden,
+  // the latest stories are always synced to the store.
   useEffect(() => {
-    if (stories && !hasAttemptedRef.current) {
-      hasAttemptedRef.current = true;
+    if (stories) {
       setStories(stories);
     }
   }, [stories, setStories]);
