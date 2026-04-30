@@ -33,6 +33,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **故事概览自动展开**：新故事"概览"面板自动打开
 - **实时卡片创建事件**：新增 `novel-bootstrap-card-created` 事件，前端实时显示卡片创建进度
 
+### 🐛 Bug 修复
+- **后台窗口白屏修复**：修复后台窗口隐藏后重新显示时出现空白/白屏的问题
+- **后台卡片显示修复**：修复 Bootstrap 小说创建后，后台不显示生成的卡片（故事大纲、完整角色传记、场景、伏笔）的问题
+- **根因分析**：（1）Bootstrap 期间后台窗口被隐藏无法接收事件，（2）幕前与幕后独立 Zustand store 导致 ChapterSwitch 未同步，（3）页面未监听 DataRefresh 事件，（4）后台变为可见时无自动加载
+- **修复方案**：（1）App.tsx 在挂载和窗口聚焦时自动加载故事并设置 currentStory，（2）FrontstageApp 在 ChapterSwitch 时通知后台，（3）Characters/Scenes/Foreshadowing 页面监听 backstage-data-refreshed 事件并 invalidate queries
+
 ### 🎯 数据库迁移
 - **Migration 34**: `story_outlines` 表
 - **Migration 35**: `characters` 增强 + `character_relationships` 表

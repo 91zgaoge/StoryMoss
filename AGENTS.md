@@ -158,6 +158,7 @@ npm test
   - **故事概览面板**: Stories.tsx 新增"概览"视图，展示大纲/角色/场景/伏笔总览
   - **7步创世工作流**: 构思故事 → 撰写开篇 → 构建世界 → 生成大纲 → 塑造角色 → 铺设场景 → 埋设伏笔 → 编织关联
   - **Migration 34/35/36**: story_outlines / characters增强+relationships / scenes.foreshadowing_ids
+  - **Bug 修复**: 后台窗口白屏修复 + 后台卡片显示修复（Bootstrap 后大纲/角色/场景/伏笔卡片不显示）
   - 编译: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 - **v4.5.0 进程提示栏超时深度修复：消灭"系统仍在处理中"黑洞** (2026-04-30) — 从"不知道在等什么"到"每一步都可见"
@@ -405,6 +406,12 @@ npm test
 - **知识图谱自动构建**: 角色/场景/伏笔自动创建 KG 实体
 - **前后台智能联动**: 完成后自动导航到 Stories 并高亮新故事
 
+### Bug 修复
+- **后台窗口白屏修复**: 隐藏后重新显示时出现空白/白屏
+- **后台卡片显示修复**: Bootstrap 后大纲/角色/场景/伏笔卡片不显示
+- **根因**: (1) 后台隐藏时无法接收事件 (2) 前后台独立 Zustand store 未同步 (3) 页面未监听 DataRefresh (4) 无自动加载
+- **修复**: App.tsx 自动加载 + FrontstageApp 通知同步 + 页面监听 backstage-data-refreshed 并 invalidate queries
+
 ### 数据库迁移
 - Migration 34: `story_outlines` 表
 - Migration 35: `characters` 增强 + `character_relationships` 表
@@ -414,10 +421,11 @@ npm test
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ 193/193
 - `npm run build` ✅
+- `cargo tauri build` ✅ — Windows `.exe` (36MB) + `.msi` (14MB) + `-setup.exe` (10MB) 已生成
 
 ---
 
-*最后更新: 2026-04-30 - v5.0.0 创世引擎：一键创世，万物关联*
+*最后更新: 2026-04-30 - v5.0.0 Bug 修复：后台窗口白屏与卡片显示问题*
 
 ---
 

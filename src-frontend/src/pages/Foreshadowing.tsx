@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Eye,
   Plus,
@@ -31,6 +31,7 @@ import {
 } from '@/hooks/useForeshadowings';
 import { useScenes } from '@/hooks/useScenes';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 function importanceLabel(importance: number): string {
   if (importance >= 8) return '关键';
@@ -365,6 +366,7 @@ function RecommendationCard({
 
 export function Foreshadowing() {
   const currentStory = useAppStore((s) => s.currentStory);
+  const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newItem, setNewItem] = useState({
@@ -372,6 +374,19 @@ export function Foreshadowing() {
     setup_scene_id: '',
     importance: 5,
   });
+
+  // v5.0.0 修复：监听数据刷新事件
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (currentStory?.id) {
+        queryClient.invalidateQueries({ queryKey: ['foreshadowings', currentStory.id] });
+        queryClient.invalidateQueries({ queryKey: ['payoff-ledger', currentStory.id] });
+        queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
+      }
+    };
+    window.addEventListener('backstage-data-refreshed', handleRefresh);
+    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
+  }, [currentStory?.id, queryClient]);
 
   const { data: items = [], isLoading } = useForeshadowings(currentStory?.id || null);
   const { data: ledgerItems = [] } = usePayoffLedger(currentStory?.id || null);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, BookOpen, AlertCircle, History, FileText, Eye } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
@@ -12,10 +12,24 @@ import { useAppStore } from '@/stores/appStore';
 import { useCreateSceneVersion } from '@/hooks/useSceneVersions';
 import type { Scene, SceneVersion } from '@/types';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function Scenes() {
   const currentStory = useAppStore((s) => s.currentStory);
+  const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+
+  // v5.0.0 修复：监听数据刷新事件
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (currentStory?.id) {
+        queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
+        queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
+      }
+    };
+    window.addEventListener('backstage-data-refreshed', handleRefresh);
+    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
+  }, [currentStory?.id, queryClient]);
   const [isEditing, setIsEditing] = useState(false);
   const [previewTab, setPreviewTab] = useState<'content' | 'versions'>('content');
   const [compareVersions, setCompareVersions] = useState<[SceneVersion, SceneVersion] | null>(null);

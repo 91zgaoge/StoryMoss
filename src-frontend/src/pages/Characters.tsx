@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useCharacters, useCreateCharacter, useDeleteCharacter } from '@/hooks/useCharacters';
 import { useCharacterRelationships } from '@/hooks/useCharacterRelationships';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Users, Plus, Trash2, Heart, UserX, Link2 } from 'lucide-react';
@@ -37,11 +38,24 @@ function RelationshipCard({ rel, characterId }: { rel: CharacterRelationship; ch
 
 export function Characters() {
   const currentStory = useAppStore((s) => s.currentStory);
+  const queryClient = useQueryClient();
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
   const { data: relationships = [] } = useCharacterRelationships(currentStory?.id || undefined);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<CharacterTab>('info');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+
+  // v5.0.0 修复：监听数据刷新事件
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (currentStory?.id) {
+        queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
+        queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
+      }
+    };
+    window.addEventListener('backstage-data-refreshed', handleRefresh);
+    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
+  }, [currentStory?.id, queryClient]);
 
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();

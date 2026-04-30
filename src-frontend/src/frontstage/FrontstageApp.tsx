@@ -301,6 +301,12 @@ const FrontstageApp: React.FC = () => {
                       if (targetChapter) {
                         selectChapter(targetChapter);
                       }
+                      // v5.0.0 修复：通知 backstage 刷新故事列表，确保幕后也能看到新故事
+                      try {
+                        await invoke('notify_backstage_content_changed');
+                      } catch (e) {
+                        // ignore
+                      }
                     }
                   } catch (e) {
                     console.error('Failed to switch to new story:', e);

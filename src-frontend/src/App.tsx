@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
@@ -20,7 +21,8 @@ import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import { LoginModal } from '@/pages/Login';
-import type { ViewType } from '@/types';
+import { useAppStore } from '@/stores/appStore';
+import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
 
 function App() {
@@ -107,6 +109,46 @@ function App() {
     setupListener();
     return () => {
       if (unlisten) unlisten();
+    };
+  }, []);
+
+  // v5.0.0 修复：窗口重新可见时自动恢复数据和渲染
+  useEffect(() => {
+    const handleWindowShown = async () => {
+      // 窗口重新可见时，强制刷新故事列表并恢复 currentStory
+      try {
+        const stories = await invoke<Story[]>('list_stories');
+        if (stories.length > 0) {
+          const { currentStory } = useAppStore.getState();
+          if (!currentStory) {
+            // 如果没有当前故事，自动选择第一个
+            useAppStore.getState().setCurrentStory(stories[0]);
+          }
+          useAppStore.getState().setStories(stories);
+        }
+        // 触发全局数据刷新事件，让各页面重新获取数据
+        window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
+      } catch (e) {
+        console.error('Failed to refresh on window shown:', e);
+      }
+    };
+
+    // 组件 mount 时执行一次
+    handleWindowShown();
+
+    // 监听 Tauri 窗口焦点事件（窗口从隐藏到显示时会触发）
+    let unlistenFocus: (() => void) | undefined;
+    const setupFocusListener = async () => {
+      try {
+        unlistenFocus = await listen('tauri://focus', handleWindowShown);
+      } catch (e) {
+        // tauri://focus 可能不可用，忽略错误
+      }
+    };
+    setupFocusListener();
+
+    return () => {
+      if (unlistenFocus) unlistenFocus();
     };
   }, []);
 
