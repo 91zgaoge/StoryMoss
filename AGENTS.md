@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v4.3.0
+- **版本**: v5.0.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -158,7 +158,11 @@ npm test
   - **故事概览面板**: Stories.tsx 新增"概览"视图，展示大纲/角色/场景/伏笔总览
   - **7步创世工作流**: 构思故事 → 撰写开篇 → 构建世界 → 生成大纲 → 塑造角色 → 铺设场景 → 埋设伏笔 → 编织关联
   - **Migration 34/35/36**: story_outlines / characters增强+relationships / scenes.foreshadowing_ids
-  - **Bug 修复**: 后台窗口白屏修复 + 后台卡片显示修复（Bootstrap 后大纲/角色/场景/伏笔卡片不显示）
+  - **Bug 修复 v2（热修复）**: 后台窗口白屏 + 后台卡片显示修复
+    - **白屏根因**: WebView2 窗口 `hide()` 后重新 `show()` 时渲染表面可能丢失
+    - **白屏修复**: `show_backstage` 命令执行 JS 强制重排/重绘 (`display:none` → `offsetHeight` → 恢复)
+    - **卡片不显示根因**: (1) Bootstrap 完成时 backstage 被隐藏，`backstage-update` 事件丢失; (2) `tauri://focus` 全局事件在 Tauri v2 中不可靠; (3) `DataLoader.hasAttemptedRef` 阻止重新加载
+    - **卡片修复**: `show_backstage` 发射 `backstage-shown` 事件 → App.tsx 监听并强制刷新 `list_stories` + 自动设置 `currentStory` → `DataLoader` 移除 `hasAttemptedRef` 限制
   - 编译: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 - **v4.5.0 进程提示栏超时深度修复：消灭"系统仍在处理中"黑洞** (2026-04-30) — 从"不知道在等什么"到"每一步都可见"
