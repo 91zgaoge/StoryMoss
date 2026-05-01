@@ -31,6 +31,8 @@ function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  // v5.0.0 修复：用于强制 React 重新渲染的 key
+  const [renderKey, setRenderKey] = useState(0);
 
   // 自动更新检测
   const {
@@ -88,6 +90,15 @@ function App() {
             case 'DataRefresh':
               const entity = payload?.entity || 'data';
               toast(`幕后${entity}已更新`, { icon: '🔄' });
+              // 强制刷新相关 TanStack Query 缓存
+              queryClient.invalidateQueries({ queryKey: ['stories'] });
+              queryClient.invalidateQueries({ queryKey: ['characters'] });
+              queryClient.invalidateQueries({ queryKey: ['scenes'] });
+              queryClient.invalidateQueries({ queryKey: ['foreshadowings'] });
+              queryClient.invalidateQueries({ queryKey: ['story-outlines'] });
+              queryClient.invalidateQueries({ queryKey: ['world-building'] });
+              queryClient.invalidateQueries({ queryKey: ['knowledge-graph'] });
+              queryClient.invalidateQueries({ queryKey: ['character-relationships'] });
               window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: entity }));
               break;
             case 'NavigateTo':
@@ -116,19 +127,23 @@ function App() {
 
   // v5.0.0 修复：窗口重新可见时自动恢复数据和渲染
   useEffect(() => {
-    const handleWindowShown = async () => {
+    const handleWindowShown = async (retries = 3) => {
       // 窗口重新可见时，强制刷新故事列表并恢复 currentStory
       try {
         const stories = await invoke<Story[]>('list_stories');
         if (stories.length > 0) {
-          const { currentStory } = useAppStore.getState();
-          if (!currentStory) {
-            // 如果没有当前故事，自动选择第一个
+          const { currentStory, stories: oldStories } = useAppStore.getState();
+          // 检测是否有新故事（旧列表中不存在的），有则自动切换到新故事
+          const newStory = stories.find(s => !oldStories.some(os => os.id === s.id));
+          if (newStory) {
+            useAppStore.getState().setCurrentStory(newStory);
+          } else if (!currentStory) {
             useAppStore.getState().setCurrentStory(stories[0]);
           }
           useAppStore.getState().setStories(stories);
         }
         // 强制刷新所有 TanStack Query 缓存，确保各页面重新获取数据
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
         queryClient.invalidateQueries({ queryKey: ['characters'] });
         queryClient.invalidateQueries({ queryKey: ['scenes'] });
         queryClient.invalidateQueries({ queryKey: ['foreshadowings'] });
@@ -140,8 +155,13 @@ function App() {
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
         // 强制触发 resize 帮助重绘
         window.dispatchEvent(new Event('resize'));
+        // 强制 React 重新渲染当前视图
+        setRenderKey(k => k + 1);
       } catch (e) {
         console.error('Failed to refresh on window shown:', e);
+        if (retries > 0) {
+          setTimeout(() => handleWindowShown(retries - 1), 500);
+        }
       }
     };
 
@@ -149,11 +169,10 @@ function App() {
     handleWindowShown();
 
     // 监听 backstage-shown 事件（Rust 端 show_backstage 命令在窗口显示后发射）
-    // 这比不可靠的 tauri://focus 全局事件更可靠
     let unlistenShown: (() => void) | undefined;
     const setupShownListener = async () => {
       try {
-        unlistenShown = await listen('backstage-shown', handleWindowShown);
+        unlistenShown = await listen('backstage-shown', () => handleWindowShown());
       } catch (e) {
         console.error('Failed to setup backstage-shown listener:', e);
       }
@@ -204,7 +223,7 @@ function App() {
         />
         <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-        <main className="flex-1 overflow-auto">
+        <main key={renderKey} className="flex-1 overflow-auto">
           {renderView()}
         </main>
       </div>

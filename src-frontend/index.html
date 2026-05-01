@@ -12,7 +12,25 @@
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   </head>
   <body class="bg-cinema-950 text-gray-100 antialiased">
+    <!-- v5.0.0 修复：加载指示器，防止 React 挂载前被误认为白屏 -->
+    <div id="loading-screen" style="position:fixed;inset:0;background:#050508;display:flex;align-items:center;justify-content:center;z-index:99999;">
+      <div style="text-align:center;">
+        <div style="width:40px;height:40px;border:3px solid #d4af37;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
+        <p style="color:#d4af37;margin-top:16px;font-size:14px;">草苔 · 幕后工作室</p>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <style>
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          const ls = document.getElementById('loading-screen');
+          if (ls) ls.style.display = 'none';
+        }, 500);
+      });
+    </script>
   </body>
 </html>
