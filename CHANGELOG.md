@@ -33,13 +33,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **故事概览自动展开**：新故事"概览"面板自动打开
 - **实时卡片创建事件**：新增 `novel-bootstrap-card-created` 事件，前端实时显示卡片创建进度
 
-### 🐛 Bug 修复（v5.0.0 热修复）
+### 🐛 Bug 修复（v5.0.0 热修复 v3）
 - **后台窗口白屏修复**：修复后台窗口隐藏后重新显示时出现空白/白屏的问题
-  - **根因**：WebView2 窗口隐藏后重新显示时，渲染表面可能丢失，导致页面空白
-  - **修复**：`show_backstage` 命令在 `show()` 后执行 JavaScript 强制重排/重绘（`display:none` → `offsetHeight` → 恢复原状），并触发 `resize` 事件
+  - **根因 v3**：WebView2 窗口 `hide()` 后重新 `show()` 时渲染表面丢失；JS 强制重排不够可靠
+  - **修复 v3**：`show_backstage` 命令**微调窗口大小再恢复**（`width+1` → `width`），强制 WebView2 重新创建渲染表面；配合 JS 强制重排；延迟 300ms 发射 `backstage-shown` 事件确保前端监听器就绪
 - **后台卡片显示修复**：修复 Bootstrap 小说创建后，后台不显示生成的卡片（故事大纲、完整角色传记、场景、伏笔）的问题
-  - **根因**：（1）Bootstrap 完成时后台窗口被隐藏，`backstage-update` 事件丢失；（2）`tauri://focus` 全局事件在 Tauri v2 中不可靠，窗口重新显示时不会触发数据刷新；（3）`DataLoader` 的 `hasAttemptedRef` 阻止了窗口重新显示时的数据重新加载
-  - **修复**：（1）`show_backstage` 命令在窗口显示后发射 `backstage-shown` 自定义事件；（2）App.tsx 监听 `backstage-shown` 事件，事件触发时强制调用 `list_stories` 并自动设置 `currentStory`；（3）`DataLoader` 移除 `hasAttemptedRef` 限制，允许每次数据变化时同步到 store
+  - **根因 v3**：（1）Bootstrap 完成时后台窗口被隐藏，事件丢失；（2）`DataLoader` 与 `App.tsx` 同时加载 stories 造成**竞态条件**；（3）Bootstrap LLM 调用失败时错误被 `log::warn` 吞掉，前端完全不可见
+  - **修复 v3**：（1）`DataLoader` **移除 stories 查询**，完全由 `App.tsx` 控制数据加载，消除竞态；（2）`App.tsx` 引入 `useQueryClient`，`handleWindowShown` 中主动 `invalidateQueries` 强制刷新角色/场景/伏笔/大纲等所有页面数据；（3）`bootstrap.rs` LLM 调用失败时发射 `novel-bootstrap-error` 事件到前端，让错误可见
 
 ### 🎯 数据库迁移
 - **Migration 34**: `story_outlines` 表
