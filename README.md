@@ -2,13 +2,17 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.2.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.2.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.1.0 最新更新**：幕前幕后自动关联对齐 — 从"各自为战"到"自动联动"。Chapter↔Scene 双向映射、统一实时状态中心（所有数据修改自动同步）、Bootstrap 完成后幕前自动加载并切换第一章、Ctrl+Shift+B 一键回幕后并定位当前故事、AgentOrchestrator 闭环接入（Writer→Inspector→StyleChecker→Writer 自动质检改写）、自适应学习闭环激活、Zustand↔TanStack Query 状态同步、窗口通信事件标准化。
+> **v5.2.1 最新更新**：超时修复与白屏修复 — Bootstrap 创建新小说超时从 180 秒延长至 600 秒，匹配本地大模型多步 LLM 调用实际耗时；进度事件密度增强，每个 LLM 调用前后发送细粒度状态；LLM 心跳从 3 秒加速至 2 秒；后台窗口白屏修复增强（双重维度尺寸微调 + 800ms 延迟 + 前端双重重绘）。
+>
+> **v5.2.0 更新**：设计-实现对齐全面完成 — 通用 Workflow 引擎节点执行器、能力进化反馈环闭合、幕前↔场景双向同步、QueryPipeline 降级感知。
+>
+> **v5.1.0 更新**：幕前幕后自动关联对齐 — 从"各自为战"到"自动联动"。Chapter↔Scene 双向映射、统一实时状态中心（所有数据修改自动同步）、Bootstrap 完成后幕前自动加载并切换第一章、Ctrl+Shift+B 一键回幕后并定位当前故事、AgentOrchestrator 闭环接入（Writer→Inspector→StyleChecker→Writer 自动质检改写）、自适应学习闭环激活、Zustand↔TanStack Query 状态同步、窗口通信事件标准化。
 >
 > **v5.0.0 更新**：创世引擎 — 一键创世，万物关联。输入一句话，系统自动在幕后所有对应栏目中创建完整关联卡片。新增故事大纲自动生成、角色完整性格小传入库、角色关系图谱、伏笔自动埋设、知识图谱自动构建、前后台智能联动导航。
 >
@@ -202,8 +206,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.2.0  
-**最后更新**: 2026-04-30  
+**当前版本**: v5.2.1  
+**最后更新**: 2026-05-02  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -513,6 +517,12 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v5.2.1 (2026-05-02) - 超时修复与白屏修复
+- Bootstrap 超时延长：180 秒→600 秒，匹配本地大模型多步 LLM 调用实际耗时
+- 进度密度增强：`bootstrap.rs` 每个 LLM 调用前后增加细粒度进度事件
+- LLM 心跳加速：间隔 3 秒→2 秒，上限 40 次→300 次，消息优化为"正在深度思考中..."
+- 后台窗口白屏修复 v5.2.1：双重维度尺寸微调 + JS `html+body` 双重重排 + 800ms 延迟 + 前端双重重绘
 
 ### v5.2.0 (2026-05-02) - 设计-实现对齐全面完成
 - 通用 Workflow 引擎：完整 DAG 节点执行器（WriteChapter/Inspect/Revise/VectorIndex/AnalyzePlot/Condition/Parallel/End）
