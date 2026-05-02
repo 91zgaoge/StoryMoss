@@ -1,6 +1,6 @@
-# StoryForge (草苔) v3.4.0 项目完成状态
+# StoryForge (草苔) v5.1.1 项目完成状态
 
-> 最后更新: 2026-04-19（v3.4.0 + 拆书功能 + TaskService 全局共享修复 + 集成测试）
+> 最后更新: 2026-05-01（v5.1.1 + 幕前幕后自动关联对齐 + 设计-实现对齐修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---

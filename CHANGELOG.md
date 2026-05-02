@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.1.1] - 设计-实现对齐全面修复（2026-05-01）
+
+### 🎯 P0 核心断裂修复
+- **`update_chapter` 保存后自动触发 IngestPipeline**：`lib.rs` 中 `update_chapter` 命令成功后 `tokio::spawn` 异步调用 `auto_ingest_chapter()`，知识图谱实时更新
+- **`create_chapter` Ingest 固化触发**：在 `AfterChapterSave` skill hook 之外**硬编码**触发 Ingest，确保无论 skills 配置如何，知识图谱必定更新
+- **`state_sync` 空 story_id 修复**：`update_character` / `delete_character` / `update_chapter` / `delete_chapter` 在发射同步事件前先查询对应的 `story_id`，`useSyncStore` 可精准刷新缓存
+- **`FrontstageToolbar` story_id 传递**：废弃组件 `FrontstageToolbar.tsx` 新增 `storyId` prop，`show_backstage` 调用正确传递 `story_id`
+
+### 🎯 后台自动化修复
+- **`WorkflowScheduler::schedule_execution` 队列机制**：从空实现（仅 log）改为真正的内存队列（`VecDeque`），`execute_next()` 支持串行执行工作流实例
+
+### 🎯 代码审查修复
+- **LLM 5 分钟冷却期 + 内容哈希去重**：`auto_ingest_chapter` 内置 `INGEST_COOLDOWN` 全局状态，相同内容或 5 分钟内重复保存跳过 Ingest，防止 API 成本失控
+- **未使用导入清理**：`FrontstageToolbar.tsx` 删除 `Sparkles`、`Settings`；`workflow/scheduler.rs` 删除 `Workflow`、`NodeType`
+- **`WorkflowScheduler::run_instance` 明确错误**：返回 `Err("Workflow node execution is not yet implemented")` 而非空 `Ok(())`
+
+### 📦 基础设施
+- **`PromptLibrary` 扩展**：新增 `style_checker_system_template()` + `commentator_system_template()`
+- **`prompts/methodologies/` 方法论模板库**：雪花法 10 步 (`snowflake.rs`) + 英雄之旅 12 阶段 (`hero_journey.rs`) + 场景结构 3 变体 (`scene_structure.rs`)
+
+### 编译与测试
+- `cargo check`：零错误
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+
+---
+
 ## [v5.1.0] - 幕前幕后自动关联对齐（2026-05-01）
 
 ### 🎯 幕前幕后自动关联

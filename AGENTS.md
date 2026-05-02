@@ -148,6 +148,15 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.1.1 设计-实现对齐全面修复** (2026-05-01) — 消灭 P0 差距，补齐 P1 差距，全面达到设计目标
+  - **`update_chapter` 保存后自动触发 IngestPipeline**: `auto_ingest_chapter()` 异步后台执行，5 分钟冷却期 + 内容哈希去重，防止 API 成本失控
+  - **`state_sync` 空 story_id 修复**: character/chapter update/delete 先查询 `story_id` 再发射同步事件，前端缓存精准刷新
+  - **`FrontstageToolbar` story_id 传递**: 废弃组件修复 `show_backstage` 参数传递
+  - **`WorkflowScheduler` 队列机制**: 从空实现改为 `VecDeque` 内存队列 + `execute_next()` 串行执行
+  - **`PromptLibrary` 扩展**: 新增 StyleChecker + Commentator 系统提示词模板
+  - **方法论模板库**: 新建 `prompts/methodologies/` — 雪花法 10 步 + 英雄之旅 12 阶段 + 场景结构 3 变体
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过，`cargo tauri build` Windows `.exe`/`.msi`/`-setup.exe` 生成
+
 - **v5.1.0 幕前幕后自动关联对齐** (2026-05-01) — 从"各自为战"到"自动联动"的全面升级
   - **Phase 1.1 Chapter↔Scene 双向映射**: `chapters.scene_id` + `scenes.chapter_id` 外键关联，ChapterRepository 自动创建/关联 Scene
   - **Phase 1.2 统一实时状态中心**: 后端 `state_sync` 模块 + 16 种 `SyncEvent`，所有数据修改命令自动发射同步事件

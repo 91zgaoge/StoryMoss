@@ -1,6 +1,15 @@
-# 🧪 StoryForge 自动化测试环境
+# 🧪 StoryForge 自动化测试环境 (v5.1.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
+
+## 📊 当前测试统计
+
+| 类型 | 数量 | 状态 |
+|------|------|------|
+| Rust 单元测试 | 193 | ✅ 全部通过 |
+| 前端构建测试 | — | ✅ `npm run build` 通过 |
+| Tauri 构建测试 | — | ✅ `cargo tauri build` Windows 通过 |
+| Playwright E2E | — | 已配置（Chromium 147.0.7727.15）|
 
 ## ✅ 已安装组件
 
