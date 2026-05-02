@@ -199,6 +199,10 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             if (chapterId) {
               queryClient.invalidateQueries({ queryKey: KEYS.chapterDetail(chapterId) });
             }
+            // v5.2.0: chapter 更新会同步到关联 scene，刷新 scenes 缓存
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
+            }
             optionsRef.current.onChapterUpdated?.(chapterId, title);
             break;
           }

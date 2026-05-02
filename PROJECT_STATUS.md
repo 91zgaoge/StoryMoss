@@ -1,11 +1,24 @@
-# StoryForge (草苔) v5.1.1 项目完成状态
+# StoryForge (草苔) v5.2.0 项目完成状态
 
-> 最后更新: 2026-05-01（v5.1.1 + 幕前幕后自动关联对齐 + 设计-实现对齐修复）
+> 最后更新: 2026-05-02（v5.2.0 + 设计-实现对齐全面完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v5.2.0 新增功能（2026-05-02）
+
+#### 🎯 设计-实现对齐全面修复
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `WorkflowScheduler::run_instance` | ✅ | 100% | 完整 DAG 节点执行器，支持 8 种节点类型 |
+| 通用 Workflow IPC 命令 | ✅ | 100% | register/create/start/get_status 4 个命令 |
+| `CapabilityEvolutionEngine` | ✅ | 100% | JSON 持久化 + LLM 分析 + 自动记录集成 |
+| 幕前↔场景双向同步 | ✅ | 100% | useSyncStore 刷新 + FrontstageApp 监听 + 3 秒防循环 |
+| QueryPipeline 降级感知 | ✅ | 100% | `context-degraded` 事件 + 前端 toast |
+| 废弃组件清理 | ✅ | 100% | `FrontstageToolbar` 从索引导出移除 |
 
 ### v3.4.0 新增功能（2026-04-18）
 

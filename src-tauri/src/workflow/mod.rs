@@ -4,6 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 
+pub mod scheduler;
+pub use scheduler::WorkflowScheduler;
+
 /// Workflow definition - DAG structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workflow {
@@ -206,6 +209,16 @@ impl WorkflowEngine {
     pub fn get_instance(&self, instance_id: &str) -> Option<WorkflowInstance> {
         let instances = self.instances.lock().unwrap();
         instances.get(instance_id).cloned()
+    }
+
+    pub fn get_workflow(&self, workflow_id: &str) -> Option<Workflow> {
+        let workflows = self.workflows.lock().unwrap();
+        workflows.get(workflow_id).cloned()
+    }
+
+    pub fn update_instance(&self, instance: &WorkflowInstance) {
+        let mut instances = self.instances.lock().unwrap();
+        instances.insert(instance.id.clone(), instance.clone());
     }
 
     fn has_cycle(

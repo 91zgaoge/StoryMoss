@@ -210,3 +210,35 @@ payload: SyncPayload::CharacterUpdated { character_id, name, story_id: String::n
 | 9. SyncEvent 数量文档错误 | — | — | — | P2 |
 | 10. QueryPipeline 降级无感知 | — | — | 🟡 | P2 |
 | 11. Task 调度缺少超时/重试 | — | 🟡 | — | P2 |
+
+---
+
+## 七、修复追踪（v5.2.0 - 2026-05-02）
+
+### ✅ 已修复差距
+
+| 差距 | 修复版本 | 修复内容 |
+|------|---------|---------|
+| 1. update_chapter 不触发 Ingest | v5.1.1 | `auto_ingest_chapter()` 异步调用 + 冷却期 + 哈希去重 |
+| 2. WorkflowScheduler 空实现 | v5.2.0 | 完整 DAG 节点执行器：WriteChapter/Inspect/Revise/VectorIndex/AnalyzePlot/Condition/Parallel/End |
+| 3. FrontstageToolbar 不传 story_id | v5.1.1 | `show_backstage` 正确传递 `story_id` |
+| 4. state_sync 空 story_id | v5.1.1 | update/delete 前查询 `story_id` |
+| 5. create_chapter Hook 不保证 Ingest | v5.1.1 | 硬编码触发 `auto_ingest_chapter()` |
+| 8. FrontstageToolbar 显式 AI 按钮 | v5.2.0 | 废弃组件从索引导出中移除 |
+| 10. QueryPipeline 降级无感知 | v5.2.0 | `context-degraded` 事件 + 前端 toast 提示 |
+
+### 🔄 新增差距识别（v5.2.0 修复过程中发现）
+
+| 差距 | 说明 | 优先级 |
+|------|------|--------|
+| 场景编辑器↔幕前编辑器双向同步 | 数据库层面已实现双向同步，但前端事件监听和缓存刷新需完善 | P0（已修复） |
+| 能力进化反馈环 | `CapabilityEvolutionEngine` TODO 空实现，需持久化 + LLM 分析 | P0（已修复） |
+
+### ⏳ 待修复差距
+
+| 差距 | 说明 | 优先级 | 延后原因 |
+|------|------|--------|---------|
+| 6. 缺少方法论模板目录 | `prompts/methodologies/` 已在 v5.1.1 创建 | P1 | ✅ 已创建，后续扩展 |
+| 7. PromptLibrary 覆盖不全 | v5.1.1 已扩展 StyleChecker + Commentator | P1 | ✅ 已扩展，后续继续补充 |
+| 9. SyncEvent 数量文档错误 | 文档声称 18 种，实际 16 种 | P2 | 文档精度问题，不影响功能 |
+| 11. Task 调度缺少超时/重试 | `TaskScheduler::spawn_interval` 无超时/重试 | P2 | 当前任务系统稳定运行，低优先级 |

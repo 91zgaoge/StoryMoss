@@ -27,12 +27,13 @@ pub struct PlanExecutor {
 
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
-        let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+        let _pool = app_handle.state::<crate::db::DbPool>().inner().clone();
         let llm_service = crate::llm::LlmService::new(app_handle.clone());
+        let evolution_engine = CapabilityEvolutionEngine::new(llm_service, &app_handle);
         Self {
             app_handle,
             template_library: Mutex::new(PlanTemplateLibrary::new()),
-            evolution_engine: CapabilityEvolutionEngine::new(llm_service, pool),
+            evolution_engine,
         }
     }
 
@@ -208,6 +209,7 @@ impl PlanExecutor {
                     success: result.is_ok(),
                     user_feedback: None,
                     execution_time_ms: step_duration,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
                 };
                 let _ = self.evolution_engine.record_execution(record);
 

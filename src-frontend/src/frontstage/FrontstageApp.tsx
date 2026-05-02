@@ -152,6 +152,31 @@ const FrontstageApp: React.FC = () => {
     onStoryDeleted: () => {
       loadStories();
     },
+    // v5.2.0: 监听 chapter 更新（幕后修改后同步到幕前）
+    onChapterUpdated: (chapterId, title) => {
+      if (currentChapter && chapterId === currentChapter.id) {
+        // 如果刚在 3 秒内自动保存过，忽略这次更新（避免循环）
+        if (Date.now() - justSavedRef.current < 3000) {
+          return;
+        }
+        // 静默刷新当前 chapter 内容
+        (async () => {
+          try {
+            const updated = await invoke<Chapter | null>('get_chapter', { id: chapterId });
+            if (updated && updated.content !== undefined) {
+              setContent(prev => {
+                if (prev !== updated.content) {
+                  toast('幕后已更新本章内容', { icon: '📝', duration: 2000 });
+                }
+                return updated.content || '';
+              });
+            }
+          } catch (e) {
+            console.error('Failed to refresh chapter content:', e);
+          }
+        })();
+      }
+    },
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -197,6 +222,8 @@ const FrontstageApp: React.FC = () => {
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
+  const justSavedRef = useRef<number>(0);
   // 生成任务计时器：记录开始时间 + 定时更新运行时长显示
   const generationStartTimeRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -449,6 +476,17 @@ const FrontstageApp: React.FC = () => {
           setGenerationStatus(p.message);
         }
       });
+
+      // v5.2.0: 监听上下文降级事件
+      await listen<{
+        story_id: string;
+        reason: string;
+        fallback: string;
+      }>('context-degraded', (event) => {
+        const p = event.payload;
+        console.warn('[context-degraded]', p.reason);
+        toast('正在使用简化上下文生成内容...', { icon: '⚡', duration: 3000 });
+      });
     } catch (e) {
       console.error('Failed to setup event listeners:', e);
     }
@@ -527,6 +565,7 @@ const FrontstageApp: React.FC = () => {
             word_count: wordCount
           });
           setIsSaved(true);
+          justSavedRef.current = Date.now();
         } catch (e) {
           console.error('Auto-save failed:', e);
         }

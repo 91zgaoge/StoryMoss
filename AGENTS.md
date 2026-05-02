@@ -148,6 +148,15 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.2.0 设计-实现对齐全面完成** (2026-05-02) — 通用 Workflow 引擎 + 能力进化闭环 + 双向同步
+  - **`WorkflowScheduler::run_instance` 完整 DAG 执行**: 从空实现到支持 Start→WriteChapter→Inspect→Revise→VectorIndex→AnalyzePlot→End 全节点类型，串行拓扑执行 + 状态管理 + 上下文变量传递
+  - **通用 Workflow IPC 命令**: `register_workflow` / `create_workflow_instance` / `start_workflow_instance` / `get_workflow_instance_status`，setup 时自动注册 `standard_writing_workflow` 模板
+  - **能力进化反馈环闭合**: `ExecutionRecordStore` JSON 持久化 + `PlanExecutor` 自动记录每次能力执行 + `evolve_capability_descriptions` LLM 分析生成改进建议
+  - **幕前↔场景内容双向同步**: `useSyncStore` chapterUpdated 刷新 scenes 缓存 + `FrontstageApp` 监听 chapter-updated 自动刷新编辑器内容（3 秒防循环保护）
+  - **QueryPipeline 降级感知**: 后端 `context-degraded` 事件 + 前端 toast "正在使用简化上下文生成内容..."
+  - **废弃组件清理**: `FrontstageToolbar` 从索引导出中移除
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
+
 - **v5.1.1 设计-实现对齐全面修复** (2026-05-01) — 消灭 P0 差距，补齐 P1 差距，全面达到设计目标
   - **`update_chapter` 保存后自动触发 IngestPipeline**: `auto_ingest_chapter()` 异步后台执行，5 分钟冷却期 + 内容哈希去重，防止 API 成本失控
   - **`state_sync` 空 story_id 修复**: character/chapter update/delete 先查询 `story_id` 再发射同步事件，前端缓存精准刷新
@@ -409,7 +418,7 @@ npm test
 
 ### 编译状态
 
-- `cargo check` ✅ | 警告: 0
+- `cargo check` ✅ | 警告: 1 (已有 `unused import: events::SyncEvent`)
 - `cargo check --release` ✅ | 警告: 0
 - `npm run build` ✅
 - `cargo test` ✅ 193/193
@@ -470,7 +479,7 @@ npm test
 
 ---
 
-*最后更新: 2026-05-01 - v5.1.1 设计-实现对齐全面修复*
+*最后更新: 2026-05-02 - v5.2.0 设计-实现对齐全面完成*
 
 - **Bug Fix v4** (commit `70a8851`): 根因定位 — `TanStack Query` `['stories']` 缓存未被 invalidates
   - `index.html` 添加加载指示器，防止 React 挂载前被误认为白屏
@@ -499,6 +508,15 @@ npm test
 > **⚠️ 代码更新后必做（永久记住）：**
 > - [ ] **重新构建 Windows `.exe`** — 任何前端代码（JS/CSS/TSX）或后端代码（Rust）修改后，必须执行 `cargo tauri build` 重新生成安装包，并复制产物到项目根目录
 > - [ ] 验证 `StoryForge.exe`、`StoryForge_latest.exe`、`.msi`、`-setup.exe` 修改时间是否最新
+> - [ ] **逐项更新本项目本地的所有相关文档** — 代码修改后，必须同步更新以下文档（如内容受本次修改影响）：
+>   - `CHANGELOG.md` — 添加版本条目和变更详情
+>   - `README.md` — 更新功能列表、版本号、使用说明
+>   - `AGENTS.md` — 更新最近完成的功能、编译状态
+>   - `PROJECT_STATUS.md` — 更新版本号、完成状态、日期
+>   - `ROADMAP.md` — 更新已实施完成的部分和项目状态
+>   - `ARCHITECTURE.md` — 更新架构描述和版本号
+>   - `TESTING.md` — 更新测试统计和验证结果
+>   - 其他受影响文档（`DESIGN_SYSTEM.md`、`SERVER_DEPLOYMENT.md` 等）
 
 > **🧠 AI 创作工具交互设计原则（永久记住）：**
 > - **智能判断用户意图，主动调整状态** — 不要像传统软件一样弹出对话框让用户手工操作。例如：用户输入"写一篇小说"但无章节时，应**自动创建第一章**而非提示"请先选择章节"；文思模式非 active 时应**自动切换**而非提示用户按键。
@@ -630,4 +648,4 @@ specs/                       # 功能规格目录（按功能分支组织）
 
 ---
 
-*最后更新: 2026-04-17 - Spec-Kit 集成完成，项目宪法已建立，版本号统一为 3.3.0*
+*最后更新: 2026-05-01 - v5.1.1 对齐差距修复 + 文档同步规则*

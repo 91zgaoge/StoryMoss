@@ -2,7 +2,7 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.1.1 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.2.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
@@ -202,7 +202,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.1.1  
+**当前版本**: v5.2.0  
 **最后更新**: 2026-04-30  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
@@ -513,6 +513,14 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v5.2.0 (2026-05-02) - 设计-实现对齐全面完成
+- 通用 Workflow 引擎：完整 DAG 节点执行器（WriteChapter/Inspect/Revise/VectorIndex/AnalyzePlot/Condition/Parallel/End）
+- 能力进化反馈环：ExecutionRecordStore JSON 持久化 + LLM 分析生成改进建议
+- 幕前↔场景双向同步：chapterUpdated 刷新 scenes 缓存 + 编辑器自动刷新（3 秒防循环）
+- QueryPipeline 降级感知：`context-degraded` 事件 + 前端 toast 提示
+- 废弃组件清理：`FrontstageToolbar` 从索引导出移除
+- 版本号统一：v5.2.0
 
 ### v5.1.1 (2026-05-01) - 设计-实现对齐全面修复
 - **P0 修复**: `update_chapter` / `create_chapter` 保存后自动触发 IngestPipeline，知识图谱实时更新

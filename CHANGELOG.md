@@ -2,6 +2,45 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.2.0] - 设计-实现对齐全面完成（2026-05-02）
+
+### 🎯 P0 核心差距修复
+
+#### 通用 Workflow 引擎节点执行器实现
+- **`WorkflowScheduler::run_instance` 从空实现到完整 DAG 执行**：支持 Start → WriteChapter → Inspect → Revise → VectorIndex → AnalyzePlot → End 全节点类型
+- **节点执行映射**：WriteChapter/Revise → Writer Agent、Inspect → Inspector Agent、AnalyzePlot → PlotAnalyzer、VectorIndex → IngestPipeline
+- **串行拓扑执行**：按 DAG 依赖关系遍历，状态管理（Pending → Running → Completed/Failed），上下文变量传递
+- **进度事件**：`workflow-started` / `workflow-node-started` / `workflow-node-completed` / `workflow-node-failed` / `workflow-completed`
+- **IPC 命令**：`register_workflow` / `create_workflow_instance` / `start_workflow_instance` / `get_workflow_instance_status`
+- **注册标准模板**：`standard_writing_workflow` (Write → Inspect → Index) 在 setup 时自动注册
+
+#### 能力进化反馈环闭合
+- **`ExecutionRecordStore` JSON 持久化**：`app_data_dir/capability_execution_records.json`，自动保留最近 500 条记录
+- **`record_execution` 真正持久化**：`PlanExecutor::execute_step` 每次能力执行后自动记录（capability_id / success / duration）
+- **`evolve_capability_descriptions` LLM 分析**：查询执行历史 → 计算成功率 → LLM 生成改进后的 `when_to_use` 描述
+- **统计查询**：`get_statistics()` 按能力汇总成功/失败次数
+
+#### 幕前↔场景内容双向同步
+- **useSyncStore chapterUpdated → scenes 刷新**：`chapterUpdated` 事件处理中新增 `invalidateQueries(['scenes', storyId])`，因为 chapter 更新会同步到 scene
+- **FrontstageApp 监听 chapter-updated**：当当前编辑的 chapter 被幕后更新时，自动刷新编辑器内容（3 秒防循环保护）
+- **数据库双向同步已验证**：`ChapterRepository::update` 同步到 scene，`SceneRepository::update` 同步到 chapter
+
+### 🎯 P1 差距修复
+
+#### 废弃组件清理
+- **`FrontstageToolbar` 从索引移除**：`frontstage/components/index.ts` 中不再导出，组件文件保留供参考
+
+#### QueryPipeline 降级感知
+- **后端 `context-degraded` 事件**：`build_agent_context` 中 `StoryContextBuilder` 降级到 `minimal` 时发射事件
+- **前端 toast 提示**：`FrontstageApp` 监听 `context-degraded`，显示 "正在使用简化上下文生成内容..."
+
+### 编译与测试
+- `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+
+---
+
 ## [v5.1.1] - 设计-实现对齐全面修复（2026-05-01）
 
 ### 🎯 P0 核心断裂修复

@@ -1,4 +1,4 @@
-# StoryForge (草苔) v5.1.1 架构文档
+# StoryForge (草苔) v5.2.0 架构文档
 
 ## 架构理念
 

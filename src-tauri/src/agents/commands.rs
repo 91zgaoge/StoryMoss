@@ -894,6 +894,11 @@ pub(crate) async fn build_agent_context(
         Ok(ctx) => ctx,
         Err(e) => {
             log::warn!("[build_agent_context] StoryContextBuilder failed: {}, falling back to minimal", e);
+            let _ = app_handle.emit("context-degraded", serde_json::json!({
+                "story_id": story_id,
+                "reason": format!("StoryContextBuilder failed: {}", e),
+                "fallback": "minimal",
+            }));
             return Ok(super::AgentContext::minimal(story_id, String::new()));
         }
     };

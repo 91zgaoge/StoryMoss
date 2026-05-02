@@ -199,6 +199,19 @@ pub fn run() {
                 });
             }
 
+            // Initialize WorkflowEngine and WorkflowScheduler
+            {
+                let workflow_engine = workflow::WorkflowEngine::new();
+                let scheduler = workflow::WorkflowScheduler::new();
+                // Register the standard writing workflow template
+                if let Err(e) = workflow_engine.register_workflow(workflow::templates::standard_writing_workflow()) {
+                    log::warn!("Failed to register standard workflow: {}", e);
+                }
+                app.manage(std::sync::Arc::new(workflow_engine));
+                app.manage(std::sync::Arc::new(scheduler));
+                log::info!("Workflow engine and scheduler initialized");
+            }
+
             // Ensure backstage is hidden on startup
             if let Some(backstage) = app.get_webview_window("backstage") {
                 let _ = backstage.hide();
@@ -434,6 +447,11 @@ pub fn run() {
             commands_v3::get_story_outline,
             commands_v3::update_story_outline,
             commands_v3::get_character_relationships,
+            // Generic Workflow commands (v5.2.0)
+            register_workflow,
+            create_workflow_instance,
+            start_workflow_instance,
+            get_workflow_instance_status,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -1853,6 +1871,72 @@ async fn get_canonical_state(story_id: String) -> Result<canonical_state::Canoni
     let pool = get_pool().ok_or("Database not initialized")?;
     let manager = canonical_state::CanonicalStateManager::new(pool);
     manager.get_snapshot(&story_id).await
+}
+
+// ===== 通用 Workflow 引擎命令 (v5.2.0) =====
+
+/// 注册一个新的工作流定义
+#[tauri::command]
+fn register_workflow(
+    workflow: workflow::Workflow,
+    engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
+) -> Result<(), String> {
+    engine.register_workflow(workflow).map_err(|e| e.to_string())
+}
+
+/// 创建工作流实例
+#[tauri::command]
+fn create_workflow_instance(
+    workflow_id: String,
+    story_id: String,
+    initial_context: std::collections::HashMap<String, serde_json::Value>,
+    engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
+) -> Result<workflow::WorkflowInstance, String> {
+    engine.create_instance(&workflow_id, &story_id, initial_context)
+        .map_err(|e| e.to_string())
+}
+
+/// 启动工作流实例（加入执行队列并异步执行）
+#[tauri::command]
+async fn start_workflow_instance(
+    instance_id: String,
+    engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
+    scheduler: tauri::State<'_, std::sync::Arc<workflow::WorkflowScheduler>>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    // Mark instance as started
+    engine.start_instance(&instance_id).map_err(|e| e.to_string())?;
+    
+    // Clone needed data for the spawned task
+    let scheduler_clone = std::sync::Arc::clone(&scheduler);
+    let engine_clone = std::sync::Arc::clone(&engine);
+    let instance_id_clone = instance_id.clone();
+    
+    // Spawn async execution
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = scheduler_clone.schedule_execution(instance_id_clone.clone()).await {
+            log::error!("[Workflow] Failed to schedule instance {}: {}", instance_id_clone, e);
+            return;
+        }
+        // Execute the next (and only) item in the queue
+        let result = scheduler_clone.execute_next(&engine_clone, &app_handle).await;
+        match result {
+            Some(Ok(id)) => log::info!("[Workflow] Instance {} executed successfully", id),
+            Some(Err(e)) => log::error!("[Workflow] Instance execution failed: {}", e),
+            None => log::warn!("[Workflow] No instance found in queue"),
+        }
+    });
+    
+    Ok(instance_id)
+}
+
+/// 获取工作流实例状态
+#[tauri::command]
+fn get_workflow_instance_status(
+    instance_id: String,
+    engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
+) -> Result<Option<workflow::WorkflowInstance>, String> {
+    Ok(engine.get_instance(&instance_id))
 }
 
 // ===== 模型驱动的智能编排命令 =====
