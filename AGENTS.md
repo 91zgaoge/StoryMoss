@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v5.1.0
+- **版本**: v5.1.1
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -150,7 +150,7 @@ npm test
 
 - **v5.1.0 幕前幕后自动关联对齐** (2026-05-01) — 从"各自为战"到"自动联动"的全面升级
   - **Phase 1.1 Chapter↔Scene 双向映射**: `chapters.scene_id` + `scenes.chapter_id` 外键关联，ChapterRepository 自动创建/关联 Scene
-  - **Phase 1.2 统一实时状态中心**: 后端 `state_sync` 模块 + 18 种 `SyncEvent`，所有数据修改命令自动发射同步事件
+  - **Phase 1.2 统一实时状态中心**: 后端 `state_sync` 模块 + 16 种 `SyncEvent`，所有数据修改命令自动发射同步事件
   - **Phase 1.3 Bootstrap 自动加载**: `smartExecute` 返回后前端自动加载新故事并切换到第一章，Bootstrap 完成后双重 `ChapterSwitch` 保险
   - **Phase 1.4 幕前→幕后快速跳转**: `Ctrl+Shift+B` 快捷键 + 标题栏点击，幕后自动定位当前故事
   - **Phase 2.2 自适应学习闭环修复**: `record_feedback` 成功后异步触发 `mine_preferences`，偏好挖掘自动激活
@@ -461,7 +461,7 @@ npm test
 
 ---
 
-*最后更新: 2026-05-01 - v5.1.0 幕前幕后自动关联对齐*
+*最后更新: 2026-05-01 - v5.1.1 设计-实现对齐全面修复*
 
 - **Bug Fix v4** (commit `70a8851`): 根因定位 — `TanStack Query` `['stories']` 缓存未被 invalidates
   - `index.html` 添加加载指示器，防止 React 挂载前被误认为白屏

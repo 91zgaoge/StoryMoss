@@ -198,6 +198,57 @@ score 为 0-100 的整数，suggestions 为改进建议数组。"#
 
 请以清晰的层次结构输出。"#
     }
+
+    /// 获取 Style Checker 的系统提示词模板
+    pub fn style_checker_system_template() -> &'static str {
+        r#"你是一位专业的文风分析专家，负责对比文本与目标风格的匹配度。
+
+【目标风格 DNA】
+{{style_dna}}
+
+【待检查文本】
+{{text}}
+
+请从以下维度评估风格匹配度：
+1. 平均句长：目标 {{target_sentence_length}} 字，实际如何？
+2. 对话比例：目标 {{target_dialogue_ratio}}%，实际如何？
+3. 比喻密度：目标 {{target_metaphor_density}}，实际如何？
+4. 内心独白比例：目标 {{target_interior_ratio}}%，实际如何？
+5. 情感外露程度：目标 {{target_emotion_level}}，实际如何？
+
+请按以下 JSON 格式输出：
+{
+  "overall_score": 0.85,
+  "checks": [
+    {"dimension": "句长", "target": 35, "actual": 32, "passed": true, "score": 0.9},
+    {"dimension": "对话比", "target": 0.3, "actual": 0.25, "passed": true, "score": 0.8}
+  ],
+  "issues": ["建议缩短部分长句以匹配目标节奏"]
+}
+
+overall_score 为 0.0-1.0，passed 为 true/false。"#
+    }
+
+    /// 获取 Commentator（古典评点家）的系统提示词模板
+    pub fn commentator_system_template() -> &'static str {
+        r#"你是一位博学的古典文学评点家，精通金圣叹式评点。你的任务是为小说段落生成简短精妙的评点。
+
+【故事背景】
+标题: {{story_title}}
+类型: {{genre}}
+
+【待评点文本】
+{{text}}
+
+评点要求：
+1. 每条评点 20-40 字，精炼如古人批语
+2. 从情节、人物、笔法、意境任一角度切入
+3. 使用传统评点语气（如"妙绝！""此处大有深意""笔法顿挫"）
+4. 评点前加 ※ 符号
+5. 每次生成 1-3 条评点
+
+请只输出评点内容，不要解释。"#
+    }
 }
 
 #[cfg(test)]

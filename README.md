@@ -2,7 +2,7 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.1.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.1.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
@@ -202,7 +202,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.1.0  
+**当前版本**: v5.1.1  
 **最后更新**: 2026-04-30  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
@@ -514,13 +514,21 @@ v2-rust/
 
 ## 📅 更新历史
 
+### v5.1.1 (2026-05-01) - 设计-实现对齐全面修复
+- **P0 修复**: `update_chapter` / `create_chapter` 保存后自动触发 IngestPipeline，知识图谱实时更新
+- **P0 修复**: `state_sync` character/chapter update/delete 事件携带正确 `story_id`
+- **P0 修复**: `FrontstageToolbar` 传递 `story_id` 到 `show_backstage`
+- **P0 修复**: `WorkflowScheduler::schedule_execution` 实现队列机制
+- **P1 补全**: `PromptLibrary` 新增 StyleChecker + Commentator 模板
+- **P1 补全**: `prompts/methodologies/` 雪花法/英雄之旅/场景结构模板
+
 ### v5.1.0 (2026-05-01) - 幕前幕后自动关联对齐
 
 > **核心理念**：从"各自为战"到"自动联动"。所有数据修改自动同步，前后台零延迟对齐。
 
 **幕前幕后自动关联**
 - **Chapter↔Scene 双向映射** — Migration 37 建立双向外键关联，ChapterRepository 自动查找/创建关联 Scene
-- **统一实时状态中心** — 后端 `state_sync` 模块定义 18 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
+- **统一实时状态中心** — 后端 `state_sync` 模块定义 16 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
 - **前端 useSyncStore Hook** — 监听 `sync-event` 频道，根据事件类型自动 `invalidateQueries` / `removeQueries`
 - **Bootstrap 完成后幕前自动加载** — `smartExecute` 返回后检测 `story_created:` 消息，自动加载新故事并切换到第一章；Bootstrap 完成后双重 `ChapterSwitch` 保险
 - **幕前→幕后快速跳转** — `Ctrl+Shift+B` 快捷键，标题栏点击，幕后自动定位当前故事并高亮

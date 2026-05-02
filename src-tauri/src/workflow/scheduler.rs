@@ -1,22 +1,62 @@
-use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus};
-use std::collections::HashMap;
+use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus, WorkflowEngine};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
-/// Workflow scheduler - manages task execution
-pub struct WorkflowScheduler;
+/// Workflow scheduler - manages task execution with an in-memory queue
+pub struct WorkflowScheduler {
+    queue: Arc<Mutex<VecDeque<String>>>,
+}
 
 impl WorkflowScheduler {
     pub fn new() -> Self {
-        Self
+        Self {
+            queue: Arc::new(Mutex::new(VecDeque::new())),
+        }
     }
 
+    /// Queue a workflow instance for execution
     pub async fn schedule_execution(
         &self,
         instance_id: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("[WorkflowScheduler] Queuing workflow instance {} for execution", instance_id);
-        // In production, this would enqueue the instance to a task queue
-        // and let a worker pool pick it up. For now, we just log the request.
+        let mut queue = self.queue.lock().unwrap();
+        queue.push_back(instance_id);
         Ok(())
+    }
+
+    /// Get the number of queued instances
+    pub fn queue_len(&self) -> usize {
+        self.queue.lock().unwrap().len()
+    }
+
+    /// Process the next instance in the queue (serial execution)
+    /// 
+    /// This is a simple executor that runs one node at a time.
+    /// In production, this could be replaced with a worker pool.
+    pub fn execute_next(
+        &self,
+        engine: &WorkflowEngine,
+    ) -> Option<Result<String, String>> {
+        let instance_id = {
+            let mut queue = self.queue.lock().unwrap();
+            queue.pop_front()?
+        };
+
+        match self.run_instance(engine, &instance_id) {
+            Ok(_) => Some(Ok(instance_id)),
+            Err(e) => Some(Err(format!("Instance {} failed: {}", instance_id, e))),
+        }
+    }
+
+    /// Run a single workflow instance to completion (serial node execution)
+    fn run_instance(
+        &self,
+        _engine: &WorkflowEngine,
+        instance_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("[WorkflowScheduler] Instance {} queued but real node execution not yet implemented", instance_id);
+        Err("Workflow node execution is not yet implemented. Use CreationWorkflowEngine for full workflow execution.".into())
     }
 
     /// Get next executable nodes based on current state

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 pub mod engine;
 pub mod evolver;
+pub mod methodologies;
 pub use engine::{TemplateEngine, PromptLibrary};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1093,6 +1093,66 @@ impl KnowledgeGraphRepository {
         })
     }
 
+    /// 批量保存 Ingest 生成的实体（已包含完整字段，直接 INSERT）
+    pub fn save_entities_batch(&self, entities: &[Entity]) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        for entity in entities {
+            let embedding_blob = entity.embedding.as_ref().map(|vec| {
+                vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+            });
+            tx.execute(
+                "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, confidence_score, access_count, last_accessed, is_archived, archived_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name=excluded.name,
+                     attributes=excluded.attributes,
+                     embedding=excluded.embedding,
+                     last_updated=excluded.last_updated,
+                     confidence_score=excluded.confidence_score",
+                params![
+                    &entity.id, &entity.story_id, &entity.name,
+                    entity.entity_type.to_string(), entity.attributes.to_string(),
+                    embedding_blob, entity.first_seen.to_rfc3339(), entity.last_updated.to_rfc3339(),
+                    entity.confidence_score, entity.access_count,
+                    entity.last_accessed.map(|d| d.to_rfc3339()),
+                    entity.is_archived as i32,
+                    entity.archived_at.map(|d| d.to_rfc3339())
+                ],
+            )?;
+            count += 1;
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// 批量保存 Ingest 生成的关系（已包含完整字段，直接 INSERT）
+    pub fn save_relations_batch(&self, relations: &[Relation]) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        for relation in relations {
+            let evidence_json = serde_json::to_string(&relation.evidence).unwrap_or_else(|_| "[]".to_string());
+            tx.execute(
+                "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                     strength=excluded.strength,
+                     evidence=excluded.evidence,
+                     confidence_score=excluded.confidence_score",
+                params![
+                    &relation.id, &relation.story_id, &relation.source_id, &relation.target_id,
+                    relation.relation_type.to_string(), relation.strength, evidence_json,
+                    relation.first_seen.to_rfc3339(), relation.confidence_score
+                ],
+            )?;
+            count += 1;
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
     pub fn get_relations_by_entity(&self, entity_id: &str) -> Result<Vec<Relation>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(

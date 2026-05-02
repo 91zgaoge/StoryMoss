@@ -85,18 +85,17 @@ impl StateSync {
         });
     }
 
-    pub fn emit_character_updated(app: &AppHandle, character_id: &str, name: Option<&str>) {
-        // character_id 需要查 story_id，这里简化处理：通过通用频道通知刷新所有角色
+    pub fn emit_character_updated(app: &AppHandle, character_id: &str, name: Option<&str>, story_id: &str) {
         Self::emit_event(app, SyncEvent::CharacterUpdated {
-            story_id: String::new(), // 前端会根据 query invalidation 自动刷新
+            story_id: story_id.to_string(),
             character_id: character_id.to_string(),
             name: name.map(|s| s.to_string()),
         });
     }
 
-    pub fn emit_character_deleted(app: &AppHandle, character_id: &str) {
+    pub fn emit_character_deleted(app: &AppHandle, character_id: &str, story_id: &str) {
         Self::emit_event(app, SyncEvent::CharacterDeleted {
-            story_id: String::new(),
+            story_id: story_id.to_string(),
             character_id: character_id.to_string(),
         });
     }
@@ -144,17 +143,17 @@ impl StateSync {
         });
     }
 
-    pub fn emit_chapter_updated(app: &AppHandle, chapter_id: &str, title: Option<&str>) {
+    pub fn emit_chapter_updated(app: &AppHandle, chapter_id: &str, title: Option<&str>, story_id: &str) {
         Self::emit_event(app, SyncEvent::ChapterUpdated {
-            story_id: String::new(),
+            story_id: story_id.to_string(),
             chapter_id: chapter_id.to_string(),
             title: title.map(|s| s.to_string()),
         });
     }
 
-    pub fn emit_chapter_deleted(app: &AppHandle, chapter_id: &str) {
+    pub fn emit_chapter_deleted(app: &AppHandle, chapter_id: &str, story_id: &str) {
         Self::emit_event(app, SyncEvent::ChapterDeleted {
-            story_id: String::new(),
+            story_id: story_id.to_string(),
             chapter_id: chapter_id.to_string(),
         });
     }

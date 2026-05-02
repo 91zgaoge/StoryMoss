@@ -5,15 +5,16 @@
  */
 
 import { useState } from 'react';
-import { Minimize2, Maximize2, X, Sparkles, Settings, Eye } from 'lucide-react';
+import { Minimize2, Maximize2, X, Eye } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface FrontstageToolbarProps {
   chapterTitle?: string;
+  storyId?: string;
   onRequestGeneration: (context: string) => void;
 }
 
-export function FrontstageToolbar({ chapterTitle, onRequestGeneration }: FrontstageToolbarProps) {
+export function FrontstageToolbar({ chapterTitle, storyId, onRequestGeneration }: FrontstageToolbarProps) {
   const [isCompact, setIsCompact] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -27,7 +28,7 @@ export function FrontstageToolbar({ chapterTitle, onRequestGeneration }: Frontst
 
   const handleToggleBackstage = async () => {
     try {
-      await invoke('show_backstage');
+      await invoke('show_backstage', { story_id: storyId || null });
     } catch (error) {
       console.error('Failed to show backstage:', error);
     }
@@ -46,17 +47,6 @@ export function FrontstageToolbar({ chapterTitle, onRequestGeneration }: Frontst
             <span className="chapter-title">{chapterTitle || '未命名章节'}</span>
           </div>
         )}
-      </div>
-
-      <div className="toolbar-center">
-        <button
-          className="toolbar-btn ai-generate-btn"
-          onClick={() => onRequestGeneration('')}
-          title="AI 续写 (Ctrl+Space)"
-        >
-          <Sparkles className="btn-icon" />
-          {!isCompact && <span>AI 续写</span>}
-        </button>
       </div>
 
       <div className="toolbar-right">

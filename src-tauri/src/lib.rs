@@ -51,6 +51,9 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::collections::HashMap;
+use std::time::{Instant, Duration};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use collab::websocket::WebSocketServer;
 
@@ -58,6 +61,11 @@ use collab::websocket::WebSocketServer;
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
+
+/// 自动 Ingest 冷却状态：chapter_id -> (content_hash, last_ingest_time)
+/// 防止频繁保存导致重复 LLM 调用
+static INGEST_COOLDOWN: Lazy<Mutex<HashMap<String, (u64, Instant)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+const INGEST_COOLDOWN_SECONDS: u64 = 300; // 5 分钟冷却期
 
 fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
@@ -644,15 +652,21 @@ fn create_character(story_id: String, name: String, background: Option<String>, 
 
 #[tauri::command]
 fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, app: AppHandle) -> Result<(), String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, name.clone(), background, personality, goals, None, None, None).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref());
+    let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
+    // 先查询 story_id，确保同步事件携带正确的 story_id
+    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    repo.update(&id, name.clone(), background, personality, goals, None, None, None).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
     Ok(())
 }
 
 #[tauri::command]
 fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id);
+    let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
+    // 先查询 story_id，删除后无法再获取
+    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    repo.delete(&id).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
     Ok(())
 }
 
@@ -668,19 +682,107 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 
 #[tauri::command]
 fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle) -> Result<(), String> {
-    let result = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, title.clone(), outline, content, word_count).map_err(|e| e.to_string());
+    let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+    // 先查询 story_id，确保同步事件携带正确的 story_id
+    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| e.to_string());
     if result.is_ok() {
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
-        let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref());
+        let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref(), &story_id);
+        // v5.1.1: 保存后自动触发 IngestPipeline，更新知识图谱
+        if let Some(pool) = get_pool() {
+            let chapter_id = id.clone();
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                auto_ingest_chapter(pool, app_handle, chapter_id).await;
+            });
+        }
     }
     result.map(|_| ())
 }
 
 #[tauri::command]
 fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
-    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id);
+    let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+    // 先查询 story_id，删除后无法再获取
+    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    repo.delete(&id).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
     Ok(())
+}
+
+/// 计算字符串的简单哈希（用于内容去重）
+fn hash_content(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// 章节保存后自动触发 IngestPipeline，将内容分析并更新知识图谱
+/// 内置 5 分钟冷却期 + 内容哈希去重，防止频繁保存导致重复 LLM 调用
+async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
+    let repo = db::ChapterRepository::new(pool.clone());
+    let chapter = match repo.get_by_id(&chapter_id).ok().flatten() {
+        Some(c) => c,
+        None => {
+            log::warn!("[auto_ingest] Chapter {} not found, skipping ingest", chapter_id);
+            return;
+        }
+    };
+    let story_id = chapter.story_id.clone();
+    let content_text = chapter.content.clone().unwrap_or_default();
+    if content_text.len() < 20 {
+        log::info!("[auto_ingest] Chapter {} content too short ({} chars), skipping ingest", chapter_id, content_text.len());
+        return;
+    }
+
+    // 冷却期检查：内容未变化或 5 分钟内已 Ingest，则跳过
+    {
+        let mut cooldown = INGEST_COOLDOWN.lock().unwrap();
+        let content_hash = hash_content(&content_text);
+        let now = Instant::now();
+        let should_skip = cooldown.get(&chapter_id).map(|(last_hash, last_time)| {
+            let same_content = *last_hash == content_hash;
+            let within_cooldown = now.duration_since(*last_time) < Duration::from_secs(INGEST_COOLDOWN_SECONDS);
+            same_content || within_cooldown
+        }).unwrap_or(false);
+
+        if should_skip {
+            log::info!("[auto_ingest] Chapter {} skipped (cooldown or unchanged content)", chapter_id);
+            return;
+        }
+
+        // 记录本次 Ingest 的 hash 和时间
+        cooldown.insert(chapter_id.clone(), (content_hash, now));
+    }
+
+    let llm_service = crate::llm::LlmService::new(app);
+    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
+    let ingest_content = crate::memory::ingest::IngestContent {
+        text: content_text,
+        source: format!("chapter:{}:{}", story_id, chapter_id),
+        story_id: story_id.clone(),
+        scene_id: chapter.scene_id.clone(),
+    };
+
+    match pipeline.ingest(&ingest_content).await {
+        Ok(result) => {
+            let kg_repo = db::repositories_v3::KnowledgeGraphRepository::new(pool.clone());
+            let entity_count = result.entities.len();
+            let relation_count = result.relations.len();
+            match kg_repo.save_entities_batch(&result.entities) {
+                Ok(saved) => log::info!("[auto_ingest] Saved {}/{} entities for chapter {}", saved, entity_count, chapter_id),
+                Err(e) => log::warn!("[auto_ingest] Failed to save entities: {}", e),
+            }
+            match kg_repo.save_relations_batch(&result.relations) {
+                Ok(saved) => log::info!("[auto_ingest] Saved {}/{} relations for chapter {}", saved, relation_count, chapter_id),
+                Err(e) => log::warn!("[auto_ingest] Failed to save relations: {}", e),
+            }
+        }
+        Err(e) => {
+            log::warn!("[auto_ingest] IngestPipeline failed for chapter {}: {}", chapter_id, e);
+        }
+    }
 }
 
 #[tauri::command]
@@ -718,6 +820,14 @@ fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, 
     // 同时发射 Scene 更新事件（chapter 创建会自动创建/关联 scene）
     if let Some(ref scene_id) = chapter.scene_id {
         let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, scene_id, title.as_deref());
+    }
+    // v5.1.1: 新建章节后自动触发 IngestPipeline（无论 AfterChapterSave hook 是否执行）
+    if let Some(pool) = get_pool() {
+        let chapter_id = chapter.id.clone();
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            auto_ingest_chapter(pool, app_handle, chapter_id).await;
+        });
     }
     Ok(chapter)
 }
