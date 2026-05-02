@@ -386,8 +386,16 @@ const FrontstageApp: React.FC = () => {
           message: p.message,
         });
         setGenerationStatus(p.message);
-        // 完成后清除进度显示
-        if (p.step_number >= p.total_steps) {
+        // v5.2.2: 区分即时阶段完成和后台阶段完成
+        if (p.step_name === '撰写开篇' && p.step_number >= p.total_steps) {
+          // 即时阶段完成：正文已生成，用户可开始写作
+          setTimeout(() => {
+            setBootstrapProgress(null);
+            setGenerationStatus('后台正在完善小说世界...');
+          }, 2000);
+        } else if (p.step_name === '后台完善' && p.step_number >= p.total_steps) {
+          // 后台阶段全部完成
+          toast.success('创世完成！世界观、角色、场景、伏笔已全部生成');
           setTimeout(() => {
             setBootstrapProgress(null);
             setGenerationStatus('');
@@ -876,7 +884,13 @@ const FrontstageApp: React.FC = () => {
       const hasContent = result.final_content && result.final_content.trim().length > 0;
       if (hasContent) {
         setGeneratedText(result.final_content!);
-        toast.success('创作完成！');
+        // v5.2.2: 区分Bootstrap即时完成和后台完善
+        const isBootstrapCompleted = result.messages.some(m => m.includes('novel_bootstrap'));
+        if (isBootstrapCompleted) {
+          toast.success('小说已创建！第一章已生成，您可以开始写作了');
+        } else {
+          toast.success('创作完成！');
+        }
       } else if (!result.success) {
         // 后端返回了失败
         toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');

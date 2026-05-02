@@ -65,11 +65,30 @@ impl NovelBootstrapWorkflow {
         Self { app_handle, llm_service, pool }
     }
 
-    /// 运行小说初始化工作流 — Genesis Engine v5.0.0
-    /// 4步用户可见流程：概念 → 开篇 → 构建世界 → 塑造世界
+    /// v5.2.2 重构：两阶段Bootstrap — 先快速返回正文，后台异步完善世界观/角色/场景
+    /// 
+    /// 即时阶段（2-3分钟）：生成概念 + 第一章正文 → 立即返回，用户可以开始写作
+    /// 后台阶段（5-8分钟，异步）：世界观 → 大纲 → 角色 → 场景 → 伏笔 → 知识图谱
     pub async fn run(&self, user_premise: &str) -> Result<BootstrapSession, String> {
+        // 阶段1：即时返回
+        let (session, story_concept, story_id) = self.run_quick_phase(user_premise).await?;
+
+        // 阶段2：后台异步完成剩余工作
+        let app_handle = self.app_handle.clone();
+        let session_id = session.id.clone();
+        let story_concept_clone = story_concept.clone();
+        tauri::async_runtime::spawn(async move {
+            Self::run_background_phase(app_handle, session_id, story_id, story_concept_clone).await;
+        });
+
+        Ok(session)
+    }
+
+    /// 即时阶段：生成故事概念 + 第一章正文，立即返回给用户
+    /// 用户只需等待2-3分钟即可看到正文并开始写作
+    pub async fn run_quick_phase(&self, user_premise: &str) -> Result<(BootstrapSession, StoryConcept, String), String> {
         let session_id = Uuid::new_v4().to_string();
-        let total_steps = 4;
+        let total_steps = 2; // 用户可见只有2步：概念 + 正文
 
         // 创建持久化会话记录
         self.create_session(&session_id, total_steps).map_err(|e| format!("Failed to create session: {}", e))?;
@@ -121,7 +140,7 @@ impl NovelBootstrapWorkflow {
             }
         };
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在保存第一章...");
-        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成！您现在可以开始写作了");
         self.update_session(&session_id, "first_chapter", 2, Some(&story_id)).ok();
 
         // 发送 ChapterSwitch 事件让前端自动切换到新故事（用户可以立刻开始写作）
@@ -139,130 +158,158 @@ impl NovelBootstrapWorkflow {
             crate::window::FrontstageEvent::DataRefresh { entity: "stories".to_string() }
         );
 
-        // Step 3: 构建世界观 + 故事大纲
-        self.update_session(&session_id, "world_building", 2, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成世界观设定（可能需要1-2分钟）...");
-        let world = match self.generate_world_building(&story_id, &session_id, &story_concept).await {
+        let session = BootstrapSession {
+            id: session_id,
+            status: BootstrapStatus::Completed,
+            current_step: "first_chapter_ready".to_string(),
+            steps_completed: 2,
+            total_steps: 2,
+            story_id: Some(story_id.clone()),
+            error_message: None,
+            first_chapter_content: Some(first_chapter_content),
+        };
+
+        Ok((session, story_concept, story_id))
+    }
+
+    /// 后台阶段：异步完成世界观/大纲/角色/场景/伏笔/知识图谱
+    /// 此方法应在 tokio::spawn 中调用，不阻塞前端响应
+    pub async fn run_background_phase(
+        app_handle: AppHandle,
+        session_id: String,
+        story_id: String,
+        story_concept: StoryConcept,
+    ) {
+        let workflow = NovelBootstrapWorkflow::new(app_handle.clone());
+        let total_steps = 6; // 后台6步
+
+        log::info!(
+            "[NovelBootstrapWorkflow] 后台阶段开始 story_id={} session_id={}",
+            story_id, session_id
+        );
+
+        // 通知前端：后台完善已开始
+        workflow.emit_progress(&session_id, "后台完善", 0, total_steps, "后台正在完善小说世界，您可以先开始写作...");
+
+        // Step 3: 生成世界观
+        workflow.emit_progress(&session_id, "后台完善", 1, total_steps, "正在生成世界观设定...");
+        let world = match workflow.generate_world_building(&story_id, &session_id, &story_concept).await {
             Ok(w) => w,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 世界观生成失败 for story {}: {}", story_id, e);
-                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                     "step": "world_building", "story_id": story_id, "error": e
                 }));
                 WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] }
             }
         };
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "世界观设定已生成");
+        workflow.emit_progress(&session_id, "后台完善", 1, total_steps, "世界观设定已生成");
 
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成故事大纲（三幕结构）...");
-        let outline = match self.generate_story_outline(&story_id, &session_id, &story_concept).await {
+        // Step 4: 生成故事大纲
+        workflow.emit_progress(&session_id, "后台完善", 2, total_steps, "正在生成故事大纲（三幕结构）...");
+        let outline = match workflow.generate_story_outline(&story_id, &session_id, &story_concept).await {
             Ok(o) => o,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 故事大纲生成失败 for story {}: {}", story_id, e);
-                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                     "step": "story_outline", "story_id": story_id, "error": e
                 }));
                 StoryOutlineData { acts: vec![] }
             }
         };
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "故事大纲已生成");
-        self.update_session(&session_id, "outline", 3, Some(&story_id)).ok();
+        workflow.emit_progress(&session_id, "后台完善", 2, total_steps, "故事大纲已生成");
 
-        // Step 4: 生成角色、场景、伏笔、知识图谱
-        self.update_session(&session_id, "characters", 3, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成角色（3-5个主要角色）...");
-        let characters = match self.generate_characters(&story_id, &session_id, &story_concept, &world).await {
+        // Step 5: 生成角色
+        workflow.emit_progress(&session_id, "后台完善", 3, total_steps, "正在生成角色（3-5个主要角色）...");
+        let characters = match workflow.generate_characters(&story_id, &session_id, &story_concept, &world).await {
             Ok(c) => c,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 角色生成失败 for story {}: {}", story_id, e);
-                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                     "step": "characters", "story_id": story_id, "error": e
                 }));
                 vec![]
             }
         };
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已生成 {} 个角色", characters.len()));
+        workflow.emit_progress(&session_id, "后台完善", 3, total_steps, &format!("已生成 {} 个角色", characters.len()));
 
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成场景大纲（8-12个核心场景）...");
-        let scenes = match self.generate_scene_outline(&story_id, &session_id, &story_concept, &characters).await {
+        // Step 6: 生成场景
+        workflow.emit_progress(&session_id, "后台完善", 4, total_steps, "正在生成场景大纲（8-12个核心场景）...");
+        let scenes = match workflow.generate_scene_outline(&story_id, &session_id, &story_concept, &characters).await {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 场景大纲生成失败 for story {}: {}", story_id, e);
-                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                     "step": "scenes", "story_id": story_id, "error": e
                 }));
                 vec![]
             }
         };
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已生成 {} 个场景", scenes.len()));
+        workflow.emit_progress(&session_id, "后台完善", 4, total_steps, &format!("已生成 {} 个场景", scenes.len()));
 
         // 获取第一个场景ID用于伏笔关联
         let first_scene_id = scenes.first().map(|s| s.id.as_str());
 
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在埋设伏笔（3-5处核心伏笔）...");
-        let foreshadowings = match self.generate_foreshadowing(&story_id, &session_id, &story_concept, &outline, first_scene_id).await {
+        // Step 7: 埋设伏笔
+        workflow.emit_progress(&session_id, "后台完善", 5, total_steps, "正在埋设伏笔（3-5处核心伏笔）...");
+        let foreshadowings = match workflow.generate_foreshadowing(&story_id, &session_id, &story_concept, &outline, first_scene_id).await {
             Ok(f) => f,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 伏笔生成失败 for story {}: {}", story_id, e);
-                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                     "step": "foreshadowing", "story_id": story_id, "error": e
                 }));
                 vec![]
             }
         };
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已埋设 {} 处伏笔", foreshadowings.len()));
+        workflow.emit_progress(&session_id, "后台完善", 5, total_steps, &format!("已埋设 {} 处伏笔", foreshadowings.len()));
 
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在构建知识图谱...");
-        if let Err(e) = self.create_genesis_knowledge_graph(&story_id, &characters, &scenes, &foreshadowings).await {
+        // Step 8: 构建知识图谱
+        workflow.emit_progress(&session_id, "后台完善", 6, total_steps, "正在构建知识图谱...");
+        if let Err(e) = workflow.create_genesis_knowledge_graph(&story_id, &characters, &scenes, &foreshadowings).await {
             log::warn!("[NovelBootstrapWorkflow] 知识图谱构建失败 for story {}: {}", story_id, e);
-            let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+            let _ = app_handle.emit("novel-bootstrap-error", serde_json::json!({
                 "step": "knowledge_graph", "story_id": story_id, "error": e
             }));
         } else {
-            self.emit_progress(&session_id, "塑造世界", 4, total_steps, "知识图谱已构建");
+            workflow.emit_progress(&session_id, "后台完善", 6, total_steps, "知识图谱已构建");
         }
 
-        self.complete_session(&session_id, &story_id).ok();
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "创世完成！所有卡片已生成");
+        workflow.complete_session(&session_id, &story_id).ok();
+        workflow.emit_progress(&session_id, "后台完善", 6, total_steps, "创世完成！所有卡片已生成");
+
+        log::info!(
+            "[NovelBootstrapWorkflow] 后台阶段完成 story_id={} session_id={}",
+            story_id, session_id
+        );
 
         // 通知前端刷新所有数据（让幕后世界观/角色/场景/大纲/伏笔卡片自动出现）
         let _ = crate::window::WindowManager::send_to_frontstage(
-            &self.app_handle,
+            &app_handle,
             crate::window::FrontstageEvent::DataRefresh { entity: "all".to_string() }
         );
         let _ = crate::window::WindowManager::send_to_backstage(
-            &self.app_handle,
+            &app_handle,
             crate::window::BackstageEvent::DataRefresh { entity: "world_building".to_string() }
         );
-        // v5.0.0: 自动导航到幕后 Stories 页面并高亮新故事
+        // 自动导航到幕后 Stories 页面并高亮新故事
         let _ = crate::window::WindowManager::send_to_backstage(
-            &self.app_handle,
+            &app_handle,
             crate::window::BackstageEvent::NavigateTo {
                 view: "stories".to_string(),
                 highlight_story_id: Some(story_id.clone()),
                 open_panel: Some("overview".to_string()),
             }
         );
-        // v5.1.0: Bootstrap 全部完成后再次发送 ChapterSwitch 到幕前，确保自动加载
+        // Bootstrap 全部完成后再次发送 ChapterSwitch 到幕前，确保自动加载
         let _ = crate::window::WindowManager::send_to_frontstage(
-            &self.app_handle,
+            &app_handle,
             crate::window::FrontstageEvent::ChapterSwitch {
                 story_id: story_id.clone(),
-                chapter_id: chapter_id.clone(),
+                chapter_id: String::new(), // 后台阶段不知道chapter_id，由前端自己处理
                 title: "第一章".to_string(),
             }
         );
-
-        Ok(BootstrapSession {
-            id: session_id,
-            status: BootstrapStatus::Completed,
-            current_step: "completed".to_string(),
-            steps_completed: total_steps,
-            total_steps,
-            story_id: Some(story_id),
-            error_message: None,
-            first_chapter_content: Some(first_chapter_content),
-        })
     }
 
     // ==================== Step 1: 故事概念 ====================
@@ -1020,7 +1067,7 @@ impl NovelBootstrapWorkflow {
 // ==================== 数据结构 ====================
 
 #[derive(Debug, Clone, Deserialize)]
-struct StoryConcept {
+pub struct StoryConcept {
     title: String,
     description: String,
     genre: String,

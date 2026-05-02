@@ -41,6 +41,29 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v5.2.2] - Bootstrap两阶段架构重构：先出正文，后台完善（2026-05-02）
+
+### 🏗️ 架构级重构
+
+#### Bootstrap 两阶段执行模型（核心体验优化）
+- **即时阶段**（同步，2-3分钟）：生成故事概念 + 第一章正文 → 立即返回给前端，用户可以开始写作
+- **后台阶段**（异步，`tokio::spawn`，5-8分钟）：世界观 → 大纲 → 角色 → 场景 → 伏笔 → 知识图谱
+- **用户等待时间**：从 10+ 分钟缩短到 **2-3 分钟**
+- **实现**：`bootstrap.rs` `run()` 拆分为 `run_quick_phase()` + `run_background_phase()`；`lib.rs` 调用 `run()` 后，后台任务在 spawn 中继续执行
+
+#### 前端体验优化
+- Bootstrap 即时完成后显示："小说已创建！第一章已生成，您可以开始写作了"
+- 后台阶段进行中状态栏显示："后台正在完善小说世界..."
+- 后台全部完成后 toast："创世完成！世界观、角色、场景、伏笔已全部生成"
+- `novel-bootstrap-progress` 事件处理区分"即时完成"和"后台完成"
+
+### 编译与测试
+- `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+
+---
+
 ## [v5.2.1] - 超时修复与白屏修复（2026-05-02）
 
 ### 🐛 Bug 修复
