@@ -243,6 +243,99 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
+    // Migration 38: 统一叙事元素表 (v5.3.0 - 创世-拆书同构架构)
+    let narrative_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if narrative_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE narrative_characters (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role_type TEXT,
+                personality TEXT,
+                background TEXT,
+                goals TEXT,
+                appearance TEXT,
+                gender TEXT,
+                age INTEGER,
+                importance_score REAL,
+                source TEXT NOT NULL DEFAULT 'user_created',
+                source_ref_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_narrative_chars_story ON narrative_characters(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_narrative_chars_source ON narrative_characters(source)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE narrative_scenes (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                sequence_number INTEGER NOT NULL,
+                title TEXT,
+                summary TEXT,
+                dramatic_goal TEXT,
+                external_pressure TEXT,
+                conflict_type TEXT,
+                characters_present TEXT,
+                setting_location TEXT,
+                setting_time TEXT,
+                content TEXT,
+                source TEXT NOT NULL DEFAULT 'user_created',
+                source_ref_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_story ON narrative_scenes(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_source ON narrative_scenes(source)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE narrative_world_buildings (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL UNIQUE,
+                concept TEXT NOT NULL,
+                rules TEXT,
+                history TEXT,
+                key_locations TEXT,
+                power_system TEXT,
+                source TEXT NOT NULL DEFAULT 'user_created',
+                source_ref_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_narrative_wb_story ON narrative_world_buildings(story_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

@@ -2,6 +2,54 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.3.0] - 叙事元素模型重构：创世-拆书同构架构（2026-05-02）
+
+### 🏗️ 架构级重构：统一叙事元素模型
+
+核心理念：无论正向生成（Bootstrap/创世）还是逆向分析（拆书），操作的叙事元素是同一套抽象。
+
+#### Phase 1: 统一数据模型
+- **新建 `src-tauri/src/narrative/` 模块**（8个文件）：
+  - `elements.rs` — `CharacterElement/SceneElement/WorldBuildingElement/OutlineElement/ForeshadowingElement/StoryMetaElement` + `ElementSource` 枚举
+  - `pipeline.rs` — `NarrativePipelineExecutor` + `PipelineStep` trait
+  - `progress.rs` — 统一 `PipelineProgressEvent` 替代两套进度系统
+  - `prompts.rs` — 共享 Prompt 模板（Generate/Extract 双模式）
+  - `genesis.rs` — **GenesisPipeline** 7步正向流程
+  - `analysis.rs` — **AnalysisPipeline** 7步逆向流程（含新增伏笔提取、知识图谱构建）
+- **Migration 38**: `narrative_characters/scenes/world_buildings/outlines/foreshadowings/character_relationships` 统一表
+
+#### Phase 2: Pipeline 框架切换
+- `smart_execute` 已切换到 `GenesisPipeline`
+- 拆书 `executor.rs` 已切换到 `AnalysisPipeline`
+- 向后兼容：同时发射 `pipeline-progress`（新）和旧事件
+
+#### Phase 3: 统一进度系统
+- 前端新建 `usePipelineProgress.ts` Hook
+- `AnalysisProgress.tsx` 和 `FrontstageApp.tsx` 已接入统一进度
+
+#### Phase 4: 统一存储层
+- `repositories_narrative.rs` — `NarrativeCharacterRepository`, `NarrativeSceneRepository`, `NarrativeWorldBuildingRepository`
+- 生产表和参考表数据最终都汇聚到统一表中
+
+#### Phase 5: 故事→分析功能
+- **`StoryHealthAnalyzer`** — 6 维度结构健康检查：
+  - 伏笔回收率、角色弧光完整度、冲突类型多样性
+  - 大纲覆盖率、世界观完整度、角色关系网络密度
+- **`analyze_story_structure`** IPC 命令 — 前端可调用分析已有故事
+- `HealthReport` / `HealthCheck` / `HealthStatus` — 完整报告结构
+
+#### 附带修复
+- `audit.rs` `ForeshadowingTracker` 导入路径修复（`get_by_story` → `get_all`）
+- `audit.rs` `ForeshadowingRecord` 字段访问修复（`is_paid_off` → `matches!(status, Payoff)`）
+
+### 编译与测试
+- `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+- `cargo tauri build`：Windows `.exe` / `.msi` / `-setup.exe` 生成成功
+
+---
+
 ## [v5.2.0] - 设计-实现对齐全面完成（2026-05-02）
 
 ### 🎯 P0 核心差距修复

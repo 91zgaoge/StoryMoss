@@ -16,6 +16,7 @@ import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
+import { usePipelineProgress } from '@/hooks/usePipelineProgress';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
 import ColorThemeDot from './components/ColorThemeDot';
@@ -195,6 +196,20 @@ const FrontstageApp: React.FC = () => {
     totalSteps: number;
     message: string;
   } | null>(null);
+
+  // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress）
+  const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });
+  useEffect(() => {
+    if (pipelineProgress) {
+      setBootstrapProgress({
+        stepName: pipelineProgress.stepName,
+        stepNumber: pipelineProgress.stepNumber,
+        totalSteps: pipelineProgress.totalSteps,
+        message: pipelineProgress.message,
+      });
+      setGenerationStatus(pipelineProgress.message);
+    }
+  }, [pipelineProgress]);
 
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
@@ -468,21 +483,28 @@ const FrontstageApp: React.FC = () => {
         message: string;
         elapsed_seconds: number;
         model: string;
+        pipeline_context?: {
+          step_name: string;
+          step_number: number;
+          total_steps: number;
+          action: string;
+        };
       }>('llm-generating-progress', (event) => {
         const p = event.payload;
         updateLastEventTime();
-        console.log('[llm-generating-progress]', p.stage, p.message);
-        if (p.stage === 'connecting') {
-          setGenerationStatus(p.message);
-        } else if (p.stage === 'sent') {
-          setGenerationStatus(p.message);
-        } else if (p.stage === 'generating') {
-          setGenerationStatus(p.message);
-        } else if (p.stage === 'completed') {
-          setGenerationStatus(p.message);
-        } else if (p.stage === 'error') {
-          setGenerationStatus(p.message);
+        console.log('[llm-generating-progress]', p.stage, p.message, p.pipeline_context);
+        
+        // v5.2.4: 如果携带Pipeline步骤上下文，同步更新bootstrapProgress
+        if (p.pipeline_context) {
+          setBootstrapProgress({
+            stepName: p.pipeline_context.step_name,
+            stepNumber: p.pipeline_context.step_number,
+            totalSteps: p.pipeline_context.total_steps,
+            message: p.message,
+          });
         }
+        
+        setGenerationStatus(p.message);
       });
 
       // v5.2.0: 监听上下文降级事件

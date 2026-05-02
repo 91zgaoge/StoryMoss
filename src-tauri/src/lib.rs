@@ -32,6 +32,7 @@ mod task_system;
 mod canonical_state;
 mod capabilities;
 mod planner;
+mod narrative;
 mod audit;
 mod auth;
 mod state_sync;
@@ -288,6 +289,7 @@ pub fn run() {
             record_feedback,
             // Smart orchestrator
             smart_execute,
+            analyze_story_structure,
             get_input_hint,
             // Agent commands
             agents::commands::agent_execute,
@@ -1205,26 +1207,81 @@ async fn smart_execute(
         && is_novel_creation_intent(&user_input);
 
     if is_bootstrap_intent {
-        log::info!("[smart_execute] Detected novel creation intent, starting NovelBootstrapWorkflow");
-        let bootstrap = planner::bootstrap::NovelBootstrapWorkflow::new(app_handle.clone());
-        match bootstrap.run(&user_input).await {
-            Ok(session) => {
-                if let Some(ref story_id) = session.story_id {
-                    let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, story_id, "新故事");
-                }
+        log::info!("[smart_execute] Detected novel creation intent, starting GenesisPipeline (v5.3.0 narrative model)");
+        
+        // v5.3.0: 使用新的 GenesisPipeline
+        let mut ctx = narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
+        let llm = llm::LlmService::new(app_handle.clone());
+        let quick_steps = narrative::genesis::GenesisPipeline::quick_phase_steps();
+        let executor = narrative::pipeline::NarrativePipelineExecutor::new(quick_steps);
+        
+        // 进度回调：同时发射新旧两种事件（向后兼容）
+        let app_handle_progress = app_handle.clone();
+        let progress_callback = std::sync::Arc::new(move |evt: narrative::progress::PipelineProgressEvent| {
+            // 发射新事件
+            let _ = app_handle_progress.emit("pipeline-progress", &evt);
+            // 发射旧事件（向后兼容，前端仍在监听 novel-bootstrap-progress）
+            let _ = app_handle_progress.emit("novel-bootstrap-progress", planner::bootstrap::BootstrapProgressEvent {
+                session_id: evt.pipeline_id.clone(),
+                step_name: evt.step_name.clone(),
+                step_number: evt.step_number,
+                total_steps: evt.total_steps,
+                message: evt.message.clone(),
+            });
+        });
+        
+        match executor.execute(&mut ctx, &llm, progress_callback.clone()).await {
+            Ok(()) => {
+                let story_id = ctx.story_id.clone();
+                let session_id = ctx.session_id.clone();
+                let first_chapter = ctx.first_chapter_content.clone();
+                let bundle = ctx.bundle.clone();
+                
+                // 发射 story_created 同步事件
+                let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, "新故事");
+                
+                // 启动后台阶段
+                let app_handle_bg = app_handle.clone();
+                let story_id_bg = story_id.clone();
+                let session_id_bg = session_id.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut bg_ctx = narrative::genesis::GenesisContext::for_background(
+                        app_handle_bg.clone(), story_id_bg, session_id_bg, user_input.clone(), bundle
+                    );
+                    let llm_bg = llm::LlmService::new(app_handle_bg.clone());
+                    let bg_steps = narrative::genesis::GenesisPipeline::background_phase_steps();
+                    let bg_executor = narrative::pipeline::NarrativePipelineExecutor::new(bg_steps);
+                    
+                    let progress_callback_bg = std::sync::Arc::new(move |evt: narrative::progress::PipelineProgressEvent| {
+                        let _ = app_handle_bg.emit("pipeline-progress", &evt);
+                        let _ = app_handle_bg.emit("novel-bootstrap-progress", planner::bootstrap::BootstrapProgressEvent {
+                            session_id: evt.pipeline_id.clone(),
+                            step_name: evt.step_name.clone(),
+                            step_number: evt.step_number,
+                            total_steps: evt.total_steps,
+                            message: evt.message.clone(),
+                        });
+                    });
+                    
+                    if let Err(e) = bg_executor.execute(&mut bg_ctx, &llm_bg, progress_callback_bg).await {
+                        log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
+                    } else {
+                        log::info!("[GenesisPipeline] 后台阶段完成");
+                    }
+                });
+                
                 return Ok(planner::PlanExecutionResult {
                     success: true,
-                    steps_completed: session.total_steps,
-                    // 直接返回生成的小说正文开头，前端以 ghost text 形式展示
-                    final_content: session.first_chapter_content,
+                    steps_completed: 2,
+                    final_content: first_chapter,
                     messages: vec![
-                        format!("story_created:{}", session.story_id.unwrap_or_default()),
+                        format!("story_created:{}", story_id),
                         "novel_bootstrap_completed".to_string(),
                     ],
                 });
             }
             Err(e) => {
-                log::error!("[smart_execute] NovelBootstrapWorkflow failed: {}", e);
+                log::error!("[smart_execute] GenesisPipeline failed: {}", e);
                 return Err(format!("小说初始化失败: {}", e));
             }
         }
@@ -1976,5 +2033,39 @@ fn get_workflow_instance_status(
 }
 
 // ===== 模型驱动的智能编排命令 =====
+
+/// 分析已有故事的结构健康度 (v5.3.0)
+/// 对现有故事进行逆向分析，检测伏笔回收率、角色弧光完整度、冲突多样性等
+#[tauri::command]
+async fn analyze_story_structure(
+    story_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<narrative::health::HealthReport, String> {
+    log::info!("[analyze_story_structure] 分析故事结构: story_id={}", story_id);
+    
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let analyzer = narrative::health::StoryHealthAnalyzer::new(pool, story_id.clone());
+    
+    // 发射开始事件
+    let _ = app_handle.emit("analysis-started", serde_json::json!({
+        "story_id": story_id,
+        "analysis_type": "story_structure"
+    }));
+    
+    let report = tokio::task::spawn_blocking(move || analyzer.analyze())
+        .await
+        .map_err(|e| format!("分析任务执行失败: {}", e))?
+        .map_err(|e| e.to_string())?;
+    
+    // 发射完成事件
+    let _ = app_handle.emit("analysis-completed", serde_json::json!({
+        "story_id": story_id,
+        "overall_score": report.overall_score,
+        "check_count": report.checks.len()
+    }));
+    
+    log::info!("[analyze_story_structure] 分析完成: overall_score={:.1}", report.overall_score);
+    Ok(report)
+}
 
 

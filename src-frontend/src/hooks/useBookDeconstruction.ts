@@ -63,6 +63,44 @@ export function useBookAnalysisStatus(bookId: string | null) {
     };
   }, [bookId]);
 
+  // v5.3.0: 监听统一 pipeline-progress 事件（分析类型）
+  useEffect(() => {
+    if (!bookId) return;
+
+    let unlisten: (() => void) | undefined;
+
+    const setup = async () => {
+      unlisten = await listen<{
+        pipeline_id: string;
+        pipeline_type: string;
+        step_name: string;
+        step_number: number;
+        total_steps: number;
+        status: string;
+        message: string;
+        progress_percent: number;
+      }>('pipeline-progress', (event) => {
+        const p = event.payload;
+        if (p.pipeline_type !== 'analysis') return;
+        // pipeline_id 对应 book_id
+        setLiveStatus((prev) => ({
+          book_id: bookId,
+          status: p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'analyzing',
+          progress: p.progress_percent,
+          current_step: p.message,
+          error: undefined,
+          active_threads: prev?.active_threads ?? 0,
+          max_threads: prev?.max_threads ?? 0,
+        }));
+      });
+    };
+
+    setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [bookId]);
+
   // 监听任务系统事件（task-progress, task-status-changed）
   useEffect(() => {
     if (!bookId) return;

@@ -492,7 +492,19 @@ npm test
 
 ---
 
-*最后更新: 2026-05-02 - v5.2.2 Bootstrap两阶段架构重构*
+*最后更新: 2026-05-02 - v5.3.0 叙事元素模型重构：创世-拆书同构架构*
+
+- **v5.3.0 叙事元素模型重构** (2026-05-02) — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构
+  - **统一数据模型**: 新建 `narrative/` 模块 — `CharacterElement/SceneElement` 等 + `ElementSource` 枚举区分 Generated/Extracted/UserCreated/Imported
+  - **GenesisPipeline**: 7步正向流程（概念→世界观→大纲→角色→场景→伏笔→知识图谱）
+  - **AnalysisPipeline**: 7步逆向流程（元数据→世界观→角色→场景→故事线→伏笔→知识图谱）
+  - **统一进度系统**: `PipelineProgressEvent` 取代两套独立进度，前端 `usePipelineProgress` Hook 统一消费
+  - **统一存储层**: Migration 38 创建 `narrative_*` 表，`NarrativeRepository` 统一读写
+  - **StoryHealthAnalyzer**: 6维度结构健康检查（伏笔回收率/角色弧光/冲突多样性/大纲覆盖/世界观/关系密度）
+  - **向后兼容**: 同时发射新旧两种事件，保留旧数据表
+  - 编译: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过，`cargo tauri build` Windows 安装包生成
+
+- **v5.2.2 Bootstrap两阶段架构重构** (2026-05-02) — 先出正文，后台完善
 
 - **Bug Fix v4** (commit `70a8851`): 根因定位 — `TanStack Query` `['stories']` 缓存未被 invalidates
   - `index.html` 添加加载指示器，防止 React 挂载前被误认为白屏

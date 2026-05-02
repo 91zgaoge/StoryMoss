@@ -13,7 +13,7 @@ use crate::db::repositories_v3::{WorldBuildingRepository, SceneRepository, Story
 use crate::db::repositories_v3::SceneUpdate;
 use crate::db::models_v3::{WorldRule, RuleType, ConflictType};
 use crate::creative_engine::foreshadowing::ForeshadowingTracker;
-use crate::llm::LlmService;
+use crate::llm::{LlmService, service::PipelineContext};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
@@ -352,7 +352,13 @@ impl NovelBootstrapWorkflow {
         );
 
         // 故事概念JSON比较短，512 tokens足够，减少等待时间
-        let response = self.llm_service.generate(prompt, Some(512), Some(0.7)).await?;
+        let ctx = PipelineContext {
+            step_name: "构思故事".to_string(),
+            step_number: 1,
+            total_steps: 2,
+            action: "生成故事概念".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(512), Some(0.7), Some("生成故事概念"), Some(ctx)).await?;
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let concept: StoryConcept = serde_json::from_str(json_str)
@@ -392,7 +398,13 @@ impl NovelBootstrapWorkflow {
         );
 
         self.emit_progress(session_id, "构建世界", 3, 4, "正在调用AI生成世界观设定...");
-        let response = self.llm_service.generate(prompt, Some(2048), Some(0.6)).await?;
+        let ctx = PipelineContext {
+            step_name: "构建世界".to_string(),
+            step_number: 1,
+            total_steps: 6,
+            action: "生成世界观设定".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(2048), Some(0.6), Some("生成世界观设定"), Some(ctx)).await?;
         self.emit_progress(session_id, "构建世界", 3, 4, "AI世界观设定已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
@@ -467,7 +479,13 @@ impl NovelBootstrapWorkflow {
         );
 
         self.emit_progress(session_id, "构建世界", 3, 4, "正在调用AI设计故事大纲...");
-        let response = self.llm_service.generate(prompt, Some(2048), Some(0.6)).await?;
+        let ctx = PipelineContext {
+            step_name: "故事大纲".to_string(),
+            step_number: 2,
+            total_steps: 6,
+            action: "生成故事大纲".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(2048), Some(0.6), Some("生成故事大纲"), Some(ctx)).await?;
         self.emit_progress(session_id, "构建世界", 3, 4, "故事大纲已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
@@ -546,7 +564,13 @@ impl NovelBootstrapWorkflow {
         );
 
         self.emit_progress(session_id, "塑造世界", 4, 4, "正在调用AI设计角色...");
-        let response = self.llm_service.generate(prompt, Some(3000), Some(0.7)).await?;
+        let ctx = PipelineContext {
+            step_name: "塑造角色".to_string(),
+            step_number: 3,
+            total_steps: 6,
+            action: "生成角色".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(3000), Some(0.7), Some("生成角色"), Some(ctx)).await?;
         self.emit_progress(session_id, "塑造世界", 4, 4, "角色设计已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
@@ -658,7 +682,13 @@ impl NovelBootstrapWorkflow {
         );
 
         self.emit_progress(session_id, "塑造世界", 4, 4, "正在调用AI设计场景...");
-        let response = self.llm_service.generate(prompt, Some(3000), Some(0.6)).await?;
+        let ctx = PipelineContext {
+            step_name: "场景规划".to_string(),
+            step_number: 4,
+            total_steps: 6,
+            action: "生成场景大纲".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(3000), Some(0.6), Some("生成场景大纲"), Some(ctx)).await?;
         self.emit_progress(session_id, "塑造世界", 4, 4, "场景设计已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
@@ -867,7 +897,13 @@ impl NovelBootstrapWorkflow {
             concept.title, concept.genre, concept.description, outline_summary
         );
 
-        let response = self.llm_service.generate(prompt, Some(1024), Some(0.7)).await?;
+        let ctx = PipelineContext {
+            step_name: "埋设伏笔".to_string(),
+            step_number: 5,
+            total_steps: 6,
+            action: "生成伏笔".to_string(),
+        };
+        let response = self.llm_service.generate_with_context_and_pipeline(prompt, Some(1024), Some(0.7), Some("生成伏笔"), Some(ctx)).await?;
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let fw_data: ForeshadowingData = serde_json::from_str(json_str)

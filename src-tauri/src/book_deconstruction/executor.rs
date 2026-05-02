@@ -2,7 +2,6 @@
 //!
 //! 将拆书分析实现为 TaskExecutor trait，接入任务系统。
 
-use super::analyzer::BookAnalyzer;
 use super::chunker::create_chunks;
 use super::models::*;
 use super::parser::parse_book;
@@ -11,7 +10,8 @@ use crate::db::DbPool;
 use crate::llm::LlmService;
 use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
 use crate::task_system::models::*;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+use std::sync::Arc;
 
 pub struct BookDeconstructionExecutor {
     pool: DbPool,
@@ -105,50 +105,72 @@ impl TaskExecutor for BookDeconstructionExecutor {
         ctx.heartbeat();
 
         // 读取并发数配置
-        let concurrency = {
+        let _concurrency = {
             let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
             crate::config::AppConfig::load(&app_dir)
                 .map(|c| c.book_deconstruction_concurrency)
                 .unwrap_or(3)
         };
 
-        // 执行分析
-        let analyzer = BookAnalyzer::new(
-            self.llm_service.clone(),
-            self.app_handle.clone(),
+        // v5.3.0: 使用新的 AnalysisPipeline 替代 BookAnalyzer
+        // 转换 TextChunk 类型
+        let narrative_chunks: Vec<crate::narrative::analysis::TextChunk> = chunks.iter().map(|c| {
+            crate::narrative::analysis::TextChunk {
+                index: c.index,
+                title: c.title.clone(),
+                content: c.content.clone(),
+                word_count: c.word_count,
+            }
+        }).collect();
+
+        let mut analysis_ctx = crate::narrative::analysis::AnalysisContext::new(
+            book_id.to_string(),
+            book_id.to_string(), // story_id 暂时用 book_id
+            narrative_chunks,
+            word_count,
             self.pool.clone(),
-            concurrency,
         );
 
-        // 心跳回调：每完成一个主要步骤调用一次
+        let llm = self.llm_service.clone();
+        let steps = crate::narrative::analysis::AnalysisPipeline::steps();
+        let pipeline_executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(steps);
+
+        // 进度回调：同时发射新旧两种事件（向后兼容）
+        let app_handle_progress = self.app_handle.clone();
+        let book_id_for_progress = book_id.to_string();
         let heartbeat_ctx = TaskExecutionContext::new(
             task.id.clone(),
             self.pool.clone(),
             self.app_handle.clone(),
         );
-        let heartbeat_callback: Box<dyn Fn() + Send + Sync> = Box::new(move || {
+        let progress_callback = Arc::new(move |evt: crate::narrative::progress::PipelineProgressEvent| {
+            // 发射新事件
+            let _ = app_handle_progress.emit("pipeline-progress", &evt);
+            // 发射旧事件（向后兼容）
+            let _ = app_handle_progress.emit("book-analysis-progress", BookAnalysisProgressEvent {
+                book_id: book_id_for_progress.clone(),
+                status: match evt.status {
+                    crate::narrative::progress::StepStatus::Running => "analyzing".to_string(),
+                    crate::narrative::progress::StepStatus::Completed => "completed".to_string(),
+                    crate::narrative::progress::StepStatus::Failed => "failed".to_string(),
+                    _ => "analyzing".to_string(),
+                },
+                progress: evt.progress_percent,
+                current_step: evt.step_name.clone(),
+                message: Some(evt.message.clone()),
+                active_threads: 0,
+                total_chunks: 0,
+                processed_chunks: 0,
+            });
+            // 心跳保活
             heartbeat_ctx.heartbeat();
         });
 
-        // 取消检查回调
-        let cancel_ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
-        let cancel_check: Box<dyn Fn() -> bool + Send + Sync> = Box::new(move || {
-            cancel_ctx.is_cancelled()
-        });
+        let pipeline_result = pipeline_executor.execute(&mut analysis_ctx, &llm, progress_callback).await;
 
-        let analysis_result = match analyzer.analyze(
-            book_id,
-            &chunks,
-            word_count,
-            Some(heartbeat_callback),
-            Some(cancel_check),
-        ).await {
-            Ok(r) => r,
-            Err(AnalysisError::Cancelled(msg)) => {
+        let analysis_result = match pipeline_result {
+            Ok(()) => convert_bundle_to_analysis_result(&analysis_ctx.bundle),
+            Err(crate::narrative::pipeline::PipelineError::Cancelled(msg)) => {
                 ctx.log("warn", &format!("分析被取消: {}", msg));
                 let repo = ReferenceBookRepository::new(self.pool.clone());
                 let _ = repo.update_status(book_id, AnalysisStatus::Cancelled, ctx.get_progress());
@@ -229,4 +251,97 @@ impl TaskExecutor for BookDeconstructionExecutor {
             error_message: None,
         })
     }
+}
+
+// ==================== v5.3.0: 结果转换器 ====================
+/// 将 NarrativeBundle 转换为 BookAnalysisResult（兼容旧接口）
+fn convert_bundle_to_analysis_result(bundle: &crate::narrative::elements::NarrativeBundle) -> BookAnalysisResult {
+    use chrono::Local;
+
+    let now = Local::now();
+
+    // 构建 ReferenceBook
+    let book = if let Some(ref meta) = bundle.story_meta {
+        let world_setting = bundle.world_building.as_ref()
+            .map(|w| serde_json::to_string(w).ok())
+            .flatten();
+        let story_arc = bundle.outline.as_ref()
+            .map(|o| serde_json::to_string(&o.acts).ok())
+            .flatten();
+        ReferenceBook {
+            id: meta.id.clone(),
+            title: meta.title.clone(),
+            author: None,
+            genre: Some(meta.genre.clone()),
+            word_count: None,
+            file_format: None,
+            file_hash: None,
+            file_path: None,
+            world_setting,
+            plot_summary: Some(meta.description.clone()),
+            story_arc,
+            analysis_status: AnalysisStatus::Completed,
+            analysis_progress: 100,
+            analysis_error: None,
+            task_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    } else {
+        ReferenceBook {
+            id: "unknown".to_string(),
+            title: "未命名".to_string(),
+            author: None,
+            genre: None,
+            word_count: None,
+            file_format: None,
+            file_hash: None,
+            file_path: None,
+            world_setting: None,
+            plot_summary: None,
+            story_arc: None,
+            analysis_status: AnalysisStatus::Completed,
+            analysis_progress: 100,
+            analysis_error: None,
+            task_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    };
+
+    // 转换角色
+    let characters: Vec<ReferenceCharacter> = bundle.characters.iter().map(|c| {
+        let relationships_json = serde_json::to_string(&c.relationships).ok();
+        ReferenceCharacter {
+            id: c.id.clone(),
+            book_id: c.story_id.clone(),
+            name: c.name.clone(),
+            role_type: Some(c.role_type.clone()),
+            personality: Some(c.personality.clone()),
+            appearance: Some(c.appearance.clone()),
+            relationships: relationships_json,
+            key_scenes: None,
+            importance_score: Some(c.importance_score),
+            created_at: now,
+        }
+    }).collect();
+
+    // 转换场景
+    let scenes: Vec<ReferenceScene> = bundle.scenes.iter().map(|s| {
+        let chars_present_json = serde_json::to_string(&s.characters_present).ok();
+        ReferenceScene {
+            id: s.id.clone(),
+            book_id: s.story_id.clone(),
+            sequence_number: s.sequence_number,
+            title: Some(s.title.clone()),
+            summary: Some(s.summary.clone()),
+            characters_present: chars_present_json,
+            key_events: None,
+            conflict_type: Some(s.conflict_type.clone()),
+            emotional_tone: None,
+            created_at: now,
+        }
+    }).collect();
+
+    BookAnalysisResult { book, characters, scenes }
 }

@@ -3,6 +3,7 @@ pub mod repositories;
 pub mod models;
 pub mod models_v3;
 pub mod repositories_v3;
+pub mod repositories_narrative;
 
 #[cfg(test)]
 #[path = "repositories_tests.rs"]

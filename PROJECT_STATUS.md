@@ -1,11 +1,23 @@
-# StoryForge (草苔) v5.2.2 项目完成状态
+# StoryForge (草苔) v5.3.0 项目完成状态
 
-> 最后更新: 2026-05-02（v5.2.2 + Bootstrap两阶段架构重构）
+> 最后更新: 2026-05-02（v5.3.0 + 叙事元素模型重构）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v5.3.0 叙事元素模型重构（2026-05-02）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 统一叙事元素模型 | ✅ | `narrative/` 模块 — 正向/逆向共用同一套数据结构 |
+| GenesisPipeline | ✅ | 7步正向流程：概念→世界观→大纲→角色→场景→伏笔→知识图谱 |
+| AnalysisPipeline | ✅ | 7步逆向流程：元数据→世界观→角色→场景→故事线→伏笔→知识图谱 |
+| 统一进度系统 | ✅ | `PipelineProgressEvent` + `usePipelineProgress` Hook |
+| 统一存储层 | ✅ | Migration 38 + `NarrativeRepository` |
+| StoryHealthAnalyzer | ✅ | 6维度结构健康检查 + `analyze_story_structure` IPC |
+| 向后兼容 | ✅ | 同时发射新旧事件，保留旧数据表 |
 
 ### v5.2.2 架构级重构（2026-05-02）
 

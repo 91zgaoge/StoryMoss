@@ -2,13 +2,13 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.2.2 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.3.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.2.2 最新更新**：Bootstrap 两阶段架构重构 — 核心体验优化，用户等待从 10+ 分钟缩短到 2-3 分钟。即时阶段（同步）：生成故事概念 + 第一章正文，立即返回给用户；后台阶段（异步 `tokio::spawn`）：世界观 → 大纲 → 角色 → 场景 → 伏笔 → 知识图谱。前端实时感知后台进度，完成后 toast 提示。
+> **v5.3.0 最新更新**：叙事元素模型重构 — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构。正向 GenesisPipeline 与逆向 AnalysisPipeline 操作同一套 `NarrativeElement` 抽象，统一存储层、统一进度系统、统一数据模型。新增 StoryHealthAnalyzer 故事结构健康检查（6维度评分）。
 >
 > **v5.2.1 更新**：超时修复与白屏修复 — Bootstrap 创建新小说超时延长至 600 秒；进度事件密度增强；LLM 心跳加速至 2 秒；后台窗口白屏修复增强。
 >
@@ -208,7 +208,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.2.2  
+**当前版本**: v5.3.0  
 **最后更新**: 2026-05-02  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
@@ -519,6 +519,14 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v5.3.0 (2026-05-02) - 叙事元素模型重构：创世-拆书同构架构
+- 统一叙事元素模型：`narrative/` 模块 — 正向/逆向共用同一套数据结构
+- GenesisPipeline：7步正向流程（概念→世界观→大纲→角色→场景→伏笔→知识图谱）
+- AnalysisPipeline：7步逆向流程（元数据→世界观→角色→场景→故事线→伏笔→知识图谱）
+- 统一进度系统：`PipelineProgressEvent` + `usePipelineProgress` Hook
+- 统一存储层：Migration 38 + `NarrativeRepository`
+- StoryHealthAnalyzer：6维度结构健康检查 + `analyze_story_structure` IPC
 
 ### v5.2.2 (2026-05-02) - Bootstrap 两阶段架构重构：先出正文，后台完善
 - **两阶段执行模型**：`bootstrap.rs` `run_quick_phase()`（同步：概念+正文，2-3分钟）+ `run_background_phase()`（异步：世界观/大纲/角色/场景/伏笔/知识图谱，5-8分钟）

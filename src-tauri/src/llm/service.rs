@@ -41,13 +41,24 @@ pub struct GenerationError {
     pub error_code: String,
 }
 
-/// LLM 生成过程中的心跳进度事件
+/// LLM生成进度事件 — 携带Pipeline步骤上下文，让用户知道"当前在进行哪一步"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmGeneratingProgress {
     pub stage: String, // "connecting" | "generating" | "completed" | "error"
     pub message: String,
     pub elapsed_seconds: u64,
     pub model: String,
+    /// Pipeline步骤上下文（可选）— 用于Bootstrap等长流程，显示"步骤名 X/Y"
+    pub pipeline_context: Option<PipelineContext>,
+}
+
+/// Pipeline步骤上下文 — 让进度消息显示当前所处的Pipeline步骤
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineContext {
+    pub step_name: String,
+    pub step_number: usize,
+    pub total_steps: usize,
+    pub action: String,
 }
 
 /// LLM服务 - 管理所有LLM调用
@@ -134,22 +145,47 @@ impl LlmService {
     }
 
     /// 发送 LLM 生成进度事件
-    fn emit_llm_progress(&self, stage: &str, message: &str, elapsed_seconds: u64, model: &str) {
+    fn emit_llm_progress(&self, stage: &str, message: &str, elapsed_seconds: u64, model: &str, pipeline_ctx: Option<&PipelineContext>) {
         let _ = self.app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
             stage: stage.to_string(),
             message: message.to_string(),
             elapsed_seconds,
             model: model.to_string(),
+            pipeline_context: pipeline_ctx.cloned(),
         });
     }
 
-    /// 同步生成文本（带 120 秒整体超时 + 心跳进度）
+    /// 同步生成文本（带上下文描述 + 600秒整体超时 + 心跳进度）
     pub async fn generate(
         &self,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, String> {
+        self.generate_with_context_and_pipeline(prompt, max_tokens, temperature, None, None).await
+    }
+    
+    /// 同步生成文本，支持上下文描述（v5.2.3: 进度消息更具体）
+    pub async fn generate_with_context(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<GenerateResponse, String> {
+        self.generate_with_context_and_pipeline(prompt, max_tokens, temperature, context_label, None).await
+    }
+    
+    /// 同步生成文本，支持上下文描述 + Pipeline步骤上下文（v5.2.4: 让进度消息显示当前步骤）
+    pub async fn generate_with_context_and_pipeline(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+    ) -> Result<GenerateResponse, String> {
+
         let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
         
@@ -162,35 +198,67 @@ impl LlmService {
             temperature,
         };
         
-        // 发送开始连接事件
-        self.emit_llm_progress("connecting", "正在连接模型...", 0, &model_name);
+        // 构建带有上下文的进度消息
+        let label = context_label.unwrap_or("");
+        let pipeline_ref = pipeline_ctx.as_ref();
+        let step_prefix = pipeline_ref.map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)).unwrap_or_default();
         
-        // 启动心跳任务：每2秒发送一次进度（更快反馈，减少用户焦虑）
+        let connecting_msg = if label.is_empty() { 
+            format!("{}正在连接模型...", step_prefix) 
+        } else { 
+            format!("{}正在连接模型 [{}]...", step_prefix, label) 
+        };
+        let sent_msg = if label.is_empty() { 
+            format!("{}已发送请求，等待响应...", step_prefix) 
+        } else { 
+            format!("{}已发送请求 [{}]，等待响应...", step_prefix, label) 
+        };
+        let completed_msg = if label.is_empty() { 
+            format!("{}AI 响应完成", step_prefix) 
+        } else { 
+            format!("{}{} 完成", step_prefix, label) 
+        };
+        
+        // 发送开始连接事件
+        self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, pipeline_ref);
+        
+        // 启动心跳任务：每10秒发送一次进度（v5.2.3: 间隔从2秒改为10秒，用户能看清文字）
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
+        let label_owned = label.to_string();
+        let pipeline_ctx_for_heartbeat = pipeline_ctx.clone();
         let heartbeat_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
             let start = std::time::Instant::now();
             let mut tick_count = 0;
             loop {
                 interval.tick().await;
                 tick_count += 1;
                 let elapsed = start.elapsed().as_secs();
+                let step_prefix_hb = pipeline_ctx_for_heartbeat.as_ref().map(|p| {
+                    format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)
+                }).unwrap_or_default();
+                let message = if label_owned.is_empty() {
+                    format!("{}AI 正在深度思考中...（已等待 {} 秒）", step_prefix_hb, elapsed)
+                } else {
+                    format!("{}正在{}...（已等待 {} 秒）", step_prefix_hb, label_owned, elapsed)
+                };
                 let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
                     stage: "generating".to_string(),
-                    message: format!("AI 正在深度思考中...（已等待 {} 秒）", elapsed),
+                    message,
                     elapsed_seconds: elapsed,
                     model: model.clone(),
+                    pipeline_context: pipeline_ctx_for_heartbeat.clone(),
                 });
-                // 最多心跳300次（600秒），匹配前端Bootstrap超时
-                if tick_count >= 300 {
+                // 最多心跳60次（600秒），匹配前端Bootstrap超时
+                if tick_count >= 60 {
                     break;
                 }
             }
         });
         
         // 发送已发送请求事件
-        self.emit_llm_progress("sent", "已发送请求，等待响应...", 0, &model_name);
+        self.emit_llm_progress("sent", &sent_msg, 0, &model_name, pipeline_ref);
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
@@ -209,24 +277,36 @@ impl LlmService {
         
         match result {
             Ok(response) => {
-                self.emit_llm_progress("completed", "AI 响应完成", 0, &model_name);
+                self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
                 Ok(response)
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name);
+                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, pipeline_ref);
                 Err(e)
             }
         }
     }
 
-    /// 使用指定模型配置同步生成文本（带60秒超时 + 心跳进度）
+    /// 使用指定模型配置同步生成文本（带600秒超时 + 心跳进度）
     pub async fn generate_with_profile(
         &self,
         profile_id: &str,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
+    ) -> Result<GenerateResponse, String> {
+        self.generate_with_profile_and_context(profile_id, prompt, max_tokens, temperature, None).await
+    }
+
+    /// 使用指定模型配置同步生成文本，支持上下文描述
+    pub async fn generate_with_profile_and_context(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
     ) -> Result<GenerateResponse, String> {
         let profile = self.get_profile_by_id(profile_id)
             .ok_or_else(|| format!("LLM profile '{}' not found", profile_id))?;
@@ -240,34 +320,48 @@ impl LlmService {
             temperature,
         };
         
-        // 发送开始连接事件
-        self.emit_llm_progress("connecting", "正在连接模型...", 0, &model_name);
+        // 构建带有上下文的进度消息
+        let label = context_label.unwrap_or("");
+        let connecting_msg = if label.is_empty() { "正在连接模型...".to_string() } else { format!("正在连接模型 [{}]...", label) };
+        let sent_msg = if label.is_empty() { "已发送请求，等待响应...".to_string() } else { format!("已发送请求 [{}]，等待响应...", label) };
+        let completed_msg = if label.is_empty() { "AI 响应完成".to_string() } else { format!("{} 完成", label) };
         
-        // 启动心跳任务：每3秒发送一次进度
+        // 发送开始连接事件
+        self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, None);
+        
+        // 启动心跳任务：每10秒发送一次进度（v5.2.3: 间隔从3秒改为10秒）
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
+        let label_owned = label.to_string();
         let heartbeat_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
             let start = std::time::Instant::now();
             let mut tick_count = 0;
             loop {
                 interval.tick().await;
                 tick_count += 1;
                 let elapsed = start.elapsed().as_secs();
+                let message = if label_owned.is_empty() {
+                    format!("AI 正在生成中...（已等待 {} 秒）", elapsed)
+                } else {
+                    format!("正在{}...（已等待 {} 秒）", label_owned, elapsed)
+                };
                 let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
                     stage: "generating".to_string(),
-                    message: format!("AI 正在生成中...（已等待 {} 秒）", elapsed),
+                    message,
                     elapsed_seconds: elapsed,
                     model: model.clone(),
+                    pipeline_context: None,
                 });
-                if tick_count >= 40 {
+                // 最多心跳60次（600秒）
+                if tick_count >= 60 {
                     break;
                 }
             }
         });
         
         // 发送已发送请求事件
-        self.emit_llm_progress("sent", "已发送请求，等待响应...", 0, &model_name);
+        self.emit_llm_progress("sent", &sent_msg, 0, &model_name, None);
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
@@ -286,12 +380,12 @@ impl LlmService {
         
         match result {
             Ok(response) => {
-                self.emit_llm_progress("completed", "AI 响应完成", 0, &model_name);
+                self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
                 Ok(response)
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name);
+                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, None);
                 Err(e)
             }
         }
