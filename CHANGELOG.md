@@ -21,8 +21,15 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 #### Bootstrap解析失败：missing field `id`
 - **根因**：`ConceptGenerationStep` 中 LLM 返回的 JSON 缺少 `id`/`story_id`/`source` 等后端生成字段，`serde_json::from_str::<StoryMetaElement>()` 反序列化失败
-- **修复**：给所有 `NarrativeElement` 结构体（`StoryMetaElement`/`CharacterElement`/`SceneElement`/`WorldBuildingElement`/`OutlineElement`/`ForeshadowingElement`）的 `id`/`story_id`/`source`/`source_ref_id`/`status` 字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略这些字段
+- **修复**：给所有 `NarrativeElement` 结构体的 `id`/`story_id`/`source`/`source_ref_id`/`status` 字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略这些字段
 - **文件**：`src-tauri/src/narrative/elements.rs`
+
+#### Bootstrap生成中断：幕前无正文 + 幕后无结构要素
+- **根因1**：`StoryContextBuilder::build` 中 `fetch_characters`/`fetch_previous_scenes`/`fetch_writing_style` 在 Bootstrap 时数据库为空返回 `Err`，导致 `FirstChapterGenerationStep` 失败，第一章无法生成
+- **修复1**：`build` 方法中这些查询失败时返回默认值（`vec![]`/`None`）而非传播错误
+- **根因2**：LLM 返回的角色/场景/世界观/大纲 JSON 可能缺少 `relationships`/`rules`/`key_locations`/`power_system`/`total_scenes_estimate`/`key_plot_points`/`estimated_scenes` 等字段，后台阶段反序列化失败中断
+- **修复2**：给所有可能缺失的字段添加 `#[serde(default)]`
+- **文件**：`src-tauri/src/creative_engine/context_builder.rs`、`src-tauri/src/narrative/elements.rs`
 
 #### 其他
 - 移除 `state_sync/mod.rs` 未使用的 `SyncEvent` 导入
