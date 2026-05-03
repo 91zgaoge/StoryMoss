@@ -31,6 +31,11 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **修复2**：给所有可能缺失的字段添加 `#[serde(default)]`
 - **文件**：`src-tauri/src/creative_engine/context_builder.rs`、`src-tauri/src/narrative/elements.rs`
 
+#### 续写时重复生成小说开头
+- **根因**：`current_content_preview` 从**头部截断 2000 字符**，第一次续写后总字数超过 2000，LLM 只能看到第一章内容，看不到续写内容，于是重新生成开头
+- **修复**：改为从**尾部截断 6000 字符**（保留最新内容），并标注省略字数，LLM 能看到最近的续写内容并在此基础上继续
+- **文件**：`src-tauri/src/lib.rs`
+
 #### 其他
 - 移除 `state_sync/mod.rs` 未使用的 `SyncEvent` 导入
 - `lib.rs`：后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件

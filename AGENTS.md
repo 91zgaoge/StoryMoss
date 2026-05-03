@@ -153,6 +153,7 @@ npm test
   - **幕后结构要素不显示**: `useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致（`world-building`≠`world_building`、`story-outlines`≠`story-outline`），修复后 TanStack Query 缓存正确过期，幕后自动刷新世界观/大纲/角色/场景/伏笔数据
   - **Bootstrap解析失败**: 给所有 `NarrativeElement` 结构体的 `id`/`story_id`/`source` 等字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略后端生成字段，修复 `missing field id` 反序列化错误
   - **Bootstrap生成中断（幕前无正文+幕后无结构要素）**: `StoryContextBuilder::build` 中数据库查询在 Bootstrap 时返回 `Err` 导致 `FirstChapterGenerationStep` 失败；LLM 返回 JSON 缺少 `relationships`/`rules`/`key_locations` 等字段导致后台阶段中断。修复：build 方法查询失败时返回默认值；给所有可能缺失的字段添加 `#[serde(default)]`
+  - **续写时重复生成小说开头**: `current_content_preview` 从头部截断 2000 字符，续写后 LLM 看不到续写内容只能看到第一章，于是重新生成开头。修复：从尾部截断 6000 字符保留最新内容
   - **后台数据刷新统一通道**: 后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
   - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过，`cargo tauri build` Windows `.exe`/`.msi`/`-setup.exe` 生成
 
