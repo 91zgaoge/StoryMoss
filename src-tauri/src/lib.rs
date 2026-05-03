@@ -68,6 +68,16 @@ pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
 static INGEST_COOLDOWN: Lazy<Mutex<HashMap<String, (u64, Instant)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 const INGEST_COOLDOWN_SECONDS: u64 = 300; // 5 分钟冷却期
 
+/// 记录 AI 操作历史
+fn record_ai_operation(req: db::CreateAiOperationRequest) {
+    if let Some(pool) = get_pool() {
+        let repo = db::AiOperationRepository::new(pool);
+        if let Err(e) = repo.create(req) {
+            log::warn!("[AiOperation] Failed to record operation: {}", e);
+        }
+    }
+}
+
 fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
 
@@ -144,6 +154,15 @@ pub fn run() {
                 }
             }
 
+            // Seed built-in export templates
+            if let Some(pool) = get_pool() {
+                let template_repo = db::ExportTemplateRepository::new(pool);
+                match template_repo.seed_builtin_templates() {
+                    Ok(_) => log::info!("[ExportTemplates] Built-in templates seeded successfully"),
+                    Err(e) => log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e),
+                }
+            }
+
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
 
@@ -201,16 +220,35 @@ pub fn run() {
             }
 
             // Initialize WorkflowEngine and WorkflowScheduler
-            {
-                let workflow_engine = workflow::WorkflowEngine::new();
+            let workflow_engine_arc = {
+                let engine = workflow::WorkflowEngine::new();
                 let scheduler = workflow::WorkflowScheduler::new();
                 // Register the standard writing workflow template
-                if let Err(e) = workflow_engine.register_workflow(workflow::templates::standard_writing_workflow()) {
+                if let Err(e) = engine.register_workflow(workflow::templates::standard_writing_workflow()) {
                     log::warn!("Failed to register standard workflow: {}", e);
                 }
-                app.manage(std::sync::Arc::new(workflow_engine));
+                let engine_arc = std::sync::Arc::new(engine);
+                app.manage(engine_arc.clone());
                 app.manage(std::sync::Arc::new(scheduler));
                 log::info!("Workflow engine and scheduler initialized");
+                engine_arc
+            };
+
+            // Initialize WorkflowLoader (file system DSL watcher)
+            {
+                let loader = workflow::WorkflowLoader::new(workflow_engine_arc);
+                let builtin_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("workflows")));
+                let user_dir = app.path()
+                    .app_data_dir()
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
+                    .join("workflows");
+                if let Err(e) = loader.initialize(builtin_dir, user_dir) {
+                    log::warn!("[WorkflowLoader] Failed to initialize: {}", e);
+                }
+                app.manage(loader);
+                log::info!("[WorkflowLoader] File system workflow watcher initialized");
             }
 
             // Ensure backstage is hidden on startup
@@ -250,7 +288,8 @@ pub fn run() {
             get_skills, get_skill, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill, update_skill, format_text,
             connect_mcp_server, call_mcp_tool, disconnect_mcp_server, get_mcp_connections, list_mcp_tools, execute_mcp_tool,
             search_similar, text_search_vectors, hybrid_search_vectors, embed_chapter,
-            export_story,
+            export_story, list_export_templates, save_export_template, delete_export_template,
+            list_ai_operations, rollback_ai_operation,
             // Window management commands
             window::show_frontstage,
             window::hide_frontstage,
@@ -259,10 +298,10 @@ pub fn run() {
             window::update_frontstage_content,
             // Backstage communication commands
             notify_backstage_content_changed,
-            notify_backstage_generation_requested,
             notify_frontstage_content_changed,
             notify_frontstage_data_refresh,
             show_backstage,
+            cancel_genesis_pipeline,
             // Settings commands
             config::get_settings,
             config::save_settings,
@@ -454,6 +493,8 @@ pub fn run() {
             create_workflow_instance,
             start_workflow_instance,
             get_workflow_instance_status,
+            list_workflows,
+            reload_workflows,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -776,7 +817,7 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
         cooldown.insert(chapter_id.clone(), (content_hash, now));
     }
 
-    let llm_service = crate::llm::LlmService::new(app);
+    let llm_service = crate::llm::LlmService::new(app.clone());
     let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
     let ingest_content = crate::memory::ingest::IngestContent {
         text: content_text,
@@ -792,15 +833,28 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
             let relation_count = result.relations.len();
             match kg_repo.save_entities_batch(&result.entities) {
                 Ok(saved) => log::info!("[auto_ingest] Saved {}/{} entities for chapter {}", saved, entity_count, chapter_id),
-                Err(e) => log::warn!("[auto_ingest] Failed to save entities: {}", e),
+                Err(e) => {
+                    log::warn!("[auto_ingest] Failed to save entities: {}", e);
+                    let _ = app.emit("ingestion-failed", serde_json::json!({
+                        "chapter_id": chapter_id, "story_id": story_id, "error": format!("保存实体失败: {}", e)
+                    }));
+                }
             }
             match kg_repo.save_relations_batch(&result.relations) {
                 Ok(saved) => log::info!("[auto_ingest] Saved {}/{} relations for chapter {}", saved, relation_count, chapter_id),
-                Err(e) => log::warn!("[auto_ingest] Failed to save relations: {}", e),
+                Err(e) => {
+                    log::warn!("[auto_ingest] Failed to save relations: {}", e);
+                    let _ = app.emit("ingestion-failed", serde_json::json!({
+                        "chapter_id": chapter_id, "story_id": story_id, "error": format!("保存关系失败: {}", e)
+                    }));
+                }
             }
         }
         Err(e) => {
             log::warn!("[auto_ingest] IngestPipeline failed for chapter {}: {}", chapter_id, e);
+            let _ = app.emit("ingestion-failed", serde_json::json!({
+                "chapter_id": chapter_id, "story_id": story_id, "error": e.to_string()
+            }));
         }
     }
 }
@@ -1076,12 +1130,12 @@ static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
 
 #[tauri::command]
 async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
-    use embeddings::embed_text;
+    use embeddings::embed_text_async;
     
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
     
-    // 生成查询向量
-    let query_embedding = embed_text(&query).map_err(|e| e.to_string())?;
+    // v5.4.0: 使用 embed_text_async 避免阻塞异步运行时
+    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| e.to_string())?;
     
     store.search(&story_id, query_embedding, top_k.unwrap_or(5))
         .await
@@ -1098,10 +1152,10 @@ async fn text_search_vectors(story_id: String, query: String, top_k: Option<usiz
 
 #[tauri::command]
 async fn hybrid_search_vectors(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
-    use embeddings::embed_text;
+    use embeddings::embed_text_async;
     
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
-    let query_embedding = embed_text(&query).map_err(|e| e.to_string())?;
+    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| e.to_string())?;
     
     store.hybrid_search(&story_id, &query, query_embedding, top_k.unwrap_or(5))
         .await
@@ -1110,13 +1164,13 @@ async fn hybrid_search_vectors(story_id: String, query: String, top_k: Option<us
 
 #[tauri::command]
 async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String> {
-    use embeddings::embed_text;
+    use embeddings::embed_text_async;
     use vector::VectorRecord;
 
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
 
-    // 生成嵌入向量
-    let embedding = embed_text(&content).map_err(|e| e.to_string())?;
+    // v5.4.0: 使用 embed_text_async 避免阻塞异步运行时
+    let embedding = embed_text_async(content.clone()).await.map_err(|e| e.to_string())?;
 
     let record = VectorRecord {
         id: format!("{}", uuid::Uuid::new_v4()),
@@ -1216,9 +1270,12 @@ async fn smart_execute(
         
         // v5.3.0: 使用新的 GenesisPipeline
         let mut ctx = narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
+        let session_id = ctx.session_id.clone();
         let llm = llm::LlmService::new(app_handle.clone());
         let quick_steps = narrative::genesis::GenesisPipeline::quick_phase_steps();
-        let executor = narrative::pipeline::NarrativePipelineExecutor::new(quick_steps);
+        let cancel_flag = narrative::pipeline::register_pipeline_cancel(&session_id);
+        let executor = narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
+            .with_cancel_flag(cancel_flag);
         
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = app_handle.clone();
@@ -1244,20 +1301,38 @@ async fn smart_execute(
                 
                 // 发射 story_created 同步事件
                 let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, "新故事");
+
+                // Record AI operation (before user_input is moved)
+                let user_input_for_record = user_input.clone();
+                record_ai_operation(db::CreateAiOperationRequest {
+                    story_id: story_id.clone(),
+                    scene_id: None,
+                    chapter_id: None,
+                    operation_type: "bootstrap".to_string(),
+                    operation_name: "小说创世".to_string(),
+                    input_summary: Some(user_input_for_record),
+                    output_summary: first_chapter.as_ref().map(|c| c.chars().take(200).collect()),
+                    previous_content: None,
+                    new_content: first_chapter.clone(),
+                    metadata: Some(serde_json::json!({"session_id": session_id}).to_string()),
+                });
                 
                 // 启动后台阶段
                 let app_handle_bg = app_handle.clone();
                 let story_id_bg = story_id.clone();
                 let session_id_bg = session_id.clone();
+                let user_input_bg = user_input.clone();
                 tauri::async_runtime::spawn(async move {
                     let story_id_for_emit = story_id_bg.clone();
                     let app_handle_for_emit = app_handle_bg.clone();
                     let mut bg_ctx = narrative::genesis::GenesisContext::for_background(
-                        app_handle_bg.clone(), story_id_bg, session_id_bg, user_input.clone(), bundle
+                        app_handle_bg.clone(), story_id_bg, session_id_bg.clone(), user_input_bg, bundle
                     );
                     let llm_bg = llm::LlmService::new(app_handle_bg.clone());
                     let bg_steps = narrative::genesis::GenesisPipeline::background_phase_steps();
-                    let bg_executor = narrative::pipeline::NarrativePipelineExecutor::new(bg_steps);
+                    let bg_cancel_flag = narrative::pipeline::register_pipeline_cancel(&session_id_bg);
+                    let bg_executor = narrative::pipeline::NarrativePipelineExecutor::new(bg_steps)
+                        .with_cancel_flag(bg_cancel_flag);
                     
                     let progress_callback_bg = std::sync::Arc::new(move |evt: narrative::progress::PipelineProgressEvent| {
                         let _ = app_handle_bg.emit("pipeline-progress", &evt);
@@ -1274,27 +1349,22 @@ async fn smart_execute(
                         log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
                     } else {
                         log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
-                        // v5.3.1: 后台完成后通知前后台刷新所有关联数据
+                        // v5.4.0: 统一通过 state_sync 发射 data-refresh，避免重复发射
                         crate::state_sync::StateSync::emit_data_refresh(
                             &app_handle_for_emit,
                             Some(&story_id_for_emit),
                             "all"
                         );
-                        let _ = crate::window::WindowManager::send_to_backstage(
-                            &app_handle_for_emit,
-                            crate::window::BackstageEvent::DataRefresh {
-                                entity: "all".to_string(),
-                            }
-                        );
                     }
                 });
-                
+
                 return Ok(planner::PlanExecutionResult {
                     success: true,
                     steps_completed: 2,
                     final_content: first_chapter,
                     messages: vec![
                         format!("story_created:{}", story_id),
+                        format!("session_id:{}", session_id),
                         "novel_bootstrap_completed".to_string(),
                     ],
                 });
@@ -1486,6 +1556,13 @@ async fn smart_execute(
 
     emit_progress("context_loaded", "故事上下文加载完成", 2, 5);
 
+    // Clone values before they are moved into plan_context
+    let story_id_for_record = current_story_id.clone();
+    let scene_id_for_record = current_scene_id.clone();
+    let chapter_id_for_record = chapters.last().map(|c| c.id.clone());
+    let input_for_record = user_input.clone();
+    let prev_content_for_record = current_content_preview.clone();
+
     let plan_context = planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -1527,6 +1604,22 @@ async fn smart_execute(
             format!("计划执行失败：{}", result.messages.join("; "))
         };
         return Err(error_msg);
+    }
+
+    // Record AI operation for non-bootstrap generation
+    if let Some(ref story_id) = story_id_for_record {
+        record_ai_operation(db::CreateAiOperationRequest {
+            story_id: story_id.clone(),
+            scene_id: scene_id_for_record,
+            chapter_id: chapter_id_for_record,
+            operation_type: "smart_execute".to_string(),
+            operation_name: "AI 续写".to_string(),
+            input_summary: Some(input_for_record),
+            output_summary: result.final_content.as_ref().map(|c| c.chars().take(200).collect()),
+            previous_content: prev_content_for_record,
+            new_content: result.final_content.clone(),
+            metadata: Some(serde_json::json!({"steps_completed": result.steps_completed}).to_string()),
+        });
     }
 
     Ok(result)
@@ -1763,6 +1856,7 @@ struct ExportOptions {
     include_metadata: Option<bool>,
     include_outline: Option<bool>,
     include_characters: Option<bool>,
+    template_id: Option<String>,
 }
 #[tauri::command]
 async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> Result<ExportResult, String> {
@@ -1818,8 +1912,18 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
         chapter_separator: "\n\n---\n\n".to_string(),
     };
 
+    // Load template if specified
+    let template_content = if let Some(ref template_id) = options.template_id {
+        let template_repo = db::ExportTemplateRepository::new(pool.clone());
+        template_repo.get_by_id(template_id)
+            .map_err(|e| e.to_string())?
+            .map(|t| t.template_content)
+    } else {
+        None
+    };
+
     let exporter = StoryExporter::new();
-    exporter.export_to_file(&story, &chapters, &characters, &config, &output_path)
+    exporter.export_to_file(&story, &chapters, &characters, &config, &output_path, template_content.as_deref())
         .map_err(|e| e.to_string())?;
 
     Ok(ExportResult {
@@ -1827,6 +1931,85 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
         content: std::fs::read_to_string(&output_path).unwrap_or_default(),
         format: options.format,
     })
+}
+
+#[tauri::command]
+async fn list_export_templates(format_filter: Option<String>) -> Result<Vec<db::ExportTemplate>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = db::ExportTemplateRepository::new(pool);
+    let templates = repo.get_all().map_err(|e| e.to_string())?;
+
+    if let Some(filter) = format_filter {
+        let filtered: Vec<_> = templates.into_iter()
+            .filter(|t| t.format == filter)
+            .collect();
+        Ok(filtered)
+    } else {
+        Ok(templates)
+    }
+}
+
+#[tauri::command]
+async fn save_export_template(name: String, description: Option<String>, format: String, template_content: String) -> Result<db::ExportTemplate, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = db::ExportTemplateRepository::new(pool);
+    let req = db::CreateExportTemplateRequest {
+        name,
+        description,
+        format,
+        template_content,
+    };
+    repo.create(req).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_export_template(id: String) -> Result<(), String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = db::ExportTemplateRepository::new(pool);
+    repo.delete(&id).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_ai_operations(story_id: String) -> Result<Vec<db::AiOperation>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = db::AiOperationRepository::new(pool);
+    repo.get_by_story(&story_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Result<(), String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let op_repo = db::AiOperationRepository::new(pool.clone());
+    let chapter_repo = ChapterRepository::new(pool.clone());
+
+    let operation = op_repo.get_by_id(&operation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Operation not found")?;
+
+    // Only support rollback for chapter content operations that have previous_content
+    let prev_content = operation.previous_content
+        .ok_or("此操作不支持回滚")?;
+
+    let chapter_id = operation.chapter_id
+        .ok_or("此操作没有关联章节")?;
+
+    // Restore previous content
+    chapter_repo.update(&chapter_id, None, None, Some(prev_content), None)
+        .map_err(|e| e.to_string())?;
+
+    // Mark operation as rolled back
+    op_repo.update_status(&operation_id, "rolled_back")
+        .map_err(|e| e.to_string())?;
+
+    // Emit sync event
+    let _ = app.emit("sync-event", serde_json::json!({
+        "event": "chapterUpdated",
+        "chapter_id": chapter_id,
+        "story_id": operation.story_id,
+    }));
+
+    Ok(())
 }
 
 // ===== 幕前/幕后通信命令 =====
@@ -2051,6 +2234,22 @@ fn get_workflow_instance_status(
     Ok(engine.get_instance(&instance_id))
 }
 
+/// 列出所有已注册的工作流（包括从文件加载的）
+#[tauri::command]
+fn list_workflows(
+    loader: tauri::State<'_, workflow::WorkflowLoader>,
+) -> Result<Vec<workflow::LoadedWorkflow>, String> {
+    Ok(loader.list_workflows())
+}
+
+/// 手动重新加载所有工作流文件
+#[tauri::command]
+fn reload_workflows(
+    loader: tauri::State<'_, workflow::WorkflowLoader>,
+) -> Result<usize, String> {
+    loader.reload_all().map_err(|e| e.to_string())
+}
+
 // ===== 模型驱动的智能编排命令 =====
 
 /// 分析已有故事的结构健康度 (v5.3.0)
@@ -2088,3 +2287,16 @@ async fn analyze_story_structure(
 }
 
 
+
+/// v5.4.0: 取消正在运行的 GenesisPipeline
+#[tauri::command]
+fn cancel_genesis_pipeline(session_id: String) -> Result<bool, String> {
+    let cancelled = narrative::pipeline::cancel_pipeline(&session_id);
+    if cancelled {
+        log::info!("[cancel_genesis_pipeline] Pipeline {} 已标记为取消", session_id);
+        Ok(true)
+    } else {
+        log::warn!("[cancel_genesis_pipeline] Pipeline {} 未找到或已完成", session_id);
+        Ok(false)
+    }
+}

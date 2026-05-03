@@ -430,7 +430,7 @@ pub async fn update_entity(
     attributes: Option<serde_json::Value>,
     pool: State<'_, DbPool>,
 ) -> Result<Entity, String> {
-    use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
+    use crate::embeddings::{embed_entity_async, EntityEmbeddingRequest};
     use std::collections::HashMap;
 
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
@@ -454,7 +454,7 @@ pub async fn update_entity(
             entity_type: existing.entity_type.to_string(),
             attributes: attrs_map,
         };
-        embed_entity(&request).ok()
+        embed_entity_async(request).await.ok()
     } else {
         existing.embedding
     };

@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 
 pub mod scheduler;
+pub mod loader;
 pub use scheduler::WorkflowScheduler;
+pub use loader::{WorkflowLoader, LoadedWorkflow};
 
 /// Workflow definition - DAG structure
 #[derive(Debug, Clone, Serialize, Deserialize)]

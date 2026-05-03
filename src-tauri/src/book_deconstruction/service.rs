@@ -449,7 +449,7 @@ impl BookDeconstructionService {
         result: &BookAnalysisResult,
     ) -> Result<(), AnalysisError> {
         use crate::vector::VectorRecord;
-        use crate::embeddings::embed_text;
+        use crate::embeddings::embed_text_async;
 
         let store = match crate::VECTOR_STORE.get() {
             Some(s) => s,
@@ -468,7 +468,7 @@ impl BookDeconstructionService {
             if text.trim().is_empty() {
                 continue;
             }
-            if let Ok(embedding) = embed_text(&text) {
+            if let Ok(embedding) = embed_text_async(text.clone()).await {
                 scene_records.push(VectorRecord {
                     id: format!("{}_scene_{}", book_id, idx),
                     story_id: book_id.to_string(),
@@ -497,7 +497,7 @@ impl BookDeconstructionService {
             if text.trim().is_empty() {
                 continue;
             }
-            if let Ok(embedding) = embed_text(&text) {
+            if let Ok(embedding) = embed_text_async(text.clone()).await {
                 char_records.push(VectorRecord {
                     id: format!("{}_char_{}", book_id, idx),
                     story_id: book_id.to_string(),

@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { Download, FileText, BookOpen, Code, FileCode, FileType } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Download, FileText, BookOpen, Code, FileCode, FileType, LayoutTemplate } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useExport, type ExportFormat } from '@/hooks/useExport';
+import { useExport, useExportTemplates, type ExportFormat } from '@/hooks/useExport';
 
 interface ExportDialogProps {
   storyId: string;
@@ -25,8 +25,15 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
   const [includeMetadata, setIncludeMetadata] = useState(true);
   const [includeOutline, setIncludeOutline] = useState(true);
   const [includeCharacters, setIncludeCharacters] = useState(true);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(undefined);
 
   const exportMutation = useExport();
+  const { data: templates } = useExportTemplates(selectedFormat);
+
+  const compatibleTemplates = useMemo(() => {
+    if (!templates) return [];
+    return templates.filter(t => t.format === selectedFormat || t.format === 'md' && selectedFormat === 'markdown' || t.format === 'txt' && selectedFormat === 'txt' || t.format === 'html' && selectedFormat === 'html');
+  }, [templates, selectedFormat]);
 
   const handleExport = () => {
     exportMutation.mutate({
@@ -35,6 +42,7 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
       include_metadata: includeMetadata,
       include_outline: includeOutline,
       include_characters: includeCharacters,
+      template_id: selectedTemplateId,
     }, {
       onSuccess: () => {
         onClose();
@@ -90,6 +98,56 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
               })}
             </div>
           </div>
+
+          {/* Template Selection */}
+          {compatibleTemplates.length > 0 && (
+            <div className="space-y-3 mb-6">
+              <label className="text-sm text-gray-400 flex items-center gap-2">
+                <LayoutTemplate className="w-4 h-4" />
+                选择模板
+              </label>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setSelectedTemplateId(undefined)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                    !selectedTemplateId
+                      ? 'bg-cinema-gold/10 border-cinema-gold/50'
+                      : 'bg-cinema-800/50 border-cinema-700 hover:border-cinema-600'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-medium ${!selectedTemplateId ? 'text-white' : 'text-gray-300'}`}>
+                      默认样式
+                    </p>
+                    <p className="text-xs text-gray-500">使用内置默认排版</p>
+                  </div>
+                </button>
+                {compatibleTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => setSelectedTemplateId(template.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                      selectedTemplateId === template.id
+                        ? 'bg-cinema-gold/10 border-cinema-gold/50'
+                        : 'bg-cinema-800/50 border-cinema-700 hover:border-cinema-600'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-medium ${selectedTemplateId === template.id ? 'text-white' : 'text-gray-300'}`}>
+                        {template.name}
+                        {template.is_builtin && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-cinema-700 text-gray-400">内置</span>
+                        )}
+                      </p>
+                      {template.description && (
+                        <p className="text-xs text-gray-500 truncate">{template.description}</p>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Options */}
           <div className="space-y-3 mb-6">

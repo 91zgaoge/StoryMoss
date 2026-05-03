@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList } from 'lucide-react';
+import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList, History, RotateCcw } from 'lucide-react';
 import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,12 +17,15 @@ import { runCreationWorkflow, listStyleDnas, setStoryStyleDna, analyzeStyleSampl
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
 import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAiOperations, useRollbackOperation } from '@/hooks/useAiOperations';
 
 function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }) {
   const { data: outline } = useStoryOutline(storyId);
   const { data: characters = [] } = useCharacters(storyId);
   const { data: scenes = [] } = useScenes(storyId);
   const { data: foreshadowings = [] } = useForeshadowings(storyId);
+  const { data: operations = [] } = useAiOperations(storyId);
+  const rollback = useRollbackOperation();
 
   if (!isOpen) return null;
 
@@ -124,6 +127,62 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
           )}
         </div>
       </div>
+
+      {/* AI Operation History */}
+      {operations.length > 0 && (
+        <div>
+          <h4 className="text-sm font-medium text-cinema-gold mb-2 flex items-center gap-1.5">
+            <History className="w-3.5 h-3.5" />
+            AI 操作历史
+          </h4>
+          <div className="space-y-2">
+            {operations.slice(0, 5).map((op) => (
+              <div
+                key={op.id}
+                className={`p-2.5 rounded-lg border text-xs ${
+                  op.status === 'rolled_back'
+                    ? 'bg-gray-900/30 border-gray-800 opacity-50'
+                    : 'bg-cinema-900/50 border-cinema-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      op.operation_type === 'bootstrap' ? 'bg-green-400' :
+                      op.operation_type === 'smart_execute' ? 'bg-blue-400' :
+                      'bg-gray-400'
+                    }`} />
+                    <span className="font-medium text-gray-300 truncate">{op.operation_name}</span>
+                  </div>
+                  <span className="text-gray-600 flex-shrink-0">{formatDate(op.created_at)}</span>
+                </div>
+                {op.input_summary && (
+                  <p className="mt-1 text-gray-500 truncate">输入: {op.input_summary}</p>
+                )}
+                {op.output_summary && (
+                  <p className="mt-0.5 text-gray-500 truncate">输出: {op.output_summary}</p>
+                )}
+                {op.status === 'success' && op.previous_content !== undefined && (
+                  <button
+                    onClick={() => rollback.mutate(op.id)}
+                    disabled={rollback.isPending}
+                    className="mt-1.5 flex items-center gap-1 text-cinema-gold hover:text-cinema-gold/80 transition-colors disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    回滚
+                  </button>
+                )}
+                {op.status === 'rolled_back' && (
+                  <span className="mt-1 inline-block text-gray-600">已回滚</span>
+                )}
+              </div>
+            ))}
+            {operations.length > 5 && (
+              <p className="text-xs text-gray-600 text-center">+{operations.length - 5} 更多操作</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

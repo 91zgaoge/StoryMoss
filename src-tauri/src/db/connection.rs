@@ -243,6 +243,88 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
+    // Migration 39: 创建导出模板表 (v5.4.0 - 自定义导出模板)
+    let export_template_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if export_template_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE export_templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                format TEXT NOT NULL,
+                template_content TEXT NOT NULL,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                is_user_created INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_export_templates_format ON export_templates(format)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_export_templates_builtin ON export_templates(is_builtin)",
+            [],
+        )?;
+    }
+
+    // Migration 40: 创建 AI 操作历史表 (v5.4.0 - AI 操作历史与回滚)
+    let ai_op_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if ai_op_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE ai_operations (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_id TEXT,
+                operation_type TEXT NOT NULL,
+                operation_name TEXT NOT NULL,
+                input_summary TEXT,
+                output_summary TEXT,
+                previous_content TEXT,
+                new_content TEXT,
+                metadata TEXT,
+                status TEXT NOT NULL DEFAULT 'success',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ai_operations_story ON ai_operations(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ai_operations_scene ON ai_operations(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ai_operations_chapter ON ai_operations(chapter_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ai_operations_type ON ai_operations(operation_type)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ai_operations_created ON ai_operations(created_at)",
+            [],
+        )?;
+    }
+
     // Migration 38: 统一叙事元素表 (v5.3.0 - 创世-拆书同构架构)
     let narrative_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"

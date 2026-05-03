@@ -53,6 +53,9 @@ futures-util = "0.3.32"
 # ZIP file handling (配置导出)
 zip = "0.6"
 
+# Template engine for custom export templates
+tera = "1.20"
+
 # Book deconstruction - file parsing
 pdf-extract = "0.7"
 epub = "2.1"

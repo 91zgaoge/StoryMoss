@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 /// Workflow scheduler - manages task execution with an in-memory queue
+/// v5.4.0: 新增自动 drain 机制，任务入队后自动在后台执行
 pub struct WorkflowScheduler {
     queue: Arc<Mutex<VecDeque<String>>>,
 }
@@ -16,6 +17,7 @@ impl WorkflowScheduler {
     }
 
     /// Queue a workflow instance for execution
+    /// 入队后会自动触发后台执行（若当前没有正在执行的任务）
     pub async fn schedule_execution(
         &self,
         instance_id: String,
@@ -24,6 +26,47 @@ impl WorkflowScheduler {
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(instance_id);
         Ok(())
+    }
+
+    /// v5.4.0: 启动后台任务自动 drain 队列
+    /// 应在应用初始化时调用一次，启动一个 tokio::spawn 循环
+    pub fn start_auto_drain(
+        &self,
+        engine: Arc<WorkflowEngine>,
+        app_handle: AppHandle,
+    ) {
+        let queue = self.queue.clone();
+        tauri::async_runtime::spawn(async move {
+            log::info!("[WorkflowScheduler] Auto-drain worker started");
+            loop {
+                // 每 2 秒检查一次队列
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                let instance_id = {
+                    let mut q = queue.lock().unwrap();
+                    q.pop_front()
+                };
+
+                if let Some(id) = instance_id {
+                    log::info!("[WorkflowScheduler] Auto-draining instance {}", id);
+                    let scheduler = WorkflowScheduler {
+                        queue: queue.clone(),
+                    };
+                    match scheduler.run_instance(&engine, &app_handle, &id).await {
+                        Ok(_) => {
+                            log::info!("[WorkflowScheduler] Instance {} completed", id);
+                        }
+                        Err(e) => {
+                            log::error!("[WorkflowScheduler] Instance {} failed: {}", id, e);
+                            let _ = app_handle.emit("workflow-instance-failed", serde_json::json!({
+                                "instance_id": id,
+                                "error": e.to_string(),
+                            }));
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Get the number of queued instances

@@ -123,14 +123,26 @@ impl LocalEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for LocalEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
-        // Placeholder: return random embeddings
-        // In real implementation, this would use a local model like bert-rs
-        Ok(texts.into_iter().enumerate().map(|(i, _)| Embedding {
-            id: format!("emb_{}", i),
-            vector: vec![0.0; self.dimensions],
-            dimensions: self.dimensions,
-            model: "local".to_string(),
-        }).collect())
+        // v5.4.0: 使用基于词频哈希的真实 embedding 替代零向量
+        use super::embedding::embed_text;
+        let mut embeddings = Vec::with_capacity(texts.len());
+        for (i, text) in texts.into_iter().enumerate() {
+            match embed_text(&text) {
+                Ok(vector) => embeddings.push(Embedding {
+                    id: format!("emb_{}", i),
+                    vector,
+                    dimensions: self.dimensions,
+                    model: "local".to_string(),
+                }),
+                Err(e) => {
+                    return Err(EmbeddingError {
+                        message: format!("Local embedding failed: {}", e),
+                        code: "LOCAL_EMBED_ERROR".to_string(),
+                    });
+                }
+            }
+        }
+        Ok(embeddings)
     }
 
     fn dimensions(&self) -> usize {

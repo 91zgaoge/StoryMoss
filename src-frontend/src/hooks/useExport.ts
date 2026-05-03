@@ -1,8 +1,18 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
 
 export type ExportFormat = 'markdown' | 'pdf' | 'epub' | 'html' | 'txt' | 'json';
+
+export interface ExportTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  format: string;
+  template_content: string;
+  is_builtin: boolean;
+  is_user_created: boolean;
+}
 
 export interface ExportOptions {
   story_id: string;
@@ -10,6 +20,7 @@ export interface ExportOptions {
   include_metadata?: boolean;
   include_outline?: boolean;
   include_characters?: boolean;
+  template_id?: string;
 }
 
 export interface ExportResult {
@@ -79,6 +90,43 @@ export function useExport() {
     },
     onError: (error: Error) => {
       toast.error('导出失败: ' + error.message);
+    },
+  });
+}
+
+export function useExportTemplates(formatFilter?: string) {
+  return useQuery({
+    queryKey: ['export-templates', formatFilter],
+    queryFn: async () => {
+      return invoke<ExportTemplate[]>('list_export_templates', { format_filter: formatFilter });
+    },
+  });
+}
+
+export function useSaveExportTemplate() {
+  return useMutation({
+    mutationFn: async (template: { name: string; description?: string; format: string; template_content: string }) => {
+      return invoke<ExportTemplate>('save_export_template', template);
+    },
+    onSuccess: () => {
+      toast.success('模板保存成功');
+    },
+    onError: (error: Error) => {
+      toast.error('保存模板失败: ' + error.message);
+    },
+  });
+}
+
+export function useDeleteExportTemplate() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      return invoke<void>('delete_export_template', { id });
+    },
+    onSuccess: () => {
+      toast.success('模板已删除');
+    },
+    onError: (error: Error) => {
+      toast.error('删除模板失败: ' + error.message);
     },
   });
 }

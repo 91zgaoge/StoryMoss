@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+pub mod builtin_templates;
+pub mod templates;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExportFormat {
     Markdown,
@@ -46,7 +49,22 @@ impl StoryExporter {
         characters: &[crate::db::Character],
         config: &ExportConfig,
         output_path: &Path,
+        template_content: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // If a custom template is provided, use Tera rendering for text-based formats
+        if let Some(template) = template_content {
+            match config.format {
+                ExportFormat::Pdf | ExportFormat::Epub | ExportFormat::Json => {
+                    // Binary formats don't support custom templates; fall through to default
+                }
+                _ => {
+                    let content = templates::render_template(template, story, chapters, characters, config)?;
+                    fs::write(output_path, content)?;
+                    return Ok(());
+                }
+            }
+        }
+
         match config.format {
             ExportFormat::Pdf => {
                 pdf::generate_pdf(story, chapters, characters, config, output_path)?;

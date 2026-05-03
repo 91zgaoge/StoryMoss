@@ -706,9 +706,98 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                 metadata: None,
             });
 
-            // 基于已提取的角色和场景，构建简化的知识图谱
-            // 更复杂的KG构建可以通过LLM进一步提取，但这里先用已有数据
-            let _kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(ctx.pool.clone());
+            // v5.4.0: 基于已提取的角色和场景，构建真实的知识图谱
+            let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(ctx.pool.clone());
+            let story_id = ctx.story_id.clone();
+            let mut entity_id_map: HashMap<String, String> = HashMap::new();
+
+            // 创建角色实体
+            for c in &ctx.bundle.characters {
+                let attrs = serde_json::json!({
+                    "role": c.role_type,
+                    "personality": c.personality,
+                    "background": c.background,
+                });
+                match kg_repo.create_entity(
+                    &story_id,
+                    &c.name,
+                    "Character",
+                    &attrs,
+                    None,
+                ) {
+                    Ok(entity) => {
+                        entity_id_map.insert(format!("char:{}", c.id), entity.id);
+                    }
+                    Err(e) => {
+                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create character entity for {}: {}", c.name, e);
+                    }
+                }
+            }
+
+            // 创建场景实体
+            for s in &ctx.bundle.scenes {
+                let attrs = serde_json::json!({
+                    "sequence_number": s.sequence_number,
+                    "summary": s.summary,
+                });
+                match kg_repo.create_entity(
+                    &story_id,
+                    &s.title,
+                    "Event",
+                    &attrs,
+                    None,
+                ) {
+                    Ok(entity) => {
+                        entity_id_map.insert(format!("scene:{}", s.id), entity.id);
+                    }
+                    Err(e) => {
+                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create scene entity for {}: {}", s.title, e);
+                    }
+                }
+            }
+
+            // 创建伏笔实体
+            for (idx, f) in ctx.bundle.foreshadowings.iter().enumerate() {
+                let attrs = serde_json::json!({
+                    "content": f.content,
+                    "importance": f.importance,
+                });
+                match kg_repo.create_entity(
+                    &story_id,
+                    &format!("伏笔{}", idx + 1),
+                    "PlotDevice",
+                    &attrs,
+                    None,
+                ) {
+                    Ok(entity) => {
+                        entity_id_map.insert(format!("fw:{}", idx), entity.id);
+                    }
+                    Err(e) => {
+                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create foreshadowing entity: {}", e);
+                    }
+                }
+            }
+
+            // 创建关系：角色 -> 场景 (participates_in)
+            for c in &ctx.bundle.characters {
+                for s in &ctx.bundle.scenes {
+                    let scene_text = format!("{} {}", s.title, s.summary);
+                    if scene_text.contains(&c.name) {
+                        if let (Some(char_entity), Some(scene_entity)) = (
+                            entity_id_map.get(&format!("char:{}", c.id)),
+                            entity_id_map.get(&format!("scene:{}", s.id)),
+                        ) {
+                            let _ = kg_repo.create_relation(
+                                &story_id,
+                                char_entity,
+                                scene_entity,
+                                "ParticipatesIn",
+                                0.7,
+                            );
+                        }
+                    }
+                }
+            }
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.book_id.clone(),
@@ -717,7 +806,7 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                 step_number: self.step_number(),
                 total_steps: 7,
                 status: StepStatus::Completed,
-                message: "知识图谱构建完成".to_string(),
+                message: format!("知识图谱构建完成（{} 实体）", entity_id_map.len()),
                 progress_percent: 100,
                 elapsed_seconds: 0,
                 metadata: None,

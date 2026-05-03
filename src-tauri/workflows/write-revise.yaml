@@ -1,0 +1,54 @@
+id: write-revise
+name: 写作-改写工作流
+description: 写作后根据质检结果自动改写，适合追求完美质量的场景
+nodes:
+  - id: start
+    name: 开始
+    node_type: Start
+    config:
+      parameters: {}
+    position: { x: 100, y: 100 }
+  - id: write
+    name: 撰写章节
+    node_type: WriteChapter
+    config:
+      parameters: { temperature: 0.7 }
+      timeout_seconds: 300
+      retry_count: 2
+    position: { x: 300, y: 100 }
+  - id: inspect
+    name: 质量检查
+    node_type: Inspect
+    config:
+      parameters: { check_style: true, check_continuity: true }
+      timeout_seconds: 120
+      retry_count: 1
+    position: { x: 500, y: 100 }
+  - id: revise
+    name: 自动改写
+    node_type: Revise
+    config:
+      parameters: { max_iterations: 2 }
+      timeout_seconds: 300
+      retry_count: 1
+    position: { x: 500, y: 250 }
+  - id: end
+    name: 结束
+    node_type: End
+    config:
+      parameters: {}
+    position: { x: 700, y: 100 }
+edges:
+  - id: e1
+    from_node: start
+    to_node: write
+  - id: e2
+    from_node: write
+    to_node: inspect
+  - id: e3
+    from_node: inspect
+    to_node: revise
+  - id: e4
+    from_node: revise
+    to_node: end
+created_at: "2026-05-03T00:00:00Z"

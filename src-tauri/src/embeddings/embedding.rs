@@ -249,7 +249,29 @@ pub fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::err
     texts.iter().map(|t| embed_text(t)).collect()
 }
 
+/// 异步版本：在 spawn_blocking 中执行 embed_text，避免阻塞异步运行时
+pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    tokio::task::spawn_blocking(move || {
+        embed_text(&text).map_err(|e| {
+            let msg = e.to_string();
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error + Send + Sync>
+        })
+    })
+    .await
+    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+}
 
+/// 异步版本：在 spawn_blocking 中执行 embed_entity
+pub async fn embed_entity_async(request: EntityEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    tokio::task::spawn_blocking(move || {
+        embed_entity(&request).map_err(|e| {
+            let msg = e.to_string();
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error + Send + Sync>
+        })
+    })
+    .await
+    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+}
 
 /// 生成实体嵌入
 /// 将实体名称、描述、类型、属性拼接成文本后生成嵌入

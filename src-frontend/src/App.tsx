@@ -163,6 +163,18 @@ function App() {
         }
         // v5.1.0: 简化刷新逻辑 — stories 刷新后，currentStory useEffect 会自动刷新关联数据
         queryClient.invalidateQueries({ queryKey: ['stories'] });
+        // v5.4.0: 窗口恢复时，若 currentStory 存在，同时刷新关联数据缓存
+        const { currentStory: cs } = useAppStore.getState();
+        if (cs?.id) {
+          queryClient.invalidateQueries({ queryKey: ['characters', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['scenes', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['chapters', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['world_building', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['foreshadowings', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['story-outline', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['knowledge-graph', cs.id] });
+          queryClient.invalidateQueries({ queryKey: ['character-relationships', cs.id] });
+        }
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
       } catch (e) {

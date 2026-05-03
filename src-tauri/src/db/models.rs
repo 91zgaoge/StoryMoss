@@ -154,3 +154,58 @@ pub struct AuthConfig {
     pub wechat_enabled: bool,
     pub qq_enabled: bool,
 }
+
+// ==================== Export Template Models (v5.4.0) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub format: String,
+    pub template_content: String,
+    pub is_builtin: bool,
+    pub is_user_created: bool,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateExportTemplateRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub format: String,
+    pub template_content: String,
+}
+
+// ==================== AI Operation History Models (v5.4.0) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiOperation {
+    pub id: String,
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
+    pub operation_type: String,
+    pub operation_name: String,
+    pub input_summary: Option<String>,
+    pub output_summary: Option<String>,
+    pub previous_content: Option<String>,
+    pub new_content: Option<String>,
+    pub metadata: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAiOperationRequest {
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
+    pub operation_type: String,
+    pub operation_name: String,
+    pub input_summary: Option<String>,
+    pub output_summary: Option<String>,
+    pub previous_content: Option<String>,
+    pub new_content: Option<String>,
+    pub metadata: Option<String>,
+}

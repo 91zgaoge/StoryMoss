@@ -153,6 +153,33 @@ const FrontstageApp: React.FC = () => {
     onStoryDeleted: () => {
       loadStories();
     },
+    // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
+    onSceneCreated: (storyId) => {
+      if (currentStory && storyId === currentStory.id) {
+        loadStoryScenes(storyId);
+      }
+    },
+    onSceneUpdated: (storyId) => {
+      if (currentStory && storyId === currentStory.id) {
+        loadStoryScenes(storyId);
+      }
+    },
+    onSceneDeleted: (storyId) => {
+      if (currentStory && storyId === currentStory.id) {
+        loadStoryScenes(storyId);
+      }
+    },
+    // v5.4.0: 监听 chapter 创建/删除（幕后增删章节后同步幕前列表）
+    onChapterCreated: (storyId) => {
+      if (currentStory && storyId === currentStory.id) {
+        loadStoryChapters(storyId);
+      }
+    },
+    onChapterDeleted: () => {
+      if (currentStory) {
+        loadStoryChapters(currentStory.id);
+      }
+    },
     // v5.2.0: 监听 chapter 更新（幕后修改后同步到幕前）
     onChapterUpdated: (chapterId, title) => {
       if (currentChapter && chapterId === currentChapter.id) {
@@ -439,6 +466,24 @@ const FrontstageApp: React.FC = () => {
         }
       });
 
+      // 监听 novel-bootstrap-error 事件（后台阶段错误可见化）
+      await listen<{
+        step: string;
+        story_id: string;
+        error: string;
+      }>('novel-bootstrap-error', (event) => {
+        const p = event.payload;
+        console.error('[novel-bootstrap-error]', p.step, p.error);
+        toast.error(`后台完善失败（${p.step}）: ${p.error}`, { duration: 5000 });
+        setGenerationStatus('');
+        setBootstrapProgress(null);
+        if (activeToastIdRef.current) {
+          toast.dismiss(activeToastIdRef.current);
+          activeToastIdRef.current = null;
+          currentToastPhaseRef.current = null;
+        }
+      });
+
       // 监听 novel-bootstrap-progress 事件
       await listen<{
         session_id: string;
@@ -457,8 +502,9 @@ const FrontstageApp: React.FC = () => {
         });
         setGenerationStatus(p.message);
         updateToastPhase(p.step_name);
-        // v5.2.2: 区分即时阶段完成和后台阶段完成
-        if (p.step_name === '撰写开篇' && p.step_number >= p.total_steps) {
+        // v5.2.2 / v5.4.0: 区分即时阶段完成和后台阶段完成
+        // GenesisPipeline 即时阶段 total_steps=2，后台阶段 total_steps=6
+        if (p.total_steps === 2 && p.step_number >= p.total_steps) {
           // 即时阶段完成：正文已生成，用户可开始写作
           setTimeout(() => {
             setBootstrapProgress(null);
@@ -469,8 +515,8 @@ const FrontstageApp: React.FC = () => {
               currentToastPhaseRef.current = '后台正在完善小说世界...';
             }
           }, 2000);
-        } else if (p.step_name === '后台完善' && p.step_number >= p.total_steps) {
-          // 后台阶段全部完成
+        } else if (p.total_steps === 6 && p.step_number >= p.total_steps) {
+          // 后台阶段全部完成（GenesisPipeline 最后一步：知识图谱生成）
           toast.success('创世完成！世界观、角色、场景、伏笔已全部生成');
           activeToastIdRef.current = null;
           currentToastPhaseRef.current = null;
@@ -599,6 +645,26 @@ const FrontstageApp: React.FC = () => {
       }
     } catch (e) {
       console.error('Failed to load stories:', e);
+    }
+  };
+
+  // v5.4.0: 刷新当前故事的 scenes 列表（用于 sync-event 回调）
+  const loadStoryScenes = async (storyId: string) => {
+    try {
+      const result = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+      setScenes(result);
+    } catch (e) {
+      console.error('Failed to load scenes:', e);
+    }
+  };
+
+  // v5.4.0: 刷新当前故事的 chapters 列表（用于 sync-event 回调）
+  const loadStoryChapters = async (storyId: string) => {
+    try {
+      const result = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+      setChapters(result);
+    } catch (e) {
+      console.error('Failed to load chapters:', e);
     }
   };
 
@@ -893,16 +959,30 @@ const FrontstageApp: React.FC = () => {
 
   // 取消生成引用
   const cancelGenerationRef = useRef<(() => void) | null>(null);
+  // v5.4.0: 保存 GenesisPipeline session_id，用于取消后台任务
+  const sessionIdRef = useRef<string | null>(null);
 
   // 取消当前生成
-  const handleCancelGeneration = useCallback(() => {
+  const handleCancelGeneration = useCallback(async () => {
     if (cancelGenerationRef.current) {
       cancelGenerationRef.current();
       cancelGenerationRef.current = null;
     }
+    // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
+    if (sessionIdRef.current) {
+      try {
+        await invoke('cancel_genesis_pipeline', { session_id: sessionIdRef.current });
+        toast('已取消生成并通知后端停止后台任务');
+      } catch (e) {
+        console.error('Failed to cancel genesis pipeline:', e);
+        toast('已取消生成');
+      }
+      sessionIdRef.current = null;
+    } else {
+      toast('已取消生成');
+    }
     setIsGenerating(false);
     setGenerationStatus('');
-    toast('已取消生成');
   }, []);
 
   // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
@@ -996,6 +1076,11 @@ const FrontstageApp: React.FC = () => {
       // If a new story was created, refresh the story list
       if (result.messages.some(m => m.includes('story_created'))) {
         loadStories();
+      }
+      // v5.4.0: 保存 session_id 用于取消后台任务
+      const sessionIdMsg = result.messages.find(m => m.startsWith('session_id:'));
+      if (sessionIdMsg) {
+        sessionIdRef.current = sessionIdMsg.replace('session_id:', '');
       }
     } catch (e: any) {
       if (timeoutId) clearTimeout(timeoutId);

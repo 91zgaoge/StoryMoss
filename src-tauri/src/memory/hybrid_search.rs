@@ -4,7 +4,7 @@
 //! 使用 RRF (Reciprocal Rank Fusion) 融合排序
 
 use crate::db::models_v3::Entity;
-use crate::embeddings::embedding::embed_text;
+use crate::embeddings::embedding::embed_text_async;
 use crate::vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -202,7 +202,8 @@ impl HybridSearch {
         let bm25_results = self.bm25.search(query, self.config.top_k_per_route);
 
         // 2. 向量搜索
-        let query_embedding = embed_text(query)?;
+        let query_embedding = embed_text_async(query.to_string()).await
+            .map_err(|e| format!("嵌入失败: {}", e))?;
         let vector_results = vector_store
             .search(story_id, query_embedding, self.config.top_k_per_route)
             .await?;
@@ -301,7 +302,7 @@ impl EntityHybridSearch {
             .collect();
 
         // 2. 向量相似度（如果查询可以嵌入）
-        let query_embedding = match embed_text(query) {
+        let query_embedding: Option<Vec<f32>> = match embed_text_async(query.to_string()).await {
             Ok(emb) => Some(emb),
             Err(_) => None,
         };

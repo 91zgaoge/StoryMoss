@@ -502,23 +502,13 @@ impl NovelBootstrapWorkflow {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let outline = repo.create(
+        let _outline = repo.create(
             story_id,
             &content_summary,
             Some(&structure_json),
             outline_data.acts.len() as i32,
             Some(total_scenes),
         ).map_err(|e| e.to_string())?;
-
-        // 发射卡片创建事件
-        let card_event = serde_json::json!({
-            "session_id": session_id,
-            "card_type": "outline",
-            "card_id": outline.id,
-            "card_name": "故事大纲",
-            "story_id": story_id,
-        });
-        let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
 
         Ok(outline_data)
     }
@@ -597,16 +587,6 @@ impl NovelBootstrapWorkflow {
             }).map_err(|e| e.to_string())?;
 
             name_to_id.insert(c.name.clone(), character.id.clone());
-
-            // 发射卡片创建事件
-            let card_event = serde_json::json!({
-                "session_id": session_id,
-                "card_type": "character",
-                "card_id": character.id,
-                "card_name": c.name,
-                "story_id": story_id,
-            });
-            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
 
             generated.push(GeneratedCharacter {
                 id: character.id,
@@ -741,16 +721,6 @@ impl NovelBootstrapWorkflow {
             };
             let _ = repo.update(&scene.id, &updates);
 
-            // 发射卡片创建事件
-            let card_event = serde_json::json!({
-                "session_id": session_id,
-                "card_type": "scene",
-                "card_id": scene.id,
-                "card_name": s.title,
-                "story_id": story_id,
-            });
-            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
-
             generated.push(GeneratedScene {
                 id: scene.id.clone(),
                 sequence_number: s.sequence_number,
@@ -852,7 +822,7 @@ impl NovelBootstrapWorkflow {
     async fn generate_foreshadowing(
         &self,
         story_id: &str,
-        session_id: &str,
+        _session_id: &str,
         concept: &StoryConcept,
         outline: &StoryOutlineData,
         first_scene_id: Option<&str>,
@@ -914,27 +884,12 @@ impl NovelBootstrapWorkflow {
 
         for (idx, fw) in fw_data.foreshadowings.into_iter().enumerate() {
             let setup_scene = if idx == 0 { first_scene_id } else { None };
-            let id = tracker.add_foreshadowing(
+            let _id = tracker.add_foreshadowing(
                 story_id,
                 &fw.content,
                 setup_scene,
                 fw.importance,
             ).map_err(|e| format!("保存伏笔失败: {}", e))?;
-
-            // 发射卡片创建事件
-            let card_name = if fw.content.chars().count() > 20 {
-                format!("{}...", fw.content.chars().take(20).collect::<String>())
-            } else {
-                fw.content.clone()
-            };
-            let card_event = serde_json::json!({
-                "session_id": session_id,
-                "card_type": "foreshadowing",
-                "card_id": id,
-                "card_name": card_name,
-                "story_id": story_id,
-            });
-            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
 
             generated.push(fw);
         }

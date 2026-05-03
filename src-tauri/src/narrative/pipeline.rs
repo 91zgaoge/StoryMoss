@@ -8,6 +8,44 @@ use super::progress::PipelineProgressEvent;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// 全局 Pipeline 取消标志注册表
+/// key: session_id, value: 取消标志
+static PIPELINE_CANCEL_FLAGS: Mutex<Option<HashMap<String, Arc<AtomicBool>>>> = Mutex::new(None);
+
+/// 注册一个 Pipeline 的取消标志，返回 Arc<AtomicBool>
+pub fn register_pipeline_cancel(session_id: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let mut guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(HashMap::new());
+    }
+    guard.as_mut().unwrap().insert(session_id.to_string(), flag.clone());
+    flag
+}
+
+/// 请求取消指定 session_id 的 Pipeline
+pub fn cancel_pipeline(session_id: &str) -> bool {
+    let guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    if let Some(ref flags) = *guard {
+        if let Some(flag) = flags.get(session_id) {
+            flag.store(true, Ordering::Relaxed);
+            return true;
+        }
+    }
+    false
+}
+
+/// 清理已完成的 Pipeline 取消标志
+pub fn unregister_pipeline_cancel(session_id: &str) {
+    let mut guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    if let Some(ref mut flags) = *guard {
+        flags.remove(session_id);
+    }
+}
 
 /// 流水线错误
 #[derive(Debug, Clone)]
@@ -74,18 +112,26 @@ pub trait PipelineStep<Context: StepContext + Send>: Send + Sync {
 pub struct NarrativePipelineExecutor<Context: StepContext + Send> {
     steps: Vec<Box<dyn PipelineStep<Context>>>,
     total_steps: usize,
+    cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
     pub fn new(steps: Vec<Box<dyn PipelineStep<Context>>>) -> Self {
         let total = steps.len();
-        Self { steps, total_steps: total }
+        Self { steps, total_steps: total, cancel_flag: None }
+    }
+
+    /// 设置取消标志
+    pub fn with_cancel_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.cancel_flag = Some(flag);
+        self
     }
 
     /// 执行流水线
     ///
     /// 按顺序执行所有步骤，每个步骤完成后更新进度。
     /// 如果某个步骤失败，可以选择继续（跳过）或中断。
+    /// v5.4.0: 支持取消机制
     pub async fn execute(
         &self,
         ctx: &mut Context,
@@ -97,6 +143,26 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
         for (idx, step) in self.steps.iter().enumerate() {
             let step_num = idx + 1;
             ctx.set_current_step(step.name());
+
+            // v5.4.0: 检查取消标志
+            if let Some(ref flag) = self.cancel_flag {
+                if flag.load(Ordering::Relaxed) {
+                    log::info!("[NarrativePipeline] Pipeline 已取消，中断执行");
+                    progress_callback(PipelineProgressEvent {
+                        pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
+                        pipeline_type: super::progress::PipelineType::Genesis,
+                        step_name: step.name().to_string(),
+                        step_number: step_num,
+                        total_steps: self.total_steps,
+                        status: super::progress::StepStatus::Cancelled,
+                        message: "已取消".to_string(),
+                        progress_percent: (step_num * 100 / self.total_steps.max(1)) as i32,
+                        elapsed_seconds: 0,
+                        metadata: Some(serde_json::json!({"cancelled": true})),
+                    });
+                    return Err(PipelineError::Cancelled("用户取消".to_string()));
+                }
+            }
 
             // 报告步骤开始
             progress_callback(PipelineProgressEvent {
