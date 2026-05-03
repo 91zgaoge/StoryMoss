@@ -70,9 +70,9 @@ const KEYS = {
   sceneDetail: (sceneId?: string) => ['scenes', 'detail', sceneId],
   chapters: (storyId?: string) => storyId ? ['chapters', storyId] : ['chapters'],
   chapterDetail: (chapterId?: string) => ['chapters', 'detail', chapterId],
-  worldBuilding: (storyId?: string) => storyId ? ['world-building', storyId] : ['world-building'],
+  worldBuilding: (storyId?: string) => storyId ? ['world_building', storyId] : ['world_building'],
   foreshadowings: (storyId?: string) => storyId ? ['foreshadowings', storyId] : ['foreshadowings'],
-  storyOutlines: (storyId?: string) => storyId ? ['story-outlines', storyId] : ['story-outlines'],
+  storyOutlines: (storyId?: string) => storyId ? ['story-outline', storyId] : ['story-outline'],
   knowledgeGraph: (storyId?: string) => storyId ? ['knowledge-graph', storyId] : ['knowledge-graph'],
   characterRelationships: (storyId?: string) => storyId ? ['character-relationships', storyId] : ['character-relationships'],
 };

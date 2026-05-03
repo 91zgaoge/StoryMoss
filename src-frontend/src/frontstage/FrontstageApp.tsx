@@ -975,12 +975,13 @@ const FrontstageApp: React.FC = () => {
       // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
       const hasContent = result.final_content && result.final_content.trim().length > 0;
       if (hasContent) {
-        setGeneratedText(result.final_content!);
-        // v5.2.2: 区分Bootstrap即时完成和后台完善
+        // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
+        // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
         const isBootstrapCompleted = result.messages.some(m => m.includes('novel_bootstrap'));
         if (isBootstrapCompleted) {
           toast.success('小说已创建！第一章已生成，您可以开始写作了');
         } else {
+          setGeneratedText(result.final_content!);
           toast.success('创作完成！');
         }
       } else if (!result.success) {

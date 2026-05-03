@@ -21,5 +21,4 @@
 pub mod events;
 pub mod service;
 
-pub use events::SyncEvent;
 pub use service::StateSync;
