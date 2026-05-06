@@ -392,6 +392,14 @@ impl AgentService {
                         "[execute_writer_raw] Removed duplicate prefix (len={}) from LLM output, remaining len={}",
                         current_trimmed.len(), content.len()
                     );
+                    // v5.4.1 修复：截断后检查内容是否为空
+                    if content.trim().is_empty() {
+                        log::error!(
+                            "[AgentService::execute_writer_raw] Content became empty after prefix removal. story_id={}, chapter_number={}",
+                            task.context.story_id, task.context.chapter_number
+                        );
+                        return Err("AI 返回的内容与已有文本完全重复，请重试".to_string());
+                    }
                 }
             }
         }

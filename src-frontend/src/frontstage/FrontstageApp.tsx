@@ -731,6 +731,11 @@ const FrontstageApp: React.FC = () => {
   };
 
   const selectChapter = (chapter: Chapter) => {
+    frontstageLogger.info('[selectChapter] Selecting chapter', {
+      chapter_id: chapter.id,
+      content_length: chapter.content?.length ?? 0,
+      content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY'
+    });
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
@@ -1147,15 +1152,22 @@ const FrontstageApp: React.FC = () => {
             if (targetStory) {
               const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
               const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+              const firstChapter = storyChapters[0];
               frontstageLogger.info('[SmartGeneration] Loaded new story', {
                 story_id: storyId,
                 chapter_count: storyChapters.length,
-                first_chapter_has_content: !!(storyChapters[0]?.content)
+                first_chapter_id: firstChapter?.id,
+                first_chapter_content_length: firstChapter?.content?.length ?? 0,
+                first_chapter_content_preview: firstChapter?.content?.slice(0, 100) ?? 'EMPTY'
               });
               setCurrentStory(targetStory);
               setChapters(storyChapters);
               setScenes(storyScenes);
               if (storyChapters.length > 0) {
+                frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
+                  chapter_id: storyChapters[0].id,
+                  content_length: storyChapters[0].content?.length ?? 0
+                });
                 selectChapter(storyChapters[0]);
               }
             } else {
@@ -1190,7 +1202,13 @@ const FrontstageApp: React.FC = () => {
       activeToastIdRef.current = null;
       currentToastPhaseRef.current = null;
       setIsGenerating(false);
-      setGenerationStatus('');
+      // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
+      // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
+      if (isBootstrap) {
+        setGenerationStatus('后台正在完善小说世界...');
+      } else {
+        setGenerationStatus('');
+      }
     }
   }, [isGenerating]);
 

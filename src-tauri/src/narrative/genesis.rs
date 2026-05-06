@@ -260,6 +260,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 
             // 保存到 Chapter
             let chapter_repo = ChapterRepository::new(ctx.pool.clone());
+            let content_len = result.content.chars().count();
+            tracing::info!("[FirstChapterGenerationStep] Saving chapter: story_id={}, content_len={}", ctx.story_id, content_len);
             let chapter = chapter_repo.create(crate::db::CreateChapterRequest {
                 story_id: ctx.story_id.clone(),
                 chapter_number: 1,
@@ -267,6 +269,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 outline: None,
                 content: Some(result.content.clone()),
             }).map_err(|e| PipelineError::StorageError(e.to_string()))?;
+            tracing::info!("[FirstChapterGenerationStep] Chapter saved: chapter_id={}, chapter_content_len={}", chapter.id, chapter.content.as_ref().map(|c| c.chars().count()).unwrap_or(0));
 
             // 发送 ChapterSwitch 事件
             match crate::window::WindowManager::send_to_frontstage(
