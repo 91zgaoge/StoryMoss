@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v5.3.1
+- **版本**: v5.4.1
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -148,6 +148,13 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.4.1 Bootstrap 编辑器内容丢失修复** (2026-05-07) — 修复创世流程"小说已创建但编辑器无文字"的竞态条件问题
+  - `FrontstageEvent::ChapterSwitch` 新增 `content` 字段，后端直接传递生成内容
+  - 前端优先使用事件中的 `payload.content`，绕过 DB 查询竞态
+  - `chaptersRef` 为空时自动重新查询数据库
+  - `final_content` 兜底机制
+  - `loadStories` 在生成期间禁止自动 `selectStory`
+  - **编译**: `cargo check` 零错误，`npm run build` 通过
 - **v5.4.0 向量检索语义化 + QueryPipeline 端到端集成** (2026-05-04) — 从关键词匹配到语义理解的检索升级
   - **OllamaEmbeddingAdapter**: 新增 `embeddings/provider.rs` 中 `OllamaEmbeddingProvider`，支持通过 Ollama API（`nomic-embed-text` / `all-minilm` / `mxbai-embed-large`）获取真实语义嵌入
   - **全局语义嵌入路由**: `embeddings/embedding.rs` 中 `embed_text_async()` 优先查询全局 `EmbeddingProvider`（Ollama/OpenAI），失败 graceful fallback 到本地 FNV-1a 哈希；全局 provider 使用 `tokio::sync::Mutex` 保证跨 async 边界 `Send` 安全
@@ -518,7 +525,7 @@ npm test
 
 ---
 
-*最后更新: 2026-05-03 - v5.3.1 Bootstrap体验修复 + 幕后数据刷新*
+*最后更新: 2026-05-07 - v5.4.1 Bootstrap编辑器内容丢失修复*
 
 - **v5.3.0 叙事元素模型重构** (2026-05-02) — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构
   - **统一数据模型**: 新建 `narrative/` 模块 — `CharacterElement/SceneElement` 等 + `ElementSource` 枚举区分 Generated/Extracted/UserCreated/Imported

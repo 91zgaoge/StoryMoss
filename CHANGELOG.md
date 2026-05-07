@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.4.1] - Bootstrap 编辑器内容丢失修复（2026-05-07）
+
+### 🐛 Bug修复
+
+#### 创世流程编辑器内容丢失
+- **根因**：`ConceptGenerationStep` 创建 Story 后发射 `storyCreated` 事件 → `useSyncStore` 调用 `loadStories()` → `selectStory()` → `get_story_chapters` 返回空列表（此时 `FirstChapterGenerationStep` 尚未执行）→ `setContent('')` 清空编辑器。随后 `ChapterSwitch` 事件到达时，`currentStory` 已设置走 `else` 分支，但 `chaptersRef` 为空数组找不到 chapter，不调用 `selectChapter`
+- **修复1**：`FrontstageEvent::ChapterSwitch` 新增 `content` 字段，`FirstChapterGenerationStep` 直接通过事件传递生成内容到前端
+- **修复2**：前端 `ChapterSwitch` 事件处理优先使用 `payload.content`，绕过 DB 查询竞态
+- **修复3**：`chaptersRef` 为空时自动重新查询数据库获取最新章节
+- **修复4**：`smartExecute` 返回后增加 `final_content` 兜底机制
+- **修复5**：`loadStories` 在 `isGenerating=true` 时禁止自动 `selectStory`
+- **文件**：`src-tauri/src/window/mod.rs`, `src-tauri/src/narrative/genesis.rs`, `src-frontend/src/frontstage/FrontstageApp.tsx`, `src-tauri/src/agents/commands.rs`
+
 ## [v5.3.1] - Bootstrap体验修复 + 幕后数据刷新（2026-05-03）
 
 ### 🐛 Bug修复

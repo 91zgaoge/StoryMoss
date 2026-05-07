@@ -1,6 +1,6 @@
 {
   "name": "v2-rust",
-  "version": "5.3.1",
+  "version": "5.4.1",
   "description": "> 🌿 越写越懂的创作系�? AI 辅助小说创作桌面应用",
   "main": "index.js",
   "directories": {
