@@ -49,13 +49,7 @@ impl NarrativeCharacterRepository {
              FROM narrative_characters WHERE story_id = ?1 ORDER BY importance_score DESC"
         )?;
 
-        let rows = stmt.query_map([story_id], |row| {
-            // P0-1 修复: narrative_characters 表没有 relationships 列，
-            // 原代码错误地从 source_ref_id(列12) 解析 JSON，可能导致数据损坏。
-            // relationships 数据存储在 character_relationships 表中。
-            // TODO: 未来从 character_relationships 表二次查询以填充 relationships。
-            let relationships: Vec<CharacterRelationship> = Vec::new();
-
+        let mut characters: Vec<CharacterElement> = stmt.query_map([story_id], |row| {
             Ok(CharacterElement {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
@@ -72,11 +66,29 @@ impl NarrativeCharacterRepository {
                 importance_score: row.get(10)?,
                 source: parse_source(&row.get::<_, String>(11).unwrap_or_default()),
                 source_ref_id: row.get(12)?,
-                relationships,
+                relationships: Vec::new(),
             })
-        })?;
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-        rows.collect()
+        // P0-3 修复: 从 character_relationships 表二次查询填充 relationships
+        for character in &mut characters {
+            let mut rel_stmt = conn.prepare(
+                "SELECT cr.relationship_type, cr.description, c.name as target_name
+                 FROM character_relationships cr
+                 LEFT JOIN characters c ON cr.target_character_id = c.id
+                 WHERE cr.source_character_id = ?1"
+            )?;
+            let rel_rows = rel_stmt.query_map([&character.id], |row| {
+                Ok(CharacterRelationship {
+                    relation_type: row.get(0)?,
+                    description: row.get(1)?,
+                    target_name: row.get(2)?,
+                })
+            })?;
+            character.relationships = rel_rows.collect::<Result<Vec<_>, _>>()?;
+        }
+
+        Ok(characters)
     }
 
     pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {

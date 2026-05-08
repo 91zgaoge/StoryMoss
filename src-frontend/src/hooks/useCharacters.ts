@@ -57,7 +57,6 @@ export function useUpdateCharacter() {
       updateCharacter(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
-      notifyFrontstageDataRefresh('characters').catch(() => {});
       toast.success('角色更新成功');
     },
     onError: (error: Error) => {
@@ -73,7 +72,6 @@ export function useDeleteCharacter() {
     mutationFn: deleteCharacter,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
-      notifyFrontstageDataRefresh('characters').catch(() => {});
       toast.success('角色已删除');
     },
     onError: (error: Error) => {

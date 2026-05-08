@@ -1,5 +1,5 @@
 use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus, WorkflowEngine, NodeType};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
@@ -7,12 +7,15 @@ use tauri::{AppHandle, Emitter};
 /// v5.4.0: 新增自动 drain 机制，任务入队后自动在后台执行
 pub struct WorkflowScheduler {
     queue: Arc<Mutex<VecDeque<String>>>,
+    /// P2-17 修复: 正在执行的实例集合，防止并发执行
+    running_instances: Arc<Mutex<HashSet<String>>>,
 }
 
 impl WorkflowScheduler {
     pub fn new() -> Self {
         Self {
             queue: Arc::new(Mutex::new(VecDeque::new())),
+            running_instances: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -36,6 +39,7 @@ impl WorkflowScheduler {
         app_handle: AppHandle,
     ) {
         let queue = self.queue.clone();
+        let running = self.running_instances.clone();
         tauri::async_runtime::spawn(async move {
             log::info!("[WorkflowScheduler] Auto-drain worker started");
             loop {
@@ -48,9 +52,20 @@ impl WorkflowScheduler {
                 };
 
                 if let Some(id) = instance_id {
+                    // P2-17 修复: 检查实例是否正在执行
+                    {
+                        let mut running_set = running.lock().unwrap();
+                        if running_set.contains(&id) {
+                            log::warn!("[WorkflowScheduler] Instance {} is already running, skipping auto-drain", id);
+                            continue;
+                        }
+                        running_set.insert(id.clone());
+                    }
+
                     log::info!("[WorkflowScheduler] Auto-draining instance {}", id);
                     let scheduler = WorkflowScheduler {
                         queue: queue.clone(),
+                        running_instances: running.clone(),
                     };
                     match scheduler.run_instance(&engine, &app_handle, &id).await {
                         Ok(_) => {
@@ -64,6 +79,10 @@ impl WorkflowScheduler {
                             }));
                         }
                     }
+
+                    // 释放执行标记
+                    let mut running_set = running.lock().unwrap();
+                    running_set.remove(&id);
                 }
             }
         });
@@ -88,10 +107,26 @@ impl WorkflowScheduler {
             queue.pop_front()?
         };
 
-        match self.run_instance(engine, app_handle, &instance_id).await {
-            Ok(_) => Some(Ok(instance_id)),
-            Err(e) => Some(Err(format!("Instance {} failed: {}", instance_id, e))),
+        // P2-17 修复: 检查实例是否正在执行
+        {
+            let mut running = self.running_instances.lock().unwrap();
+            if running.contains(&instance_id) {
+                log::warn!("[WorkflowScheduler] Instance {} is already running, skipping execute_next", instance_id);
+                return Some(Err(format!("Instance {} is already running", instance_id)));
+            }
+            running.insert(instance_id.clone());
         }
+
+        let result = match self.run_instance(engine, app_handle, &instance_id).await {
+            Ok(_) => Some(Ok(instance_id.clone())),
+            Err(e) => Some(Err(format!("Instance {} failed: {}", instance_id, e))),
+        };
+
+        // 释放执行标记
+        let mut running = self.running_instances.lock().unwrap();
+        running.remove(&instance_id);
+
+        result
     }
 
     /// Run a single workflow instance to completion (serial node execution)
@@ -167,8 +202,16 @@ impl WorkflowScheduler {
                 let app_handle_clone = app_handle.clone();
                 let scheduler_ref = self;
                 let instance_clone = instance.clone();
+                let timeout_secs = node.config.timeout_seconds.unwrap_or(300);
                 node_futures.push(async move {
-                    let result = scheduler_ref.execute_node(node, &instance_clone, &app_handle_clone).await;
+                    // P1-10 修复: 节点执行包装 timeout
+                    let result = match tokio::time::timeout(
+                        std::time::Duration::from_secs(timeout_secs),
+                        scheduler_ref.execute_node(node, &instance_clone, &app_handle_clone)
+                    ).await {
+                        Ok(res) => res,
+                        Err(_) => Err(format!("节点执行超时 ({} 秒)", timeout_secs)),
+                    };
                     (node.id.clone(), node.name.clone(), result)
                 });
             }
@@ -192,11 +235,17 @@ impl WorkflowScheduler {
                     Err(e) => {
                         self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Failed, None, Some(e.clone()));
                         // P1-11 修复: 失败时自动重试（最多 3 次）
+                        // P2-18 修复: 重置失败节点状态为 Pending，以便重试时重新执行
                         const MAX_RETRIES: u32 = 3;
                         let current_retries = instance.retry_count.unwrap_or(0);
                         if current_retries < MAX_RETRIES {
                             instance.retry_count = Some(current_retries + 1);
                             instance.status = WorkflowStatus::Pending;
+                            // 重置失败节点为 Pending，保留已完成节点
+                            if let Some(state) = instance.node_states.get_mut(&node_id) {
+                                state.status = NodeExecutionStatus::Pending;
+                                state.error = None;
+                            }
                             engine.update_instance(&instance);
                             // 重新入队
                             {
@@ -464,16 +513,26 @@ impl WorkflowScheduler {
                 }
             }
 
-            // Check if all dependencies are completed
-            let dependencies: Vec<String> = workflow_edges
+            // P0-5 修复: 检查所有入边的前驱节点已完成，且边条件满足
+            let incoming_edges: Vec<&super::WorkflowEdge> = workflow_edges
                 .iter()
                 .filter(|e| e.to_node == node.id)
-                .map(|e| e.from_node.clone())
                 .collect();
 
-            let all_deps_completed = dependencies.iter().all(|dep| completed.contains(dep));
+            let all_deps_satisfied = incoming_edges.iter().all(|edge| {
+                // 前驱节点必须已完成
+                if !completed.contains(&edge.from_node) {
+                    return false;
+                }
+                // 如果有 condition，必须满足
+                if let Some(condition) = &edge.condition {
+                    condition.evaluate(&instance.context.variables)
+                } else {
+                    true
+                }
+            });
 
-            if all_deps_completed || dependencies.is_empty() {
+            if all_deps_satisfied || incoming_edges.is_empty() {
                 next_nodes.push(node.id.clone());
             }
         }

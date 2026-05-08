@@ -10,7 +10,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use crate::collab::ot::TextOperation;
+use crate::collab::ot::{TextOperation, OTTransformer};
 use crate::db::DbPool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,8 +108,15 @@ impl CollabSession {
     }
 
     pub async fn get_current_document(&self) -> (String, u64) {
+        let operations = self.operations.read().await;
         let version = *self.version.read().await;
-        (String::new(), version)
+        let mut text = String::new();
+        for op in operations.iter() {
+            if let Ok(new_text) = OTTransformer::apply(&text, op) {
+                text = new_text;
+            }
+        }
+        (text, version)
     }
 }
 

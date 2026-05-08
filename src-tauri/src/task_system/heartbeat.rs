@@ -126,38 +126,48 @@ impl HeartbeatMonitor {
                     task.last_heartbeat_at
                 );
 
-                // 标记为失败
-                repo.update_status(
-                    &task.id,
-                    &TaskStatus::Failed,
-                    Some(task.progress),
-                    None,
-                    Some("心跳超时：任务执行过程中失去响应".to_string()),
-                )?;
-
-                // 记录日志
-                repo.create_log(
-                    &task.id,
-                    "error",
-                    &format!(
-                        "心跳超时检测：任务失去响应超过 {} 秒，自动标记为失败。",
-                        timeout_secs
-                    ),
-                )?;
-
-                // 检查是否需要重试
+                // P0-6 修复: 超时后若可重试，将状态改回 Pending 并安排重试
                 if task.retry_count < task.max_retries {
+                    let new_retry = task.retry_count + 1;
+                    // 指数退避: 每次重试等待 30 * 2^(retry_count) 秒
+                    let backoff_secs = 30u64 * (2u64.pow(new_retry as u32));
+                    let next_run = (Local::now() + chrono::Duration::seconds(backoff_secs as i64)).to_rfc3339();
+                    
+                    repo.update_status(
+                        &task.id,
+                        &TaskStatus::Pending,
+                        Some(task.progress),
+                        None,
+                        Some(format!("心跳超时，准备重试 ({}/{})", new_retry, task.max_retries)),
+                    )?;
+                    repo.update_next_run_at(&task.id, Some(&next_run))?;
                     repo.increment_retry(&task.id)?;
+                    
                     log::info!(
-                        "[HeartbeatMonitor] Task {} will be retried ({}/{})",
-                        task.id,
-                        task.retry_count + 1,
-                        task.max_retries
+                        "[HeartbeatMonitor] Task {} rescheduled for retry ({}/{}), backoff={}s",
+                        task.id, new_retry, task.max_retries, backoff_secs
                     );
                     repo.create_log(
                         &task.id,
                         "info",
-                        &format!("准备重试 ({}/{})", task.retry_count + 1, task.max_retries),
+                        &format!("心跳超时，已安排重试 ({}/{}), 退避 {} 秒", new_retry, task.max_retries, backoff_secs),
+                    )?;
+                } else {
+                    // 超过最大重试次数，标记为失败
+                    repo.update_status(
+                        &task.id,
+                        &TaskStatus::Failed,
+                        Some(task.progress),
+                        None,
+                        Some("心跳超时：任务执行过程中失去响应，且已超过最大重试次数".to_string()),
+                    )?;
+                    repo.create_log(
+                        &task.id,
+                        "error",
+                        &format!(
+                            "心跳超时检测：任务失去响应超过 {} 秒，自动标记为失败（重试已耗尽）。",
+                            timeout_secs
+                        ),
                     )?;
                 }
             }

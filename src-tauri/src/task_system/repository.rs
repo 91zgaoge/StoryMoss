@@ -297,6 +297,16 @@ impl TaskRepository {
         Ok(())
     }
 
+    pub fn update_next_run_at(&self, id: &str, next_run_at: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE tasks SET next_run_at = ?1, updated_at = ?2 WHERE id = ?3",
+            params![next_run_at, &now, id],
+        )?;
+        Ok(())
+    }
+
     pub fn update_heartbeat(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let conn = self.pool.get()?;
         let now = Local::now().to_rfc3339();

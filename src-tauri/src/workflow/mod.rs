@@ -77,6 +77,75 @@ pub enum ConditionOperator {
     Eq, Neq, Gt, Gte, Lt, Lte, Contains, NotContains,
 }
 
+impl EdgeCondition {
+    /// Evaluate this condition against workflow context variables.
+    pub fn evaluate(&self, variables: &HashMap<String, serde_json::Value>) -> bool {
+        let field_value = variables.get(&self.field);
+        match self.operator {
+            ConditionOperator::Eq => {
+                field_value.map(|v| v == &self.value).unwrap_or(false)
+            }
+            ConditionOperator::Neq => {
+                field_value.map(|v| v != &self.value).unwrap_or(true)
+            }
+            ConditionOperator::Gt => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
+                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a > b).unwrap_or(false)
+                    }
+                    _ => false,
+                }
+            }
+            ConditionOperator::Gte => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
+                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a >= b).unwrap_or(false)
+                    }
+                    _ => false,
+                }
+            }
+            ConditionOperator::Lt => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
+                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a < b).unwrap_or(false)
+                    }
+                    _ => false,
+                }
+            }
+            ConditionOperator::Lte => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
+                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a <= b).unwrap_or(false)
+                    }
+                    _ => false,
+                }
+            }
+            ConditionOperator::Contains => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
+                        a.contains(b)
+                    }
+                    (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
+                        a.iter().any(|v| v.as_str() == Some(b))
+                    }
+                    _ => false,
+                }
+            }
+            ConditionOperator::NotContains => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
+                        !a.contains(b)
+                    }
+                    (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
+                        !a.iter().any(|v| v.as_str() == Some(b))
+                    }
+                    _ => true,
+                }
+            }
+        }
+    }
+}
+
 /// Workflow execution instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowInstance {

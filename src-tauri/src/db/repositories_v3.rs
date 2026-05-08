@@ -296,8 +296,12 @@ impl SceneRepository {
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let count = conn.execute("DELETE FROM scenes WHERE id = ?1", [id])?;
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        // P0-1 修复: 清理关联 Chapter 的 scene_id，避免孤儿外键
+        tx.execute("UPDATE chapters SET scene_id = NULL WHERE scene_id = ?1", [id])?;
+        let count = tx.execute("DELETE FROM scenes WHERE id = ?1", [id])?;
+        tx.commit()?;
         Ok(count)
     }
 

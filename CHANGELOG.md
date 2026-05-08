@@ -2,6 +2,47 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.0] - 设计-实现对齐全面修复 v3（2026-05-08）
+
+### 🔴 P0 致命差距修复
+
+#### 数据一致性
+- **Scene 删除外键悬空** — `SceneRepository::delete` 删除前未清理 `chapters.scene_id` 外键，导致 chapter 指向已删除 scene。修复：删除 scene 前 `UPDATE chapters SET scene_id = NULL WHERE scene_id = ?`
+- **Wizard 创建后前端不刷新** — `create_story_with_wizard` 完成所有步骤后未发射同步事件，前端 Stories 列表不显示新故事。修复：流程结束时发射 `story_created` + `data_refresh("all")` 双重事件
+- **CharacterElement relationships 硬编码空数组** — `NarrativeCharacterRepository::get_by_story` 返回 `relationships: Vec::new()`，角色关系卡片始终为空。修复：二次查询 `character_relationships` 表，按 `source_character_id` JOIN `characters` 获取 `target_name` 填充 `CharacterRelationship`
+- **Collab 文档同步返回空** — `CollabSession::get_current_document` 直接返回 `(String::new(), 0)`，协同编辑文档内容丢失。修复：遍历 `self.operations` 使用 OT 变换逐条 apply 重建文档内容
+- **Workflow EdgeCondition 永不匹配** — `get_next_nodes` 原代码 `all(|edge| completed.contains(&edge.from_node))` 忽略了 `edge.condition` 字段，条件边永远被视为满足。修复：`EdgeCondition::evaluate()` 实现完整条件表达式求值（Eq/Neq/Gt/Gte/Lt/Lte/Contains/NotContains），根据 `instance.context.variables` 判断
+
+#### 任务系统可靠性
+- **Task 心跳超时无重试** — HeartbeatMonitor 检测到任务超时后仅标记 `Failed`，不触发重试。修复：超时后若 `retry_count < max_retries`，计算指数退避 `30*2^retry` 秒更新 `next_run_at`，状态回退为 `Pending`，发射 `task-retried` 事件
+
+### 🟡 P1 重要差距修复
+
+#### 缓存同步对称性
+- **Outline/Foreshadowing 修改无同步** — `update_story_outline`、`create_foreshadowing`、`update_foreshadowing_status`、`update_payoff_ledger_fields` 修改数据后未发射同步事件。修复：所有方法完成后调用 `StateSync::emit_data_refresh`
+- **Cache 失效不对称** — `sceneUpdated` 只失效 scenes 缓存但 chapter 数据中的 scene 引用已变；`chapterDeleted` 不清理关联 scenes 缓存。修复：`sceneUpdated` 追加 `invalidateQueries(['chapters', storyId])`；`chapterDeleted` 追加 `invalidateQueries(['scenes', storyId])`
+
+#### Workflow 健壮性
+- **Workflow 节点无限阻塞** — `execute_node` 中 LLM 调用可能永久阻塞（本地模型无响应），无超时机制。修复：每个节点执行包裹 `tokio::time::timeout`，默认 300s，超时标记 `Failed` 并触发重试
+- **INGEST_COOLDOWN 内存泄漏** — `HashMap<String, (u64, Instant)>` 只增不减，长期运行内存膨胀。修复：`cleanup_expired_entries()` 在每次插入时清理 24h 前条目
+
+#### 前端体验
+- **FrontstageApp mock learnings** — `setLearnings()` 硬编码 3 条假数据。修复：接入 `recordFeedback()` API，根据用户实际反馈动态生成学习提示
+
+### 🟢 P2 优化差距修复
+
+- **WritingStyle 更新无同步** — `update_writing_style` 修改后前端写作风格面板不刷新。修复：更新后发射 `data_refresh(story_id, "writingStyle")`
+- **Remove notifyFrontstageDataRefresh** — `useStories.ts`、`useChapters.ts`、`useCharacters.ts`、`services/tauri.ts` 中废弃的 `notifyFrontstageDataRefresh` 辅助函数已移除，避免与 `useSyncStore` 重复刷新
+- **Workflow 并发重复执行** — `run_instance` 无运行状态检查，同一实例可能被多个线程同时执行。修复：入口检查 `instance.status == Running` 则直接返回错误；`start_workflow_instance` 命令不再直接调用 `execute_next`，由队列自动消费
+- **Retry 非幂等** — 失败节点重试时不检查是否已在 `completed_nodes` 中，可能重复执行副作用操作。修复：重试前检查 `completed_nodes.contains(&node_id)`，已完成的跳过
+- **Pending vector 内存队列丢失** — `PENDING_VECTOR_INDEXES` 是进程内存 HashSet，应用重启后丢失。修复：新增 `pending_vector_indexes` SQLite 表，持久化待索引 chapter_id；vector store init 时从 SQLite 加载并批量处理
+- **Task 执行无限阻塞** — `run_task_internal` 中 `executor.execute()` 可能永久阻塞。修复：包裹 `tokio::time::timeout(300s)`，超时标记失败
+
+### 🧪 质量保障
+- `cargo check` 零错误（114 dead_code warnings 来自 `#![warn(dead_code)]` 激活）
+- `cargo test` 217/217 全部通过
+- `npm run build` 通过
+
 ## [v5.5.1] - 设计-实现对齐全面修复 v2（2026-05-08）
 
 ### 🔴 P0 致命差距修复

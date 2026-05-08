@@ -220,7 +220,7 @@ impl SkillExecutor {
                     });
                 }
                 
-                match client.call_tool(tool_name, arguments).await {
+                match client.call_tool(tool_name, arguments.clone()).await {
                     Ok(result) => {
                         let _ = client.disconnect().await;
                         Ok(SkillResult {

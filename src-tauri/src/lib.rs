@@ -1,5 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(dead_code)]
 
 mod db;
 mod config;
@@ -122,6 +121,17 @@ pub fn run() {
             let _log_guard = logging::init_logger(&app_dir);
             
             log::info!("App directory: {:?}", app_dir);
+            
+            // P2-19 修复: 设置 pending vector indexes 持久化路径，并加载上次未处理的队列
+            let pending_path = app_dir.join("pending_vector_indexes.json");
+            let _ = PENDING_VECTOR_INDEXES_PATH.set(pending_path.clone());
+            let loaded_pending = load_pending_vector_indexes();
+            if !loaded_pending.is_empty() {
+                log::info!("Loaded {} pending vector indexes from previous session", loaded_pending.len());
+                if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
+                    *pending = loaded_pending;
+                }
+            }
 
             match init_db(&app_dir) {
                 Ok(pool) => {
@@ -261,6 +271,10 @@ pub fn run() {
                                 }
                             }
                         }
+                    }
+                    // P2-19 修复: drain 完成后删除持久化文件
+                    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
+                        let _ = std::fs::remove_file(path);
                     }
                 }
             });
@@ -931,6 +945,12 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
 
         // 记录本次 Ingest 的 hash 和时间
         cooldown.insert(chapter_id.clone(), (content_hash, now));
+        
+        // P1-11 修复: 清理超过 24 小时的过期条目，防止内存泄漏
+        const MAX_COOLDOWN_AGE_HOURS: u64 = 24;
+        cooldown.retain(|_, (_, last_time)| {
+            now.duration_since(*last_time) < std::time::Duration::from_secs(MAX_COOLDOWN_AGE_HOURS * 3600)
+        });
     }
 
     let llm_service = crate::llm::LlmService::new(app.clone());
@@ -1001,12 +1021,14 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
             }
         } else {
             // P0-7 修复: 向量存储尚未初始化时，将 chapter_id 加入队列，初始化后自动处理
+            // P2-19 修复: 同时持久化到文件，防止应用崩溃后丢失
             log::warn!("[auto_ingest] Vector store not initialized, queuing chapter {} for later indexing", chapter_id);
             if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
                 if !pending.contains(&chapter_id) {
                     pending.push(chapter_id.clone());
                 }
             }
+            save_pending_vector_indexes();
         }
     }
 }
@@ -1281,6 +1303,27 @@ use vector::{LanceVectorStore, SearchResult};
 static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
 /// 向量存储初始化前积压的章节索引请求（P0-7 修复: 防止启动后首章丢失索引）
 static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// P2-19 修复: pending queue 持久化文件路径
+static PENDING_VECTOR_INDEXES_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
+
+/// 保存 pending vector indexes 到文件
+fn save_pending_vector_indexes() {
+    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
+        if let Ok(pending) = PENDING_VECTOR_INDEXES.lock() {
+            let _ = std::fs::write(path, serde_json::to_string(&*pending).unwrap_or_default());
+        }
+    }
+}
+
+/// 从文件加载 pending vector indexes
+fn load_pending_vector_indexes() -> Vec<String> {
+    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return serde_json::from_str(&content).unwrap_or_default();
+        }
+    }
+    Vec::new()
+}
 
 #[tauri::command]
 async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {

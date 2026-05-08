@@ -382,10 +382,23 @@ pub async fn update_writing_style(
     id: String,
     updates: WritingStyleUpdate,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<usize, String> {
     let repo = WritingStyleRepository::new(pool.inner().clone());
-    repo.update(&id, &updates)
-        .map_err(|e| e.to_string())
+    let count = repo.update(&id, &updates)
+        .map_err(|e| e.to_string())?;
+    
+    // P2-15 修复: 查询 story_id 并发射同步事件
+    let conn = pool.inner().get().map_err(|e| e.to_string())?;
+    let story_id: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT story_id FROM writing_styles WHERE id = ?1",
+        [&id],
+        |row| row.get(0)
+    );
+    if let Ok(story_id) = story_id {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "writingStyle");
+    }
+    Ok(count)
 }
 
 // ==================== 工作室配置命令 ====================
@@ -1267,7 +1280,7 @@ pub async fn create_story_with_wizard(
         first_scene.content
     );
     
-    let llm_service = LlmService::new(app_handle);
+    let llm_service = LlmService::new(app_handle.clone());
     let pipeline = IngestPipeline::new(llm_service);
     let ingest_content = IngestContent {
         text: ingest_text,
@@ -1330,6 +1343,11 @@ pub async fn create_story_with_wizard(
         .ok_or("Writing style not found")?;
     
     log::info!("[commands_v3] {} completed successfully", "create_story_with_wizard");
+    
+    // P0-2 修复: 发射同步事件，确保幕后界面自动刷新新创建的内容
+    let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, &story.title);
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "all");
+    
     Ok(WizardCreationResult {
         story,
         world_building: final_wb,
@@ -2047,15 +2065,20 @@ pub async fn create_foreshadowing(
     setup_scene_id: Option<String>,
     importance: i32,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<String, String> {
     use crate::creative_engine::foreshadowing::ForeshadowingTracker;
     log::info!("[commands_v3] {} called: story_id={}", "create_foreshadowing", story_id);
     let tracker = ForeshadowingTracker::new(pool.inner().clone());
-    tracker.add_foreshadowing(&story_id, &content, setup_scene_id.as_deref(), importance)
+    let result = tracker.add_foreshadowing(&story_id, &content, setup_scene_id.as_deref(), importance)
         .map_err(|e| {
             log::error!("[commands_v3] {} failed: {}", "create_foreshadowing", e);
             e.to_string()
-        })
+        });
+    if result.is_ok() {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "foreshadowings");
+    }
+    result
 }
 
 #[command]
@@ -2064,14 +2087,29 @@ pub async fn update_foreshadowing_status(
     status: String,
     payoff_scene_id: Option<String>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     use crate::creative_engine::foreshadowing::ForeshadowingTracker;
     let tracker = ForeshadowingTracker::new(pool.inner().clone());
-    match status.as_str() {
+    let result = match status.as_str() {
         "payoff" => tracker.mark_payoff(&id, payoff_scene_id.as_deref()),
         "abandoned" => tracker.abandon(&id),
         _ => Err(format!("无效状态: {}", status)),
-    }.map_err(|e| e.to_string())
+    }.map_err(|e| e.to_string());
+    
+    if result.is_ok() {
+        // 查询 story_id 以发射同步事件
+        let conn = pool.inner().get().map_err(|e| e.to_string())?;
+        let story_id: Result<String, rusqlite::Error> = conn.query_row(
+            "SELECT story_id FROM foreshadowing_tracker WHERE id = ?1",
+            [&id],
+            |row| row.get(0)
+        );
+        if let Ok(story_id) = story_id {
+            let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "foreshadowings");
+        }
+    }
+    result
 }
 
 // ==================== Payoff Ledger 命令 ====================
@@ -2178,18 +2216,33 @@ pub async fn update_payoff_ledger_fields(
     scope_type: Option<String>,
     ledger_key: Option<String>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
     let scope = scope_type.as_deref().and_then(|s| s.parse().ok());
-    ledger.update_ledger_fields(
+    let result = ledger.update_ledger_fields(
         &foreshadowing_id,
         target_start_scene,
         target_end_scene,
         risk_signals,
         scope,
         ledger_key,
-    ).map_err(|e| e.to_string())
+    ).map_err(|e| e.to_string());
+    
+    if result.is_ok() {
+        // 查询 story_id 以发射同步事件
+        let conn = pool.inner().get().map_err(|e| e.to_string())?;
+        let story_id: Result<String, rusqlite::Error> = conn.query_row(
+            "SELECT story_id FROM foreshadowing_tracker WHERE id = ?1",
+            [&foreshadowing_id],
+            |row| row.get(0)
+        );
+        if let Ok(story_id) = story_id {
+            let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "foreshadowings");
+        }
+    }
+    result
 }
 
 // ==================== 结构化大纲命令 ====================
@@ -2589,11 +2642,13 @@ pub async fn update_story_outline(
     content: String,
     structure_json: Option<String>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     use crate::db::repositories_v3::StoryOutlineRepository;
     let repo = StoryOutlineRepository::new(pool.inner().clone());
     repo.update(&story_id, Some(&content), structure_json.as_deref())
         .map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "storyOutlines");
     Ok(())
 }
 

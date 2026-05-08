@@ -169,6 +169,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           case 'sceneUpdated': {
             if (storyId) {
               queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
+              // P1-8 修复: Scene 更新会同步到关联 Chapter，刷新 chapters 缓存
+              queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
             }
             if (sceneId) {
               queryClient.invalidateQueries({ queryKey: KEYS.sceneDetail(sceneId) });
@@ -219,6 +221,10 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({ queryKey: KEYS.chapters() });
             if (chapterId) {
               queryClient.removeQueries({ queryKey: KEYS.chapterDetail(chapterId) });
+            }
+            // P1-9 修复: Chapter 删除会清理 scenes.chapter_id，刷新 scenes 缓存
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
             }
             optionsRef.current.onChapterDeleted?.(chapterId);
             break;

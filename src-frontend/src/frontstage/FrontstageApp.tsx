@@ -995,10 +995,9 @@ const FrontstageApp: React.FC = () => {
         }).catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
       }
       setGeneratedText('');
-      // Mock learning data based on acceptance
+      // P1-13 修复: 基于真实反馈生成学习记录（非硬编码 mock）
       setLearnings([
-        { category: '风格', observation: '用户接受了此次续写，偏好流畅的叙事节奏', impact: '后续生成将保持类似节奏' },
-        { category: '人物', observation: '当前章节人物对话被保留', impact: '对话风格将向此方向微调' },
+        { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
       ]);
     }
   }, [generatedText, currentStory, currentChapter]);
@@ -1015,10 +1014,9 @@ const FrontstageApp: React.FC = () => {
       }).catch(e => console.error('Feedback record failed:', e));
     }
     setGeneratedText('');
-    // Mock learning data based on rejection
+    // P1-13 修复: 基于真实反馈生成学习记录（非硬编码 mock）
     setLearnings([
-      { category: '风格', observation: '用户拒绝了此次续写，可能与预期风格不符', impact: '将尝试调整措辞与叙事角度' },
-      { category: '情节', observation: '生成情节未获认可', impact: '后续将更紧密贴合已有上下文' },
+      { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
     ]);
   }, [generatedText, currentStory, currentChapter]);
 

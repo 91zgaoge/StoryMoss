@@ -291,8 +291,22 @@ impl<R: Runtime> TaskService<R> {
             return Err(e);
         }
 
-        // 执行任务
-        let result = executor.execute(&task).await;
+        // P2-20 修复: 任务执行包装 timeout
+        let timeout_secs = task.heartbeat_timeout_seconds.max(60) as u64;
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            executor.execute(&task)
+        ).await {
+            Ok(res) => res,
+            Err(_) => {
+                let err_msg = format!("任务执行超时 ({} 秒)", timeout_secs);
+                log::error!("[TaskService] {}", err_msg);
+                if let Err(e2) = ctx.fail(&err_msg) {
+                    log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e2);
+                }
+                return Err(err_msg.into());
+            }
+        };
 
         match result {
             Ok(task_result) => {

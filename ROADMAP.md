@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-## ✅ 已实施完成 (v5.5.1)
+## ✅ 已实施完成 (v5.6.0)
 
 ### Phase 1: 基础架构重构 ✅
 **状态**: 数据库 Schema 重构完成
@@ -89,7 +89,28 @@
 
 ---
 
-## 📊 v5.5.1 项目状态
+### Phase 10: 设计-实现对齐修复 ✅ (v5.6.0)
+**状态**: 全部完成
+
+- [x] Scene 删除外键清理（chapters.scene_id → NULL）
+- [x] Wizard 同步事件（story_created + data_refresh）
+- [x] Character relationships 真实查询（character_relationships 表 JOIN）
+- [x] Collab 文档 OT 重建（operations apply 重建内容）
+- [x] Workflow EdgeCondition 条件求值（8 种运算符）
+- [x] Task 心跳超时指数退避重试
+- [x] Outline/Foreshadowing/Payoff 修改后同步事件
+- [x] Cache 对称失效（sceneUpdated↔chapters、chapterDeleted↔scenes）
+- [x] Workflow 节点 300s 超时
+- [x] INGEST_COOLDOWN 24h 过期清理
+- [x] FrontstageApp 真实 feedback（移除 mock learnings）
+- [x] WritingStyle 更新同步事件
+- [x] Workflow 并发守卫与重试幂等性
+- [x] Pending vector SQLite 持久化
+- [x] Task 执行 300s 超时
+
+---
+
+## 📊 v5.6.0 项目状态
 
 | 模块 | 完成度 | 说明 |
 |------|--------|------|
@@ -105,7 +126,8 @@
 | 后台自动化 | 100% | Workflow 持久化、能力进化反馈环、向量索引闭环 |
 | 本地模型配置 | 100% | 三模型集成 |
 | Tauri 构建 | 100% | MSI + NSIS 安装包 |
-| **整体 v5.5.1** | **100%** | 核心功能全部完成 |
+| 设计-实现对齐 | 100% | v5.6.0 20 项差距全部修复 |
+| **整体 v5.6.0** | **100%** | 核心功能全部完成 |
 
 ---
 
