@@ -1,13 +1,13 @@
 //! Task Scheduler
 //!
 //! 基于 tokio::time 的任务调度器，参考 memoh-X CronPool 设计。
-//! 无需引入 robfig/cron crate，利用现有 tokio full feature。
+//! v5.5.1: 引入 cron crate 支持标准 Cron 表达式（P1-13 修复）
 
 use super::models::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, sleep, Duration};
 
 /// 共享任务调度器
 pub struct TaskScheduler {
@@ -71,14 +71,14 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered weekly task: {}", task_id);
             }
             ScheduleType::Cron => {
-                // 解析 cron 表达式，转换为 interval
-                let interval_duration = Self::parse_cron_interval(task.cron_pattern.as_deref())?;
-                let handle = self.spawn_interval(task_id.clone(), interval_duration, lock, callback);
+                // P1-13 修复: 使用 cron crate 解析标准 Cron 表达式，精确计算下次执行时间
+                let schedule = Self::parse_cron_schedule(task.cron_pattern.as_deref())?;
+                let handle = self.spawn_cron(task_id.clone(), schedule, lock, callback);
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
                 }
-                log::info!("[TaskScheduler] Registered cron task: {} (interval: {:?})", task_id, interval_duration);
+                log::info!("[TaskScheduler] Registered cron task: {}", task_id);
             }
         }
 
@@ -159,28 +159,45 @@ impl TaskScheduler {
         })
     }
 
-    /// 简化版 cron 解析：将 cron 表达式转为 interval 周期
-    /// 支持格式: "*/N * * * *" (每N分钟) 或 "0 H * * *" (每天H点)
-    fn parse_cron_interval(pattern: Option<&str>) -> Result<Duration, Box<dyn std::error::Error>> {
+    /// 使用 cron crate 解析标准 Cron 表达式
+    fn parse_cron_schedule(pattern: Option<&str>) -> Result<cron::Schedule, Box<dyn std::error::Error>> {
         let pattern = pattern.ok_or("Cron pattern is required for cron schedule type")?;
-        let parts: Vec<&str> = pattern.split_whitespace().collect();
+        let schedule: cron::Schedule = pattern.parse()
+            .map_err(|e| format!("Invalid cron pattern '{}': {:?}", pattern, e))?;
+        Ok(schedule)
+    }
 
-        if parts.len() < 2 {
-            return Err("Invalid cron pattern: need at least minute and hour fields".into());
-        }
+    /// Cron 调度：精确计算下次执行时间，而非固定间隔
+    fn spawn_cron<F>(
+        &self,
+        task_id: String,
+        schedule: cron::Schedule,
+        lock: Arc<tokio::sync::Mutex<()>>,
+        callback: F,
+    ) -> JoinHandle<()>
+    where
+        F: Fn() + Send + 'static,
+    {
+        tauri::async_runtime::spawn(async move {
+            // 获取 upcoming 时间点，跳过已过期的时间
+            let mut upcoming = schedule.upcoming(chrono::Utc);
+            while let Some(next) = upcoming.next() {
+                let now = chrono::Utc::now();
+                if next > now {
+                    let sleep_duration = (next - now).to_std().unwrap_or(Duration::from_secs(60));
+                    sleep(sleep_duration).await;
 
-        // 检查是否是 */N 格式（每N分钟）
-        if parts[0].starts_with("*/") {
-            if let Some(num_str) = parts[0].strip_prefix("*/") {
-                if let Ok(minutes) = num_str.parse::<u64>() {
-                    return Ok(Duration::from_secs(minutes * 60));
+                    // 尝试获取锁，如果任务还在执行则跳过本次触发
+                    if let Ok(_guard) = lock.try_lock() {
+                        log::info!("[TaskScheduler] Triggering cron task: {}", task_id);
+                        callback();
+                    } else {
+                        log::warn!("[TaskScheduler] Skipping overlapping trigger for task: {}", task_id);
+                    }
                 }
             }
-        }
-
-        // 如果是具体的分钟+小时（如 "0 3 * * *" 每天3点），默认返回24小时
-        // 实际触发逻辑由更上层管理（下次运行时间计算）
-        Ok(Duration::from_secs(86400))
+            log::warn!("[TaskScheduler] Cron task {} schedule exhausted", task_id);
+        })
     }
 }
 

@@ -191,15 +191,38 @@ impl WorkflowScheduler {
                     }
                     Err(e) => {
                         self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Failed, None, Some(e.clone()));
-                        instance.status = WorkflowStatus::Failed;
-                        engine.update_instance(&instance);
+                        // P1-11 修复: 失败时自动重试（最多 3 次）
+                        const MAX_RETRIES: u32 = 3;
+                        let current_retries = instance.retry_count.unwrap_or(0);
+                        if current_retries < MAX_RETRIES {
+                            instance.retry_count = Some(current_retries + 1);
+                            instance.status = WorkflowStatus::Pending;
+                            engine.update_instance(&instance);
+                            // 重新入队
+                            {
+                                let mut q = self.queue.lock().unwrap();
+                                q.push_back(instance_id.to_string());
+                            }
+                            let _ = app_handle.emit("workflow-instance-retried", serde_json::json!({
+                                "instance_id": instance_id,
+                                "node_id": node_id,
+                                "retry_count": current_retries + 1,
+                                "max_retries": MAX_RETRIES,
+                                "error": e,
+                            }));
+                            log::info!("[WorkflowScheduler] Instance {} queued for retry {}/{}", instance_id, current_retries + 1, MAX_RETRIES);
+                            return Err(format!("Node {} failed, retry {}/{} queued", node_id, current_retries + 1, MAX_RETRIES).into());
+                        } else {
+                            instance.status = WorkflowStatus::Failed;
+                            engine.update_instance(&instance);
 
-                        let _ = app_handle.emit("workflow-node-failed", serde_json::json!({
-                            "instance_id": instance_id,
-                            "node_id": node_id,
-                            "error": e,
-                        }));
-                        return Err(format!("Node {} failed: {}", node_id, e).into());
+                            let _ = app_handle.emit("workflow-node-failed", serde_json::json!({
+                                "instance_id": instance_id,
+                                "node_id": node_id,
+                                "error": e,
+                            }));
+                            return Err(format!("Node {} failed: {}", node_id, e).into());
+                        }
                     }
                 }
             }
@@ -409,7 +432,8 @@ impl WorkflowScheduler {
                 let condition = node.config.parameters.get("condition")
                     .and_then(|v| v.as_str())
                     .unwrap_or("true");
-                let result = condition == "true" || condition == "1";
+                // P1-10 修复: Condition 节点支持上下文变量和基本比较
+                let result = evaluate_condition(condition, &instance.context.variables);
                 Ok(serde_json::json!({ "condition_met": result }))
             }
             NodeType::Parallel => {
@@ -507,6 +531,65 @@ impl WorkflowScheduler {
                 .unwrap_or(false)
         })
     }
+}
+
+/// 轻量级条件表达式求值（P1-10 修复）
+/// 支持:
+/// - 硬编码 "true" / "1"
+/// - 数值比较: "{{score}} > 0.7", "{{count}} >= 5"
+/// - 字符串相等: "{{status}} == \"approved\""
+/// - 变量存在性: "{{var}}"（非空即为 true）
+fn evaluate_condition(condition: &str, variables: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+    let trimmed = condition.trim();
+    if trimmed == "true" || trimmed == "1" {
+        return true;
+    }
+    if trimmed == "false" || trimmed == "0" {
+        return false;
+    }
+
+    // 替换 {{key}} 变量引用
+    let mut expanded = trimmed.to_string();
+    for (key, value) in variables {
+        let placeholder = format!("{{{{{}}}}}", key);
+        let replacement = match value {
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            _ => value.to_string(),
+        };
+        expanded = expanded.replace(&placeholder, &replacement);
+    }
+
+    // 数值比较解析
+    let ops = [(">=", 2usize), ("<=", 2), ("==", 2), ("!=", 2), (">", 1), ("<", 1)];
+    for (op, op_len) in ops {
+        if let Some(pos) = expanded.find(op) {
+            let left = expanded[..pos].trim();
+            let right = expanded[pos + op_len..].trim().trim_matches(|c| c == '\"' || c == '\'');
+            // 尝试数值比较
+            if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                return match op {
+                    ">=" => l >= r,
+                    "<=" => l <= r,
+                    "==" => (l - r).abs() < f64::EPSILON,
+                    "!=" => (l - r).abs() >= f64::EPSILON,
+                    ">" => l > r,
+                    "<" => l < r,
+                    _ => false,
+                };
+            }
+            // 字符串比较
+            return match op {
+                "==" => left == right,
+                "!=" => left != right,
+                _ => false,
+            };
+        }
+    }
+
+    // 无运算符时，检查展开后的字符串是否为 truthy
+    !expanded.is_empty() && expanded != "false" && expanded != "0" && expanded != "null"
 }
 
 impl Default for WorkflowScheduler {

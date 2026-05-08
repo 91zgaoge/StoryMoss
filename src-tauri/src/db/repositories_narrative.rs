@@ -50,8 +50,11 @@ impl NarrativeCharacterRepository {
         )?;
 
         let rows = stmt.query_map([story_id], |row| {
-            let relationships_json: String = row.get(12).unwrap_or_default();
-            let relationships: Vec<CharacterRelationship> = serde_json::from_str(&relationships_json).unwrap_or_default();
+            // P0-1 修复: narrative_characters 表没有 relationships 列，
+            // 原代码错误地从 source_ref_id(列12) 解析 JSON，可能导致数据损坏。
+            // relationships 数据存储在 character_relationships 表中。
+            // TODO: 未来从 character_relationships 表二次查询以填充 relationships。
+            let relationships: Vec<CharacterRelationship> = Vec::new();
 
             Ok(CharacterElement {
                 id: row.get(0)?,
@@ -61,6 +64,7 @@ impl NarrativeCharacterRepository {
                 personality: row.get(4)?,
                 background: row.get(5)?,
                 goals: row.get(6)?,
+                // narrative_characters 表缺少 fears 列，暂时返回空字符串
                 fears: String::new(),
                 appearance: row.get(7)?,
                 gender: row.get(8)?,

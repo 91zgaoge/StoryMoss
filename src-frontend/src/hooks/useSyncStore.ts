@@ -172,6 +172,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             }
             if (sceneId) {
               queryClient.invalidateQueries({ queryKey: KEYS.sceneDetail(sceneId) });
+              // P1-15 修复: 失效 useSceneWithChapter 的缓存
+              queryClient.invalidateQueries({ queryKey: ['scenes', 'chapter', sceneId] });
             }
             optionsRef.current.onSceneUpdated?.(storyId, sceneId, title);
             break;
@@ -182,6 +184,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             }
             if (sceneId) {
               queryClient.removeQueries({ queryKey: KEYS.sceneDetail(sceneId) });
+              // P1-15 修复: 移除 useSceneWithChapter 的缓存
+              queryClient.removeQueries({ queryKey: ['scenes', 'chapter', sceneId] });
             }
             optionsRef.current.onSceneDeleted?.(storyId, sceneId);
             break;
@@ -244,6 +248,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                 break;
               case 'chapters':
                 queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
+                break;
+              case 'worldBuilding':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
+                }
                 break;
               case 'all':
               default:

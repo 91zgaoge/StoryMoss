@@ -211,7 +211,14 @@ function App() {
     let unlistenShown: (() => void) | undefined;
     const setupShownListener = async () => {
       try {
-        unlistenShown = await listen('backstage-shown', () => {
+        unlistenShown = await listen('backstage-shown', (event) => {
+          // P1-14 修复: 使用事件中的 story_id 精准定位当前故事
+          const payload = event.payload as { story_id?: string } | undefined;
+          if (payload?.story_id) {
+            useAppStore.getState().setCurrentStory(
+              useAppStore.getState().stories.find(s => s.id === payload.story_id) || null
+            );
+          }
           handleWindowShown();
           forceRedraw();
         });

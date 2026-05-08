@@ -209,6 +209,8 @@ pub fn run() {
             let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
             std::fs::create_dir_all(&vector_db_path).ok();
 
+            // P0-7 修复: 在向量存储初始化完成后处理积压的索引请求
+            let _app_handle_for_vector = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut vector_store = LanceVectorStore::new(vector_db_path);
                 if let Err(e) = vector_store.init().await {
@@ -216,6 +218,50 @@ pub fn run() {
                 } else {
                     let _ = VECTOR_STORE.set(vector_store);
                     log::info!("Vector store initialized successfully");
+                    // 处理启动期间积压的章节索引请求
+                    let pending_ids: Vec<String> = {
+                        if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
+                            std::mem::take(&mut *pending)
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    if !pending_ids.is_empty() {
+                        log::info!("[PENDING_VECTOR] Processing {} queued chapter indexes", pending_ids.len());
+                        for chapter_id in pending_ids {
+                            if let Some(pool) = get_pool() {
+                                let repo = db::ChapterRepository::new(pool);
+                                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                                    let story_id = chapter.story_id.clone();
+                                    let content_text = chapter.content.clone().unwrap_or_default();
+                                    if content_text.len() >= 20 {
+                                        match embeddings::embed_text_async(content_text.clone()).await {
+                                            Ok(embedding) => {
+                                                let record = vector::VectorRecord {
+                                                    id: format!("chapter:{}", chapter_id),
+                                                    story_id: story_id.clone(),
+                                                    chapter_id: chapter_id.clone(),
+                                                    chapter_number: chapter.chapter_number,
+                                                    text: content_text.clone(),
+                                                    record_type: "chapter".to_string(),
+                                                    embedding,
+                                                };
+                                                if let Some(store) = VECTOR_STORE.get() {
+                                                    match store.add_record(record).await {
+                                                        Ok(_) => log::info!("[PENDING_VECTOR] Indexed queued chapter {}", chapter_id),
+                                                        Err(e) => log::warn!("[PENDING_VECTOR] Failed to index queued chapter {}: {}", chapter_id, e),
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                log::warn!("[PENDING_VECTOR] Failed to generate embedding for queued chapter {}: {}", chapter_id, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             });
 
@@ -417,6 +463,7 @@ pub fn run() {
             commands_v3::create_world_building,
             commands_v3::get_world_building,
             commands_v3::update_world_building,
+            commands_v3::delete_world_building,
             commands_v3::create_writing_style,
             commands_v3::get_writing_style,
             commands_v3::update_writing_style,
@@ -775,20 +822,24 @@ fn create_character(story_id: String, name: String, background: Option<String>, 
 #[tauri::command]
 fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, app: AppHandle) -> Result<(), String> {
     let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
-    // 先查询 story_id，确保同步事件携带正确的 story_id
-    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.update(&id, name.clone(), background, personality, goals, None, None, None).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
+    if let Some(story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
+    }
     Ok(())
 }
 
 #[tauri::command]
 fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
     let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
-    // 先查询 story_id，删除后无法再获取
-    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.delete(&id).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
+    if let Some(story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
+    }
     Ok(())
 }
 
@@ -805,12 +856,14 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 #[tauri::command]
 fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle) -> Result<(), String> {
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
-    // 先查询 story_id，确保同步事件携带正确的 story_id
-    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| e.to_string());
     if result.is_ok() {
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
-        let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref(), &story_id);
+        if let Some(ref story_id) = story_id_opt {
+            let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref(), story_id);
+        }
         // v5.1.1: 保存后自动触发 IngestPipeline，更新知识图谱
         if let Some(pool) = get_pool() {
             let chapter_id = id.clone();
@@ -826,10 +879,12 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
 #[tauri::command]
 fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
-    // 先查询 story_id，删除后无法再获取
-    let story_id = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id).unwrap_or_default();
+    // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.delete(&id).map_err(|e| e.to_string())?;
-    let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
+    if let Some(story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
+    }
     Ok(())
 }
 
@@ -945,7 +1000,13 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
                 }
             }
         } else {
-            log::warn!("[auto_ingest] Vector store not initialized, skipping vector indexing for chapter {}", chapter_id);
+            // P0-7 修复: 向量存储尚未初始化时，将 chapter_id 加入队列，初始化后自动处理
+            log::warn!("[auto_ingest] Vector store not initialized, queuing chapter {} for later indexing", chapter_id);
+            if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
+                if !pending.contains(&chapter_id) {
+                    pending.push(chapter_id.clone());
+                }
+            }
         }
     }
 }
@@ -1218,6 +1279,8 @@ async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, String> {
 use vector::{LanceVectorStore, SearchResult};
 
 static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
+/// 向量存储初始化前积压的章节索引请求（P0-7 修复: 防止启动后首章丢失索引）
+static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 #[tauri::command]
 async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
@@ -1443,7 +1506,7 @@ async fn smart_execute(
                     let bg_cancel_flag = narrative::pipeline::register_pipeline_cancel(&session_id_bg);
                     let bg_executor = narrative::pipeline::NarrativePipelineExecutor::new(bg_steps)
                         .with_cancel_flag(bg_cancel_flag);
-                    
+
                     let progress_callback_bg = std::sync::Arc::new(move |evt: narrative::progress::PipelineProgressEvent| {
                         let _ = app_handle_bg.emit("pipeline-progress", &evt);
                         let _ = app_handle_bg.emit("novel-bootstrap-progress", planner::bootstrap::BootstrapProgressEvent {
@@ -1454,26 +1517,52 @@ async fn smart_execute(
                             message: evt.message.clone(),
                         });
                     });
-                    
-                    if let Err(e) = bg_executor.execute(&mut bg_ctx, &llm_bg, progress_callback_bg).await {
-                        log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
+
+                    let bg_start = std::time::Instant::now();
+                    let bg_result = bg_executor.execute(&mut bg_ctx, &llm_bg, progress_callback_bg).await;
+                    let bg_elapsed = bg_start.elapsed().as_secs();
+
+                    // P0-5 修复: 根据后台阶段实际结果设置 success/error，不再硬编码
+                    let (success, error_message) = match &bg_result {
+                        Ok(_) => {
+                            log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
+                            // v5.4.0: 统一通过 state_sync 发射 data-refresh，避免重复发射
+                            crate::state_sync::StateSync::emit_data_refresh(
+                                &app_handle_for_emit,
+                                Some(&story_id_for_emit),
+                                "all"
+                            );
+                            (true, None)
+                        }
+                        Err(e) => {
+                            log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
+                            (false, Some(format!("{}", e)))
+                        }
+                    };
+
+                    // 统计实际生成的元素数量
+                    let elements_created = if success {
+                        let mut counts = narrative::progress::ElementsCount::default();
+                        // 从上下文统计实际生成的元素（P0-5 修复: 使用 ElementsCount 的正确字段名）
+                        counts.world_rules = if bg_ctx.bundle.world_building.is_some() { 1 } else { 0 };
+                        counts.characters = bg_ctx.bundle.characters.len();
+                        counts.scenes = bg_ctx.bundle.scenes.len();
+                        counts.foreshadowings = bg_ctx.bundle.foreshadowings.len();
+                        // outline 映射到 plot_points
+                        counts.plot_points = if bg_ctx.bundle.outline.is_some() { 1 } else { 0 };
+                        counts
                     } else {
-                        log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
-                        // v5.4.0: 统一通过 state_sync 发射 data-refresh，避免重复发射
-                        crate::state_sync::StateSync::emit_data_refresh(
-                            &app_handle_for_emit,
-                            Some(&story_id_for_emit),
-                            "all"
-                        );
-                    }
+                        narrative::progress::ElementsCount::default()
+                    };
+
                     // v5.4.0: 发射 pipeline-complete 事件，通知前端 Genesis 后台阶段完成
                     let _ = app_handle_for_emit.emit("pipeline-complete", narrative::progress::PipelineCompleteEvent {
                         pipeline_id: session_id_bg.clone(),
                         pipeline_type: narrative::progress::PipelineType::Genesis,
-                        success: true,
-                        total_elapsed_seconds: 0,
-                        elements_created: narrative::progress::ElementsCount::default(),
-                        error_message: None,
+                        success,
+                        total_elapsed_seconds: bg_elapsed,
+                        elements_created,
+                        error_message,
                     });
                 });
 

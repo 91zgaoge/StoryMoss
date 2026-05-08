@@ -613,6 +613,11 @@ impl WorldBuildingRepository {
         Ok(wb)
     }
 
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM world_buildings WHERE id = ?1", params![id])
+    }
+
     pub fn update(&self, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>, 
                   history: Option<&str>, cultures: Option<&[Culture]>) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;

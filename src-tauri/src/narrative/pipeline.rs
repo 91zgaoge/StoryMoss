@@ -180,13 +180,25 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
 
             let step_start = std::time::Instant::now();
 
-            // 执行步骤
+            // P1-16 修复: 步骤执行期间使用 tokio::select! 监听取消标志，实现运行中取消
             let progress_clone = progress_callback.clone();
-            let result = step.execute(
-                ctx,
-                llm,
-                progress_clone,
-            ).await;
+            let result = if let Some(ref flag) = self.cancel_flag {
+                let flag_clone = flag.clone();
+                let cancel_future = async move {
+                    while !flag_clone.load(Ordering::Relaxed) {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    }
+                };
+                tokio::select! {
+                    r = step.execute(ctx, llm, progress_clone) => r,
+                    _ = cancel_future => {
+                        log::info!("[NarrativePipeline] 步骤 '{}' 执行中被取消", step.name());
+                        Err(PipelineError::Cancelled("用户取消".to_string()))
+                    }
+                }
+            } else {
+                step.execute(ctx, llm, progress_clone).await
+            };
 
             let elapsed = step_start.elapsed().as_secs();
 

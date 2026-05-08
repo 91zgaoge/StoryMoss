@@ -88,6 +88,8 @@ pub struct WorkflowInstance {
     pub node_states: HashMap<String, NodeState>,
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub retry_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -251,6 +253,7 @@ impl WorkflowEngine {
             node_states,
             started_at: now,
             completed_at: None,
+            retry_count: None,
         };
 
         let mut instances = self.instances.lock().unwrap();

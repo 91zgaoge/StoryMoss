@@ -50,11 +50,6 @@ import type { AppSettings } from '@/types/llm';
 export const healthCheck = () => 
   loggedInvoke<{ status: string; timestamp: string; version: string }>('health_check');
 
-// Dashboard
-/** @deprecated 暂时保留 — Dashboard 直接调用 `get_state` */
-export const getDashboardState = () => 
-  loggedInvoke<DashboardState>('get_state');
-
 // Stories
 export const listStories = () => 
   loggedInvoke<Story[]>('list_stories');
@@ -103,10 +98,6 @@ export const getSkills = () =>
 
 export const getSkill = (skillId: string) => 
   loggedInvoke<Skill>('get_skill', { skill_id: skillId });
-
-/** @deprecated 暂时保留 — Skills 页面使用前端本地分类筛选 */
-export const getSkillsByCategory = (category: string) => 
-  loggedInvoke<Skill[]>('get_skills_by_category', { category });
 
 export const importSkill = (path: string) => 
   loggedInvoke<Skill>('import_skill', { path });
@@ -178,10 +169,6 @@ export const checkStyleDrift = (text: string, storyId: string, sceneNumber?: num
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
   loggedInvoke<SimilarityResult[]>('search_similar', { story_id: req.story_id, query: req.query, top_k: req.top_k });
-
-/** @deprecated 暂时保留 — 待章节嵌入手动触发功能完成后启用 */
-export const embedChapter = (chapterId: string, content: string) =>
-  loggedInvoke<void>('embed_chapter', { chapter_id: chapterId, content });
 
 // Settings (兼容旧接口，内部映射到 get_settings / save_settings)
 export const getConfig = async () => {
@@ -269,10 +256,6 @@ export const restoreArchivedEntity = (entityId: string) =>
 export const getArchivedEntities = (storyId: string) =>
   loggedInvoke<Entity[]>('get_archived_entities', { story_id: storyId });
 
-/** @deprecated 暂时保留 — 待知识图谱手动创建实体功能完成后启用 */
-export const createEntity = (storyId: string, name: string, entityType: string, attributes: Record<string, unknown>) =>
-  loggedInvoke<Entity>('create_entity', { story_id: storyId, name, entity_type: entityType, attributes });
-
 export const updateEntity = (entityId: string, updates: { name?: string; attributes?: Record<string, unknown> }) =>
   loggedInvoke<Entity>('update_entity', { entity_id: entityId, name: updates.name, attributes: updates.attributes });
 
@@ -299,10 +282,6 @@ export const createStoryWithWizard = (params: {
   first_scene: SceneProposal;
 }) =>
   loggedInvoke<import('@/types/index').WizardCreationResult>('create_story_with_wizard', params);
-
-/** @deprecated 暂时保留 — 待知识图谱手动创建关系功能完成后启用 */
-export const createRelation = (storyId: string, sourceId: string, targetId: string, relationType: string, strength: number) =>
-  loggedInvoke<Relation>('create_relation', { story_id: storyId, source_id: sourceId, target_id: targetId, relation_type: relationType, strength });
 
 // Scene Annotations
 export const createSceneAnnotation = (params: { scene_id: string; story_id: string; content: string; annotation_type: string }) =>

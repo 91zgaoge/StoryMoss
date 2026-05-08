@@ -68,6 +68,10 @@ pub async fn create_scene(
                 ..Default::default()
             },
         );
+        // P1-9 修复: 额外字段更新后发射 scene_updated，确保前端缓存刷新
+        let _ = crate::state_sync::StateSync::emit_scene_updated(
+            &app_handle, &story_id, &scene.id, scene.title.as_deref(),
+        );
     }
 
     // OnSceneCreate hook
@@ -119,8 +123,8 @@ pub async fn update_scene(
 ) -> Result<usize, String> {
     log::info!("[commands_v3] {} called: scene_id={}", "update_scene", scene_id);
     let repo = SceneRepository::new(pool.inner().clone());
-    // 获取 story_id 用于同步事件
-    let story_id = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id).unwrap_or_default();
+    // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let story_id_opt = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id);
     let result = repo.update(&scene_id, &updates)
         .map_err(|e| {
             log::error!("[commands_v3] {} failed: {}", "update_scene", e);
@@ -207,8 +211,8 @@ pub async fn update_scene(
         });
     }
 
-    if !story_id.is_empty() {
-        let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, &story_id, &scene_id, updates.title.as_deref());
+    if let Some(ref story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, story_id, &scene_id, updates.title.as_deref());
     }
     Ok(result)
 }
@@ -323,6 +327,30 @@ pub async fn update_world_building(
         }
     }
 
+    Ok(result)
+}
+
+#[command]
+pub async fn delete_world_building(
+    id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<usize, String> {
+    log::info!("[commands_v3] {} called: id={}", "delete_world_building", id);
+    let repo = WorldBuildingRepository::new(pool.inner().clone());
+    // 先查询 story_id 用于同步事件（删除后无法获取）
+    let story_id_opt = pool.inner().get().ok().and_then(|c| {
+        c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
+            row.get::<_, String>(0)
+        }).ok()
+    });
+    let result = repo.delete(&id).map_err(|e| {
+        log::error!("[commands_v3] {} failed: {}", "delete_world_building", e);
+        e.to_string()
+    })?;
+    if let Some(ref story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
+    }
     Ok(result)
 }
 

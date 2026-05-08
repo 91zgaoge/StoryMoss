@@ -208,22 +208,26 @@ impl StoryHealthAnalyzer {
     }
 
     fn load_outline(&self, story_id: &str) -> Result<Option<OutlineElement>, rusqlite::Error> {
+        // P0-2 修复: narrative_outlines 表不存在，改为查询 story_outlines (v3 生产表)
         let conn = self.pool.get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, acts, total_scenes_estimate, source
-             FROM narrative_outlines WHERE story_id = ?1"
+            "SELECT id, story_id, structure_json, total_scenes_estimate
+             FROM story_outlines WHERE story_id = ?1"
         )?;
 
         let mut rows = stmt.query_map([story_id], |row| {
-            let acts_json: String = row.get(2)?;
-            let acts: Vec<OutlineAct> = serde_json::from_str(&acts_json).unwrap_or_default();
+            let acts_json: Option<String> = row.get(2)?;
+            let acts: Vec<OutlineAct> = acts_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default();
+            let total_scenes_estimate: Option<i32> = row.get(3)?;
 
             Ok(OutlineElement {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 acts,
-                total_scenes_estimate: row.get(3)?,
+                total_scenes_estimate: total_scenes_estimate.unwrap_or(0),
                 source: ElementSource::UserCreated,
                 source_ref_id: None,
             })

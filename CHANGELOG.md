@@ -2,6 +2,42 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.5.1] - 设计-实现对齐全面修复 v2（2026-05-08）
+
+### 🔴 P0 致命差距修复
+
+#### 幕前幕后自动关联
+- **state_sync 空 story_id 修复** — `update_character`/`delete_character`/`update_chapter`/`delete_chapter`/`update_scene` 共 5 处使用 `unwrap_or_default()` 获取 story_id，数据库查询失败时发射 `story_id=""` 的同步事件，前端 `if (storyId)` 判断为 falsy 导致缓存永不刷新。修复为 `if let Some(story_id)` 条件发射，确保 update/delete 后前端对应故事的数据列表自动刷新（而非全局刷新所有故事的缓存）。
+- **`delete_world_building` 命令补全** — 后端新增 IPC 命令 + `WorldBuildingRepository::delete()` + 前端 `useDeleteWorldBuilding` Hook。此前只有 create/get/update，幕后无法删除世界观设定。
+- **`useSyncStore` DataRefresh 缺 worldBuilding** — `dataRefresh` case 中新增 `worldBuilding` 分支，后端批量刷新世界观信号不再被前端忽略。
+- **`create_scene` 额外字段更新后缺 `scene_updated`** — 创建场景时若同时提供 `dramatic_goal`/`content` 等额外字段，先 `repo.create()` 再 `repo.update()`，原代码只发射 `scene_created` 事件，前端可能读到未更新额外字段的旧数据。修复为 `has_extra` 分支后追加 `emit_scene_updated`。
+- **`useSceneWithChapter` 缓存失效** — `sceneUpdated`/`sceneDeleted` handler 中追加 `['scenes', 'chapter', sceneId]` 的 invalidate/remove，确保场景-章节关联数据不 stale。
+- **`App.tsx` `backstage-shown` 未用 story_id** — 监听事件时读取 payload 中的 `story_id` 并调用 `setCurrentStory`，幕后窗口重新 show 时自动定位到当前故事。
+
+#### 后台自动化
+- **Bootstrap 后台失败不可见** — `pipeline-complete` 事件原硬编码 `success: true`、`elements_created: default()`、`error_message: None`。修复为根据 `bg_executor.execute()` 实际结果设置 success/error，并从 `GenesisContext.bundle` 统计实际生成的元素数量（world_rules/characters/scenes/foreshadowings/plot_points）。前端可区分成功与失败。
+- **向量存储初始化竞态** — `VECTOR_STORE` 是 `OnceCell`，应用启动后立即保存章节时若 LanceDB 尚未 init 则跳过索引，该章节永不被向量检索。修复：新增全局 `PENDING_VECTOR_INDEXES` 队列，未初始化时将 chapter_id 入队；LanceDB init 成功后自动批量处理积压队列，查询数据库→生成 embedding→写入 LanceDB。
+
+### 🟡 P1 重要差距修复
+
+- **Workflow Condition 节点空壳** — 原仅支持字符串 `"true"`/`"1"` 判断。修复：实现轻量级条件表达式求值，支持 `{{score}} > 0.7`、`{{status}} == "approved"` 等上下文变量比较，回退到硬编码 truthy 判断。
+- **Workflow 失败实例不重试** — `run_instance` 返回 `Err` 时仅记录日志，实例永久丢失。修复：节点失败时若 `retry_count < 3`，更新状态为 `Pending` 并重新入队，发射 `workflow-instance-retried` 事件；超次后标记 `Failed`。
+- **能力进化路径不一致** — `evolution.rs` 和 `mod.rs` 各有一个 `load_evolved_descriptions()`，前者从 `storage_path.parent()` 计算路径，后者从 `EVOLVED_DESCRIPTIONS_PATH` 全局路径读取，路径不一致。修复：`evolution.rs` 统一使用全局 `EVOLVED_DESCRIPTIONS_PATH`。
+- **Task Cron 解析过于简化** — 原仅支持 `*/N` 和 `0 H * * *`，其他表达式静默降级为 24 小时间隔。修复：引入 `cron` crate，新增 `spawn_cron` 方法精确计算下次执行时间（`schedule.upcoming(chrono::Utc)`），替代固定间隔 ticker。
+- **`cancel_genesis_pipeline` 无法中断运行中 LLM** — 取消标志只在步骤边界检查，LLM 调用期间（30-120秒）无法中断。修复：`tokio::select!` 同时运行 `step.execute()` 和取消监听循环（每 500ms 检查标志），用户点击取消后立即返回 `Cancelled` 错误。
+
+### 🟢 P2 优化差距修复
+
+- **文档版本号同步** — `ARCHITECTURE.md` / `AGENTS.md` / `ROADMAP.md` / `docs/FEATURES.md` 版本号更新至 `v5.5.1`
+- **过时文档归档** — `docs/UPDATE_SUMMARY.md`(v3.0.0)、`docs/FIXES_2025_04_11.md`(v2.0)、`docs/NOVEL_CREATION_WORKFLOW.md`(v3.1.2)、`docs/plans/PROGRESS.md`(v3.0)、`docs/plans/ARCHITECTURE_V3_PLAN.md`(v3.0) 移至 `docs/archive/`
+- **`tauri.ts` 死代码清理** — 移除 5 个无引用的 `@deprecated` 导出：`getDashboardState`、`getSkillsByCategory`、`embedChapter`、`createEntity`、`createRelation`
+- **`FrontstageToolbar` 废弃组件清理** — 删除 `FrontstageToolbar.tsx` 文件及 `index.ts` 中的注释引用
+
+### 🧪 质量保障
+- `cargo check` 零错误零警告
+- `cargo test` 217/217 全部通过
+- `npm run build` 通过
+
 ## [v5.5.0] - 设计-实现对齐全面修复（2026-05-07）
 
 ### 🔧 架构对齐

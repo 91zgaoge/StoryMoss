@@ -60,6 +60,19 @@ export function useUpdateWorldBuilding() {
   });
 }
 
+export function useDeleteWorldBuilding() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: { id: string; storyId: string }) => {
+      return invoke<number>('delete_world_building', { id: params.id });
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [WORLD_BUILDING_KEY, variables.storyId] });
+    },
+  });
+}
+
 // ==================== Writing Style ====================
 
 export function useWritingStyle(storyId: string | null) {

@@ -121,10 +121,19 @@ impl CapabilityEvolutionEngine {
     }
 
     /// 加载已进化的能力描述（覆盖默认描述）
+    /// P1-12 修复: 统一使用全局 EVOLVED_DESCRIPTIONS_PATH，避免路径不一致
     pub fn load_evolved_descriptions(&self) -> HashMap<String, String> {
-        let path = self.store.storage_path.parent()
-            .map(|p| p.join("evolved_descriptions.json"))
-            .unwrap_or_else(|| std::path::PathBuf::from("evolved_descriptions.json"));
+        let path = match crate::capabilities::EVOLVED_DESCRIPTIONS_PATH.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        };
+        let path = match path {
+            Some(p) => p,
+            None => {
+                log::warn!("[CapabilityEvolution] EVOLVED_DESCRIPTIONS_PATH not set, skipping load");
+                return HashMap::new();
+            }
+        };
         if !path.exists() {
             return HashMap::new();
         }
@@ -138,9 +147,14 @@ impl CapabilityEvolutionEngine {
     }
 
     fn save_evolved_descriptions(&self, descriptions: &HashMap<String, String>) -> Result<(), String> {
-        let path = self.store.storage_path.parent()
-            .map(|p| p.join("evolved_descriptions.json"))
-            .unwrap_or_else(|| std::path::PathBuf::from("evolved_descriptions.json"));
+        let path = match crate::capabilities::EVOLVED_DESCRIPTIONS_PATH.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        };
+        let path = match path {
+            Some(p) => p,
+            None => return Err("EVOLVED_DESCRIPTIONS_PATH not set".to_string()),
+        };
         let json = serde_json::to_string_pretty(descriptions)
             .map_err(|e| format!("Serialize failed: {}", e))?;
         std::fs::write(&path, json)
