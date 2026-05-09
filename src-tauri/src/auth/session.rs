@@ -46,6 +46,7 @@ pub fn create_token(user_id: &str) -> Result<String, String> {
 }
 
 /// 验证JWT token，返回user_id
+#[allow(dead_code)]
 pub fn validate_token(token: &str) -> Result<String, String> {
     let secret = get_jwt_secret();
     let validation = Validation::default();

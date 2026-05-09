@@ -144,66 +144,97 @@ pub async fn update_scene(
                 let story_id = scene.story_id;
                 let content = scene.content.unwrap_or_default();
                 if content.len() > 50 {
+                    let content_for_vector = content.clone();
                     let llm_service = LlmService::new(app_handle_clone);
-                    let pipeline = IngestPipeline::new(llm_service);
-                    let ingest_content = IngestContent {
-                        text: content,
-                        source: format!("scene:{}", scene_id_clone),
-                        story_id: story_id.clone(),
-                        scene_id: Some(scene_id_clone.clone()),
+
+                    // v5.6.2 修复: 将 ingest 放在独立作用域中，避免 Box<dyn Error> 跨越 await 导致 Send 失败
+                    let ingest_result = {
+                        let pipeline = IngestPipeline::new(llm_service);
+                        let ingest_content = IngestContent {
+                            text: content,
+                            source: format!("scene:{}", scene_id_clone),
+                            story_id: story_id.clone(),
+                            scene_id: Some(scene_id_clone.clone()),
+                        };
+                        match pipeline.ingest(&ingest_content).await {
+                            Ok(result) => Some(result),
+                            Err(e) => {
+                                log::warn!("[AutoIngest] Scene {}: ingest failed: {}", scene_id_clone, e);
+                                None
+                            }
+                        }
                     };
 
-                    match pipeline.ingest(&ingest_content).await {
-                        Ok(ingest_result) => {
-                            let kg_repo = KnowledgeGraphRepository::new(pool_clone.clone());
-                            let mut saved_entities = 0usize;
-                            let mut saved_relations = 0usize;
+                    if let Some(ingest_result) = ingest_result {
+                        let kg_repo = KnowledgeGraphRepository::new(pool_clone.clone());
+                        let mut saved_entities = 0usize;
+                        let mut saved_relations = 0usize;
 
-                            // 保存实体
-                            for entity in &ingest_result.entities {
-                                if let Ok(_) = kg_repo.create_entity(
+                        // 保存实体
+                        for entity in &ingest_result.entities {
+                            if let Ok(_) = kg_repo.create_entity(
+                                &story_id,
+                                &entity.name,
+                                &entity.entity_type.to_string(),
+                                &entity.attributes,
+                                entity.embedding.clone(),
+                            ) {
+                                saved_entities += 1;
+                            }
+                        }
+
+                        // 建立关系映射
+                        let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
+                            .iter()
+                            .map(|e| (e.name.clone(), e.id.clone()))
+                            .collect();
+
+                        for relation in &ingest_result.relations {
+                            if let (Some(source_id), Some(target_id)) = (
+                                entity_name_to_id.get(&relation.source_id),
+                                entity_name_to_id.get(&relation.target_id),
+                            ) {
+                                if let Ok(_) = kg_repo.create_relation(
                                     &story_id,
-                                    &entity.name,
-                                    &entity.entity_type.to_string(),
-                                    &entity.attributes,
-                                    entity.embedding.clone(),
+                                    source_id,
+                                    target_id,
+                                    &relation.relation_type.to_string(),
+                                    relation.strength,
                                 ) {
-                                    saved_entities += 1;
+                                    saved_relations += 1;
                                 }
                             }
+                        }
 
-                            // 建立关系映射
-                            let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
-                                .iter()
-                                .map(|e| (e.name.clone(), e.id.clone()))
-                                .collect();
+                        log::info!(
+                            "[AutoIngest] Scene {}: {} entities, {} relations saved to KG",
+                            scene_id_clone,
+                            saved_entities,
+                            saved_relations
+                        );
 
-                            for relation in &ingest_result.relations {
-                                if let (Some(source_id), Some(target_id)) = (
-                                    entity_name_to_id.get(&relation.source_id),
-                                    entity_name_to_id.get(&relation.target_id),
-                                ) {
-                                    if let Ok(_) = kg_repo.create_relation(
-                                        &story_id,
-                                        source_id,
-                                        target_id,
-                                        &relation.relation_type.to_string(),
-                                        relation.strength,
-                                    ) {
-                                        saved_relations += 1;
+                        // v5.6.2 修复: Scene 更新后同步写入向量存储，支持语义搜索
+                        if let Some(store) = crate::VECTOR_STORE.get() {
+                            match crate::embeddings::embed_text_async(content_for_vector.clone()).await {
+                                Ok(embedding) => {
+                                    let record = crate::vector::VectorRecord {
+                                        id: format!("scene:{}", scene_id_clone),
+                                        story_id: story_id.clone(),
+                                        chapter_id: scene.chapter_id.clone().unwrap_or_default(),
+                                        chapter_number: scene.sequence_number,
+                                        text: content_for_vector,
+                                        record_type: "scene".to_string(),
+                                        embedding,
+                                    };
+                                    match store.add_record(record).await {
+                                        Ok(_) => log::info!("[AutoIngest] Scene {} indexed to vector store", scene_id_clone),
+                                        Err(e) => log::warn!("[AutoIngest] Failed to index scene {}: {}", scene_id_clone, e),
                                     }
                                 }
+                                Err(e) => {
+                                    log::warn!("[AutoIngest] Failed to generate embedding for scene {}: {}", scene_id_clone, e);
+                                }
                             }
-
-                            log::info!(
-                                "[AutoIngest] Scene {}: {} entities, {} relations saved to KG",
-                                scene_id_clone,
-                                saved_entities,
-                                saved_relations
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!("[AutoIngest] Scene {}: ingest failed: {}", scene_id_clone, e);
                         }
                     }
                 }

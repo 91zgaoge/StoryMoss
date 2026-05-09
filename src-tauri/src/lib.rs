@@ -18,7 +18,7 @@ mod collab;
 mod state;
 mod router;
 mod evolution;
-mod embeddings;
+pub(crate) mod embeddings;
 mod utils;
 mod window;
 mod updater;
@@ -1305,7 +1305,7 @@ async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, String> {
 // Vector Search Commands (LanceDB)
 use vector::{LanceVectorStore, SearchResult};
 
-static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
+pub(crate) static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
 /// 向量存储初始化前积压的章节索引请求（P0-7 修复: 防止启动后首章丢失索引）
 static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 /// P2-19 修复: pending queue 持久化文件路径

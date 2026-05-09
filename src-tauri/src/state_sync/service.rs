@@ -68,6 +68,7 @@ impl StateSync {
         });
     }
 
+    #[allow(dead_code)]
     pub fn emit_story_selected(app: &AppHandle, story_id: &str, title: Option<&str>) {
         Self::emit_event(app, SyncEvent::StorySelected {
             story_id: story_id.to_string(),
@@ -125,6 +126,7 @@ impl StateSync {
         });
     }
 
+    #[allow(dead_code)]
     pub fn emit_scene_selected(app: &AppHandle, story_id: &str, scene_id: &str, title: Option<&str>) {
         Self::emit_event(app, SyncEvent::SceneSelected {
             story_id: story_id.to_string(),

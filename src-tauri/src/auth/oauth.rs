@@ -21,6 +21,7 @@ static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, OAuthState>>> = Lazy::new(|
 pub struct OAuthState {
     pub provider: OAuthProvider,
     pub pkce_verifier: String,
+    #[allow(dead_code)]
     pub redirect_port: u16,
 }
 

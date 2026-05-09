@@ -148,6 +148,14 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.6.2 设计-实现对齐全面修复 v5** (2026-05-08) — 全面检视并修复 5 项设计-实现差距
+  - **前端缓存同步精确化**: `writingStyle` case 同时刷新 `writing_style` 缓存（修复只刷新 `world_building` 的遗漏）；`chapterUpdated` 补充 `['chapters', storyId]` 精确刷新
+  - **update_scene 向量索引闭环**: `update_scene` 内联 Ingest 补充 `embed_text_async` → `VectorRecord` → `add_record`，Scene 内容变更后语义搜索可检索；`VECTOR_STORE`/`embeddings` 可见性提升为 `pub(crate)`
+  - **storySelected 关联数据自动刷新**: `case 'storySelected'` 补充 8 项关联数据 `invalidateQueries`，消除切换故事时的时序依赖
+  - **dataRefresh 完整覆盖**: 补充 `knowledgeGraph`/`characterRelationships` 单独 case
+  - **编译优化**: 5 处 dead_code 警告清理，warnings 113→109
+  - **编译**: `cargo check` 零错误，`npm run build` 通过
+
 - **v5.6.1 设计-实现对齐全面修复 v4** (2026-05-08) — 全面检视并修复 8 项设计-实现差距
   - **幕前幕后自动关联补全**: `sceneCreated`/`sceneDeleted` 同步刷新 `chapters` 缓存，消除场景-章节关联状态滞后
   - **自适应学习真实反馈**: `record_feedback` 返回 `Vec<LearningPoint>`，同步挖掘真实偏好；前端使用返回结果替代硬编码 mock

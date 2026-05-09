@@ -127,6 +127,17 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             break;
           }
           case 'storySelected': {
+            // v5.6.2 修复: 故事切换时自动刷新关联数据缓存，避免时序依赖
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(storyId) });
+              queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
+            }
             optionsRef.current.onStorySelected?.(storyId, title);
             break;
           }
@@ -211,6 +222,9 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           }
           case 'chapterUpdated': {
             queryClient.invalidateQueries({ queryKey: KEYS.chapters() });
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
+            }
             if (chapterId) {
               queryClient.invalidateQueries({ queryKey: KEYS.chapterDetail(chapterId) });
             }
@@ -264,10 +278,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                   queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
                 }
                 break;
-              // v5.6.1 修复: WritingStyle 更新后刷新缓存
+              // v5.6.2 修复: WritingStyle 更新后同时刷新 worldBuilding 和 writing_style 缓存
               case 'writingStyle':
                 if (storyId) {
                   queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
+                  queryClient.invalidateQueries({ queryKey: ['writing_style', storyId] });
                 }
                 break;
               // v5.6.1 修复: 大纲/伏笔更新后刷新缓存
@@ -279,6 +294,17 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
               case 'foreshadowings':
                 if (storyId) {
                   queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(storyId) });
+                }
+                break;
+              // v5.6.2 修复: 补充 knowledgeGraph 和 characterRelationships 单独刷新
+              case 'knowledgeGraph':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(storyId) });
+                }
+                break;
+              case 'characterRelationships':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
                 }
                 break;
               case 'all':

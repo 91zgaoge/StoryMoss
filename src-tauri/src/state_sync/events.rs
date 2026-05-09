@@ -98,6 +98,7 @@ pub enum SyncEvent {
 
 impl SyncEvent {
     /// 获取事件对应的资源类型标识
+    #[allow(dead_code)]
     pub fn resource_type(&self) -> &str {
         match self {
             SyncEvent::StoryCreated { .. } |

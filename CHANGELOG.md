@@ -2,6 +2,34 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.2] - 设计-实现对齐全面修复 v5（2026-05-08）
+
+### 🔴 P0 核心断裂修复
+
+#### 前端缓存同步精确化
+- **writingStyle 缓存刷新错误** — `useSyncStore.ts` 中 `case 'writingStyle'` 刷新的是 `['world_building', storyId]`，但 `useWritingStyle` hook 使用的 queryKey 是 `['writing_style', storyId]`。写作风格更新后前端写作风格缓存不会自动刷新。修复：同时刷新 `['writing_style', storyId]` 缓存
+- **chapterUpdated 缓存刷新不精确** — `case 'chapterUpdated'` 仅调用 `invalidateQueries(['chapters'])`（全局），未刷新 `['chapters', storyId]`（当前故事）。幕前保存章节后，幕后 chapters 列表可能不立即刷新。修复：补充 `invalidateQueries(['chapters', storyId])`
+
+#### 后台自动化闭环补全
+- **update_scene 未触发向量索引** — `update_chapter`/`create_chapter` 保存后触发 `auto_ingest_chapter`（含 KG 分析 + 向量索引），但 `update_scene` 仅内联了 KG 分析，未写入 LanceDB 向量存储。修复：将 `VECTOR_STORE`/`embeddings` 可见性提升为 `pub(crate)`；`update_scene` 的 Ingest 逻辑补充 `embed_text_async` → `VectorRecord` → `add_record` 向量索引闭环；通过独立作用域隔离 `Box<dyn Error>` 避免 `Send` 编译错误
+
+### 🟡 P1 功能补全
+
+#### 前端缓存同步增强
+- **storySelected 未刷新关联数据** — `case 'storySelected'` 仅触发回调，未调用 `invalidateQueries`。幕后切换故事时关联数据刷新依赖 `App.tsx` 中的 `useEffect` 时序。修复：补充 characters/scenes/chapters/worldBuilding/foreshadowings/storyOutlines/knowledgeGraph/characterRelationships 缓存刷新
+- **dataRefresh 缺少 knowledgeGraph/characterRelationships 单独 case** — 后端可能发射单独资源类型事件，但前端 switch 未处理。修复：补充 `case 'knowledgeGraph'` 和 `case 'characterRelationships'`
+
+### 🟢 P2 优化
+
+- ** cargo warnings 清理** — `resource_type()`/`emit_story_selected`/`emit_scene_selected`/`validate_token`/`redirect_port` 等 5 处 dead_code 警告。修复：添加 `#[allow(dead_code)]` 标记保留 API（未来可能使用），warnings 从 113 降至 109
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `npm run build` ✅ 通过
+- `cargo test` 待验证
+
+---
+
 ## [v5.6.1] - 设计-实现对齐全面修复 v4（2026-05-08）
 
 ### 🔴 P0 核心断裂修复
