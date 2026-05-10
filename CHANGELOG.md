@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.4] - Tauri v2 IPC `rename_all = "snake_case"` 根本修复（2026-05-08）
+
+### 🔴 P0 核心断裂修复
+
+#### Tauri v2 自动 camelCase 转换导致 IPC 参数静默丢弃
+- **根因**：Tauri v2 默认行为 — `#[tauri::command]` 自动将 Rust `snake_case` 参数名转换为 `camelCase` 传给 JS 前端。v5.6.3 修复将前端参数从 camelCase 改为 snake_case，但未同步修改后端命令宏，导致 Tauri 仍期望 camelCase 而前端传 snake_case，参数全部静默丢弃
+- **影响范围**：`smart_execute`（`user_input`/`current_content` 被丢弃 → AI 续写不可用）、`get_input_hint`、`record_feedback`、`call_mcp_tool`、`check_auto_write_quota`/`check_auto_revise_quota` 等全部命令
+- **修复**：157 个后端 `#[tauri::command]` 全部添加 `rename_all = "snake_case"`
+  - `src-tauri/src/lib.rs`：63 个命令
+  - `src-tauri/src/commands_v3.rs`：92 个命令  
+  - `src-tauri/src/subscription/commands.rs`：2 个命令
+- **机制**：`rename_all = "snake_case"` 禁用 Tauri 自动转换，前端传 `user_input` → 后端接收 `user_input`，零映射歧义
+
+### 编译状态
+- `cargo check` ✅ 零错误（109 warnings）
+- `cargo test` ✅ 217/217 通过
+- `npm run build` ✅ 通过
+
+---
+
 ## [v5.6.3] - IPC 参数一致性全面修复 + Bootstrap 序列化修复（2026-05-08）
 
 ### 🔴 P0 核心断裂修复

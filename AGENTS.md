@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v5.6.3
+- **版本**: v5.6.4
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -148,7 +148,8 @@ npm test
 
 ### 最近完成的功能
 
-- **v5.6.3 IPC 参数一致性全面修复 + Bootstrap 序列化修复** (2026-05-08) — 修复幕后界面功能不可用的根本原因。Bootstrap 进度卡死：`CharacterElement`/`SceneElement` 添加 `#[serde(default)]` 容错 LLM 省略字段；`BootstrapProgressEvent` 新增 `status` 字段。IPC 参数全面审计：修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。后端命令参数补全：`run_creation_workflow` mode 映射、`update_story` genre、`create_character`/`update_character` 扩展字段。`cargo check` 零错误，`npm run build` 通过。
+- **v5.6.4 Tauri v2 IPC `rename_all = "snake_case"` 根本修复** (2026-05-08) — 彻底消灭 camelCase↔snake_case 参数不匹配导致的 IPC 静默失败。根因：Tauri v2 默认将 Rust snake_case 自动转换为 camelCase 传给 JS，前端改为 snake_case 后未同步禁用转换，参数全部静默丢弃。修复：157 个 `#[tauri::command]` 全部添加 `rename_all = "snake_case"`（`lib.rs` 63 + `commands_v3.rs` 92 + `subscription/commands.rs` 2）。`cargo check` 零错误，`cargo test` 217/217 通过。
+- **v5.6.3 IPC 参数一致性全面修复 + Bootstrap 序列化修复** (2026-05-08) — 修复幕后界面功能不可用的根本原因。Bootstrap 进度卡死：`CharacterElement`/`SceneElement` 添加 `#[serde(default)]` 容错 LLM 省略字段；`BootstrapProgressEvent` 新增 `status` 字段。IPC 参数全面审计：修复 7 处 camelCase↔snake_case 不匹配（前端传参修复）。后端命令参数补全：`run_creation_workflow` mode 映射、`update_story` genre、`create_character`/`update_character` 扩展字段。`cargo check` 零错误，`npm run build` 通过。
 - **v5.6.2 设计-实现对齐全面修复 v5** (2026-05-08) — 全面检视并修复 5 项设计-实现差距
   - **前端缓存同步精确化**: `writingStyle` case 同时刷新 `writing_style` 缓存（修复只刷新 `world_building` 的遗漏）；`chapterUpdated` 补充 `['chapters', storyId]` 精确刷新
   - **update_scene 向量索引闭环**: `update_scene` 内联 Ingest 补充 `embed_text_async` → `VectorRecord` → `add_record`，Scene 内容变更后语义搜索可检索；`VECTOR_STORE`/`embeddings` 可见性提升为 `pub(crate)`

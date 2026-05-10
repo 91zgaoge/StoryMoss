@@ -12,7 +12,7 @@ use tauri::{command, AppHandle, Manager, State};
 
 // ==================== 场景命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_scene(
     story_id: String,
     sequence_number: i32,
@@ -94,7 +94,7 @@ pub async fn create_scene(
     Ok(scene)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_scenes(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -104,7 +104,7 @@ pub async fn get_story_scenes(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -114,7 +114,7 @@ pub async fn get_scene(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_scene(
     scene_id: String,
     updates: SceneUpdate,
@@ -248,7 +248,7 @@ pub async fn update_scene(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_scene(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -268,7 +268,7 @@ pub async fn delete_scene(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn reorder_scenes(
     story_id: String,
     scene_ids: Vec<String>,
@@ -288,7 +288,7 @@ pub async fn reorder_scenes(
 
 // ==================== 世界观命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_world_building(
     story_id: String,
     concept: String,
@@ -306,7 +306,7 @@ pub async fn create_world_building(
     Ok(wb)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_world_building(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -316,7 +316,7 @@ pub async fn get_world_building(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_world_building(
     id: String,
     concept: Option<String>,
@@ -361,7 +361,7 @@ pub async fn update_world_building(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_world_building(
     id: String,
     pool: State<'_, DbPool>,
@@ -387,7 +387,7 @@ pub async fn delete_world_building(
 
 // ==================== 文字风格命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_writing_style(
     story_id: String,
     name: Option<String>,
@@ -398,7 +398,7 @@ pub async fn create_writing_style(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_writing_style(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -408,7 +408,7 @@ pub async fn get_writing_style(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_writing_style(
     id: String,
     updates: WritingStyleUpdate,
@@ -434,7 +434,7 @@ pub async fn update_writing_style(
 
 // ==================== 工作室配置命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_studio_config(
     story_id: String,
     app_handle: AppHandle,
@@ -447,7 +447,7 @@ pub async fn create_studio_config(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_studio_config(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -457,7 +457,7 @@ pub async fn get_studio_config(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_studio_config(
     id: String,
     pen_name: Option<String>,
@@ -473,7 +473,7 @@ pub async fn update_studio_config(
 
 // ==================== 导入/导出命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn export_studio(
     request: StudioExportRequest,
     app_handle: AppHandle,
@@ -486,7 +486,7 @@ pub async fn export_studio(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn import_studio(
     data: Vec<u8>,
     options: crate::config::studio_manager::ImportOptions,
@@ -502,7 +502,7 @@ pub async fn import_studio(
 
 // ==================== 知识图谱命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_entity(
     story_id: String,
     name: String,
@@ -519,7 +519,7 @@ pub async fn create_entity(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_entity(
     entity_id: String,
     name: Option<String>,
@@ -563,7 +563,7 @@ pub async fn update_entity(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_entities(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -573,7 +573,7 @@ pub async fn get_story_entities(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_relation(
     story_id: String,
     source_id: String,
@@ -587,7 +587,7 @@ pub async fn create_relation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_entity_relations(
     entity_id: String,
     pool: State<'_, DbPool>,
@@ -599,7 +599,7 @@ pub async fn get_entity_relations(
 
 // ==================== 场景批注命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_scene_annotation(
     scene_id: String,
     story_id: String,
@@ -616,7 +616,7 @@ pub async fn create_scene_annotation(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene_annotations(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -626,7 +626,7 @@ pub async fn get_scene_annotations(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_unresolved_annotations(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -636,7 +636,7 @@ pub async fn get_story_unresolved_annotations(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_scene_annotation(
     annotation_id: String,
     content: String,
@@ -647,7 +647,7 @@ pub async fn update_scene_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn resolve_scene_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -657,7 +657,7 @@ pub async fn resolve_scene_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn unresolve_scene_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -667,7 +667,7 @@ pub async fn unresolve_scene_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_scene_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -679,7 +679,7 @@ pub async fn delete_scene_annotation(
 
 // ==================== 文本内联批注命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_text_annotation(
     story_id: String,
     scene_id: Option<String>,
@@ -699,7 +699,7 @@ pub async fn create_text_annotation(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_text_annotations_by_chapter(
     chapter_id: String,
     pool: State<'_, DbPool>,
@@ -709,7 +709,7 @@ pub async fn get_text_annotations_by_chapter(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_text_annotations_by_scene(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -719,7 +719,7 @@ pub async fn get_text_annotations_by_scene(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_text_annotation(
     annotation_id: String,
     content: String,
@@ -730,7 +730,7 @@ pub async fn update_text_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn resolve_text_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -740,7 +740,7 @@ pub async fn resolve_text_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn unresolve_text_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -750,7 +750,7 @@ pub async fn unresolve_text_annotation(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_text_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
@@ -762,7 +762,7 @@ pub async fn delete_text_annotation(
 
 // ==================== 古典评点家命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_paragraph_commentaries(
     story_id: String,
     story_title: String,
@@ -809,7 +809,7 @@ pub async fn generate_paragraph_commentaries(
 
 // ==================== 记忆压缩命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn compress_content(
     story_id: String,
     content: String,
@@ -852,7 +852,7 @@ pub async fn compress_content(
     })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn compress_scene(
     scene_id: String,
     target_ratio: Option<f32>,
@@ -911,7 +911,7 @@ pub async fn compress_scene(
 
 // ==================== 知识蒸馏命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn distill_story_knowledge(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1003,7 +1003,7 @@ pub async fn distill_story_knowledge(
     Ok(summary)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_summaries(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1013,7 +1013,7 @@ pub async fn get_story_summaries(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_story_summary(
     summary_id: String,
     content: String,
@@ -1024,7 +1024,7 @@ pub async fn update_story_summary(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_story_summary(
     summary_id: String,
     pool: State<'_, DbPool>,
@@ -1040,7 +1040,7 @@ pub struct StoryGraph {
     pub relations: Vec<Relation>,
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_graph(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1053,7 +1053,7 @@ pub async fn get_story_graph(
     Ok(StoryGraph { entities, relations })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_retention_report(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1066,7 +1066,7 @@ pub async fn get_retention_report(
     Ok(manager.generate_retention_report(&entities))
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn archive_forgotten_entities(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1092,7 +1092,7 @@ pub async fn archive_forgotten_entities(
     })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn restore_archived_entity(
     entity_id: String,
     pool: State<'_, DbPool>,
@@ -1106,7 +1106,7 @@ pub async fn restore_archived_entity(
         .ok_or_else(|| "Entity not found".to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_archived_entities(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -1118,7 +1118,7 @@ pub async fn get_archived_entities(
 
 // ==================== 小说创建向导命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_world_building_options(
     user_input: String,
     app_handle: AppHandle,
@@ -1132,7 +1132,7 @@ pub async fn generate_world_building_options(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_character_profiles(
     world_building: WorldBuildingOption,
     app_handle: AppHandle,
@@ -1146,7 +1146,7 @@ pub async fn generate_character_profiles(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_writing_styles(
     genre: String,
     world_building: WorldBuildingOption,
@@ -1161,7 +1161,7 @@ pub async fn generate_writing_styles(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_first_scene(
     world_building: WorldBuildingOption,
     characters: Vec<CharacterProfileOption>,
@@ -1187,7 +1187,7 @@ pub struct WizardCreationResult {
     pub ingested_relations: usize,
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_story_with_wizard(
     title: String,
     description: Option<String>,
@@ -1399,7 +1399,7 @@ use crate::db::models_v3::{SceneVersion, CreatorType};
 use crate::db::repositories_v3::SceneVersionRepository;
 use crate::versions::service::{SceneVersionService, VersionChainNode, VersionDiff, VersionStats};
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene_versions(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -1409,7 +1409,7 @@ pub async fn get_scene_versions(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene_version(
     version_id: String,
     pool: State<'_, DbPool>,
@@ -1467,7 +1467,7 @@ fn create_version_snapshot(
     Ok(Some(version))
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_scene_version(
     scene_id: String,
     change_summary: String,
@@ -1581,7 +1581,7 @@ fn diff_to_change_tracks(
     tracks
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn compare_scene_versions(
     from_version_id: String,
     to_version_id: String,
@@ -1592,7 +1592,7 @@ pub async fn compare_scene_versions(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene_version_chain(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -1602,7 +1602,7 @@ pub async fn get_scene_version_chain(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_version_change_tracks(
     version_id: String,
     pool: State<'_, DbPool>,
@@ -1612,7 +1612,7 @@ pub async fn get_version_change_tracks(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn restore_scene_version(
     scene_id: String,
     version_id: String,
@@ -1625,7 +1625,7 @@ pub async fn restore_scene_version(
     Ok(result.new_version)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_scene_version_stats(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -1635,7 +1635,7 @@ pub async fn get_scene_version_stats(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_scene_version(
     version_id: String,
     pool: State<'_, DbPool>,
@@ -1648,7 +1648,7 @@ pub async fn delete_scene_version(
 
 // ==================== 变更追踪命令 (修订模式) ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn track_change(
     scene_id: Option<String>,
     chapter_id: Option<String>,
@@ -1687,7 +1687,7 @@ pub async fn track_change(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn accept_change(
     change_id: String,
     pool: State<'_, DbPool>,
@@ -1713,7 +1713,7 @@ pub async fn accept_change(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn reject_change(
     change_id: String,
     pool: State<'_, DbPool>,
@@ -1739,7 +1739,7 @@ pub async fn reject_change(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_pending_changes(
     scene_id: Option<String>,
     chapter_id: Option<String>,
@@ -1759,7 +1759,7 @@ pub async fn get_pending_changes(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn accept_all_changes(
     scene_id: Option<String>,
     chapter_id: Option<String>,
@@ -1786,7 +1786,7 @@ pub async fn accept_all_changes(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn reject_all_changes(
     scene_id: Option<String>,
     chapter_id: Option<String>,
@@ -1816,7 +1816,7 @@ pub async fn reject_all_changes(
 
 // ==================== 评论线程命令 (修订模式) ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_comment_thread(
     version_id: Option<String>,
     anchor_type: String,
@@ -1854,7 +1854,7 @@ pub async fn create_comment_thread(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn add_comment_message(
     thread_id: String,
     content: String,
@@ -1884,7 +1884,7 @@ pub async fn add_comment_message(
         })
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_comment_threads(
     scene_id: Option<String>,
     chapter_id: Option<String>,
@@ -1904,7 +1904,7 @@ pub async fn get_comment_threads(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn resolve_comment_thread(
     thread_id: String,
     pool: State<'_, DbPool>,
@@ -1916,7 +1916,7 @@ pub async fn resolve_comment_thread(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn reopen_comment_thread(
     thread_id: String,
     pool: State<'_, DbPool>,
@@ -1928,7 +1928,7 @@ pub async fn reopen_comment_thread(
         .map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_comment_thread(
     thread_id: String,
     pool: State<'_, DbPool>,
@@ -1941,7 +1941,7 @@ pub async fn delete_comment_thread(
 }
 
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn run_creation_workflow(
     story_id: String,
     mode: String, // "ai_only" | "ai_first" | "human_first"
@@ -2065,7 +2065,7 @@ pub async fn analyze_style_sample(
 
 // ==================== 伏笔追踪命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_foreshadowings(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -2090,7 +2090,7 @@ pub async fn get_story_foreshadowings(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn create_foreshadowing(
     story_id: String,
     content: String,
@@ -2113,7 +2113,7 @@ pub async fn create_foreshadowing(
     result
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_foreshadowing_status(
     id: String,
     status: String,
@@ -2146,7 +2146,7 @@ pub async fn update_foreshadowing_status(
 
 // ==================== Payoff Ledger 命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_payoff_ledger(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -2179,7 +2179,7 @@ pub async fn get_payoff_ledger(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn detect_overdue_payoffs(
     story_id: String,
     current_scene_number: i32,
@@ -2213,7 +2213,7 @@ pub async fn detect_overdue_payoffs(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn recommend_payoff_timing(
     story_id: String,
     current_scene_number: i32,
@@ -2239,7 +2239,7 @@ pub async fn recommend_payoff_timing(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_payoff_ledger_fields(
     foreshadowing_id: String,
     target_start_scene: Option<i32>,
@@ -2279,7 +2279,7 @@ pub async fn update_payoff_ledger_fields(
 
 // ==================== 结构化大纲命令 ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_scene_outline(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -2355,7 +2355,7 @@ pub async fn generate_scene_outline(
     Ok(result)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn generate_scene_draft(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -2441,7 +2441,7 @@ pub async fn generate_scene_draft(
 
 // ==================== 风格混合命令 (v4.4.0 - 3风格三角框架) ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_style_blend(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -2467,7 +2467,7 @@ pub async fn get_story_style_blend(
     Ok(None)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn set_story_style_blend(
     story_id: String,
     name: String,
@@ -2539,7 +2539,7 @@ pub async fn set_story_style_blend(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_scene_style_blend(
     scene_id: String,
     blend_override: Option<String>,
@@ -2571,7 +2571,7 @@ pub async fn update_scene_style_blend(
     Ok(())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn check_style_drift(
     text: String,
     story_id: String,
@@ -2647,7 +2647,7 @@ pub async fn check_style_drift(
 
 // ==================== 创世引擎命令 (v5.0.0) ====================
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_story_outline(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -2668,7 +2668,7 @@ pub async fn get_story_outline(
     })))
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn update_story_outline(
     story_id: String,
     content: String,
@@ -2684,7 +2684,7 @@ pub async fn update_story_outline(
     Ok(())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_character_relationships(
     story_id: String,
     pool: State<'_, DbPool>,

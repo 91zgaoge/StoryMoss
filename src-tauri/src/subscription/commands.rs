@@ -33,7 +33,7 @@ pub fn get_quota_detail(app_handle: AppHandle) -> Result<QuotaDetail, String> {
 }
 
 /// 检查自动续写配额
-#[command]
+#[command(rename_all = "snake_case")]
 pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, String> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
@@ -42,7 +42,7 @@ pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Re
 }
 
 /// 检查自动修改配额
-#[command]
+#[command(rename_all = "snake_case")]
 pub fn check_auto_revise_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, String> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());

@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.6.3 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.6.4 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.3 最新更新**：IPC 参数一致性全面修复 + Bootstrap 序列化修复 — 幕后界面功能不可用的根本原因修复。**Bootstrap 进度卡死** — LLM 返回 JSON 省略 `age`/`sequence_number` 等字段导致 serde 反序列化失败，Pipeline 中断在前端显示永久 "塑造角色 (3/6)"。修复：给 `CharacterElement`/`SceneElement` 所有可能被 LLM 省略的字段添加 `#[serde(default)]`；`BootstrapProgressEvent` 新增 `status` 字段（`InProgress`/`Completed`/`Failed`），前端失败状态可见。**IPC 参数名全面审计** — 系统审计 `tauri.ts` 全部 40+ 命令与后端签名，修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。**后端命令参数补全** — `run_creation_workflow` mode 映射增加 `"human_draft_ai_polish"`，`update_story` 补充 `genre`，`create_character`/`update_character` 补充 `personality`/`goals`/`appearance`/`gender`/`age` 扩展字段。幕后界面全部功能现已恢复正常。
+> **v5.6.4 最新更新**：Tauri v2 IPC `rename_all = "snake_case"` 根本修复 — 彻底消灭 camelCase↔snake_case 参数不匹配导致的 IPC 静默失败。**根因**：Tauri v2 默认将 Rust snake_case 参数自动转换为 camelCase 传给 JS，但前端已全部改为 snake_case，导致 `smart_execute` 等全部命令参数静默丢弃。**修复**：157 个后端 `#[tauri::command]` 全部添加 `rename_all = "snake_case"`（`lib.rs` 63 个 + `commands_v3.rs` 92 个 + `subscription/commands.rs` 2 个），前端 snake_case 直接映射到 Rust snake_case，零转换。`cargo check` 零错误，`cargo test` 217/217 通过。
+>
+> **v5.6.3 更新**：IPC 参数一致性全面修复 + Bootstrap 序列化修复 — 幕后界面功能不可用的根本原因修复。**Bootstrap 进度卡死** — LLM 返回 JSON 省略 `age`/`sequence_number` 等字段导致 serde 反序列化失败，Pipeline 中断在前端显示永久 "塑造角色 (3/6)"。修复：给 `CharacterElement`/`SceneElement` 所有可能被 LLM 省略的字段添加 `#[serde(default)]`；`BootstrapProgressEvent` 新增 `status` 字段（`InProgress`/`Completed`/`Failed`），前端失败状态可见。**IPC 参数名全面审计** — 系统审计 `tauri.ts` 全部 40+ 命令与后端签名，修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。**后端命令参数补全** — `run_creation_workflow` mode 映射增加 `"human_draft_ai_polish"`，`update_story` 补充 `genre`，`create_character`/`update_character` 补充 `personality`/`goals`/`appearance`/`gender`/`age` 扩展字段。幕后界面全部功能现已恢复正常。
 >
 > **v5.6.2 更新**：设计-实现对齐全面修复 v5 — 全面检视并修复 5 项设计-实现差距。**前端缓存同步精确化**：`writingStyle` case 同时刷新 `writing_style` 缓存（修复只刷新 `world_building` 的遗漏），`chapterUpdated` 补充 `['chapters', storyId]` 精确刷新当前故事 chapters 列表。**update_scene 向量索引闭环**：Scene 内容更新后同步写入 LanceDB 向量存储，`embed_text_async` → `VectorRecord` → `add_record` 完整链路，语义搜索可检索最新场景内容。**storySelected 关联数据自动刷新**：切换故事时自动刷新 8 项关联数据缓存，消除时序依赖。**dataRefresh 完整覆盖**：补充 `knowledgeGraph`/`characterRelationships` 单独 case。**编译优化**：5 处 dead_code 警告清理，warnings 113→109。
 >
