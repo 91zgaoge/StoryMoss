@@ -10,6 +10,9 @@ pub mod repositories_narrative;
 #[path = "repositories_tests.rs"]
 mod repositories_tests;
 
+#[cfg(test)]
+mod tests;
+
 pub use connection::{DbPool, init_db};
 #[cfg(test)]
 pub use connection::create_test_pool;

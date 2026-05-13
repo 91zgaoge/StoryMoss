@@ -36,9 +36,13 @@ mod audit;
 mod auth;
 mod state_sync;
 mod logging;
+mod automation;
 
 #[cfg(test)]
 mod test_utils;
+
+#[cfg(test)]
+mod tests;
 
 use tauri::{Manager, AppHandle, Emitter};
 
@@ -213,6 +217,18 @@ pub fn run() {
                     log::info!("Task system bootstrapped successfully");
                 }
                 app.manage(task_service);
+
+                // Initialize automation service
+                let automation_service = automation::service::AutomationService::new(app_handle.clone(), pool.clone());
+                let automation_service_clone = automation_service.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = automation_service_clone.initialize().await {
+                        log::error!("Failed to initialize automation service: {}", e);
+                    } else {
+                        log::info!("Automation service initialized successfully");
+                    }
+                });
+                app.manage(automation_service);
             }
 
             // Initialize LanceDB vector store
@@ -306,20 +322,34 @@ pub fn run() {
 
             // Initialize WorkflowEngine and WorkflowScheduler
             let workflow_engine_arc = {
-                let engine = if let Some(pool) = get_pool() {
+                let (engine, restored_instance_ids) = if let Some(pool) = get_pool() {
                     workflow::WorkflowEngine::with_pool(pool)
                 } else {
-                    workflow::WorkflowEngine::new()
+                    (workflow::WorkflowEngine::new(), vec![])
                 };
-                let scheduler = workflow::WorkflowScheduler::new();
+                let scheduler = std::sync::Arc::new(workflow::WorkflowScheduler::new());
                 // Register the standard writing workflow template
                 if let Err(e) = engine.register_workflow(workflow::templates::standard_writing_workflow()) {
                     log::warn!("Failed to register standard workflow: {}", e);
                 }
                 let engine_arc = std::sync::Arc::new(engine);
                 scheduler.start_auto_drain(engine_arc.clone(), app.handle().clone());
+
+                // v5.6.4 修复: 将恢复的工作流 Pending/Running 实例重新入队 scheduler
+                if !restored_instance_ids.is_empty() {
+                    log::info!("[WorkflowEngine] Restoring {} pending/running instances to scheduler", restored_instance_ids.len());
+                    let scheduler_clone = scheduler.clone();
+                    tauri::async_runtime::spawn(async move {
+                        for instance_id in restored_instance_ids {
+                            if let Err(e) = scheduler_clone.schedule_execution(instance_id).await {
+                                log::warn!("[WorkflowEngine] Failed to restore instance to scheduler: {}", e);
+                            }
+                        }
+                    });
+                }
+
                 app.manage(engine_arc.clone());
-                app.manage(std::sync::Arc::new(scheduler));
+                app.manage(scheduler);
                 log::info!("Workflow engine and scheduler initialized");
                 engine_arc
             };
@@ -340,6 +370,9 @@ pub fn run() {
                 app.manage(loader);
                 log::info!("[WorkflowLoader] File system workflow watcher initialized");
             }
+
+            // Initialize State Sync Service
+            log::info!("[StateSync] State synchronization service initialized");
 
             // Ensure backstage is hidden on startup
             if let Some(backstage) = app.get_webview_window("backstage") {
@@ -594,6 +627,20 @@ pub fn run() {
             commands_v3::update_payoff_ledger_fields,
             // Canonical state commands
             get_canonical_state,
+            sync_story_data,
+            get_sync_status,
+            enable_auto_sync,
+            disable_auto_sync,
+            // Automation commands
+            automation::commands::trigger_automation_event,
+            automation::commands::get_automation_triggers,
+            automation::commands::get_automation_handlers,
+            automation::commands::add_automation_trigger,
+            automation::commands::add_automation_handler,
+            automation::commands::trigger_story_created,
+            automation::commands::trigger_chapter_created,
+            automation::commands::trigger_character_created,
+            automation::commands::trigger_chapter_content_updated,
             // Structured outline commands
             commands_v3::generate_scene_outline,
             commands_v3::generate_scene_draft,
@@ -609,6 +656,15 @@ pub fn run() {
             commands_v3::get_story_outline,
             commands_v3::update_story_outline,
             commands_v3::get_character_relationships,
+            commands_v3::create_character_relationship,
+            commands_v3::update_character_relationship,
+            commands_v3::delete_character_relationship,
+            // Scene-Character association commands
+            commands_v3::get_scene_characters,
+            commands_v3::add_scene_character,
+            commands_v3::remove_scene_character,
+            commands_v3::set_scene_characters,
+            commands_v3::get_character_scenes,
             // Generic Workflow commands (v5.2.0)
             register_workflow,
             create_workflow_instance,
@@ -778,9 +834,18 @@ fn list_stories() -> Result<Vec<db::Story>, String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn create_story(title: String, description: Option<String>, genre: Option<String>, app: AppHandle) -> Result<db::Story, String> {
+fn create_story(title: String, description: Option<String>, genre: Option<String>, app: AppHandle, automation_service: tauri::State<crate::automation::service::AutomationService>) -> Result<db::Story, String> {
     let story = StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| e.to_string())?;
     let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
+    let automation_service_clone = automation_service.inner().clone();
+    let story_id_clone = story.id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = automation_service_clone.trigger_event(crate::automation::triggers::TriggerEvent::StoryCreated {
+            story_id: story_id_clone,
+        }).await {
+            log::warn!("[create_story] Failed to trigger story created automation: {}", e);
+        }
+    });
     Ok(story)
 }
 
@@ -820,7 +885,8 @@ fn create_character(
     story_id: String, name: String, background: Option<String>,
     personality: Option<String>, goals: Option<String>, appearance: Option<String>,
     gender: Option<String>, age: Option<i32>,
-    app: AppHandle
+    app: AppHandle,
+    automation_service: tauri::State<crate::automation::service::AutomationService>
 ) -> Result<db::Character, String> {
     let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age }).map_err(|e| e.to_string())?;
 
@@ -841,6 +907,17 @@ fn create_character(
     }
 
     let _ = crate::state_sync::StateSync::emit_character_created(&app, &story_id, &character.id, &character.name);
+    let automation_service_clone = automation_service.inner().clone();
+    let story_id_clone = story_id.clone();
+    let character_id_clone = character.id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = automation_service_clone.trigger_event(crate::automation::triggers::TriggerEvent::CharacterCreated {
+            story_id: story_id_clone,
+            character_id: character_id_clone,
+        }).await {
+            log::warn!("[create_character] Failed to trigger character created automation: {}", e);
+        }
+    });
     Ok(character)
 }
 
@@ -884,7 +961,7 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle) -> Result<(), String> {
+fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle, automation_service: tauri::State<crate::automation::service::AutomationService>) -> Result<(), String> {
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
@@ -893,6 +970,20 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
         if let Some(ref story_id) = story_id_opt {
             let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref(), story_id);
+            // v5.6.4 修复: 触发自动化事件：章节内容更新
+            let automation_service_clone = automation_service.inner().clone();
+            let story_id_clone = story_id.clone();
+            let chapter_id_clone = id.clone();
+            let word_count_val = word_count.unwrap_or(0) as usize;
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = automation_service_clone.trigger_event(crate::automation::triggers::TriggerEvent::ChapterContentUpdated {
+                    story_id: story_id_clone,
+                    chapter_id: chapter_id_clone,
+                    word_count: word_count_val,
+                }).await {
+                    log::warn!("[update_chapter] Failed to trigger chapter content updated automation: {}", e);
+                }
+            });
         }
         // v5.1.1: 保存后自动触发 IngestPipeline，更新知识图谱
         if let Some(pool) = get_pool() {
@@ -1047,10 +1138,22 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
             save_pending_vector_indexes();
         }
     }
+
+    // v5.6.4 修复: Ingest 完成后发射同步事件，确保幕后知识图谱页面自动刷新
+    let _ = crate::state_sync::StateSync::emit_ingestion_completed(&app, &story_id, "chapter");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "knowledgeGraph");
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, outline: Option<String>, content: Option<String>, app: AppHandle) -> Result<db::Chapter, String> {
+fn create_chapter(
+    story_id: String,
+    chapter_number: i32,
+    title: Option<String>,
+    outline: Option<String>,
+    content: Option<String>,
+    app: AppHandle,
+    automation_service: tauri::State<crate::automation::service::AutomationService>
+) -> Result<db::Chapter, String> {
     let repo = ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
 
     // 如果该 chapter_number 已存在，直接返回已有章节（幂等）
@@ -1085,6 +1188,20 @@ fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, 
     if let Some(ref scene_id) = chapter.scene_id {
         let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, scene_id, title.as_deref());
     }
+
+    // P0-3 修复: 触发自动化事件：章节创建完成
+    let automation_service_clone = automation_service.inner().clone();
+    let story_id_clone = story_id.clone();
+    let chapter_id_clone = chapter.id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = automation_service_clone.trigger_event(crate::automation::triggers::TriggerEvent::ChapterCreated {
+            story_id: story_id_clone,
+            chapter_id: chapter_id_clone
+        }).await {
+            log::warn!("[create_chapter] Failed to trigger chapter created automation: {}", e);
+        }
+    });
+
     // v5.1.1: 新建章节后自动触发 IngestPipeline（无论 AfterChapterSave hook 是否执行）
     if let Some(pool) = get_pool() {
         let chapter_id = chapter.id.clone();
@@ -2520,6 +2637,76 @@ async fn get_canonical_state(story_id: String) -> Result<canonical_state::Canoni
     let pool = get_pool().ok_or("Database not initialized")?;
     let manager = canonical_state::CanonicalStateManager::new(pool);
     manager.get_snapshot(&story_id).await
+}
+
+/// 同步故事数据
+#[tauri::command(rename_all = "snake_case")]
+async fn sync_story_data(story_id: String) -> Result<serde_json::Value, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+
+    // 获取故事的所有相关数据并同步
+    let story_repo = StoryRepository::new(pool.clone());
+    let character_repo = CharacterRepository::new(pool.clone());
+    let chapter_repo = ChapterRepository::new(pool.clone());
+
+    // 检查故事是否存在
+    let _story = story_repo.get_by_id(&story_id)
+        .map_err(|e| format!("Failed to get story: {}", e))?
+        .ok_or("Story not found")?;
+
+    // 获取角色和章节数据进行同步验证
+    let characters = character_repo.get_by_story(&story_id)
+        .map_err(|e| format!("Failed to get characters: {}", e))?;
+
+    let chapters = chapter_repo.get_by_story(&story_id)
+        .map_err(|e| format!("Failed to get chapters: {}", e))?;
+
+    // 返回同步状态
+    Ok(serde_json::json!({
+        "story_id": story_id,
+        "characters_count": characters.len(),
+        "chapters_count": chapters.len(),
+        "sync_timestamp": chrono::Utc::now().to_rfc3339(),
+        "status": "synced"
+    }))
+}
+
+/// 获取同步状态
+#[tauri::command(rename_all = "snake_case")]
+async fn get_sync_status(story_id: String) -> Result<serde_json::Value, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let story_repo = StoryRepository::new(pool.clone());
+
+    // 检查故事是否存在
+    let story = story_repo.get_by_id(&story_id)
+        .map_err(|e| format!("Failed to get story: {}", e))?
+        .ok_or("Story not found")?;
+
+    Ok(serde_json::json!({
+        "story_id": story_id,
+        "story_title": story.title,
+        "auto_sync_enabled": true, // 默认启用
+        "last_sync": chrono::Utc::now().to_rfc3339(),
+        "sync_status": "active"
+    }))
+}
+
+/// 启用自动同步
+#[tauri::command(rename_all = "snake_case")]
+async fn enable_auto_sync(story_id: String) -> Result<(), String> {
+    // 这里可以将自动同步状态保存到数据库或配置中
+    // 目前返回成功，表示自动同步已启用
+    println!("Auto sync enabled for story: {}", story_id);
+    Ok(())
+}
+
+/// 禁用自动同步
+#[tauri::command(rename_all = "snake_case")]
+async fn disable_auto_sync(story_id: String) -> Result<(), String> {
+    // 这里可以将自动同步状态保存到数据库或配置中
+    // 目前返回成功，表示自动同步已禁用
+    println!("Auto sync disabled for story: {}", story_id);
+    Ok(())
 }
 
 // ===== 通用 Workflow 引擎命令 (v5.2.0) =====

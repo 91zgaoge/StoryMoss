@@ -70,6 +70,10 @@ impl ExecutionRecordStore {
         self.save_records(&records);
     }
 
+    pub fn len(&self) -> usize {
+        self.cache.lock().unwrap().len()
+    }
+
     pub fn get_records(&self, capability_id: Option<&str>, limit: usize) -> Vec<ExecutionRecord> {
         let records = self.cache.lock().unwrap();
         let filtered: Vec<_> = records.iter()
@@ -117,6 +121,24 @@ impl CapabilityEvolutionEngine {
             record.capability_id, record.user_input, record.success
         );
         self.store.append(record);
+
+        // v5.6.4 修复: 每积累 5 条执行记录，自动触发一次能力进化
+        let total_records = self.store.len();
+        if total_records > 0 && total_records % 5 == 0 {
+            let engine = self.clone();
+            tauri::async_runtime::spawn(async move {
+                match engine.evolve_capability_descriptions().await {
+                    Ok(improvements) if !improvements.is_empty() => {
+                        log::info!("[CapabilityEvolution] Periodic evolution triggered ({} records), {} descriptions improved", total_records, improvements.len());
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("[CapabilityEvolution] Periodic evolution failed: {}", e);
+                    }
+                }
+            });
+        }
+
         Ok(())
     }
 

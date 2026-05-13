@@ -89,6 +89,22 @@ pub enum SyncEvent {
         story_id: String,
     },
 
+    // === 角色关系事件 ===
+    CharacterRelationshipsUpdated {
+        story_id: String,
+    },
+
+    // === Payoff Ledger 事件 ===
+    PayoffLedgerUpdated {
+        story_id: String,
+    },
+
+    // === Ingestion 事件 ===
+    IngestionCompleted {
+        story_id: String,
+        resource_type: String,
+    },
+
     // === 元数据刷新事件 (批量刷新信号) ===
     DataRefresh {
         story_id: Option<String>,
@@ -116,6 +132,9 @@ impl SyncEvent {
             SyncEvent::ChapterUpdated { .. } |
             SyncEvent::ChapterDeleted { .. } => "chapters",
             SyncEvent::WorldBuildingUpdated { .. } => "worldBuilding",
+            SyncEvent::CharacterRelationshipsUpdated { .. } => "characterRelationships",
+            SyncEvent::PayoffLedgerUpdated { .. } => "payoffLedger",
+            SyncEvent::IngestionCompleted { .. } => "ingestion",
             SyncEvent::DataRefresh { resource_type, .. } => resource_type.as_str(),
         }
     }
@@ -138,6 +157,9 @@ impl SyncEvent {
             SyncEvent::ChapterUpdated { story_id, .. } => Some(story_id),
             SyncEvent::ChapterDeleted { story_id, .. } => Some(story_id),
             SyncEvent::WorldBuildingUpdated { story_id, .. } => Some(story_id),
+            SyncEvent::CharacterRelationshipsUpdated { story_id, .. } => Some(story_id),
+            SyncEvent::PayoffLedgerUpdated { story_id, .. } => Some(story_id),
+            SyncEvent::IngestionCompleted { story_id, .. } => Some(story_id),
             SyncEvent::DataRefresh { story_id, .. } => story_id.as_ref(),
         }
     }

@@ -75,6 +75,8 @@ const KEYS = {
   storyOutlines: (storyId?: string) => storyId ? ['story-outline', storyId] : ['story-outline'],
   knowledgeGraph: (storyId?: string) => storyId ? ['knowledge-graph', storyId] : ['knowledge-graph'],
   characterRelationships: (storyId?: string) => storyId ? ['character-relationships', storyId] : ['character-relationships'],
+  payoffLedger: (storyId?: string) => storyId ? ['payoff-ledger', storyId] : ['payoff-ledger'],
+  storyTimeline: (storyId?: string) => storyId ? ['story-timeline', storyId] : ['story-timeline'],
 };
 
 // ==================== Hook ====================
@@ -257,6 +259,26 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             break;
           }
 
+          // === v5.6.4 修复: 补全独立同步事件响应 ===
+          case 'characterRelationshipsUpdated': {
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
+            }
+            break;
+          }
+          case 'payoffLedgerUpdated': {
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(storyId) });
+            }
+            break;
+          }
+          case 'ingestionCompleted': {
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(storyId) });
+            }
+            break;
+          }
+
           // === Data Refresh ===
           case 'dataRefresh': {
             const resourceType = p?.resourceType || p?.resource_type || 'all';
@@ -307,6 +329,16 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                   queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
                 }
                 break;
+              case 'payoffLedger':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(storyId) });
+                }
+                break;
+              case 'storyTimeline':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.storyTimeline(storyId) });
+                }
+                break;
               case 'all':
               default:
                 queryClient.invalidateQueries({ queryKey: KEYS.stories });
@@ -319,6 +351,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                   queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(storyId) });
                   queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(storyId) });
                   queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
+                  queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(storyId) });
+                  queryClient.invalidateQueries({ queryKey: KEYS.storyTimeline(storyId) });
                 }
                 break;
             }

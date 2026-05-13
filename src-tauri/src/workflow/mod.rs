@@ -206,17 +206,25 @@ impl WorkflowEngine {
         }
     }
 
-    pub fn with_pool(pool: crate::db::DbPool) -> Self {
+    pub fn with_pool(pool: crate::db::DbPool) -> (Self, Vec<String>) {
         let mut engine = Self {
             workflows: Arc::new(Mutex::new(HashMap::new())),
             instances: Arc::new(Mutex::new(HashMap::new())),
             pool: Some(pool.clone()),
         };
+        let mut restored_ids = Vec::new();
         // 从数据库恢复实例
         if let Err(e) = engine.load_instances_from_db(&pool) {
             log::warn!("[WorkflowEngine] Failed to load instances from db: {}", e);
+        } else {
+            let instances = engine.instances.lock().unwrap();
+            for (id, instance) in instances.iter() {
+                if matches!(instance.status, WorkflowStatus::Pending | WorkflowStatus::Running) {
+                    restored_ids.push(id.clone());
+                }
+            }
         }
-        engine
+        (engine, restored_ids)
     }
 
     fn load_instances_from_db(&mut self, pool: &crate::db::DbPool) -> Result<(), rusqlite::Error> {

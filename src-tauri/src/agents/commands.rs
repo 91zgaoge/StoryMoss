@@ -15,6 +15,7 @@ use crate::db::{DbPool, CreateStoryRequest};
 use crate::db::repositories::{StoryRepository};
 use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
 use crate::subscription::{SubscriptionService, SubscriptionTier};
+use crate::state_sync::StateSync;
 
 /// 获取当前用户订阅层级（同步）
 fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
@@ -273,9 +274,13 @@ pub async fn writer_agent_execute(
 
         let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(|e| e.to_string())?;
 
-        story_id = story.id;
+        story_id = story.id.clone();
         chapter_number = 1;
         created_chapter_id = Some(scene.id.clone());
+
+        // 发射 StateSync 事件
+        StateSync::emit_story_created(&app_handle, &story.id, &story.title);
+        StateSync::emit_scene_created(&app_handle, &story.id, &scene.id, Some("第一场景"));
 
         // 通知幕前切换到新场景
         let event = crate::window::FrontstageEvent::ChapterSwitch {

@@ -7,12 +7,14 @@ pub type DbPool = Pool<SqliteConnectionManager>;
 
 #[cfg(test)]
 pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
-    let manager = SqliteConnectionManager::memory();
+    let manager = SqliteConnectionManager::memory()
+        .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
     let pool = Pool::builder()
         .max_size(1)
         .build(manager)?;
-    
+
     let mut conn = pool.get()?;
+
     create_tables(&mut conn)?;
     create_v3_tables(&mut conn)?;
     run_migrations(&mut conn)?;
@@ -37,17 +39,19 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
 
 pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let db_path = app_dir.join("cinema_ai.db");
-    let manager = SqliteConnectionManager::file(&db_path);
+    let manager = SqliteConnectionManager::file(&db_path)
+        .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
     let pool = Pool::builder()
         .max_size(5)
         .build(manager)?;
-    
+
     // Initialize tables
     let mut conn = pool.get()?;
+
     create_tables(&mut conn)?;
     create_v3_tables(&mut conn)?;
     run_migrations(&mut conn)?;
-    
+
     Ok(pool)
 }
 
@@ -449,8 +453,8 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-            FOREIGN KEY (previous_scene_id) REFERENCES scenes(id),
-            FOREIGN KEY (next_scene_id) REFERENCES scenes(id),
+            FOREIGN KEY (previous_scene_id) REFERENCES scenes(id) ON DELETE SET NULL,
+            FOREIGN KEY (next_scene_id) REFERENCES scenes(id) ON DELETE SET NULL,
             UNIQUE(story_id, sequence_number)
         );
 
@@ -532,8 +536,8 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             evidence TEXT,                  -- JSON: 场景ID列表
             first_seen TEXT NOT NULL,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-            FOREIGN KEY (source_id) REFERENCES kg_entities(id),
-            FOREIGN KEY (target_id) REFERENCES kg_entities(id)
+            FOREIGN KEY (source_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_id) REFERENCES kg_entities(id) ON DELETE CASCADE
         );
 
         -- 工作室配置表（存储每部小说的独立配置）
@@ -575,8 +579,8 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             superseded_by TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-            FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id),
-            FOREIGN KEY (superseded_by) REFERENCES scene_versions(id)
+            FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id) ON DELETE SET NULL,
+            FOREIGN KEY (superseded_by) REFERENCES scene_versions(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_scene_versions_scene ON scene_versions(scene_id);
 
@@ -638,7 +642,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             resolved_at TEXT,
             FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
             FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-            FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+            FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
         );
 
         -- 评论线程表
@@ -656,7 +660,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             resolved_at TEXT,
             FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
             FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-            FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+            FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
         );
 
         -- 评论消息表
@@ -910,7 +914,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 resolved_at TEXT,
                 FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
                 FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-                FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+                FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -971,7 +975,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 resolved_at TEXT,
                 FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
                 FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-                FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+                FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -1022,7 +1026,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 secrets_unknown TEXT,
                 arc_progress REAL,
                 last_updated TEXT,
-                FOREIGN KEY (character_id) REFERENCES characters(id)
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -1971,5 +1975,417 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 43: 创建 story_metadata 表 (v5.6.4 - 后台自动化支撑)
+    let story_metadata_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if story_metadata_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE story_metadata (
+                story_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (story_id, key),
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_metadata_story ON story_metadata(story_id)",
+            [],
+        )?;
+    }
+
+    // Migration 44: 创建 scene_characters 表 (v5.6.4 - 场景角色关联)
+    let scene_characters_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if scene_characters_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE scene_characters (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                character_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE,
+                UNIQUE(scene_id, character_id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_characters_scene ON scene_characters(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_characters_character ON scene_characters(character_id)",
+            [],
+        )?;
+    }
+
+    // Migration 45: 创建 scene_character_actions 表 (v5.6.4 - 场景角色动作)
+    let scene_character_actions_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_character_actions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if scene_character_actions_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE scene_character_actions (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                character_id TEXT NOT NULL,
+                action_type TEXT,
+                content TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_character_actions_scene ON scene_character_actions(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_character_actions_character ON scene_character_actions(character_id)",
+            [],
+        )?;
+    }
+
+    // Migration 46: 创建 plan_templates 表 (v5.6.4 - 计划模板持久化)
+    let plan_templates_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if plan_templates_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE plan_templates (
+                id TEXT PRIMARY KEY,
+                trigger_patterns TEXT NOT NULL,
+                plan_json TEXT NOT NULL,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_plan_templates_patterns ON plan_templates(trigger_patterns)",
+            [],
+        )?;
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Error as SqliteError;
+
+    #[test]
+    fn test_foreign_key_constraints_enabled() {
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let conn = pool.get().expect("Failed to get connection");
+
+        // 验证外键约束是否启用
+        let foreign_keys_enabled: i32 = conn
+            .prepare("PRAGMA foreign_keys")
+            .expect("Failed to prepare PRAGMA statement")
+            .query_row([], |row| row.get(0))
+            .expect("Failed to query foreign_keys pragma");
+
+        assert_eq!(foreign_keys_enabled, 1, "Foreign key constraints should be enabled");
+    }
+
+    #[test]
+    fn test_foreign_key_constraint_violation() {
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let mut conn = pool.get().expect("Failed to get connection");
+
+        // 运行迁移以创建表结构
+        run_migrations(&mut conn).expect("Failed to run migrations");
+
+        // 尝试插入一个引用不存在故事的章节，应该失败
+        let result = conn.execute(
+            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, updated_at)
+             VALUES ('test-chapter', 'non-existent-story', 'Test Chapter', 'Test content', 1, 0, 0)",
+            []
+        );
+
+        // 应该因为外键约束而失败
+        match result {
+            Err(SqliteError::SqliteFailure(err, _)) => {
+                // SQLITE_CONSTRAINT_FOREIGNKEY = 787
+                assert_eq!(err.code, rusqlite::ErrorCode::ConstraintViolation);
+            }
+            _ => panic!("Expected foreign key constraint violation, but operation succeeded or failed with different error"),
+        }
+    }
+
+    #[test]
+    fn test_cascade_delete_behavior() {
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let mut conn = pool.get().expect("Failed to get connection");
+
+        // 运行迁移以创建表结构
+        run_migrations(&mut conn).expect("Failed to run migrations");
+
+        // 创建一个测试故事
+        conn.execute(
+            "INSERT INTO stories (id, title, description, created_at, updated_at)
+             VALUES ('test-story', 'Test Story', 'A test story', 0, 0)",
+            []
+        ).expect("Failed to insert test story");
+
+        // 创建一个测试章节
+        conn.execute(
+            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, updated_at)
+             VALUES ('test-chapter', 'test-story', 'Test Chapter', 'Test content', 1, 0, 0)",
+            []
+        ).expect("Failed to insert test chapter");
+
+        // 验证章节存在
+        let chapter_count: i32 = conn
+            .prepare("SELECT COUNT(*) FROM chapters WHERE story_id = 'test-story'")
+            .expect("Failed to prepare count statement")
+            .query_row([], |row| row.get(0))
+            .expect("Failed to count chapters");
+        assert_eq!(chapter_count, 1, "Chapter should exist before story deletion");
+
+        // 删除故事
+        conn.execute("DELETE FROM stories WHERE id = 'test-story'", [])
+            .expect("Failed to delete story");
+
+        // 验证章节也被级联删除
+        let chapter_count_after: i32 = conn
+            .prepare("SELECT COUNT(*) FROM chapters WHERE story_id = 'test-story'")
+            .expect("Failed to prepare count statement")
+            .query_row([], |row| row.get(0))
+            .expect("Failed to count chapters after deletion");
+        assert_eq!(chapter_count_after, 0, "Chapter should be cascade deleted when story is deleted");
+    }
+
+    #[test]
+    fn test_comprehensive_cascade_delete() {
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let mut conn = pool.get().expect("Failed to get connection");
+
+        // 运行迁移以创建表结构
+        run_migrations(&mut conn).expect("Failed to run migrations");
+
+        // 创建测试故事
+        conn.execute(
+            "INSERT INTO stories (id, title, description, created_at, updated_at)
+             VALUES ('cascade-story', 'Cascade Test Story', 'Testing cascade deletes', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test story");
+
+        // 创建测试角色
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
+             VALUES ('cascade-char1', 'cascade-story', 'Test Character 1', 'First test character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test character 1");
+
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
+             VALUES ('cascade-char2', 'cascade-story', 'Test Character 2', 'Second test character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test character 2");
+
+        // 创建测试场景
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, updated_at)
+             VALUES ('cascade-scene', 'cascade-story', 'Test Scene', 'Test scene content', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test scene");
+
+        // 创建角色关系
+        conn.execute(
+            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, created_at)
+             VALUES ('cascade-rel', 'cascade-story', 'cascade-char1', 'cascade-char2', 'friend', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert character relationship");
+
+        // 创建场景角色关联
+        conn.execute(
+            "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
+             VALUES ('cascade-sc1', 'cascade-scene', 'cascade-char1', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert scene character 1");
+
+        conn.execute(
+            "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
+             VALUES ('cascade-sc2', 'cascade-scene', 'cascade-char2', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert scene character 2");
+
+        // 创建场景角色动作
+        conn.execute(
+            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, content, created_at)
+             VALUES ('cascade-action', 'cascade-scene', 'cascade-char1', 'dialogue', 'Hello world!', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert scene character action");
+
+        // 创建叙事角色（如果表存在）
+        let _ = conn.execute(
+            "INSERT INTO narrative_characters (id, story_id, name, description, created_at)
+             VALUES ('cascade-nchar', 'cascade-story', 'Narrative Character', 'Test narrative character', '2024-01-01T00:00:00Z')",
+            []
+        );
+
+        // 创建叙事场景（如果表存在）
+        let _ = conn.execute(
+            "INSERT INTO narrative_scenes (id, story_id, title, content, created_at)
+             VALUES ('cascade-nscene', 'cascade-story', 'Narrative Scene', 'Test narrative scene', '2024-01-01T00:00:00Z')",
+            []
+        );
+
+        // 验证所有数据都存在
+        let story_count: i32 = conn.query_row("SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let char_count: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let scene_count: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let rel_count: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let sc_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+        let action_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(story_count, 1, "Story should exist");
+        assert_eq!(char_count, 2, "Characters should exist");
+        assert_eq!(scene_count, 1, "Scene should exist");
+        assert_eq!(rel_count, 1, "Character relationship should exist");
+        assert_eq!(sc_count, 2, "Scene characters should exist");
+        assert_eq!(action_count, 1, "Scene character action should exist");
+
+        // 删除故事，触发级联删除
+        conn.execute("DELETE FROM stories WHERE id = 'cascade-story'", [])
+            .expect("Failed to delete story");
+
+        // 验证所有相关数据都被级联删除
+        let story_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let char_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let scene_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let rel_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
+        let sc_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+        let action_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(story_count_after, 0, "Story should be deleted");
+        assert_eq!(char_count_after, 0, "Characters should be cascade deleted");
+        assert_eq!(scene_count_after, 0, "Scenes should be cascade deleted");
+        assert_eq!(rel_count_after, 0, "Character relationships should be cascade deleted");
+        assert_eq!(sc_count_after, 0, "Scene characters should be cascade deleted");
+        assert_eq!(action_count_after, 0, "Scene character actions should be cascade deleted");
+
+        // 验证叙事表也被级联删除（如果存在）
+        let nchar_count_after: Result<i32, _> = conn.query_row("SELECT COUNT(*) FROM narrative_characters WHERE story_id = 'cascade-story'", [], |row| row.get(0));
+        let nscene_count_after: Result<i32, _> = conn.query_row("SELECT COUNT(*) FROM narrative_scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0));
+
+        if let Ok(count) = nchar_count_after {
+            assert_eq!(count, 0, "Narrative characters should be cascade deleted");
+        }
+        if let Ok(count) = nscene_count_after {
+            assert_eq!(count, 0, "Narrative scenes should be cascade deleted");
+        }
+    }
+
+    #[test]
+    fn test_character_cascade_delete() {
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let mut conn = pool.get().expect("Failed to get connection");
+
+        // 运行迁移以创建表结构
+        run_migrations(&mut conn).expect("Failed to run migrations");
+
+        // 创建测试故事
+        conn.execute(
+            "INSERT INTO stories (id, title, description, created_at, updated_at)
+             VALUES ('char-cascade-story', 'Character Cascade Test', 'Testing character cascade deletes', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test story");
+
+        // 创建测试角色
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
+             VALUES ('char-cascade-1', 'char-cascade-story', 'Character 1', 'First character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert character 1");
+
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
+             VALUES ('char-cascade-2', 'char-cascade-story', 'Character 2', 'Second character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert character 2");
+
+        // 创建测试场景
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, updated_at)
+             VALUES ('char-cascade-scene', 'char-cascade-story', 'Test Scene', 'Test scene', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert test scene");
+
+        // 创建角色关系
+        conn.execute(
+            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, created_at)
+             VALUES ('char-cascade-rel', 'char-cascade-story', 'char-cascade-1', 'char-cascade-2', 'friend', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert character relationship");
+
+        // 创建场景角色关联
+        conn.execute(
+            "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
+             VALUES ('char-cascade-sc', 'char-cascade-scene', 'char-cascade-1', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert scene character");
+
+        // 创建场景角色动作
+        conn.execute(
+            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, content, created_at)
+             VALUES ('char-cascade-action', 'char-cascade-scene', 'char-cascade-1', 'dialogue', 'Test dialogue', '2024-01-01T00:00:00Z')",
+            []
+        ).expect("Failed to insert scene character action");
+
+        // 验证数据存在
+        let rel_count: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE source_character_id = 'char-cascade-1' OR target_character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let sc_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let action_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(rel_count, 1, "Character relationship should exist");
+        assert_eq!(sc_count, 1, "Scene character should exist");
+        assert_eq!(action_count, 1, "Scene character action should exist");
+
+        // 删除角色，触发级联删除
+        conn.execute("DELETE FROM characters WHERE id = 'char-cascade-1'", [])
+            .expect("Failed to delete character");
+
+        // 验证相关数据被级联删除
+        let rel_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE source_character_id = 'char-cascade-1' OR target_character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let sc_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let action_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(rel_count_after, 0, "Character relationships should be cascade deleted");
+        assert_eq!(sc_count_after, 0, "Scene characters should be cascade deleted");
+        assert_eq!(action_count_after, 0, "Scene character actions should be cascade deleted");
+
+        // 验证其他角色和数据仍然存在
+        let char2_count: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE id = 'char-cascade-2'", [], |row| row.get(0)).unwrap();
+        let scene_count: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE id = 'char-cascade-scene'", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(char2_count, 1, "Other characters should remain");
+        assert_eq!(scene_count, 1, "Scenes should remain");
+    }
 }

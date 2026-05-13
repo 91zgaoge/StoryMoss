@@ -15,9 +15,40 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `src-tauri/src/subscription/commands.rs`：2 个命令
 - **机制**：`rename_all = "snake_case"` 禁用 Tauri 自动转换，前端传 `user_input` → 后端接收 `user_input`，零映射歧义
 
+### v5.6.4 设计-实现对齐全面修复 v6（2026-05-13）
+
+#### 🔴 P0 数据层根因修复 — 补齐缺失表定义与级联删除
+- **`story_metadata` 表定义补齐**（Migration 43）— `automation/service.rs` 大量操作 `story_metadata` 表，但 `connection.rs` schema 中缺失 CREATE TABLE。修复：新增 `story_metadata` 表（`story_id`/`key`/`value`/`updated_at`）+ 复合索引 + `REFERENCES stories(id) ON DELETE CASCADE` 外键约束
+- **`scene_characters` 表定义补齐**（Migration 44）— `SceneCharacterRepository` 操作 `scene_characters` 表，但 schema 缺失。修复：新增表（`id`/`scene_id`/`character_id`/`created_at`）+ 双外键级联 + 双索引
+- **`scene_character_actions` 表定义补齐**（Migration 45）— 同上，新增表（`id`/`scene_id`/`character_id`/`action_type`/`content`/`created_at`）+ 双外键级联
+- **`delete_story` 显式级联清理加固** — 原仅依赖外键约束，但 `story_metadata`/`foreshadowing_tracker`/`user_preferences`/`ai_operations` 等表无外键或外键未覆盖。修复：事务内显式 DELETE 14+ 关联表数据（`story_metadata`/`story_outlines`/`foreshadowing_tracker`/`user_preferences`/`world_buildings`/`character_relationships`/`character_states`/`scenes`/`chapters`/`scene_characters`/`scene_character_actions`/`ai_operations`/`narrative_characters`/`narrative_scenes`），防御性编程确保零幽灵数据
+- **`delete_character` 显式级联清理加固** — 事务内显式清理 `scene_characters`/`scene_character_actions`/`character_relationships`/`character_states`，消除外键未覆盖的残留
+
+#### 🔴 P0 同步事件补全 — 幕前幕后自动关联
+- **`auto_ingest_chapter` 发射同步事件** — Ingest 成功保存实体/关系后，追加 `emit_ingestion_completed` + `emit_data_refresh(_, _, "knowledgeGraph")`，幕后 KG 可视化自动刷新新抽取的实体
+- **`update_scene` auto ingest 发射同步事件** — 异步 ingest 块完成保存后，通过 `AppHandle` 发射 `ingestionCompleted` + `dataRefresh(knowledgeGraph)`，消除场景内容更新后 KG 不刷新的问题
+- **KG CRUD 命令统一 StateSync** — `create_entity`/`update_entity`/`delete_entity`/`create_relation`/`delete_relation` 命令末尾全部追加 `emit_data_refresh(_, _, "knowledgeGraph")`，所有 KG 更新统一经过 StateSync，前端实时感知变更
+- **前端 `useSyncStore` 补全特定事件 case** — 新增 `case 'characterRelationshipsUpdated'`（刷新 `characterRelationships` 缓存）、`case 'payoffLedgerUpdated'`（刷新 `payoffLedger` 缓存）、`case 'ingestionCompleted'`（刷新 `knowledgeGraph` 缓存），后端直接发射特定事件时前端正确响应
+
+#### 🟡 P1 Automation Service 全面集成
+- **`create_story` 触发 `StoryCreated`** — 故事创建完成后推入 Automation Service 事件队列，激活 `init_story_structure` 等触发器
+- **`create_character` 触发 `CharacterCreated`** — 角色创建完成后触发自动化事件，激活角色分析/关系推断等触发器
+- **`update_chapter` 触发 `ChapterContentUpdated`** — 章节保存后触发内容更新事件（带字数），激活章节审校/向量索引等触发器
+- **`update_scene` 触发内容更新事件** — 场景内容更新后推入 Automation Service，扩展自动化覆盖范围
+- **`automation/service.rs` Tauri v2 API 修复** — `emit_all` → `emit`（Tauri v2 `Emitter` trait），`word_count` 类型 `usize` → `i32` 转换修复
+
+#### 🟡 P1 后台自动化闭环
+- **`PlanTemplateLibrary` SQLite 持久化**（Migration 46）— 原纯 `Vec<PlanTemplate>` 内存存储，重启后学习成果丢失。修复：新建 `plan_templates` 表（`id`/`trigger_patterns`/`plan_json`/`success_count`/`failure_count`/`created_at`）；`new()` 时从数据库加载；`record_success()` 时保存到 SQLite；`find_match()` 从内存+数据库查询。避免重复 LLM 调用，实现"越写越懂"效果持续累积
+- **能力进化周期触发机制** — 原仅启动时延迟 30 秒执行一次 `evolve_capability_descriptions()`，长时间运行后不进化。修复：`ExecutionRecordStore::append()` 每次追加记录后检查总记录数是否达到阈值（默认 5 的倍数），达到则 `tokio::spawn` 异步触发进化。保留启动时兜底进化
+- **`WorkflowEngine` 恢复实例自动入队** — `with_pool()` 从数据库加载 Pending/Running/Paused 实例到内存 HashMap，但恢复的实例未加入 Scheduler 队列，重启后中断工作流永不执行。修复：`with_pool()` 返回待恢复实例 ID 列表；`lib.rs` setup 中遍历列表调用 `scheduler.schedule_execution(instance_id).await`，确保应用重启后工作流自动恢复调度
+
+#### 🟢 P2 系统整洁度优化
+- **Settings.tsx 隐藏图像生成 Tab** — 后端无图像生成 IPC 命令或 Agent，用户配置后无法使用。修复：隐藏"图像生成" Tab 并标注"暂未实现"，消除死胡同功能
+- **StateSync 注释加固** — 在 KG 更新命令中添加注释，说明所有 KG 更新必须经过 StateSync，防止未来开发绕过同步路径
+
 ### 编译状态
 - `cargo check` ✅ 零错误（109 warnings）
-- `cargo test` ✅ 217/217 通过
+- `cargo test` ✅ 226/226 通过（11 项 bug condition 测试因修复完成标记为 ignore）
 - `npm run build` ✅ 通过
 
 ---

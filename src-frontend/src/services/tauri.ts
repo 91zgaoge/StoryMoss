@@ -482,3 +482,117 @@ export const updateStoryOutline = (storyId: string, content: string, structureJs
 
 export const getCharacterRelationships = (storyId: string) =>
   loggedInvoke<CharacterRelationship[]>('get_character_relationships', { story_id: storyId });
+
+export const createCharacterRelationship = (params: {
+  story_id: string;
+  character_a_id: string;
+  character_b_id: string;
+  relationship_type: string;
+  description?: string;
+}) =>
+  loggedInvoke<CharacterRelationship>('create_character_relationship', params);
+
+export const updateCharacterRelationship = (relationshipId: string, updates: {
+  relationship_type?: string;
+  description?: string;
+}) =>
+  loggedInvoke<void>('update_character_relationship', { relationship_id: relationshipId, ...updates });
+
+export const deleteCharacterRelationship = (relationshipId: string) =>
+  loggedInvoke<void>('delete_character_relationship', { relationship_id: relationshipId });
+
+// Scenes
+export const createScene = (params: {
+  story_id: string;
+  chapter_id?: string;
+  scene_number: number;
+  title?: string;
+  content?: string;
+  outline?: string;
+}) =>
+  loggedInvoke<import('@/types/v3').Scene>('create_scene', params);
+
+export const getStoryScenes = (storyId: string) =>
+  loggedInvoke<import('@/types/v3').Scene[]>('get_story_scenes', { story_id: storyId });
+
+export const getScene = (sceneId: string) =>
+  loggedInvoke<import('@/types/v3').Scene | null>('get_scene', { scene_id: sceneId });
+
+export const updateScene = (sceneId: string, updates: {
+  title?: string;
+  content?: string;
+  outline?: string;
+  scene_number?: number;
+}) =>
+  loggedInvoke<void>('update_scene', { scene_id: sceneId, ...updates });
+
+export const deleteScene = (sceneId: string) =>
+  loggedInvoke<void>('delete_scene', { scene_id: sceneId });
+
+export const reorderScenes = (storyId: string, sceneOrders: Array<{ scene_id: string; new_number: number }>) =>
+  loggedInvoke<void>('reorder_scenes', { story_id: storyId, scene_orders: sceneOrders });
+
+// World Building
+export const createWorldBuilding = (params: {
+  story_id: string;
+  category: string;
+  title: string;
+  content: string;
+}) =>
+  loggedInvoke<import('@/types/v3').WorldBuilding>('create_world_building', params);
+
+export const getWorldBuilding = (storyId: string) =>
+  loggedInvoke<import('@/types/v3').WorldBuilding[]>('get_world_building', { story_id: storyId });
+
+export const updateWorldBuilding = (worldBuildingId: string, updates: {
+  category?: string;
+  title?: string;
+  content?: string;
+}) =>
+  loggedInvoke<void>('update_world_building', { world_building_id: worldBuildingId, ...updates });
+
+export const deleteWorldBuilding = (worldBuildingId: string) =>
+  loggedInvoke<void>('delete_world_building', { world_building_id: worldBuildingId });
+
+// Writing Style
+export const createWritingStyle = (params: {
+  story_id: string;
+  name: string;
+  description?: string;
+  style_rules?: string;
+}) =>
+  loggedInvoke<import('@/types/v3').WritingStyle>('create_writing_style', params);
+
+export const getWritingStyle = (storyId: string) =>
+  loggedInvoke<import('@/types/v3').WritingStyle | null>('get_writing_style', { story_id: storyId });
+
+export const updateWritingStyle = (styleId: string, updates: {
+  name?: string;
+  description?: string;
+  style_rules?: string;
+}) =>
+  loggedInvoke<void>('update_writing_style', { style_id: styleId, ...updates });
+
+// Entities and Relations
+export const createEntity = (params: {
+  story_id: string;
+  name: string;
+  entity_type: string;
+  attributes?: Record<string, any>;
+}) =>
+  loggedInvoke<import('@/types/v3').Entity>('create_entity', params);
+
+export const getStoryEntities = (storyId: string) =>
+  loggedInvoke<import('@/types/v3').Entity[]>('get_story_entities', { story_id: storyId });
+
+export const createRelation = (params: {
+  story_id: string;
+  from_entity_id: string;
+  to_entity_id: string;
+  relation_type: string;
+  description?: string;
+}) =>
+  loggedInvoke<import('@/types/v3').Relation>('create_relation', params);
+
+export const getEntityRelations = (entityId: string) =>
+  loggedInvoke<import('@/types/v3').Relation[]>('get_entity_relations', { entity_id: entityId });

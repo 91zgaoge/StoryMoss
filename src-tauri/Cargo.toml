@@ -86,6 +86,9 @@ tauri-plugin-updater = "2"
 [dev-dependencies]
 tempfile = "3"
 tauri = { version = "2.4", features = ["test"] }
+# v5.7 bugfix exploration PBTs (Task 1)
+proptest = "1"
+serial_test = "3"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.36"

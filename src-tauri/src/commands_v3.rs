@@ -145,6 +145,7 @@ pub async fn update_scene(
                 let content = scene.content.unwrap_or_default();
                 if content.len() > 50 {
                     let content_for_vector = content.clone();
+                    let app_handle_for_sync = app_handle_clone.clone();
                     let llm_service = LlmService::new(app_handle_clone);
 
                     // v5.6.2 修复: 将 ingest 放在独立作用域中，避免 Box<dyn Error> 跨越 await 导致 Send 失败
@@ -211,6 +212,14 @@ pub async fn update_scene(
                             scene_id_clone,
                             saved_entities,
                             saved_relations
+                        );
+
+                        // v5.6.4 修复: Scene Ingest 完成后发射同步事件，确保幕后知识图谱自动刷新
+                        let _ = crate::state_sync::StateSync::emit_ingestion_completed(
+                            &app_handle_for_sync, &story_id, "scene"
+                        );
+                        let _ = crate::state_sync::StateSync::emit_data_refresh(
+                            &app_handle_for_sync, Some(&story_id), "knowledgeGraph"
                         );
 
                         // v5.6.2 修复: Scene 更新后同步写入向量存储，支持语义搜索
@@ -509,14 +518,18 @@ pub async fn create_entity(
     entity_type: String,
     attributes: serde_json::Value,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<Entity, String> {
     log::info!("[commands_v3] {} called: story_id={}, name={}, entity_type={}", "create_entity", story_id, name, entity_type);
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
+    let result = repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
         .map_err(|e| {
             log::error!("[commands_v3] {} failed: {}", "create_entity", e);
             e.to_string()
-        })
+        })?;
+    // v5.6.4 修复: KG 实体创建后发射同步事件，确保前端图谱自动刷新
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    Ok(result)
 }
 
 #[command(rename_all = "snake_case")]
@@ -525,6 +538,7 @@ pub async fn update_entity(
     name: Option<String>,
     attributes: Option<serde_json::Value>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<Entity, String> {
     use crate::embeddings::{embed_entity_async, EntityEmbeddingRequest};
     use std::collections::HashMap;
@@ -559,8 +573,19 @@ pub async fn update_entity(
         existing.embedding
     };
 
-    repo.update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
-        .map_err(|e| e.to_string())
+    let result = repo.update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
+        .map_err(|e| e.to_string())?;
+
+    let story_id_for_sync = pool.inner().get().ok().and_then(|c| {
+        c.query_row("SELECT story_id FROM entities WHERE id = ?", [&entity_id], |row| {
+            row.get::<_, String>(0)
+        }).ok()
+    });
+    if let Some(ref story_id) = story_id_for_sync {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(story_id), "knowledgeGraph");
+    }
+
+    Ok(result)
 }
 
 #[command(rename_all = "snake_case")]
@@ -581,10 +606,13 @@ pub async fn create_relation(
     relation_type: String,
     strength: f32,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<Relation, String> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    repo.create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
-        .map_err(|e| e.to_string())
+    let result = repo.create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
+        .map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    Ok(result)
 }
 
 #[command(rename_all = "snake_case")]
@@ -1198,6 +1226,7 @@ pub async fn create_story_with_wizard(
     first_scene: SceneProposal,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
+    automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<WizardCreationResult, String> {
     // 1. 创建故事
     log::info!("[commands_v3] {} called: title={}", "create_story_with_wizard", title);
@@ -1374,10 +1403,27 @@ pub async fn create_story_with_wizard(
         .ok_or("Writing style not found")?;
     
     log::info!("[commands_v3] {} completed successfully", "create_story_with_wizard");
-    
+
     // P0-2 修复: 发射同步事件，确保幕后界面自动刷新新创建的内容
     let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, &story.title);
     let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "all");
+
+    // 触发自动化事件：故事创建完成
+    if let Err(e) = automation_service.trigger_event(crate::automation::triggers::TriggerEvent::StoryCreated {
+        story_id: story_id.clone()
+    }).await {
+        log::warn!("[commands_v3] Failed to trigger story created automation: {}", e);
+    }
+
+    // 触发自动化事件：角色创建完成（为每个创建的角色）
+    for character in &created_chars {
+        if let Err(e) = automation_service.trigger_event(crate::automation::triggers::TriggerEvent::CharacterCreated {
+            story_id: story_id.clone(),
+            character_id: character.id.clone()
+        }).await {
+            log::warn!("[commands_v3] Failed to trigger character created automation for {}: {}", character.id, e);
+        }
+    }
     
     Ok(WizardCreationResult {
         story,
@@ -2685,6 +2731,115 @@ pub async fn update_story_outline(
 }
 
 #[command(rename_all = "snake_case")]
+pub async fn create_character_relationship(
+    story_id: String,
+    source_character_id: String,
+    target_character_id: String,
+    relationship_type: String,
+    description: Option<String>,
+    dynamic: Option<String>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<serde_json::Value, String> {
+    use crate::db::repositories_v3::CharacterRelationshipRepository;
+    log::info!("[commands_v3] {} called: story_id={}", "create_character_relationship", story_id);
+    let repo = CharacterRelationshipRepository::new(pool.inner().clone());
+    let relationship = repo.create(
+        &story_id,
+        &source_character_id,
+        &target_character_id,
+        &relationship_type,
+        description.as_deref(),
+        dynamic.as_deref(),
+    ).map_err(|e| {
+        log::error!("[commands_v3] {} failed: {}", "create_character_relationship", e);
+        e.to_string()
+    })?;
+
+    // P0-3 修复: 发射同步事件，确保幕后界面自动刷新
+    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "characterRelationships");
+
+    Ok(serde_json::json!({
+        "id": relationship.id,
+        "story_id": relationship.story_id,
+        "source_character_id": relationship.source_character_id,
+        "target_character_id": relationship.target_character_id,
+        "target_character_name": relationship.target_character_name,
+        "relationship_type": relationship.relationship_type,
+        "description": relationship.description,
+        "dynamic": relationship.dynamic,
+        "created_at": relationship.created_at,
+    }))
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn update_character_relationship(
+    relationship_id: String,
+    relationship_type: Option<String>,
+    description: Option<String>,
+    dynamic: Option<String>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    use crate::db::repositories_v3::CharacterRelationshipRepository;
+    log::info!("[commands_v3] {} called: relationship_id={}", "update_character_relationship", relationship_id);
+    let repo = CharacterRelationshipRepository::new(pool.inner().clone());
+    repo.update(
+        &relationship_id,
+        relationship_type.as_deref(),
+        description.as_deref(),
+        dynamic.as_deref(),
+    ).map_err(|e| {
+        log::error!("[commands_v3] {} failed: {}", "update_character_relationship", e);
+        e.to_string()
+    })?;
+
+    // P0-3 修复: 查询 story_id 并发射同步事件
+    let conn = pool.inner().get().map_err(|e| e.to_string())?;
+    let story_id: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT story_id FROM character_relationships WHERE id = ?1",
+        [&relationship_id],
+        |row| row.get(0)
+    );
+    if let Ok(story_id) = story_id {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "characterRelationships");
+    }
+
+    Ok(())
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn delete_character_relationship(
+    relationship_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    use crate::db::repositories_v3::CharacterRelationshipRepository;
+    log::info!("[commands_v3] {} called: relationship_id={}", "delete_character_relationship", relationship_id);
+
+    // 先查询 story_id 用于同步事件（删除后无法获取）
+    let conn = pool.inner().get().map_err(|e| e.to_string())?;
+    let story_id: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT story_id FROM character_relationships WHERE id = ?1",
+        [&relationship_id],
+        |row| row.get(0)
+    );
+
+    let repo = CharacterRelationshipRepository::new(pool.inner().clone());
+    repo.delete(&relationship_id).map_err(|e| {
+        log::error!("[commands_v3] {} failed: {}", "delete_character_relationship", e);
+        e.to_string()
+    })?;
+
+    // P0-3 修复: 发射同步事件
+    if let Ok(story_id) = story_id {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "characterRelationships");
+    }
+
+    Ok(())
+}
+
+#[command(rename_all = "snake_case")]
 pub async fn get_character_relationships(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -2703,5 +2858,92 @@ pub async fn get_character_relationships(
         "description": r.description,
         "dynamic": r.dynamic,
         "created_at": r.created_at,
+    })).collect())
+}
+
+// ==================== 场景-角色关联 Commands ====================
+
+#[tauri::command]
+pub fn get_scene_characters(
+    pool: tauri::State<crate::db::DbPool>,
+    scene_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::repositories_v3::SceneCharacterRepository;
+    let repo = SceneCharacterRepository::new(pool.inner().clone());
+    let scene_characters = repo.get_characters_in_scene(&scene_id).map_err(|e| e.to_string())?;
+
+    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
+        "id": sc.id,
+        "scene_id": sc.scene_id,
+        "character_id": sc.character_id,
+        "character_name": sc.character_name,
+        "created_at": sc.created_at,
+    })).collect())
+}
+
+#[tauri::command]
+pub fn add_scene_character(
+    pool: tauri::State<crate::db::DbPool>,
+    scene_id: String,
+    character_id: String,
+) -> Result<serde_json::Value, String> {
+    use crate::db::repositories_v3::SceneCharacterRepository;
+    let repo = SceneCharacterRepository::new(pool.inner().clone());
+    let scene_character = repo.add_character_to_scene(&scene_id, &character_id).map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "id": scene_character.id,
+        "scene_id": scene_character.scene_id,
+        "character_id": scene_character.character_id,
+        "character_name": scene_character.character_name,
+        "created_at": scene_character.created_at,
+    }))
+}
+
+#[tauri::command]
+pub fn remove_scene_character(
+    pool: tauri::State<crate::db::DbPool>,
+    scene_id: String,
+    character_id: String,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::SceneCharacterRepository;
+    let repo = SceneCharacterRepository::new(pool.inner().clone());
+    repo.remove_character_from_scene(&scene_id, &character_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_scene_characters(
+    pool: tauri::State<crate::db::DbPool>,
+    scene_id: String,
+    character_ids: Vec<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::repositories_v3::SceneCharacterRepository;
+    let repo = SceneCharacterRepository::new(pool.inner().clone());
+    let scene_characters = repo.set_scene_characters(&scene_id, &character_ids).map_err(|e| e.to_string())?;
+
+    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
+        "id": sc.id,
+        "scene_id": sc.scene_id,
+        "character_id": sc.character_id,
+        "character_name": sc.character_name,
+        "created_at": sc.created_at,
+    })).collect())
+}
+
+#[tauri::command]
+pub fn get_character_scenes(
+    pool: tauri::State<crate::db::DbPool>,
+    character_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::repositories_v3::SceneCharacterRepository;
+    let repo = SceneCharacterRepository::new(pool.inner().clone());
+    let scene_characters = repo.get_scenes_for_character(&character_id).map_err(|e| e.to_string())?;
+
+    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
+        "id": sc.id,
+        "scene_id": sc.scene_id,
+        "character_id": sc.character_id,
+        "character_name": sc.character_name,
+        "created_at": sc.created_at,
     })).collect())
 }

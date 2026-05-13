@@ -158,12 +158,13 @@ export function Settings() {
           icon={<Sparkles className="w-4 h-4" />}
           label="多模态"
         />
-        <TabButton 
-          active={activeTab === 'image'} 
+        {/* v5.6.4 修复: 图像生成功能暂未实现，隐藏该 Tab */}
+        {/* <TabButton
+          active={activeTab === 'image'}
           onClick={() => setActiveTab('image')}
           icon={<Image className="w-4 h-4" />}
           label="图像生成"
-        />
+        /> */}
         <TabButton 
           active={activeTab === 'agents'} 
           onClick={() => setActiveTab('agents')}

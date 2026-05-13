@@ -123,6 +123,27 @@ pub struct CharacterConflict {
     pub stakes: String,
 }
 
+// ==================== 场景-角色关联模型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneCharacter {
+    pub id: String,
+    pub scene_id: String,
+    pub character_id: String,
+    pub character_name: Option<String>, // 冗余字段，便于显示
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneCharacterAction {
+    pub id: String,
+    pub scene_id: String,
+    pub character_id: String,
+    pub action_type: String, // dialogue, action, thought, etc.
+    pub content: String,
+    pub created_at: DateTime<Local>,
+}
+
 // ==================== 保留配置模型 (Phase 1.4) ====================
 
 /// 艾宾浩斯遗忘曲线配置

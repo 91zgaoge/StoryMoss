@@ -108,7 +108,43 @@ impl StoryRepository {
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let count = conn.execute("DELETE FROM stories WHERE id = ?1", [id])?;
+
+        // 在事务中执行删除操作，确保级联删除正确执行
+        let tx = conn.unchecked_transaction()?;
+
+        // 验证故事是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM stories WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+
+        // v5.6.4 修复: 显式清理无外键约束或可能存在遗留的关联表数据
+        // 即使外键约束已启用，也作为防御性编程添加显式 DELETE
+        let _ = tx.execute("DELETE FROM story_metadata WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM foreshadowing_tracker WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM user_preferences WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_runtime_states WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_style_configs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_outlines WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM studio_configs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_summaries WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_characters WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_scenes WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_world_buildings WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM chat_sessions WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM text_annotations WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM ai_operations WHERE story_id = ?1", [id]);
+
+        // 执行删除操作 - 由于外键约束已启用，大部分相关数据会自动级联删除
+        let count = tx.execute("DELETE FROM stories WHERE id = ?1", [id])?;
+
+        tx.commit()?;
         Ok(count)
     }
 }
@@ -226,7 +262,32 @@ impl CharacterRepository {
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let count = conn.execute("DELETE FROM characters WHERE id = ?1", [id])?;
+
+        // 在事务中执行删除操作
+        let tx = conn.unchecked_transaction()?;
+
+        // 验证角色是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM characters WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+
+        // v5.6.4 修复: 显式清理角色关联数据，消除幽灵数据
+        let _ = tx.execute("DELETE FROM scene_characters WHERE character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM scene_character_actions WHERE character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM character_relationships WHERE source_character_id = ?1 OR target_character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM character_states WHERE character_id = ?1", [id]);
+
+        // 执行删除操作 - 外键约束会自动级联剩余关联数据
+        let count = tx.execute("DELETE FROM characters WHERE id = ?1", [id])?;
+
+        tx.commit()?;
         Ok(count)
     }
 }
@@ -403,8 +464,25 @@ impl ChapterRepository {
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
+
+        // 验证章节是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM chapters WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+
+        // 解除与 scenes 的关联关系
         tx.execute("UPDATE scenes SET chapter_id = NULL WHERE chapter_id = ?1", [id])?;
+
+        // 删除章节
         let count = tx.execute("DELETE FROM chapters WHERE id = ?1", [id])?;
+
         tx.commit()?;
         Ok(count)
     }

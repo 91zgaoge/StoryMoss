@@ -27,12 +27,12 @@ pub struct PlanExecutor {
 
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
-        let _pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+        let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
         let llm_service = crate::llm::LlmService::new(app_handle.clone());
         let evolution_engine = CapabilityEvolutionEngine::new(llm_service, &app_handle);
         Self {
             app_handle,
-            template_library: Mutex::new(PlanTemplateLibrary::new()),
+            template_library: Mutex::new(PlanTemplateLibrary::new(pool)),
             evolution_engine,
         }
     }

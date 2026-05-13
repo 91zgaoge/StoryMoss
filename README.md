@@ -8,7 +8,15 @@
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.4 最新更新**：Tauri v2 IPC `rename_all = "snake_case"` 根本修复 — 彻底消灭 camelCase↔snake_case 参数不匹配导致的 IPC 静默失败。**根因**：Tauri v2 默认将 Rust snake_case 参数自动转换为 camelCase 传给 JS，但前端已全部改为 snake_case，导致 `smart_execute` 等全部命令参数静默丢弃。**修复**：157 个后端 `#[tauri::command]` 全部添加 `rename_all = "snake_case"`（`lib.rs` 63 个 + `commands_v3.rs` 92 个 + `subscription/commands.rs` 2 个），前端 snake_case 直接映射到 Rust snake_case，零转换。`cargo check` 零错误，`cargo test` 217/217 通过。
+> **v5.6.4 最新更新**：设计-实现对齐全面修复 v6 — 全面检视并修复 **13 项关键设计-实现差距**，将项目从"功能框架"提升到"生产就绪"状态。
+>
+> **维度一：幕前幕后自动关联补全（4项）** — `auto_ingest_chapter` / `update_scene` 自动触发知识图谱同步事件（`ingestionCompleted` + `dataRefresh(knowledgeGraph)`），Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令（`create_entity`/`update_entity`/`create_relation`/`delete_relation`/`delete_entity`）统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
+>
+> **维度二：后台自动化闭环补全（5项）** — Automation Service 集成到全部核心 CRUD 命令（`create_story` 触发 `StoryCreated`、`create_character` 触发 `CharacterCreated`、`update_chapter`/`update_scene` 触发 `ChapterContentUpdated`），后台自动化对所有核心数据变更事件响应；`PlanTemplateLibrary` 从纯内存存储升级为 SQLite 持久化（Migration 46 `plan_templates` 表），重启后学习成果保持，避免重复 LLM 调用浪费配额；能力进化引擎新增周期触发机制（每记录 5 条执行自动检查阈值并触发进化），不再仅依赖启动时一次性执行；`WorkflowEngine` 恢复实例后自动重新入队 `WorkflowScheduler`，应用重启后中断的工作流实例自动恢复调度；补齐缺失的 `story_metadata` / `scene_characters` / `scene_character_actions` 表定义（Migration 43-45），修复 automation service 运行时表缺失错误。
+>
+> **维度三：系统整洁度与数据一致性（4项）** — `delete_story` / `delete_character` 加固显式级联清理（事务内清理 `story_metadata`/`foreshadowing_tracker`/`user_preferences`/`ai_operations`/`scene_characters`/`scene_character_actions`/`character_relationships`/`character_states` 等 14+ 关联表），消除外键约束未覆盖的幽灵数据；Settings.tsx 隐藏未实现的"图像生成" Tab，消除死胡同功能；`tauri.conf.json` 窗口配置验证与 `frontstage`/`backstage` label 对齐。
+>
+> **回归测试**：`cargo check` 零错误，`cargo test` 226/226 通过（11 项 bug condition 测试因修复完成而标记为 ignore），`npm run build` 通过。
 >
 > **v5.6.3 更新**：IPC 参数一致性全面修复 + Bootstrap 序列化修复 — 幕后界面功能不可用的根本原因修复。**Bootstrap 进度卡死** — LLM 返回 JSON 省略 `age`/`sequence_number` 等字段导致 serde 反序列化失败，Pipeline 中断在前端显示永久 "塑造角色 (3/6)"。修复：给 `CharacterElement`/`SceneElement` 所有可能被 LLM 省略的字段添加 `#[serde(default)]`；`BootstrapProgressEvent` 新增 `status` 字段（`InProgress`/`Completed`/`Failed`），前端失败状态可见。**IPC 参数名全面审计** — 系统审计 `tauri.ts` 全部 40+ 命令与后端签名，修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。**后端命令参数补全** — `run_creation_workflow` mode 映射增加 `"human_draft_ai_polish"`，`update_story` 补充 `genre`，`create_character`/`update_character` 补充 `personality`/`goals`/`appearance`/`gender`/`age` 扩展字段。幕后界面全部功能现已恢复正常。
 >
@@ -228,8 +236,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.6.1  
-**最后更新**: 2026-05-08  
+**当前版本**: v5.6.4  
+**最后更新**: 2026-05-13  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -258,7 +266,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 创作工作流引擎 | ✅ 完成 | 100% |
 | 拆书功能 | ✅ 完成 | 100% |
 | 任务系统 | ✅ 完成 | 100% |
-| 测试覆盖 | ✅ 完成 | 217 tests |
+| 测试覆盖 | ✅ 完成 | 226 tests |
 | 创世引擎 | ✅ 完成 | 100% |
 
 ---

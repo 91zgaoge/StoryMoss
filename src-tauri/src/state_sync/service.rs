@@ -30,6 +30,9 @@ impl StateSync {
             SyncEvent::ChapterUpdated { .. } => "chapter-updated",
             SyncEvent::ChapterDeleted { .. } => "chapter-deleted",
             SyncEvent::WorldBuildingUpdated { .. } => "world-building-updated",
+            SyncEvent::CharacterRelationshipsUpdated { .. } => "character-relationships-updated",
+            SyncEvent::PayoffLedgerUpdated { .. } => "payoff-ledger-updated",
+            SyncEvent::IngestionCompleted { .. } => "ingestion-completed",
             SyncEvent::DataRefresh { .. } => "data-refresh",
         };
 
@@ -165,6 +168,31 @@ impl StateSync {
     pub fn emit_world_building_updated(app: &AppHandle, story_id: &str) {
         Self::emit_event(app, SyncEvent::WorldBuildingUpdated {
             story_id: story_id.to_string(),
+        });
+    }
+
+    // ==================== 角色关系事件 ====================
+
+    pub fn emit_character_relationships_updated(app: &AppHandle, story_id: &str) {
+        Self::emit_event(app, SyncEvent::CharacterRelationshipsUpdated {
+            story_id: story_id.to_string(),
+        });
+    }
+
+    // ==================== Payoff Ledger 事件 ====================
+
+    pub fn emit_payoff_ledger_updated(app: &AppHandle, story_id: &str) {
+        Self::emit_event(app, SyncEvent::PayoffLedgerUpdated {
+            story_id: story_id.to_string(),
+        });
+    }
+
+    // ==================== Ingestion 事件 ====================
+
+    pub fn emit_ingestion_completed(app: &AppHandle, story_id: &str, resource_type: &str) {
+        Self::emit_event(app, SyncEvent::IngestionCompleted {
+            story_id: story_id.to_string(),
+            resource_type: resource_type.to_string(),
         });
     }
 
