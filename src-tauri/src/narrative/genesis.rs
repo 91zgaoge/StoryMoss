@@ -151,8 +151,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
-            let meta: StoryMetaElement = serde_json::from_str(json_str)
+            let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))?;
 
             // 创建 Story 记录
@@ -347,8 +347,8 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
-            let wb: WorldBuildingElement = serde_json::from_str(json_str)
+            let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let wb: WorldBuildingElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
             // 保存到数据库
@@ -441,8 +441,8 @@ impl PipelineStep<GenesisContext> for OutlineGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
-            let outline: OutlineElement = serde_json::from_str(json_str)
+            let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let outline: OutlineElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析大纲失败: {}", e)))?;
 
             // 保存到数据库
@@ -531,12 +531,16 @@ impl PipelineStep<GenesisContext> for CharacterGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct CharacterResponse { characters: Vec<CharacterElement> }
-            let char_data: CharacterResponse = serde_json::from_str(json_str)
-                .map_err(|e| PipelineError::ParseError(format!("解析角色失败: {}", e)))?;
+            let char_data: CharacterResponse = serde_json::from_str(&json_str)
+                .map_err(|e| {
+                    log::warn!("角色 JSON 解析失败: {}\n原始 JSON:\n{}", e, json_str);
+                    PipelineError::ParseError(format!("解析角色失败: {}", e))
+                })?;
 
             // 保存到数据库
             let repo = CharacterRepository::new(ctx.pool.clone());
@@ -644,11 +648,11 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct SceneResponse { scenes: Vec<SceneElement> }
-            let scene_data: SceneResponse = serde_json::from_str(json_str)
+            let scene_data: SceneResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析场景失败: {}", e)))?;
 
             // 保存到数据库
@@ -759,11 +763,11 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
             ).await.map_err(|e| PipelineError::LlmError(e))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct ForeshadowingResponse { foreshadowings: Vec<ForeshadowingElement> }
-            let fw_data: ForeshadowingResponse = serde_json::from_str(json_str)
+            let fw_data: ForeshadowingResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析伏笔失败: {}", e)))?;
 
             // 保存到数据库
@@ -888,14 +892,6 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
 }
 
 // ==================== 辅助函数 ====================
-
-fn extract_json(content: &str) -> Result<&str, String> {
-    if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
-        Ok(&content[start..=end])
-    } else {
-        Err("No JSON object found in response".to_string())
-    }
-}
 
 fn parse_conflict_type(s: &str) -> ConflictType {
     match s {

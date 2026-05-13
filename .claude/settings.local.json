@@ -96,7 +96,16 @@
       "Read(//c/Users/admin/AppData/Roaming/com.storyforge.app/**)",
       "Read(//c/Users/admin/.config/**)",
       "Bash(cmd:*)",
-      "Bash(F:/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)"
+      "Bash(F:/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)",
+      "Skill(gsd:map-codebase)",
+      "Bash(sqlite3 cinema_ai.db \"PRAGMA foreign_keys;\")",
+      "Bash(sqlite3 src-tauri/cinema_ai.db \"PRAGMA foreign_keys;\")",
+      "Bash(cargo test:*)",
+      "Bash(find . -name \"*.rs\" -exec grep -l \"scene_characters\\\\|scene_character_actions\" {} \\\\;)",
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(git reset:*)",
+      "Bash(gh run:*)"
     ]
   }
 }

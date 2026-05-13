@@ -20,6 +20,58 @@ pub mod progress;
 pub mod audit;
 pub mod health;
 
+/// 从 LLM 响应中提取 JSON 对象，并修复常见语法错误（尾随逗号、空值、markdown 围栏等）
+pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
+    // 1. 基础提取：找第一个 { 和最后一个 }
+    let raw = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+        &content[start..=end]
+    } else {
+        return Err("No JSON object found in response".to_string());
+    };
+
+    // 2. 移除 markdown 代码围栏标记（```json ... ```）
+    let mut s = raw.to_string();
+    for fence in ["```json", "```JSON", "```", "`"] {
+        s = s.replace(fence, "");
+    }
+
+    // 3. 移除 UTF-8 BOM 和控制字符
+    s = s.trim().to_string();
+    s = s.replace('\u{feff}', "");
+
+    // 4. 修复尾随逗号：`,]` → `]` 和 `,}` → `}`
+    // 使用正则风格的替换：在行尾或空白后的逗号后面紧跟 ] 或 }
+    let mut prev;
+    loop {
+        prev = s.clone();
+        s = s.replace(",]", "]");
+        s = s.replace(",}", "}");
+        s = s.replace(", ]", "]");
+        s = s.replace(", }", "}");
+        if s == prev {
+            break;
+        }
+    }
+
+    // 5. 修复空值：`: ,` → `: null,`，`: ]` → `: null]`，`: }` → `: null}`
+    // 注意：要处理多种空白变体
+    for (bad, good) in [
+        (": ,", ": null,"),
+        (":,", ": null,"),
+        (": ]", ": null]"),
+        (": ]", ": null]"),
+        (": }", ": null}"),
+        (":}", ": null}"),
+    ] {
+        s = s.replace(bad, good);
+    }
+
+    // 6. 修复中文智能引号 " " 为 ASCII 引号
+    s = s.replace('"', "\"").replace('"', "\"");
+
+    Ok(s)
+}
+
 // pub use elements::*;
 // pub use pipeline::*;
 // pub use progress::*;

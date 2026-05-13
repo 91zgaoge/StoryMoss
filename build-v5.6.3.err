@@ -1,0 +1,1071 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+        Warn The bundle identifier "com.storyforge.app" set in `"tauri.conf.json" identifier` ends with `.app`. This is not recommended because it conflicts with the application bundle extension on macOS.
+     Running beforeBuildCommand `npm run --prefix src-frontend build`
+[33m[plugin vite:reporter] 
+(!) F:/mywork/CINEMA-AI/v2-rust/src-frontend/src/services/auth.ts is dynamically imported by F:/mywork/CINEMA-AI/v2-rust/src-frontend/src/pages/Settings.tsx but also statically imported by F:/mywork/CINEMA-AI/v2-rust/src-frontend/src/stores/useAuthStore.ts, dynamic import will not move module into another chunk.
+[39m
+[33m[plugin vite:reporter] 
+(!) F:/mywork/CINEMA-AI/v2-rust/src-frontend/node_modules/@tauri-apps/plugin-dialog/dist-js/index.js is dynamically imported by F:/mywork/CINEMA-AI/v2-rust/src-frontend/src/components/book-deconstruction/BookUploadPanel.tsx but also statically imported by F:/mywork/CINEMA-AI/v2-rust/src-frontend/src/pages/Skills.tsx, dynamic import will not move module into another chunk.
+[39m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+   Compiling storyforge v5.6.3 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
+warning: function `get_config` is never used
+  --> src-tauri\src\lib.rs:82:4
+   |
+82 | fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
+   |    ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `scene_id` and `chapter_id` are never read
+    --> src-tauri\src\lib.rs:1984:5
+     |
+1982 | struct RecordFeedbackRequest {
+     |        --------------------- fields in this struct
+1983 |     story_id: String,
+1984 |     scene_id: Option<String>,
+     |     ^^^^^^^^
+1985 |     chapter_id: Option<String>,
+     |     ^^^^^^^^^^
+     |
+     = note: `RecordFeedbackRequest` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `include_characters` is never read
+    --> src-tauri\src\lib.rs:2212:5
+     |
+2207 | struct ExportOptions {
+     |        ------------- field in this struct
+...
+2212 |     include_characters: Option<bool>,
+     |     ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `ExportOptions` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: function `notify_backstage_generation_requested` is never used
+    --> src-tauri\src\lib.rs:2380:4
+     |
+2380 | fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), String> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `delete` is never used
+   --> src-tauri\src\db\repositories_export.rs:242:12
+    |
+140 | impl AiOperationRepository {
+    | -------------------------- method in this implementation
+...
+242 |     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+    |            ^^^^^^
+
+warning: struct `OAuthUrlResponse` is never constructed
+   --> src-tauri\src\db\models.rs:146:12
+    |
+146 | pub struct OAuthUrlResponse {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: struct `AuthConfig` is never constructed
+   --> src-tauri\src\db\models.rs:152:12
+    |
+152 | pub struct AuthConfig {
+    |            ^^^^^^^^^^
+
+warning: methods `create` and `delete_by_story` are never used
+  --> src-tauri\src\db\repositories_narrative.rs:23:12
+   |
+18 | impl NarrativeCharacterRepository {
+   | --------------------------------- methods in this implementation
+...
+23 |     pub fn create(&self, character: &CharacterElement) -> Result<(), rusqlite::Error> {
+   |            ^^^^^^
+...
+94 |     pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+   |            ^^^^^^^^^^^^^^^
+
+warning: method `create` is never used
+   --> src-tauri\src\db\repositories_narrative.rs:111:12
+    |
+106 | impl NarrativeSceneRepository {
+    | ----------------------------- method in this implementation
+...
+111 |     pub fn create(&self, scene: &SceneElement) -> Result<(), rusqlite::Error> {
+    |            ^^^^^^
+
+warning: method `create` is never used
+   --> src-tauri\src\db\repositories_narrative.rs:179:12
+    |
+174 | impl NarrativeWorldBuildingRepository {
+    | ------------------------------------- method in this implementation
+...
+179 |     pub fn create(&self, wb: &WorldBuildingElement) -> Result<(), rusqlite::Error> {
+    |            ^^^^^^
+
+warning: struct `ChatSession` is never constructed
+ --> src-tauri\src\chat\mod.rs:7:12
+  |
+7 | pub struct ChatSession {
+  |            ^^^^^^^^^^^
+
+warning: struct `ChatMessage` is never constructed
+  --> src-tauri\src\chat\mod.rs:18:12
+   |
+18 | pub struct ChatMessage {
+   |            ^^^^^^^^^^^
+
+warning: struct `ChatManager` is never constructed
+  --> src-tauri\src\chat\mod.rs:25:12
+   |
+25 | pub struct ChatManager {
+   |            ^^^^^^^^^^^
+
+warning: associated items `new`, `create_session`, `get_session`, `get_story_sessions`, `add_message`, and `delete_session` are never used
+   --> src-tauri\src\chat\mod.rs:30:12
+    |
+ 29 | impl ChatManager {
+    | ---------------- associated items in this implementation
+ 30 |     pub fn new(pool: DbPool) -> Self {
+    |            ^^^
+...
+ 34 |     pub fn create_session(
+    |            ^^^^^^^^^^^^^^
+...
+ 67 |     pub fn get_session(&self, session_id: &str) -> Result<Option<ChatSession>, String> {
+    |            ^^^^^^^^^^^
+...
+122 |     pub fn get_story_sessions(
+    |            ^^^^^^^^^^^^^^^^^^
+...
+156 |     pub fn add_message(
+    |            ^^^^^^^^^^^
+...
+191 |     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `CollabSession` is never constructed
+  --> src-tauri\src\collab\mod.rs:15:12
+   |
+15 | pub struct CollabSession {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `Participant` is never constructed
+  --> src-tauri\src\collab\mod.rs:24:12
+   |
+24 | pub struct Participant {
+   |            ^^^^^^^^^^^
+
+warning: struct `CursorPosition` is never constructed
+  --> src-tauri\src\collab\mod.rs:32:12
+   |
+32 | pub struct CursorPosition {
+   |            ^^^^^^^^^^^^^^
+
+warning: struct `EditOperation` is never constructed
+  --> src-tauri\src\collab\mod.rs:38:12
+   |
+38 | pub struct EditOperation {
+   |            ^^^^^^^^^^^^^
+
+warning: enum `OperationType` is never used
+  --> src-tauri\src\collab\mod.rs:49:10
+   |
+49 | pub enum OperationType {
+   |          ^^^^^^^^^^^^^
+
+warning: struct `CollabManager` is never constructed
+  --> src-tauri\src\collab\mod.rs:55:12
+   |
+55 | pub struct CollabManager {
+   |            ^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src-tauri\src\collab\mod.rs:60:12
+    |
+ 59 | impl CollabManager {
+    | ------------------ associated items in this implementation
+ 60 |     pub fn new(pool: DbPool) -> Self {
+    |            ^^^
+...
+ 64 |     pub fn create_session(
+    |            ^^^^^^^^^^^^^^
+...
+ 92 |     pub fn get_session(&self, session_id: &str) -> Result<Option<CollabSession>, String> {
+    |            ^^^^^^^^^^^
+...
+148 |     pub fn join_session(
+    |            ^^^^^^^^^^^^
+...
+172 |     pub fn leave_session(
+    |            ^^^^^^^^^^^^^
+...
+185 |     pub fn update_cursor(
+    |            ^^^^^^^^^^^^^
+...
+201 |     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^^
+
+warning: fields `id` and `document_id` are never read
+  --> src-tauri\src\collab\websocket.rs:48:9
+   |
+47 | pub struct CollabSession {
+   |            ------------- fields in this struct
+48 |     pub id: String,
+   |         ^^
+49 |     pub document_id: String,
+   |         ^^^^^^^^^^^
+
+warning: associated items `new` and `get_current_document` are never used
+   --> src-tauri\src\collab\websocket.rs:56:12
+    |
+ 55 | impl CollabSession {
+    | ------------------ associated items in this implementation
+ 56 |     pub fn new(id: String, document_id: String) -> Self {
+    |            ^^^
+...
+110 |     pub async fn get_current_document(&self) -> (String, u64) {
+    |                  ^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new` and `create_session` are never used
+   --> src-tauri\src\collab\websocket.rs:129:12
+    |
+128 | impl WebSocketServer {
+    | -------------------- associated items in this implementation
+129 |     pub fn new() -> Self {
+    |            ^^^
+...
+161 |     pub async fn create_session(&self,
+    |                  ^^^^^^^^^^^^^^
+
+warning: struct `StoryStateManager` is never constructed
+ --> src-tauri\src\state\manager.rs:9:12
+  |
+9 | pub struct StoryStateManager {
+  |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `StoryState` is never constructed
+  --> src-tauri\src\state\manager.rs:16:12
+   |
+16 | pub struct StoryState {
+   |            ^^^^^^^^^^
+
+warning: struct `StoryInfo` is never constructed
+  --> src-tauri\src\state\manager.rs:28:12
+   |
+28 | pub struct StoryInfo {
+   |            ^^^^^^^^^
+
+warning: struct `CharacterState` is never constructed
+  --> src-tauri\src\state\manager.rs:38:12
+   |
+38 | pub struct CharacterState {
+   |            ^^^^^^^^^^^^^^
+
+warning: struct `Relationship` is never constructed
+  --> src-tauri\src\state\manager.rs:48:12
+   |
+48 | pub struct Relationship {
+   |            ^^^^^^^^^^^^
+
+warning: struct `ChapterState` is never constructed
+  --> src-tauri\src\state\manager.rs:55:12
+   |
+55 | pub struct ChapterState {
+   |            ^^^^^^^^^^^^
+
+warning: enum `ChapterStatus` is never used
+  --> src-tauri\src\state\manager.rs:66:10
+   |
+66 | pub enum ChapterStatus {
+   |          ^^^^^^^^^^^^^
+
+warning: struct `PlotProgression` is never constructed
+  --> src-tauri\src\state\manager.rs:75:12
+   |
+75 | pub struct PlotProgression {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `WorldState` is never constructed
+  --> src-tauri\src\state\manager.rs:84:12
+   |
+84 | pub struct WorldState {
+   |            ^^^^^^^^^^
+
+warning: struct `LocationState` is never constructed
+  --> src-tauri\src\state\manager.rs:91:12
+   |
+91 | pub struct LocationState {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `LoreElement` is never constructed
+  --> src-tauri\src\state\manager.rs:99:12
+   |
+99 | pub struct LoreElement {
+   |            ^^^^^^^^^^^
+
+warning: struct `TimelineEvent` is never constructed
+   --> src-tauri\src\state\manager.rs:107:12
+    |
+107 | pub struct TimelineEvent {
+    |            ^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src-tauri\src\state\manager.rs:115:12
+    |
+114 | impl StoryStateManager {
+    | ---------------------- associated items in this implementation
+115 |     pub fn new(pool: DbPool) -> Self {
+    |            ^^^
+...
+122 |     pub fn create_state(&self, story_id: String, info: StoryInfo) -> Result<StoryState, String> {
+    |            ^^^^^^^^^^^^
+...
+149 |     fn save_state(&self, state: &StoryState) -> Result<(), String> {
+    |        ^^^^^^^^^^
+...
+168 |     pub fn get_state(&self, story_id: &str) -> Result<Option<StoryState>, String> {
+    |            ^^^^^^^^^
+...
+189 |     pub fn update_state(&self, story_id: &str, updater: impl FnOnce(&mut StoryState)) -> Result<(), String> {
+    |            ^^^^^^^^^^^^
+...
+199 |     pub fn set_current_story(&self, story_id: String) {
+    |            ^^^^^^^^^^^^^^^^^
+...
+203 |     pub fn get_current_story(&self) -> Option<String> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+207 |     pub fn add_character(&self, story_id: &str, character: CharacterState) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^
+...
+213 |     pub fn update_chapter_status(&self, story_id: &str, chapter_id: &str, status: ChapterStatus) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+...
+221 |     pub fn add_plot_point(&self, story_id: &str, point: String) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^^
+...
+227 |     pub fn get_all_states(&self) -> Result<Vec<StoryState>, String> {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `HintPosition` is never constructed
+   --> src-tauri\src\window\mod.rs:142:12
+    |
+142 | pub struct HintPosition {
+    |            ^^^^^^^^^^^^
+
+warning: field `relation_hint` is never read
+  --> src-tauri\src\creative_engine\context_builder.rs:17:9
+   |
+13 | pub struct RelevantEntity {
+   |            -------------- field in this struct
+...
+17 |     pub relation_hint: Option<String>,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `RelevantEntity` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `importance` is never read
+  --> src-tauri\src\creative_engine\context_builder.rs:26:9
+   |
+22 | pub struct WorldRuleSummary {
+   |            ---------------- field in this struct
+...
+26 |     pub importance: i32,
+   |         ^^^^^^^^^^
+   |
+   = note: `WorldRuleSummary` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `SceneStructure` is never constructed
+  --> src-tauri\src\creative_engine\context_builder.rs:31:12
+   |
+31 | pub struct SceneStructure {
+   |            ^^^^^^^^^^^^^^
+
+warning: method `build_for_scene` is never used
+   --> src-tauri\src\creative_engine\context_builder.rs:167:12
+    |
+ 48 | impl StoryContextBuilder {
+    | ------------------------ method in this implementation
+...
+167 |     pub fn build_for_scene(
+    |            ^^^^^^^^^^^^^^^
+
+warning: fields `character_id`, `active_goal`, `secrets_known`, `secrets_unknown`, and `arc_progress` are never read
+  --> src-tauri\src\creative_engine\continuity.rs:15:9
+   |
+14 | pub struct CharacterState {
+   |            -------------- fields in this struct
+15 |     pub character_id: String,
+   |         ^^^^^^^^^^^^
+...
+19 |     pub active_goal: Option<String>,
+   |         ^^^^^^^^^^^
+20 |     pub secrets_known: Vec<String>,
+   |         ^^^^^^^^^^^^^
+21 |     pub secrets_unknown: Vec<String>,
+   |         ^^^^^^^^^^^^^^^
+22 |     pub arc_progress: f32, // 0.0 - 1.0
+   |         ^^^^^^^^^^^^
+   |
+   = note: `CharacterState` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `name` and `description` are never used
+  --> src-tauri\src\creative_engine\methodology\mod.rs:35:12
+   |
+34 | impl MethodologyType {
+   | -------------------- methods in this implementation
+35 |     pub fn name(&self) -> &'static str {
+   |            ^^^^
+...
+44 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+
+warning: methods `name`, `description`, `output_schema`, and `current_step` are never used
+  --> src-tauri\src\creative_engine\methodology\mod.rs:57:8
+   |
+55 | pub trait Methodology: Send + Sync {
+   |           ----------- methods in this trait
+56 |     /// 方法论名称
+57 |     fn name(&self) -> &'static str;
+   |        ^^^^
+58 |     /// 方法论描述
+59 |     fn description(&self) -> &'static str;
+   |        ^^^^^^^^^^^
+...
+63 |     fn output_schema(&self) -> Option<String>;
+   |        ^^^^^^^^^^^^^
+64 |     /// 获取该方法论的当前阶段/步骤（如有）
+65 |     fn current_step(&self) -> Option<String>;
+   |        ^^^^^^^^^^^^
+
+warning: associated function `list_available` is never used
+   --> src-tauri\src\creative_engine\methodology\mod.rs:123:12
+    |
+ 91 | impl MethodologyEngine {
+    | ---------------------- associated function in this implementation
+...
+123 |     pub fn list_available() -> Vec<MethodologyType> {
+    |            ^^^^^^^^^^^^^^
+
+warning: method `description` is never used
+  --> src-tauri\src\creative_engine\methodology\snowflake.rs:29:12
+   |
+24 | impl SnowflakeStep {
+   | ------------------ method in this implementation
+...
+29 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+
+warning: method `step` is never used
+   --> src-tauri\src\creative_engine\methodology\snowflake.rs:183:12
+    |
+178 | impl SnowflakeMethodology {
+    | ------------------------- method in this implementation
+...
+183 |     pub fn step(&self) -> SnowflakeStep {
+    |            ^^^^
+
+warning: methods `description` and `scene_type` are never used
+  --> src-tauri\src\creative_engine\methodology\scene_structure.rs:34:12
+   |
+22 | impl SceneBeat {
+   | -------------- methods in this implementation
+...
+34 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+...
+46 |     pub fn scene_type(&self) -> SceneType {
+   |            ^^^^^^^^^^
+
+warning: variants `GoalScene` and `ReactionScene` are never constructed
+  --> src-tauri\src\creative_engine\methodology\scene_structure.rs:56:5
+   |
+55 | pub enum SceneType {
+   |          --------- variants in this enum
+56 |     GoalScene,     // 目标场景：目标→冲突→灾难
+   |     ^^^^^^^^^
+57 |     ReactionScene, // 反应场景：反应→困境→决定
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `SceneType` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `beats` is never used
+  --> src-tauri\src\creative_engine\methodology\scene_structure.rs:61:12
+   |
+60 | impl SceneType {
+   | -------------- method in this implementation
+61 |     pub fn beats(&self) -> &'static [SceneBeat] {
+   |            ^^^^^
+
+warning: associated items `new`, `set_beat`, and `get_beat` are never used
+   --> src-tauri\src\creative_engine\methodology\scene_structure.rs:105:12
+    |
+104 | impl SceneStructureMethodology {
+    | ------------------------------ associated items in this implementation
+105 |     pub fn new(scene_type: SceneType) -> Self {
+    |            ^^^
+...
+113 |     pub fn set_beat(&mut self, beat: SceneBeat, content: String) {
+    |            ^^^^^^^^
+...
+117 |     pub fn get_beat(&self, beat: SceneBeat) -> Option<&String> {
+    |            ^^^^^^^^
+
+warning: method `description` is never used
+  --> src-tauri\src\creative_engine\methodology\hero_journey.rs:49:12
+   |
+27 | impl HeroJourneyStage {
+   | --------------------- method in this implementation
+...
+49 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+
+warning: method `stage` is never used
+   --> src-tauri\src\creative_engine\methodology\hero_journey.rs:210:12
+    |
+205 | impl HeroJourneyMethodology {
+    | --------------------------- method in this implementation
+...
+210 |     pub fn stage(&self) -> HeroJourneyStage {
+    |            ^^^^^
+
+warning: methods `description` and `prompt_question` are never used
+  --> src-tauri\src\creative_engine\methodology\character_depth.rs:31:12
+   |
+19 | impl CharacterDimension {
+   | ----------------------- methods in this implementation
+...
+31 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+...
+42 |     pub fn prompt_question(&self) -> &'static str {
+   |            ^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `set_dimension`, `get_dimension`, `is_complete`, `format_character`, and `generate_plot_suggestions` are never used
+   --> src-tauri\src\creative_engine\methodology\character_depth.rs:95:12
+    |
+ 94 | impl CharacterDepthModel {
+    | ------------------------ associated items in this implementation
+ 95 |     pub fn new() -> Self {
+    |            ^^^
+...
+101 |     pub fn set_dimension(&mut self, dim: CharacterDimension, content: String) {
+    |            ^^^^^^^^^^^^^
+...
+105 |     pub fn get_dimension(&self, dim: CharacterDimension) -> Option<&String> {
+    |            ^^^^^^^^^^^^^
+...
+110 |     pub fn is_complete(&self) -> bool {
+    |            ^^^^^^^^^^^
+...
+118 |     pub fn format_character(&self, name: &str) -> String {
+    |            ^^^^^^^^^^^^^^^^
+...
+134 |     pub fn generate_plot_suggestions(&self) -> Vec<String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `build_llm_check_prompt` is never used
+   --> src-tauri\src\creative_engine\style\mod.rs:373:12
+    |
+252 | impl StyleChecker {
+    | ----------------- associated function in this implementation
+...
+373 |     pub fn build_llm_check_prompt(text: &str, target: &StyleDNA) -> String {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `record_feedback`, `get_generation_strategy`, and `build_personalized_prompt` are never used
+  --> src-tauri\src\creative_engine\adaptive\mod.rs:34:12
+   |
+28 | impl AdaptiveLearningEngine {
+   | --------------------------- methods in this implementation
+...
+34 |     pub fn record_feedback(&self, event: FeedbackEvent) -> Result<(), String> {
+   |            ^^^^^^^^^^^^^^^
+...
+62 |     pub fn get_generation_strategy(&self, story_id: &str) -> Result<GenerationStrategy, String> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^
+...
+68 |     pub fn build_personalized_prompt(&self, story_id: &str) -> Result<String, String> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `get_recent` is never used
+   --> src-tauri\src\creative_engine\adaptive\feedback.rs:166:12
+    |
+ 66 | impl FeedbackRecorder {
+    | --------------------- method in this implementation
+...
+166 |     pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<FeedbackEvent>, String> {
+    |            ^^^^^^^^^^
+
+warning: field `top_p` is never read
+  --> src-tauri\src\creative_engine\adaptive\generator.rs:17:9
+   |
+13 | pub struct GenerationStrategy {
+   |            ------------------ field in this struct
+...
+17 |     pub top_p: f32,
+   |         ^^^^^
+   |
+   = note: `GenerationStrategy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `reason` is never read
+  --> src-tauri\src\creative_engine\adaptive\generator.rs:47:9
+   |
+43 | pub struct PromptWeightAdjustment {
+   |            ---------------------- field in this struct
+...
+47 |     pub reason: String,
+   |         ^^^^^^
+   |
+   = note: `PromptWeightAdjustment` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `get_preference_summary` is never used
+   --> src-tauri\src\creative_engine\adaptive\personalizer.rs:153:12
+    |
+ 15 | impl PromptPersonalizer {
+    | ----------------------- method in this implementation
+...
+153 |     pub fn get_preference_summary(&self, story_id: &str) -> Result<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PersonalizedPrompt` is never constructed
+   --> src-tauri\src\creative_engine\adaptive\personalizer.rs:169:12
+    |
+169 | pub struct PersonalizedPrompt {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: method `description` is never used
+  --> src-tauri\src\creative_engine\workflow\mod.rs:40:12
+   |
+31 | impl CreationMode {
+   | ----------------- method in this implementation
+...
+40 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+
+warning: methods `description` and `order` are never used
+  --> src-tauri\src\creative_engine\workflow\engine.rs:46:12
+   |
+33 | impl CreationPhase {
+   | ------------------ methods in this implementation
+...
+46 |     pub fn description(&self) -> &'static str {
+   |            ^^^^^^^^^^^
+...
+58 |     pub fn order(&self) -> u8 {
+   |            ^^^^^
+
+warning: fields `requires_user_confirmation` and `methodology` are never read
+   --> src-tauri\src\creative_engine\workflow\engine.rs:102:9
+    |
+ 97 | pub struct PhaseWorkflow {
+    |            ------------- fields in this struct
+...
+102 |     pub requires_user_confirmation: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+103 |     /// 该阶段使用的方法论（如有）
+104 |     pub methodology: Option<MethodologyConfig>,
+    |         ^^^^^^^^^^^
+    |
+    = note: `PhaseWorkflow` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `with_user_confirmation` and `with_methodology` are never used
+   --> src-tauri\src\creative_engine\workflow\engine.rs:133:12
+    |
+113 | impl PhaseWorkflow {
+    | ------------------ methods in this implementation
+...
+133 |     pub fn with_user_confirmation(mut self) -> Self {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+139 |     pub fn with_methodology(mut self, config: MethodologyConfig) -> Self {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: field `auto_execute` is never read
+   --> src-tauri\src\creative_engine\workflow\engine.rs:168:9
+    |
+165 | pub struct WorkflowConfig {
+    |            -------------- field in this struct
+...
+168 |     pub auto_execute: bool,
+    |         ^^^^^^^^^^^^
+    |
+    = note: `WorkflowConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `progress` is never used
+   --> src-tauri\src\creative_engine\workflow\engine.rs:206:12
+    |
+193 | impl WorkflowState {
+    | ------------------ method in this implementation
+...
+206 |     pub fn progress(&self) -> f32 {
+    |            ^^^^^^^^
+
+warning: method `execute_single_phase` is never used
+   --> src-tauri\src\creative_engine\workflow\engine.rs:671:18
+    |
+266 | impl CreationWorkflowEngine {
+    | --------------------------- method in this implementation
+...
+671 |     pub async fn execute_single_phase(
+    |                  ^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `check_ai_quota` and `consume_ai_quota` are never used
+   --> src-tauri\src\subscription\mod.rs:396:12
+    |
+ 82 | impl SubscriptionService {
+    | ------------------------ methods in this implementation
+...
+396 |     pub fn check_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
+    |            ^^^^^^^^^^^^^^
+...
+409 |     pub fn consume_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: function `check_ai_quota` is never used
+  --> src-tauri\src\subscription\commands.rs:19:8
+   |
+19 | pub fn check_ai_quota(app_handle: AppHandle) -> Result<QuotaCheckResult, String> {
+   |        ^^^^^^^^^^^^^^
+
+warning: struct `ExtractedSceneSummary` is never constructed
+   --> src-tauri\src\book_deconstruction\models.rs:268:12
+    |
+268 | pub struct ExtractedSceneSummary {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `LlmWorldSettingResponse` is never constructed
+   --> src-tauri\src\book_deconstruction\models.rs:332:12
+    |
+332 | pub struct LlmWorldSettingResponse {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MEDIUM_MERGE_MIN_WORDS` is never used
+  --> src-tauri\src\book_deconstruction\chunker.rs:21:7
+   |
+21 | const MEDIUM_MERGE_MIN_WORDS: usize = 3_000;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `merge_short_chapters` is never used
+   --> src-tauri\src\book_deconstruction\chunker.rs:122:8
+    |
+122 | pub fn merge_short_chapters(chapters: &[ParsedChapter], min_words: usize) -> Vec<TextChunk> {
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: field `pool` is never read
+  --> src-tauri\src\book_deconstruction\analyzer.rs:19:5
+   |
+16 | pub struct BookAnalyzer {
+   |            ------------ field in this struct
+...
+19 |     pool: DbPool,
+   |     ^^^^
+
+warning: method `create` is never used
+   --> src-tauri\src\book_deconstruction\repository.rs:226:12
+    |
+221 | impl ReferenceCharacterRepository {
+    | --------------------------------- method in this implementation
+...
+226 |     pub fn create(&self, character: &ReferenceCharacter) -> Result<(), Box<dyn std::error::Error>> {
+    |            ^^^^^^
+
+warning: method `create` is never used
+   --> src-tauri\src\book_deconstruction\repository.rs:323:12
+    |
+318 | impl ReferenceSceneRepository {
+    | ----------------------------- method in this implementation
+...
+323 |     pub fn create(&self, scene: &ReferenceScene) -> Result<(), Box<dyn std::error::Error>> {
+    |            ^^^^^^
+
+warning: methods `is_registered`, `get_lock`, and `stop_all` are never used
+   --> src-tauri\src\task_system\scheduler.rs:101:12
+    |
+ 20 | impl TaskScheduler {
+    | ------------------ methods in this implementation
+...
+101 |     pub fn is_registered(&self, task_id: &str) -> bool {
+    |            ^^^^^^^^^^^^^
+...
+107 |     pub fn get_lock(&self, task_id: &str) -> Option<Arc<tokio::sync::Mutex<()>>> {
+    |            ^^^^^^^^
+...
+121 |     pub fn stop_all(&self) {
+    |            ^^^^^^^^
+
+warning: associated items `stop` and `record_heartbeat` are never used
+  --> src-tauri\src\task_system\heartbeat.rs:67:12
+   |
+31 | impl HeartbeatMonitor {
+   | --------------------- associated items in this implementation
+...
+67 |     pub fn stop(&mut self) {
+   |            ^^^^
+...
+75 |     pub fn record_heartbeat(pool: &DbPool, task_id: &str) {
+   |            ^^^^^^^^^^^^^^^^
+
+warning: method `is_cancelled` is never used
+   --> src-tauri\src\task_system\executor.rs:138:12
+    |
+ 60 | impl<R: Runtime> TaskExecutionContext<R> {
+    | ---------------------------------------- method in this implementation
+...
+138 |     pub fn is_cancelled(&self) -> bool {
+    |            ^^^^^^^^^^^^
+
+warning: method `shutdown` is never used
+  --> src-tauri\src\task_system\service.rs:85:12
+   |
+35 | impl<R: Runtime> TaskService<R> {
+   | ------------------------------- method in this implementation
+...
+85 |     pub fn shutdown(&self) {
+   |            ^^^^^^^^
+
+warning: methods `update_character_state` and `update_story_context` are never used
+   --> src-tauri\src\canonical_state\manager.rs:84:18
+    |
+ 15 | impl CanonicalStateManager {
+    | -------------------------- methods in this implementation
+...
+ 84 |     pub async fn update_character_state(
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+...
+127 |     pub async fn update_story_context(
+    |                  ^^^^^^^^^^^^^^^^^^^^
+
+warning: method `get_all` is never used
+  --> src-tauri\src\capabilities\mod.rs:85:12
+   |
+75 | impl CapabilityRegistry {
+   | ----------------------- method in this implementation
+...
+85 |     pub fn get_all(&self) -> &[Capability] {
+   |            ^^^^^^^
+
+warning: associated function `new_with_path` is never used
+   --> src-tauri\src\capabilities\evolution.rs:108:12
+    |
+102 | impl CapabilityEvolutionEngine {
+    | ------------------------------ associated function in this implementation
+...
+108 |     pub fn new_with_path(llm_service: LlmService, app_data_dir: &PathBuf) -> Self {
+    |            ^^^^^^^^^^^^^
+
+warning: field `scene_id` is never read
+  --> src-tauri\src\planner\mod.rs:49:9
+   |
+48 | pub struct SceneStructureSummary {
+   |            --------------------- field in this struct
+49 |     pub scene_id: String,
+   |         ^^^^^^^^
+   |
+   = note: `SceneStructureSummary` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `BootstrapSession` is never constructed
+  --> src-tauri\src\planner\bootstrap.rs:10:12
+   |
+10 | pub struct BootstrapSession {
+   |            ^^^^^^^^^^^^^^^^
+
+warning: enum `BootstrapStatus` is never used
+  --> src-tauri\src\planner\bootstrap.rs:24:10
+   |
+24 | pub enum BootstrapStatus {
+   |          ^^^^^^^^^^^^^^^
+
+warning: struct `StoryConcept` is never constructed
+  --> src-tauri\src\planner\bootstrap.rs:43:12
+   |
+43 | pub struct StoryConcept {
+   |            ^^^^^^^^^^^^
+
+warning: function `extract_json` is never used
+  --> src-tauri\src\planner\bootstrap.rs:56:8
+   |
+56 | pub fn extract_json(content: &str) -> Result<&str, String> {
+   |        ^^^^^^^^^^^^
+
+warning: function `estimate_step_complexity` is never used
+   --> src-tauri\src\planner\swarm.rs:111:8
+    |
+111 | pub fn estimate_step_complexity(step: &crate::planner::PlanStep) -> u32 {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `ElementType` is never used
+  --> src-tauri\src\narrative\elements.rs:12:10
+   |
+12 | pub enum ElementType {
+   |          ^^^^^^^^^^^
+
+warning: function `unregister_pipeline_cancel` is never used
+  --> src-tauri\src\narrative\pipeline.rs:43:8
+   |
+43 | pub fn unregister_pipeline_cancel(session_id: &str) {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `current_step` is never used
+  --> src-tauri\src\narrative\pipeline.rs:78:8
+   |
+75 | pub trait StepContext: Send {
+   |           ----------- method in this trait
+...
+78 |     fn current_step(&self) -> &str;
+   |        ^^^^^^^^^^^^
+
+warning: method `estimated_llm_calls` is never used
+  --> src-tauri\src\narrative\pipeline.rs:93:8
+   |
+85 | pub trait PipelineStep<Context: StepContext + Send>: Send + Sync {
+   |           ------------ method in this trait
+...
+93 |     fn estimated_llm_calls(&self) -> usize {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: trait `ContextBuilder` is never used
+   --> src-tauri\src\narrative\pipeline.rs:247:11
+    |
+247 | pub trait ContextBuilder<Input, Context: StepContext + Send> {
+    |           ^^^^^^^^^^^^^^
+
+warning: trait `ResultExtractor` is never used
+   --> src-tauri\src\narrative\pipeline.rs:252:11
+    |
+252 | pub trait ResultExtractor<Context: StepContext + Send, Output> {
+    |           ^^^^^^^^^^^^^^^
+
+warning: fields `index`, `title`, and `word_count` are never read
+  --> src-tauri\src\narrative\analysis.rs:30:9
+   |
+29 | pub struct TextChunk {
+   |            --------- fields in this struct
+30 |     pub index: usize,
+   |         ^^^^^
+31 |     pub title: Option<String>,
+   |         ^^^^^
+32 |     pub content: String,
+33 |     pub word_count: usize,
+   |         ^^^^^^^^^^
+   |
+   = note: `TextChunk` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `main_arc`, `sub_arcs`, `climaxes`, and `turning_points` are never read
+   --> src-tauri\src\narrative\analysis.rs:576:17
+    |
+575 |             struct ArcResponse {
+    |                    ----------- fields in this struct
+576 |                 main_arc: String,
+    |                 ^^^^^^^^
+577 |                 sub_arcs: Vec<String>,
+    |                 ^^^^^^^^
+578 |                 climaxes: Vec<String>,
+    |                 ^^^^^^^^
+579 |                 turning_points: Vec<String>,
+    |                 ^^^^^^^^^^^^^^
+    |
+    = note: `ArcResponse` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: struct `LlmSubProgress` is never constructed
+  --> src-tauri\src\narrative\progress.rs:50:12
+   |
+50 | pub struct LlmSubProgress {
+   |            ^^^^^^^^^^^^^^
+
+warning: struct `ProgressEmitter` is never constructed
+  --> src-tauri\src\narrative\progress.rs:79:12
+   |
+79 | pub struct ProgressEmitter<R: tauri::Runtime> {
+   |            ^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `emit_progress`, `emit_complete`, and `emit_llm_sub_progress` are never used
+   --> src-tauri\src\narrative\progress.rs:163:12
+    |
+162 | impl<R: tauri::Runtime> ProgressEmitter<R> {
+    | ------------------------------------------ associated items in this implementation
+163 |     pub fn new(app_handle: tauri::AppHandle<R>) -> Self {
+    |            ^^^
+...
+167 |     pub fn emit_progress(&self, event: PipelineProgressEvent) {
+    |            ^^^^^^^^^^^^^
+...
+171 |     pub fn emit_complete(&self, event: PipelineCompleteEvent) {
+    |            ^^^^^^^^^^^^^
+...
+175 |     pub fn emit_llm_sub_progress(&self, event: LlmSubProgress) {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `StoryAnalysisReport` is never constructed
+  --> src-tauri\src\narrative\audit.rs:22:12
+   |
+22 | pub struct StoryAnalysisReport {
+   |            ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AuditDimension` is never constructed
+  --> src-tauri\src\narrative\audit.rs:31:12
+   |
+31 | pub struct AuditDimension {
+   |            ^^^^^^^^^^^^^^
+
+warning: struct `Finding` is never constructed
+  --> src-tauri\src\narrative\audit.rs:40:12
+   |
+40 | pub struct Finding {
+   |            ^^^^^^^
+
+warning: enum `FindingSeverity` is never used
+  --> src-tauri\src\narrative\audit.rs:48:10
+   |
+48 | pub enum FindingSeverity {
+   |          ^^^^^^^^^^^^^^^
+
+warning: struct `StoryStructureAuditor` is never constructed
+  --> src-tauri\src\narrative\audit.rs:55:12
+   |
+55 | pub struct StoryStructureAuditor {
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src-tauri\src\narrative\audit.rs:61:12
+    |
+ 60 | impl StoryStructureAuditor {
+    | -------------------------- associated items in this implementation
+ 61 |     pub fn new(pool: DbPool, llm_service: LlmService) -> Self {
+    |            ^^^
+...
+ 66 |     pub async fn analyze(&self, story_id: &str) -> Result<StoryAnalysisReport, String> {
+    |                  ^^^^^^^
+...
+112 |     async fn audit_foreshadowings(&self, story_id: &str) -> Result<AuditDimension, String> {
+    |              ^^^^^^^^^^^^^^^^^^^^
+...
+155 |     async fn audit_characters(&self, story_id: &str) -> Result<AuditDimension, String> {
+    |              ^^^^^^^^^^^^^^^^
+...
+194 |     async fn audit_scenes(&self, story_id: &str) -> Result<AuditDimension, String> {
+    |              ^^^^^^^^^^^^
+...
+239 |     async fn audit_world_building(&self, story_id: &str) -> Result<AuditDimension, String> {
+    |              ^^^^^^^^^^^^^^^^^^^^
+...
+274 |     async fn audit_outline(&self, story_id: &str) -> Result<AuditDimension, String> {
+    |              ^^^^^^^^^^^^^
+...
+309 |     fn generate_recommendations(&self, dimensions: &[AuditDimension], findings: &[Finding]) -> Vec<String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `storyforge` (lib) generated 109 warnings
+    Finished `release` profile [optimized] target(s) in 75m 14s
+       Built application at: F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe
+        Info Patching F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe with bundle type information: msi
+        Info Target: x64
+     Running candle for "F:\\mywork\\CINEMA-AI\\v2-rust\\target\\release\\wix\\x64\\main.wxs"
+     Running light to produce F:\mywork\CINEMA-AI\v2-rust\target\release\bundle\msi\StoryForge_5.6.2_x64_en-US.msi
+        Info Patching F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe with bundle type information: nsis
+        Info Target: x64
+     Running makensis to produce F:\mywork\CINEMA-AI\v2-rust\target\release\bundle\nsis\StoryForge_5.6.2_x64-setup.exe
+    Finished 2 bundles at:
+        F:\mywork\CINEMA-AI\v2-rust\target\release\bundle\msi\StoryForge_5.6.2_x64_en-US.msi
+        F:\mywork\CINEMA-AI\v2-rust\target\release\bundle\nsis\StoryForge_5.6.2_x64-setup.exe
+

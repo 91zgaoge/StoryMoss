@@ -159,7 +159,7 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
-            let meta: StoryMetaElement = serde_json::from_str(json_str)
+            let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析元信息失败: {}", e)))?;
 
             ctx.bundle = ctx.bundle.clone().with_story_meta(StoryMetaElement {
@@ -244,7 +244,7 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
-            let wb: WorldBuildingElement = serde_json::from_str(json_str)
+            let wb: WorldBuildingElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
             ctx.bundle = ctx.bundle.clone().with_world_building(WorldBuildingElement {
@@ -339,7 +339,7 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                         if let Ok(json_str) = extract_json(content) {
                             #[derive(Debug, Deserialize)]
                             struct CharacterResponse { characters: Vec<CharacterElement> }
-                            if let Ok(result) = serde_json::from_str::<CharacterResponse>(json_str) {
+                            if let Ok(result) = serde_json::from_str::<CharacterResponse>(&json_str) {
                                 character_results.push(result.characters);
                             } else {
                                 character_results.push(Vec::new());
@@ -465,7 +465,7 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                         if let Ok(json_str) = extract_json(content) {
                             #[derive(Debug, Deserialize)]
                             struct SceneResponse { scenes: Vec<SceneElement> }
-                            if let Ok(result) = serde_json::from_str::<SceneResponse>(json_str) {
+                            if let Ok(result) = serde_json::from_str::<SceneResponse>(&json_str) {
                                 for s in result.scenes {
                                     scenes.push(SceneElement {
                                         id: Uuid::new_v4().to_string(),
@@ -578,7 +578,7 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
                 climaxes: Vec<String>,
                 turning_points: Vec<String>,
             }
-            let _arc: ArcResponse = serde_json::from_str(json_str)
+            let _arc: ArcResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事线失败: {}", e)))?;
 
             // 故事线不直接存储为 NarrativeElement，而是作为 Outline 的补充信息
@@ -645,7 +645,7 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
 
             #[derive(Debug, Deserialize)]
             struct ForeshadowingResponse { foreshadowings: Vec<ForeshadowingElement> }
-            let fw_data: ForeshadowingResponse = serde_json::from_str(json_str)
+            let fw_data: ForeshadowingResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析伏笔失败: {}", e)))?;
 
             for fw in fw_data.foreshadowings {
@@ -819,12 +819,8 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
 
 // ==================== 辅助函数 ====================
 
-fn extract_json(content: &str) -> Result<&str, String> {
-    if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
-        Ok(&content[start..=end])
-    } else {
-        Err("No JSON object found in response".to_string())
-    }
+fn extract_json(content: &str) -> Result<String, String> {
+    super::extract_and_sanitize_json(content)
 }
 
 fn merge_characters(results: Vec<Vec<CharacterElement>>) -> Vec<CharacterElement> {
