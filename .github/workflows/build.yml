@@ -155,8 +155,8 @@ jobs:
             target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc
           - os: macos-latest
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
