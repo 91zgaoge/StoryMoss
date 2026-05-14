@@ -265,14 +265,16 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
           let c = chain();
 
           // 删除建议段落
-          c = c.setTextSelection({ from: suggestionPos, to: suggestionPos + suggestionNodeSize }).deleteSelection();
+          c = c.deleteRange({ from: suggestionPos, to: suggestionPos + suggestionNodeSize });
 
-          // 替换原文段落
+          // 替换原文段落：先删除原文，再在相同位置插入新内容
           if (nearestParaPos !== -1 && suggestedText) {
-            c = c.insertContentAt(nearestParaPos, {
-              type: 'paragraph',
-              content: [{ type: 'text', text: suggestedText }],
-            });
+            c = c
+              .deleteRange({ from: nearestParaPos, to: nearestParaPos + nearestParaSize })
+              .insertContentAt(nearestParaPos, {
+                type: 'paragraph',
+                content: [{ type: 'text', text: suggestedText }],
+              });
           }
 
           return c.run();

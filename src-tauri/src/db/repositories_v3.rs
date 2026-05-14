@@ -156,7 +156,7 @@ impl SceneRepository {
                 draft_content,
                 style_blend_override: row.get(23)?,
                 foreshadowing_ids,
-                chapter_id: row.get(25)?,
+                chapter_id: row.get::<_, Option<String>>(25)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -217,7 +217,7 @@ impl SceneRepository {
                 draft_content,
                 style_blend_override: row.get(23)?,
                 foreshadowing_ids,
-                chapter_id: row.get(25)?,
+                chapter_id: row.get::<_, Option<String>>(25)?,
             })
         }).optional()?;
 

@@ -105,7 +105,13 @@
       "Bash(find:*)",
       "Bash(python:*)",
       "Bash(git reset:*)",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "Bash(git rm:*)",
+      "Bash(findstr -i 'cargo tauri rustc link')",
+      "Bash(node:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(head -100 /tmp/heti/lib/*.scss)",
+      "Bash(ps -W)"
     ]
   }
 }

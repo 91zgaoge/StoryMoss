@@ -39,8 +39,91 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     s = s.trim().to_string();
     s = s.replace('\u{feff}', "");
 
-    // 4. 修复尾随逗号：`,]` → `]` 和 `,}` → `}`
-    // 使用正则风格的替换：在行尾或空白后的逗号后面紧跟 ] 或 }
+    // 4. 修复字符串内的未转义换行符和回车符（LLM 经常在 JSON 字符串值中直接换行）
+    // 使用状态机：仅在字符串内部替换实际换行符为 \n
+    {
+        let mut result = String::with_capacity(s.len());
+        let mut in_string = false;
+        let mut escaped = false;
+        for ch in s.chars() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                    result.push(ch);
+                } else if ch == '\\' {
+                    escaped = true;
+                    result.push(ch);
+                } else if ch == '"' {
+                    in_string = false;
+                    result.push(ch);
+                } else if ch == '\n' {
+                    result.push_str("\\n");
+                } else if ch == '\r' {
+                    // 跳过 \r，因为 \r\n 已经被处理为 \\n
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                if ch == '"' {
+                    in_string = true;
+                }
+                result.push(ch);
+            }
+        }
+        s = result;
+    }
+
+    // 5. 移除 C 风格注释（// 和 /* */）—— LLM 有时会在 JSON 中插入注释
+    {
+        let mut result = String::with_capacity(s.len());
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut chars = s.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                    result.push(ch);
+                } else if ch == '\\' {
+                    escaped = true;
+                    result.push(ch);
+                } else if ch == '"' {
+                    in_string = false;
+                    result.push(ch);
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                if ch == '"' {
+                    in_string = true;
+                    result.push(ch);
+                } else if ch == '/' && chars.peek() == Some(&'/') {
+                    // 跳过单行注释
+                    chars.next(); // skip second /
+                    while let Some(c) = chars.next() {
+                        if c == '\n' {
+                            result.push('\n'); // 保留换行以保持行号
+                            break;
+                        }
+                    }
+                } else if ch == '/' && chars.peek() == Some(&'*') {
+                    // 跳过多行注释
+                    chars.next(); // skip *
+                    while let Some(c) = chars.next() {
+                        if c == '*' && chars.peek() == Some(&'/') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                } else {
+                    result.push(ch);
+                }
+            }
+        }
+        s = result;
+    }
+
+    // 6. 修复尾随逗号：`,]` → `]` 和 `,}` → `}`
     let mut prev;
     loop {
         prev = s.clone();
@@ -53,12 +136,10 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
         }
     }
 
-    // 5. 修复空值：`: ,` → `: null,`，`: ]` → `: null]`，`: }` → `: null}`
-    // 注意：要处理多种空白变体
+    // 7. 修复空值：`: ,` → `: null,`，`: ]` → `: null]`，`: }` → `: null}`
     for (bad, good) in [
         (": ,", ": null,"),
         (":,", ": null,"),
-        (": ]", ": null]"),
         (": ]", ": null]"),
         (": }", ": null}"),
         (":}", ": null}"),
@@ -66,8 +147,8 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
         s = s.replace(bad, good);
     }
 
-    // 6. 修复中文智能引号 " " 为 ASCII 引号
-    s = s.replace('"', "\"").replace('"', "\"");
+    // 注意：不要替换中文引号「」『』为 ASCII 引号，这会破坏 JSON 字符串结构
+    // 如果 JSON 键名或值边界使用了中文引号，那是 LLM 的格式错误，应由 LLM 修正
 
     Ok(s)
 }

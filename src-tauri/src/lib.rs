@@ -1471,11 +1471,11 @@ fn load_pending_vector_indexes() -> Vec<String> {
         if let Ok(conn) = pool.get() {
             if let Ok(mut stmt) = conn.prepare("SELECT chapter_id FROM pending_vector_indexes ORDER BY created_at") {
                 if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: String = row.get(0)?;
+                    let id: Option<String> = row.get(0)?;
                     Ok(id)
                 }) {
                     for row in rows {
-                        if let Ok(id) = row {
+                        if let Ok(Some(id)) = row {
                             result.push(id);
                         }
                     }

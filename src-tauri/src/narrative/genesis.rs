@@ -659,9 +659,30 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
             let repo = SceneRepository::new(ctx.pool.clone());
             let mut generated = Vec::new();
 
+            // 查询已有场景，处理重试或LLM返回重复sequence_number的情况
+            let existing_scenes = repo.get_by_story(&ctx.story_id).unwrap_or_default();
+            let existing_by_seq: std::collections::HashMap<i32, String> =
+                existing_scenes.iter().map(|s| (s.sequence_number, s.id.clone())).collect();
+            let mut seen_seqs = std::collections::HashSet::new();
+
             for s in scene_data.scenes {
-                let scene = repo.create(&ctx.story_id, s.sequence_number, Some(&s.title))
-                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                // 跳过LLM返回的重复sequence_number
+                if !seen_seqs.insert(s.sequence_number) {
+                    log::warn!("[SceneGenerationStep] 跳过重复 sequence_number={} 的场景: {}", s.sequence_number, s.title);
+                    continue;
+                }
+
+                let scene = if let Some(existing_id) = existing_by_seq.get(&s.sequence_number) {
+                    log::info!("[SceneGenerationStep] sequence_number={} 已存在，更新场景 {}", s.sequence_number, existing_id);
+                    repo.get_by_id(existing_id)
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?
+                        .ok_or_else(|| PipelineError::StorageError(
+                            format!("找不到已存在的场景: {}", existing_id)
+                        ))?
+                } else {
+                    repo.create(&ctx.story_id, s.sequence_number, Some(&s.title))
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?
+                };
 
                 let updates = SceneUpdate {
                     title: Some(s.title.clone()),

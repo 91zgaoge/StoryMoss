@@ -392,7 +392,7 @@ impl ChapterRepository {
                 word_count: row.get(6)?,
                 model_used: row.get(7)?,
                 cost: row.get(8)?,
-                scene_id: row.get(9)?,
+                scene_id: row.get::<_, Option<String>>(9)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -420,7 +420,7 @@ impl ChapterRepository {
                 word_count: row.get(6)?,
                 model_used: row.get(7)?,
                 cost: row.get(8)?,
-                scene_id: row.get(9)?,
+                scene_id: row.get::<_, Option<String>>(9)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })

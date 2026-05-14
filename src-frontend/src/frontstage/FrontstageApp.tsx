@@ -10,6 +10,7 @@ import {
 import { writerAgentExecute, recordFeedback, smartExecute, getInputHint } from '@/services/tauri';
 import { modelService } from '@/services/modelService';
 import { cn } from '@/utils/cn';
+import { autoFormatText } from '@/utils/format';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -424,12 +425,13 @@ const FrontstageApp: React.FC = () => {
         switch (type) {
           case 'ContentUpdate':
             if (payload?.text !== undefined) {
-              setContent(payload.text);
+              setContent(autoFormatText(payload.text));
             }
             break;
           case 'AppendContent':
             if (payload?.text !== undefined) {
-              setContent(prev => prev + '\n\n' + payload.text);
+              const formatted = autoFormatText(payload.text);
+              setContent(prev => prev + formatted);
             }
             break;
           case 'DataRefresh':
@@ -447,7 +449,7 @@ const FrontstageApp: React.FC = () => {
               // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
               if (payload?.content && payload.content.trim().length > 0) {
                 frontstageLogger.info('[ChapterSwitch] Using content from event directly');
-                setContent(payload.content);
+                setContent(autoFormatText(payload.content));
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
@@ -784,7 +786,7 @@ const FrontstageApp: React.FC = () => {
       autoSaveTimerRef.current = null;
     }
     setCurrentChapter(chapter);
-    setContent(chapter.content || '');
+    setContent(autoFormatText(chapter.content || ''));
     setIsSaved(true);
 
     // Sync currentScene if chapter has associated scene
@@ -955,20 +957,39 @@ const FrontstageApp: React.FC = () => {
         setOrchestratorStatus(null);
         return;
       }
+      // v5.6.4 fix: 去除与当前编辑器内容重复的前缀，防止 LLM 返回完整文本导致"重复输出"
+      let displayText = text;
+      const currentText = editorRef.current?.getText() || '';
+      if (currentText && displayText.startsWith(currentText)) {
+        displayText = displayText.slice(currentText.length).trimStart();
+        frontstageLogger.info('[RequestGeneration] Removed duplicate prefix from generated text', {
+          prefix_len: currentText.length,
+          remaining_len: displayText.length
+        });
+      }
+      // 如果去重后为空，说明 LLM 返回的内容与已有内容完全相同
+      if (!displayText.trim()) {
+        stopElapsedTimer();
+        setIsGenerating(false);
+        setGenerationStatus('');
+        setOrchestratorStatus(null);
+        toast('AI 续写内容与当前文本相同，无需添加');
+        return;
+      }
       let index = 0;
       typewriterIntervalRef.current = setInterval(() => {
         index += 3;
-        if (index >= text.length) {
+        if (index >= displayText.length) {
           if (typewriterIntervalRef.current) {
             clearInterval(typewriterIntervalRef.current);
             typewriterIntervalRef.current = null;
           }
-          setGeneratedText(text);
+          setGeneratedText(displayText);
           stopElapsedTimer();
           setIsGenerating(false);
           setOrchestratorStatus(null);
         } else {
-          setGeneratedText(text.slice(0, index));
+          setGeneratedText(displayText.slice(0, index));
         }
       }, 16);
     } catch (error) {
@@ -1225,12 +1246,12 @@ const FrontstageApp: React.FC = () => {
                 // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
                 if ((!firstChapter?.content || firstChapter.content.trim().length === 0) && result.final_content && result.final_content.trim().length > 0) {
                   frontstageLogger.warn('[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback');
-                  setContent(result.final_content);
+                  setContent(autoFormatText(result.final_content));
                 }
               } else if (result.final_content && result.final_content.trim().length > 0) {
                 // v5.4.1 fix: 极端情况——DB 中没有章节但 result.final_content 有内容，直接显示
                 frontstageLogger.warn('[SmartGeneration] No chapters in DB but final_content exists, displaying content directly');
-                setContent(result.final_content);
+                setContent(autoFormatText(result.final_content));
               }
             } else {
               frontstageLogger.error('[SmartGeneration] New story not found in list_stories', { story_id: storyId });
@@ -1664,7 +1685,7 @@ const FrontstageApp: React.FC = () => {
                       <textarea
                         ref={bottomInputRef}
                         className="frontstage-input-textarea"
-                        placeholder='输入任意指令…'
+                        placeholder={ghostHint ? '' : '输入任意指令…'}
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleInputKeyDown}

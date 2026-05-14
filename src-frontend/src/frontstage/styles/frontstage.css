@@ -129,16 +129,30 @@ body {
   line-height: var(--fs-line-height, var(--line-height));
   letter-spacing: var(--fs-letter-spacing, normal);
   transition: color 0.3s ease, font-size 0.3s ease, line-height 0.3s ease, letter-spacing 0.3s ease;
+  /* 借鉴 heti：针对混合英文段落，按词折行 */
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+  /* 借鉴 heti：现代浏览器标点挤压 + 中西文间距（渐进增强） */
+  text-spacing-trim: space-all;
+  text-autospace: ideograph-alpha;
 }
 
 .ProseMirror p {
-  margin-bottom: var(--fs-paragraph-spacing, var(--paragraph-spacing));
+  margin-block-start: calc(var(--fs-line-height, 1.75) * 0.5em);
+  margin-block-end: calc(var(--fs-line-height, 1.75) * 1em);
   text-align: justify;
   text-indent: 2em;
 }
 
+.ProseMirror p:lang(en),
+.ProseMirror p:lang(ja),
+.ProseMirror p:lang(ko) {
+  text-align: start;
+}
+
 .ProseMirror p:last-child {
-  margin-bottom: 0;
+  margin-block-end: 0;
 }
 
 /* 古典评点段落样式 — 金圣叹式朱批 */
@@ -280,6 +294,55 @@ body {
   padding: 0.1em 0.2em;
   border-radius: 2px;
   opacity: 0.15;
+}
+
+/* ===== Heti 中文排版增强 ===== */
+
+/* 中文引号规范化（借鉴 heti _variables.scss，采用 common 规范） */
+.ProseMirror q {
+  quotes: "「" "」" "『" "』";
+}
+
+/* 禁用中文斜体（借鉴 heti _inline.scss） */
+.ProseMirror address,
+.ProseMirror cite,
+.ProseMirror dfn,
+.ProseMirror dt,
+.ProseMirror em {
+  font-style: normal;
+}
+
+.ProseMirror em:lang(en),
+.ProseMirror em:not(:lang(zh)):not(:lang(ja)):not(:lang(ko)) {
+  font-style: italic;
+}
+
+/* 中西文混排间距类（借鉴 heti helpers/_add-on.scss） */
+.heti-spacing {
+  display: inline;
+}
+
+.heti-spacing-start {
+  margin-inline-end: 0.25em;
+}
+
+.heti-spacing-end {
+  margin-inline-start: 0.25em;
+}
+
+/* 标点挤压类（借鉴 heti helpers/_add-on.scss） */
+.heti-adjacent {
+  display: inline;
+  text-spacing-trim: space-all;
+  unicode-bidi: isolate;
+}
+
+.heti-adjacent-half {
+  margin-inline-end: -0.5em;
+}
+
+.heti-adjacent-quarter {
+  margin-inline-end: -0.25em;
 }
 
 /* Placeholder */
