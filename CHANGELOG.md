@@ -243,7 +243,6 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 **UX 微优化**
 - 角色悬浮卡片：RichTextEditor hover 角色名 600ms 显示微型浮卡
-- 幕前窥视面板：Dock 第 4 按钮，右侧 320px 只读 drawer
 - 体裁模板外部化：`templates/genres.json` 支持用户自定义
 - 导出出版前体检：ExportDialog 4 步流程，可选 Anti-AI 审查
 

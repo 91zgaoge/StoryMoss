@@ -23,9 +23,14 @@
         "center": true,
         "fullscreen": false,
         "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
         "visible": true,
         "transparent": false,
         "decorations": true,
+        "minWidth": 800,
+        "minHeight": 600,
         "url": "frontstage.html"
       },
       {
@@ -36,9 +41,14 @@
         "center": true,
         "fullscreen": false,
         "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
         "visible": false,
         "transparent": false,
         "decorations": true,
+        "minWidth": 800,
+        "minHeight": 600,
         "url": "index.html"
       }
     ]

@@ -19,8 +19,6 @@ import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
-import { PeekDrawer } from './components/PeekDrawer';
-import { usePayoffLedger } from '@/hooks/useForeshadowings';
 import toast from 'react-hot-toast';
 import { createLogger } from '@/utils/logger';
 
@@ -100,9 +98,6 @@ const FrontstageApp: React.FC = () => {
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
 
-  // 窥视面板状态
-  const [showPeekDrawer, setShowPeekDrawer] = useState(false);
-  const { data: payoffLedger = [] } = usePayoffLedger(currentStory?.id || null);
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
   // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
@@ -1519,11 +1514,9 @@ const FrontstageApp: React.FC = () => {
         <FrontstageSidebar
           isZenMode={isZenMode}
           isRevisionMode={isRevisionMode}
-          showPeekDrawer={showPeekDrawer}
           hasCurrentStory={!!currentStory}
           onToggleRevisionMode={() => setIsRevisionMode(prev => !prev)}
           onGenerateCommentary={() => editorRef.current?.generateCommentary()}
-          onTogglePeekDrawer={() => setShowPeekDrawer(prev => !prev)}
           onOpenBackstage={openBackstage}
         />
 
@@ -1749,17 +1742,7 @@ const FrontstageApp: React.FC = () => {
         </button>
       )}
 
-      {/* 窥视面板 */}
-      <PeekDrawer
-        isOpen={showPeekDrawer}
-        onClose={() => setShowPeekDrawer(false)}
-        characters={characters}
-        foreshadowings={payoffLedger}
-        onNavigateToBackstage={(target) => {
-          setShowPeekDrawer(false);
-          openBackstage();
-        }}
-      />
+      {/* 故事上下文信息已整合至编辑器侧边栏与幕后工作室 */}
     </div>
   );
 };

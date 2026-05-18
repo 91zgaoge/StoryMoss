@@ -134,7 +134,23 @@ pub fn run() {
             let _log_guard = logging::init_logger(&app_dir);
             
             log::info!("App directory: {:?}", app_dir);
-            
+
+            // 设置 panic hook 以便记录崩溃信息，辅助诊断窗口最大化等异常退出
+            std::panic::set_hook(Box::new(|info| {
+                let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                    *s
+                } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                    s.as_str()
+                } else {
+                    "unknown panic"
+                };
+                let location = info.location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()))
+                    .unwrap_or_else(|| "unknown location".to_string());
+                log::error!("APPLICATION PANIC: {} at {}", payload, location);
+                eprintln!("APPLICATION PANIC: {} at {}", payload, location);
+            }));
+
             // P2-19 修复: 设置 pending vector indexes 持久化路径，并加载上次未处理的队列
             let pending_path = app_dir.join("pending_vector_indexes.json");
             let _ = PENDING_VECTOR_INDEXES_PATH.set(pending_path.clone());
