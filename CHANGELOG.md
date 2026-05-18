@@ -2,7 +2,7 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v7.0.0] - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
+## [v0.7.0] - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
 
 ### 🏭 AI 三审 Pipeline 系统
 
@@ -78,11 +78,11 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
-- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 7.0.0
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 0.7.0
 
 ---
 
-## [v7.0.1] - 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
+## [v0.7.1] - 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
 
 ### 🏗️ 后端架构优化
 

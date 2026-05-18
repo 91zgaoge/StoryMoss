@@ -64,7 +64,7 @@ Deconstruction output currently lands in `reference_books` / `reference_characte
 
 ### 3-review Pipeline implementation status
 
-The v7.0.0 AI 3-review Pipeline (`Refine → Review → Finalize`) has an unbalanced implementation:
+The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) has an unbalanced implementation:
 
 | Phase | Status | Detail |
 |-------|--------|--------|
