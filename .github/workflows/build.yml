@@ -61,6 +61,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: tauri
 
       - name: Check Rust code
         working-directory: src-tauri
@@ -144,19 +145,20 @@ jobs:
   tauri-build:
     needs: [rust-check, frontend-check]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            args: --target x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu --bundles deb
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            args: --target x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles msi
           - os: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
 
     steps:
       - uses: actions/checkout@v4
@@ -192,10 +194,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: tauri
 
       - name: Build Tauri app (PR)
         if: github.event_name == 'pull_request'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -212,7 +215,7 @@ jobs:
 
       - name: Build Tauri app and release (nightly)
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -234,7 +237,7 @@ jobs:
 
       - name: Build Tauri app and release (stable)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
