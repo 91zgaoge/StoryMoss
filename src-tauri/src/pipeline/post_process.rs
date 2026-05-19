@@ -337,22 +337,68 @@ async fn run_character_cards(
 /// 文风自动学习 — 每5章触发
 async fn run_style_analysis(
     story_id: &str,
-    chapter_number: i32,
+    _chapter_number: i32,
     _draft_content: &str,
-    _pool: &DbPool,
+    pool: &DbPool,
     _llm_service: &LlmService,
 ) -> Result<(), PipelineError> {
-    // 仅每5章触发
-    if chapter_number % 5 != 0 {
-        log::info!("[post_process] style_analysis: 跳过（chapter_number={} 不是5的倍数）", chapter_number);
+    use crate::pipeline::style_analysis;
+    use crate::db::repositories_v3::{WritingStyleRepository, WritingStyleUpdate};
+
+    // 检查是否应触发
+    let should_trigger = style_analysis::should_trigger_style_analysis(story_id, pool)
+        .map_err(|e| PipelineError {
+            phase: "style_analysis".to_string(),
+            message: format!("风格分析触发检查失败: {}", e),
+            recoverable: true,
+        })?;
+
+    if !should_trigger {
+        log::info!("[post_process] style_analysis: 跳过（条件不满足）");
         return Ok(());
     }
 
-    log::info!("[post_process] style_analysis: story_id={}, chapter={}", story_id, chapter_number);
+    log::info!("[post_process] style_analysis: story_id={}", story_id);
 
-    // TODO: 读取最近5章定稿内容
-    // TODO: 调用 LLM 分析文风特征
-    // TODO: 更新 story 的 writing_style
+    // 执行风格分析
+    let result = style_analysis::analyze_style_for_story(story_id, pool)
+        .map_err(|e| PipelineError {
+            phase: "style_analysis".to_string(),
+            message: format!("风格分析失败: {}", e),
+            recoverable: true,
+        })?;
+
+    log::info!(
+        "[post_process] style_analysis: 第{}-{}章分析完成，句长={:.1}, 对话比={:.2}, 比喻密度={:.2}, 内心独白={:.2}, 情感密度={:.2}, 节奏={:.2}",
+        result.chapter_range.0, result.chapter_range.1,
+        result.metrics.sentence_length,
+        result.metrics.dialogue_ratio,
+        result.metrics.metaphor_density,
+        result.metrics.inner_monologue_ratio,
+        result.metrics.emotion_density,
+        result.metrics.rhythm_score,
+    );
+
+    // 更新 story 的 writing_style（如果存在）
+    let style_repo = WritingStyleRepository::new(pool.clone());
+    if let Ok(Some(existing)) = style_repo.get_by_story(story_id) {
+        let update = WritingStyleUpdate {
+            description: Some(format!(
+                "自动分析（第{}-{}章）：句长{:.0}字，对话占比{:.0}%，比喻{:.1}个/千字，情感密度{:.3}",
+                result.chapter_range.0, result.chapter_range.1,
+                result.metrics.sentence_length,
+                result.metrics.dialogue_ratio * 100.0,
+                result.metrics.metaphor_density,
+                result.metrics.emotion_density,
+            )),
+            ..Default::default()
+        };
+        if let Err(e) = style_repo.update(&existing.id, &update) {
+            log::warn!("[post_process] style_analysis: 更新 writing_style 失败: {}", e);
+        } else {
+            log::info!("[post_process] style_analysis: writing_style 已更新");
+        }
+    }
 
     Ok(())
 }

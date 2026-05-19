@@ -93,6 +93,30 @@ impl NarrativeCharacterRepository {
         Ok(characters)
     }
 
+    pub fn create_batch(&self, characters: &[CharacterElement]) -> Result<(), rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let now = Local::now().to_rfc3339();
+        for character in characters {
+            let _relationships_json = serde_json::to_string(&character.relationships).unwrap_or_default();
+            tx.execute(
+                "INSERT INTO narrative_characters (
+                    id, story_id, name, role_type, personality, background, goals, appearance,
+                    gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
+                params![
+                    character.id, character.story_id, character.name, character.role_type,
+                    character.personality, character.background, character.goals, character.appearance,
+                    character.gender, character.age, character.importance_score,
+                    format!("{}", character.source), character.source_ref_id,
+                    format!("{}", character.status), now
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute("DELETE FROM narrative_characters WHERE story_id = ?1", [story_id])
@@ -133,6 +157,31 @@ impl NarrativeSceneRepository {
         Ok(())
     }
 
+    pub fn create_batch(&self, scenes: &[SceneElement]) -> Result<(), rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let now = Local::now().to_rfc3339();
+        for scene in scenes {
+            let chars_present_json = serde_json::to_string(&scene.characters_present).unwrap_or_default();
+            tx.execute(
+                "INSERT INTO narrative_scenes (
+                    id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
+                    conflict_type, characters_present, setting_location, setting_time, content,
+                    source, source_ref_id, status, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)",
+                params![
+                    scene.id, scene.story_id, scene.sequence_number, scene.title, scene.summary,
+                    scene.dramatic_goal, scene.external_pressure, scene.conflict_type, chars_present_json,
+                    scene.setting_location, scene.setting_time, scene.content,
+                    format!("{}", scene.source), scene.source_ref_id,
+                    format!("{}", scene.status), now
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<SceneElement>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
@@ -166,6 +215,11 @@ impl NarrativeSceneRepository {
         })?;
 
         rows.collect()
+    }
+
+    pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM narrative_scenes WHERE story_id = ?1", [story_id])
     }
 }
 
@@ -230,6 +284,11 @@ impl NarrativeWorldBuildingRepository {
         })?;
 
         rows.next().transpose()
+    }
+
+    pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM narrative_world_buildings WHERE story_id = ?1", [story_id])
     }
 }
 

@@ -372,6 +372,7 @@ impl CreationWorkflowEngine {
                     content: format!("{}。知识图谱更新：提取 {} 个实体。", saved_info, entity_count),
                     score: Some(1.0),
                     suggestions: vec![],
+                    request_id: None,
                 })
             }
             _ => {

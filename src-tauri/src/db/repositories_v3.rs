@@ -163,6 +163,67 @@ impl SceneRepository {
         Ok(scenes)
     }
 
+    pub fn get_by_chapter(&self, chapter_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
+                    characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
+             FROM scenes WHERE chapter_id = ?1 ORDER BY sequence_number"
+        )?;
+
+        let scenes = stmt.query_map([chapter_id], |row| {
+            let conflict_type_str: Option<String> = row.get(6)?;
+            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+            let chars_json: String = row.get(7)?;
+            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
+
+            let conflicts_json: String = row.get(8)?;
+            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+            let created_str: String = row.get(17)?;
+            let updated_str: String = row.get(18)?;
+            let confidence_score: Option<f32> = row.get(19)?;
+            let execution_stage: Option<String> = row.get(20)?;
+            let outline_content: Option<String> = row.get(21)?;
+            let draft_content: Option<String> = row.get(22)?;
+            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
+
+            Ok(Scene {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                sequence_number: row.get(2)?,
+                title: row.get(3)?,
+                dramatic_goal: row.get(4)?,
+                external_pressure: row.get(5)?,
+                conflict_type,
+                characters_present,
+                character_conflicts,
+                setting_location: row.get(9)?,
+                setting_time: row.get(10)?,
+                setting_atmosphere: row.get(11)?,
+                content: row.get(12)?,
+                previous_scene_id: row.get(13)?,
+                next_scene_id: row.get(14)?,
+                model_used: row.get(15)?,
+                cost: row.get(16)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score,
+                execution_stage,
+                outline_content,
+                draft_content,
+                style_blend_override: row.get(23)?,
+                foreshadowing_ids,
+                chapter_id: row.get::<_, Option<String>>(25)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(scenes)
+    }
+
     pub fn get_by_id(&self, id: &str) -> Result<Option<Scene>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(

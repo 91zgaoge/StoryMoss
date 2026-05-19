@@ -44,6 +44,7 @@ const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
 import { generateParagraphCommentaries, smartExecute, formatText } from '@/services/tauri';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
+import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
 import type { ChangeTrack } from '@/types/v3';
@@ -108,6 +109,8 @@ export interface RichTextEditorRef {
   focus: () => void;
   generateCommentary: () => void;
   setContent: (text: string) => void;
+  /** 加载聚合场景内容 — 将多个 Scene 用 divider 拼接后写入编辑器 */
+  loadAggregatedScenes: (scenes: Array<{ id: string; sequence_number: number; title?: string | null; content?: string | null }>) => void;
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
@@ -202,6 +205,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         TrackInsertMark,
         TrackDeleteMark,
         AiSuggestionNode,
+        SceneDividerNode,
       ],
       content,
       onUpdate: ({ editor }) => {
@@ -798,6 +802,19 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         if (editor) {
           editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
         }
+      },
+      loadAggregatedScenes: (scenes) => {
+        if (!editor) return;
+        const fragments: string[] = [];
+        for (const scene of scenes) {
+          const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
+          fragments.push(dividerHtml);
+          if (scene.content) {
+            fragments.push(scene.content);
+          }
+        }
+        const html = fragments.join('');
+        editor.commands.setContent(html || '<p></p>');
       },
     }), [editor, handleGenerateCommentary, selectedRange]);
 

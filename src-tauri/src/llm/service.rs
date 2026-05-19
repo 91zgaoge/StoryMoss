@@ -172,9 +172,10 @@ impl LlmService {
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, String> {
         log::info!("[LLM] generate() called");
-        self.generate_with_context_and_pipeline(prompt, max_tokens, temperature, None, None).await
+        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, None, None, None).await;
+        result
     }
-    
+
     /// 同步生成文本，支持上下文描述（v5.2.3: 进度消息更具体）
     pub async fn generate_with_context(
         &self,
@@ -183,9 +184,10 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, String> {
-        self.generate_with_context_and_pipeline(prompt, max_tokens, temperature, context_label, None).await
+        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, None, None).await;
+        result
     }
-    
+
     /// 同步生成文本，支持上下文描述 + Pipeline步骤上下文（v5.2.4: 让进度消息显示当前步骤）
     pub async fn generate_with_context_and_pipeline(
         &self,
@@ -195,14 +197,29 @@ impl LlmService {
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
     ) -> Result<GenerateResponse, String> {
+        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, pipeline_ctx, None).await;
+        result
+    }
 
-        let profile = self.get_active_profile()
-            .ok_or_else(|| {
+    /// 同步生成文本，返回 (request_id, Result) — 供上层取消使用
+    ///
+    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID。
+    pub async fn generate_with_request_id(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+        request_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, String>) {
+        let profile = match self.get_active_profile() {
+            Some(p) => p,
+            None => {
                 log::error!("[LLM] Active profile not found");
-                "No active LLM profile configured".to_string()
-            })?;
-        
-        log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile.id, prompt.len());
+                return (request_id.unwrap_or_default(), Err("No active LLM profile configured".to_string()));
+            }
+        };
 
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
@@ -214,46 +231,47 @@ impl LlmService {
                 let err_msg = e.to_string();
                 log::warn!("[LLM] Quota check failed: {}", err_msg);
                 self.emit_llm_progress("error", &err_msg, 0, &model_name, pipeline_ref);
-                return Err(err_msg);
+                return (request_id.unwrap_or_default(), Err(err_msg));
             }
         }
 
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
-        let adapter = self.create_adapter(&profile).map_err(|e| {
-            log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
-            e
-        })?;
+        let adapter = match self.create_adapter(&profile) {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+                return (request_id.unwrap_or_default(), Err(e));
+            }
+        };
 
-        let request = GenerateRequest {
+        let req = GenerateRequest {
             prompt,
             max_tokens,
             temperature,
         };
-        
-        // 构建带有上下文的进度消息
+
         let label = context_label.unwrap_or("");
         let step_prefix = pipeline_ref.map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)).unwrap_or_default();
-        
-        let connecting_msg = if label.is_empty() { 
-            format!("{}正在连接模型...", step_prefix) 
-        } else { 
-            format!("{}正在连接模型 [{}]...", step_prefix, label) 
+
+        let connecting_msg = if label.is_empty() {
+            format!("{}正在连接模型...", step_prefix)
+        } else {
+            format!("{}正在连接模型 [{}]...", step_prefix, label)
         };
-        let sent_msg = if label.is_empty() { 
-            format!("{}已发送请求，等待响应...", step_prefix) 
-        } else { 
-            format!("{}已发送请求 [{}]，等待响应...", step_prefix, label) 
+        let sent_msg = if label.is_empty() {
+            format!("{}已发送请求，等待响应...", step_prefix)
+        } else {
+            format!("{}已发送请求 [{}]，等待响应...", step_prefix, label)
         };
-        let completed_msg = if label.is_empty() { 
-            format!("{}AI 响应完成", step_prefix) 
-        } else { 
-            format!("{}{} 完成", step_prefix, label) 
+        let completed_msg = if label.is_empty() {
+            format!("{}AI 响应完成", step_prefix)
+        } else {
+            format!("{}{} 完成", step_prefix, label)
         };
-        
-        // 发送开始连接事件
+
         self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, pipeline_ref);
-        
-        // 启动心跳任务：每10秒发送一次进度（v5.2.3: 间隔从2秒改为10秒，用户能看清文字）
+
+        // 启动心跳任务
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
         let label_owned = label.to_string();
@@ -281,30 +299,26 @@ impl LlmService {
                     model: model.clone(),
                     pipeline_context: pipeline_ctx_for_heartbeat.clone(),
                 });
-                // 最多心跳60次（600秒），匹配前端Bootstrap超时
                 if tick_count >= 60 {
                     break;
                 }
             }
         });
-        
-        // 发送已发送请求事件
+
         self.emit_llm_progress("sent", &sent_msg, 0, &model_name, pipeline_ref);
 
         // Wave 1: 注册取消通道（同步生成也支持取消）
-        let request_id = uuid::Uuid::new_v4().to_string();
+        let request_id = request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
         {
             let mut senders = self.cancel_senders.lock().unwrap();
             senders.insert(request_id.clone(), cancel_tx);
         }
 
-        // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
-        // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let start_time = std::time::Instant::now();
 
         let result = tokio::select! {
-            r = timeout(Duration::from_secs(600), adapter.generate(request)) => {
+            r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
                 match r {
                     Ok(Ok(resp)) => Ok(resp),
                     Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
@@ -320,24 +334,22 @@ impl LlmService {
             }
         };
 
-        // 清理取消通道
         let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
 
-        // 取消心跳任务
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
-        
+
         match result {
             Ok(response) => {
                 let duration = start_time.elapsed().as_millis() as u64;
                 log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
-                Ok(response)
+                (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
                 self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, pipeline_ref);
-                Err(e)
+                (request_id.clone(), Err(e))
             }
         }
     }
@@ -350,7 +362,8 @@ impl LlmService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, String> {
-        self.generate_with_profile_and_context(profile_id, prompt, max_tokens, temperature, None).await
+        let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, None, None).await;
+        result
     }
 
     /// 使用指定模型配置同步生成文本，支持上下文描述
@@ -362,14 +375,30 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, String> {
+        let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, context_label, None).await;
+        result
+    }
+
+    /// 使用指定模型配置同步生成文本，返回 (request_id, Result) — 供上层取消使用
+    pub async fn generate_with_profile_and_request_id(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        request_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, String>) {
         log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile_id, prompt.len());
-        
-        let profile = self.get_profile_by_id(profile_id)
-            .ok_or_else(|| {
+
+        let profile = match self.get_profile_by_id(profile_id) {
+            Some(p) => p,
+            None => {
                 log::error!("[LLM] Active profile not found: {}", profile_id);
-                format!("LLM profile '{}' not found", profile_id)
-            })?;
-        
+                return (request_id.unwrap_or_default(), Err(format!("LLM profile '{}' not found", profile_id)));
+            }
+        };
+
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
 
@@ -379,32 +408,33 @@ impl LlmService {
                 let err_msg = e.to_string();
                 log::warn!("[LLM] Quota check failed for profile={}: {}", profile_id, err_msg);
                 self.emit_llm_progress("error", &err_msg, 0, &model_name, None);
-                return Err(err_msg);
+                return (request_id.unwrap_or_default(), Err(err_msg));
             }
         }
 
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
-        let adapter = self.create_adapter(&profile).map_err(|e| {
-            log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
-            e
-        })?;
+        let adapter = match self.create_adapter(&profile) {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+                return (request_id.unwrap_or_default(), Err(e));
+            }
+        };
 
-        let request = GenerateRequest {
+        let req = GenerateRequest {
             prompt,
             max_tokens,
             temperature,
         };
-        
-        // 构建带有上下文的进度消息
+
         let label = context_label.unwrap_or("");
         let connecting_msg = if label.is_empty() { "正在连接模型...".to_string() } else { format!("正在连接模型 [{}]...", label) };
         let sent_msg = if label.is_empty() { "已发送请求，等待响应...".to_string() } else { format!("已发送请求 [{}]，等待响应...", label) };
         let completed_msg = if label.is_empty() { "AI 响应完成".to_string() } else { format!("{} 完成", label) };
-        
-        // 发送开始连接事件
+
         self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, None);
-        
-        // 启动心跳任务：每10秒发送一次进度（v5.2.3: 间隔从3秒改为10秒）
+
+        // 启动心跳任务
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
         let label_owned = label.to_string();
@@ -428,30 +458,26 @@ impl LlmService {
                     model: model.clone(),
                     pipeline_context: None,
                 });
-                // 最多心跳60次（600秒）
                 if tick_count >= 60 {
                     break;
                 }
             }
         });
-        
-        // 发送已发送请求事件
+
         self.emit_llm_progress("sent", &sent_msg, 0, &model_name, None);
 
         // Wave 1: 注册取消通道（同步生成也支持取消）
-        let request_id = uuid::Uuid::new_v4().to_string();
+        let request_id = request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
         {
             let mut senders = self.cancel_senders.lock().unwrap();
             senders.insert(request_id.clone(), cancel_tx);
         }
 
-        // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
-        // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let start_time = std::time::Instant::now();
 
         let result = tokio::select! {
-            r = timeout(Duration::from_secs(600), adapter.generate(request)) => {
+            r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
                 match r {
                     Ok(Ok(resp)) => Ok(resp),
                     Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
@@ -467,24 +493,22 @@ impl LlmService {
             }
         };
 
-        // 清理取消通道
         let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
 
-        // 取消心跳任务
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
-        
+
         match result {
             Ok(response) => {
                 let duration = start_time.elapsed().as_millis() as u64;
                 log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
-                Ok(response)
+                (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
                 self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, None);
-                Err(e)
+                (request_id.clone(), Err(e))
             }
         }
     }

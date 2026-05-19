@@ -2890,6 +2890,72 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 68: chapter_commits 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
+    let cc_columns_m68: Vec<String> = conn.prepare(
+        "PRAGMA table_info(chapter_commits)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !cc_columns_m68.iter().any(|c| c == "chapter_id") {
+        conn.execute(
+            "ALTER TABLE chapter_commits ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chapter_commits_chapter ON chapter_commits(chapter_id)",
+            [],
+        )?;
+    }
+
+    // Migration 69: 将 reference_characters / reference_scenes 历史数据迁移到 narrative_* 统一表 (W3-B3)
+    let has_reference_characters: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_characters'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+
+    if has_reference_characters {
+        conn.execute(
+            "INSERT OR IGNORE INTO narrative_characters (
+                id, story_id, name, role_type, personality, background, goals, appearance,
+                gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
+            )
+            SELECT
+                rc.id, rc.book_id, rc.name, rc.role_type, rc.personality, '', '', rc.appearance,
+                '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, 'reference', rc.created_at, rc.created_at
+            FROM reference_characters rc
+            LEFT JOIN narrative_characters nc ON nc.id = rc.id
+            WHERE nc.id IS NULL",
+            [],
+        )?;
+    }
+
+    let has_reference_scenes: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_scenes'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+
+    if has_reference_scenes {
+        conn.execute(
+            "INSERT OR IGNORE INTO narrative_scenes (
+                id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
+                conflict_type, characters_present, setting_location, setting_time, content,
+                source, source_ref_id, status, created_at, updated_at
+            )
+            SELECT
+                rs.id, rs.book_id, rs.sequence_number, rs.title, rs.summary, '', '',
+                rs.conflict_type, rs.characters_present, '', '', NULL,
+                'extracted', rs.book_id, 'reference', rs.created_at, rs.created_at
+            FROM reference_scenes rs
+            LEFT JOIN narrative_scenes ns ON ns.id = rs.id
+            WHERE ns.id IS NULL",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

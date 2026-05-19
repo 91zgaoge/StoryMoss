@@ -27,8 +27,9 @@ Glossary for the Rust core layer.
 
 - **Scene** is the author's creative unit: dramatic goal, conflict, beats.
 - **Chapter** is the reader's consumption unit: linear text, page breaks.
-- A Chapter aggregates one or more Scenes. In the current implementation this is often 1:1 (Migration 37 linked them bidirectionally), but the model supports 1:N.
-- The幕前 editor writes into a Scene. The `chapters.content` field is a cached/aggregated view of its Scene(s) for export.
+- A Chapter aggregates one or more Scenes. **Current implementation is strictly 1:1** (`chapters.scene_id` → `scenes.id`, single-valued FK, Migration 37). **Target architecture is 1:N** (`scenes.chapter_id` FK, one Chapter contains multiple Scenes ordered by `sequence_number`).
+- The 幕前 editor currently writes into a single Scene. In 1:N mode, it will aggregate multiple Scenes into a continuous editing surface with `scene-divider` Nodes.
+- The `chapters.content` field is a cached/aggregated view of its Scene(s) for export.
 
 ## Known gaps (intention — to be resolved)
 
@@ -36,7 +37,11 @@ Glossary for the Rust core layer.
 
 `MemoryPack` (via `MemoryOrchestrator`) and `QueryPipeline` are implemented but **not yet injected into `AgentContext`**. The Writer Agent currently relies on `AgentContext.previous_chapters`, which is a simple time-sorted list of the last 5 chapter summaries. Semantic retrieval, graph expansion, and budgeted memory assembly are not yet part of the generation flow.
 
-**Intended resolution:** `StoryContextBuilder` should call `QueryPipeline` + `MemoryOrchestrator` and attach the resulting `MemoryPack` to `AgentContext` (or merge it at prompt-assembly time). `previous_chapters` may be retired or absorbed into `working_memory`.
+**Status: Resolved.** `MemoryPack` injection architecture determined:
+- `GenerationMode::Fast` (Ghost Text): lightweight context (`previous_chapters` cache), no QueryPipeline overhead.
+- `GenerationMode::Full` (standard writing, chapter generation): full `QueryPipeline` + `MemoryOrchestrator` → `MemoryPack` injected into `AgentContext`.
+- `previous_chapters` absorbed into `MemoryPack.working_memory`.
+- **Pending implementation:** wiring `StoryContextBuilder` to call `QueryPipeline` + `MemoryOrchestrator` for Full mode.
 
 ### Review / Anti-AI / Reading Power relationship
 
@@ -48,7 +53,16 @@ Three quality-evaluation systems exist with overlapping concerns but distinct pu
 | **Pipeline Review** | LLM-driven, structured JSON | Token cost | On-demand, during 3-review pipeline | Deep editorial review with configurable dimensions |
 | **Reading Power** | Rule + heuristics (partially implemented) | Near-zero | After chapter commit or on-demand | Evaluate reader retention (hooks, coolpoints, debt) |
 
-**Intended architecture:** Layered coexistence (B). Anti-AI is the fast filter, Pipeline Review is the deep editor, Reading Power is the reader-retention analyst. They should feed each other: Anti-AI flags can be injected into Pipeline Review prompt as pre-known issues; Pipeline Review findings can update Reading Power debt ledger; Reading Power override contracts can constrain future Pipeline Reviews.
+**Status: Resolved.** Three-layer coexistence architecture determined:
+
+| Linkage | Direction | Mechanism |
+|---------|-----------|-----------|
+| Anti-AI → Pipeline Review | Flags as pre-known issues | `text_annotations` (`annotation_type: "anti_ai_flag"`) injected into `build_review_prompt` |
+| Pipeline Review → Reading Power | Quality defects become debt | Critical/high `review_issues` (continuity/foreshadow/pacing) auto-create `ChaseDebt` entries via `DebtManager` |
+| Reading Power → Pipeline Review | Constraints steer review focus | Pending `OverrideContract`s injected into `review_focus` parameter of `build_review_prompt` |
+| Reading Power → Anti-AI | Style drift detection | `StyleDNA` deviation threshold triggers "style drift" flags in Anti-AI |
+
+**Pending implementation:** `DebtManager::create_debt` needs `DebtSource` enum; `build_review_prompt` needs contract injection.
 
 ### Book Deconstruction storage
 
@@ -64,27 +78,27 @@ Deconstruction output currently lands in `reference_books` / `reference_characte
 
 ### 3-review Pipeline implementation status
 
-The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) has an unbalanced implementation:
+The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) implementation status:
 
 | Phase | Status | Detail |
 |-------|--------|--------|
-| Refine | TODO placeholder | `refine_draft` builds prompt but returns original content without LLM call |
-| Review | TODO placeholder | `review_draft` returns fixed score 85.0 without LLM call |
+| Refine | **Working** | Full LLM call (`pipeline/refine.rs`), prompt building, revision record creation, diff calculation |
+| Review | **Working** | Full LLM call (`pipeline/review.rs`), structured JSON parsing with fallback, review record save |
 | Finalize | Partial | State transitions + chapter sync implemented |
 | PostProcess (kb_import) | Working | Calls `knowledge_base::import_text` to vector store |
 | PostProcess (chapter_notes) | Working | Calls LLM to extract plot notes |
 | PostProcess (character_cards) | Working | Calls LLM + JSON parsing to update character states |
-| PostProcess (style_analysis) | TODO | Triggered every 5 chapters but empty implementation |
+| PostProcess (style_analysis) | TODO | Triggered every 5 chapters but empty implementation (3 TODOs in `post_process.rs:354`) |
 
-**Intended resolution:** Refine and Review must be wired to real LLM calls with structured JSON output parsing. The Draft/Revision/Review database schema and state machine are already in place and should be reused.
+**Pending implementation:** Only `style_analysis` remains empty. It should read last 5 chapters, compute StyleDNA 6-dim vector, save snapshot + delta.
 
 ### LLM cancellation only works for streaming
 
-`stream_generate` registers a `cancel_sender` and uses `tokio::select!` to break on cancellation. However, `generate_with_context_and_pipeline` (used by all non-streaming operations: Bootstrap, book deconstruction, AgentOrchestrator loops, PlanExecutor steps) never registers a cancel sender. Calling `cancel_generation` on a sync request is a no-op.
+`generate_with_context_and_pipeline` already supports cancellation via `tokio::select!` + `cancel_rx` (`llm/service.rs:453`). The `cancel_senders` HashMap is registered and listened to.
 
-**Consequence:** The most expensive operations (multi-step LLM pipelines, long-form generation) are the ones that cannot be cancelled. Users think they stopped the operation; the backend keeps burning tokens.
+**Current gap:** `request_id` is generated internally and **not returned to callers**. Frontend and upper layers (Bootstrap, PlanExecutor, WorkflowScheduler) have no way to know which `request_id` to pass to `cancel_generation()`.
 
-**Intended resolution:** All LLM entry points must support cancellation. Even sync generation should wrap the HTTP request in a cancellable future (e.g. `reqwest`'s abort handle or a custom cancellation token) and register with `cancel_senders`.
+**Intended resolution:** `LlmService::generate_with_context_and_pipeline` should return `(String, Result<LlmResponse, String>)` where the first `String` is the `request_id`. `AgentOrchestrator` stores it in `AgentTask.metadata`. Long-running operations expose `request_id` through `PipelineCallbacks` so the frontend can cancel.
 
 ### Quota checks bypassed by most AI entry points
 
@@ -112,26 +126,20 @@ Every internal function returns `Result<T, String>`, erasing typed errors. Front
 
 ### CHAPTER_COMMIT trigger mechanism
 
-`apply_chapter_commit` is currently an **explicit IPC command** requiring front-end to assemble and pass `outline_snapshot_json`, `review_result_json`, `fulfillment_result_json`, and `accepted_events_json`. It is **not automatically triggered** on `update_chapter` / save.
+**Status: Resolved in v0.7.1.** `ChapterCommitService::auto_commit` now handles debounced auto-commit (30s idle delay). `auto_ingest_chapter` has been removed, eliminating duplicate indexing with `VectorProjectionWriter`. Projection Writers run automatically on chapter save.
 
-Consequences:
-- Projection Writers (State/Index/Summary/Memory/Vector) only run when the user manually triggers commit.
-- `auto_ingest_chapter` (triggered on save, 5-min cooldown) updates the knowledge graph and vector store independently, creating duplicate work with `VectorProjectionWriter`.
-- Story System read-models drift out of sync with actual chapter content.
-
-**Intended resolution:** `CHAPTER_COMMIT` should fire automatically after `update_chapter` succeeds, with async debounce (e.g. 30s idle delay). `auto_ingest_chapter` should be absorbed into the commit pipeline as a post-commit step or merged into `VectorProjectionWriter` / `MemoryProjectionWriter`, eliminating duplicate indexing.
+**Remaining refinement:** In 1:N mode, `CHAPTER_COMMIT` granularity needs clarification — Scene-level commit for text edits, Chapter-level commit for structural changes (divider insert/delete).
 
 ### Orchestration layer boundaries
 
-Three orchestration systems exist with overlapping responsibilities and no clear hierarchy:
+**Status: Mostly resolved.** The code now largely follows the intended three-layer hierarchy:
 
-| System | Trigger | Granularity | Current gap |
-|--------|---------|-------------|-------------|
-| **AgentOrchestrator** | `commands.rs` direct call | Single generation (write + inspect + rewrite) | Not invoked by `PlanExecutor` or `WorkflowScheduler` |
-| **PlanExecutor** | LLM-generated plan | Multi-step dynamic plan (Capability calls) | Writing steps call `execute_writer_raw` directly, bypassing Orchestrator |
-| **WorkflowScheduler** | Predefined template | Multi-step static DAG (workflow nodes) | "WriteChapter" node may also bypass Orchestrator |
+| System | Trigger | Granularity | Current state |
+|--------|---------|-------------|---------------|
+| **AgentOrchestrator** | Direct call or nested | Single generation (write + inspect + rewrite) | **Single gateway for text generation** (`GenerationMode::Fast/Full/Refine/Review`) |
+| **PlanExecutor** | LLM-generated plan | Multi-step dynamic plan | `execute_writer` calls `AgentService::execute_task` → `execute_writer` → `AgentOrchestrator` (indirectly nested) |
+| **WorkflowScheduler** | Predefined template | Multi-step static DAG | `WriteChapter` directly calls `AgentOrchestrator`; `Revise` calls `AgentService::execute_task` → `AgentOrchestrator` |
 
-**Intended architecture:** Three-layer hierarchy:
-1. `WorkflowScheduler` owns predefined business processes (genesis, standard writing).
-2. `PlanExecutor` owns open-ended user intent; any step that generates text must nest-call `AgentOrchestrator`.
-3. `AgentOrchestrator` is the single gateway for all AI text generation; no raw writer call is allowed outside it.
+**Current gap:** `AgentService::execute_writer` is an unnecessary middle layer that creates its own `AgentOrchestrator`. All upper layers should call `AgentOrchestrator::generate` directly. Hooks (BeforeAiWrite/AfterAiWrite) should move into `AgentOrchestrator`.
+
+**Intended resolution:** Deprecate `AgentService::execute_writer`. Move hooks into `AgentOrchestrator`. All upper layers (`PlanExecutor`, `WorkflowScheduler`, IPC commands) call `AgentOrchestrator::generate(task, mode)` directly.

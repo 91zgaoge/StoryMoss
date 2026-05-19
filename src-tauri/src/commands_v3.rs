@@ -2519,8 +2519,12 @@ pub async fn generate_scene_draft(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle);
-    let result = service.execute_task(task).await.map_err(|e| {
+    let service = AgentService::new(app_handle.clone());
+    let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+        service,
+        app_handle.clone(),
+    );
+    let workflow_result = orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await.map_err(|e| {
         log::error!("[commands_v3] {} LLM task failed: {}", "generate_scene_draft", e);
         e
     })?;
@@ -2528,10 +2532,17 @@ pub async fn generate_scene_draft(
 
     // 保存草稿到数据库
     let _ = scene_repo.update(&scene_id, &crate::db::repositories_v3::SceneUpdate {
-        draft_content: Some(result.content.clone()),
+        draft_content: Some(workflow_result.final_content.clone()),
         execution_stage: Some("drafting".to_string()),
         ..Default::default()
     });
+
+    let result = crate::agents::AgentResult {
+        content: workflow_result.final_content,
+        score: Some(workflow_result.final_score),
+        suggestions: workflow_result.steps.iter().flat_map(|s| s.suggestions.clone()).collect(),
+        request_id: None,
+    };
 
     Ok(result)
 }

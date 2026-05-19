@@ -364,6 +364,7 @@ impl WorkflowScheduler {
                         "score": workflow_result.final_score,
                         "was_rewritten": workflow_result.was_rewritten,
                         "rewrite_count": workflow_result.rewrite_count,
+                        "request_id": workflow_result.request_id,
                     })),
                     Err(e) => Err(format!("Writer execution failed: {}", e)),
                 }
@@ -421,6 +422,10 @@ impl WorkflowScheduler {
                 );
                 
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
+                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                    agent_service,
+                    app_handle.clone(),
+                );
                 let context = crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -430,11 +435,12 @@ impl WorkflowScheduler {
                     parameters: HashMap::new(),
                     tier: None,
                 };
-                
-                match agent_service.execute_task(task).await {
-                    Ok(result) => Ok(serde_json::json!({
-                        "content": result.content,
-                        "score": result.score,
+
+                match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+                    Ok(workflow_result) => Ok(serde_json::json!({
+                        "content": workflow_result.final_content,
+                        "score": Some(workflow_result.final_score as f64),
+                        "request_id": workflow_result.request_id,
                     })),
                     Err(e) => Err(format!("Revision failed: {}", e)),
                 }

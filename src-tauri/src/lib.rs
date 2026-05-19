@@ -524,7 +524,7 @@ pub fn run() {
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skill, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill, update_skill, format_text,
-            connect_mcp_server, call_mcp_tool, disconnect_mcp_server, get_mcp_connections, list_mcp_tools, execute_mcp_tool,
+            connect_mcp_server, call_mcp_tool, disconnect_mcp_server, get_mcp_connections, list_mcp_tools, execute_mcp_tool, register_mcp_tool, unregister_mcp_tool,
             search_similar, text_search_vectors, hybrid_search_vectors, embed_chapter,
             export_story, list_export_templates, save_export_template, delete_export_template,
             list_ai_operations, rollback_ai_operation,
@@ -1183,6 +1183,7 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
                         if let Err(e) = service.auto_commit(
                             &chapter.story_id,
                             chapter.scene_id.as_deref(),
+                            Some(&chapter_id),
                             chapter.chapter_number,
                             chapter.content.as_deref(),
                             Some(app_handle),
@@ -1285,6 +1286,7 @@ fn create_chapter(
             if let Err(e) = service.auto_commit(
                 &story_id,
                 scene_id.as_deref(),
+                Some(&chapter_id),
                 chapter_number,
                 content.as_deref(),
                 Some(app_handle),
@@ -1471,6 +1473,19 @@ use tokio::sync::Mutex as TokioMutex;
 
 static MCP_CONNECTIONS: Lazy<TokioMutex<HashMap<String, mcp::McpClient>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
+
+// W2-B8: 全局内置 MCP Server 实例，支持运行时动态注册/注销工具
+static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::new(|| {
+    let config = mcp::McpServerConfig {
+        id: "builtin".to_string(),
+        name: "Built-in Tools".to_string(),
+        command: String::new(),
+        args: vec![],
+        env: HashMap::new(),
+        timeout_seconds: 30,
+    };
+    TokioMutex::new(mcp::McpServer::new(config))
+});
 
 #[tauri::command(rename_all = "snake_case")]
 async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<mcp::McpTool>, AppError> {
@@ -2399,37 +2414,75 @@ async fn get_input_hint(
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_mcp_tools() -> Result<Vec<mcp::McpTool>, String> {
-    let config = mcp::McpServerConfig {
-        id: "builtin".to_string(),
-        name: "Built-in Tools".to_string(),
-        command: String::new(),
-        args: vec![],
-        env: HashMap::new(),
-        timeout_seconds: 30,
-    };
+    // 1. 收集内置工具（含动态注册的）
+    let server = BUILTIN_MCP_SERVER.lock().await;
+    let mut all_tools = server.get_tools();
 
-    let server = mcp::McpServer::new(config);
-    Ok(server.get_tools())
+    // 2. 收集外部连接工具（W2-B8: MCP 工具动态注册）
+    // 外部工具名称前缀为 mcp.{server_id}.{tool_name}，便于前端区分来源
+    let connections = MCP_CONNECTIONS.lock().await;
+    for (server_id, client) in connections.iter() {
+        for tool in client.get_tools() {
+            let mut t = tool.clone();
+            t.name = format!("mcp.{}.{}", server_id, tool.name);
+            all_tools.push(t);
+        }
+    }
+
+    Ok(all_tools)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn execute_mcp_tool(tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
-    let config = mcp::McpServerConfig {
-        id: "builtin".to_string(),
-        name: "Built-in Tools".to_string(),
-        command: String::new(),
-        args: vec![],
-        env: HashMap::new(),
-        timeout_seconds: 30,
-    };
+    // W2-B8: 统一入口 — 支持内置工具和外部工具
+    // 如果 tool_name 以 mcp.{server_id}. 开头，路由到外部连接
+    if let Some(rest) = tool_name.strip_prefix("mcp.") {
+        let parts: Vec<&str> = rest.splitn(2, '.').collect();
+        if parts.len() == 2 {
+            let server_id = parts[0];
+            let actual_tool_name = parts[1];
+            let mut connections = MCP_CONNECTIONS.lock().await;
+            let client = connections.get_mut(server_id)
+                .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
+            let result = client.call_tool(actual_tool_name, arguments).await
+                .map_err(|e| format!("MCP tool call failed: {}", e))?;
+            return Ok(result);
+        }
+    }
 
-    let server = mcp::McpServer::new(config);
+    // 否则作为内置工具执行（使用全局实例）
+    let server = BUILTIN_MCP_SERVER.lock().await;
     server.start().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
-
     let result = server.execute_tool(&tool_name, arguments).await
         .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     Ok(result)
+}
+
+/// 动态注册内置 MCP 工具到 CapabilityRegistry（W2-B8）
+///
+/// 注意：此命令仅将工具注册到 CapabilityRegistry，使其可被 PlanGenerator 发现和调度。
+/// 实际执行 handler 仍需在 mcp/server.rs 中实现并硬编码注册到 McpServer。
+#[tauri::command(rename_all = "snake_case")]
+async fn register_mcp_tool(tool: mcp::McpTool) -> Result<(), String> {
+    let mut registry = crate::capabilities::get_capability_registry();
+    let cap = crate::capabilities::Capability::from_mcp_tool("builtin", &tool);
+    registry.register(cap);
+
+    log::info!("[MCP] Dynamically registered built-in tool to CapabilityRegistry: {}", tool.name);
+    Ok(())
+}
+
+/// 动态注销内置 MCP 工具（W2-B8）
+#[tauri::command(rename_all = "snake_case")]
+async fn unregister_mcp_tool(tool_name: String) -> Result<(), String> {
+    // 1. 从 CapabilityRegistry 注销
+    let mut registry = crate::capabilities::get_capability_registry();
+    let cap_id = format!("mcp.builtin.{}", tool_name);
+    registry.unregister(&cap_id);
+
+    log::info!("[MCP] Dynamically unregistered built-in tool: {}", tool_name);
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -3049,11 +3102,12 @@ fn get_runtime_contract(
 fn init_chapter_commit(
     story_id: String,
     scene_id: Option<String>,
+    chapter_id: Option<String>,
     chapter_number: i32,
 ) -> Result<crate::db::ChapterCommit, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let service = story_system::ChapterCommitService::new(pool);
-    service.init_commit(&story_id, scene_id.as_deref(), chapter_number)
+    service.init_commit(&story_id, scene_id.as_deref(), chapter_id.as_deref(), chapter_number)
 }
 
 #[tauri::command(rename_all = "snake_case")]

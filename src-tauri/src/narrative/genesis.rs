@@ -264,6 +264,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
                     suggestions: vec![],
+                    request_id: None,
                 },
                 Err(e) => return Err(PipelineError::LlmError(e)),
             };

@@ -153,6 +153,18 @@ export const disconnectMcpServer = (serverId: string) =>
 export const getMcpConnections = () =>
   loggedInvoke<Array<{ id: string; tools: number; resources: number }>>('get_mcp_connections');
 
+export const listMcpTools = () =>
+  loggedInvoke<McpTool[]>('list_mcp_tools');
+
+export const executeMcpTool = (toolName: string, args: unknown) =>
+  loggedInvoke<unknown>('execute_mcp_tool', { tool_name: toolName, arguments: args });
+
+export const registerMcpTool = (tool: McpTool) =>
+  loggedInvoke<void>('register_mcp_tool', { tool });
+
+export const unregisterMcpTool = (toolName: string) =>
+  loggedInvoke<void>('unregister_mcp_tool', { tool_name: toolName });
+
 export const runCreationWorkflow = (storyId: string, mode: string, initialInput: string) =>
   loggedInvoke<{
     success: boolean;
@@ -660,6 +672,7 @@ export interface ChapterCommit {
   id: string;
   story_id: string;
   scene_id: string | null;
+  chapter_id: string | null;
   chapter_number: number;
   status: string;
   outline_snapshot_json: string | null;
@@ -711,8 +724,8 @@ export const getContractTree = (storyId: string) =>
 export const getRuntimeContract = (storyId: string, chapterNumber: number) =>
   loggedInvoke<RuntimeContract>('get_runtime_contract', { story_id: storyId, chapter_number: chapterNumber });
 
-export const initChapterCommit = (storyId: string, chapterNumber: number, sceneId?: string) =>
-  loggedInvoke<ChapterCommit>('init_chapter_commit', { story_id: storyId, chapter_number: chapterNumber, scene_id: sceneId });
+export const initChapterCommit = (storyId: string, chapterNumber: number, sceneId?: string, chapterId?: string) =>
+  loggedInvoke<ChapterCommit>('init_chapter_commit', { story_id: storyId, chapter_number: chapterNumber, scene_id: sceneId, chapter_id: chapterId });
 
 // W2-B5: apply_chapter_commit 已改为 update_chapter 成功后自动触发（30s debounce）
 // 前端不再显式调用，保留 get_chapter_commits 用于展示 commit 历史

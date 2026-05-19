@@ -472,6 +472,10 @@ impl PlanExecutor {
             .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+            service,
+            self.app_handle.clone(),
+        );
         let selected_text = plan_context.selected_text.clone();
         let context = self.build_agent_context(&story_id, current_content, selected_text)?;
 
@@ -497,10 +501,12 @@ impl PlanExecutor {
             tier: None,
         };
 
-        let result = service.execute_task(task).await?;
+        let workflow_result = orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await
+            .map_err(|e| AppError::internal(format!("AgentOrchestrator failed: {}", e)))?;
         Ok(serde_json::json!({
-            "content": result.content,
-            "score": result.score,
+            "content": workflow_result.final_content,
+            "score": Some(workflow_result.final_score as f64),
+            "request_id": workflow_result.request_id,
         }))
     }
 
@@ -909,6 +915,22 @@ impl PlanExecutor {
         let tool_name = parts[2];
 
         let arguments = params.get("arguments").cloned().unwrap_or(serde_json::Value::Null);
+
+        // W2-B8: 支持内置 MCP 工具（server_id == "builtin"）
+        if server_id == "builtin" {
+            let config = crate::mcp::McpServerConfig {
+                id: "builtin".to_string(),
+                name: "Built-in Tools".to_string(),
+                command: String::new(),
+                args: vec![],
+                env: std::collections::HashMap::new(),
+                timeout_seconds: 30,
+            };
+            let server = crate::mcp::McpServer::new(config);
+            server.start().await.map_err(AppError::from)?;
+            let result = server.execute_tool(tool_name, arguments).await.map_err(AppError::from)?;
+            return Ok(result);
+        }
 
         let mut connections = crate::MCP_CONNECTIONS.lock().await;
         let client = connections.get_mut(server_id)

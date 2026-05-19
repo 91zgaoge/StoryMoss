@@ -486,9 +486,13 @@ pub async fn auto_write(
                 tier: Some(get_user_tier_sync(&app_handle_clone)),
             };
 
-            match service.execute_task(task).await {
-                Ok(result) => {
-                    let generated = result.content;
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                service.clone(),
+                app_handle_clone.clone(),
+            );
+            match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+                Ok(workflow_result) => {
+                    let generated = workflow_result.final_content;
                     let generated_len = generated.chars().count() as i32;
                     total_written += generated_len;
                     loop_count += 1;
@@ -809,9 +813,19 @@ pub async fn auto_revise(
         };
 
         let service = AgentService::new(app_handle_clone.clone());
+        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+            service,
+            app_handle_clone.clone(),
+        );
 
-        match service.execute_task(task).await {
-            Ok(result) => {
+        match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+            Ok(workflow_result) => {
+                let result = crate::agents::AgentResult {
+                    content: workflow_result.final_content,
+                    score: Some(workflow_result.final_score),
+                    suggestions: workflow_result.steps.iter().flat_map(|s| s.suggestions.clone()).collect(),
+                    request_id: None,
+                };
                 let text_len_i32 = target_text.chars().count() as i32;
                 // 消费配额
                 if let Err(e) = consume_auto_revise_quota_sync(&app_handle_clone, text_len_i32) {

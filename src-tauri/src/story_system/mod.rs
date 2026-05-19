@@ -255,10 +255,11 @@ impl ChapterCommitService {
         &self,
         story_id: &str,
         scene_id: Option<&str>,
+        chapter_id: Option<&str>,
         chapter_number: i32,
     ) -> Result<crate::db::ChapterCommit, String> {
         let repo = ChapterCommitRepository::new(self.pool.clone());
-        repo.create(story_id, scene_id, chapter_number, "pending")
+        repo.create(story_id, scene_id, chapter_id, chapter_number, "pending")
             .map_err(|e| format!("初始化 commit 失败: {}", e))
     }
 
@@ -270,12 +271,13 @@ impl ChapterCommitService {
         &self,
         story_id: &str,
         scene_id: Option<&str>,
+        chapter_id: Option<&str>,
         chapter_number: i32,
         content: Option<&str>,
         app_handle: Option<tauri::AppHandle>,
         vector_store: Option<&LanceVectorStore>,
     ) -> Result<(), String> {
-        let commit = self.init_commit(story_id, scene_id, chapter_number)?;
+        let commit = self.init_commit(story_id, scene_id, chapter_id, chapter_number)?;
         let summary = content.unwrap_or("").chars().take(1000).collect::<String>();
 
         self.apply_commit(

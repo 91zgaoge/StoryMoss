@@ -11,7 +11,9 @@ use crate::db::DbPool;
 use crate::error::AppError;
 use crate::db::{CreateCharacterRequest, CreateStoryRequest, StoryRepository};
 use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository};
+use crate::db::repositories_narrative::{NarrativeCharacterRepository, NarrativeSceneRepository, NarrativeWorldBuildingRepository};
 use crate::llm::LlmService;
+use crate::narrative::elements::{ElementSource, ElementStatus};
 use crate::task_system::service::TaskService;
 use crate::task_system::models::CreateTaskRequest;
 use chrono::Local;
@@ -208,15 +210,78 @@ impl BookDeconstructionService {
         repo.update_status(book_id, AnalysisStatus::Completed, 100)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
-        // 保存人物
+        // 保存人物（参考表，兼容旧接口）
         let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
         char_repo.create_batch(&result.characters)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
-        // 保存场景
+        // 保存场景（参考表，兼容旧接口）
         let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
         scene_repo.create_batch(&result.scenes)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
+
+        // W3-B3: 同步保存到 narrative_* 统一表
+        {
+            let narrative_chars: Vec<crate::narrative::elements::CharacterElement> = result.characters.iter().map(|c| {
+                crate::narrative::elements::CharacterElement {
+                    id: c.id.clone(),
+                    story_id: book_id.to_string(),
+                    name: c.name.clone(),
+                    role_type: c.role_type.clone().unwrap_or_default(),
+                    personality: c.personality.clone().unwrap_or_default(),
+                    background: String::new(),
+                    goals: String::new(),
+                    fears: String::new(),
+                    appearance: c.appearance.clone().unwrap_or_default(),
+                    gender: String::new(),
+                    age: 0,
+                    relationships: Vec::new(),
+                    importance_score: c.importance_score.unwrap_or(0.0),
+                    source: ElementSource::Extracted,
+                    source_ref_id: Some(book_id.to_string()),
+                    status: ElementStatus::Reference,
+                }
+            }).collect();
+            let nchar_repo = NarrativeCharacterRepository::new(self.pool.clone());
+            let _ = nchar_repo.create_batch(&narrative_chars);
+
+            let narrative_scenes: Vec<crate::narrative::elements::SceneElement> = result.scenes.iter().map(|s| {
+                let chars_present: Vec<String> = s.characters_present.as_ref()
+                    .and_then(|cp| serde_json::from_str(cp).ok())
+                    .unwrap_or_default();
+                crate::narrative::elements::SceneElement {
+                    id: s.id.clone(),
+                    story_id: book_id.to_string(),
+                    sequence_number: s.sequence_number,
+                    title: s.title.clone().unwrap_or_default(),
+                    summary: s.summary.clone().unwrap_or_default(),
+                    dramatic_goal: String::new(),
+                    external_pressure: String::new(),
+                    conflict_type: s.conflict_type.clone().unwrap_or_default(),
+                    characters_present: chars_present,
+                    setting_location: String::new(),
+                    setting_time: String::new(),
+                    content: None,
+                    source: ElementSource::Extracted,
+                    source_ref_id: Some(book_id.to_string()),
+                    status: ElementStatus::Reference,
+                }
+            }).collect();
+            let nscene_repo = NarrativeSceneRepository::new(self.pool.clone());
+            let _ = nscene_repo.create_batch(&narrative_scenes);
+
+            if let Some(ref world_json) = result.book.world_setting {
+                if let Ok(mut wb) = serde_json::from_str::<crate::narrative::elements::WorldBuildingElement>(world_json) {
+                    wb.id = uuid::Uuid::new_v4().to_string();
+                    wb.story_id = book_id.to_string();
+                    wb.source = ElementSource::Extracted;
+                    wb.source_ref_id = Some(book_id.to_string());
+                    wb.status = ElementStatus::Reference;
+                    let wb_repo = NarrativeWorldBuildingRepository::new(self.pool.clone());
+                    let _ = wb_repo.create(&wb);
+                }
+            }
+        }
 
         // 向量化存储
         self.store_embeddings(book_id, &result).await?;
@@ -250,16 +315,48 @@ impl BookDeconstructionService {
 
     pub fn get_analysis(&self, book_id: &str) -> Result<BookAnalysisResult, AppError> {
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
-        let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
-        let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
 
         let book = book_repo
             .get_by_id(book_id)
             .map_err(AppError::from)?
             .ok_or_else(|| "Book not found".to_string())?;
 
-        let characters = char_repo.get_by_book(book_id).map_err(AppError::from)?;
-        let scenes = scene_repo.get_by_book(book_id).map_err(AppError::from)?;
+        // W3-B3: 从 narrative_* 统一表读取拆书结果
+        let nchar_repo = NarrativeCharacterRepository::new(self.pool.clone());
+        let narrative_chars = nchar_repo.get_by_story(book_id).map_err(AppError::from)?;
+        let characters: Vec<ReferenceCharacter> = narrative_chars.into_iter().map(|c| {
+            let relationships_json = serde_json::to_string(&c.relationships).ok();
+            ReferenceCharacter {
+                id: c.id,
+                book_id: c.story_id,
+                name: c.name,
+                role_type: Some(c.role_type),
+                personality: Some(c.personality),
+                appearance: Some(c.appearance),
+                relationships: relationships_json,
+                key_scenes: None,
+                importance_score: Some(c.importance_score),
+                created_at: Local::now(),
+            }
+        }).collect();
+
+        let nscene_repo = NarrativeSceneRepository::new(self.pool.clone());
+        let narrative_scenes = nscene_repo.get_by_story(book_id).map_err(AppError::from)?;
+        let scenes: Vec<ReferenceScene> = narrative_scenes.into_iter().map(|s| {
+            let chars_present_json = serde_json::to_string(&s.characters_present).ok();
+            ReferenceScene {
+                id: s.id,
+                book_id: s.story_id,
+                sequence_number: s.sequence_number,
+                title: Some(s.title),
+                summary: Some(s.summary),
+                characters_present: chars_present_json,
+                key_events: None,
+                conflict_type: Some(s.conflict_type),
+                emotional_tone: None,
+                created_at: Local::now(),
+            }
+        }).collect();
 
         Ok(BookAnalysisResult {
             book,
@@ -284,6 +381,14 @@ impl BookDeconstructionService {
         char_repo.delete_by_book(book_id).map_err(AppError::from)?;
         scene_repo.delete_by_book(book_id).map_err(AppError::from)?;
         book_repo.delete(book_id).map_err(AppError::from)?;
+
+        // W3-B3: 同时删除 narrative_* 统一表中的记录
+        let nchar_repo = NarrativeCharacterRepository::new(self.pool.clone());
+        let nscene_repo = NarrativeSceneRepository::new(self.pool.clone());
+        let nwb_repo = NarrativeWorldBuildingRepository::new(self.pool.clone());
+        let _ = nchar_repo.delete_by_story(book_id);
+        let _ = nscene_repo.delete_by_story(book_id);
+        let _ = nwb_repo.delete_by_story(book_id);
 
         // 删除文件
         let app_dir = self
@@ -405,6 +510,24 @@ impl BookDeconstructionService {
             }
         }
         log::info!("[BookDeconstruction] Convert step {}: created {}", "scenes", analysis.scenes.len());
+
+        // W3-B3: 将 narrative_* 表中对应记录状态从 Reference 更新为 Active
+        {
+            let conn = self.pool.get().map_err(AppError::from)?;
+            let _ = conn.execute(
+                "UPDATE narrative_characters SET status = 'active' WHERE story_id = ?1",
+                [book_id],
+            );
+            let _ = conn.execute(
+                "UPDATE narrative_scenes SET status = 'active' WHERE story_id = ?1",
+                [book_id],
+            );
+            let _ = conn.execute(
+                "UPDATE narrative_world_buildings SET status = 'active' WHERE story_id = ?1",
+                [book_id],
+            );
+            log::info!("[BookDeconstruction] Convert step {}: activated narrative elements for {}", "status_update", book_id);
+        }
 
         Ok(story_id)
     }

@@ -94,6 +94,9 @@ pub struct AgentResult {
     pub content: String,
     pub score: Option<f32>,  // 0.0 - 1.0
     pub suggestions: Vec<String>,
+    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 // ==================== 辅助函数 ====================
@@ -157,15 +160,17 @@ impl AgentResult {
             content,
             score: None,
             suggestions: vec![],
+            request_id: None,
         }
     }
-    
+
     /// 创建带评分的结果
     pub fn with_score(content: String, score: f32) -> Self {
         Self {
             content,
             score: Some(score.clamp(0.0, 1.0)),
             suggestions: vec![],
+            request_id: None,
         }
     }
     

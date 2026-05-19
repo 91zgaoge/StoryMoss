@@ -3399,6 +3399,90 @@ body {
   display: none;
 }
 
+/* ==================== Scene Divider Node ==================== */
+.scene-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1.5em 0 !important;
+  padding: 0;
+  height: 1px;
+  background: transparent;
+  border: none;
+  outline: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.scene-divider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ink-color, #6b5c4f) 20%,
+    var(--ink-color, #6b5c4f) 80%,
+    transparent 100%
+  );
+  opacity: 0.25;
+}
+
+.scene-divider-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--ink-color, #6b5c4f);
+  background: var(--paper-color, #f7f4f0);
+  border: 1px solid rgba(107, 92, 79, 0.15);
+  border-radius: 12px;
+  opacity: 0.6;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+  transition: opacity 0.2s ease;
+}
+
+.scene-divider:hover .scene-divider-label,
+.scene-divider.ProseMirror-selectednode .scene-divider-label {
+  opacity: 1;
+  border-color: rgba(107, 92, 79, 0.35);
+}
+
+.scene-divider.ProseMirror-selectednode::before {
+  opacity: 0.45;
+}
+
+/* 深色模式适配 */
+.dark .scene-divider::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ink-color, #a89888) 20%,
+    var(--ink-color, #a89888) 80%,
+    transparent 100%
+  );
+}
+
+.dark .scene-divider-label {
+  background: var(--paper-color, #1a1816);
+  border-color: rgba(168, 152, 136, 0.15);
+  color: var(--ink-color, #a89888);
+}
+
+.dark .scene-divider:hover .scene-divider-label,
+.dark .scene-divider.ProseMirror-selectednode .scene-divider-label {
+  border-color: rgba(168, 152, 136, 0.35);
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .frontstage-bottom-bar {

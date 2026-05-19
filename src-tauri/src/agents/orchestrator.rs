@@ -66,6 +66,8 @@ pub struct WorkflowResult {
     pub was_rewritten: bool,
     /// 改写次数
     pub rewrite_count: u32,
+    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    pub request_id: Option<String>,
 }
 
 /// 单个步骤的执行结果
@@ -131,10 +133,47 @@ impl AgentOrchestrator {
         task: AgentTask,
         mode: GenerationMode,
     ) -> Result<WorkflowResult, String> {
-        match mode {
-            GenerationMode::Fast => self.execute_fast(task).await,
-            GenerationMode::Full => self.execute_full(task).await,
+        // BeforeAiWrite hook
+        if let Some(manager) = crate::SKILL_MANAGER.get() {
+            if let Ok(skill_manager) = manager.lock() {
+                let story_id = task.context.story_id.clone();
+                let chapter_number = task.context.chapter_number;
+                let input = task.input.clone();
+                let skill_manager = skill_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let context = crate::agents::AgentContext::minimal(story_id, input);
+                    let data = serde_json::json!({ "chapter_number": chapter_number });
+                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
+                    log::info!("[AgentOrchestrator] Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
+                });
+            }
         }
+
+        let result = match mode {
+            GenerationMode::Fast => self.execute_fast(task.clone()).await,
+            GenerationMode::Full => self.execute_full(task.clone()).await,
+        };
+
+        // AfterAiWrite hook (only on success)
+        if let Ok(ref workflow_result) = result {
+            if let Some(manager) = crate::SKILL_MANAGER.get() {
+                if let Ok(skill_manager) = manager.lock() {
+                    let story_id = task.context.story_id.clone();
+                    let chapter_number = task.context.chapter_number;
+                    let content = workflow_result.final_content.clone();
+                    let score_val = workflow_result.final_score;
+                    let skill_manager = skill_manager.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let context = crate::agents::AgentContext::minimal(story_id, content);
+                        let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
+                        let _ = skill_manager.execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data).await;
+                        log::info!("[AgentOrchestrator] Hook executed: {:?}", crate::skills::HookEvent::AfterAiWrite);
+                    });
+                }
+            }
+        }
+
+        result
     }
 
     /// Fast 模式：单轮 LLM 生成，跳过 Inspector / StyleChecker
@@ -156,6 +195,7 @@ impl AgentOrchestrator {
             steps,
             was_rewritten: false,
             rewrite_count: 0,
+            request_id: writer_result.request_id,
         })
     }
 
@@ -178,6 +218,7 @@ impl AgentOrchestrator {
         // v5.3.1: 调用 execute_writer_raw 而不是 execute_task，切断递归链
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
         let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
+        let request_id = writer_result.request_id.clone();
         let mut current_content = writer_result.content.clone();
 
         steps.push(WorkflowStepResult {
@@ -269,6 +310,7 @@ impl AgentOrchestrator {
                     steps,
                     was_rewritten,
                     rewrite_count,
+                    request_id: request_id.clone(),
                 });
             }
 
@@ -330,6 +372,7 @@ impl AgentOrchestrator {
             steps,
             was_rewritten,
             rewrite_count,
+            request_id,
         })
     }
 
@@ -405,6 +448,7 @@ mod tests {
                 "对话不够自然".to_string(),
                 "角色动机不充分".to_string(),
             ],
+            request_id: None,
         };
 
         let feedback = AgentOrchestrator::build_rewrite_feedback(&inspect_result);
@@ -437,6 +481,7 @@ mod tests {
             ],
             was_rewritten: false,
             rewrite_count: 0,
+            request_id: None,
         };
 
         let summary = AgentOrchestrator::generate_inspection_summary(&result);

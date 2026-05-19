@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
-import { callMcpTool, disconnectMcpServer } from '@/services/tauri';
+import { callMcpTool, disconnectMcpServer, listMcpTools, executeMcpTool, registerMcpTool, unregisterMcpTool } from '@/services/tauri';
 
 export interface McpTool {
   name: string;
@@ -28,8 +28,18 @@ export function useMcpTools() {
   const listTools = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await loggedInvoke<McpTool[]>('list_mcp_tools');
-      setTools(data.map((t) => ({ ...t, source: 'builtin' as const })));
+      const data = await listMcpTools();
+      const builtins: McpTool[] = [];
+      const externals: McpTool[] = [];
+      for (const t of data) {
+        if (t.name.startsWith('mcp.')) {
+          externals.push({ ...t, source: 'external' as const });
+        } else {
+          builtins.push({ ...t, source: 'builtin' as const });
+        }
+      }
+      setTools(builtins);
+      setExternalTools(externals);
     } catch (error) {
       toast.error('获取工具列表失败: ' + (error as Error).message);
     } finally {
@@ -39,10 +49,7 @@ export function useMcpTools() {
 
   const executeTool = useCallback(async (toolName: string, args: Record<string, unknown>) => {
     try {
-      const result = await loggedInvoke<unknown>('execute_mcp_tool', {
-        toolName,
-        arguments: args,
-      });
+      const result = await executeMcpTool(toolName, args);
       return result;
     } catch (error) {
       toast.error('执行工具失败: ' + (error as Error).message);
@@ -100,6 +107,28 @@ export function useMcpTools() {
     toast.success('已断开外部服务器连接');
   }, [connectedServer]);
 
+  const registerTool = useCallback(async (tool: McpTool) => {
+    try {
+      await registerMcpTool(tool);
+      toast.success(`已注册工具: ${tool.name}`);
+      await listTools();
+    } catch (error) {
+      toast.error('注册工具失败: ' + (error as Error).message);
+      throw error;
+    }
+  }, [listTools]);
+
+  const unregisterTool = useCallback(async (toolName: string) => {
+    try {
+      await unregisterMcpTool(toolName);
+      toast.success(`已注销工具: ${toolName}`);
+      await listTools();
+    } catch (error) {
+      toast.error('注销工具失败: ' + (error as Error).message);
+      throw error;
+    }
+  }, [listTools]);
+
   return {
     tools,
     externalTools,
@@ -112,5 +141,7 @@ export function useMcpTools() {
     connectServer,
     callExternalTool,
     disconnectServer,
+    registerTool,
+    unregisterTool,
   };
 }

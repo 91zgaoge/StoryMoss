@@ -468,6 +468,9 @@ fn init_registry() -> CapabilityRegistry {
         metadata: HashMap::new(),
     });
 
+    // 注册内置 MCP 工具到 CapabilityRegistry（W2-B8: MCP 工具动态注册）
+    register_builtin_mcp_tools(&mut registry);
+
     // 应用已进化的能力描述（能力进化反馈环）
     let evolved = load_evolved_descriptions();
     if !evolved.is_empty() {
@@ -483,4 +486,58 @@ fn init_registry() -> CapabilityRegistry {
     }
 
     registry
+}
+
+/// 注册内置 MCP 工具到 CapabilityRegistry
+fn register_builtin_mcp_tools(registry: &mut CapabilityRegistry) {
+    use crate::mcp::types::McpTool;
+
+    let builtin_tools = vec![
+        McpTool {
+            name: "filesystem".to_string(),
+            description: "File system operations (read, write, list)".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "operation": { "type": "string", "enum": ["read", "write", "list"] },
+                    "path": { "type": "string" },
+                    "content": { "type": "string" }
+                },
+                "required": ["operation", "path"]
+            }),
+        },
+        McpTool {
+            name: "text_processing".to_string(),
+            description: "Text processing operations (count, split, replace)".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "operation": { "type": "string", "enum": ["count", "split", "replace"] },
+                    "text": { "type": "string" },
+                    "delimiter": { "type": "string" },
+                    "from": { "type": "string" },
+                    "to": { "type": "string" }
+                },
+                "required": ["operation", "text"]
+            }),
+        },
+        McpTool {
+            name: "web_search".to_string(),
+            description: "Search the web for information".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" }
+                },
+                "required": ["query"]
+            }),
+        },
+    ];
+
+    for tool in builtin_tools {
+        let cap = Capability::from_mcp_tool("builtin", &tool);
+        registry.register(cap);
+    }
+
+    log::info!("[CapabilityRegistry] Registered {} built-in MCP tools", 3);
 }

@@ -238,6 +238,7 @@ pub struct ChapterCommit {
     pub id: String,
     pub story_id: String,
     pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
     pub chapter_number: i32,
     pub status: String, // pending | accepted | rejected
     pub outline_snapshot_json: Option<String>,

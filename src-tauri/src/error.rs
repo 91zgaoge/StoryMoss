@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 /// 应用级错误枚举
 ///
 /// 每个变体对应一种可恢复或不可恢复的错误场景，携带结构化上下文。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "code", content = "data")]
+#[derive(Debug, Clone, Deserialize)]
 pub enum AppError {
     /// 配额不足
     QuotaExceeded {
@@ -298,5 +297,45 @@ impl AppError {
         AppError::Internal {
             message: message.into(),
         }
+    }
+}
+
+// ==================== 手动 Serialize（统一 IPC 格式 { code, message, data }） ====================
+
+impl Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        let mut map = serializer.serialize_map(Some(3))?;
+        map.serialize_entry("code", self.code())?;
+        map.serialize_entry("message", &self.message())?;
+
+        let data: Option<serde_json::Value> = match self {
+            AppError::QuotaExceeded { quota_type, remaining, .. } => {
+                Some(serde_json::json!({ "quota_type": quota_type, "remaining": remaining }))
+            }
+            AppError::LlmTimeout { elapsed_ms, .. } => {
+                Some(serde_json::json!({ "elapsed_ms": elapsed_ms }))
+            }
+            AppError::ContextUnavailable { context_type, .. } => {
+                Some(serde_json::json!({ "context_type": context_type }))
+            }
+            AppError::ValidationFailed { field, .. } => {
+                Some(serde_json::json!({ "field": field }))
+            }
+            AppError::NotFound { resource, id } => {
+                Some(serde_json::json!({ "resource": resource, "id": id }))
+            }
+            _ => None,
+        };
+
+        if let Some(d) = data {
+            map.serialize_entry("data", &d)?;
+        }
+
+        map.end()
     }
 }

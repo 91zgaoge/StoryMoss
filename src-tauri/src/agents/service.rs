@@ -88,6 +88,9 @@ pub struct AgentEvent {
     pub stage: AgentStage,
     pub message: String,
     pub progress: f32, // 0.0 - 1.0
+    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -179,7 +182,7 @@ impl AgentService {
         self.emit_event(&task_id, agent_type, AgentStage::Started, "开始执行任务", 0.0);
         
         let result = match agent_type {
-            AgentType::Writer => self.execute_writer(task).await,
+            AgentType::Writer => self.execute_writer_raw(task).await,
             AgentType::Inspector => self.execute_inspector(task).await,
             AgentType::OutlinePlanner => self.execute_outline_planner(task).await,
             AgentType::StyleMimic => self.execute_style_mimic(task).await,
@@ -258,6 +261,7 @@ impl AgentService {
 
     /// 为Agent生成内容，优先使用映射的模型
     /// 免费版限制 max_tokens 以控制成本与质量
+    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID（v0.7.2）
     async fn generate_for_agent(
         &self,
         task: &AgentTask,
@@ -265,27 +269,33 @@ impl AgentService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
         tier: SubscriptionTier,
-    ) -> Result<crate::llm::GenerateResponse, String> {
+        request_id: Option<String>,
+    ) -> Result<(String, crate::llm::GenerateResponse), String> {
         let start_time = std::time::Instant::now();
         let effective_max = match tier {
             SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
             _ => max_tokens,
         };
         let agent_type = task.agent_type;
-        
+
         // 发送准备调用LLM事件
         self.emit_event(&task.id, agent_type, AgentStage::Generating, "准备调用模型...", 0.3);
-        
+
         // 发送获取模型配置事件
         self.emit_event(&task.id, agent_type, AgentStage::Generating, "正在获取模型配置...", 0.32);
-        
-        let response = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
+
+        let (req_id, response) = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
             self.emit_event(&task.id, agent_type, AgentStage::Generating, &format!("使用指定模型 {} 生成...", model_id), 0.35);
-            self.llm_service.generate_with_profile(&model_id, prompt.clone(), effective_max, temperature).await
+            let (rid, result) = self.llm_service.generate_with_profile_and_request_id(&model_id, prompt.clone(), effective_max, temperature, None, request_id.clone()).await;
+            (rid, result?)
         } else {
             self.emit_event(&task.id, agent_type, AgentStage::Generating, "使用默认模型生成...", 0.35);
-            self.llm_service.generate(prompt.clone(), effective_max, temperature).await
-        }?;
+            let (rid, result) = self.llm_service.generate_with_request_id(prompt.clone(), effective_max, temperature, None, None, request_id.clone()).await;
+            (rid, result?)
+        };
+
+        // 暴露 request_id 到前端事件
+        self.emit_event_with_request_id(&task.id, agent_type, AgentStage::Generating, "模型生成中...", 0.4, Some(req_id.clone()));
 
         let duration_ms = start_time.elapsed().as_millis() as i32;
 
@@ -314,7 +324,7 @@ impl AgentService {
             );
         }
 
-        Ok(response)
+        Ok((req_id, response))
     }
 
     /// 原始 Writer 生成 — 只生成内容，不进入闭环
@@ -364,12 +374,14 @@ impl AgentService {
             }
         };
         
-        let response = self.generate_for_agent(
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (req_id, response) = self.generate_for_agent(
             &task,
             prompt,
             max_tokens,
             temperature,
             tier,
+            Some(request_id.clone()),
         ).await?;
 
         if response.content.trim().is_empty() {
@@ -444,80 +456,7 @@ impl AgentService {
             content,
             score: Some(score),
             suggestions,
-        })
-    }
-
-    /// 执行写作助手（完整流程：raw + AgentOrchestrator 闭环 + hooks）
-    async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
-        // BeforeAiWrite hook
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = task.context.story_id.clone();
-                let chapter_number = task.context.chapter_number;
-                let input = task.input.clone();
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, input);
-                    let data = serde_json::json!({ "chapter_number": chapter_number });
-                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
-                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
-                });
-            }
-        }
-
-        // v5.1.0: AgentOrchestrator 闭环 — Writer → Inspector → StyleChecker → Writer(改写)
-        // v5.4.0: 避免预先调用 execute_writer_raw，直接让 orchestrator 执行，减少一次 LLM 调用
-        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-            self.clone(),
-            self.app_handle.clone(),
-        );
-        let (final_content, final_score, final_suggestions) = match orchestrator.generate(task.clone(), crate::agents::orchestrator::GenerationMode::Full).await {
-            Ok(workflow_result) => {
-                log::info!(
-                    "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
-                    workflow_result.final_score, workflow_result.was_rewritten
-                );
-                let mut all_suggestions = Vec::new();
-                for step in &workflow_result.steps {
-                    if !step.suggestions.is_empty() {
-                        all_suggestions.extend(step.suggestions.clone());
-                    }
-                }
-                (
-                    workflow_result.final_content,
-                    Some(workflow_result.final_score),
-                    all_suggestions,
-                )
-            }
-            Err(e) => {
-                log::warn!("[AgentOrchestrator] Workflow failed: {}, falling back to raw generation", e);
-                // fallback: 直接调用 execute_writer_raw
-                let raw_result = self.execute_writer_raw(task.clone()).await?;
-                (raw_result.content, raw_result.score, raw_result.suggestions)
-            }
-        };
-
-        // AfterAiWrite hook
-        let content_for_hook = final_content.clone();
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = task.context.story_id.clone();
-                let chapter_number = task.context.chapter_number;
-                let score_val = final_score.unwrap_or(0.0);
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, content_for_hook);
-                    let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
-                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data).await;
-                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::AfterAiWrite);
-                });
-            }
-        }
-
-        Ok(AgentResult {
-            content: final_content,
-            score: final_score,
-            suggestions: final_suggestions,
+            request_id: Some(req_id),
         })
     }
 
@@ -530,12 +469,13 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成质检报告", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(1500),
             Some(0.3), // 低temperature以获得更确定的分析
             tier,
+            None,
         ).await?;
         
         // 解析质检结果
@@ -545,6 +485,7 @@ impl AgentService {
             content: response.content,
             score: Some(score),
             suggestions,
+            request_id: None,
         })
     }
 
@@ -557,18 +498,20 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "设计故事大纲", 0.3);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(3000),
             Some(0.9),
             tier,
+            None,
         ).await?;
         
         Ok(AgentResult {
             content: response.content,
             score: Some(0.95),
             suggestions: vec![],
+            request_id: None,
         })
     }
 
@@ -581,18 +524,20 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "模仿指定文风", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(2000),
             Some(0.85),
             tier,
+            None,
         ).await?;
         
         Ok(AgentResult {
             content: response.content,
             score: Some(0.9),
             suggestions: vec![],
+            request_id: None,
         })
     }
 
@@ -605,12 +550,13 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成分析报告", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(2000),
             Some(0.4),
             tier,
+            None,
         ).await?;
         
         let (score, suggestions) = self.parse_plot_analysis(&response.content);
@@ -619,6 +565,7 @@ impl AgentService {
             content: response.content,
             score: Some(score),
             suggestions,
+            request_id: None,
         })
     }
 
@@ -654,12 +601,13 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成评点", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(2048),
             Some(0.85),
             tier,
+            None,
         ).await?;
         
         Ok(AgentResult::simple(response.content))
@@ -706,12 +654,13 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "压缩内容", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(2048),
             Some(0.3),
             tier,
+            None,
         ).await?;
         
         let original_len = task.input.chars().count();
@@ -727,6 +676,7 @@ impl AgentService {
             content: response.content,
             score: Some(score),
             suggestions: vec![format!("压缩率: {:.1}%", compression_ratio * 100.0)],
+            request_id: None,
         })
     }
 
@@ -765,12 +715,13 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "蒸馏知识图谱", 0.4);
         
-        let response = self.generate_for_agent(
+        let (_, response) = self.generate_for_agent(
             &task,
             prompt,
             Some(2048),
             Some(0.4),
             tier,
+            None,
         ).await?;
         
         Ok(AgentResult::with_score(response.content, 0.9))
@@ -1128,14 +1079,19 @@ impl AgentService {
     // ==================== 辅助方法 ====================
 
     fn emit_event(&self, task_id: &str, agent_type: AgentType, stage: AgentStage, message: &str, progress: f32) {
+        self.emit_event_with_request_id(task_id, agent_type, stage, message, progress, None);
+    }
+
+    fn emit_event_with_request_id(&self, task_id: &str, agent_type: AgentType, stage: AgentStage, message: &str, progress: f32, request_id: Option<String>) {
         let event = AgentEvent {
             task_id: task_id.to_string(),
             agent_type: agent_type.name().to_string(),
             stage,
             message: message.to_string(),
             progress,
+            request_id,
         };
-        
+
         let _ = self.app_handle.emit(&format!("agent-event-{}", task_id), event.clone());
         // 同时发送全局事件，让前端不需要知道task_id也能监听
         let _ = self.app_handle.emit("agent-stage-update", serde_json::json!({
@@ -1143,6 +1099,7 @@ impl AgentService {
             "stage": format!("{:?}", stage),
             "message": event.message,
             "progress": event.progress,
+            "request_id": event.request_id,
         }));
     }
 

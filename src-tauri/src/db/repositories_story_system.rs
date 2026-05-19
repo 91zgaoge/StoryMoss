@@ -141,6 +141,7 @@ impl ChapterCommitRepository {
         &self,
         story_id: &str,
         scene_id: Option<&str>,
+        chapter_id: Option<&str>,
         chapter_number: i32,
         status: &str,
     ) -> Result<ChapterCommit, rusqlite::Error> {
@@ -152,8 +153,8 @@ impl ChapterCommitRepository {
         })?;
 
         conn.execute(
-            "INSERT INTO chapter_commits (id, story_id, scene_id, chapter_number, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![&id, story_id, scene_id, chapter_number, status, now.to_rfc3339()
+            "INSERT INTO chapter_commits (id, story_id, scene_id, chapter_id, chapter_number, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![&id, story_id, scene_id, chapter_id, chapter_number, status, now.to_rfc3339()
             ],
         )?;
 
@@ -161,6 +162,7 @@ impl ChapterCommitRepository {
             id,
             story_id: story_id.to_string(),
             scene_id: scene_id.map(|s| s.to_string()),
+            chapter_id: chapter_id.map(|s| s.to_string()),
             chapter_number,
             status: status.to_string(),
             outline_snapshot_json: None,
@@ -213,26 +215,27 @@ impl ChapterCommitRepository {
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC"
         )?;
 
         let commits = stmt.query_map([story_id], |row| {
-            let created_str: String = row.get(14)?;
+            let created_str: String = row.get(15)?;
             Ok(ChapterCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
-                chapter_number: row.get(3)?,
-                status: row.get(4)?,
-                outline_snapshot_json: row.get(5)?,
-                review_result_json: row.get(6)?,
-                fulfillment_result_json: row.get(7)?,
-                accepted_events_json: row.get(8)?,
-                state_deltas_json: row.get(9)?,
-                entity_deltas_json: row.get(10)?,
-                summary_text: row.get(11)?,
-                dominant_strand: row.get(12)?,
-                projection_status_json: row.get(13)?,
+                chapter_id: row.get(3)?,
+                chapter_number: row.get(4)?,
+                status: row.get(5)?,
+                outline_snapshot_json: row.get(6)?,
+                review_result_json: row.get(7)?,
+                fulfillment_result_json: row.get(8)?,
+                accepted_events_json: row.get(9)?,
+                state_deltas_json: row.get(10)?,
+                entity_deltas_json: row.get(11)?,
+                summary_text: row.get(12)?,
+                dominant_strand: row.get(13)?,
+                projection_status_json: row.get(14)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
@@ -249,26 +252,27 @@ impl ChapterCommitRepository {
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC LIMIT 1"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC LIMIT 1"
         )?;
 
         let commit = stmt.query_row([story_id], |row| {
-            let created_str: String = row.get(14)?;
+            let created_str: String = row.get(15)?;
             Ok(ChapterCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
-                chapter_number: row.get(3)?,
-                status: row.get(4)?,
-                outline_snapshot_json: row.get(5)?,
-                review_result_json: row.get(6)?,
-                fulfillment_result_json: row.get(7)?,
-                accepted_events_json: row.get(8)?,
-                state_deltas_json: row.get(9)?,
-                entity_deltas_json: row.get(10)?,
-                summary_text: row.get(11)?,
-                dominant_strand: row.get(12)?,
-                projection_status_json: row.get(13)?,
+                chapter_id: row.get(3)?,
+                chapter_number: row.get(4)?,
+                status: row.get(5)?,
+                outline_snapshot_json: row.get(6)?,
+                review_result_json: row.get(7)?,
+                fulfillment_result_json: row.get(8)?,
+                accepted_events_json: row.get(9)?,
+                state_deltas_json: row.get(10)?,
+                entity_deltas_json: row.get(11)?,
+                summary_text: row.get(12)?,
+                dominant_strand: row.get(13)?,
+                projection_status_json: row.get(14)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
             })
         }).optional()?;
@@ -285,31 +289,69 @@ impl ChapterCommitRepository {
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE id = ?1"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE id = ?1"
         )?;
 
         let commit = stmt.query_row([id], |row| {
-            let created_str: String = row.get(14)?;
+            let created_str: String = row.get(15)?;
             Ok(ChapterCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
-                chapter_number: row.get(3)?,
-                status: row.get(4)?,
-                outline_snapshot_json: row.get(5)?,
-                review_result_json: row.get(6)?,
-                fulfillment_result_json: row.get(7)?,
-                accepted_events_json: row.get(8)?,
-                state_deltas_json: row.get(9)?,
-                entity_deltas_json: row.get(10)?,
-                summary_text: row.get(11)?,
-                dominant_strand: row.get(12)?,
-                projection_status_json: row.get(13)?,
+                chapter_id: row.get(3)?,
+                chapter_number: row.get(4)?,
+                status: row.get(5)?,
+                outline_snapshot_json: row.get(6)?,
+                review_result_json: row.get(7)?,
+                fulfillment_result_json: row.get(8)?,
+                accepted_events_json: row.get(9)?,
+                state_deltas_json: row.get(10)?,
+                entity_deltas_json: row.get(11)?,
+                summary_text: row.get(12)?,
+                dominant_strand: row.get(13)?,
+                projection_status_json: row.get(14)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
             })
         }).optional()?;
 
         Ok(commit)
+    }
+
+    pub fn get_by_chapter_id(
+        &self,
+        chapter_id: &str,
+    ) -> Result<Vec<ChapterCommit>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| {
+            rusqlite::Error::InvalidParameterName(e.to_string())
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE chapter_id = ?1 ORDER BY created_at DESC"
+        )?;
+
+        let commits = stmt.query_map([chapter_id], |row| {
+            let created_str: String = row.get(15)?;
+            Ok(ChapterCommit {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                scene_id: row.get(2)?,
+                chapter_id: row.get(3)?,
+                chapter_number: row.get(4)?,
+                status: row.get(5)?,
+                outline_snapshot_json: row.get(6)?,
+                review_result_json: row.get(7)?,
+                fulfillment_result_json: row.get(8)?,
+                accepted_events_json: row.get(9)?,
+                state_deltas_json: row.get(10)?,
+                entity_deltas_json: row.get(11)?,
+                summary_text: row.get(12)?,
+                dominant_strand: row.get(13)?,
+                projection_status_json: row.get(14)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(commits)
     }
 
     pub fn update_projection_status(

@@ -7,7 +7,9 @@ use super::models::*;
 use super::parser::parse_book;
 use super::repository::*;
 use crate::db::DbPool;
+use crate::db::repositories_narrative::{NarrativeCharacterRepository, NarrativeSceneRepository, NarrativeWorldBuildingRepository};
 use crate::llm::LlmService;
+use crate::narrative::elements::ElementStatus;
 use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
 use crate::task_system::models::*;
 use tauri::{AppHandle, Emitter, Manager};
@@ -220,7 +222,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
         ctx.update_progress("saving", 93, "正在保存分析结果...");
         ctx.heartbeat();
 
-        // 保存分析结果
+        // 保存分析结果到 narrative_* 表（W3-B3 存储同构化）
         {
             let repo = ReferenceBookRepository::new(self.pool.clone());
             let _ = repo.update_analysis_result(
@@ -234,13 +236,30 @@ impl TaskExecutor for BookDeconstructionExecutor {
             );
             let _ = repo.update_status(book_id, AnalysisStatus::Completed, 100);
 
-            ctx.update_progress("saving", 96, &format!("正在保存 {} 个人物...", analysis_result.characters.len()));
-            let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
-            let _ = char_repo.create_batch(&analysis_result.characters);
+            // 设置 narrative 元素状态为 Reference
+            for character in &mut analysis_ctx.bundle.characters {
+                character.status = ElementStatus::Reference;
+            }
+            for scene in &mut analysis_ctx.bundle.scenes {
+                scene.status = ElementStatus::Reference;
+            }
+            if let Some(ref mut wb) = analysis_ctx.bundle.world_building {
+                wb.status = ElementStatus::Reference;
+            }
 
-            ctx.update_progress("saving", 98, &format!("正在保存 {} 个场景...", analysis_result.scenes.len()));
-            let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
-            let _ = scene_repo.create_batch(&analysis_result.scenes);
+            ctx.update_progress("saving", 96, &format!("正在保存 {} 个人物...", analysis_ctx.bundle.characters.len()));
+            let char_repo = NarrativeCharacterRepository::new(self.pool.clone());
+            let _ = char_repo.create_batch(&analysis_ctx.bundle.characters);
+
+            ctx.update_progress("saving", 98, &format!("正在保存 {} 个场景...", analysis_ctx.bundle.scenes.len()));
+            let scene_repo = NarrativeSceneRepository::new(self.pool.clone());
+            let _ = scene_repo.create_batch(&analysis_ctx.bundle.scenes);
+
+            if let Some(ref wb) = analysis_ctx.bundle.world_building {
+                ctx.update_progress("saving", 99, "正在保存世界观...");
+                let wb_repo = NarrativeWorldBuildingRepository::new(self.pool.clone());
+                let _ = wb_repo.create(wb);
+            }
         }
 
         // 向量化存储
