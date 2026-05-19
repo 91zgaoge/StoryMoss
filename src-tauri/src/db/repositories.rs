@@ -233,8 +233,8 @@ impl CharacterRepository {
         let characters = stmt.query_map([story_id], |row| {
             let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(17)?;
-            let updated_str: String = row.get(18)?;
+            let created_str: String = row.get(18)?;
+            let updated_str: String = row.get(19)?;
 
             Ok(Character {
                 id: row.get(0)?,
@@ -272,8 +272,8 @@ impl CharacterRepository {
         let character = stmt.query_row([id], |row| {
             let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(17)?;
-            let updated_str: String = row.get(18)?;
+            let created_str: String = row.get(18)?;
+            let updated_str: String = row.get(19)?;
 
             Ok(Character {
                 id: row.get(0)?,
