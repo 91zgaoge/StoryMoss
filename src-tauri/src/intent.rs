@@ -369,7 +369,7 @@ impl IntentExecutor {
                         agent_name: agent.name().to_string(),
                         success: false,
                         result: None,
-                        error: Some(e),
+                        error: Some(e.to_string()),
                     });
                     // 串行模式下遇到错误可选择中断，这里继续记录但停止传递输入
                     break;
@@ -413,7 +413,7 @@ impl IntentExecutor {
                         agent_name: agent.name().to_string(),
                         success: false,
                         result: None,
-                        error: Some(e),
+                        error: Some(e.to_string()),
                     },
                 }
             });

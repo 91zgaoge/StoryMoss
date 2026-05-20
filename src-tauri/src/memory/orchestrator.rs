@@ -7,7 +7,7 @@
 //!
 //! 预算分配：按任务类型 (write/plan/review) 分配各层条目上限
 
-use crate::db::{DbPool, MemoryItemRepository, ChapterCommitRepository};
+use crate::db::{DbPool, MemoryItemRepository, SceneCommitRepository};
 use crate::creative_engine::payoff_ledger::PayoffLedger;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -275,7 +275,7 @@ impl MemoryOrchestrator {
         }
 
         // 添加近章摘要（最近3章）
-        let commit_repo = ChapterCommitRepository::new(self.pool.clone());
+        let commit_repo = SceneCommitRepository::new(self.pool.clone());
         let recent_commits = commit_repo.get_by_story(story_id)
             .map_err(|e| format!("获取最近提交失败: {}", e))?;
 

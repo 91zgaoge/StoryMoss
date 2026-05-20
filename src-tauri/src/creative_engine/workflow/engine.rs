@@ -12,6 +12,7 @@ use crate::db::repositories_v3::KnowledgeGraphRepository;
 use crate::creative_engine::methodology::MethodologyConfig;
 use super::{WorkflowExecutionResult, WorkflowProgressEvent, WorkflowStage, CreationMode};
 use super::quality::QualityChecker;
+use crate::error::AppError;
 use crate::llm::service::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -280,7 +281,7 @@ impl CreationWorkflowEngine {
     }
 
     /// 构建 AgentContext（使用 StoryContextBuilder）
-    pub fn build_context(&self, story_id: &str) -> Result<AgentContext, String> {
+    pub fn build_context(&self, story_id: &str) -> Result<AgentContext, AppError> {
         use crate::creative_engine::StoryContextBuilder;
         let builder = StoryContextBuilder::new(self.pool.clone());
         builder.build_quick(story_id)
@@ -294,7 +295,7 @@ impl CreationWorkflowEngine {
         phase: CreationPhase,
         context: &AgentContext,
         input: &str,
-    ) -> Result<AgentResult, String> {
+    ) -> Result<AgentResult, AppError> {
         let config = standard_phase_workflow(phase, context);
         let agent_type = config.required_agents.first().copied();
 
@@ -418,7 +419,7 @@ impl CreationWorkflowEngine {
         &self,
         config: &WorkflowConfig,
         initial_input: &str,
-    ) -> Result<WorkflowExecutionResult, String> {
+    ) -> Result<WorkflowExecutionResult, AppError> {
         let mut state = WorkflowState::new(format!("wf-{}", config.story_id));
         let mut current_input = initial_input.to_string();
         let mut context = self.build_context(&config.story_id)?;
@@ -552,7 +553,7 @@ impl CreationWorkflowEngine {
         state: &mut WorkflowState,
         context: &mut AgentContext,
         current_input: &mut String,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         let phase_workflows = vec![
             standard_phase_workflow(CreationPhase::Conception, context),
             standard_phase_workflow(CreationPhase::Outlining, context),
@@ -674,7 +675,7 @@ impl CreationWorkflowEngine {
         phase: CreationPhase,
         story_id: &str,
         input: &str,
-    ) -> Result<AgentResult, String> {
+    ) -> Result<AgentResult, AppError> {
         let mut context = self.build_context(story_id)?;
         let result = self.execute_phase(phase, &context, input).await?;
         Self::update_context_after_phase(&mut context, phase, &result.content);

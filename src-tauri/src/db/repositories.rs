@@ -460,24 +460,16 @@ impl ChapterRepository {
                 // 创建新 Scene
                 let sid = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO scenes (id, story_id, sequence_number, title, content, characters_present, character_conflicts, execution_stage, created_at, updated_at) 
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    "INSERT INTO scenes (id, story_id, sequence_number, title, content, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         &sid, &req.story_id, req.chapter_number, req.title, req.content,
-                        "[]", "[]", "drafting", now.to_rfc3339(), now.to_rfc3339()
+                        "[]", "[]", "drafting", &id, now.to_rfc3339(), now.to_rfc3339()
                     ],
                 )?;
                 Some(sid)
             }
         };
-
-        // 3. 更新 chapter 的 scene_id
-        if let Some(ref sid) = scene_id {
-            tx.execute(
-                "UPDATE chapters SET scene_id = ?1 WHERE id = ?2",
-                params![sid, &id],
-            )?;
-        }
 
         tx.commit()?;
 
@@ -491,7 +483,6 @@ impl ChapterRepository {
             word_count,
             model_used: None,
             cost: None,
-            scene_id,
             created_at: now,
             updated_at: now,
         })
@@ -500,12 +491,12 @@ impl ChapterRepository {
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, scene_id, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY chapter_number"
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY chapter_number"
         )?;
 
         let chapters = stmt.query_map([story_id], |row| {
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
             Ok(Chapter {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
@@ -516,7 +507,6 @@ impl ChapterRepository {
                 word_count: row.get(6)?,
                 model_used: row.get(7)?,
                 cost: row.get(8)?,
-                scene_id: row.get::<_, Option<String>>(9)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -528,12 +518,12 @@ impl ChapterRepository {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, scene_id, created_at, updated_at FROM chapters WHERE id = ?1"
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1"
         )?;
 
         let chapter = stmt.query_row([id], |row| {
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
             Ok(Chapter {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
@@ -544,7 +534,6 @@ impl ChapterRepository {
                 word_count: row.get(6)?,
                 model_used: row.get(7)?,
                 cost: row.get(8)?,
-                scene_id: row.get::<_, Option<String>>(9)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -566,14 +555,12 @@ impl ChapterRepository {
             params![id, title, outline, content, word_count, now],
         )?;
 
-        // 同步更新关联的 Scene
+        // 同步更新关联的 Scene(s)
         if title.is_some() || content.is_some() {
-            let scene_id: Option<String> = tx.query_row(
-                "SELECT scene_id FROM chapters WHERE id = ?1",
-                [id],
-                |row| row.get(0)
-            ).optional()?;
-            if let Some(sid) = scene_id {
+            let scene_ids: Vec<String> = tx.prepare(
+                "SELECT id FROM scenes WHERE chapter_id = ?1"
+            )?.query_map([id], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+            for sid in scene_ids {
                 tx.execute(
                     "UPDATE scenes SET title = COALESCE(?2, title), content = COALESCE(?3, content), updated_at = ?4 WHERE id = ?1",
                     params![sid, title, content, now],

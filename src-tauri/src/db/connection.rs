@@ -102,10 +102,25 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             UNIQUE(story_id, chapter_number)
         );
 
+        -- 场景分隔节点表 (v0.7.3 - 1:N 连续编辑表面)
+        CREATE TABLE IF NOT EXISTS scene_divider_nodes (
+            id TEXT PRIMARY KEY,
+            chapter_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            scene_id TEXT NOT NULL,
+            label TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            UNIQUE(chapter_id, position)
+        );
+
         -- Create indexes
         CREATE INDEX IF NOT EXISTS idx_characters_story ON characters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_story ON chapters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_number ON chapters(story_id, chapter_number);
+        CREATE INDEX IF NOT EXISTS idx_scene_divider_chapter ON scene_divider_nodes(chapter_id);
         "#
     )?;
     // Migration 17: 创建任务表和任务日志表 (v3.5.0)
@@ -448,6 +463,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             content TEXT,
             previous_scene_id TEXT,
             next_scene_id TEXT,
+            chapter_id TEXT,                -- v0.7.3: 1:N Chapter↔Scene 关联
             model_used TEXT,
             cost REAL,
             created_at TEXT NOT NULL,
@@ -455,6 +471,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
             FOREIGN KEY (previous_scene_id) REFERENCES scenes(id) ON DELETE SET NULL,
             FOREIGN KEY (next_scene_id) REFERENCES scenes(id) ON DELETE SET NULL,
+            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL,
             UNIQUE(story_id, sequence_number)
         );
 
@@ -2124,20 +2141,21 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 48: 创建 chapter_commits 表 — 章节提交链
-    let chapter_commit_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_commits'"
+    // Migration 48: 创建 scene_commits 表 — Scene 提交链 (v0.7.3 从 chapter_commits 重命名)
+    let scene_commit_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'"
     )?.query_map([], |row| {
         let name: String = row.get(0)?;
         Ok(name)
     })?.collect::<Result<Vec<_>, _>>()?;
 
-    if chapter_commit_tables.is_empty() {
+    if scene_commit_tables.is_empty() {
         conn.execute(
-            "CREATE TABLE chapter_commits (
+            "CREATE TABLE scene_commits (
                 id TEXT PRIMARY KEY,
                 story_id TEXT NOT NULL,
                 scene_id TEXT,
+                chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL,
                 chapter_number INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 outline_snapshot_json TEXT,
@@ -2156,15 +2174,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             [],
         )?;
         conn.execute(
-            "CREATE INDEX idx_chapter_commits_story ON chapter_commits(story_id)",
+            "CREATE INDEX idx_scene_commits_story ON scene_commits(story_id)",
             [],
         )?;
         conn.execute(
-            "CREATE INDEX idx_chapter_commits_scene ON chapter_commits(scene_id)",
+            "CREATE INDEX idx_scene_commits_scene ON scene_commits(scene_id)",
             [],
         )?;
         conn.execute(
-            "CREATE UNIQUE INDEX idx_chapter_commits_number ON chapter_commits(story_id, chapter_number)",
+            "CREATE UNIQUE INDEX idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
             [],
         )?;
     }
@@ -2890,9 +2908,17 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 68: chapter_commits 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
+    // Migration 68: scene_commits (原 chapter_commits) 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
+    // v0.7.3: 兼容新旧表名。新数据库直接创建 scene_commits，旧数据库先存在 chapter_commits
+    let scene_commit_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+    let table_name = if scene_commit_exists { "scene_commits" } else { "chapter_commits" };
+
     let cc_columns_m68: Vec<String> = conn.prepare(
-        "PRAGMA table_info(chapter_commits)"
+        &format!("PRAGMA table_info({})", table_name)
     )?.query_map([], |row| {
         let name: String = row.get(1)?;
         Ok(name)
@@ -2900,11 +2926,11 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     if !cc_columns_m68.iter().any(|c| c == "chapter_id") {
         conn.execute(
-            "ALTER TABLE chapter_commits ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL",
+            &format!("ALTER TABLE {} ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL", table_name),
             [],
         )?;
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chapter_commits_chapter ON chapter_commits(chapter_id)",
+            &format!("CREATE INDEX IF NOT EXISTS idx_{}_chapter ON {}(chapter_id)", table_name.replace("_commits", "_commits"), table_name),
             [],
         )?;
     }
@@ -2952,6 +2978,103 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             FROM reference_scenes rs
             LEFT JOIN narrative_scenes ns ON ns.id = rs.id
             WHERE ns.id IS NULL",
+            [],
+        )?;
+    }
+
+    // Migration 70: chapter_commits 重命名为 scene_commits (v0.7.3 SCENE_COMMIT 语义对齐)
+    let has_old_table: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+
+    if has_old_table {
+        conn.execute(
+            "ALTER TABLE chapter_commits RENAME TO scene_commits",
+            [],
+        )?;
+        // SQLite RENAME TABLE 会自动更新大部分索引引用，
+        // 但含有旧表名的索引名需要删除后重建
+        conn.execute(
+            "DROP INDEX IF EXISTS idx_chapter_commits_story",
+            [],
+        )?;
+        conn.execute(
+            "DROP INDEX IF EXISTS idx_chapter_commits_scene",
+            [],
+        )?;
+        conn.execute(
+            "DROP INDEX IF EXISTS idx_chapter_commits_number",
+            [],
+        )?;
+        conn.execute(
+            "DROP INDEX IF EXISTS idx_chapter_commits_chapter",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scene_commits_story ON scene_commits(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scene_commits_scene ON scene_commits(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scene_commits_chapter ON scene_commits(chapter_id)",
+            [],
+        )?;
+    }
+
+    // Migration 71: 废弃 chapters.scene_id，完成 1:N 架构语义对齐 (v0.7.3)
+    let chapter_columns_m71: Vec<String> = conn.prepare(
+        "PRAGMA table_info(chapters)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if chapter_columns_m71.iter().any(|c| c == "scene_id") {
+        conn.execute(
+            "ALTER TABLE chapters DROP COLUMN scene_id",
+            [],
+        )?;
+        conn.execute(
+            "DROP INDEX IF EXISTS idx_chapters_scene",
+            [],
+        )?;
+    }
+
+    // Migration 72: 创建 scene_divider_nodes 表 (v0.7.3 - SceneDividerNode 功能化预留接口)
+    let divider_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if divider_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE scene_divider_nodes (
+                id TEXT PRIMARY KEY,
+                chapter_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                scene_id TEXT NOT NULL,
+                label TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                UNIQUE(chapter_id, position)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)",
             [],
         )?;
     }

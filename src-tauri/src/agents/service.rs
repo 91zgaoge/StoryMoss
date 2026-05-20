@@ -7,6 +7,7 @@
 
 use super::{Agent, AgentContext, AgentResult};
 use crate::config::settings::AppConfig;
+use crate::error::AppError;
 use crate::llm::service::LlmService;
 use crate::subscription::{SubscriptionService, SubscriptionTier};
 use serde::{Deserialize, Serialize};
@@ -174,7 +175,7 @@ impl AgentService {
     }
 
     /// 执行Agent任务
-    pub async fn execute_task(&self, task: AgentTask) -> Result<AgentResult, String> {
+    pub async fn execute_task(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let task_id = task.id.clone();
         let agent_type = task.agent_type;
         
@@ -270,7 +271,7 @@ impl AgentService {
         temperature: Option<f32>,
         tier: SubscriptionTier,
         request_id: Option<String>,
-    ) -> Result<(String, crate::llm::GenerateResponse), String> {
+    ) -> Result<(String, crate::llm::GenerateResponse), AppError> {
         let start_time = std::time::Instant::now();
         let effective_max = match tier {
             SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
@@ -329,7 +330,7 @@ impl AgentService {
 
     /// 原始 Writer 生成 — 只生成内容，不进入闭环
     /// v5.3.1: 提取为独立方法，供 AgentOrchestrator 和 Bootstrap 直接调用，防止递归
-    pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, String> {
+    pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         
@@ -389,7 +390,7 @@ impl AgentService {
                 "[AgentService::execute_writer_raw] LLM returned empty content. story_id={}, chapter_number={}, instruction_len={}",
                 task.context.story_id, task.context.chapter_number, task.input.len()
             );
-            return Err("AI 返回了空内容，请检查模型配置或重试".to_string());
+            return Err(AppError::internal("AI 返回了空内容，请检查模型配置或重试"));
         }
         
         // v5.4.0: 去除与 current_content 重复的前缀，防止 LLM 返回完整文本导致前端"重复输出"
@@ -410,7 +411,7 @@ impl AgentService {
                             "[AgentService::execute_writer_raw] Content became empty after prefix removal. story_id={}, chapter_number={}",
                             task.context.story_id, task.context.chapter_number
                         );
-                        return Err("AI 返回的内容与已有文本完全重复，请重试".to_string());
+                        return Err(AppError::internal("AI 返回的内容与已有文本完全重复，请重试"));
                     }
                 }
             }
@@ -461,7 +462,7 @@ impl AgentService {
     }
 
     /// 执行质检员
-    async fn execute_inspector(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_inspector(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析内容质量", 0.1);
         
@@ -490,7 +491,7 @@ impl AgentService {
     }
 
     /// 执行大纲规划师
-    async fn execute_outline_planner(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_outline_planner(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析故事需求", 0.1);
         
@@ -516,7 +517,7 @@ impl AgentService {
     }
 
     /// 执行风格模仿师
-    async fn execute_style_mimic(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_style_mimic(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析文风特征", 0.1);
         
@@ -542,7 +543,7 @@ impl AgentService {
     }
 
     /// 执行情节分析师
-    async fn execute_plot_analyzer(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_plot_analyzer(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析情节结构", 0.1);
         
@@ -570,7 +571,7 @@ impl AgentService {
     }
 
     /// 执行古典评点家
-    async fn execute_commentator(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_commentator(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "品读文本", 0.1);
         
@@ -614,7 +615,7 @@ impl AgentService {
     }
 
     /// 执行记忆压缩师
-    async fn execute_memory_compressor(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_memory_compressor(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析待压缩内容", 0.1);
         
@@ -681,7 +682,7 @@ impl AgentService {
     }
 
     /// 执行知识蒸馏师
-    async fn execute_knowledge_distiller(&self, task: AgentTask) -> Result<AgentResult, String> {
+    async fn execute_knowledge_distiller(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析知识图谱结构", 0.1);
         

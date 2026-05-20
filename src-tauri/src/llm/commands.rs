@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use super::service::{init_llm_service, LlmService};
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle};
 
@@ -31,9 +32,9 @@ pub struct StreamGenerateRequest {
 pub async fn llm_generate(
     request: GenerateRequestPayload,
     app_handle: AppHandle,
-) -> Result<super::adapter::GenerateResponse, String> {
+) -> Result<super::adapter::GenerateResponse, AppError> {
     let service = LlmService::new(app_handle);
-    
+
     service.generate(
         request.prompt,
         request.max_tokens,
@@ -46,9 +47,9 @@ pub async fn llm_generate(
 pub async fn llm_generate_stream(
     request: StreamGenerateRequest,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let service = LlmService::new(app_handle);
-    
+
     service.generate_stream(
         request.request_id,
         request.prompt,
@@ -60,9 +61,9 @@ pub async fn llm_generate_stream(
 
 /// 测试LLM连接
 #[command]
-pub async fn llm_test_connection(app_handle: AppHandle) -> Result<TestConnectionResult, String> {
+pub async fn llm_test_connection(app_handle: AppHandle) -> Result<TestConnectionResult, AppError> {
     let service = LlmService::new(app_handle);
-    
+
     match service.test_connection().await {
         Ok((success, latency)) => Ok(TestConnectionResult {
             success,
@@ -76,7 +77,7 @@ pub async fn llm_test_connection(app_handle: AppHandle) -> Result<TestConnection
         Err(e) => Ok(TestConnectionResult {
             success: false,
             latency_ms: 0,
-            message: e,
+            message: e.to_string(),
         }),
     }
 }
@@ -94,7 +95,7 @@ pub struct TestConnectionResult {
 pub async fn llm_cancel_generation(
     request_id: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let service = LlmService::new(app_handle);
     service.cancel_generation(&request_id);
     Ok(())
@@ -102,7 +103,7 @@ pub async fn llm_cancel_generation(
 
 /// 初始化LLM服务（在应用启动时调用）
 #[command]
-pub fn init_llm(app_handle: AppHandle) -> Result<(), String> {
+pub fn init_llm(app_handle: AppHandle) -> Result<(), AppError> {
     init_llm_service(app_handle);
     log::info!("[LLM] Service initialized");
     Ok(())

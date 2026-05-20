@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use crate::llm::LlmService;
+use crate::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptEvolution {
@@ -32,7 +33,7 @@ impl PromptEvolver {
         &self,
         original_prompt: &str,
         story_context: &EvolutionContext,
-    ) -> Result<PromptEvolution, String> {
+    ) -> Result<PromptEvolution, AppError> {
         let evolution_prompt = self.build_evolution_prompt(original_prompt, story_context);
 
         let response = self.llm_service.generate(evolution_prompt, Some(1500), Some(0.5)).await?;
@@ -57,7 +58,7 @@ impl PromptEvolver {
         agent_name: &str,
         original_system_prompt: &str,
         story_context: &EvolutionContext,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         let prompt = format!(
             r#"You are a prompt evolution specialist for a creative writing AI.
 
@@ -94,7 +95,7 @@ Rewritten system prompt (maintain the same structural elements but adapt the voi
         original_system_prompt: &str,
         original_user_template: &str,
         story_context: &EvolutionContext,
-    ) -> Result<(String, String), String> {
+    ) -> Result<(String, String), AppError> {
         let prompt = format!(
             r#"You are a prompt evolution specialist.
 

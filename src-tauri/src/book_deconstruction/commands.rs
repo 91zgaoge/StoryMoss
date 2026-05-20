@@ -7,12 +7,32 @@ use super::service::{AnalysisStatusResponse, BookDeconstructionService};
 use crate::error::AppError;
 use crate::db::DbPool;
 use crate::llm::LlmService;
+use crate::subscription::SubscriptionService;
 use tauri::{command, AppHandle, Manager};
+
+fn get_user_id(app_handle: &AppHandle) -> String {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let machine_id_path = app_dir.join(".machine_id");
+    if machine_id_path.exists() {
+        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+    } else {
+        "local".to_string()
+    }
+}
 
 /// 上传文件并开始分析
 #[command]
 pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
+    let user_id = get_user_id(&app_handle);
+    let subscription = SubscriptionService::new(pool.clone());
+    if !subscription.has_feature_access(&user_id, "book_deconstruction")? {
+        return Err(AppError::subscription_required(
+            "book_deconstruction",
+            "拆书功能需要 Pro 订阅，请升级以继续使用",
+        ));
+    }
+
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
 

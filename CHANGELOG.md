@@ -2,6 +2,61 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.3] - 商业模式重构 + 1:N Chapter↔Scene 架构完成 + SceneDivider 预留接口（2026-05-20）
+
+### 💼 商业模式重构：订阅解锁功能，非模型配额
+
+#### SubscriptionService 精简
+- **移除配额计量体系**：删除 `QuotaDetail`、`QuotaCheckResult`、`OFFLINE_GRACE_LIMIT` 及全部配额检查/消费方法
+- **移除方法**：`get_or_create_quota`、`get_quota_detail`、`check_auto_write_quota`、`consume_auto_write_quota`、`check_auto_revise_quota`、`consume_auto_revise_quota`、`check_platform_model_quota`、`consume_platform_model_quota`、`check_ai_quota`、`consume_ai_quota`
+- **保留方法**：`get_or_create_subscription`（仅创建/查询订阅状态）、`has_feature_access`（功能开关检查）、`upgrade_subscription`、`log_ai_usage`（纯统计）
+
+#### `has_feature_access` 细粒度功能权限
+- **Free 用户可用**：`writer`、`scene_management`、`character_management`、`knowledge_graph_query`、`outline`
+- **Pro/Enterprise 解锁**：`pipeline_refine`、`pipeline_review`、`pipeline_finalize`、`book_deconstruction`、`auto_write`、`auto_revise` 等全部高级功能
+- **拆书与 Pipeline 命令接入**：`book_deconstruction/commands.rs` 和 `pipeline/commands.rs` 统一调用 `has_feature_access`，未授权返回 `AppError::subscription_required`
+
+#### `AppError::SubscriptionRequired` 取代 `QuotaExceeded`
+- **错误码变更**：`QUOTA_EXCEEDED` → `SUBSCRIPTION_REQUIRED`
+- **字段变更**：`{ quota_type, remaining }` → `{ feature_id, current_tier }`
+- **构造函数变更**：`quota_exceeded()` → `subscription_required(feature_id, message)`
+- **前端兼容**：`loggedInvoke` 按 `SUBSCRIPTION_REQUIRED` code 渲染升级引导 UI
+
+#### `log_ai_usage` 纯统计（不参与配额控制）
+- 记录字段：`user_id`、`story_id`、`chapter_id`、`agent_type`、`instruction`、`prompt_tokens`、`completion_tokens`、`model_used`、`cost`、`duration_ms`、`tier_at_time`
+- 仅用于 UsageStats 看板展示，不做任何拦截或限制
+
+### 🏗️ 1:N Chapter↔Scene 架构完成（Phase 4）
+
+#### 废弃 `chapters.scene_id`
+- **Migration 71**：`chapters` 表移除 `scene_id` 列（旧数据库 `DROP COLUMN IF EXISTS`）
+- **`Chapter` 模型**：删除 `pub scene_id: Option<String>` 字段
+- **全链路改为 `scenes.chapter_id` 查询**：
+  - `ChapterRepository::create` / `update` / `get_by_story`：不再读写 `chapters.scene_id`
+  - `SceneRepository::create`：不再 `UPDATE chapters SET scene_id = ?`
+  - `SceneRepository::delete`：不再 `UPDATE chapters SET scene_id = NULL`
+  - `lib.rs` `create_chapter` / `update_chapter`：改为 `SceneRepository::get_by_chapter(&chapter.id)` 查询关联场景，触发 `SceneCommitService::auto_commit`
+
+#### `SceneCommitService` 取代 `ChapterCommitService`
+- **提交粒度对齐 Scene**：`scene_commits` 表新增 `scene_id` 外键（可空），记录 `state_deltas_json` / `entity_deltas_json` / `accepted_events_json`，提交链以 Scene 为单元
+- **Migration 70**：`chapter_commits` 表重命名为 `scene_commits`；所有索引同步重建（`idx_scene_commits_story` / `idx_scene_commits_scene` / `idx_scene_commits_number` / `idx_scene_commits_chapter`）
+- **Repository 重命名**：`ChapterCommitRepository` → `SceneCommitRepository`，`ChapterCommit` → `SceneCommit`
+- **Service 重命名**：`story_system::SceneCommitService::auto_commit(story_id, chapter_id, scene_id)` — 有 `scene_id` 时写入 scene_commits，无则保持基于 chapter 的兼容路径
+- **IPC 命令**：`init_chapter_commit` / `apply_chapter_commit` / `get_chapter_commits` 保留原签名，内部操作 `scene_commits` 表
+
+#### `SceneDividerNode` 功能预留接口
+- **`SceneDividerNode` 模型**（`db/models_v3.rs`）：`id` / `chapter_id` / `position` / `scene_id` / `label` / `created_at` / `updated_at`
+- **`SceneDividerRepository`**（`db/repositories_v3.rs`）：`create`、`get_by_chapter`、`set_dividers`（事务级全量替换）、`delete`、`delete_by_chapter`
+- **Migration 72**：`scene_divider_nodes` 表（`TEXT` 主键 + `chapter_id` 外键 + `position` 整数 + `scene_id` / `label`），新建数据库自动创建；`CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)`
+- **前端保留**：`SceneDividerNode.ts` TipTap 扩展维持原子块节点定义，等待 1:N 编辑器模式激活
+
+### 🔧 其他变更
+- **`db/connection.rs` 初始 Schema**：`scenes` 表 CREATE TABLE 添加 `chapter_id TEXT` + `FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL`；`CREATE INDEX idx_scene_chapter ON scenes(chapter_id)`；新增 `scene_divider_nodes` 表定义
+- **编译状态**：`cargo check` 零错误，`cargo test` ~225/225 通过，`npm run build` 通过
+- **版本号**：Cargo.toml / package.json / tauri.conf.json → 0.7.3
+
+---
+
 ## [v0.7.0] - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
 
 ### 🏭 AI 三审 Pipeline 系统
@@ -134,7 +189,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📝 1:N 聚合编辑数据库 Schema
 
 - **Migration 68**：`chapter_commits` 表新增 `chapter_id` 字段（`TEXT` / `Option<String>`），支持多场景聚合到单一章节的提交追踪
-- **全链路对齐** — `ChapterCommit` 结构体、`ChapterCommitRepository`（create/get/update SQL）、`chapter_commit_service.rs` 全部适配新字段
+- **全链路对齐** — `ChapterCommit` 结构体、`ChapterCommitRepository`（create/get/update SQL）、`story_system/mod.rs` 全部适配新字段
 - **`ChapterCommitService::auto_commit`** — 有 `chapter_id` 时写入外键，无则保持 `NULL`，兼容现有单场景提交路径
 
 ### 🖊️ TipTap SceneDividerNode

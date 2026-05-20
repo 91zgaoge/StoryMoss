@@ -117,7 +117,7 @@ impl LlmService {
     }
 
     /// 创建适配器
-    fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, String> {
+    fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
         match profile.provider {
             LlmProvider::OpenAI | LlmProvider::Custom | LlmProvider::DeepSeek | LlmProvider::Qwen => {
                 Ok(Box::new(OpenAiAdapter::new(
@@ -148,7 +148,10 @@ impl LlmService {
             }
             _ => {
                 log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
-                Err(format!("Provider {:?} not supported", profile.provider))
+                Err(AppError::validation_failed(
+                    format!("Provider {:?} not supported", profile.provider),
+                    Some("provider"),
+                ))
             }
         }
     }
@@ -170,7 +173,7 @@ impl LlmService {
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
-    ) -> Result<GenerateResponse, String> {
+    ) -> Result<GenerateResponse, AppError> {
         log::info!("[LLM] generate() called");
         let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, None, None, None).await;
         result
@@ -183,7 +186,7 @@ impl LlmService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
         context_label: Option<&str>,
-    ) -> Result<GenerateResponse, String> {
+    ) -> Result<GenerateResponse, AppError> {
         let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, None, None).await;
         result
     }
@@ -196,7 +199,7 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
-    ) -> Result<GenerateResponse, String> {
+    ) -> Result<GenerateResponse, AppError> {
         let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, pipeline_ctx, None).await;
         result
     }
@@ -212,28 +215,18 @@ impl LlmService {
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
         request_id: Option<String>,
-    ) -> (String, Result<GenerateResponse, String>) {
+    ) -> (String, Result<GenerateResponse, AppError>) {
         let profile = match self.get_active_profile() {
             Some(p) => p,
             None => {
                 log::error!("[LLM] Active profile not found");
-                return (request_id.unwrap_or_default(), Err("No active LLM profile configured".to_string()));
+                return (request_id.unwrap_or_default(), Err(AppError::internal("No active LLM profile configured")));
             }
         };
 
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
-
-        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
-        if profile.model_source == crate::config::settings::ModelSource::Platform {
-            if let Err(e) = self.check_platform_quota() {
-                let err_msg = e.to_string();
-                log::warn!("[LLM] Quota check failed: {}", err_msg);
-                self.emit_llm_progress("error", &err_msg, 0, &model_name, pipeline_ref);
-                return (request_id.unwrap_or_default(), Err(err_msg));
-            }
-        }
 
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
         let adapter = match self.create_adapter(&profile) {
@@ -321,16 +314,16 @@ impl LlmService {
             r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
                 match r {
                     Ok(Ok(resp)) => Ok(resp),
-                    Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                    Ok(Err(e)) => Err(AppError::internal(format!("Generation failed: {}", e))),
                     Err(_) => {
                         log::warn!("[LLM] Generation timed out after {}s", 600);
-                        Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                        Err(AppError::llm_timeout(600_000))
                     }
                 }
             }
             _ = cancel_rx.recv() => {
                 log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
-                Err("生成已取消".to_string())
+                Err(AppError::cancelled("生成已取消"))
             }
         };
 
@@ -347,8 +340,8 @@ impl LlmService {
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
-                let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, pipeline_ref);
+                let is_timeout = matches!(e, AppError::LlmTimeout { .. });
+                self.emit_llm_progress("error", &e.to_string(), if is_timeout { 600 } else { 0 }, &model_name, pipeline_ref);
                 (request_id.clone(), Err(e))
             }
         }
@@ -361,7 +354,7 @@ impl LlmService {
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
-    ) -> Result<GenerateResponse, String> {
+    ) -> Result<GenerateResponse, AppError> {
         let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, None, None).await;
         result
     }
@@ -374,7 +367,7 @@ impl LlmService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
         context_label: Option<&str>,
-    ) -> Result<GenerateResponse, String> {
+    ) -> Result<GenerateResponse, AppError> {
         let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, context_label, None).await;
         result
     }
@@ -388,29 +381,19 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         request_id: Option<String>,
-    ) -> (String, Result<GenerateResponse, String>) {
+    ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile_id, prompt.len());
 
         let profile = match self.get_profile_by_id(profile_id) {
             Some(p) => p,
             None => {
                 log::error!("[LLM] Active profile not found: {}", profile_id);
-                return (request_id.unwrap_or_default(), Err(format!("LLM profile '{}' not found", profile_id)));
+                return (request_id.unwrap_or_default(), Err(AppError::not_found("llm_profile", profile_id)));
             }
         };
 
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
-
-        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
-        if profile.model_source == crate::config::settings::ModelSource::Platform {
-            if let Err(e) = self.check_platform_quota() {
-                let err_msg = e.to_string();
-                log::warn!("[LLM] Quota check failed for profile={}: {}", profile_id, err_msg);
-                self.emit_llm_progress("error", &err_msg, 0, &model_name, None);
-                return (request_id.unwrap_or_default(), Err(err_msg));
-            }
-        }
 
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
         let adapter = match self.create_adapter(&profile) {
@@ -480,16 +463,16 @@ impl LlmService {
             r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
                 match r {
                     Ok(Ok(resp)) => Ok(resp),
-                    Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                    Ok(Err(e)) => Err(AppError::internal(format!("Generation failed: {}", e))),
                     Err(_) => {
                         log::warn!("[LLM] Generation timed out after {}s", 600);
-                        Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                        Err(AppError::llm_timeout(600_000))
                     }
                 }
             }
             _ = cancel_rx.recv() => {
                 log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
-                Err("生成已取消".to_string())
+                Err(AppError::cancelled("生成已取消"))
             }
         };
 
@@ -506,8 +489,8 @@ impl LlmService {
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
-                let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name, None);
+                let is_timeout = matches!(e, AppError::LlmTimeout { .. });
+                self.emit_llm_progress("error", &e.to_string(), if is_timeout { 600 } else { 0 }, &model_name, None);
                 (request_id.clone(), Err(e))
             }
         }
@@ -524,30 +507,11 @@ impl LlmService {
         context: Option<String>,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         let start_time = std::time::Instant::now();
 
         let profile = self.get_active_profile()
-            .ok_or("No active LLM profile configured")?;
-
-        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
-        if profile.model_source == crate::config::settings::ModelSource::Platform {
-            if let Err(e) = self.check_platform_quota() {
-                let err_msg = e.to_string();
-                log::warn!("[LLM] Quota check failed for stream request_id={}: {}", request_id, err_msg);
-                let error_code = if matches!(e, crate::error::AppError::QuotaExceeded { .. }) {
-                    "QUOTA_EXCEEDED"
-                } else {
-                    "QUOTA_CHECK_FAILED"
-                };
-                let error = GenerationError {
-                    error: err_msg.clone(),
-                    error_code: error_code.to_string(),
-                };
-                let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
-                return Err(err_msg);
-            }
-        }
+            .ok_or_else(|| AppError::internal("No active LLM profile configured"))?;
 
         // 构建增强提示词
         let enhanced_prompt = self.build_writing_prompt(&prompt, context.as_deref());
@@ -566,8 +530,8 @@ impl LlmService {
         // 整体流式生成启动超时 30 秒（建立连接 + 收到第一个 chunk）
         let mut rx = timeout(Duration::from_secs(30), adapter.generate_stream(request))
             .await
-            .map_err(|_| "模型连接超时（30秒内未开始响应）".to_string())?
-            .map_err(|e| format!("Stream setup failed: {}", e))?;
+            .map_err(|_| AppError::llm_timeout(30_000))?
+            .map_err(|e| AppError::internal(format!("Stream setup failed: {}", e)))?;
 
         let mut full_text = String::new();
         let mut is_first = true;
@@ -604,7 +568,7 @@ impl LlmService {
                                 error_code: "STREAM_ERROR".to_string(),
                             };
                             let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
-                            return Err(format!("Stream error: {}", e));
+                            return Err(AppError::internal(format!("Stream error: {}", e)));
                         }
                         Ok(None) => break,
                         Err(_) => {
@@ -615,7 +579,7 @@ impl LlmService {
                                 error_code: "CHUNK_TIMEOUT".to_string(),
                             };
                             let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
-                            return Err("Stream chunk timed out after 15 seconds".to_string());
+                            return Err(AppError::llm_timeout(15_000));
                         }
                     }
                 }
@@ -672,9 +636,9 @@ impl LlmService {
 
 
     /// 测试连接
-    pub async fn test_connection(&self) -> Result<(bool, u64), String> {
+    pub async fn test_connection(&self) -> Result<(bool, u64), AppError> {
         let profile = self.get_active_profile()
-            .ok_or("No active LLM profile configured")?;
+            .ok_or_else(|| AppError::internal("No active LLM profile configured"))?;
         
         let base_url = profile.api_base.as_deref().unwrap_or("default");
         log::debug!("[LLM] Testing connection to {}", base_url);
@@ -719,43 +683,6 @@ impl LlmService {
         }
     }
 
-    /// 检查平台模型配额（Wave 1: 统一配额检查入口）
-    ///
-    /// 配额充足时返回 Ok，配额不足时返回 Err(AppError::QuotaExceeded)。
-    fn check_platform_quota(&self) -> Result<(), AppError> {
-        let user_id = self.resolve_user_id()
-            .ok_or_else(|| AppError::internal("无法识别用户身份"))?;
-
-        let pool = self.app_handle.try_state::<crate::db::DbPool>()
-            .ok_or_else(|| AppError::internal("数据库未初始化"))?;
-        Self::check_platform_quota_for_user(&user_id, pool.inner())
-    }
-
-    /// 可测试的配额检查核心逻辑（W4-B5）
-    fn check_platform_quota_for_user(user_id: &str, pool: &crate::db::DbPool) -> Result<(), AppError> {
-        let service = crate::subscription::SubscriptionService::new(pool.clone());
-
-        let result = service.check_platform_model_quota(user_id)?;
-        if !result.allowed {
-            return Err(AppError::QuotaExceeded {
-                message: "今日 AI 调用次数已用完，升级专业版解锁无限次".to_string(),
-                quota_type: "platform_model_daily".to_string(),
-                remaining: Some(0),
-            });
-        }
-
-        // 配额充足，原子扣减
-        let consume_result = service.consume_platform_model_quota(user_id)?;
-        if !consume_result.allowed {
-            return Err(AppError::QuotaExceeded {
-                message: "今日 AI 调用次数已用完，升级专业版解锁无限次".to_string(),
-                quota_type: "platform_model_daily".to_string(),
-                remaining: Some(0),
-            });
-        }
-
-        Ok(())
-    }
 }
 
 /// 全局LLM服务实例
@@ -791,75 +718,4 @@ impl Clone for LlmService {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn insert_test_user(pool: &crate::db::DbPool, user_id: &str, tier: &str, daily_used: i32, daily_limit: i32, offline_grace_used: i32) {
-        let conn = pool.get().unwrap();
-        let now = chrono::Local::now().to_rfc3339();
-        conn.execute(
-            "INSERT INTO subscriptions (id, user_id, tier, status, started_at, created_at, updated_at) VALUES (?1, ?2, ?3, 'active', ?4, ?4, ?4)",
-            rusqlite::params![uuid::Uuid::new_v4().to_string(), user_id, tier, now],
-        ).unwrap();
-        let reset = format!("{}T00:00:00+08:00", chrono::Local::now().date_naive().succ_opt().unwrap_or(chrono::Local::now().date_naive()));
-        conn.execute(
-            "INSERT INTO ai_usage_quota (id, user_id, tier, daily_limit, daily_used, quota_reset_at, updated_at, total_used, auto_write_used, auto_write_limit, auto_revise_used, auto_revise_limit, max_chars_per_call, offline_grace_used) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?4, 0, ?4, 1000, ?8)",
-            rusqlite::params![uuid::Uuid::new_v4().to_string(), user_id, tier, daily_limit, daily_used, reset, now, offline_grace_used],
-        ).unwrap();
-    }
-
-    /// 配额充足时返回 Ok，且应触发消费（daily_used + 1）
-    #[test]
-    fn test_check_platform_quota_allowed() {
-        let pool = crate::db::connection::create_test_pool().unwrap();
-        let user_id = "test-user-allowed";
-        insert_test_user(&pool, user_id, "free", 0, 10, 0);
-
-        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
-        assert!(result.is_ok(), "配额充足时应返回 Ok: {:?}", result);
-
-        // 验证消费后 daily_used 增加 1
-        let conn = pool.get().unwrap();
-        let used: i32 = conn.query_row(
-            "SELECT daily_used FROM ai_usage_quota WHERE user_id = ?1",
-            [user_id],
-            |row| row.get(0),
-        ).unwrap();
-        assert_eq!(used, 1, "配额应被消费一次");
-    }
-
-    /// 配额不足时返回 Err(AppError::QuotaExceeded)，且不触发额外消费
-    #[test]
-    fn test_check_platform_quota_exceeded_returns_quota_error() {
-        let pool = crate::db::connection::create_test_pool().unwrap();
-        let user_id = "test-user-exceeded";
-        insert_test_user(&pool, user_id, "free", 10, 10, 10);
-
-        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
-        assert!(result.is_err(), "配额不足时应返回 Err");
-
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, AppError::QuotaExceeded { .. }),
-            "错误类型应为 QuotaExceeded，实际为: {:?}", err
-        );
-
-        // 验证 daily_used 未被增加（无 HTTP 请求发出等价于：不触发额外消费）
-        let conn = pool.get().unwrap();
-        let used: i32 = conn.query_row(
-            "SELECT daily_used FROM ai_usage_quota WHERE user_id = ?1",
-            [user_id],
-            |row| row.get(0),
-        ).unwrap();
-        assert_eq!(used, 10, "配额不足时不应触发消费");
-    }
-
-    /// Pro 用户永远不受配额限制
-    #[test]
-    fn test_check_platform_quota_pro_user_unlimited() {
-        let pool = crate::db::connection::create_test_pool().unwrap();
-        let user_id = "test-user-pro";
-        insert_test_user(&pool, user_id, "pro", 0, 999999, 0);
-
-        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
-        assert!(result.is_ok(), "Pro 用户应始终通过配额检查: {:?}", result);
-    }
 }

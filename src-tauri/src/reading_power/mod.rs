@@ -9,7 +9,7 @@
 
 use crate::db::{
     DbPool, ChapterReadingPowerRepository, ChaseDebtRepository,
-    OverrideContractRepository, ChapterCommitRepository,
+    OverrideContractRepository, SceneCommitRepository,
 };
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +48,7 @@ impl ReadingPowerEvaluator {
         chapter_number: i32,
     ) -> Result<ReadingPowerEvaluation, String> {
         // 从 commit 中提取数据
-        let commit_repo = ChapterCommitRepository::new(self.pool.clone());
+        let commit_repo = SceneCommitRepository::new(self.pool.clone());
         let commits = commit_repo.get_by_story(story_id)
             .map_err(|e| format!("获取提交记录失败: {}", e))?;
 

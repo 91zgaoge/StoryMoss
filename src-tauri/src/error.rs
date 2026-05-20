@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 /// 每个变体对应一种可恢复或不可恢复的错误场景，携带结构化上下文。
 #[derive(Debug, Clone, Deserialize)]
 pub enum AppError {
-    /// 配额不足
-    QuotaExceeded {
+    /// 功能需要订阅解锁（v0.7.3：商业模式从模型配额制改为功能订阅制）
+    SubscriptionRequired {
         message: String,
-        quota_type: String,
+        feature_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        remaining: Option<i32>,
+        current_tier: Option<String>,
     },
     /// LLM 调用超时
     LlmTimeout {
@@ -60,7 +60,7 @@ impl AppError {
     /// 错误代码（前端用于路由恢复 UI）
     pub fn code(&self) -> &'static str {
         match self {
-            AppError::QuotaExceeded { .. } => "QUOTA_EXCEEDED",
+            AppError::SubscriptionRequired { .. } => "SUBSCRIPTION_REQUIRED",
             AppError::LlmTimeout { .. } => "LLM_TIMEOUT",
             AppError::DbLocked { .. } => "DB_LOCKED",
             AppError::ContextUnavailable { .. } => "CONTEXT_UNAVAILABLE",
@@ -75,7 +75,7 @@ impl AppError {
     /// 人类可读的错误消息
     pub fn message(&self) -> String {
         match self {
-            AppError::QuotaExceeded { message, .. } => message.clone(),
+            AppError::SubscriptionRequired { message, .. } => message.clone(),
             AppError::LlmTimeout { message, .. } => message.clone(),
             AppError::DbLocked { message } => message.clone(),
             AppError::ContextUnavailable { message, .. } => message.clone(),
@@ -118,6 +118,8 @@ impl From<&str> for AppError {
         AppError::Internal { message: msg.to_string() }
     }
 }
+
+// ==================== 外部错误转换 ====================
 
 impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
@@ -239,11 +241,11 @@ pub struct ErrorResponse {
 
 /// 便捷构造函数
 impl AppError {
-    pub fn quota_exceeded(quota_type: impl Into<String>, message: impl Into<String>) -> Self {
-        AppError::QuotaExceeded {
-            quota_type: quota_type.into(),
+    pub fn subscription_required(feature_id: impl Into<String>, message: impl Into<String>) -> Self {
+        AppError::SubscriptionRequired {
+            feature_id: feature_id.into(),
             message: message.into(),
-            remaining: None,
+            current_tier: None,
         }
     }
 
@@ -314,8 +316,8 @@ impl Serialize for AppError {
         map.serialize_entry("message", &self.message())?;
 
         let data: Option<serde_json::Value> = match self {
-            AppError::QuotaExceeded { quota_type, remaining, .. } => {
-                Some(serde_json::json!({ "quota_type": quota_type, "remaining": remaining }))
+            AppError::SubscriptionRequired { feature_id, current_tier, .. } => {
+                Some(serde_json::json!({ "feature_id": feature_id, "current_tier": current_tier }))
             }
             AppError::LlmTimeout { elapsed_ms, .. } => {
                 Some(serde_json::json!({ "elapsed_ms": elapsed_ms }))

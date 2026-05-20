@@ -846,7 +846,6 @@ pub async fn generate_paragraph_commentaries(
         methodology_step: None,
         style_dna_id: None,
         style_blend: None,
-        warnings: Vec::new(),
         memory_pack: None,
     };
 
@@ -906,7 +905,7 @@ pub async fn compress_content(
     let service = AgentService::new(app_handle);
     service.execute_task(task).await.map_err(|e| {
         log::error!("[commands_v3] {} failed: {}", "compress_content", e);
-        AppError::internal(e)
+        e
     })
 }
 
@@ -964,7 +963,7 @@ pub async fn compress_scene(
     let service = AgentService::new(app_handle);
     service.execute_task(task).await.map_err(|e| {
         log::error!("[commands_v3] {} failed: {}", "compress_scene", e);
-        AppError::internal(e)
+        e
     })
 }
 
@@ -2073,7 +2072,7 @@ pub async fn run_creation_workflow(
         }
         Err(e) => {
             log::error!("[commands_v3] {} failed: {}", "run_creation_workflow", e);
-            Err(AppError::internal(e))
+            Err(e)
         }
     }
 }

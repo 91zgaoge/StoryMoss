@@ -509,7 +509,7 @@ JSON格式：
     ) -> Result<String, AnalysisError> {
         match self.llm_service.generate(prompt, max_tokens, temperature).await {
             Ok(response) => Ok(response.content),
-            Err(e) => Err(AnalysisError::LlmError(e)),
+            Err(e) => Err(AnalysisError::LlmError(e.to_string())),
         }
     }
 

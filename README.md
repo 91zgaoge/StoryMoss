@@ -2,7 +2,7 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.7.2 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.7.3 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
@@ -12,6 +12,8 @@
 >
 > **架构优化（2026-05-17）**：`ChapterCommitService` 防抖聚合提交（30秒空闲延迟）取代旧版独立 `auto_ingest_chapter` 管线，消除重复索引；导出聚合：空章节内容自动按场景序号聚合填充，确保 Markdown/HTML/PlainText 导出完整；`Settings.tsx` / `SceneEditor.tsx` 大型组件提取重构为原子化子组件；`StoryTimeline.tsx` 新增 `execution_stage` 彩色徽章（plan/outline/draft/review/final），场景进度一目了然。
 >
+> **v0.7.3 架构对齐（2026-05-20）**：商业模式从模型配额制重构为功能订阅制（`SubscriptionService` 移除所有配额计量逻辑，改为 `has_feature_access` 细粒度功能开关；`AppError::SubscriptionRequired` 取代 `QuotaExceeded`）；1:N Chapter↔Scene 架构完成（废弃 `chapters.scene_id`，全链路改为 `scenes.chapter_id` 查询；`SceneCommitService` 取代 `ChapterCommitService`，`scene_commits` 取代 `chapter_commits`，提交粒度彻底对齐 Scene）；`SceneDividerNode` 功能预留接口就绪（`SceneDividerRepository` + `scene_divider_nodes` 表 + Migration 72）；数据库 Schema 清理（Migration 70 重命名 `chapter_commits` → `scene_commits`，Migration 71 移除 `chapters.scene_id`）。
+>
 > **v0.7.2 功能增强（2026-05-19）**：拆书分析存储同构化（`reference_characters`/`reference_scenes` 数据统一汇聚到 `narrative_*` 表，Migration 69 自动迁移历史数据）；MCP 工具动态注册（`CapabilityRegistry` 实时同步外部 MCP 服务器工具，前端通过 `mcp.{server_id}.*` 前缀区分内置与外部工具）；1:N 聚合编辑数据库 schema（`chapter_commits` 新增 `chapter_id` 外键，支持多场景聚合到单一章节）；TipTap 场景分隔节点（`SceneDividerNode` 原子块节点，可视化区分相邻场景内容）；LLM 调用取消机制（`request_id` 级取消信号，`cancel_generation` 精确中断单条请求）；`AppError` 结构化 IPC（统一 `{ code, message, data }` 错误格式，前端按 code 做精准错误处理）。
 >
 > **AI 三审 Pipeline 系统**：引入 `Rewrite → Refine → Review → Finalize` 四级创作管线，每章正文经过 AI 修稿（语言润色）、AI 审稿（多维评分与问题标注）、定稿（通过后处理步骤自动更新知识库、章节笔记、角色动态状态卡、风格分析），实现"每章必审、每稿必改、定稿即入库"的工业化创作流程。
@@ -20,7 +22,7 @@
 >
 > **用量统计看板**：全局 LLM 调用统计（总次数/总 token/平均响应时间/成功率）+ 单故事维度统计 + 最近 20 条调用记录明细，帮助作者了解 AI 辅助成本与效率。
 >
-> **Story System 合同驱动体系**：引入 `MASTER_SETTING` / `CHAPTER` / `REVIEW` 四级合同架构，写前真源（story_contracts）与写后真源（chapter_commits）分离，CHAPTER_COMMIT 提交链驱动 5 个 Projection Writer（State/Index/Summary/Memory/Vector）自动更新 read-model，实现"合同即法律、设定即物理、发明需识别"的防幻觉三定律。
+> **Story System 合同驱动体系**：引入 `MASTER_SETTING` / `CHAPTER` / `REVIEW` 四级合同架构，写前真源（story_contracts）与写后真源（scene_commits）分离，SCENE_COMMIT 提交链驱动 5 个 Projection Writer（State/Index/Summary/Memory/Vector）自动更新 read-model，实现"合同即法律、设定即物理、发明需识别"的防幻觉三定律。
 >
 > **三层记忆编排器**：Working Memory（最近 5 章 + 活跃角色 + 开放伏笔）+ Episodic Memory（state_changes + relationships）+ Semantic Memory（长期事实，按优先级和源章节窗口过滤），支持按任务类型（write/plan/review）动态分配预算。
 >
@@ -40,9 +42,9 @@
 >
 > **CI 三平台修复**：移除 `.cargo/config.toml` UTF-8 BOM（修复 Windows/Ubuntu 构建失败）；macOS 目标从 `x86_64` 改为 `aarch64-apple-darwin`（适配 GitHub Apple Silicon runner，修复 LanceDB AVX512 链接错误）。
 >
-> **维度一：幕前幕后自动关联补全（4项）** — `ChapterCommitService::auto_commit` 防抖聚合提交（30秒空闲延迟）自动驱动知识图谱同步与向量索引更新，取代旧版 `auto_ingest_chapter` 独立摄取管线，消除重复索引工作；`update_scene` 自动触发 `dataRefresh(knowledgeGraph)`，Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
+> **维度一：幕前幕后自动关联补全（4项）** — `SceneCommitService::auto_commit` 防抖聚合提交（30秒空闲延迟）自动驱动知识图谱同步与向量索引更新，取代旧版 `auto_ingest_chapter` 独立摄取管线，消除重复索引工作；`update_scene` 自动触发 `dataRefresh(knowledgeGraph)`，Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
 >
-> **维度二：后台自动化闭环补全（5项）** — Automation Service 集成到全部核心 CRUD 命令（`create_story` 触发 `StoryCreated`、`create_character` 触发 `CharacterCreated`、`update_chapter`/`update_scene` 触发 `ChapterContentUpdated`），后台自动化对所有核心数据变更事件响应；`PlanTemplateLibrary` 从纯内存存储升级为 SQLite 持久化（Migration 46 `plan_templates` 表），重启后学习成果保持，避免重复 LLM 调用浪费配额；能力进化引擎新增周期触发机制（每记录 5 条执行自动检查阈值并触发进化），不再仅依赖启动时一次性执行；`WorkflowEngine` 恢复实例后自动重新入队 `WorkflowScheduler`，应用重启后中断的工作流实例自动恢复调度；补齐缺失的 `story_metadata` / `scene_characters` / `scene_character_actions` 表定义（Migration 43-45），修复 automation service 运行时表缺失错误。
+> **维度二：后台自动化闭环补全（5项）** — Automation Service 集成到全部核心 CRUD 命令（`create_story` 触发 `StoryCreated`、`create_character` 触发 `CharacterCreated`、`update_chapter`/`update_scene` 触发 `ChapterContentUpdated`），后台自动化对所有核心数据变更事件响应；`PlanTemplateLibrary` 从纯内存存储升级为 SQLite 持久化（Migration 46 `plan_templates` 表），重启后学习成果保持，避免重复 LLM 调用；能力进化引擎新增周期触发机制（每记录 5 条执行自动检查阈值并触发进化），不再仅依赖启动时一次性执行；`WorkflowEngine` 恢复实例后自动重新入队 `WorkflowScheduler`，应用重启后中断的工作流实例自动恢复调度；补齐缺失的 `story_metadata` / `scene_characters` / `scene_character_actions` 表定义（Migration 43-45），修复 automation service 运行时表缺失错误。
 >
 > **维度三：系统整洁度与数据一致性（4项）** — `delete_story` / `delete_character` 加固显式级联清理（事务内清理 `story_metadata`/`foreshadowing_tracker`/`user_preferences`/`ai_operations`/`scene_characters`/`scene_character_actions`/`character_relationships`/`character_states` 等 14+ 关联表），消除外键约束未覆盖的幽灵数据；Settings.tsx 隐藏未实现的"图像生成" Tab，消除死胡同功能；`tauri.conf.json` 窗口配置验证与 `frontstage`/`backstage` label 对齐。
 >
@@ -777,7 +779,7 @@ v2-rust/
 |------|------|------|
 | 拆书存储同构化 | ✅ | `reference_characters`/`reference_scenes` 数据统一汇聚到 `narrative_*` 表，Migration 69 自动迁移历史数据 |
 | MCP 工具动态注册 | ✅ | `CapabilityRegistry` 实时同步外部 MCP 服务器工具，前端通过 `mcp.{server_id}.*` 前缀区分内置与外部工具 |
-| 1:N 聚合编辑 Schema | ✅ | `chapter_commits` 新增 `chapter_id` 外键，支持多场景聚合到单一章节 |
+| 1:N 聚合编辑 Schema | ✅ | `scene_commits` 新增 `chapter_id` 外键，支持多场景聚合到单一章节 |
 | SceneDividerNode | ✅ | TipTap 原子块节点，可视化区分相邻场景内容 |
 | LLM 取消机制 | ✅ | `request_id` 级取消信号，`cancel_generation` 精确中断单条请求 |
 | AppError 结构化 IPC | ✅ | 统一 `{ code, message, data }` 错误格式，前端按 code 精准处理 |
@@ -785,6 +787,30 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v0.7.3 (2026-05-20) - 商业模式重构 + 1:N 架构完成 + SceneDivider 预留接口
+
+> **核心理念**：从"模型配额制"升级为"功能订阅制"，软件不介入模型计费；1:N Chapter↔Scene 架构彻底落地，Scene 成为唯一提交粒度。
+
+**商业模式重构：订阅解锁功能，非模型配额（v0.7.3）**
+- **`SubscriptionService` 精简**：移除 `QuotaDetail` / `QuotaCheckResult` / `OFFLINE_GRACE_LIMIT` 及所有配额检查/消费方法（`check_auto_write_quota` / `consume_auto_write_quota` / `check_auto_revise_quota` / `consume_auto_revise_quota` / `check_platform_model_quota` / `consume_platform_model_quota` / `check_ai_quota` / `consume_ai_quota`），订阅层级仅控制功能开关（Free/Pro/Enterprise）
+- **`has_feature_access` 细粒度权限**：Free 用户可用基础写作、场景/角色管理、知识图谱查询；Pro 解锁 Bootstrap / Pipeline（Refine/Review/Finalize）/ 拆书 / 自动续写 / 自动修改
+- **`AppError::SubscriptionRequired` 取代 `QuotaExceeded`**：错误码从 `QUOTA_EXCEEDED` 改为 `SUBSCRIPTION_REQUIRED`，携带 `feature_id` + `current_tier`，前端按 code 渲染升级引导 UI
+- **`log_ai_usage` 纯统计**：`ai_usage_logs` 仅记录调用明细（模型/token/耗时），不参与任何配额控制
+
+**1:N Chapter↔Scene 架构完成（Phase 4）**
+- **废弃 `chapters.scene_id`**：Migration 71 从 `chapters` 表移除 `scene_id` 列，旧数据通过 `scenes.chapter_id` 反向查询兼容
+- **全链路改为 `scenes.chapter_id`**：`ChapterRepository::create`/`update`/`get_by_story` 不再读写 `chapters.scene_id`；`lib.rs` `create_chapter` / `update_chapter` 通过 `SceneRepository::get_by_chapter` 查询关联场景进行聚合提交
+- **`SceneCommitService` 取代 `ChapterCommitService`**：提交粒度从 Chapter 彻底对齐到 Scene；`SceneCommitRepository` 全部 SQL 从 `chapter_commits` 重命名为 `scene_commits`（Migration 70）
+- **`SceneDividerNode` 功能预留接口**：`SceneDividerRepository`（`create`/`get_by_chapter`/`set_dividers`/`delete`）+ `scene_divider_nodes` 表（Migration 72）就绪，支持在章节编辑器中标记场景边界
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：~225/225 通过
+- `npm run build`：通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 0.7.3
+
+---
 
 ### v0.7.2 (2026-05-19) - 存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消
 
@@ -803,8 +829,8 @@ v2-rust/
 - **动态注销**：MCP 服务器断开时从 `CapabilityRegistry` 移除对应工具，避免调用已失效工具
 
 **1:N 聚合编辑数据库 Schema**
-- **Migration 68**：`chapter_commits` 表新增 `chapter_id` 字段（`Option<String>`），支持多场景（Scene）聚合到单一章节（Chapter）的提交追踪
-- **Schema 对齐**：`ChapterCommit` 数据结构、`ChapterCommitRepository` 查询/插入 SQL、`chapter_commit_service.rs` 全部适配新字段
+- **Migration 68**：`scene_commits` 表新增 `chapter_id` 字段（`Option<String>`），支持多场景（Scene）聚合到单一章节（Chapter）的提交追踪
+- **Schema 对齐**：`SceneCommit` 数据结构、`SceneCommitRepository` 查询/插入 SQL、`SceneCommitService` 全部适配新字段
 
 **TipTap SceneDividerNode**
 - **原子块节点**：新增 `SceneDividerNode`（`group: 'block'`，`atom: true`），在幕前编辑器中可视化渲染场景边界分隔线
@@ -857,7 +883,7 @@ v2-rust/
 - **独立页面**：幕后 Sidebar「用量统计」入口，`UsageStats.tsx` 完整实现
 
 **架构优化（2026-05-17）**
-- **`ChapterCommitService::auto_commit` 防抖聚合提交**：取代旧版独立 `auto_ingest_chapter` 摄取管线（5 分钟冷却），改为 30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`，消除重复索引工作
+- **`SceneCommitService::auto_commit` 防抖聚合提交**：取代旧版独立 `auto_ingest_chapter` 摄取管线（5 分钟冷却），改为 30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`，消除重复索引工作
 - **导出聚合完整性**：`export_story` 导出前自动检查章节内容，空章节按关联场景的 `sequence_number` 排序聚合填充，确保 Markdown/HTML/PlainText 导出完整无缺
 - **大型组件提取重构**：`Settings.tsx` 提取 8 个原子化子组件（`ModelCard`/`ModelList`/`ModelModal`/`StatsSettings`/`MethodologySettings`/`WorkflowSettings`/`GeneralSettings`/`AccountSettings`）；`SceneEditor.tsx` 提取 `SceneAuditPanel` 和 `SceneAnnotationPanel` 到 `scene-editor/` 子目录
 - **`StoryTimeline.tsx` 场景进度徽章**：场景卡片新增 `execution_stage` 状态徽标（plan/outline/draft/review/final），叙事阶段（铺垫/上升/高潮/收尾）与执行阶段双轨可视化
@@ -918,7 +944,7 @@ v2-rust/
 **可靠性与可观测性**
 - **Ingest 作业追踪**（Migration 55）：`ingest_jobs` 表记录每次 Ingest 的 pending/running/completed/failed 状态，失败原因持久化
 - **Ingest 健康指示器**：幕前顶栏新增 🧠 状态图标，最近 Ingest 成功/失败一目了然，点击浮层展示最近 3 条记录
-- **Projection 健康检查**：`check_projection_health` 解析 `chapter_commits.projection_status_json`，显示 5 个 Writer 各自成功/失败状态
+- **Projection 健康检查**：`check_projection_health` 解析 `scene_commits.projection_status_json`，显示 5 个 Writer 各自成功/失败状态
 - **功能使用度量**（Migration 56）：`feature_usage_logs` 表本地记录各功能使用次数，Settings 页面「数据统计」标签展示 30 天柱状图
 - **技术债务清理**：删除 `src-tauri/src/tests/bug_condition_v57.rs` 中 11 个已修复的 `#[ignore]` 测试，将核心场景转化为生产代码中的 `debug_assert!` 和 `// EVENT_REQUIRED` 注释标记
 
@@ -999,7 +1025,7 @@ v2-rust/
 > **核心理念**：从"各自为战"到"自动联动"。所有数据修改自动同步，前后台零延迟对齐。
 
 **幕前幕后自动关联**
-- **Chapter↔Scene 双向映射** — Migration 37 建立双向外键关联，ChapterRepository 自动查找/创建关联 Scene
+- **Chapter↔Scene 关联** — `scenes.chapter_id` 外键关联，`ChapterRepository` 自动查找/创建关联 Scene（v0.7.3 废弃 `chapters.scene_id`，1:N 架构下单一章节可包含多个场景）
 - **统一实时状态中心** — 后端 `state_sync` 模块定义 16 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
 - **前端 useSyncStore Hook** — 监听 `sync-event` 频道，根据事件类型自动 `invalidateQueries` / `removeQueries`
 - **Bootstrap 完成后幕前自动加载** — `smartExecute` 返回后检测 `story_created:` 消息，自动加载新故事并切换到第一章；Bootstrap 完成后双重 `ChapterSwitch` 保险

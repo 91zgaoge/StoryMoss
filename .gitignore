@@ -21,6 +21,9 @@ src-tauri/Cargo.lock
 *.swo
 *~
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db

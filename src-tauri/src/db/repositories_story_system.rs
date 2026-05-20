@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{
-    DbPool, StoryContract, ChapterCommit, MemoryItem, ChapterReadingPower,
+    DbPool, StoryContract, SceneCommit, MemoryItem, ChapterReadingPower,
     ChaseDebt, OverrideContract, ReviewIssue, GenreProfile,
 };
 use chrono::Local;
@@ -126,13 +126,13 @@ impl StoryContractRepository {
     }
 }
 
-// ==================== ChapterCommit Repository ====================
+// ==================== SceneCommit Repository ====================
 
-pub struct ChapterCommitRepository {
+pub struct SceneCommitRepository {
     pool: DbPool,
 }
 
-impl ChapterCommitRepository {
+impl SceneCommitRepository {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
@@ -144,7 +144,7 @@ impl ChapterCommitRepository {
         chapter_id: Option<&str>,
         chapter_number: i32,
         status: &str,
-    ) -> Result<ChapterCommit, rusqlite::Error> {
+    ) -> Result<SceneCommit, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
@@ -153,12 +153,12 @@ impl ChapterCommitRepository {
         })?;
 
         conn.execute(
-            "INSERT INTO chapter_commits (id, story_id, scene_id, chapter_id, chapter_number, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO scene_commits (id, story_id, scene_id, chapter_id, chapter_number, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![&id, story_id, scene_id, chapter_id, chapter_number, status, now.to_rfc3339()
             ],
         )?;
 
-        Ok(ChapterCommit {
+        Ok(SceneCommit {
             id,
             story_id: story_id.to_string(),
             scene_id: scene_id.map(|s| s.to_string()),
@@ -197,7 +197,7 @@ impl ChapterCommitRepository {
         })?;
 
         conn.execute(
-            "UPDATE chapter_commits SET status = ?2, outline_snapshot_json = ?3, review_result_json = ?4, fulfillment_result_json = ?5, accepted_events_json = ?6, state_deltas_json = ?7, entity_deltas_json = ?8, summary_text = ?9, dominant_strand = ?10, projection_status_json = ?11 WHERE id = ?1",
+            "UPDATE scene_commits SET status = ?2, outline_snapshot_json = ?3, review_result_json = ?4, fulfillment_result_json = ?5, accepted_events_json = ?6, state_deltas_json = ?7, entity_deltas_json = ?8, summary_text = ?9, dominant_strand = ?10, projection_status_json = ?11 WHERE id = ?1",
             params![
                 id, status, outline_snapshot_json, review_result_json,
                 fulfillment_result_json, accepted_events_json, state_deltas_json,
@@ -209,18 +209,18 @@ impl ChapterCommitRepository {
     pub fn get_by_story(
         &self,
         story_id: &str,
-    ) -> Result<Vec<ChapterCommit>, rusqlite::Error> {
+    ) -> Result<Vec<SceneCommit>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| {
             rusqlite::Error::InvalidParameterName(e.to_string())
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM scene_commits WHERE story_id = ?1 ORDER BY chapter_number DESC"
         )?;
 
         let commits = stmt.query_map([story_id], |row| {
             let created_str: String = row.get(15)?;
-            Ok(ChapterCommit {
+            Ok(SceneCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
@@ -246,18 +246,18 @@ impl ChapterCommitRepository {
     pub fn get_latest(
         &self,
         story_id: &str,
-    ) -> Result<Option<ChapterCommit>, rusqlite::Error> {
+    ) -> Result<Option<SceneCommit>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| {
             rusqlite::Error::InvalidParameterName(e.to_string())
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE story_id = ?1 ORDER BY chapter_number DESC LIMIT 1"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM scene_commits WHERE story_id = ?1 ORDER BY chapter_number DESC LIMIT 1"
         )?;
 
         let commit = stmt.query_row([story_id], |row| {
             let created_str: String = row.get(15)?;
-            Ok(ChapterCommit {
+            Ok(SceneCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
@@ -283,18 +283,18 @@ impl ChapterCommitRepository {
     pub fn get_by_id(
         &self,
         id: &str,
-    ) -> Result<Option<ChapterCommit>, rusqlite::Error> {
+    ) -> Result<Option<SceneCommit>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| {
             rusqlite::Error::InvalidParameterName(e.to_string())
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE id = ?1"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM scene_commits WHERE id = ?1"
         )?;
 
         let commit = stmt.query_row([id], |row| {
             let created_str: String = row.get(15)?;
-            Ok(ChapterCommit {
+            Ok(SceneCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
@@ -320,18 +320,18 @@ impl ChapterCommitRepository {
     pub fn get_by_chapter_id(
         &self,
         chapter_id: &str,
-    ) -> Result<Vec<ChapterCommit>, rusqlite::Error> {
+    ) -> Result<Vec<SceneCommit>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| {
             rusqlite::Error::InvalidParameterName(e.to_string())
         })?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM chapter_commits WHERE chapter_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, outline_snapshot_json, review_result_json, fulfillment_result_json, accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, dominant_strand, projection_status_json, created_at FROM scene_commits WHERE chapter_id = ?1 ORDER BY created_at DESC"
         )?;
 
         let commits = stmt.query_map([chapter_id], |row| {
             let created_str: String = row.get(15)?;
-            Ok(ChapterCommit {
+            Ok(SceneCommit {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
                 scene_id: row.get(2)?,
@@ -364,7 +364,7 @@ impl ChapterCommitRepository {
         })?;
 
         conn.execute(
-            "UPDATE chapter_commits SET projection_status_json = ?2 WHERE id = ?1",
+            "UPDATE scene_commits SET projection_status_json = ?2 WHERE id = ?1",
             params![id, status_json],
         )
     }

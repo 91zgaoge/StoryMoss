@@ -14,8 +14,8 @@ Glossary for the Rust core layer.
 | **Query Pipeline** | 5-stage memory retrieval: token search → semantic search → fusion → graph expansion → budget control → context assembly. Produces a `MemoryPack`. | "search", "retrieval" |
 | **MemoryPack** | Assembled memory context fed into AI generation prompts. Combines working, episodic, and semantic memory within a token budget. | "context", "prompt" |
 | **StyleDNA** | 6-dimensional quantitative style fingerprint (sentence length, dialogue ratio, metaphor density, inner monologue, emotional exposure, rhythm). Can be user-selected or evolved from feedback. | "style", "template" |
-| **CHAPTER_COMMIT** | Post-write source-of-truth event that triggers 5 Projection Writers to update derived state. | "save", "flush" |
-| **Projection Writer** | One of 5 state-derivation workers triggered by CHAPTER_COMMIT: State Writer, Index Writer, Summary Writer, Memory Writer, Vector Writer. | "handler", "listener" |
+| **SCENE_COMMIT** | Post-write source-of-truth event triggered by Scene save/update. Drives 5 Projection Writers to update derived state (state deltas, entity index, summary, memory, vector). The canonical trigger unit is always the Scene, never the Chapter. | "save", "flush", "chapter commit" |
+| **Projection Writer** | One of 5 state-derivation workers triggered by SCENE_COMMIT: State Writer, Index Writer, Summary Writer, Memory Writer, Vector Writer. All operate on Scene-level deltas. | "handler", "listener" |
 | **Foreshadowing** | Narrative device tracked with setup/payoff lifecycle. The `ForeshadowingTracker` monitors time windows and raises alerts when payoffs are overdue. | "hint", "setup" |
 | **Capability** | Self-describing agent skill registered in `CapabilityRegistry`. Natural-language description lets the LLM decide when to invoke it. | "function", "tool" |
 | **MCP** | Model Context Protocol. External tool integration (e.g. DuckDuckGo search) exposed to the LLM planner. | "plugin", "extension" |
@@ -25,11 +25,14 @@ Glossary for the Rust core layer.
 
 ## Scene vs Chapter distinction
 
-- **Scene** is the author's creative unit: dramatic goal, conflict, beats.
-- **Chapter** is the reader's consumption unit: linear text, page breaks.
-- A Chapter aggregates one or more Scenes. **Current implementation is strictly 1:1** (`chapters.scene_id` → `scenes.id`, single-valued FK, Migration 37). **Target architecture is 1:N** (`scenes.chapter_id` FK, one Chapter contains multiple Scenes ordered by `sequence_number`).
+> **Core design principle**: Scene and Chapter are not aliases. They are distinct concepts that must coexist.
+
+- **Scene** — The *creative unit*. The author's narrative atom: dramatic goal, conflict, beats, character arcs. Scenes are where the art happens. They are never optional.
+- **Chapter** — The *physical storage / publishing unit*. The reader's consumption boundary: linear text, page breaks, export artifacts. Chapters exist only because books need pagination.
+- A Chapter **aggregates** one or more Scenes, ordered by `sequence_number`.
+- **Current implementation is strictly 1:1** (`chapters.scene_id` → `scenes.id`, single-valued FK, Migration 37). **Target architecture is 1:N** (`scenes.chapter_id` FK, one Chapter contains multiple Scenes).
 - The 幕前 editor currently writes into a single Scene. In 1:N mode, it will aggregate multiple Scenes into a continuous editing surface with `scene-divider` Nodes.
-- The `chapters.content` field is a cached/aggregated view of its Scene(s) for export.
+- The `chapters.content` field is a cached/aggregated view of its Scene(s) for export. In 1:N mode it becomes a read-only projection.
 
 ## Known gaps (intention — to be resolved)
 
@@ -100,35 +103,47 @@ The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) implementatio
 
 **Intended resolution:** `LlmService::generate_with_context_and_pipeline` should return `(String, Result<LlmResponse, String>)` where the first `String` is the `request_id`. `AgentOrchestrator` stores it in `AgentTask.metadata`. Long-running operations expose `request_id` through `PipelineCallbacks` so the frontend can cancel.
 
-### Quota checks bypassed by most AI entry points
+### Business model: subscription unlocks features, not model quotas
 
-Quota enforcement only exists for `auto_write` and `auto_revise` IPC commands. All other AI entry points (`execute_agent_task`, `execute_smart_agent`, `PlanExecutor`, `WorkflowScheduler`, Bootstrap, book deconstruction, 3-review pipeline) call `LlmService` directly without any quota check.
+**Status: Resolved.** StoryForge does not bill for model usage. Users supply their own API keys or run local models. The software's monetization is subscription-based: subscribed users unlock full functionality; free users have feature limitations.
 
-**Consequence:** Free users can bypass daily limits by using `/` menu commands, WenSiPanel dialog, Bootstrap genesis, or any plan/workflow path. The "analysis free, modification charged" strategy is unenforced.
+**Consequence for code:** The existing `check_platform_quota` and per-feature quota checks (`auto_write_quota`, `auto_revise_quota`) in `agents/commands.rs` and `llm/service.rs` contradict this principle. They assume a freemium model where the software controls model consumption. This logic should be removed or refactored into feature-gating (e.g., "Bootstrap is a Pro feature") rather than consumption-metering.
 
-**Intended resolution:** Move quota enforcement into `LlmService.generate()` (and `stream_generate()`). Before every LLM call, check the user's tier and the operation type's remaining quota. Return a structured `QuotaExceeded` error that frontends can translate into upgrade prompts. All upper layers (Agent, PlanExecutor, WorkflowScheduler, Bootstrap) inherit enforcement automatically.
+**Model access is entirely user-determined.** The software provides the LLM adapter layer but does not intervene in model billing, token counting, or provider quotas.
 
-### Error handling: 450 `map_err(|e| e.to_string())` across 35 files
+### AppError full migration (in progress)
 
-Every internal function returns `Result<T, String>`, erasing typed errors. Frontends receive plain strings via Tauri's IPC boundary and cannot distinguish "quota exhausted" from "model timeout" from "DB locked".
+**Status: Infrastructure complete, internal API migration in progress (~10%).**
 
-**Consequence:** UX cannot adapt to error type. A quota error should show an upgrade button; a model timeout should suggest checking Ollama; a DB lock should suggest retrying. All three currently show the same generic error toast.
+`AppError` enum is defined (`error.rs`) with 9 variants + IPC serialization (`{ code, message, data }`) + `From` converters for 12 external error types. Quota check point (`check_platform_quota`) already returns `Result<(), AppError>`.
 
-**Intended resolution:** Define a unified `AppError` enum (`QuotaExceeded { feature, limit, used, resets_at }`, `LlmTimeout { model, elapsed }`, `DbLocked { table }`, `ValidationFailed { field, reason }`, etc.). All internal APIs return `Result<T, AppError>`. IPC commands serialize `AppError` into structured JSON `{ code, message, data }`. Frontends match on `code` to render appropriate recovery UI.
+**Gap:** 257 residual `Result<T, String>` across 43 files, including `LlmService` core APIs (`generate_with_profile`, `generate_stream`, `generate_with_context_and_pipeline`). `From<String>` fallback exists but discards structured context before it reaches the IPC boundary.
 
-### Silent failure pattern in StoryContextBuilder and beyond
+**Resolution strategy (Option A — full migration):**
+- Migrate all internal APIs from `Result<T, String>` to `Result<T, AppError>` in a single release cycle.
+- Start with `LlmService` (the root of all AI calls), then cascade through `AgentOrchestrator` → `PlanExecutor` → `WorkflowScheduler` → `Pipeline` → `Bootstrap`.
+- `StoryContextBuilder` is a priority target: replace silent `unwrap_or_default()` with `Err(AppError::ContextUnavailable)` so degraded context is visible to the frontend.
+- No gradual fallback. `Result<T, String>` is eliminated, not deprecated.
 
-`StoryContextBuilder::build()` catches every database error with `unwrap_or_else(|e| { log::warn!(...); default })`. The method signature returns `Result<AgentContext, String>` but practically never returns `Err`. Characters, scenes, world-building, and style queries that fail return empty defaults.
+### StoryContextBuilder error classification
 
-**Consequence:** AI generates content against a degraded or empty context. The user sees "the AI suddenly forgot my characters" with no error indication. The same `let _ =` silent-drop pattern appears in state_sync emissions, auto_ingest, and Projection Writers.
+**Status: Resolved.** Two-axis classification:
 
-**Intended resolution:** Distinguish recoverable vs fatal errors. Missing core data (characters, story metadata) should be fatal — return `Err` so the frontend can show "context unavailable, please check your story data". Auxiliary data (relevant entities, optional style) may degrade but must populate an `AgentContext.warnings` vector that the frontend displays as "generating with limited context".
+| Axis | Fatal (return `Err`) | Degradable (empty default + warning) |
+|------|---------------------|--------------------------------------|
+| **Query failure** (DB error, connection lost) | All queries | None |
+| **Empty data** (user never created the data) | Scene-dependent: combat/dialogue scenes require characters; exposition/monologue scenes do not | World rules (optional for short/realistic fiction), style DNA (falls back to genre default), relevant entities |
 
-### CHAPTER_COMMIT trigger mechanism
+`AgentContext.warnings` is currently write-only (no frontend consumer). Resolution: either pipe warnings to frontstage status bar, or remove the field and rely on `Err` for everything worth surfacing.
 
-**Status: Resolved in v0.7.1.** `ChapterCommitService::auto_commit` now handles debounced auto-commit (30s idle delay). `auto_ingest_chapter` has been removed, eliminating duplicate indexing with `VectorProjectionWriter`. Projection Writers run automatically on chapter save.
+### SCENE_COMMIT trigger mechanism
 
-**Remaining refinement:** In 1:N mode, `CHAPTER_COMMIT` granularity needs clarification — Scene-level commit for text edits, Chapter-level commit for structural changes (divider insert/delete).
+**Status: Resolved.** Commit granularity is **Scene-only**.
+
+- **Scene-level commit** (text edits, content changes): `SCENE_COMMIT` fires on Scene save/update, debounced 30s idle delay. Drives all 5 Projection Writers.
+- **Chapter-level events** (structural changes: divider insert/delete, scene reorder): do **not** trigger Projection Writers. They only update the Chapter's read-only aggregated content view.
+- `ChapterCommitService::auto_commit` (v0.7.1) was a transitional artifact. Target: rename to `SceneCommitService`, migrate `chapter_commits` table to `scene_commits`.
+- Projection Writers operate on Scene deltas (`state_deltas_json`, `entity_deltas_json`, etc.). Chapter has no deltas of its own.
 
 ### Orchestration layer boundaries
 

@@ -444,11 +444,11 @@ npm test
   - 版本号统一 3.3.0→3.4.0，Logo 生成全平台图标包
 
 - **Freemium 付费系统** (2026-04-18)
-  - 后端: `subscriptions`/`ai_usage_quota`/`ai_usage_logs` 表 + `SubscriptionService` + Tauri IPC 命令
-  - 前端: `useSubscription` Hook + `SubscriptionStatus` 指示器 + `UpgradePanel` 付费引导 + 配额用尽提示
-  - 策略: "分析免费，修改收费" — 免费用户看提示，Pro 用户享内联改写 + 风格 DNA + 方法论
+  - 后端: `subscriptions`/`ai_usage_logs` 表 + `SubscriptionService`（v0.7.3 移除配额计量，改为功能订阅开关）+ Tauri IPC 命令
+  - 前端: `useSubscription` Hook + `SubscriptionStatus` 指示器 + `UpgradePanel` 付费引导 + 功能解锁提示
+  - 策略: "功能订阅制" — Free 用户可用基础写作/场景/角色/知识图谱；Pro 解锁 Pipeline（Refine/Review/Finalize）/ 拆书 / 自动续写 / 自动修改
   - Agent 分层: 免费版 max_tokens 1000 + 简化 prompt；专业版完整能力
-  - 优化: 原子扣减 / 成功后扣费 / session 冷却 / 离线缓存 / 防抖修复 — 9 项
+  - 优化: `has_feature_access` 细粒度权限 / `AppError::SubscriptionRequired` 错误码 / session 冷却 / 离线缓存 / 防抖修复 — 9 项
 
 - **幕前排版与 AI 续写优化** (2026-04-17)
   - 段落间距收紧 + 首行缩进 2em，底部栏 padding-bottom 增至 10rem

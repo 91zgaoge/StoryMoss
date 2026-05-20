@@ -63,10 +63,6 @@ pub struct AgentContext {
     pub methodology_step: Option<String>, // 方法论当前步骤
     pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
     pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置（v4.4.0）
-    /// 可降级警告（Wave 1: StoryContextBuilder 错误分级）
-    /// 当辅助数据获取失败时，填充此字段而非静默忽略
-    #[serde(default)]
-    pub warnings: Vec<String>,
     /// 三层记忆包（Wave 3: MemoryPack 注入 AgentContext）
     #[serde(default)]
     pub memory_pack: Option<MemoryPack>,
@@ -121,7 +117,6 @@ impl AgentContext {
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
-            warnings: vec![],
             memory_pack: None,
         }
     }

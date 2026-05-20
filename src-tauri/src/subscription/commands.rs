@@ -1,6 +1,6 @@
 //! Subscription Tauri Commands
 
-use super::{SubscriptionService, SubscriptionStatus, QuotaCheckResult, QuotaDetail};
+use super::{SubscriptionService, SubscriptionStatus};
 use tauri::{command, AppHandle, Manager};
 use crate::db::DbPool;
 use crate::error::AppError;
@@ -13,42 +13,6 @@ pub fn get_subscription_status(app_handle: AppHandle) -> Result<SubscriptionStat
     // 当前使用 device/machine id 作为 user_id，后续可接入真实用户系统
     let user_id = get_user_id(&app_handle);
     service.get_or_create_subscription(&user_id)
-}
-
-/// 检查 AI 使用配额（向后兼容，所有功能已免费）
-#[command]
-pub fn check_ai_quota(app_handle: AppHandle) -> Result<QuotaCheckResult, AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(&app_handle);
-    service.check_ai_quota(&user_id)
-}
-
-/// 获取 V2 配额详情（按功能区分）
-#[command]
-pub fn get_quota_detail(app_handle: AppHandle) -> Result<QuotaDetail, AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(&app_handle);
-    service.get_quota_detail(&user_id)
-}
-
-/// 检查自动续写配额
-#[command(rename_all = "snake_case")]
-pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(&app_handle);
-    service.check_auto_write_quota(&user_id, requested_chars)
-}
-
-/// 检查自动修改配额
-#[command(rename_all = "snake_case")]
-pub fn check_auto_revise_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(&app_handle);
-    service.check_auto_revise_quota(&user_id, requested_chars)
 }
 
 /// 获取当前用户 ID（基于设备标识，后续可接入真实用户认证）

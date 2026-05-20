@@ -155,7 +155,7 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取元信息");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(512), Some(0.3), Some("提取元信息"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -240,7 +240,7 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取世界观");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(2048), Some(0.5), Some("提取世界观"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -566,7 +566,7 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取故事线");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(1000), Some(0.5), Some("提取故事线"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -638,7 +638,7 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取伏笔");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(1024), Some(0.7), Some("提取伏笔"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;

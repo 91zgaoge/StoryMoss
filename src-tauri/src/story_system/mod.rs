@@ -2,7 +2,7 @@
 //!
 //! 参考 webnovel-writer 的 Story System Phase 5 设计：
 //! - 写前真源：story_contracts 表
-//! - 写后真源：chapter_commits 表
+//! - 写后真源：scene_commits 表
 //! - 投影/read-model：state.json, index.db, summaries
 //!
 //! 防幻觉三定律：
@@ -10,7 +10,7 @@
 //! 2. 设定即物理 — 不违反已有规则
 //! 3. 发明需识别 — 新实体必须入库
 
-use crate::db::{DbPool, StoryContractRepository, ChapterCommitRepository};
+use crate::db::{DbPool, StoryContractRepository, SceneCommitRepository};
 use crate::vector::lancedb_store::{LanceVectorStore, VectorRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -240,12 +240,12 @@ pub struct ChapterDirective {
     pub chapter_span: Option<String>,
 }
 
-/// CHAPTER_COMMIT 服务
-pub struct ChapterCommitService {
+/// SCENE_COMMIT 服务
+pub struct SceneCommitService {
     pool: DbPool,
 }
 
-impl ChapterCommitService {
+impl SceneCommitService {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
@@ -257,8 +257,8 @@ impl ChapterCommitService {
         scene_id: Option<&str>,
         chapter_id: Option<&str>,
         chapter_number: i32,
-    ) -> Result<crate::db::ChapterCommit, String> {
-        let repo = ChapterCommitRepository::new(self.pool.clone());
+    ) -> Result<crate::db::SceneCommit, String> {
+        let repo = SceneCommitRepository::new(self.pool.clone());
         repo.create(story_id, scene_id, chapter_id, chapter_number, "pending")
             .map_err(|e| format!("初始化 commit 失败: {}", e))
     }
@@ -315,7 +315,7 @@ impl ChapterCommitService {
         app_handle: Option<tauri::AppHandle>,
         vector_store: Option<&LanceVectorStore>,
     ) -> Result<(), String> {
-        let repo = ChapterCommitRepository::new(self.pool.clone());
+        let repo = SceneCommitRepository::new(self.pool.clone());
 
         // 先更新 commit 状态
         repo.update_commit(
@@ -473,17 +473,17 @@ impl ChapterCommitService {
                 let entity_count = result.entities.len();
                 let relation_count = result.relations.len();
                 match kg_repo.save_entities_batch(&result.entities) {
-                    Ok(saved) => log::info!("[ChapterCommitService] Saved {}/{} entities for story {}", saved, entity_count, story_id),
-                    Err(e) => log::warn!("[ChapterCommitService] Failed to save entities: {}", e),
+                    Ok(saved) => log::info!("[SceneCommitService] Saved {}/{} entities for story {}", saved, entity_count, story_id),
+                    Err(e) => log::warn!("[SceneCommitService] Failed to save entities: {}", e),
                 }
                 match kg_repo.save_relations_batch(&result.relations) {
-                    Ok(saved) => log::info!("[ChapterCommitService] Saved {}/{} relations for story {}", saved, relation_count, story_id),
-                    Err(e) => log::warn!("[ChapterCommitService] Failed to save relations: {}", e),
+                    Ok(saved) => log::info!("[SceneCommitService] Saved {}/{} relations for story {}", saved, relation_count, story_id),
+                    Err(e) => log::warn!("[SceneCommitService] Failed to save relations: {}", e),
                 }
                 Ok(true)
             }
             Err(e) => {
-                log::warn!("[ChapterCommitService] IngestPipeline failed for story {}: {}", story_id, e);
+                log::warn!("[SceneCommitService] IngestPipeline failed for story {}: {}", story_id, e);
                 Err(e.to_string())
             }
         }
@@ -516,7 +516,7 @@ impl StorySystemEngine {
         story_id: &str,
         chapter_number: i32,
     ) -> Result<ProjectionHealthReport, String> {
-        let repo = ChapterCommitRepository::new(self.pool.clone());
+        let repo = SceneCommitRepository::new(self.pool.clone());
 
         // 查询该 story 的所有 commits，找到匹配 chapter_number 的最新一条
         let commits = repo.get_by_story(story_id)

@@ -582,9 +582,6 @@ pub fn run() {
             agents::service::get_available_agents,
             // Subscription commands
             subscription::commands::get_subscription_status,
-            subscription::commands::get_quota_detail,
-            subscription::commands::check_auto_write_quota,
-            subscription::commands::check_auto_revise_quota,
             subscription::commands::dev_upgrade_subscription,
             subscription::commands::dev_downgrade_subscription,
             // Updater commands
@@ -775,7 +772,7 @@ pub fn run() {
             get_runtime_contract,
             init_chapter_commit,
             apply_chapter_commit,
-            get_chapter_commits,
+            get_scene_commits,
             // Memory commands (v6.0.0)
             build_memory_pack,
             get_memory_items,
@@ -1177,12 +1174,17 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
                 };
                 if should_commit {
                     let repo = db::ChapterRepository::new(pool.clone());
+                    let scene_repo = db::SceneRepository::new(pool.clone());
                     if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
-                        let service = story_system::ChapterCommitService::new(pool);
+                        let scene_id = scene_repo.get_by_chapter(&chapter_id)
+                            .ok()
+                            .and_then(|scenes| scenes.into_iter().next())
+                            .map(|s| s.id);
+                        let service = story_system::SceneCommitService::new(pool);
                         let store = VECTOR_STORE.get();
                         if let Err(e) = service.auto_commit(
                             &chapter.story_id,
-                            chapter.scene_id.as_deref(),
+                            scene_id.as_deref(),
                             Some(&chapter_id),
                             chapter.chapter_number,
                             chapter.content.as_deref(),
@@ -1223,7 +1225,8 @@ fn create_chapter(
     app: AppHandle,
     automation_service: tauri::State<crate::automation::service::AutomationService>
 ) -> Result<db::Chapter, String> {
-    let repo = ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+    let pool = get_pool().ok_or("DB not initialized")?;
+    let repo = ChapterRepository::new(pool.clone());
 
     // 如果该 chapter_number 已存在，直接返回已有章节（幂等）
     if let Ok(chapters) = repo.get_by_story(&story_id) {
@@ -1254,8 +1257,14 @@ fn create_chapter(
 
     let _ = crate::state_sync::StateSync::emit_chapter_created(&app, &story_id, &chapter.id, title.as_deref());
     // 同时发射 Scene 更新事件（chapter 创建会自动创建/关联 scene）
-    if let Some(ref scene_id) = chapter.scene_id {
-        let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, scene_id, title.as_deref());
+    // v0.7.3: 1:N 架构下通过 scenes.chapter_id 查询关联 scene
+    {
+        let scene_repo = SceneRepository::new(pool.clone());
+        if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
+            if let Some(scene) = scenes.first() {
+                let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, &scene.id, title.as_deref());
+            }
+        }
     }
 
     // P0-3 修复: 触发自动化事件：章节创建完成
@@ -1273,19 +1282,25 @@ fn create_chapter(
 
     // W4-B9: 新建章节后自动触发 chapter commit（无需 debounce，首次创建只执行一次）
     // apply_commit 已吸收 vector + kg ingest 功能，避免重复工作
-    if let Some(pool) = get_pool() {
+    let scene_id_for_commit = {
+        let scene_repo = SceneRepository::new(pool.clone());
+        scene_repo.get_by_chapter(&chapter.id)
+            .ok()
+            .and_then(|scenes| scenes.into_iter().next())
+            .map(|s| s.id)
+    };
+    {
         let chapter_id = chapter.id.clone();
         let app_handle = app.clone();
         let story_id = chapter.story_id.clone();
-        let scene_id = chapter.scene_id.clone();
         let chapter_number = chapter.chapter_number;
         let content = chapter.content.clone();
         tauri::async_runtime::spawn(async move {
-            let service = story_system::ChapterCommitService::new(pool);
+            let service = story_system::SceneCommitService::new(pool);
             let store = VECTOR_STORE.get();
             if let Err(e) = service.auto_commit(
                 &story_id,
-                scene_id.as_deref(),
+                scene_id_for_commit.as_deref(),
                 Some(&chapter_id),
                 chapter_number,
                 content.as_deref(),
@@ -1396,7 +1411,6 @@ async fn execute_skill(
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
-            warnings: vec![],
             memory_pack: None,
         }
     };
@@ -3104,9 +3118,9 @@ fn init_chapter_commit(
     scene_id: Option<String>,
     chapter_id: Option<String>,
     chapter_number: i32,
-) -> Result<crate::db::ChapterCommit, String> {
+) -> Result<crate::db::SceneCommit, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
-    let service = story_system::ChapterCommitService::new(pool);
+    let service = story_system::SceneCommitService::new(pool);
     service.init_commit(&story_id, scene_id.as_deref(), chapter_id.as_deref(), chapter_number)
 }
 
@@ -3124,7 +3138,7 @@ async fn apply_chapter_commit(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let pool = get_pool().ok_or("Database not initialized")?;
-    let service = story_system::ChapterCommitService::new(pool);
+    let service = story_system::SceneCommitService::new(pool);
     let store = VECTOR_STORE.get();
     service.apply_commit(
         &commit_id, &outline_snapshot_json, &review_result_json,
@@ -3135,9 +3149,9 @@ async fn apply_chapter_commit(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn get_chapter_commits(story_id: String) -> Result<Vec<crate::db::ChapterCommit>, String> {
+fn get_scene_commits(story_id: String) -> Result<Vec<crate::db::SceneCommit>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
-    let repo = crate::db::ChapterCommitRepository::new(pool);
+    let repo = crate::db::SceneCommitRepository::new(pool);
     repo.get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 

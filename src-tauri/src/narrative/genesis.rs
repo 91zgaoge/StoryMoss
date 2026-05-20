@@ -148,7 +148,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(512), Some(0.7), Some("生成故事概念"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -226,7 +226,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             // 通过 AgentService 生成第一章
             let builder = crate::creative_engine::context_builder::StoryContextBuilder::new(ctx.pool.clone());
             let agent_context = builder.build(&ctx.story_id, Some(1), None, None)
-                .map_err(|e| PipelineError::LlmError(e))?;
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
             let task = crate::agents::service::AgentTask {
@@ -266,7 +266,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     suggestions: vec![],
                     request_id: None,
                 },
-                Err(e) => return Err(PipelineError::LlmError(e)),
+                Err(e) => return Err(PipelineError::LlmError(e.to_string())),
             };
 
             // 保存到 Chapter
@@ -355,7 +355,7 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成世界观设定");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(2048), Some(0.6), Some("生成世界观设定"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -449,7 +449,7 @@ impl PipelineStep<GenesisContext> for OutlineGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成故事大纲");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(2048), Some(0.6), Some("生成故事大纲"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -539,7 +539,7 @@ impl PipelineStep<GenesisContext> for CharacterGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成角色");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(3000), Some(0.7), Some("生成角色"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content)
@@ -656,7 +656,7 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成场景大纲");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(3000), Some(0.6), Some("生成场景大纲"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -792,7 +792,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成伏笔");
             let response = llm.generate_with_context_and_pipeline(
                 prompt, Some(1024), Some(0.7), Some("生成伏笔"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e))?;
+            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content).map_err(|e| PipelineError::ParseError(e))?;

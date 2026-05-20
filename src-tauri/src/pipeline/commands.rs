@@ -3,7 +3,27 @@ use super::{PipelineOrchestrator, PostProcessRunWithSteps};
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::llm::LlmService;
-use tauri::{command, AppHandle, State};
+use crate::subscription::SubscriptionService;
+use tauri::{command, AppHandle, Manager, State};
+
+fn check_pipeline_feature_access(app_handle: &AppHandle, feature_id: &str) -> Result<(), AppError> {
+    let pool = app_handle.state::<DbPool>();
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let machine_id_path = app_dir.join(".machine_id");
+    let user_id = if machine_id_path.exists() {
+        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+    } else {
+        "local".to_string()
+    };
+    let subscription = SubscriptionService::new(pool.inner().clone());
+    if !subscription.has_feature_access(&user_id, feature_id)? {
+        return Err(AppError::subscription_required(
+            feature_id,
+            format!("{} 功能需要 Pro 订阅，请升级以继续使用", feature_id),
+        ));
+    }
+    Ok(())
+}
 
 /// 执行 AI 修稿
 #[command(rename_all = "snake_case")]
@@ -14,6 +34,8 @@ pub async fn run_refine(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<RefineResult, AppError> {
+    check_pipeline_feature_access(&app_handle, "pipeline_refine")?;
+
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let callbacks = super::types::SilentCallbacks;
@@ -38,6 +60,8 @@ pub async fn run_review(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<ReviewResult, AppError> {
+    check_pipeline_feature_access(&app_handle, "pipeline_review")?;
+
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let callbacks = super::types::SilentCallbacks;
@@ -63,6 +87,8 @@ pub async fn run_finalize(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<PipelineResult, AppError> {
+    check_pipeline_feature_access(&app_handle, "pipeline_finalize")?;
+
     let config = PipelineConfig::default();
     let callbacks = super::types::SilentCallbacks;
     let chapter_info = ChapterInfo { chapter_number, title: chapter_title };

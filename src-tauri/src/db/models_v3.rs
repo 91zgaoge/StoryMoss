@@ -60,6 +60,24 @@ pub struct Scene {
     pub chapter_id: Option<String>,
 }
 
+/// 场景分隔节点 (v0.7.3 - 1:N Chapter↔Scene 连续编辑表面)
+///
+/// 在 1:N 架构下，Chapter 的 content 是多个 Scene 的聚合视图。
+/// SceneDividerNode 标记 Scene 边界，支撑连续编辑表面上的 divider 插入/删除/重排。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneDividerNode {
+    pub id: String,
+    pub chapter_id: String,
+    /// 在章节内的顺序位置（从 0 开始）
+    pub position: i32,
+    /// 该 divider 之后的 Scene ID
+    pub scene_id: String,
+    /// 可选标签（如 "Scene 2"、"转折"）
+    pub label: Option<String>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConflictType {
     ManVsMan,        // 人与人

@@ -5,6 +5,7 @@
 //! 核心设计：LLM 自由理解用户意图，自主选择能力组合，无预设分类。
 
 use crate::capabilities::get_capability_registry;
+use crate::error::AppError;
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -107,7 +108,7 @@ impl PlanGenerator {
     }
 
     /// 根据用户输入和系统状态生成执行计划
-    pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, String> {
+    pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, AppError> {
         self.emit_progress("context", "正在分析故事上下文...");
         let registry_context = get_capability_registry().to_llm_context();
 
@@ -332,9 +333,9 @@ Rules:
         };
 
         let mut plan: ExecutionPlan = serde_json::from_str(json_str).map_err(|e| {
-            format!(
-                "Failed to parse plan JSON: {}. Extracted JSON: {}",
-                e, json_str
+            AppError::validation_failed(
+                format!("Failed to parse plan JSON: {}. Extracted JSON: {}", e, json_str),
+                None::<String>,
             )
         })?;
         self.emit_progress("validating", "正在验证执行计划...");

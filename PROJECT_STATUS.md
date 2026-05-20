@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.7.2 项目完成状态
+# StoryForge (草苔) v0.7.3 项目完成状态
 
-> 最后更新: 2026-05-19（v0.7.2 + 拆书存储同构化 + MCP 动态注册 + 1:N 聚合编辑 + SceneDividerNode + LLM 取消 + AppError 结构化 IPC）
+> 最后更新: 2026-05-20（v0.7.3 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成 + SceneDividerNode 预留接口 + scene_commits 重命名）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -52,12 +52,12 @@
 
 ### v0.7.1 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
 
-#### ChapterCommitService 防抖聚合提交
+#### SceneCommitService 防抖聚合提交
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| `CHAPTER_COMMIT_DEBOUNCE` | ✅ | 全局防抖状态，30 秒空闲延迟 |
+| `SCENE_COMMIT_DEBOUNCE` | ✅ | 全局防抖状态，30 秒空闲延迟 |
 | `auto_ingest_chapter` 移除 | ✅ | 消除与 Projection Writer 的重复索引 |
-| `ChapterCommitService::auto_commit` | ✅ | 取代独立摄取，驱动 Vector/Memory ProjectionWriter |
+| `SceneCommitService::auto_commit` | ✅ | 取代独立摄取，驱动 Vector/Memory ProjectionWriter |
 | `update_chapter`/`create_chapter` 接入 | ✅ | 统一调用 `auto_commit` |
 
 #### 导出聚合完整性
@@ -76,6 +76,27 @@
 | `SceneEditor.tsx` 拆分 | ✅ | `SceneAuditPanel` + `SceneAnnotationPanel` 提取到 `scene-editor/` |
 | `StoryTimeline.tsx` 徽章 | ✅ | `execution_stage` 彩色徽章 + 叙事阶段双轨可视化 |
 | 未使用导入清理 | ✅ | `Image`/`createLogger`/`Clock`/`Eye`/`FileText` 等 |
+
+---
+
+### v0.7.3 架构对齐：商业模式重构 + 1:N 架构完成 + SceneDivider 预留接口（2026-05-20）
+
+#### 商业模式重构：订阅解锁功能，非模型配额
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `SubscriptionService` 精简 | ✅ | 移除所有配额计量逻辑，仅保留 `has_feature_access` 功能开关 |
+| `AppError::SubscriptionRequired` | ✅ | 取代 `QuotaExceeded`，错误码 `SUBSCRIPTION_REQUIRED` |
+| `has_feature_access` 细粒度权限 | ✅ | Free 基础功能 / Pro 解锁 Pipeline / 拆书 / 自动续写 / 自动修改 |
+| `log_ai_usage` 纯统计 | ✅ | `ai_usage_logs` 仅记录明细，不参与配额控制 |
+
+#### 1:N Chapter↔Scene 架构完成（Phase 4）
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 废弃 `chapters.scene_id` | ✅ | Migration 71 移除 `chapters.scene_id` 列 |
+| 全链路 `scenes.chapter_id` | ✅ | Repository / Service / IPC 全部改为反向查询 |
+| `SceneCommitService` 取代 `ChapterCommitService` | ✅ | 提交粒度对齐 Scene；Migration 70 重命名表 |
+| `SceneDividerRepository` | ✅ | `create`/`get_by_chapter`/`set_dividers`/`delete` |
+| `scene_divider_nodes` 表 | ✅ | Migration 72，支持章节内场景边界标记 |
 
 ---
 
@@ -100,7 +121,7 @@
 #### 1:N 聚合编辑数据库 Schema
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| Migration 68 | ✅ | `chapter_commits` 新增 `chapter_id` 外键 |
+| Migration 68 | ✅ | `scene_commits` 新增 `chapter_id` 外键 |
 | 全链路对齐 | ✅ | 数据结构 / Repository / Service 全部适配 |
 
 #### TipTap SceneDividerNode
@@ -311,21 +332,20 @@
 | 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 5.6.2 |
 | 旧图标清理 | ✅ | 100% | 移除 LOGO.jpg / icon.jpg / logo-source.png |
 
-#### 💎 Freemium 付费系统 (100%)
+#### 💎 功能订阅制 (v0.7.3 重构完成)
 
 | 功能模块 | 状态 | 完成度 | 备注 |
 |---------|------|--------|------|
-| 数据库表 | ✅ | 100% | `subscriptions` / `ai_usage_quota` / `ai_usage_logs` |
-| `SubscriptionService` | ✅ | 100% | 订阅状态 / 配额检查 / 消费 / 日志记录 |
-| Tauri IPC 命令 | ✅ | 100% | `get_subscription_status` / `check_ai_quota` / `dev_upgrade_subscription` |
+| 数据库表 | ✅ | 100% | `subscriptions` / `ai_usage_logs`（v0.7.3 移除配额表，保留日志表） |
+| `SubscriptionService` | ✅ | 100% | 订阅状态 / `has_feature_access` 功能开关 / 日志记录 |
+| Tauri IPC 命令 | ✅ | 100% | `get_subscription_status` / `dev_upgrade_subscription` |
 | `useSubscription` Hook | ✅ | 100% | 全局状态 + `localStorage` 离线缓存 |
-| `SubscriptionStatus` 指示器 | ✅ | 100% | Header 显示免费剩余次数 / 专业版标识 |
-| 配额中间件 | ✅ | 100% | `check_ai_quota_sync` + `consume_ai_quota_sync` 统一拦截 |
-| 转化漏斗 UI | ✅ | 100% | 免费提示浮层 / `UpgradePanel` / 配额用尽提示 |
+| `SubscriptionStatus` 指示器 | ✅ | 100% | Header 显示当前订阅层级标识 |
+| 功能权限中间件 | ✅ | 100% | `has_feature_access` 按 `feature_id` 拦截，Free/Pro/Enterprise 分级 |
+| 转化漏斗 UI | ✅ | 100% | 免费提示浮层 / `UpgradePanel` / 订阅功能解锁引导 |
 | Agent 质量分层 | ✅ | 100% | 免费版 token 限制 1000 + 简化 prompt |
-| 原子扣减 | ✅ | 100% | 事务内查询+扣减，消除竞态 |
-| 成功后扣费 | ✅ | 100% | Agent 执行成功后才消耗配额 |
-| session 冷却 | ✅ | 100% | 30s 最小间隔 + dismiss 去重 |
+| `AppError::SubscriptionRequired` | ✅ | 100% | `SUBSCRIPTION_REQUIRED` 错误码，前端按 code 渲染升级 UI |
+| `log_ai_usage` 纯统计 | ✅ | 100% | 仅记录调用明细，不参与任何配额控制 |
 
 #### 📖 拆书功能 (100%)
 
@@ -670,6 +690,15 @@
 | LLM 取消机制 | ✅ 完成 | 100% |
 | AppError 结构化 IPC | ✅ 完成 | 100% |
 
+### v0.7.3 新增模块完成度
+
+| 模块 | 状态 | 完成度 |
+|------|------|--------|
+| 商业模式重构（订阅制） | ✅ 完成 | 100% |
+| 1:N Chapter↔Scene 架构完成 | ✅ 完成 | 100% |
+| SceneDivider 预留接口 | ✅ 完成 | 100% |
+| scene_commits 重命名 | ✅ 完成 | 100% |
+
 ---
 
 ## 🎯 待完善功能
@@ -727,6 +756,9 @@
 - ✅ TipTap SceneDividerNode（v0.7.2）
 - ✅ LLM request_id 级取消机制（v0.7.2）
 - ✅ AppError 结构化 IPC（v0.7.2）
+- ✅ 商业模式重构为功能订阅制（v0.7.3）
+- ✅ 1:N Chapter↔Scene 架构完成（v0.7.3）
+- ✅ SceneDivider 预留接口（v0.7.3）
 
 ---
 

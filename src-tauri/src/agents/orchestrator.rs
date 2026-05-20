@@ -10,6 +10,7 @@ use super::service::{AgentService, AgentTask, AgentType};
 use crate::db::DbPool;
 use crate::db::repositories_v3::StyleDnaRepository;
 use crate::creative_engine::style::{StyleChecker, StyleDNA};
+use crate::error::AppError;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// 生成模式 — 决定 Orchestrator 执行路径
@@ -132,7 +133,7 @@ impl AgentOrchestrator {
         &self,
         task: AgentTask,
         mode: GenerationMode,
-    ) -> Result<WorkflowResult, String> {
+    ) -> Result<WorkflowResult, AppError> {
         // BeforeAiWrite hook
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
@@ -177,7 +178,7 @@ impl AgentOrchestrator {
     }
 
     /// Fast 模式：单轮 LLM 生成，跳过 Inspector / StyleChecker
-    async fn execute_fast(&self, task: AgentTask) -> Result<WorkflowResult, String> {
+    async fn execute_fast(&self, task: AgentTask) -> Result<WorkflowResult, AppError> {
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
         let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
 
@@ -209,7 +210,7 @@ impl AgentOrchestrator {
     pub async fn execute_full(
         &self,
         task: AgentTask,
-    ) -> Result<WorkflowResult, String> {
+    ) -> Result<WorkflowResult, AppError> {
         let mut steps: Vec<WorkflowStepResult> = Vec::new();
         let mut rewrite_count: u32 = 0;
         let mut was_rewritten = false;

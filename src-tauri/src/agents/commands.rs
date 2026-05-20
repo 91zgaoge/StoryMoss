@@ -56,53 +56,6 @@ fn get_user_id(app_handle: &AppHandle) -> String {
     }
 }
 
-/// 检查自动续写配额
-fn check_auto_write_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.check_auto_write_quota(&user_id, requested_chars)?;
-    if !result.allowed {
-        return Err(AppError::quota_exceeded("auto_write", result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string())));
-    }
-    Ok(())
-}
-
-/// 消费一次自动续写配额
-fn consume_auto_write_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.consume_auto_write_quota(&user_id, _actual_chars)?;
-    if !result.allowed {
-        return Err(AppError::quota_exceeded("auto_write", result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string())));
-    }
-    Ok(())
-}
-
-/// 检查自动修改配额
-fn check_auto_revise_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.check_auto_revise_quota(&user_id, requested_chars)?;
-    if !result.allowed {
-        return Err(AppError::quota_exceeded("auto_revise", result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string())));
-    }
-    Ok(())
-}
-
-/// 消费一次自动修改配额
-fn consume_auto_revise_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.consume_auto_revise_quota(&user_id, _actual_chars)?;
-    if !result.allowed {
-        return Err(AppError::quota_exceeded("auto_revise", result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string())));
-    }
-    Ok(())
-}
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -159,7 +112,7 @@ pub async fn agent_execute(
         Err(e) => Ok(ExecuteAgentResponse {
             task_id,
             result: None,
-            error: Some(e),
+            error: Some(e.to_string()),
         }),
     }
 }
@@ -169,7 +122,7 @@ pub async fn agent_execute(
 pub async fn agent_execute_stream(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let task_id = Uuid::new_v4().to_string();
 
     // 构建上下文
@@ -209,7 +162,7 @@ pub async fn agent_execute_stream(
 
 /// 取消Agent任务
 #[command]
-pub async fn agent_cancel_task(task_id: String) -> Result<(), String> {
+pub async fn agent_cancel_task(task_id: String) -> Result<(), AppError> {
     let mut handles = TASK_HANDLES.lock().unwrap();
     if let Some(handle) = handles.remove(&task_id) {
         handle.abort();
@@ -372,7 +325,7 @@ pub async fn writer_agent_execute(
                 chapter_id: created_chapter_id,
             })
         },
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(e),
     }
 }
 
@@ -416,10 +369,6 @@ pub async fn auto_write(
     let task_id = Uuid::new_v4().to_string();
     let _user_id = get_user_id(&app_handle);
 
-    // 检查配额：Pro 用户无限，Free 用户检查次数+字数
-    let requested_chars = request.chars_per_loop.min(request.target_chars);
-    check_auto_write_quota_sync(&app_handle, requested_chars)?;
-
     let pool = app_handle.state::<DbPool>();
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
@@ -452,13 +401,6 @@ pub async fn auto_write(
 
             let remaining = target_chars - total_written;
             let this_loop_chars = chars_per_loop.min(remaining);
-
-            // 每次循环前检查配额
-            if let Err(e) = check_auto_write_quota_sync(&app_handle_clone, this_loop_chars) {
-                log::warn!("[auto_write] Quota check failed: {}", e);
-                let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
-                break;
-            }
 
             // 构建续写 prompt
             let instruction = format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars);
@@ -499,11 +441,6 @@ pub async fn auto_write(
 
                     // 将生成内容追加到积累上下文，供下一轮使用
                     accumulated_content.push_str(&generated);
-
-                    // 循环成功后消费一次配额
-                    if let Err(e) = consume_auto_write_quota_sync(&app_handle_clone, generated_len) {
-                        log::warn!("[auto_write] Quota consume failed: {}", e);
-                    }
 
                     // 推送内容追加事件到幕前
                     let event = crate::window::FrontstageEvent::AppendContent {
@@ -634,7 +571,7 @@ pub async fn auto_write(
 
 /// 取消自动续写
 #[command]
-pub async fn auto_write_cancel(task_id: String) -> Result<(), String> {
+pub async fn auto_write_cancel(task_id: String) -> Result<(), AppError> {
     let mut handles = TASK_HANDLES.lock().unwrap();
     if let Some(handle) = handles.remove(&task_id) {
         handle.abort();
@@ -716,9 +653,6 @@ pub async fn auto_revise(
                 .sum()
         }
     };
-
-    // 检查配额
-    check_auto_revise_quota_sync(&app_handle, text_len)?;
 
     let task_id_clone = task_id.clone();
     let app_handle_clone = app_handle.clone();
@@ -826,12 +760,6 @@ pub async fn auto_revise(
                     suggestions: workflow_result.steps.iter().flat_map(|s| s.suggestions.clone()).collect(),
                     request_id: None,
                 };
-                let text_len_i32 = target_text.chars().count() as i32;
-                // 消费配额
-                if let Err(e) = consume_auto_revise_quota_sync(&app_handle_clone, text_len_i32) {
-                    log::warn!("[auto_revise] Quota consume failed: {}", e);
-                }
-
                 // 阶段 3: 保存中
                 let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
                     task_id: task_id_clone.clone(),
@@ -887,7 +815,7 @@ pub async fn auto_revise(
 
 /// 取消自动修改
 #[command]
-pub async fn auto_revise_cancel(task_id: String) -> Result<(), String> {
+pub async fn auto_revise_cancel(task_id: String) -> Result<(), AppError> {
     let mut handles = TASK_HANDLES.lock().unwrap();
     if let Some(handle) = handles.remove(&task_id) {
         handle.abort();
@@ -904,7 +832,7 @@ pub async fn auto_revise_cancel(task_id: String) -> Result<(), String> {
 pub(crate) async fn build_agent_context(
     app_handle: &AppHandle,
     request: &ExecuteAgentRequest,
-) -> Result<super::AgentContext, String> {
+) -> Result<super::AgentContext, AppError> {
     use crate::db::DbPool;
     use crate::agents::context_optimizer::{ContextOptimizer, default_writing_tools};
     use tauri::Manager;

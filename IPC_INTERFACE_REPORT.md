@@ -33,7 +33,9 @@
 |------|---------|------|
 | `agent_execute` | `agents/commands.rs` | 同步执行版本，前端使用 `agent_execute_stream` 流式版本 |
 | `agent_get_status` | `agents/commands.rs` | Agent 状态查询，前端未使用 |
-| `check_ai_quota` | `subscription/commands.rs` | 旧版统一配额检查，前端已改用 `check_auto_write_quota` / `check_auto_revise_quota` |
+| `get_subscription_status` | `subscription/commands.rs` | 获取当前订阅状态（Free/Pro/Enterprise） |
+| `dev_upgrade_subscription` | `subscription/commands.rs` | 模拟升级订阅（开发测试用） |
+| `dev_downgrade_subscription` | `subscription/commands.rs` | 模拟降级订阅（开发测试用） |
 | `get_available_agents` | `agents/service.rs` | 获取可用 Agent 列表，前端未使用 |
 | `get_entity_relations` | `commands_v3.rs` | 知识图谱关系查询，前端未使用 |
 | `get_story_entities` | `commands_v3.rs` | 知识图谱实体查询，前端未使用 |

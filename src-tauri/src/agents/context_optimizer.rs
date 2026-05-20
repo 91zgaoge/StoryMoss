@@ -435,7 +435,6 @@ impl ContextOptimizer {
             methodology_step: l0.methodology_step,
             style_dna_id: l0.style_dna_id,
             style_blend: l0.style_blend,
-            warnings: Vec::new(),
             memory_pack: None,
         };
 
