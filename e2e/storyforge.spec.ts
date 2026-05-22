@@ -209,8 +209,25 @@ test.describe('StoryForge 应用测试', () => {
             if (cmd === 'notify_backstage_content_changed') {
               return null;
             }
+            if (cmd === 'get_subscription_status') {
+              return { tier: 'free', status: 'active', daily_used: 0, daily_limit: 10, quota_resets_at: '' };
+            }
+            if (cmd === 'get_quota_detail') {
+              return { auto_write_used: 0, auto_write_limit: 10, auto_revise_used: 0, auto_revise_limit: 10 };
+            }
+            if (cmd === 'check_auto_write_quota' || cmd === 'check_auto_revise_quota') {
+              return { allowed: true, remaining: 10, daily_limit: 10, daily_used: 0 };
+            }
+            if (cmd === 'plugin:event|listen') {
+              return () => {};
+            }
             // 其他命令静默返回 null，避免未定义错误阻断 UI
             return null;
+          },
+          transformCallback: (callback: any) => {
+            const id = Math.random().toString(36).substring(2);
+            (window as any)[`__tauri_callback_${id}`] = callback;
+            return id;
           }
         };
       });
