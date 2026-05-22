@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::db::DbPool;
+use crate::db::{DbPool, SceneRepository, DraftRepository, ChapterReadingPowerRepository};
+use crate::reading_power::ReadingPowerEvaluator;
 use super::triggers::{AutomationTrigger, TriggerEvent, TriggerCondition};
 use super::handlers::AutomationHandler;
 
@@ -103,6 +104,26 @@ impl AutomationService {
         );
         triggers.insert("chapter_content_updated".to_string(), content_trigger);
 
+        // 场景内容更新时评估追读力
+        let rp_update_trigger = AutomationTrigger::new(
+            "evaluate_reading_power_on_update".to_string(),
+            "场景内容更新时自动评估追读力".to_string(),
+            TriggerEvent::SceneContentUpdated { story_id: String::new(), scene_id: String::new(), word_count: 0 },
+            vec![TriggerCondition::Always],
+            "evaluate_reading_power".to_string(),
+        );
+        triggers.insert("evaluate_reading_power_on_update".to_string(), rp_update_trigger);
+
+        // 章节定稿时评估追读力
+        let rp_finalize_trigger = AutomationTrigger::new(
+            "evaluate_reading_power_on_finalize".to_string(),
+            "章节定稿时自动评估追读力".to_string(),
+            TriggerEvent::ChapterFinalized { story_id: String::new(), chapter_id: String::new() },
+            vec![TriggerCondition::Always],
+            "evaluate_reading_power".to_string(),
+        );
+        triggers.insert("evaluate_reading_power_on_finalize".to_string(), rp_finalize_trigger);
+
         log::info!("Registered {} default triggers", triggers.len());
         Ok(())
     }
@@ -185,6 +206,22 @@ impl AutomationService {
                 parameters: {
                     let mut params = HashMap::new();
                     params.insert("workflow_id".to_string(), serde_json::Value::String("analyze_content".to_string()));
+                    params
+                },
+                enabled: true,
+            },
+        );
+
+        // 追读力评估处理器
+        handlers.insert(
+            "evaluate_reading_power".to_string(),
+            AutomationHandler {
+                name: "evaluate_reading_power".to_string(),
+                description: "自动评估章节追读力".to_string(),
+                handler_type: "workflow".to_string(),
+                parameters: {
+                    let mut params = HashMap::new();
+                    params.insert("workflow_id".to_string(), serde_json::Value::String("evaluate_reading_power".to_string()));
                     params
                 },
                 enabled: true,
@@ -336,8 +373,107 @@ impl AutomationService {
                     Err("Invalid event type for analyze_content workflow".to_string())
                 }
             }
+            "evaluate_reading_power" => {
+                let story_id = match event {
+                    TriggerEvent::SceneContentUpdated { story_id, .. } => story_id.clone(),
+                    TriggerEvent::ChapterFinalized { story_id, .. } => story_id.clone(),
+                    _ => return Err("Invalid event type for evaluate_reading_power workflow".to_string()),
+                };
+                self.evaluate_reading_power(event, &story_id).await
+            }
             _ => Err(format!("Unknown workflow: {}", workflow_id)),
         }
+    }
+
+    /// 评估追读力
+    async fn evaluate_reading_power(
+        &self,
+        event: &TriggerEvent,
+        story_id: &str,
+    ) -> Result<String, String> {
+        log::info!("Evaluating reading power for story: {}", story_id);
+
+        // 根据事件类型获取 chapter_number
+        let (chapter_number, scene_id) = match event {
+            TriggerEvent::SceneContentUpdated { scene_id, .. } => {
+                let scene_repo = SceneRepository::new(self.db_pool.clone());
+                match scene_repo.get_by_id(scene_id) {
+                    Ok(Some(scene)) => (scene.sequence_number, Some(scene_id.clone())),
+                    Ok(None) => return Err(format!("Scene not found: {}", scene_id)),
+                    Err(e) => return Err(format!("Failed to get scene: {}", e)),
+                }
+            }
+            TriggerEvent::ChapterFinalized { chapter_id, .. } => {
+                let draft_repo = DraftRepository::new(self.db_pool.clone());
+                match draft_repo.get_by_id(chapter_id) {
+                    Ok(Some(draft)) => (draft.chapter_number, None),
+                    Ok(None) => return Err(format!("Draft not found: {}", chapter_id)),
+                    Err(e) => return Err(format!("Failed to get draft: {}", e)),
+                }
+            }
+            _ => return Err("Invalid event type for reading power evaluation".to_string()),
+        };
+
+        // 执行评估
+        let evaluator = ReadingPowerEvaluator::new(self.db_pool.clone());
+        let evaluation = match evaluator.evaluate(story_id, chapter_number) {
+            Ok(e) => e,
+            Err(e) => return Err(format!("Reading power evaluation failed: {}", e)),
+        };
+
+        // 保存结果到数据库
+        let rp_repo = ChapterReadingPowerRepository::new(self.db_pool.clone());
+        let coolpoint_json = serde_json::to_string(&evaluation.coolpoint_patterns).unwrap_or_else(|_| "[]".to_string());
+        let micropayoffs_json = serde_json::to_string(&evaluation.micropayoffs).unwrap_or_else(|_| "[]".to_string());
+
+        match rp_repo.save(
+            story_id,
+            scene_id.as_deref(),
+            chapter_number,
+            evaluation.hook_type.as_deref(),
+            &evaluation.hook_strength,
+            Some(&coolpoint_json),
+            Some(&micropayoffs_json),
+            evaluation.is_transition,
+        ) {
+            Ok(record) => {
+                // 补充更新 score 和 debt_balance（save 方法未覆盖的字段）
+                let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+                if let Err(e) = conn.execute(
+                    "UPDATE chapter_reading_power SET debt_balance = ?1, override_count = ?2 WHERE id = ?3",
+                    rusqlite::params![evaluation.debt_balance, evaluation.override_count, record.id],
+                ) {
+                    log::warn!("Failed to update reading power details: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to save reading power result: {}", e);
+            }
+        }
+
+        // 发送前端事件
+        if let Err(e) = self.app_handle.emit("reading_power_evaluated", serde_json::json!({
+            "story_id": story_id,
+            "chapter_number": chapter_number,
+            "scene_id": scene_id,
+            "score": evaluation.score,
+            "hook_strength": evaluation.hook_strength,
+            "debt_balance": evaluation.debt_balance,
+            "override_count": evaluation.override_count,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        })) {
+            log::warn!("Failed to emit reading_power_evaluated event: {}", e);
+        }
+
+        log::info!(
+            "Reading power evaluated for chapter {}: score={}, hook_strength={}",
+            chapter_number, evaluation.score, evaluation.hook_strength
+        );
+
+        Ok(format!(
+            "Reading power evaluated for chapter {}: score={:.2}, hook_strength={}",
+            chapter_number, evaluation.score, evaluation.hook_strength
+        ))
     }
 
     /// 初始化故事结构

@@ -56,13 +56,18 @@ export function useCollaboration({
 
   const connect = useCallback(() => {
     wsLogger.debug('Connect called', { storyId, chapterId, userId });
-    
+
     if (!storyId || !chapterId || !userId) {
       wsLogger.debug('Cannot connect: missing params');
       setError('Missing required parameters');
       return;
     }
 
+    // Phase 4: Collaborative editing is reserved for future release
+    toast('协同编辑功能即将推出，敬请期待');
+    return;
+
+    /* Reserved for future use
     setError(null);
     wsLogger.debug('Connecting to ws://127.0.0.1:8765');
 
@@ -131,6 +136,7 @@ export function useCollaboration({
       wsLogger.error('Failed to create WebSocket', { error: e });
       setError('Failed to create connection');
     }
+    */
   }, [storyId, chapterId, userId, userName, onRemoteOperation]);
 
   const disconnect = useCallback(() => {

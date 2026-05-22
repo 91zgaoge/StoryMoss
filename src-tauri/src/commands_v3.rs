@@ -29,6 +29,7 @@ pub async fn create_scene(
     confidence_score: Option<f32>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
+    automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<Scene, AppError> {
     log::info!("[commands_v3] {} called: story_id={}", "create_scene", story_id);
     let repo = SceneRepository::new(pool.inner().clone());
@@ -100,6 +101,15 @@ pub async fn create_scene(
     }
 
     let _ = crate::state_sync::StateSync::emit_scene_created(&app_handle, &story_id, &scene.id, scene.title.as_deref());
+
+    // v0.8.0: 触发自动化事件
+    let _ = automation_service.trigger_event(
+        crate::automation::triggers::TriggerEvent::SceneCreated {
+            story_id: story_id.clone(),
+            scene_id: scene.id.clone(),
+        }
+    ).await;
+
     Ok(scene)
 }
 
@@ -129,6 +139,7 @@ pub async fn update_scene(
     updates: SceneUpdate,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
+    automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<usize, AppError> {
     log::info!("[commands_v3] {} called: scene_id={}", "update_scene", scene_id);
     let repo = SceneRepository::new(pool.inner().clone());
@@ -269,6 +280,16 @@ pub async fn update_scene(
             let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
         }
         let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, story_id, &scene_id, updates.title.as_deref());
+
+        // v0.8.0: 触发自动化事件
+        let word_count = updates.content.as_ref().map(|c| c.split_whitespace().count()).unwrap_or(0);
+        let _ = automation_service.trigger_event(
+            crate::automation::triggers::TriggerEvent::SceneContentUpdated {
+                story_id: story_id.clone(),
+                scene_id: scene_id.clone(),
+                word_count,
+            }
+        ).await;
     }
     Ok(result)
 }

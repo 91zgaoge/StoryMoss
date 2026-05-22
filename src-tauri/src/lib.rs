@@ -12,12 +12,12 @@ mod workflow;
 mod export;
 mod prompts;
 mod versions;
-mod chat;
+mod chat;           // RESERVED: story-associated chat sessions (Phase 4)
 mod analytics;
 mod skills;
 mod mcp;
-mod collab;
-mod state;
+mod collab;         // RESERVED: collaborative editing WebSocket server (Phase 4)
+mod state;          // RESERVED: runtime story state manager (Phase 4)
 mod router;
 mod evolution;
 pub(crate) mod embeddings;
@@ -69,7 +69,8 @@ use std::time::{Instant, Duration};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use collab::websocket::WebSocketServer;
+// NOTE: Collab WebSocket server is reserved for future use (Phase 4)
+// use collab::websocket::WebSocketServer;
 
 
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
@@ -387,25 +388,25 @@ pub fn run() {
                 }
             });
 
-            // Start WebSocket server for collaborative editing
-            if let Some(pool) = get_pool() {
-                tauri::async_runtime::spawn(async move {
-                    // Try different ports if 8765 is taken
-                    let ports = [8765, 8766, 8767, 8768, 8769];
-                    for port in ports {
-                        let ws_server = WebSocketServer::with_pool(pool.clone());
-                        match ws_server.start(port).await {
-                            Ok(_) => {
-                                log::info!("WebSocket server started on port {}", port);
-                                break;
-                            }
-                            Err(e) => {
-                                log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
-                            }
-                        }
-                    }
-                });
-            }
+            // NOTE: WebSocket server for collaborative editing is reserved for future use (Phase 4)
+            // See docs/plans/ for collaboration feature roadmap.
+            // if let Some(pool) = get_pool() {
+            //     tauri::async_runtime::spawn(async move {
+            //         let ports = [8765, 8766, 8767, 8768, 8769];
+            //         for port in ports {
+            //             let ws_server = WebSocketServer::with_pool(pool.clone());
+            //             match ws_server.start(port).await {
+            //                 Ok(_) => {
+            //                     log::info!("WebSocket server started on port {}", port);
+            //                     break;
+            //                 }
+            //                 Err(e) => {
+            //                     log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
+            //                 }
+            //             }
+            //         }
+            //     });
+            // }
 
             // Initialize WorkflowEngine and WorkflowScheduler
             let workflow_engine_arc = {
@@ -731,6 +732,7 @@ pub fn run() {
             commands_v3::generate_scene_draft,
             // Audit commands
             audit::commands::audit_scene,
+            audit_story,
             // Auth commands (v4.5.0)
             auth::commands::get_auth_config,
             auth::commands::oauth_start,
@@ -790,6 +792,7 @@ pub fn run() {
             delete_genre_profile,
             // Anti-AI Review command (v6.0.0)
             anti_ai_review,
+            evolve_style_from_anti_ai_review,
             get_feature_usage_stats,
             log_frontend_feature_usage,
             // Pipeline commands (v7.0.0)
@@ -3195,6 +3198,19 @@ fn create_memory_item(
     ).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
+// ==================== v6.0.0: Story Structure Audit Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+async fn audit_story(
+    story_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<narrative::audit::StoryAnalysisReport, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let llm_service = crate::llm::LlmService::new(app_handle);
+    let auditor = narrative::audit::StoryStructureAuditor::new(pool, llm_service);
+    auditor.analyze(&story_id).await.map_err(|e| e.to_string())
+}
+
 // ==================== v6.0.0: Reading Power Commands ====================
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3324,6 +3340,53 @@ fn anti_ai_review(
 ) -> Result<anti_ai::AntiAiReview, String> {
     let reviewer = anti_ai::AntiAiReviewer::new();
     Ok(reviewer.review(&text, genre.as_deref()))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn evolve_style_from_anti_ai_review(
+    story_id: String,
+    review: anti_ai::AntiAiReview,
+) -> Result<creative_engine::style::evolution::StyleDnaDelta, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+
+    // 1. 获取 story 的 style_dna_id
+    let story_repo = db::repositories::StoryRepository::new(pool.clone());
+    let style_dna_id = match story_repo.get_by_id(&story_id) {
+        Ok(Some(story)) => story.style_dna_id,
+        Ok(None) => return Err("故事不存在".to_string()),
+        Err(e) => return Err(format!("查询故事失败: {}", e)),
+    };
+
+    // 2. 获取或创建 StyleDNA
+    let dna_repo = db::repositories_v3::StyleDnaRepository::new(pool.clone());
+    let (dna_id, base_dna) = if let Some(id) = style_dna_id {
+        let dna = dna_repo.get_by_id(&id).map_err(|e| e.to_string())?
+            .ok_or("StyleDNA not found")?;
+        let base: creative_engine::style::dna::StyleDNA = serde_json::from_str(&dna.dna_json)
+            .map_err(|e| format!("Parse StyleDNA failed: {}", e))?;
+        (id, base)
+    } else {
+        let base = creative_engine::style::dna::StyleDNA::new("evolved");
+        let json = serde_json::to_string(&base).map_err(|e| e.to_string())?;
+        let dna = dna_repo.create("evolved", None, &json, false).map_err(|e| e.to_string())?;
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        conn.execute("UPDATE stories SET style_dna_id = ?1 WHERE id = ?2", [&dna.id, &story_id])
+            .map_err(|e| e.to_string())?;
+        (dna.id, base)
+    };
+
+    // 3. 运行风格演化
+    let engine = creative_engine::style::evolution::StyleEvolutionEngine::new();
+    let delta = engine.evolve_from_reviews(&base_dna, Some(&review), None);
+
+    // 4. 如果有实质调整，保存
+    if !delta.is_empty() {
+        let evolved = delta.apply(&base_dna);
+        let json = serde_json::to_string(&evolved).map_err(|e| e.to_string())?;
+        dna_repo.update_dna_json(&dna_id, &json).map_err(|e| e.to_string())?;
+    }
+
+    Ok(delta)
 }
 
 // ==================== v6.0.1: Telemetry Commands ====================

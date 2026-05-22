@@ -24,6 +24,16 @@ pub enum TriggerEvent {
     WorkflowCompleted { workflow_id: String, instance_id: String },
     /// 任务完成
     TaskCompleted { task_id: String, task_type: String },
+    /// 场景创建
+    SceneCreated { story_id: String, scene_id: String },
+    /// 场景内容更新
+    SceneContentUpdated { story_id: String, scene_id: String, word_count: usize },
+    /// 场景生成请求（AI写作前）
+    SceneGenerationRequested { story_id: String, scene_id: String },
+    /// 场景生成完成（AI写作后）
+    SceneGenerated { story_id: String, scene_id: String },
+    /// 章节定稿
+    ChapterFinalized { story_id: String, chapter_id: String },
 }
 
 /// 触发条件
@@ -177,6 +187,11 @@ impl AutomationTrigger {
             TriggerEvent::ChapterContentUpdated { story_id, .. } => Some(story_id.clone()),
             TriggerEvent::CharacterRelationshipUpdated { story_id, .. } => Some(story_id.clone()),
             TriggerEvent::StorySettingUpdated { story_id } => Some(story_id.clone()),
+            TriggerEvent::SceneCreated { story_id, .. } => Some(story_id.clone()),
+            TriggerEvent::SceneContentUpdated { story_id, .. } => Some(story_id.clone()),
+            TriggerEvent::SceneGenerationRequested { story_id, .. } => Some(story_id.clone()),
+            TriggerEvent::SceneGenerated { story_id, .. } => Some(story_id.clone()),
+            TriggerEvent::ChapterFinalized { story_id, .. } => Some(story_id.clone()),
             _ => None,
         }
     }

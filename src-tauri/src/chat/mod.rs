@@ -1,3 +1,9 @@
+//! Chat module — RESERVED FOR FUTURE USE (Phase 4)
+//!
+//! This module provides story-associated chat sessions with message history.
+//! It is currently NOT exposed via any Tauri commands or frontend UI.
+//! Re-enable when a dedicated chat/assistant panel is designed.
+
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;

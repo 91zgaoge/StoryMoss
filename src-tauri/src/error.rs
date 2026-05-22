@@ -50,6 +50,11 @@ pub enum AppError {
         resource: String,
         id: String,
     },
+    /// 预检失败（写作前阻塞性问题）
+    PreflightFailed {
+        message: String,
+        issues: Vec<String>,
+    },
     /// 内部错误（兜底）
     Internal {
         message: String,
@@ -68,6 +73,7 @@ impl AppError {
             AppError::NetworkOffline { .. } => "NETWORK_OFFLINE",
             AppError::Cancellation { .. } => "CANCELLATION",
             AppError::NotFound { .. } => "NOT_FOUND",
+            AppError::PreflightFailed { .. } => "PREFLIGHT_FAILED",
             AppError::Internal { .. } => "INTERNAL_ERROR",
         }
     }
@@ -83,6 +89,7 @@ impl AppError {
             AppError::NetworkOffline { message } => message.clone(),
             AppError::Cancellation { message } => message.clone(),
             AppError::NotFound { resource, id } => format!("{} '{}' not found", resource, id),
+            AppError::PreflightFailed { message, issues } => format!("{}: {}", message, issues.join("; ")),
             AppError::Internal { message } => message.clone(),
         }
     }
@@ -300,6 +307,13 @@ impl AppError {
             message: message.into(),
         }
     }
+
+    pub fn preflight_failed(message: impl Into<String>, issues: Vec<String>) -> Self {
+        AppError::PreflightFailed {
+            message: message.into(),
+            issues,
+        }
+    }
 }
 
 // ==================== 手动 Serialize（统一 IPC 格式 { code, message, data }） ====================
@@ -330,6 +344,9 @@ impl Serialize for AppError {
             }
             AppError::NotFound { resource, id } => {
                 Some(serde_json::json!({ "resource": resource, "id": id }))
+            }
+            AppError::PreflightFailed { issues, .. } => {
+                Some(serde_json::json!({ "issues": issues }))
             }
             _ => None,
         };

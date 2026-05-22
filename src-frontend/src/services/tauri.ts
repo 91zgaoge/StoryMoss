@@ -838,6 +838,34 @@ export interface ChaseDebt {
   created_at: string;
 }
 
+// ==================== v6.0.0: Story Audit ====================
+
+export interface StoryAnalysisReport {
+  story_id: string;
+  overall_score: number;
+  dimensions: AuditDimension[];
+  findings: AuditFinding[];
+  recommendations: string[];
+}
+
+export interface AuditDimension {
+  name: string;
+  score: number;
+  weight: number;
+  description: string;
+  details: string[];
+}
+
+export interface AuditFinding {
+  severity: 'Critical' | 'Warning' | 'Info';
+  category: string;
+  message: string;
+  suggestion: string;
+}
+
+export const auditStory = (storyId: string) =>
+  loggedInvoke<StoryAnalysisReport>('audit_story', { story_id: storyId });
+
 export interface OverrideContract {
   id: number;
   story_id: string;
@@ -928,6 +956,22 @@ export interface FlaggedPassage {
 
 export const antiAiReview = (text: string, genre?: string) =>
   loggedInvoke<AntiAiReview>('anti_ai_review', { text, genre });
+
+export interface StyleDnaDelta {
+  sentence_length_delta: number;
+  dialogue_ratio_delta: number;
+  metaphor_density_delta: number;
+  interior_monologue_delta: number;
+  emotion_density_delta: number;
+  rhythm_score_delta: number;
+  vocabulary_density_shift: string | null;
+  expressiveness_shift: string | null;
+  avoided_patterns_add: string[];
+  reasons: string[];
+}
+
+export const evolveStyleFromAntiAiReview = (storyId: string, review: AntiAiReview) =>
+  loggedInvoke<StyleDnaDelta>('evolve_style_from_anti_ai_review', { story_id: storyId, review });
 
 // ==================== v7.0.0: Pipeline 管线体系 ====================
 

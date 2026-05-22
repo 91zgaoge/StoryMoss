@@ -1,7 +1,7 @@
 use super::types::*;
 use crate::db::{DbPool, DraftRepository, DraftStatus, ChapterRepository, PostProcessRepository, PostProcessStatus, StepStatus};
 use crate::llm::LlmService;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// 执行定稿
 ///
@@ -158,6 +158,16 @@ pub async fn finalize_draft(
 
         callbacks.log("[定稿] 后处理完成");
         callbacks.progress("finalize", 1.0);
+
+        // v0.8.0: 触发 ChapterFinalized 事件
+        if let Some(automation_service) = app_handle.try_state::<crate::automation::service::AutomationService>() {
+            let _ = automation_service.trigger_event(
+                crate::automation::triggers::TriggerEvent::ChapterFinalized {
+                    story_id: story_id.to_string(),
+                    chapter_id: draft_id.to_string(),
+                }
+            ).await;
+        }
 
         Ok(run.id)
     } else {

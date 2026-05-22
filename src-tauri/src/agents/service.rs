@@ -331,6 +331,21 @@ impl AgentService {
     /// 原始 Writer 生成 — 只生成内容，不进入闭环
     /// v5.3.1: 提取为独立方法，供 AgentOrchestrator 和 Bootstrap 直接调用，防止递归
     pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, AppError> {
+        // v0.8.0: 写前预检
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let checker = crate::story_system::preflight::PreflightChecker::new();
+        let preflight = checker.check(
+            pool.inner(),
+            &task.context.story_id,
+            task.context.chapter_number as i32,
+        );
+        if !preflight.ready {
+            return Err(AppError::preflight_failed(
+                "写作前检查发现阻塞性问题",
+                preflight.blocking_issues,
+            ));
+        }
+
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         

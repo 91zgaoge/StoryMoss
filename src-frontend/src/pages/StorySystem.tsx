@@ -4,15 +4,16 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
   getContractTree, getRuntimeContract, getChapterCommits,
+  createMasterSetting, createChapterContract, initChapterCommit,
   evaluateReadingPower, getReadingPowerTrend, getChaseDebts,
-  buildMemoryPack, getMemoryItems, antiAiReview,
+  buildMemoryPack, getMemoryItems, antiAiReview, auditStory, evolveStyleFromAntiAiReview,
   getGenreProfiles, checkProjectionHealth, saveGenreProfile, deleteGenreProfile,
   logFeatureUsage,
 } from '@/services/tauri';
 import type {
   ContractTree, RuntimeContract, ChapterCommit,
   ReadingPowerEvaluation, ChaseDebt, MemoryPack, MemoryItem,
-  AntiAiReview, GenreProfile,
+  AntiAiReview, GenreProfile, StoryAnalysisReport,
 } from '@/services/tauri';
 import type { ProjectionHealthReport } from '@/types/v3';
 import {
@@ -28,7 +29,7 @@ const styleLogger = createLogger('ui:StorySystem');
 
 export function StorySystem() {
   const currentStory = useAppStore((s) => s.currentStory);
-  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'anti-ai' | 'genres' | 'style-dna'>('contracts');
+  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'audit' | 'anti-ai' | 'genres' | 'style-dna'>('contracts');
   const [isLoading, setIsLoading] = useState(false);
 
   // Contracts
@@ -42,6 +43,7 @@ export function StorySystem() {
   // Reading Power
   const [readingTrend, setReadingTrend] = useState<ReadingPowerEvaluation[]>([]);
   const [chaseDebts, setChaseDebts] = useState<ChaseDebt[]>([]);
+  const [isEvaluating, setIsEvaluating] = useState(false);
 
   // Memory
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
@@ -50,6 +52,11 @@ export function StorySystem() {
   const [reviewText, setReviewText] = useState('');
   const [reviewResult, setReviewResult] = useState<AntiAiReview | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isEvolving, setIsEvolving] = useState(false);
+
+  // Audit
+  const [auditReport, setAuditReport] = useState<StoryAnalysisReport | null>(null);
+  const [isAuditing, setIsAuditing] = useState(false);
 
   // Projection Health
   const [healthReports, setHealthReports] = useState<Record<number, ProjectionHealthReport>>({});
@@ -81,6 +88,7 @@ export function StorySystem() {
       contracts: 'story_contract',
       reading: 'reading_power',
       memory: 'memory_pack',
+      audit: 'story_audit',
       'anti-ai': 'anti_ai_review',
       genres: 'genre_template',
     };
@@ -135,6 +143,20 @@ export function StorySystem() {
     }
   };
 
+  const handleEvaluateReadingPower = async () => {
+    if (!currentStory) return;
+    setIsEvaluating(true);
+    try {
+      const result = await evaluateReadingPower(currentStory.id, selectedChapter);
+      toast.success(`第${selectedChapter}章追读力评估完成: ${(result.score * 100).toFixed(0)}分`);
+      loadReadingPower();
+    } catch (e) {
+      toast.error('评估失败');
+    } finally {
+      setIsEvaluating(false);
+    }
+  };
+
   const loadMemory = async () => {
     if (!currentStory) return;
     try {
@@ -182,11 +204,43 @@ export function StorySystem() {
     }
   };
 
+  const handleAudit = async () => {
+    if (!currentStory) return;
+    setIsAuditing(true);
+    try {
+      const result = await auditStory(currentStory.id);
+      setAuditReport(result);
+      toast.success('审计完成');
+    } catch (e) {
+      toast.error('审计失败');
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
+  const handleEvolveStyle = async () => {
+    if (!currentStory || !reviewResult) return;
+    setIsEvolving(true);
+    try {
+      const delta = await evolveStyleFromAntiAiReview(currentStory.id, reviewResult);
+      if (delta.reasons.length > 0) {
+        toast.success(`风格已进化: ${delta.reasons.length} 项调整`);
+      } else {
+        toast.success('风格无需调整');
+      }
+    } catch (e) {
+      toast.error('风格进化失败');
+    } finally {
+      setIsEvolving(false);
+    }
+  };
+
   const tabs = [
     { id: 'contracts' as const, label: '合同', icon: FileText },
     { id: 'commits' as const, label: '提交链', icon: BookOpen },
     { id: 'reading' as const, label: '追读力', icon: TrendingUp },
     { id: 'memory' as const, label: '记忆', icon: Brain },
+    { id: 'audit' as const, label: '审计', icon: ShieldAlert },
     { id: 'genres' as const, label: '体裁', icon: Layers },
     { id: 'style-dna' as const, label: '风格 DNA', icon: Radar },
   ];
@@ -229,10 +283,37 @@ export function StorySystem() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cinema-gold" />
-                合同树
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-cinema-gold" />
+                  合同树
+                </h3>
+                {!contractTree?.master_setting && (
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      if (!currentStory) return;
+                      try {
+                        await createMasterSetting({
+                          story_id: currentStory.id,
+                          genre: currentStory.genre || '小说',
+                          core_tone: currentStory.tone || '中性',
+                          pacing_strategy: '正常',
+                          anti_patterns: [],
+                          world_rules: [],
+                        });
+                        toast.success('世界观合同已创建');
+                        loadContracts();
+                      } catch (e) {
+                        toast.error('创建世界观合同失败');
+                      }
+                    }}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    生成世界观合同
+                  </Button>
+                )}
+              </div>
               {contractTree?.master_setting ? (
                 <div className="space-y-3">
                   <div className="p-3 bg-cinema-800 rounded-lg">
@@ -249,7 +330,31 @@ export function StorySystem() {
 
           <Card>
             <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-white mb-4">运行时合同</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">运行时合同</h3>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!currentStory) return;
+                    try {
+                      await createChapterContract({
+                        story_id: currentStory.id,
+                        chapter_number: selectedChapter,
+                        goal: `完成第${selectedChapter}章的情节推进`,
+                        must_cover_nodes: [],
+                        forbidden_zones: [],
+                      });
+                      toast.success(`第${selectedChapter}章合同已创建`);
+                      loadContracts();
+                    } catch (e) {
+                      toast.error('创建章节合同失败');
+                    }
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  生成章节合同
+                </Button>
+              </div>
               <div className="flex items-center gap-2 mb-4">
                 <input
                   type="number"
@@ -280,7 +385,27 @@ export function StorySystem() {
       {activeTab === 'commits' && (
         <Card>
           <CardContent className="p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">章节提交链</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">章节提交链</h3>
+              {commits.length === 0 && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!currentStory) return;
+                    try {
+                      await initChapterCommit(currentStory.id, selectedChapter);
+                      toast.success(`第${selectedChapter}章提交已初始化`);
+                      loadCommits();
+                    } catch (e) {
+                      toast.error('初始化提交失败');
+                    }
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  初始化提交
+                </Button>
+              )}
+            </div>
             {commits.length === 0 ? (
               <p className="text-gray-500 text-sm">暂无提交记录</p>
             ) : (
@@ -356,10 +481,35 @@ export function StorySystem() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-green-400" />
-                追读力趋势
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-green-400" />
+                  追读力趋势
+                </h3>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedChapter}
+                    onChange={(e) => setSelectedChapter(Number(e.target.value))}
+                    className="bg-cinema-800 text-white text-sm rounded px-2 py-1 border border-cinema-700"
+                  >
+                    {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={n}>第{n}章</option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    onClick={handleEvaluateReadingPower}
+                    disabled={isEvaluating}
+                  >
+                    {isEvaluating ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    ) : (
+                      <Zap className="w-4 h-4 mr-1" />
+                    )}
+                    评估
+                  </Button>
+                </div>
+              </div>
               {readingTrend.length === 0 ? (
                 <p className="text-gray-500 text-sm">暂无数据</p>
               ) : (
@@ -408,10 +558,28 @@ export function StorySystem() {
       {activeTab === 'memory' && (
         <Card>
           <CardContent className="p-4">
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-400" />
-              记忆项 ({memoryItems.length})
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Brain className="w-5 h-5 text-purple-400" />
+                记忆项 ({memoryItems.length})
+              </h3>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  if (!currentStory) return;
+                  try {
+                    await buildMemoryPack(currentStory.id, selectedChapter, 'write');
+                    toast.success('记忆包构建成功');
+                    loadMemory();
+                  } catch (e) {
+                    toast.error('构建记忆包失败');
+                  }
+                }}
+              >
+                <Zap className="w-4 h-4 mr-1" />
+                构建记忆包
+              </Button>
+            </div>
             {memoryItems.length === 0 ? (
               <p className="text-gray-500 text-sm">暂无记忆项</p>
             ) : (
@@ -430,6 +598,106 @@ export function StorySystem() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Audit Tab */}
+      {activeTab === 'audit' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-orange-400" />
+              叙事审计
+            </h3>
+            <Button
+              size="sm"
+              onClick={handleAudit}
+              disabled={isAuditing}
+            >
+              {isAuditing ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-1" />
+              ) : (
+                <Activity className="w-4 h-4 mr-1" />
+              )}
+              运行全面审计
+            </Button>
+          </div>
+
+          {auditReport ? (
+            <div className="space-y-4">
+              {/* Overall Score */}
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="text-4xl font-bold text-white">
+                      {auditReport.overall_score}
+                    </div>
+                    <div>
+                      <p className="text-white font-medium">
+                        {auditReport.overall_score >= 80 ? '结构健康' : auditReport.overall_score >= 50 ? '需要关注' : '问题较多'}
+                      </p>
+                      <p className="text-gray-500 text-sm">
+                        综合评分 (0-100)
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Dimensions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {auditReport.dimensions.map((dim) => (
+                  <Card key={dim.name}>
+                    <CardContent className="p-4">
+                      <h4 className="text-white font-medium mb-2">{dim.name}</h4>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 h-3 bg-cinema-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${dim.score}%`,
+                              backgroundColor: dim.score > 70 ? '#4ade80' : dim.score > 40 ? '#fbbf24' : '#f87171',
+                            }}
+                          />
+                        </div>
+                        <span className="text-white text-sm w-8 text-right">{dim.score}</span>
+                      </div>
+                      <p className="text-gray-500 text-xs">{dim.description}</p>
+                      {dim.details.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {dim.details.map((d, i) => (
+                            <li key={i} className="text-gray-400 text-xs">{d}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Recommendations */}
+              {auditReport.recommendations.length > 0 && (
+                <Card>
+                  <CardContent className="p-4">
+                    <h4 className="text-white font-medium mb-3">建议</h4>
+                    <div className="space-y-2">
+                      {auditReport.recommendations.map((rec, i) => (
+                        <div key={i} className="p-2 bg-cinema-800 rounded text-gray-300 text-sm">{rec}</div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-gray-500 text-sm">
+                  点击"运行全面审计"开始分析故事结构健康度
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* Genres Tab */}
@@ -647,6 +915,21 @@ export function StorySystem() {
                         </div>
                       </div>
                     )}
+
+                    <div className="mt-4">
+                      <Button
+                        size="sm"
+                        onClick={handleEvolveStyle}
+                        disabled={isEvolving}
+                      >
+                        {isEvolving ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                        ) : (
+                          <Zap className="w-4 h-4 mr-1" />
+                        )}
+                        接受审校并进化风格
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>

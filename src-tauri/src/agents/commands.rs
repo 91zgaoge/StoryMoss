@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
-use tauri::{command, AppHandle, Emitter, Manager};
+use tauri::{command, AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use crate::db::{DbPool, CreateStoryRequest};
 use crate::error::AppError;
@@ -208,6 +208,7 @@ pub struct WriterAgentResponse {
 pub async fn writer_agent_execute(
     request: WriterAgentRequest,
     app_handle: AppHandle,
+    automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<WriterAgentResponse, AppError> {
     let mut story_id = request.story_id.clone();
     let mut chapter_number = request.chapter_number.unwrap_or(1);
@@ -250,6 +251,16 @@ pub async fn writer_agent_execute(
             &app_handle,
             crate::window::BackstageEvent::DataRefresh { entity: "stories".to_string() }
         );
+    }
+
+    // v0.8.0: 触发 SceneGenerationRequested 事件
+    if let Some(ref scene_id) = created_chapter_id {
+        let _ = automation_service.trigger_event(
+            crate::automation::triggers::TriggerEvent::SceneGenerationRequested {
+                story_id: story_id.clone(),
+                scene_id: scene_id.clone(),
+            }
+        ).await;
     }
 
     let mut context = build_agent_context(
@@ -297,6 +308,16 @@ pub async fn writer_agent_execute(
             log::info!("[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}", 
                 workflow_result.final_score, workflow_result.was_rewritten);
             
+            // v0.8.0: 触发 SceneGenerated 事件
+            if let Some(ref scene_id) = created_chapter_id {
+                let _ = automation_service.trigger_event(
+                    crate::automation::triggers::TriggerEvent::SceneGenerated {
+                        story_id: story_id.clone(),
+                        scene_id: scene_id.clone(),
+                    }
+                ).await;
+            }
+
             // 如果创建了新场景，把生成的内容保存到数据库
             if let Some(ref scene_id) = created_chapter_id {
                 let pool = app_handle.state::<DbPool>();
@@ -882,6 +903,36 @@ pub(crate) async fn build_agent_context(
             }
             Ok(_) => {}
             Err(e) => log::warn!("[build_agent_context] ForeshadowingTracker failed: {}", e),
+        }
+    }
+
+    // v0.8.0: 语义检索增强 — 根据用户输入智能检索相关知识
+    if request.input.len() >= 10 {
+        if let Some(store) = crate::VECTOR_STORE.get() {
+            match crate::knowledge_base::kb_search(
+                store,
+                &story_id,
+                &request.input,
+                5,
+                None,
+                "hybrid",
+            ).await {
+                Ok(results) if !results.is_empty() => {
+                    let lines: Vec<String> = results
+                        .iter()
+                        .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
+                        .collect();
+                    let semantic_text = format!("\n\n【相关记忆检索】\n{}", lines.join("\n"));
+                    context.scene_structure = Some(
+                        context.scene_structure.unwrap_or_default() + &semantic_text
+                    );
+                    log::info!("[build_agent_context] Injected {} semantic search results", results.len());
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!("[build_agent_context] Semantic search failed: {}, skipping", e);
+                }
+            }
         }
     }
 

@@ -2723,6 +2723,14 @@ impl StyleDnaRepository {
             params![id],
         )
     }
+
+    pub fn update_dna_json(&self, id: &str, dna_json: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE style_dnas SET dna_json = ?2 WHERE id = ?1",
+            params![id, dna_json],
+        )
+    }
 }
 
 

@@ -1,3 +1,11 @@
+//! StoryStateManager — RESERVED FOR FUTURE USE (Phase 4)
+//!
+//! This module provides a runtime story state manager with character arcs,
+//! plot progression, and world state tracking. It is currently NOT integrated
+//! into the active creative flow and overlaps with CanonicalStateManager + StateSync.
+//!
+//! Re-enable when a dedicated runtime state machine is needed.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
