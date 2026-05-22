@@ -268,11 +268,12 @@ export const checkPreflight = (storyId: string, chapterNumber: number) =>
 export interface AutoCreateContractsResult {
   created_master_setting: boolean;
   created_chapter_contract: boolean;
+  created_outline: boolean;
   message: string;
 }
 
-export const autoCreateMissingContracts = (storyId: string, chapterNumber: number) =>
-  loggedInvoke<AutoCreateContractsResult>('auto_create_missing_contracts', { story_id: storyId, chapter_number: chapterNumber });
+export const autoCreateMissingContracts = (storyId: string, chapterNumber: number, sceneId?: string) =>
+  loggedInvoke<AutoCreateContractsResult>('auto_create_missing_contracts', { story_id: storyId, chapter_number: chapterNumber, scene_id: sceneId });
 
 export const smartExecute = (req: SmartExecuteRequest) =>
   loggedInvoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content, selected_text: req.selected_text });

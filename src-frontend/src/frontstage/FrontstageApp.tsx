@@ -822,27 +822,28 @@ const FrontstageApp: React.FC = () => {
         const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
         if (!preflight.ready) {
           const isMissingContracts = preflight.missing_contracts.length > 0;
-          if (isMissingContracts) {
+          const isMissingOutline = preflight.blocking_issues.some((i: string) => i.includes('大纲') || i.includes('outline'));
+          if (isMissingContracts || isMissingOutline) {
             setIsGenerating(true);
-            setGenerationStatus('正在自动补齐合同...');
+            setGenerationStatus('正在自动补齐...');
             let progressUnlisten: (() => void) | null = null;
             try {
               progressUnlisten = await listen('contract-auto-progress', (event) => {
                 const p = event.payload as any;
                 setGenerationStatus(p.message);
               });
-              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number);
-              if (!result.created_master_setting && !result.created_chapter_contract) {
-                toast.error('合同补齐未成功，请手动创建');
+              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, currentScene?.id);
+              if (!result.created_master_setting && !result.created_chapter_contract && !result.created_outline) {
+                toast.error('自动补齐未成功，请手动创建');
                 setIsGenerating(false);
                 setGenerationStatus('');
                 return;
               }
-              toast.success('合同补齐完成，继续生成...');
+              toast.success('补齐完成，继续生成...');
               // 补齐成功，继续执行后续生成逻辑
             } catch (e) {
-              frontstageLogger.error('Auto contract creation failed', { error: e });
-              toast.error('合同自动补齐失败，请手动创建');
+              frontstageLogger.error('Auto creation failed', { error: e });
+              toast.error('自动补齐失败，请手动创建');
               setIsGenerating(false);
               setGenerationStatus('');
               return;
