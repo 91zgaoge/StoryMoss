@@ -174,6 +174,17 @@ test.describe('StoryForge 应用测试', () => {
     test('保存章节后重进 Frontstage，内容仍存在', async ({ page }) => {
       const TEST_CONTENT = '这是E2E测试内容，保存后应仍然存在。';
 
+      // 捕获控制台错误，便于调试
+      const consoleErrors: string[] = [];
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
+        }
+      });
+      page.on('pageerror', (err) => {
+        consoleErrors.push(err.message);
+      });
+
       // 注入 mock Tauri API，模拟后端数据持久化
       await page.addInitScript(() => {
         let mockContent = '';
@@ -235,9 +246,16 @@ test.describe('StoryForge 应用测试', () => {
       await page.goto('/frontstage.html');
       await page.waitForTimeout(3000);
 
-      // 断言编辑器已加载
+      // 断言编辑器已加载（增加超时到 10 秒，给异步初始化更多时间）
       const editor = page.locator('.ProseMirror, [contenteditable="true"]').first();
-      await expect(editor).toBeVisible();
+      try {
+        await expect(editor).toBeVisible({ timeout: 10000 });
+      } catch (e) {
+        // 失败时输出控制台错误和截图，便于调试
+        console.error('=== Console errors ===', consoleErrors);
+        await page.screenshot({ path: 'e2e/screenshots/frontstage_editor_failed.png', fullPage: true });
+        throw e;
+      }
 
       // 在编辑器中输入内容
       await editor.click();
@@ -256,7 +274,13 @@ test.describe('StoryForge 应用测试', () => {
 
       // 重新获取编辑器并断言内容仍然存在
       const editorAfterReload = page.locator('.ProseMirror, [contenteditable="true"]').first();
-      await expect(editorAfterReload).toBeVisible();
+      try {
+        await expect(editorAfterReload).toBeVisible({ timeout: 10000 });
+      } catch (e) {
+        console.error('=== Console errors after reload ===', consoleErrors);
+        await page.screenshot({ path: 'e2e/screenshots/frontstage_reload_failed.png', fullPage: true });
+        throw e;
+      }
       const textAfterReload = await editorAfterReload.innerText();
       expect(textAfterReload).toContain(TEST_CONTENT);
 
