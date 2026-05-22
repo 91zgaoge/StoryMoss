@@ -8,6 +8,7 @@ use super::dna::StyleDNA;
 
 /// 混合角色
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum BlendRole {
     Dominant,   // 主导 50-80%
     Secondary,  // 辅助 10-30%
