@@ -966,7 +966,9 @@ const FrontstageApp: React.FC = () => {
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
     if (generatedText && editorRef.current) {
-      editorRef.current.insertText(generatedText);
+      // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
+      const formatted = autoFormatText(generatedText);
+      editorRef.current.insertText(formatted);
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,
@@ -1614,7 +1616,8 @@ const FrontstageApp: React.FC = () => {
                 selectedText={editorRef.current?.getSelectedText()}
                 onReviseResult={(text) => {
                   if (editorRef.current) {
-                    const html = '<p>' + text.replace(/\n+/g, '</p><p>') + '</p>';
+                    // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
+                    const html = autoFormatText(text);
                     editorRef.current.insertText(html);
                     toast.success('修改内容已应用到编辑器');
                   }
