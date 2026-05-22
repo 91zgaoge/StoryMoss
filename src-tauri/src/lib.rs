@@ -849,6 +849,8 @@ pub fn run() {
             knowledge_base::commands::kb_search,
             knowledge_base::commands::kb_delete_chapter,
             knowledge_base::commands::kb_stats,
+            // Auto Contract commands (v0.7.5)
+            auto_create_missing_contracts,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -3126,6 +3128,27 @@ fn get_runtime_contract(
     let pool = get_pool().ok_or("Database not initialized")?;
     let engine = story_system::StorySystemEngine::new(pool);
     engine.get_runtime_contract(&story_id, chapter_number)
+}
+
+/// v0.7.5: 自动补齐缺失的合同（世界观合同 + 章节合同）
+#[tauri::command(rename_all = "snake_case")]
+async fn auto_create_missing_contracts(
+    story_id: String,
+    chapter_number: i32,
+    app_handle: AppHandle,
+) -> Result<serde_json::Value, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let builder = story_system::auto_contract::AutoContractBuilder::new(pool, app_handle);
+    let (created_master, created_chapter) = builder.auto_fill(&story_id, chapter_number).await?;
+    Ok(serde_json::json!({
+        "created_master_setting": created_master,
+        "created_chapter_contract": created_chapter,
+        "message": if created_master || created_chapter {
+            "合同补齐完成"
+        } else {
+            "所有合同已存在，无需补齐"
+        }
+    }))
 }
 
 #[tauri::command(rename_all = "snake_case")]

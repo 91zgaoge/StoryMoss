@@ -19,6 +19,7 @@ use std::time::Instant;
 pub mod contract_builder;
 pub mod preflight;
 pub mod projection_writers;
+pub mod auto_contract;
 
 /// 合同类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

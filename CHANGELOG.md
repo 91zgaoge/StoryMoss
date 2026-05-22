@@ -83,6 +83,23 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **状态管理** — `isEvolving` 状态 + `handleEvolveStyle` 处理函数
 - **API** — `evolveStyleFromAntiAiReview` 已注册到 `tauri.ts`
 
+### 🤖 合同自动补齐（AutoContractBuilder）
+
+#### 自动补齐缺失合同
+- **`story_system/auto_contract.rs`** — 新增 `AutoContractBuilder`，当预检发现缺少 `MASTER_SETTING` 或 `CHAPTER` 合同时自动触发
+- **世界观合同自动生成** — 读取故事标题/体裁/简介/角色（最多10个）/世界构建（概念/规则/历史）/已有章节摘要（最多5章），构建 Prompt 调用 LLM 生成 `MasterSettingContract`，自动保存到 `story_contracts`
+- **章节合同自动生成** — 读取故事信息 + 前一章摘要（500字）/ 当前章内容（1000字）/ 后一章摘要（300字）+ 世界观概要，构建 Prompt 调用 LLM 生成 `ChapterContract`，自动保存到 `story_contracts`
+- **进度事件** — `contract-auto-progress`（stage/message/progress），前端实时展示补齐进度
+
+#### 前端预检逻辑重构
+- **`FrontstageApp.tsx`** — `handleRequestGeneration` / `handleSmartGeneration` 预检失败时，若检测到缺少合同，自动调用 `autoCreateMissingContracts` 而非仅报错
+- **进度监听** — 监听 `contract-auto-progress` 事件，将进度消息实时显示在生成状态栏（"正在自动补齐合同..." → "世界观合同已生成并保存" → "合同补齐完成，继续生成..."）
+- **补齐后自动续写** — 合同补齐成功后自动继续 AI 生成流程，无需用户再次点击
+
+**编译状态**: `cargo check` 零错误，`npm run build` 通过。
+
+---
+
 ### 🧹 废弃系统清理（Phase 4）
 
 #### WebSocket 协作服务器

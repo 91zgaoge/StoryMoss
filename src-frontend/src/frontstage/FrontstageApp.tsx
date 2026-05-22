@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { X } from 'lucide-react';
-import { recordFeedback, smartExecute, checkPreflight, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
+import { recordFeedback, smartExecute, checkPreflight, autoCreateMissingContracts, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
 import { parseStructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
@@ -816,25 +816,54 @@ const FrontstageApp: React.FC = () => {
       typewriterIntervalRef.current = null;
     }
 
-    // v0.7.5: 写作前预检，提前发现阻塞性问题
+    // v0.7.5: 写作前预检，提前发现阻塞性问题；缺少合同时自动补齐
     if (currentStory?.id && currentChapter?.chapter_number !== undefined) {
       try {
         const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
         if (!preflight.ready) {
-          const issues = preflight.blocking_issues.length > 0
-            ? preflight.blocking_issues
-            : preflight.missing_contracts;
-          const firstIssue = issues[0] || '写作前检查未通过';
-          toast.error(
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
-            </div>,
-            { duration: 6000 }
-          );
-          setIsGenerating(false);
-          return;
+          const isMissingContracts = preflight.missing_contracts.length > 0;
+          if (isMissingContracts) {
+            setIsGenerating(true);
+            setGenerationStatus('正在自动补齐合同...');
+            let progressUnlisten: (() => void) | null = null;
+            try {
+              progressUnlisten = await listen('contract-auto-progress', (event) => {
+                const p = event.payload as any;
+                setGenerationStatus(p.message);
+              });
+              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number);
+              if (!result.created_master_setting && !result.created_chapter_contract) {
+                toast.error('合同补齐未成功，请手动创建');
+                setIsGenerating(false);
+                setGenerationStatus('');
+                return;
+              }
+              toast.success('合同补齐完成，继续生成...');
+              // 补齐成功，继续执行后续生成逻辑
+            } catch (e) {
+              frontstageLogger.error('Auto contract creation failed', { error: e });
+              toast.error('合同自动补齐失败，请手动创建');
+              setIsGenerating(false);
+              setGenerationStatus('');
+              return;
+            } finally {
+              if (progressUnlisten) progressUnlisten();
+            }
+          } else {
+            const issues = preflight.blocking_issues.length > 0
+              ? preflight.blocking_issues
+              : preflight.missing_contracts;
+            const firstIssue = issues[0] || '写作前检查未通过';
+            toast.error(
+              <div>
+                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              </div>,
+              { duration: 6000 }
+            );
+            setIsGenerating(false);
+            return;
+          }
         }
       } catch (e) {
         frontstageLogger.warn('Preflight check failed silently', { error: e });
@@ -976,14 +1005,25 @@ const FrontstageApp: React.FC = () => {
       if (structured?.code === 'PREFLIGHT_FAILED') {
         const issues = (structured.data?.issues as string[]) || [];
         const firstIssue = issues[0] || structured.message || '写作前检查未通过';
-        toast.error(
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-            <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
-          </div>,
-          { duration: 6000 }
-        );
+        const isMissingContracts = issues.some((i: string) => i.includes('合同') || i.includes('MASTER_SETTING') || i.includes('章节合同'));
+        if (isMissingContracts && currentStory?.id && currentChapter?.chapter_number !== undefined) {
+          toast.error(
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>正在尝试自动补齐合同，请重试...</div>
+            </div>,
+            { duration: 6000 }
+          );
+        } else {
+          toast.error(
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+            </div>,
+            { duration: 6000 }
+          );
+        }
       } else if (isQuotaError) {
         setQuotaExhausted(true);
         toast.error('AI 创作配额已用完，请升级专业版或明日再试');
@@ -1122,24 +1162,53 @@ const FrontstageApp: React.FC = () => {
     const timeoutSeconds = isBootstrap ? 600 : 90;
     const timeoutMs = timeoutSeconds * 1000;
 
-    // v0.7.5: 非 Bootstrap 请求先执行预检
+    // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同时自动补齐
     if (!isBootstrap && currentStory?.id && currentChapter?.chapter_number !== undefined) {
       try {
         const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
         if (!preflight.ready) {
-          const issues = preflight.blocking_issues.length > 0
-            ? preflight.blocking_issues
-            : preflight.missing_contracts;
-          const firstIssue = issues[0] || '写作前检查未通过';
-          toast.error(
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
-            </div>,
-            { duration: 6000 }
-          );
-          return;
+          const isMissingContracts = preflight.missing_contracts.length > 0;
+          if (isMissingContracts) {
+            setIsGenerating(true);
+            setGenerationStatus('正在自动补齐合同...');
+            let progressUnlisten: (() => void) | null = null;
+            try {
+              progressUnlisten = await listen('contract-auto-progress', (event) => {
+                const p = event.payload as any;
+                setGenerationStatus(p.message);
+              });
+              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number);
+              if (!result.created_master_setting && !result.created_chapter_contract) {
+                toast.error('合同补齐未成功，请手动创建');
+                setIsGenerating(false);
+                setGenerationStatus('');
+                return;
+              }
+              toast.success('合同补齐完成，继续生成...');
+              // 补齐成功，继续执行后续生成逻辑
+            } catch (e) {
+              frontstageLogger.error('Auto contract creation failed', { error: e });
+              toast.error('合同自动补齐失败，请手动创建');
+              setIsGenerating(false);
+              setGenerationStatus('');
+              return;
+            } finally {
+              if (progressUnlisten) progressUnlisten();
+            }
+          } else {
+            const issues = preflight.blocking_issues.length > 0
+              ? preflight.blocking_issues
+              : preflight.missing_contracts;
+            const firstIssue = issues[0] || '写作前检查未通过';
+            toast.error(
+              <div>
+                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              </div>,
+              { duration: 6000 }
+            );
+            return;
+          }
         }
       } catch (e) {
         frontstageLogger.warn('Preflight check failed silently', { error: e });

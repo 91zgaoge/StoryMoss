@@ -1,6 +1,6 @@
 # StoryForge (草苔) v0.7.5 项目完成状态
 
-> 最后更新: 2026-05-22（v0.7.5 + 事件驱动创作增强中枢 + 6 个子系统全面落地 + 追读力自动评估 + Writer Agent 预检 + 语义检索注入 + 合同/提交链可操作化 + 叙事审计 + 风格进化 + 废弃系统清理）
+> 最后更新: 2026-05-22（v0.7.5 + 事件驱动创作增强中枢 + 6 个子系统全面落地 + 追读力自动评估 + Writer Agent 预检 + 语义检索注入 + 合同/提交链可操作化 + 叙事审计 + 风格进化 + 废弃系统清理 + 合同自动补齐）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -167,6 +167,17 @@
 | `PreflightChecker::check()` | ✅ | 4 项真实检查：合同/角色/大纲 |
 | `execute_writer_raw()` 拦截 | ✅ | `build_writer_prompt` 前调用，阻塞时返回 `PreflightFailed` |
 | `AppError::PreflightFailed` | ✅ | 错误码 `PREFLIGHT_FAILED`，含 `issues` 列表 |
+
+#### 合同自动补齐（AutoContractBuilder）
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `AutoContractBuilder` | ✅ | 预检发现缺合同时自动触发 LLM 生成 |
+| 世界观合同自动生成 | ✅ | 读取故事/角色/世界构建/章节摘要，Prompt 生成 `MasterSettingContract` |
+| 章节合同自动生成 | ✅ | 读取前后章内容+世界观概要，Prompt 生成 `ChapterContract` |
+| `auto_create_missing_contracts` 命令 | ✅ | Tauri IPC 命令，返回 `(created_master, created_chapter)` |
+| 进度事件 | ✅ | `contract-auto-progress`：stage/message/progress 实时推送 |
+| 前端自动触发 | ✅ | `handleRequestGeneration`/`handleSmartGeneration` 预检失败时自动调用补齐 |
+| 补齐后自动续写 | ✅ | 合同补齐成功后自动继续 AI 生成，无需用户再次点击 |
 
 #### 语义检索自动注入
 | 功能 | 状态 | 说明 |
