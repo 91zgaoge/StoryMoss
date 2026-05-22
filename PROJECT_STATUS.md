@@ -783,6 +783,11 @@
 
 ## 🐛 已知问题
 
+### v0.7.3+ 已修复
+1. ✅ **应用启动闪退** - 2026-05-22 已修复
+   - 描述: 旧数据库迁移路径中 4 处冲突（Migration 48/69/70/71 + create_tables 顺序）导致 `init_db` 失败，触发 `state() called before manage()` panic
+   - 修复: `src-tauri/src/db/connection.rs` 四处修复，详见 [CHANGELOG.md](../CHANGELOG.md)
+
 ### v3.3.0 已知问题
 1. **编译警告**
    - 描述: 已清零（0 warnings）

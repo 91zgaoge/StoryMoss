@@ -2,6 +2,25 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.3+] - 数据库初始化闪退修复（2026-05-22）
+
+### 🐛 修复：应用启动闪退
+
+#### 根因
+旧数据库升级路径中存在 4 处迁移冲突，导致 `init_db` 返回错误，`r2d2::Pool` 未被 `app.manage()` 注册，后续 `app.state()` 调用触发 `state() called before manage()` panic。
+
+#### 修复内容
+| 修复点 | 问题 | 解决 |
+|--------|------|------|
+| `create_tables` 初始 Schema | `scene_divider_nodes` 表在 `scenes` 表之前创建，FK 引用失败 | 移除 `scene_divider_nodes`（已由 Migration 72 处理） |
+| Migration 71 | `ALTER TABLE chapters DROP COLUMN scene_id` 失败，因为列上有索引 | 先 `DROP INDEX idx_chapters_scene`，再 `DROP COLUMN` |
+| Migration 69 | `INSERT OR IGNORE INTO narrative_*` 从 `reference_*` 迁移数据时，`book_id` 不存在于 `stories` 表，触发 FK 约束失败 | 添加 `EXISTS (SELECT 1 FROM stories WHERE id = rc.book_id)` 过滤 |
+| Migration 70 | `ALTER TABLE chapter_commits RENAME TO scene_commits` 失败，因为 Migration 48 已创建空的 `scene_commits` | 重命名前检测并 `DROP` 空表 |
+
+**编译状态**：`cargo check` 零错误，`cargo test` ~225/225 通过，`npm run build` 通过。
+
+---
+
 ## [v0.7.3] - 商业模式重构 + 1:N Chapter↔Scene 架构完成 + SceneDivider 预留接口（2026-05-20）
 
 ### 💼 商业模式重构：订阅解锁功能，非模型配额

@@ -2938,7 +2938,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, 'reference', rc.created_at, rc.created_at
             FROM reference_characters rc
             LEFT JOIN narrative_characters nc ON nc.id = rc.id
-            WHERE nc.id IS NULL",
+            WHERE nc.id IS NULL
+                AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rc.book_id)",
             [],
         )?;
     }
@@ -2962,7 +2963,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 'extracted', rs.book_id, 'reference', rs.created_at, rs.created_at
             FROM reference_scenes rs
             LEFT JOIN narrative_scenes ns ON ns.id = rs.id
-            WHERE ns.id IS NULL",
+            WHERE ns.id IS NULL
+                AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rs.book_id)",
             [],
         )?;
     }
@@ -2975,6 +2977,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     ).unwrap_or(0) > 0;
 
     if has_old_table {
+        // 如果 Migration 48 已经创建了空的 scene_commits（旧数据库升级场景），先删除它
+        let has_new_table: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0) > 0;
+        if has_new_table {
+            conn.execute("DROP TABLE scene_commits", [])?;
+        }
         conn.execute(
             "ALTER TABLE chapter_commits RENAME TO scene_commits",
             [],

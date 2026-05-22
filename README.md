@@ -142,7 +142,6 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **数据统计** (v6.0.0) - Settings 页面「数据统计」标签，显示最近 30 天各功能使用次数
 - **Projection 健康检查** (v6.0.0) - StorySystem 页面每行提交后查看 5 个 Writer 的投影状态
 - **用量统计** (v0.7.0) - 全局与单故事 LLM 调用统计（次数/token/响应时间/成功率），最近 20 条调用明细
-- **多账号 OAuth 登录** (v4.5.0) - 支持 Google / GitHub 登录，可选登录、本地优先，微信/QQ 预留框架
 
 ![幕后界面预览](docs/images/backstage-preview.png)
 
@@ -189,9 +188,9 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ### 🔧 v4.0.1 修复与优化
 - **代码审计** — 扫描 40+ 模块，修复 17 处 IPC 参数不匹配、9 项空实现
-- **SQLite 持久化** — `ChatManager` / `StoryStateManager` / `CollabManager` 从内存 HashMap 迁移到数据库
-- **协作编辑** — WebSocket 完整消息处理（Operation/Cursor/Leave/Participants）
-- **UI 优化** — 聊天工具栏布局改进、编辑器 padding 调整
+- **SQLite 持久化** — `ChatManager` / `StoryStateManager` / `CollabManager` 数据库表结构就绪（预留接口，未启用）
+- **协作编辑基础设施** — WebSocket 服务端框架搭建（Operation/Cursor/Leave/Participants 消息协议定义完成，功能未启用）
+- **UI 优化** — 编辑器 padding 调整
 
 ### 📖 拆书功能：进度提示增强 + 取消支持
 
@@ -453,7 +452,7 @@ v2-rust/
 │   │   │   ├── mod.rs
 │   │   │   ├── analyzer.rs
 │   │   │   └── service.rs
-│   │   ├── auth/                # OAuth 认证
+│   │   ├── auth/                # OAuth 认证（基础设施预留，未启用）
 │   │   │   ├── mod.rs
 │   │   │   ├── oauth.rs
 │   │   │   └── commands.rs
@@ -474,7 +473,7 @@ v2-rust/
 │   │   │   └── mod.rs
 │   │   ├── task_system/         # 任务调度系统
 │   │   │   └── mod.rs
-│   │   ├── collab/              # 协作编辑
+│   │   ├── collab/              # 协作编辑（基础设施预留，未启用）
 │   │   │   └── websocket.rs
 │   │   └── config/              # 配置管理
 │   │       └── studio_manager.rs
@@ -627,7 +626,7 @@ v2-rust/
 | 修订模式 | ✅ | trackInsert / trackDelete，逐条接受/拒绝 |
 | 场景批注 | ✅ | 场景级 note/todo/warning/idea 批注 |
 | 古典评点 | ✅ | AI 模拟金圣叹风格生成朱红色段落评点 |
-| WebSocket 协作 | ✅ | 协作编辑服务端（基础设施就绪） |
+| ~~WebSocket 协作~~ | ⏳ | 协作编辑服务端基础设施预留，功能未启用 |
 
 ### 6. 工作室配置与扩展 (100% ✅)
 
@@ -665,7 +664,7 @@ v2-rust/
 | IndexProjectionWriter | ✅ | 解析 entity_deltas 写入实体记忆 |
 | SummaryProjectionWriter | ✅ | 自动生成章节摘要并持久化 |
 | MemoryProjectionWriter | ✅ | 解析 accepted_events 写入事件记忆 |
-| VectorProjectionWriter | ✅ | 章节摘要 embedding 写入 LanceDB |
+| ~~VectorProjectionWriter~~ | ⏳ | LanceDB 向量索引基础设施预留，功能未启用 |
 | ContractTree 查询 | ✅ | 按故事/卷/章节层级查询合同树 |
 | RuntimeContract 计算 | ✅ | 动态合并上层合同生成运行时合同 |
 
@@ -908,7 +907,7 @@ v2-rust/
 - **独立页面**：幕后 Sidebar「用量统计」入口，`UsageStats.tsx` 完整实现
 
 **架构优化（2026-05-17）**
-- **`SceneCommitService::auto_commit` 防抖聚合提交**：取代旧版独立 `auto_ingest_chapter` 摄取管线（5 分钟冷却），改为 30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`，消除重复索引工作
+- **`SceneCommitService::auto_commit` 防抖聚合提交**：取代旧版独立 `auto_ingest_chapter` 摄取管线（5 分钟冷却），改为 30 秒空闲延迟后自动聚合提交，驱动 `MemoryProjectionWriter`，消除重复索引工作
 - **导出聚合完整性**：`export_story` 导出前自动检查章节内容，空章节按关联场景的 `sequence_number` 排序聚合填充，确保 Markdown/HTML/PlainText 导出完整无缺
 - **大型组件提取重构**：`Settings.tsx` 提取 8 个原子化子组件（`ModelCard`/`ModelList`/`ModelModal`/`StatsSettings`/`MethodologySettings`/`WorkflowSettings`/`GeneralSettings`/`AccountSettings`）；`SceneEditor.tsx` 提取 `SceneAuditPanel` 和 `SceneAnnotationPanel` 到 `scene-editor/` 子目录
 - **`StoryTimeline.tsx` 场景进度徽章**：场景卡片新增 `execution_stage` 状态徽标（plan/outline/draft/review/final），叙事阶段（铺垫/上升/高潮/收尾）与执行阶段双轨可视化
@@ -1156,14 +1155,13 @@ v2-rust/
 - 综合代码审计：扫描 40+ 模块，识别 5 严重 / 17 参数 / 9 空实现
 - IPC 参数统一：17 处 camelCase→snake_case（Tauri v2 反序列化修复）
 - 空实现补全：`analytics` 真实统计、`agents/commands` 真实状态、`skills/executor` 真实 MCP 调用、`export/import_from_text` 正则解析章节、`workflow/scheduler` 执行日志、`evolution/updater` manifest CRUD、`mcp/server` 缺失 `.await`
-- 前端修复：移除硬编码 API keys、WebSocket 真实发送、移除 mock 流式、文本分析器增量分析
-- UI 优化：聊天工具栏从 absolute 改为正常流、编辑器 padding 优化
+- 前端修复：移除硬编码 API keys、移除 mock 流式、文本分析器增量分析
+- UI 优化：编辑器 padding 优化
 - 类型统一：移除重复 `McpServerConfig`
 
-**Phase B - 内存模块 SQLite 持久化**
-- Migration 26/27/28：`chat_sessions` + `chat_messages`、`story_runtime_states`、`collab_sessions` + `collab_participants`
-- `ChatManager` / `StoryStateManager` / `CollabManager`：内存 HashMap → DbPool
-- `WebSocketServer`：完整消息处理闭环（Operation/Cursor/Leave/Participants）
+**Phase B - 内存模块 SQLite 持久化（基础设施预留）**
+- Migration 26/27/28：`chat_sessions` + `chat_messages`、`story_runtime_states`、`collab_sessions` + `collab_participants` 表结构就绪
+- `ChatManager` / `StoryStateManager` / `CollabManager` / `WebSocketServer`：数据库表与消息协议定义完成，功能未启用
 
 ### v3.4.0 (2026-04-18) - 智能化创作系统（5 阶段重构）
 
