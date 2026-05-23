@@ -34,6 +34,8 @@ impl StateSync {
             SyncEvent::PayoffLedgerUpdated { .. } => "payoff-ledger-updated",
             SyncEvent::IngestionCompleted { .. } => "ingestion-completed",
             SyncEvent::DataRefresh { .. } => "data-refresh",
+            SyncEvent::SubscriptionChanged { .. } => "subscription-changed",
+            SyncEvent::PayoffOverdue { .. } => "payoff-overdue",
         };
 
         // 发射到通用频道 `sync-event`
@@ -202,6 +204,22 @@ impl StateSync {
         Self::emit_event(app, SyncEvent::DataRefresh {
             story_id: story_id.map(|s| s.to_string()),
             resource_type: resource_type.to_string(),
+        });
+    }
+
+    pub fn emit_subscription_changed(app: &AppHandle, user_id: &str, tier: &str) {
+        Self::emit_event(app, SyncEvent::SubscriptionChanged {
+            user_id: user_id.to_string(),
+            tier: tier.to_string(),
+        });
+    }
+
+    pub fn emit_payoff_overdue(app: &AppHandle, story_id: &str, items: &[crate::creative_engine::payoff_ledger::PayoffLedgerItem]) {
+        let titles: Vec<String> = items.iter().map(|i| i.title.clone()).collect();
+        Self::emit_event(app, SyncEvent::PayoffOverdue {
+            story_id: story_id.to_string(),
+            count: items.len(),
+            item_titles: titles,
         });
     }
 }

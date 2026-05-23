@@ -95,9 +95,6 @@ fn record_ai_operation(req: db::CreateAiOperationRequest) {
 fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
 
-#[derive(Serialize)]
-struct DashboardState { current_story: Option<db::Story>, stories_count: usize, characters_count: usize, chapters_count: usize }
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -521,7 +518,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            health_check, check_model_status, chat_completion, get_state, list_stories, create_story, update_story, delete_story,
+            health_check, check_model_status, chat_completion, list_stories, create_story, update_story, delete_story,
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skill, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill, update_skill, format_text,
@@ -590,7 +587,6 @@ pub fn run() {
             updater::check_update,
             updater::install_update,
             updater::get_current_version,
-            updater::open_update_settings,
             // V3 Architecture commands
             commands_v3::create_scene,
             commands_v3::get_story_scenes,
@@ -713,11 +709,6 @@ pub fn run() {
             commands_v3::recommend_payoff_timing,
             commands_v3::update_payoff_ledger_fields,
             // Canonical state commands
-            get_canonical_state,
-            sync_story_data,
-            get_sync_status,
-            enable_auto_sync,
-            disable_auto_sync,
             // Automation commands
             automation::commands::trigger_automation_event,
             automation::commands::get_automation_triggers,
@@ -994,14 +985,6 @@ async fn check_model_status(app_handle: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn get_state() -> Result<DashboardState, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| crate::error::AppError::from(e).to_string())?;
-    let chars_count: usize = stories.iter().map(|s| CharacterRepository::new(pool.clone()).get_by_story(&s.id).map(|c| c.len()).unwrap_or(0)).sum();
-    Ok(DashboardState { current_story: stories.first().cloned(), stories_count: stories.len(), characters_count: chars_count, chapters_count: 0 })
-}
-
-#[tauri::command(rename_all = "snake_case")]
 fn list_stories() -> Result<Vec<db::Story>, String> {
     StoryRepository::new(get_pool().ok_or("DB not initialized")?).get_all().map_err(|e| crate::error::AppError::from(e).to_string())
 }
@@ -1101,12 +1084,67 @@ fn update_character(
     appearance: Option<String>, gender: Option<String>, age: Option<i32>,
     app: AppHandle
 ) -> Result<(), String> {
-    let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
+    let pool = get_pool().ok_or("DB not initialized")?;
+    let repo = CharacterRepository::new(pool.clone());
     // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.update(&id, name.clone(), background, personality, goals, appearance, gender, age).map_err(|e| crate::error::AppError::from(e).to_string())?;
-    if let Some(story_id) = story_id_opt {
-        let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
+    // 保存字段副本用于 Ingest（repo.update 会 move 走 Option 值）
+    let name_for_ingest = name.clone();
+    let background_for_ingest = background.clone();
+    let personality_for_ingest = personality.clone();
+    let goals_for_ingest = goals.clone();
+    let appearance_for_ingest = appearance.clone();
+    repo.update(&id, name, background, personality, goals, appearance, gender, age).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    if let Some(story_id) = story_id_opt.clone() {
+        let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name_for_ingest.as_deref(), &story_id);
+
+        // P0 修复: 角色变更触发 Ingest，更新知识图谱
+        let pool_for_pipeline = pool.clone();
+        let pool_for_kg = pool.clone();
+        let character_id = id.clone();
+        let story_id_for_ingest = story_id.clone();
+        let app_handle_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let llm_service = crate::llm::LlmService::new(app_handle_clone.clone());
+            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+                .with_pool(pool_for_pipeline)
+                .with_app_handle(app_handle_clone.clone());
+            let ingest_text = format!(
+                "角色: {}\n背景: {}\n性格: {}\n目标: {}\n外貌: {}",
+                name_for_ingest.as_deref().unwrap_or(""),
+                background_for_ingest.as_deref().unwrap_or(""),
+                personality_for_ingest.as_deref().unwrap_or(""),
+                goals_for_ingest.as_deref().unwrap_or(""),
+                appearance_for_ingest.as_deref().unwrap_or("")
+            );
+            let content = crate::memory::ingest::IngestContent {
+                text: ingest_text,
+                source: format!("character:{}", character_id),
+                story_id: story_id_for_ingest.clone(),
+                scene_id: None,
+            };
+            match pipeline.ingest(&content).await {
+                Ok(result) => {
+                    let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool_for_kg);
+                    for entity in &result.entities {
+                        let _ = kg_repo.create_entity(
+                            &story_id_for_ingest,
+                            &entity.name,
+                            &entity.entity_type.to_string(),
+                            &entity.attributes,
+                            entity.embedding.clone(),
+                        );
+                    }
+                    log::info!("[AutoIngest] Character {}: {} entities saved to KG", character_id, result.entities.len());
+                    let _ = crate::state_sync::StateSync::emit_data_refresh(
+                        &app_handle_clone, Some(&story_id_for_ingest), "knowledgeGraph"
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[AutoIngest] Character {} ingest failed: {}", character_id, e);
+                }
+            }
+        });
     }
     Ok(())
 }
@@ -1136,8 +1174,10 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 #[tauri::command(rename_all = "snake_case")]
 fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle, automation_service: tauri::State<crate::automation::service::AutomationService>) -> Result<(), String> {
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
-    // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
-    let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
+    // 先查询 story_id 和 chapter_number（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    let chapter_info = repo.get_by_id(&id).ok().flatten();
+    let story_id_opt = chapter_info.as_ref().map(|c| c.story_id.clone());
+    let chapter_number = chapter_info.map(|c| c.chapter_number).unwrap_or(0);
     let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| crate::error::AppError::from(e).to_string());
     if result.is_ok() {
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
@@ -1155,6 +1195,26 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
                     word_count: word_count_val,
                 }).await {
                     log::warn!("[update_chapter] Failed to trigger chapter content updated automation: {}", e);
+                }
+            });
+
+            // P1 修复: 章节保存后检查逾期伏笔
+            let story_id_for_payoff = story_id.clone();
+            let chapter_number_for_payoff = chapter_number;
+            let app_handle_for_payoff = app.clone();
+            let pool_for_payoff = get_pool();
+            tauri::async_runtime::spawn(async move {
+                if let Some(pool) = pool_for_payoff {
+                    let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(pool);
+                    match ledger.detect_overdue(&story_id_for_payoff, chapter_number_for_payoff) {
+                        Ok(overdue) if !overdue.is_empty() => {
+                            log::info!("[PayoffLedger] {} overdue payoffs detected for story {}", overdue.len(), story_id_for_payoff);
+                            let _ = crate::state_sync::StateSync::emit_payoff_overdue(
+                                &app_handle_for_payoff, &story_id_for_payoff, &overdue
+                            );
+                        }
+                        _ => {}
+                    }
                 }
             });
         }
@@ -1272,6 +1332,26 @@ fn create_chapter(
                 let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, &scene.id, title.as_deref());
             }
         }
+    }
+
+    // P1 修复: 新建章节后检查逾期伏笔
+    {
+        let story_id_for_payoff = story_id.clone();
+        let chapter_number_for_payoff = chapter.chapter_number;
+        let app_handle_for_payoff = app.clone();
+        let pool_for_payoff = pool.clone();
+        tauri::async_runtime::spawn(async move {
+            let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(pool_for_payoff);
+            match ledger.detect_overdue(&story_id_for_payoff, chapter_number_for_payoff) {
+                Ok(overdue) if !overdue.is_empty() => {
+                    log::info!("[PayoffLedger] {} overdue payoffs detected for story {} on chapter creation", overdue.len(), story_id_for_payoff);
+                    let _ = crate::state_sync::StateSync::emit_payoff_overdue(
+                        &app_handle_for_payoff, &story_id_for_payoff, &overdue
+                    );
+                }
+                _ => {}
+            }
+        });
     }
 
     // P0-3 修复: 触发自动化事件：章节创建完成
@@ -2850,83 +2930,6 @@ fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String
     Ok(())
 }
 
-/// 获取故事的规范状态快照
-#[tauri::command(rename_all = "snake_case")]
-async fn get_canonical_state(story_id: String) -> Result<canonical_state::CanonicalStateSnapshot, AppError> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let manager = canonical_state::CanonicalStateManager::new(pool);
-    manager.get_snapshot(&story_id).await
-}
-
-/// 同步故事数据
-#[tauri::command(rename_all = "snake_case")]
-async fn sync_story_data(story_id: String) -> Result<serde_json::Value, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-
-    // 获取故事的所有相关数据并同步
-    let story_repo = StoryRepository::new(pool.clone());
-    let character_repo = CharacterRepository::new(pool.clone());
-    let chapter_repo = ChapterRepository::new(pool.clone());
-
-    // 检查故事是否存在
-    let _story = story_repo.get_by_id(&story_id)
-        .map_err(|e| format!("Failed to get story: {}", e))?
-        .ok_or("Story not found")?;
-
-    // 获取角色和章节数据进行同步验证
-    let characters = character_repo.get_by_story(&story_id)
-        .map_err(|e| format!("Failed to get characters: {}", e))?;
-
-    let chapters = chapter_repo.get_by_story(&story_id)
-        .map_err(|e| format!("Failed to get chapters: {}", e))?;
-
-    // 返回同步状态
-    Ok(serde_json::json!({
-        "story_id": story_id,
-        "characters_count": characters.len(),
-        "chapters_count": chapters.len(),
-        "sync_timestamp": chrono::Utc::now().to_rfc3339(),
-        "status": "synced"
-    }))
-}
-
-/// 获取同步状态
-#[tauri::command(rename_all = "snake_case")]
-async fn get_sync_status(story_id: String) -> Result<serde_json::Value, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let story_repo = StoryRepository::new(pool.clone());
-
-    // 检查故事是否存在
-    let story = story_repo.get_by_id(&story_id)
-        .map_err(|e| format!("Failed to get story: {}", e))?
-        .ok_or("Story not found")?;
-
-    Ok(serde_json::json!({
-        "story_id": story_id,
-        "story_title": story.title,
-        "auto_sync_enabled": true, // 默认启用
-        "last_sync": chrono::Utc::now().to_rfc3339(),
-        "sync_status": "active"
-    }))
-}
-
-/// 启用自动同步
-#[tauri::command(rename_all = "snake_case")]
-async fn enable_auto_sync(story_id: String) -> Result<(), String> {
-    // 这里可以将自动同步状态保存到数据库或配置中
-    // 目前返回成功，表示自动同步已启用
-    println!("Auto sync enabled for story: {}", story_id);
-    Ok(())
-}
-
-/// 禁用自动同步
-#[tauri::command(rename_all = "snake_case")]
-async fn disable_auto_sync(story_id: String) -> Result<(), String> {
-    // 这里可以将自动同步状态保存到数据库或配置中
-    // 目前返回成功，表示自动同步已禁用
-    println!("Auto sync disabled for story: {}", story_id);
-    Ok(())
-}
 
 // ===== 通用 Workflow 引擎命令 (v5.2.0) =====
 

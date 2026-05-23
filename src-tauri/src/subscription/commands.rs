@@ -42,7 +42,12 @@ pub fn dev_upgrade_subscription(tier: String, app_handle: AppHandle) -> Result<S
     let user_id = get_user_id(&app_handle);
     
     let expires_days = if tier == "pro" { Some(30) } else { None };
-    service.upgrade_subscription(&user_id, &tier, expires_days)
+    let result = service.upgrade_subscription(&user_id, &tier, expires_days);
+    if result.is_ok() {
+        let _ = crate::state_sync::StateSync::emit_subscription_changed(&app_handle, &user_id, &tier
+        );
+    }
+    result
 }
 
 /// 模拟降级订阅（开发测试用）
@@ -51,5 +56,11 @@ pub fn dev_downgrade_subscription(app_handle: AppHandle) -> Result<SubscriptionS
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
-    service.upgrade_subscription(&user_id, "free", None)
+    let result = service.upgrade_subscription(&user_id, "free", None);
+    if result.is_ok() {
+        let _ = crate::state_sync::StateSync::emit_subscription_changed(
+            &app_handle, &user_id, "free"
+        );
+    }
+    result
 }

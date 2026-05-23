@@ -103,30 +103,3 @@ export function useExportTemplates(formatFilter?: string) {
   });
 }
 
-export function useSaveExportTemplate() {
-  return useMutation({
-    mutationFn: async (template: { name: string; description?: string; format: string; template_content: string }) => {
-      return loggedInvoke<ExportTemplate>('save_export_template', template);
-    },
-    onSuccess: () => {
-      toast.success('模板保存成功');
-    },
-    onError: (error: Error) => {
-      toast.error('保存模板失败: ' + error.message);
-    },
-  });
-}
-
-export function useDeleteExportTemplate() {
-  return useMutation({
-    mutationFn: async (id: string) => {
-      return loggedInvoke<void>('delete_export_template', { id });
-    },
-    onSuccess: () => {
-      toast.success('模板已删除');
-    },
-    onError: (error: Error) => {
-      toast.error('删除模板失败: ' + error.message);
-    },
-  });
-}

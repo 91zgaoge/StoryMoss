@@ -112,6 +112,19 @@ pub enum SyncEvent {
         story_id: Option<String>,
         resource_type: String, // "stories" | "characters" | "scenes" | "chapters" | "all"
     },
+
+    // === 订阅变更事件 ===
+    SubscriptionChanged {
+        user_id: String,
+        tier: String,
+    },
+
+    // === 伏笔逾期事件 ===
+    PayoffOverdue {
+        story_id: String,
+        count: usize,
+        item_titles: Vec<String>,
+    },
 }
 
 impl SyncEvent {

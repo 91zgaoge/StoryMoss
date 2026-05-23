@@ -107,11 +107,3 @@ pub fn get_current_version(app_handle: AppHandle) -> String {
     app_handle.package_info().version.to_string()
 }
 
-/// 在设置中打开更新相关的配置
-/// 这个命令可以用来打开系统的应用设置
-#[tauri::command]
-pub fn open_update_settings() -> Result<(), String> {
-    // 在 Windows 上可以使用 ms-settings: 协议
-    // 但这里我们只是返回成功，具体的设置界面由前端实现
-    Ok(())
-}

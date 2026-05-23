@@ -417,7 +417,13 @@ impl SceneCommitService {
             if let (Some(content), Some(app)) = (chapter_content, app_handle) {
                 if content.len() >= 20 {
                     match self.run_kg_ingest(&story_id, chapter_number, content, &app).await {
-                        Ok(true) => "success".to_string(),
+                        Ok(true) => {
+                            // P0 修复: KG 提取成功后发射同步事件，确保幕后知识图谱自动刷新
+                            let _ = crate::state_sync::StateSync::emit_data_refresh(
+                                &app, Some(&story_id), "knowledgeGraph"
+                            );
+                            "success".to_string()
+                        }
                         Ok(false) => "skipped".to_string(),
                         Err(e) => format!("error: {}", e),
                     }

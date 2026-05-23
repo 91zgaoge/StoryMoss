@@ -300,12 +300,73 @@ impl MemoryOrchestrator {
 
     fn build_episodic_memory(
         &self,
-        _story_id: &str,
-        _chapter_number: i32,
+        story_id: &str,
+        chapter_number: i32,
     ) -> Result<Vec<MemoryEntry>, String> {
-        // 简化实现：从 state_changes 和 relationships 构建
-        // 实际应该查询 character_states, kg_relations 等表
-        Ok(Vec::new())
+        let mut result = Vec::new();
+
+        // 1. 获取最近 3 个章节的场景提交记录（状态变更历史）
+        let commit_repo = SceneCommitRepository::new(self.pool.clone());
+        let commits = commit_repo.get_by_story(story_id)
+            .map_err(|e| format!("获取场景提交失败: {}", e))?;
+
+        for commit in commits.into_iter()
+            .filter(|c| c.chapter_number < chapter_number)
+            .take(3)
+        {
+            // 解析 state_deltas_json 中的状态变更
+            if let Ok(deltas) = serde_json::from_str::<serde_json::Value>(
+                commit.state_deltas_json.as_deref().unwrap_or("{}")
+            ) {
+                if let Some(changes) = deltas.as_object() {
+                    for (key, value) in changes {
+                        result.push(MemoryEntry {
+                            layer: "episodic".to_string(),
+                            source: format!("state_delta:ch{}", commit.chapter_number),
+                            chapter: commit.chapter_number,
+                            content: serde_json::json!({
+                                "field": key,
+                                "change": value,
+                            }),
+                        });
+                    }
+                }
+            }
+
+            // 添加提交摘要作为 episodic 记忆
+            if let Some(ref summary) = commit.summary_text {
+                result.push(MemoryEntry {
+                    layer: "episodic".to_string(),
+                    source: format!("commit_summary:ch{}", commit.chapter_number),
+                    chapter: commit.chapter_number,
+                    content: serde_json::json!(summary),
+                });
+            }
+        }
+
+        // 2. 获取角色出场记录（简化：最近活跃角色）
+        let char_repo = crate::db::CharacterRepository::new(self.pool.clone());
+        if let Ok(characters) = char_repo.get_by_story(story_id) {
+            for character in characters.into_iter().take(5) {
+                let state = format!(
+                    "{}: 目标={}, 状态={}",
+                    character.name.as_deref().unwrap_or("Unknown"),
+                    character.goals.as_deref().unwrap_or("N/A"),
+                    // 使用 dynamic_traits 的第一个特征作为当前状态
+                    character.dynamic_traits.first()
+                        .map(|t| format!("{}({:.0}%)", t.trait_name, t.confidence * 100.0))
+                        .unwrap_or_else(|| "Active".to_string())
+                );
+                result.push(MemoryEntry {
+                    layer: "episodic".to_string(),
+                    source: format!("character_state:{}", character.id),
+                    chapter: chapter_number,
+                    content: serde_json::json!(state),
+                });
+            }
+        }
+
+        Ok(result)
     }
 
     fn filter_relevant<'a>(

@@ -152,8 +152,18 @@ pub async fn update_scene(
 
         })?;
 
-    // 自动 Ingest：当场景内容被更新时，后台分析并更新知识图谱
-    if updates.content.is_some() {
+    // 自动 Ingest：当场景内容或关键元数据被更新时，后台分析并更新知识图谱
+    let should_ingest = updates.content.is_some()
+        || updates.title.is_some()
+        || updates.dramatic_goal.is_some()
+        || updates.external_pressure.is_some()
+        || updates.conflict_type.is_some()
+        || updates.outline_content.is_some()
+        || updates.draft_content.is_some()
+        || updates.setting_location.is_some()
+        || updates.setting_time.is_some()
+        || updates.setting_atmosphere.is_some();
+    if should_ingest {
         let pool_clone = pool.inner().clone();
         let scene_id_clone = scene_id.clone();
         let app_handle_clone = app_handle.clone();

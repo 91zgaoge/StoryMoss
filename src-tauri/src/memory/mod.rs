@@ -103,18 +103,39 @@ impl ShortTermMemory {
         }
     }
 
-    /// 生成章节摘要（简化版，实际可用 LLM 生成更好摘要）
-    fn summarize_chapter(&self,
-        chapter: &Chapter,
-    ) -> String {
+    /// 生成章节摘要（首尾提取 + 关键词密度启发式摘要）
+    fn summarize_chapter(&self, chapter: &Chapter) -> String {
         let content = chapter.content.as_ref().map(|s| s.as_str()).unwrap_or("");
         if content.is_empty() {
             return "No content".to_string();
         }
+        if content.len() <= 300 {
+            return content.to_string();
+        }
 
-        // 取前 200 字符作为摘要
-        let summary: String = content.chars().take(200).collect();
-        format!("{}...", summary)
+        let paragraphs: Vec<&str> = content.split('\n').filter(|s| !s.trim().is_empty()).collect();
+        let first_para = paragraphs.first().unwrap_or(&"").trim();
+        let last_para = paragraphs.last().unwrap_or(&"").trim();
+
+        // 关键词密度提取：找出出现频率最高的 2-3 个词
+        let mut word_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for word in content.split_whitespace() {
+            let w = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            if w.len() > 1 && !w.starts_with("的") && !w.starts_with("了") && !w.starts_with("是") {
+                *word_counts.entry(w).or_insert(0) += 1;
+            }
+        }
+        let mut top_words: Vec<(String, usize)> = word_counts.into_iter().collect();
+        top_words.sort_by(|a, b| b.1.cmp(&a.1));
+        let keywords: Vec<String> = top_words.into_iter().take(3).map(|(w, _)| w).collect();
+
+        format!(
+            "{}\n...（中间省略 {} 字，关键词: {}）...\n{}",
+            first_para.chars().take(80).collect::<String>(),
+            content.len(),
+            keywords.join(", "),
+            last_para.chars().take(80).collect::<String>()
+        )
     }
 
     /// 提取关键事件（简化版，基于关键词）
