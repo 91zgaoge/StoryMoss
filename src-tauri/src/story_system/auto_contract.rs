@@ -90,7 +90,18 @@ impl AutoContractBuilder {
         }
 
         // 3. 检查并补齐 Scene 大纲
-        if let Some(sid) = scene_id {
+        // 如果前端未传 scene_id，则根据 chapter_number（对应 sequence_number）自动查找
+        let target_scene_id = if let Some(sid) = scene_id {
+            Some(sid.to_string())
+        } else {
+            let scene_repo = SceneRepository::new(self.pool.clone());
+            scene_repo.get_by_story(story_id)
+                .ok()
+                .and_then(|scenes| scenes.into_iter().find(|s| s.sequence_number == chapter_number))
+                .map(|s| s.id)
+        };
+
+        if let Some(ref sid) = target_scene_id {
             let scene_repo = SceneRepository::new(self.pool.clone());
             if let Ok(Some(scene)) = scene_repo.get_by_id(sid) {
                 let has_outline = scene.outline_content.as_ref().map(|o| !o.trim().is_empty()).unwrap_or(false);

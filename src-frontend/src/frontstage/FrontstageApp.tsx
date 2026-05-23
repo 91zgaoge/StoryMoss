@@ -843,7 +843,8 @@ const FrontstageApp: React.FC = () => {
                 const pct = Math.round((p.progress || 0) * 100);
                 toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
               });
-              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, currentScene?.id);
+              const targetSceneId = currentScene?.id || currentChapter.scene_id;
+              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, targetSceneId);
               if (!result.created_master_setting && !result.created_chapter_contract && !result.created_outline) {
                 toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, { id: loadingToastId });
                 setIsGenerating(false);
@@ -1200,7 +1201,8 @@ const FrontstageApp: React.FC = () => {
                 const pct = Math.round((p.progress || 0) * 100);
                 toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
               });
-              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, currentScene?.id);
+              const targetSceneId = currentScene?.id || currentChapter.scene_id;
+              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, targetSceneId);
               if (!result.created_master_setting && !result.created_chapter_contract && !result.created_outline) {
                 toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, { id: loadingToastId });
                 setIsGenerating(false);
