@@ -153,3 +153,61 @@ export function useTaskLogs(taskId?: string) {
     enabled: !!taskId,
   });
 }
+
+export interface RewriteSegment {
+  scene_id: string;
+  paragraph_index: number;
+  original_text: string;
+  rewritten_text: string;
+  change_reason: string;
+  user_decision: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface CascadeTaskResult {
+  status: 'ok' | 'needs_review' | 'failed';
+  segments: RewriteSegment[];
+  warnings: string[];
+}
+
+export function useCascadeRewriteResult(taskId?: string) {
+  return useQuery({
+    queryKey: ['cascade_rewrite_result', taskId],
+    queryFn: async () => {
+      if (!taskId) return null;
+      return loggedInvoke<CascadeTaskResult>('get_cascade_rewrite_result', { task_id: taskId });
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useApplyCascadeRewrite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, acceptedIndices }: { taskId: string; acceptedIndices: number[] }) => {
+      return loggedInvoke<number>('apply_cascade_rewrite', {
+        task_id: taskId,
+        accepted_indices: acceptedIndices,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [TASKS_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['cascade_rewrite_result'] });
+    },
+  });
+}
+
+export function useRejectCascadeRewrite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, rejectedIndices }: { taskId: string; rejectedIndices: number[] }) => {
+      return loggedInvoke<number>('reject_cascade_rewrite', {
+        task_id: taskId,
+        rejected_indices: rejectedIndices,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [TASKS_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['cascade_rewrite_result'] });
+    },
+  });
+}

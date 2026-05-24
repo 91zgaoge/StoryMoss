@@ -16,7 +16,6 @@ import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
 import { Foreshadowing } from '@/pages/Foreshadowing';
-import { CreationWizard } from '@/pages/CreationWizard';
 import { StorySystem } from '@/pages/StorySystem';
 import { UsageStats } from '@/pages/UsageStats';
 import { WritingStats } from '@/pages/WritingStats';

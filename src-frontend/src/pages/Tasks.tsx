@@ -24,8 +24,12 @@ import {
   useTriggerTask,
   useCancelTask,
   useTaskLogs,
+  useCascadeRewriteResult,
+  useApplyCascadeRewrite,
+  useRejectCascadeRewrite,
   type Task,
   type TaskLog,
+  type RewriteSegment,
 } from '@/hooks/useTasks';
 import toast from 'react-hot-toast';
 
@@ -215,6 +219,141 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
   );
 }
 
+function CascadeRewriteDetail({ task }: { task: Task }) {
+  const { data: result, isLoading } = useCascadeRewriteResult(task.id);
+  const applyMutation = useApplyCascadeRewrite();
+  const rejectMutation = useRejectCascadeRewrite();
+
+  if (isLoading) {
+    return <div className="mt-3 text-xs text-gray-500">加载改写结果...</div>;
+  }
+  if (!result) {
+    return <div className="mt-3 text-xs text-gray-500">暂无改写结果</div>;
+  }
+
+  const pendingIndices = result.segments
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.user_decision === 'pending')
+    .map(({ i }) => i);
+
+  const handleAccept = (idx: number) => {
+    applyMutation.mutate({ taskId: task.id, acceptedIndices: [idx] }, {
+      onSuccess: () => toast.success('已接受改写'),
+      onError: (e) => toast.error(`接受失败: ${e}`),
+    });
+  };
+
+  const handleReject = (idx: number) => {
+    rejectMutation.mutate({ taskId: task.id, rejectedIndices: [idx] }, {
+      onSuccess: () => toast.success('已拒绝改写'),
+      onError: (e) => toast.error(`拒绝失败: ${e}`),
+    });
+  };
+
+  const handleAcceptAll = () => {
+    if (pendingIndices.length === 0) return;
+    applyMutation.mutate({ taskId: task.id, acceptedIndices: pendingIndices }, {
+      onSuccess: () => toast.success(`已接受 ${pendingIndices.length} 处改写`),
+      onError: (e) => toast.error(`接受失败: ${e}`),
+    });
+  };
+
+  const handleRejectAll = () => {
+    if (pendingIndices.length === 0) return;
+    rejectMutation.mutate({ taskId: task.id, rejectedIndices: pendingIndices }, {
+      onSuccess: () => toast.success(`已拒绝 ${pendingIndices.length} 处改写`),
+      onError: (e) => toast.error(`拒绝失败: ${e}`),
+    });
+  };
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-medium text-gray-400">
+          级联改写预览 ({result.segments.length} 处)
+        </h4>
+        {pendingIndices.length > 0 && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleAcceptAll}
+              disabled={applyMutation.isPending}
+              className="px-2 py-1 text-[10px] bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 transition-colors disabled:opacity-50"
+            >
+              全部接受
+            </button>
+            <button
+              onClick={handleRejectAll}
+              disabled={rejectMutation.isPending}
+              className="px-2 py-1 text-[10px] bg-gray-500/20 text-gray-400 rounded hover:bg-gray-500/30 transition-colors disabled:opacity-50"
+            >
+              全部拒绝
+            </button>
+          </div>
+        )}
+      </div>
+
+      {result.warnings.length > 0 && (
+        <div className="mb-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-400">
+          {result.warnings.map((w, i) => (
+            <div key={i}>⚠ {w}</div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {result.segments.map((segment, idx) => (
+          <div key={idx} className="p-2 bg-cinema-900 rounded border border-cinema-700">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-500">
+                场景 {segment.scene_id.slice(0, 8)}... · 段落 {segment.paragraph_index + 1}
+              </span>
+              <span className={cn(
+                'text-[10px] px-1.5 py-0.5 rounded',
+                segment.user_decision === 'pending' && 'bg-yellow-500/20 text-yellow-400',
+                segment.user_decision === 'accepted' && 'bg-green-500/20 text-green-400',
+                segment.user_decision === 'rejected' && 'bg-gray-500/20 text-gray-400',
+              )}>
+                {segment.user_decision === 'pending' && '待确认'}
+                {segment.user_decision === 'accepted' && '已接受'}
+                {segment.user_decision === 'rejected' && '已拒绝'}
+              </span>
+            </div>
+            <p className="text-[10px] text-cinema-gold mb-1">{segment.change_reason}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-1.5 bg-red-500/10 rounded">
+                <p className="text-[10px] text-red-400 mb-0.5">原文</p>
+                <p className="text-[11px] text-gray-400 line-through">{segment.original_text}</p>
+              </div>
+              <div className="p-1.5 bg-green-500/10 rounded">
+                <p className="text-[10px] text-green-400 mb-0.5">改写</p>
+                <p className="text-[11px] text-gray-300">{segment.rewritten_text}</p>
+              </div>
+            </div>
+            {segment.user_decision === 'pending' && (
+              <div className="flex gap-2 mt-1.5">
+                <button
+                  onClick={() => handleAccept(idx)}
+                  disabled={applyMutation.isPending}
+                  className="px-2 py-0.5 text-[10px] bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 transition-colors disabled:opacity-50"
+                >
+                  接受
+                </button>
+                <button
+                  onClick={() => handleReject(idx)}
+                  disabled={rejectMutation.isPending}
+                  className="px-2 py-0.5 text-[10px] bg-gray-500/20 text-gray-400 rounded hover:bg-gray-500/30 transition-colors disabled:opacity-50"
+                >
+                  拒绝
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const { data: logs } = useTaskLogs(task.id);
 
@@ -239,8 +378,13 @@ function TaskDetail({ task }: { task: Task }) {
         </div>
       )}
 
-      {/* Result Preview */}
-      {task.result && (
+      {/* Cascade Rewrite Diff Viewer */}
+      {task.task_type === 'cascade_rewrite' && task.result && (
+        <CascadeRewriteDetail task={task} />
+      )}
+
+      {/* Result Preview (non-cascade) */}
+      {task.result && task.task_type !== 'cascade_rewrite' && (
         <div className="mt-3">
           <h4 className="text-xs font-medium text-gray-400 mb-1">执行结果</h4>
           {(() => {

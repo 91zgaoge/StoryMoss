@@ -13,7 +13,8 @@ import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
 import type { Story } from '@/types/index';
 import toast from 'react-hot-toast';
-import { runCreationWorkflow, listStyleDnas, setStoryStyleDna, analyzeStyleSample, getStoryStyleBlend, setStoryStyleBlend } from '@/services/tauri';
+import { runCreationWorkflow, createStoryWithWizard, listStyleDnas, setStoryStyleDna, analyzeStyleSample, getStoryStyleBlend, setStoryStyleBlend } from '@/services/tauri';
+import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
 import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -263,6 +264,9 @@ export function Stories() {
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const [highlightedStoryId, setHighlightedStoryId] = useState<string | null>(null);
   const [openOverviewStoryId, setOpenOverviewStoryId] = useState<string | null>(null);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [wizardStory, setWizardStory] = useState<Story | null>(null);
+  const [isWizardCreating, setIsWizardCreating] = useState(false);
 
   // W2-F2: 替代 backstage-navigate-to-story DOM CustomEvent，改用 Zustand store
   const navigateHighlightStoryId = useAppStore((state) => state.navigateHighlightStoryId);
@@ -388,9 +392,14 @@ export function Stories() {
         } else {
           toast.success(`一键创作完成！已完成 ${result.completed_phases.length} 个阶段`);
         }
+        // 创作完成后立即跳转到 Scene 编辑器（统一流水线：Scene 为唯一提交粒度）
+        setCurrentStory(story);
+        setCurrentView('scenes');
       } else {
         if (creationMode === 'ai_draft_human_edit' && result.current_phase === '写作') {
           toast.success(`AI 初稿已生成，请切换到幕前编辑`);
+          setCurrentStory(story);
+          setCurrentView('scenes');
         } else {
           toast.error(`创作未完成: ${result.error || '未知错误'}`);
         }
@@ -406,8 +415,42 @@ export function Stories() {
   const handleWizardCreate = (story: Story, e: React.MouseEvent) => {
     e.stopPropagation();
     setShowAiMenu(null);
-    setCurrentStory(story);
-    toast('向导创作功能即将上线，请使用「快速创作」');
+    setWizardStory(story);
+    setIsWizardOpen(true);
+  };
+
+  const handleWizardComplete = async (data: {
+    worldBuilding: import('@/types/v3').WorldBuildingOption;
+    characters: import('@/types/v3').CharacterProfileOption[];
+    writingStyle: import('@/types/v3').WritingStyleOption;
+    firstScene: import('@/types/v3').SceneProposal;
+    genreInput: string;
+  }) => {
+    if (!wizardStory) return;
+    setIsWizardCreating(true);
+    try {
+      const result = await createStoryWithWizard({
+        title: wizardStory.title || data.writingStyle.name || '未命名作品',
+        description: wizardStory.description || data.genreInput,
+        genre: wizardStory.genre,
+        world_building: data.worldBuilding,
+        characters: data.characters,
+        writing_style: data.writingStyle,
+        first_scene: data.firstScene,
+      });
+      toast.success(`「${result.story.title}」向导创作完成！`);
+      setIsWizardOpen(false);
+      setWizardStory(null);
+      // 刷新故事列表
+      queryClient.invalidateQueries({ queryKey: ['stories'] });
+      // 导航到新创建的故事
+      setCurrentStory(result.story);
+      setCurrentView('scenes');
+    } catch (error: any) {
+      toast.error(`向导创作失败: ${error?.message || String(error)}`);
+    } finally {
+      setIsWizardCreating(false);
+    }
   };
 
   if (isLoading) {
@@ -1018,6 +1061,35 @@ export function Stories() {
                   生成风格
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Novel Creation Wizard Modal */}
+      {isWizardOpen && wizardStory && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in overflow-y-auto py-8">
+          <Card className="w-full max-w-3xl mx-4 animate-slide-up my-auto">
+            <CardContent className="p-8">
+              {isWizardCreating ? (
+                <div className="text-center py-12">
+                  <div className="relative w-20 h-20 mx-auto mb-6">
+                    <div className="absolute inset-0 border-4 border-cinema-700 rounded-full" />
+                    <div className="absolute inset-0 border-4 border-cinema-gold rounded-full border-t-transparent animate-spin" />
+                    <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-cinema-gold" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white mb-2">正在创建故事...</h3>
+                  <p className="text-gray-400">保存世界观、角色、文风并自动摄取知识</p>
+                </div>
+              ) : (
+                <NovelCreationWizard
+                  onComplete={handleWizardComplete}
+                  onCancel={() => {
+                    setIsWizardOpen(false);
+                    setWizardStory(null);
+                  }}
+                />
+              )}
             </CardContent>
           </Card>
         </div>

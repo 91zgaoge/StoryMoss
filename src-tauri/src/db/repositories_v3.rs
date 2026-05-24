@@ -6,6 +6,8 @@ use super::{WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
 use super::{SceneVersion, CreatorType, SceneAnnotation, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
 use super::StoryStyleConfig;
+use super::{Story, Character, Chapter, CreateStoryRequest, UpdateStoryRequest, CreateCharacterRequest, CreateChapterRequest, DynamicTrait, CharacterState};
+use super::{User, GenesisRun, OAuthAccount, Session, UserInfo};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};
@@ -23,21 +25,16 @@ impl SceneRepository {
         Self { pool }
     }
 
-    pub fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
+    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let tx = conn.transaction()?;
-        
-        // 1. 先插入 scene（chapter_id 暂时为 NULL，避免外键约束冲突）
+
         tx.execute(
-            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at) 
+            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9)",
             params![&id, story_id, sequence_number, title, "[]", "[]", "drafting", now.to_rfc3339(), now.to_rfc3339()],
         )?;
-        
-        // 2. 查找或创建关联 chapter
+
         let existing_chapter: Option<String> = tx.query_row(
             "SELECT id FROM chapters WHERE story_id = ?1 AND chapter_number = ?2",
             params![story_id, sequence_number],
@@ -47,7 +44,6 @@ impl SceneRepository {
         let chapter_id = if let Some(chapter_id) = existing_chapter {
             Some(chapter_id)
         } else {
-            // Create a new chapter for this scene
             let chapter_id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO chapters (id, story_id, chapter_number, title, word_count, model_used, cost, created_at, updated_at)
@@ -56,17 +52,14 @@ impl SceneRepository {
             )?;
             Some(chapter_id)
         };
-        
-        // 3. 更新 scene 的 chapter_id（此时 chapter 已存在，外键约束满足）
+
         if let Some(ref cid) = chapter_id {
             tx.execute(
                 "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
                 params![cid, &id],
             )?;
         }
-        
-        tx.commit()?;
-        
+
         Ok(Scene {
             id,
             story_id: story_id.to_string(),
@@ -95,6 +88,22 @@ impl SceneRepository {
             foreshadowing_ids: None,
             chapter_id,
         })
+    }
+
+    pub fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let scene = self.create_in_tx(&tx, story_id, sequence_number, title)?;
+        tx.commit()?;
+        Ok(scene)
+    }
+
+    pub fn update(&self, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let count = self.update_in_tx(&tx, id, updates)?;
+        tx.commit()?;
+        Ok(count)
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
@@ -280,14 +289,11 @@ impl SceneRepository {
         Ok(scene)
     }
 
-    pub fn update(&self, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
-        
-        let tx = conn.transaction()?;
-        
+
         let count = tx.execute(
-            "UPDATE scenes SET 
+            "UPDATE scenes SET
                 title = COALESCE(?2, title),
                 dramatic_goal = COALESCE(?3, dramatic_goal),
                 external_pressure = COALESCE(?4, external_pressure),
@@ -331,7 +337,7 @@ impl SceneRepository {
                 &now
             ],
         )?;
-        
+
         // Sync associated chapter if title or content changed
         if updates.title.is_some() || updates.content.is_some() {
             let chapter_id: Option<String> = tx.query_row(
@@ -363,7 +369,6 @@ impl SceneRepository {
             )?;
         }
 
-        tx.commit()?;
         Ok(count)
     }
 
@@ -828,17 +833,16 @@ impl WorldBuildingRepository {
         Self { pool }
     }
 
-    pub fn create(&self, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
+    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at) 
+
+        tx.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![&id, story_id, concept, "[]", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
         )?;
-        
+
         Ok(WorldBuilding {
             id,
             story_id: story_id.to_string(),
@@ -849,6 +853,14 @@ impl WorldBuildingRepository {
             created_at: now,
             updated_at: now,
         })
+    }
+
+    pub fn create(&self, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let wb = self.create_in_tx(&tx, story_id, concept)?;
+        tx.commit()?;
+        Ok(wb)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
@@ -920,13 +932,12 @@ impl WorldBuildingRepository {
         conn.execute("DELETE FROM world_buildings WHERE id = ?1", params![id])
     }
 
-    pub fn update(&self, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>, 
+    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>,
                   history: Option<&str>, cultures: Option<&[Culture]>) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
-        
-        let count = conn.execute(
-            "UPDATE world_buildings SET 
+
+        let count = tx.execute(
+            "UPDATE world_buildings SET
                 concept = COALESCE(?2, concept),
                 rules = COALESCE(?3, rules),
                 history = COALESCE(?4, history),
@@ -944,6 +955,15 @@ impl WorldBuildingRepository {
         )?;
         Ok(count)
     }
+
+    pub fn update(&self, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>,
+                  history: Option<&str>, cultures: Option<&[Culture]>) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let count = self.update_in_tx(&tx, id, concept, rules, history, cultures)?;
+        tx.commit()?;
+        Ok(count)
+    }
 }
 
 // ==================== WritingStyle Repository ====================
@@ -957,18 +977,17 @@ impl WritingStyleRepository {
         Self { pool }
     }
 
-    pub fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
+    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing, 
-             vocabulary_level, sentence_structure, custom_rules, created_at, updated_at) 
+
+        tx.execute(
+            "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing,
+             vocabulary_level, sentence_structure, custom_rules, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![&id, story_id, name, "", "", "", "", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
         )?;
-        
+
         Ok(WritingStyle {
             id,
             story_id: story_id.to_string(),
@@ -982,6 +1001,14 @@ impl WritingStyleRepository {
             created_at: now,
             updated_at: now,
         })
+    }
+
+    pub fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let ws = self.create_in_tx(&tx, story_id, name)?;
+        tx.commit()?;
+        Ok(ws)
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Option<WritingStyle>, rusqlite::Error> {
@@ -1017,12 +1044,11 @@ impl WritingStyleRepository {
         Ok(style)
     }
 
-    pub fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
-        
-        let count = conn.execute(
-            "UPDATE writing_styles SET 
+
+        let count = tx.execute(
+            "UPDATE writing_styles SET
                 name = COALESCE(?2, name),
                 description = COALESCE(?3, description),
                 tone = COALESCE(?4, tone),
@@ -1044,6 +1070,14 @@ impl WritingStyleRepository {
                 now
             ],
         )?;
+        Ok(count)
+    }
+
+    pub fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let count = self.update_in_tx(&tx, id, updates)?;
+        tx.commit()?;
         Ok(count)
     }
 }
@@ -1229,21 +1263,20 @@ impl KnowledgeGraphRepository {
         Self { pool }
     }
 
-    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>) 
+    pub fn create_entity_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>)
         -> Result<Entity, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         let embedding_blob = embedding.as_ref().map(|vec| {
             vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
         });
-        
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, is_archived) 
+
+        tx.execute(
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, is_archived)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)",
             params![&id, story_id, name, entity_type, attributes.to_string(), embedding_blob, now.to_rfc3339(), now.to_rfc3339()],
         )?;
-        
+
         Ok(Entity {
             id,
             story_id: story_id.to_string(),
@@ -1259,6 +1292,15 @@ impl KnowledgeGraphRepository {
             is_archived: false,
             archived_at: None,
         })
+    }
+
+    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>)
+        -> Result<Entity, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let entity = self.create_entity_in_tx(&tx, story_id, name, entity_type, attributes, embedding)?;
+        tx.commit()?;
+        Ok(entity)
     }
 
     pub fn get_entities_by_story(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error> {
@@ -1375,18 +1417,17 @@ impl KnowledgeGraphRepository {
         )
     }
 
-    pub fn create_relation(&self, story_id: &str, source_id: &str, target_id: &str, 
+    pub fn create_relation_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, source_id: &str, target_id: &str,
                            relation_type: &str, strength: f32) -> Result<Relation, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen) 
+
+        tx.execute(
+            "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![&id, story_id, source_id, target_id, relation_type, strength, "[]", now.to_rfc3339()],
         )?;
-        
+
         Ok(Relation {
             id,
             story_id: story_id.to_string(),
@@ -1398,6 +1439,15 @@ impl KnowledgeGraphRepository {
             first_seen: now,
             confidence_score: None,
         })
+    }
+
+    pub fn create_relation(&self, story_id: &str, source_id: &str, target_id: &str,
+                           relation_type: &str, strength: f32) -> Result<Relation, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let relation = self.create_relation_in_tx(&tx, story_id, source_id, target_id, relation_type, strength)?;
+        tx.commit()?;
+        Ok(relation)
     }
 
     /// 批量保存 Ingest 生成的实体（已包含完整字段，直接 INSERT）
@@ -3316,6 +3366,39 @@ impl CharacterRelationshipRepository {
         })
     }
 
+    pub fn get_by_id(&self, id: &str) -> Result<Option<super::models_v3::CharacterRelationship>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as target_name,
+                    r.relationship_type, r.description, r.dynamic, r.created_at
+             FROM character_relationships r
+             LEFT JOIN characters c ON r.target_character_id = c.id
+             WHERE r.id = ?1"
+        )?;
+
+        let result = stmt.query_row([id], |row| {
+            let created_str: String = row.get(8)?;
+
+            Ok(super::models_v3::CharacterRelationship {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                source_character_id: row.get(2)?,
+                target_character_id: row.get(3)?,
+                target_character_name: row.get(4)?,
+                relationship_type: row.get(5)?,
+                description: row.get(6)?,
+                dynamic: row.get(7)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        });
+
+        match result {
+            Ok(r) => Ok(Some(r)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<super::models_v3::CharacterRelationship>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
@@ -3668,5 +3751,993 @@ impl SceneDividerRepository {
     pub fn delete_by_chapter(&self, chapter_id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute("DELETE FROM scene_divider_nodes WHERE chapter_id = ?1", [chapter_id])
+    }
+}
+
+pub struct StoryRepository {
+    pool: DbPool,
+}
+
+impl StoryRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, req: CreateStoryRequest) -> Result<Story, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        tx.execute(
+            "INSERT INTO stories (id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![&id, &req.title, req.description, req.genre, "dark", "medium", req.style_dna_id, None::<String>, None::<i32>, now.to_rfc3339(), now.to_rfc3339()],
+        )?;
+
+        Ok(Story {
+            id,
+            title: req.title,
+            description: req.description,
+            genre: req.genre,
+            tone: Some("dark".to_string()),
+            pacing: Some("medium".to_string()),
+            style_dna_id: req.style_dna_id,
+            methodology_id: None,
+            methodology_step: None,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn create(&self, req: CreateStoryRequest) -> Result<Story, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let story = self.create_in_tx(&tx, req)?;
+        tx.commit()?;
+        Ok(story)
+    }
+
+    pub fn get_all(&self) -> Result<Vec<Story>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at FROM stories ORDER BY updated_at DESC"
+        )?;
+        
+        let stories = stmt.query_map([], |row| {
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
+            Ok(Story {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                genre: row.get(3)?,
+                tone: row.get(4)?,
+                pacing: row.get(5)?,
+                style_dna_id: row.get(6)?,
+                methodology_id: row.get(7)?,
+                methodology_step: row.get(8)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        
+        Ok(stories)
+    }
+
+    pub fn get_by_id(&self, id: &str) -> Result<Option<Story>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at FROM stories WHERE id = ?1"
+        )?;
+        
+        let story = stmt.query_row([id], |row| {
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
+            Ok(Story {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                genre: row.get(3)?,
+                tone: row.get(4)?,
+                pacing: row.get(5)?,
+                style_dna_id: row.get(6)?,
+                methodology_id: row.get(7)?,
+                methodology_step: row.get(8)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+        
+        Ok(story)
+    }
+
+    pub fn update(&self, id: &str, req: &super::UpdateStoryRequest) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        let count = conn.execute(
+            "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, description),
+             genre = COALESCE(?4, genre), tone = COALESCE(?5, tone), pacing = COALESCE(?6, pacing),
+             style_dna_id = COALESCE(?7, style_dna_id), methodology_id = COALESCE(?8, methodology_id),
+             methodology_step = COALESCE(?9, methodology_step), updated_at = ?10 WHERE id = ?1",
+            params![id, req.title, req.description, req.genre, req.tone, req.pacing, req.style_dna_id, req.methodology_id, req.methodology_step, now],
+        )?;
+        Ok(count)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        // 在事务中执行删除操作，确保级联删除正确执行
+        let tx = conn.unchecked_transaction()?;
+
+        // 验证故事是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM stories WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+        // 即使外键约束已启用，也作为防御性编程添加显式 DELETE
+        let _ = tx.execute("DELETE FROM story_metadata WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM foreshadowing_tracker WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM user_preferences WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_runtime_states WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_style_configs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_outlines WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM studio_configs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM story_summaries WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_characters WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_scenes WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM narrative_world_buildings WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM chat_sessions WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM text_annotations WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM ai_operations WHERE story_id = ?1", [id]);
+
+        // 执行删除操作 - 由于外键约束已启用，大部分相关数据会自动级联删除
+        let count = tx.execute("DELETE FROM stories WHERE id = ?1", [id])?;
+
+        tx.commit()?;
+
+        // 不变量断言: 删除 story 后，所有关联表不应存在孤儿数据
+        // 仅在 debug 构建时检查，用于在开发和测试阶段快速发现级联删除遗漏
+        #[cfg(debug_assertions)]
+        {
+            let check_conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+            let orphan_tables = [
+                ("chapters", "story_id"),
+                ("characters", "story_id"),
+                ("scenes", "story_id"),
+                ("kg_entities", "story_id"),
+                ("kg_relations", "story_id"),
+                ("character_relationships", "story_id"),
+                ("scene_annotations", "story_id"),
+            ];
+            for (table, col) in orphan_tables {
+                let orphan_count: i64 = check_conn
+                    .query_row(
+                        &format!("SELECT COUNT(*) FROM {} WHERE {} = ?1", table, col),
+                        [id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                debug_assert_eq!(
+                    orphan_count, 0,
+                    "StoryRepository::delete orphan invariant violated: {} rows remain in {} after story {} deletion",
+                    orphan_count, table, id
+                );
+            }
+        }
+
+        Ok(count)
+    }
+}
+
+pub struct CharacterRepository {
+    pool: DbPool,
+}
+
+impl CharacterRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, req: CreateCharacterRequest) -> Result<Character, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+        let traits_json = "[]";
+
+        tx.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![&id, &req.story_id, &req.name, req.background, req.personality, req.goals, req.appearance, req.gender, req.age, traits_json, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, now.to_rfc3339(), now.to_rfc3339()],
+        )?;
+
+        Ok(Character {
+            id,
+            story_id: req.story_id,
+            name: req.name,
+            background: req.background,
+            personality: req.personality,
+            goals: req.goals,
+            appearance: req.appearance,
+            gender: req.gender,
+            age: req.age,
+            dynamic_traits: vec![],
+            cs_location: None,
+            cs_power_level: None,
+            cs_physical_state: None,
+            cs_mental_state: None,
+            cs_key_items: None,
+            cs_recent_events: None,
+            cs_updated_at_chapter: None,
+            cs_json: None,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn create(&self, req: CreateCharacterRequest) -> Result<Character, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let character = self.create_in_tx(&tx, req)?;
+        tx.commit()?;
+        Ok(character)
+    }
+
+    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Character>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE story_id = ?1"
+        )?;
+
+        let characters = stmt.query_map([story_id], |row| {
+            let traits_json: String = row.get(9)?;
+            let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
+            let created_str: String = row.get(18)?;
+            let updated_str: String = row.get(19)?;
+
+            Ok(Character {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                background: row.get(3)?,
+                personality: row.get(4)?,
+                goals: row.get(5)?,
+                appearance: row.get(6)?,
+                gender: row.get(7)?,
+                age: row.get(8)?,
+                dynamic_traits,
+                cs_location: row.get(10).ok(),
+                cs_power_level: row.get(11).ok(),
+                cs_physical_state: row.get(12).ok(),
+                cs_mental_state: row.get(13).ok(),
+                cs_key_items: row.get(14).ok(),
+                cs_recent_events: row.get(15).ok(),
+                cs_updated_at_chapter: row.get(16).ok(),
+                cs_json: row.get(17).ok(),
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(characters)
+    }
+
+    pub fn get_by_id(&self, id: &str) -> Result<Option<Character>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE id = ?1"
+        )?;
+
+        let character = stmt.query_row([id], |row| {
+            let traits_json: String = row.get(9)?;
+            let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
+            let created_str: String = row.get(18)?;
+            let updated_str: String = row.get(19)?;
+
+            Ok(Character {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                background: row.get(3)?,
+                personality: row.get(4)?,
+                goals: row.get(5)?,
+                appearance: row.get(6)?,
+                gender: row.get(7)?,
+                age: row.get(8)?,
+                dynamic_traits,
+                cs_location: row.get(10).ok(),
+                cs_power_level: row.get(11).ok(),
+                cs_physical_state: row.get(12).ok(),
+                cs_mental_state: row.get(13).ok(),
+                cs_key_items: row.get(14).ok(),
+                cs_recent_events: row.get(15).ok(),
+                cs_updated_at_chapter: row.get(16).ok(),
+                cs_json: row.get(17).ok(),
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(character)
+    }
+
+    pub fn update(&self, id: &str, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, appearance: Option<String>, gender: Option<String>, age: Option<i32>) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        let count = conn.execute(
+            "UPDATE characters SET name = COALESCE(?2, name), background = COALESCE(?3, background),
+             personality = COALESCE(?4, personality), goals = COALESCE(?5, goals), appearance = COALESCE(?6, appearance),
+             gender = COALESCE(?7, gender), age = COALESCE(?8, age), updated_at = ?9 WHERE id = ?1",
+            params![id, name, background, personality, goals, appearance, gender, age, now],
+        )?;
+        Ok(count)
+    }
+
+    pub fn update_character_state(
+        &self,
+        character_id: &str,
+        state: &CharacterState,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        let count = conn.execute(
+            "UPDATE characters SET
+                cs_location = COALESCE(?2, cs_location),
+                cs_power_level = COALESCE(?3, cs_power_level),
+                cs_physical_state = COALESCE(?4, cs_physical_state),
+                cs_mental_state = COALESCE(?5, cs_mental_state),
+                cs_key_items = COALESCE(?6, cs_key_items),
+                cs_recent_events = COALESCE(?7, cs_recent_events),
+                cs_updated_at_chapter = COALESCE(?8, cs_updated_at_chapter),
+                updated_at = ?9
+            WHERE id = ?1",
+            params![
+                character_id,
+                state.location,
+                state.power_level,
+                state.physical_state,
+                state.mental_state,
+                state.key_items,
+                state.recent_events,
+                state.updated_at_chapter,
+                now,
+            ],
+        )?;
+        Ok(count)
+    }
+
+    pub fn get_character_state(
+        &self,
+        character_id: &str,
+    ) -> Result<Option<CharacterState>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter FROM characters WHERE id = ?1"
+        )?;
+
+        let state = stmt.query_row([character_id], |row| {
+            Ok(CharacterState {
+                location: row.get(0).ok(),
+                power_level: row.get(1).ok(),
+                physical_state: row.get(2).ok(),
+                mental_state: row.get(3).ok(),
+                key_items: row.get(4).ok(),
+                recent_events: row.get(5).ok(),
+                updated_at_chapter: row.get(6).ok(),
+            })
+        }).optional()?;
+
+        Ok(state)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        // 在事务中执行删除操作
+        let tx = conn.unchecked_transaction()?;
+
+        // 验证角色是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM characters WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+        let _ = tx.execute("DELETE FROM scene_characters WHERE character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM scene_character_actions WHERE character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM character_relationships WHERE source_character_id = ?1 OR target_character_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM character_states WHERE character_id = ?1", [id]);
+
+        // 执行删除操作 - 外键约束会自动级联剩余关联数据
+        let count = tx.execute("DELETE FROM characters WHERE id = ?1", [id])?;
+
+        tx.commit()?;
+        Ok(count)
+    }
+}
+
+pub struct ChapterRepository {
+    pool: DbPool,
+}
+
+impl ChapterRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(&self, req: CreateChapterRequest) -> Result<Chapter, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+        let word_count = req.content.as_ref().map(|c| c.len() as i32);
+
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        // 1. 插入 Chapter
+        tx.execute(
+            "INSERT INTO chapters (id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                &id, &req.story_id, req.chapter_number, req.title, req.outline, req.content,
+                word_count, "", 0.0, now.to_rfc3339(), now.to_rfc3339()
+            ],
+        )?;
+
+        // 2. 查找或创建关联的 Scene
+        let _scene_id = match tx.query_row(
+            "SELECT id FROM scenes WHERE story_id = ?1 AND sequence_number = ?2",
+            params![&req.story_id, req.chapter_number],
+            |row| row.get::<_, String>(0)
+        ).optional()? {
+            Some(sid) => {
+                // 关联已有 Scene
+                tx.execute(
+                    "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
+                    params![&id, &sid],
+                )?;
+                Some(sid)
+            }
+            None => {
+                // 创建新 Scene
+                let sid = Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO scenes (id, story_id, sequence_number, title, content, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        &sid, &req.story_id, req.chapter_number, req.title, req.content,
+                        "[]", "[]", "drafting", &id, now.to_rfc3339(), now.to_rfc3339()
+                    ],
+                )?;
+                Some(sid)
+            }
+        };
+
+        tx.commit()?;
+
+        Ok(Chapter {
+            id,
+            story_id: req.story_id,
+            chapter_number: req.chapter_number,
+            title: req.title,
+            outline: req.outline,
+            content: req.content,
+            word_count,
+            model_used: None,
+            cost: None,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY chapter_number"
+        )?;
+
+        let chapters = stmt.query_map([story_id], |row| {
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
+            Ok(Chapter {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                chapter_number: row.get(2)?,
+                title: row.get(3)?,
+                outline: row.get(4)?,
+                content: row.get(5)?,
+                word_count: row.get(6)?,
+                model_used: row.get(7)?,
+                cost: row.get(8)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(chapters)
+    }
+
+    pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1"
+        )?;
+
+        let chapter = stmt.query_row([id], |row| {
+            let created_str: String = row.get(9)?;
+            let updated_str: String = row.get(10)?;
+            Ok(Chapter {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                chapter_number: row.get(2)?,
+                title: row.get(3)?,
+                outline: row.get(4)?,
+                content: row.get(5)?,
+                word_count: row.get(6)?,
+                model_used: row.get(7)?,
+                cost: row.get(8)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(chapter)
+    }
+
+    pub fn update(&self, id: &str, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        let word_count = word_count.or_else(|| content.as_ref().map(|c| c.len() as i32));
+
+        let tx = conn.transaction()?;
+
+        let count = tx.execute(
+            "UPDATE chapters SET title = COALESCE(?2, title), outline = COALESCE(?3, outline),
+             content = COALESCE(?4, content), word_count = COALESCE(?5, word_count), updated_at = ?6 WHERE id = ?1",
+            params![id, title, outline, content, word_count, now],
+        )?;
+
+        // 同步更新关联的 Scene(s)
+        if title.is_some() || content.is_some() {
+            let scene_ids: Vec<String> = tx.prepare(
+                "SELECT id FROM scenes WHERE chapter_id = ?1"
+            )?.query_map([id], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+            for sid in scene_ids {
+                tx.execute(
+                    "UPDATE scenes SET title = COALESCE(?2, title), content = COALESCE(?3, content), updated_at = ?4 WHERE id = ?1",
+                    params![sid, title, content, now],
+                )?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(count)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        // 验证章节是否存在
+        let exists: bool = tx.query_row(
+            "SELECT 1 FROM chapters WHERE id = ?1",
+            [id],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !exists {
+            tx.rollback()?;
+            return Ok(0);
+        }
+
+        // 解除与 scenes 的关联关系
+        tx.execute("UPDATE scenes SET chapter_id = NULL WHERE chapter_id = ?1", [id])?;
+
+        // 删除章节
+        let count = tx.execute("DELETE FROM chapters WHERE id = ?1", [id])?;
+
+        tx.commit()?;
+        Ok(count)
+    }
+}
+
+
+// ==================== UserRepository ====================
+
+pub struct UserRepository {
+    pool: DbPool,
+}
+
+impl UserRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create_user(&self, email: Option<String>, display_name: Option<String>, avatar_url: Option<String>) -> Result<User, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, avatar_url, is_local_user, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
+            params![&id, email, display_name, avatar_url, now.to_rfc3339()],
+        )?;
+
+        Ok(User {
+            id,
+            email,
+            display_name,
+            avatar_url,
+            is_local_user: false,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn find_by_oauth(&self, provider: &str, provider_account_id: &str) -> Result<Option<User>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT u.id, u.email, u.display_name, u.avatar_url, u.is_local_user, u.created_at, u.updated_at
+             FROM users u
+             JOIN oauth_accounts oa ON u.id = oa.user_id
+             WHERE oa.provider = ?1 AND oa.provider_account_id = ?2"
+        )?;
+
+        let user = stmt.query_row([provider, provider_account_id], |row| {
+            let created_str: String = row.get(5)?;
+            let updated_str: String = row.get(6)?;
+            Ok(User {
+                id: row.get(0)?,
+                email: row.get(1)?,
+                display_name: row.get(2)?,
+                avatar_url: row.get(3)?,
+                is_local_user: row.get::<_, i32>(4)? != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(user)
+    }
+
+    pub fn create_oauth_account(&self, user_id: &str, provider: &str, provider_account_id: &str, access_token: Option<String>, refresh_token: Option<String>, expires_at: Option<chrono::DateTime<Local>>) -> Result<OAuthAccount, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, expires_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![&id, user_id, provider, provider_account_id, access_token, refresh_token, expires_at.map(|d| d.to_rfc3339()), now.to_rfc3339()],
+        )?;
+
+        Ok(OAuthAccount {
+            id,
+            user_id: user_id.to_string(),
+            provider: provider.to_string(),
+            provider_account_id: provider_account_id.to_string(),
+            access_token,
+            refresh_token,
+            expires_at,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn create_session(&self, user_id: &str, token: &str, expires_at: chrono::DateTime<Local>) -> Result<Session, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![&id, user_id, token, expires_at.to_rfc3339(), now.to_rfc3339()],
+        )?;
+
+        Ok(Session {
+            id,
+            user_id: user_id.to_string(),
+            token: token.to_string(),
+            expires_at,
+            created_at: now,
+        })
+    }
+
+    pub fn delete_session(&self, token: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count = conn.execute("DELETE FROM sessions WHERE token = ?1", [token])?;
+        Ok(count)
+    }
+
+    pub fn to_user_info(&self, user: &User) -> UserInfo {
+        UserInfo {
+            id: user.id.clone(),
+            email: user.email.clone(),
+            display_name: user.display_name.clone(),
+            avatar_url: user.avatar_url.clone(),
+        }
+    }
+}
+
+// ==================== GenesisRun Repository (W2-B9) ====================
+
+pub struct GenesisRunRepository {
+    pool: DbPool,
+}
+
+impl GenesisRunRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(
+        &self,
+        id: &str,
+        session_id: &str,
+        premise: &str,
+        total_steps: i32,
+    ) -> Result<super::GenesisRun, rusqlite::Error> {
+        let now = Local::now();
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO genesis_runs (id, session_id, premise, status, total_steps, steps_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, session_id, premise, "pending", total_steps, "{}", now.to_rfc3339(), now.to_rfc3339()],
+        )?;
+        Ok(super::GenesisRun {
+            id: id.to_string(),
+            story_id: None,
+            session_id: session_id.to_string(),
+            premise: premise.to_string(),
+            status: "pending".to_string(),
+            current_step: None,
+            current_step_number: 0,
+            total_steps,
+            steps_json: "{}".to_string(),
+            error_message: None,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn update_step(
+        &self,
+        id: &str,
+        step_name: &str,
+        step_number: i32,
+        status: &str,
+        steps_json: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE genesis_runs SET current_step = ?2, current_step_number = ?3, status = ?4, steps_json = ?5, updated_at = ?6 WHERE id = ?1",
+            params![id, step_name, step_number, status, steps_json, now],
+        )
+    }
+
+    pub fn complete(
+        &self,
+        id: &str,
+        story_id: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE genesis_runs SET status = 'completed', story_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, story_id, now],
+        )
+    }
+
+    pub fn fail(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE genesis_runs SET status = 'failed', error_message = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, error_message, now],
+        )
+    }
+
+    pub fn get_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<super::GenesisRun>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs WHERE id = ?1"
+        )?;
+        let run = stmt.query_row([id], |row| {
+            let created_str: String = row.get(10)?;
+            let updated_str: String = row.get(11)?;
+            Ok(super::GenesisRun {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                session_id: row.get(2)?,
+                premise: row.get(3)?,
+                status: row.get(4)?,
+                current_step: row.get(5)?,
+                current_step_number: row.get(6)?,
+                total_steps: row.get(7)?,
+                steps_json: row.get(8)?,
+                error_message: row.get(9)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+        Ok(run)
+    }
+
+    pub fn list_all(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<super::GenesisRun>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs ORDER BY created_at DESC LIMIT ?1"
+        )?;
+        let runs = stmt.query_map([limit], |row| {
+            let created_str: String = row.get(10)?;
+            let updated_str: String = row.get(11)?;
+            Ok(super::GenesisRun {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                session_id: row.get(2)?,
+                premise: row.get(3)?,
+                status: row.get(4)?,
+                current_step: row.get(5)?,
+                current_step_number: row.get(6)?,
+                total_steps: row.get(7)?,
+                steps_json: row.get(8)?,
+                error_message: row.get(9)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(runs)
+    }
+}
+
+// ==================== Trait Implementations ====================
+
+use crate::db::traits::{SceneRepo, StoryRepo, CharacterRepo, ChapterRepo, WorldBuildingRepo, WritingStyleRepo};
+
+impl SceneRepo for SceneRepository {
+    fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
+        self.create(story_id, sequence_number, title)
+    }
+    fn get_by_id(&self, id: &str) -> Result<Option<Scene>, rusqlite::Error> {
+        self.get_by_id(id)
+    }
+    fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
+        self.get_by_story(story_id)
+    }
+    fn get_by_chapter(&self, chapter_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
+        self.get_by_chapter(chapter_id)
+    }
+    fn update(&self, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
+        self.update(id, updates)
+    }
+    fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        self.delete(id)
+    }
+    fn update_sequence(&self, id: &str, new_sequence: i32) -> Result<usize, rusqlite::Error> {
+        self.update_sequence(id, new_sequence)
+    }
+}
+
+impl StoryRepo for StoryRepository {
+    fn create(&self, req: CreateStoryRequest) -> Result<Story, rusqlite::Error> {
+        self.create(req)
+    }
+    fn get_all(&self) -> Result<Vec<Story>, rusqlite::Error> {
+        self.get_all()
+    }
+    fn get_by_id(&self, id: &str) -> Result<Option<Story>, rusqlite::Error> {
+        self.get_by_id(id)
+    }
+    fn update(&self, id: &str, req: &UpdateStoryRequest) -> Result<usize, rusqlite::Error> {
+        self.update(id, req)
+    }
+    fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        self.delete(id)
+    }
+}
+
+impl CharacterRepo for CharacterRepository {
+    fn create(&self, req: CreateCharacterRequest) -> Result<Character, rusqlite::Error> {
+        self.create(req)
+    }
+    fn get_by_story(&self, story_id: &str) -> Result<Vec<Character>, rusqlite::Error> {
+        self.get_by_story(story_id)
+    }
+    fn get_by_id(&self, id: &str) -> Result<Option<Character>, rusqlite::Error> {
+        self.get_by_id(id)
+    }
+    fn update(
+        &self,
+        id: &str,
+        name: Option<String>,
+        background: Option<String>,
+        personality: Option<String>,
+        goals: Option<String>,
+        appearance: Option<String>,
+        gender: Option<String>,
+        age: Option<i32>,
+    ) -> Result<usize, rusqlite::Error> {
+        self.update(id, name, background, personality, goals, appearance, gender, age)
+    }
+    fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        self.delete(id)
+    }
+}
+
+impl ChapterRepo for ChapterRepository {
+    fn create(&self, req: CreateChapterRequest) -> Result<Chapter, rusqlite::Error> {
+        self.create(req)
+    }
+    fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
+        self.get_by_story(story_id)
+    }
+    fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
+        self.get_by_id(id)
+    }
+    fn update(
+        &self,
+        id: &str,
+        title: Option<String>,
+        outline: Option<String>,
+        content: Option<String>,
+        word_count: Option<i32>,
+    ) -> Result<usize, rusqlite::Error> {
+        self.update(id, title, outline, content, word_count)
+    }
+    fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        self.delete(id)
+    }
+}
+
+impl WorldBuildingRepo for WorldBuildingRepository {
+    fn create(&self, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
+        self.create(story_id, concept)
+    }
+    fn get_by_id(&self, id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
+        self.get_by_id(id)
+    }
+    fn get_by_story(&self, story_id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
+        self.get_by_story(story_id)
+    }
+    fn update(
+        &self,
+        id: &str,
+        concept: Option<&str>,
+        rules: Option<&[WorldRule]>,
+        history: Option<&str>,
+        cultures: Option<&[Culture]>,
+    ) -> Result<usize, rusqlite::Error> {
+        self.update(id, concept, rules, history, cultures)
+    }
+    fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        self.delete(id)
+    }
+}
+
+impl WritingStyleRepo for WritingStyleRepository {
+    fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
+        self.create(story_id, name)
+    }
+    fn get_by_story(&self, story_id: &str) -> Result<Option<WritingStyle>, rusqlite::Error> {
+        self.get_by_story(story_id)
+    }
+    fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
+        self.update(id, updates)
     }
 }

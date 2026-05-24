@@ -9,5 +9,6 @@ mod rewrite_engine;
 pub mod models;
 mod repository;
 pub mod executor;
+pub mod commands;
 
 pub use repository::EntityMentionRepository;

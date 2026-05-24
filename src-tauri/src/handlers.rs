@@ -258,4 +258,8 @@ tauri::generate_handler![
     pipeline::commands::get_draft_review_history,
     // Auto Contract commands
     commands::pipeline::auto_create_missing_contracts,
+    // Cascade Rewriter commands
+    creative_engine::cascade_rewriter::commands::get_cascade_rewrite_result,
+    creative_engine::cascade_rewriter::commands::apply_cascade_rewrite,
+    creative_engine::cascade_rewriter::commands::reject_cascade_rewrite,
 ]

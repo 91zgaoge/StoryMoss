@@ -17,6 +17,9 @@
 - **C1**: `lib.rs` 命令注册拆分 → `handlers.rs` 独立文件
 - **A1 续**: migration 65 修复 `ai_usage_quota` 表存在性检查 → `cargo test` 全绿（250 passed, 0 failed）
 - **D1 Phase 1-2**: Cascade Rewriter 设计文档 + 模块骨架 + `entity_mentions` 表（Migration 73）+ Task System 集成 + Rewrite Engine（LLM Prompt 构建 + 段落提取 + 一致性验证）+ `trigger_cascade_rewrite` Tauri command
+- **D1 Phase 3**: Backstage Diff 预览面板 + 用户确认流程（后端命令 + 前端 React 组件）
+- **D1 Phase 4 续**: `update_character_relationship` 级联改写自动触发 hook
+- **B3-续**: `models.rs` → `models_v3.rs` 完整迁移（~45 个结构体/enum）
 
 ---
 
@@ -86,14 +89,17 @@
 - 在 3 个 `AgentContext` 构造点注入 `MemoryOrchestrator::build_memory_pack()`，将 `memory_pack` 从硬编码 `None` 改为真实组装的三层记忆
 - 降级保护: 构建失败时记录 warn 并回退到 `None`，不阻断生成流程
 
-### B3. db 模型归一化（初步）🔄
-**状态**: 部分完成
+### B3. db 模型归一化 ✅
+**状态**: 已完成
 - 删除 `db/models.rs` 中未使用的结构体: `OAuthUrlResponse`, `AuthConfig`
 - 删除 `db/repositories.rs` 中未使用的方法: `batch_update_states`, `find_by_id`, `find_by_email`, `find_session_by_token`, `delete_user_sessions`, `cleanup_expired_sessions`, `get_by_session`
 - 同步 `db/connection.rs` 中 `kg_entities` 和 `kg_relations` 的 schema，添加缺失列:
   - `kg_entities`: `confidence_score`, `access_count`, `last_accessed`, `is_archived`, `archived_at`
   - `kg_relations`: `confidence_score`
-- **剩余工作**: `models.rs` 中仍有 40 个结构体待迁移到 `models_v3.rs`，需按依赖链从叶子到根逐个替换
+- **本次完成**: `models.rs` 中全部 ~45 个结构体/enum 迁移至 `models_v3.rs`，`models.rs` 改为重新导出兼容层（`pub use super::models_v3::{...}`）
+- 零命名冲突验证通过（`models.rs` 与 `models_v3.rs` 无重叠类型名）
+- 所有现有引用（`crate::db::models::X`、`crate::db::models_v3::X`、`crate::db::X`）继续有效
+- **剩余工作**: 无（模型归一化已完成，后续可考虑删除 `models.rs` 兼容层）
 
 ### C2. 版本号注释清理 ✅
 **状态**: 已完成（文件重命名 + 注释清理）
@@ -149,6 +155,32 @@
 - 新增命令不再需要修改 `lib.rs`，只需编辑 `handlers.rs`
 - `lib.rs` 中命令注册块从 ~250 行缩减为 1 行
 
+### B4. db 仓库归一化 ✅
+**状态**: 已完成
+**改动文件**:
+- `src-tauri/src/db/repositories_v3.rs`: 追加迁移自 `repositories.rs` 的 5 个仓库（`StoryRepository`, `CharacterRepository`, `ChapterRepository`, `UserRepository`, `GenesisRunRepository`）
+- `src-tauri/src/db/repositories.rs`: 重写为兼容层（`pub use super::repositories_v3::{...}`）
+- `src-tauri/src/db/repositories_v3.rs`: 为 `CharacterRelationshipRepository` 补全 `get_by_id` 方法
+**说明**:
+- 全部 5 个旧仓库已迁移至 `repositories_v3.rs`，`repositories.rs` 仅保留重新导出
+- 零命名冲突验证通过，所有现有引用继续有效
+- 后续可考虑删除 `repositories.rs` 兼容层
+
+### B5. db 模块解耦（Repository Trait 层）✅
+**状态**: 核心完成
+**改动文件**:
+- 新增 `src-tauri/src/db/traits.rs`: 定义 6 个核心 Repository Trait（`SceneRepo`, `StoryRepo`, `CharacterRepo`, `ChapterRepo`, `WorldBuildingRepo`, `WritingStyleRepo`）
+- `src-tauri/src/db/repositories_v3.rs`: 为 6 个具体 Repository struct 实现对应 Trait
+- `src-tauri/src/db/mod.rs`: 导出 traits 模块及核心 trait
+- `src-tauri/src/story_commands.rs`:
+  - 移除 `use crate::db::*` 通配符导入，改为精确导入（模型 + 具体仓库 + Trait）
+  - 提取 `get_story_scenes_core(repo: &dyn SceneRepo, story_id: &str)` 业务逻辑函数
+  - 新增 `#[cfg(test)]` 模块，包含手动 mock `SceneRepo` 实现及 2 个单元测试
+**验收**:
+- `story_commands.rs` 不再使用 `use crate::db::*`
+- `cargo test` 通过，包含 2 个使用 mock 仓库的 trait 测试
+- `cargo test --package storyforge`: 252 passed, 0 failed
+
 ---
 
 ## 剩余任务清单
@@ -157,10 +189,7 @@
 
 | 编号 | 项目 | 领域 | 阻塞项 | 预估工作量 |
 |------|------|------|--------|-----------|
-| D1 | Cascade Rewriter | D | B2 记忆系统（已完成） | 1-2 周 |
-| B3-续 | db 模型归一化完整迁移 | B | 无 | 1-2 周 |
-| D3 | Pipeline 执行纳入 Task 追踪 | D | D2 完成 | 2-3 天 |
-| E2 | Tasks 页面补全 | E | D2 完成 | 3-5 天 |
+| （无） | — | — | — | — |
 
 ### E2. Tasks 页面补全 ✅
 **状态**: 核心完成
@@ -186,40 +215,48 @@
 - 便捷命令封装 payload 构造和 `CreateTaskRequest`，前端可直接调用创建任务
 **验收**: `cargo check` 通过，`cargo test` 250 passed / 0 failed
 
-### D1. Cascade Rewriter（Phase 1-2 完成，Phase 4 推进中）🔄
-**状态**: Phase 1-2 完成，Phase 4 核心 hook 已完成，Phase 3 待启动
+### D1. Cascade Rewriter ✅
+**状态**: Phase 1-4 全部完成
 **设计文档**: [2026-05-24-cascade-rewriter-design.md](./2026-05-24-cascade-rewriter-design.md)
 **已完成**:
 - 设计文档：架构、数据模型、执行流程、集成点、验收标准
-- 模块骨架：`creative_engine::cascade_rewriter`（`mod.rs` + `models.rs` + `repository.rs` + `change_detector.rs` + `impact_analyzer.rs` + `rewrite_engine.rs` + `executor.rs`）
+- 模块骨架：`creative_engine::cascade_rewriter`（`mod.rs` + `models.rs` + `repository.rs` + `change_detector.rs` + `impact_analyzer.rs` + `rewrite_engine.rs` + `executor.rs` + `commands.rs`）
 - 数据库迁移 73：`entity_mentions` 表 + 索引
 - Task System 集成：`TaskType::CascadeRewrite` 枚举扩展 + `CascadeRewriteExecutor` 注册 + `trigger_cascade_rewrite` Tauri command
 - Phase 2: Rewrite Engine 实现（段落提取 + Prompt 构建 + LLM 调用 + 长度/实体保留验证）
+- Phase 3: Backstage Diff 预览面板 + 用户确认流程
+  - 后端命令：`get_cascade_rewrite_result`、`apply_cascade_rewrite`（应用改写到 scene content）、`reject_cascade_rewrite`
+  - 前端组件：`Tasks.tsx` 中新增 `CascadeRewriteDetail`，展示 `original_text` vs `rewritten_text` 对比，支持单条/批量 接受/拒绝
 - Phase 4: ChangeDetector 自动 hook 到实体更新命令
   - `commands/character.rs` `update_character`: 对比 `personality`/`goals`/`appearance`/`background`，变更时自动创建 `CascadeRewrite` Task
   - `story_commands.rs` `update_world_building`: 对比 `concept`/`history`/`rules`/`cultures`，变更时自动创建 `CascadeRewrite` Task
+  - `story_commands.rs` `update_character_relationship`: 对比 `relationship_type`/`description`/`dynamic`，变更时自动创建 `CascadeRewrite` Task（通过两个角色的 mentions 间接触发）
   - `db/repositories_v3.rs` `WorldBuildingRepository`: 新增 `get_by_id` 方法
+  - `db/repositories_v3.rs` `CharacterRelationshipRepository`: 新增 `get_by_id` 方法
 - Phase 4: `entity_mentions` 的自动构建 —— `update_scene` Ingest Pipeline 中批量保存实体后，自动提取实体名称在场景文本中的出现位置并写入 `entity_mentions` 表
-**剩余工作**:
-- Phase 3: Backstage Diff 预览面板 + 用户确认流程（前端 React 组件）
-- Phase 4: 角色关系变更 hook（`update_character_relationship`）—— 需扩展 `entity_mentions` 支持关系实体类型
+**剩余工作**: 无（D1 级联改写闭环已完成）
 
 ### 中优先级
 
 | 编号 | 项目 | 领域 | 阻塞项 | 预估工作量 |
 |------|------|------|--------|-----------|
-| B4 | db 仓库归一化 | B | B3 完成 | 1 周 |
-| B5 | db 模块解耦（Trait 层） | B | B4 完成 | 1-2 周 |
-| C3 | memory ↔ creative_engine 解耦 | C | 无 | 2-3 天 |
 | E3 | CreationWizard 决策 | E | 产品决策 | 1 天 + 1-2 周 |
-| A5 | Task System 命令裁剪 | A | D2 架构确定 | 1 天 |
+
+### A5. Task System 命令保留决策 ✅
+**状态**: 已验证，无需改动
+**说明**:
+- 保留命令：`list_tasks`, `get_task_logs`, `cancel_task` — 均有前端调用者（Tasks 页面）
+- `create_task`, `update_task`, `delete_task`, `trigger_task` — 均有前端调用者（Tasks 页面管理功能）
+- `run_ai_generation_task`, `run_pipeline_task` — 有前端调用者（便捷命令）
+- 内部系统（Cascade Rewriter, Pipeline, Character update）已直接使用 `TaskService::create_task()` 等方法，不经过 IPC
+- 结论：Task System IPC 边界已对齐，无需裁剪
 
 ### 已确认非任务（无需执行）
 
 | 编号 | 项目 | 说明 |
 |------|------|------|
 | A2 | 补全 4 个运行时断点 | 经检查，4 个命令后端均有实现且前端有调用者，非断点 |
-| C3 | memory ↔ creative_engine 解耦 | 经检查，`memory/` 目录下无 `crate::creative_engine` 直接引用，可能已完成 |
+| C3 | memory ↔ creative_engine 解耦 | 经检查，`memory/` 目录下无 `crate::creative_engine` 直接引用，已完成 |
 
 ---
 
@@ -247,8 +284,9 @@
 
 ## 回归测试基线
 
-- `cargo check`: 通过（177 warnings，主要是未使用代码警告）
-- `cargo test --package storyforge`: **250 passed, 0 failed**（55 个预存失败已修复：migration 65 添加 `ai_usage_quota` 表存在性检查）
+- `cargo check`: 通过（190 warnings，主要是未使用代码警告）
+- `cargo test --package storyforge`: **252 passed, 0 failed**
+- `npm run build`: 通过
 - **无新增回归**
 
 ---
@@ -257,11 +295,22 @@
 
 | 项目 | 说明 |
 |------|------|
+| D1 Phase 3 | Backstage Diff 预览面板：`get_cascade_rewrite_result`/`apply_cascade_rewrite`/`reject_cascade_rewrite` 后端命令 + 前端 `CascadeRewriteDetail` 组件 |
+| D1 Phase 4 续 | `update_character_relationship` 级联改写自动触发（对比 relationship_type/description/dynamic） |
+| B3-续 | `models.rs` → `models_v3.rs` 完整迁移（~45 个结构体/enum），`models.rs` 改为重新导出兼容层 |
 | D1 Phase 4 | `update_character` / `update_world_building` 级联改写自动触发 |
 | D1 Phase 4 | `entity_mentions` 自动构建（`update_scene` Ingest Pipeline） |
 | D2 核心 | `AiGenerationExecutor` + `PipelineReviewExecutor` + 注册到 TaskService |
 | D2 便捷命令 | `run_ai_generation_task` + `run_pipeline_task` Tauri commands |
+| D3 Pipeline 追踪 | `run_refine`/`run_review`/`run_finalize`/`repair_finalize` 自动创建 Task 并回写进度/结果 |
 | E2 补全 | Tasks 页面：新增任务类型、重试按钮、Pipeline Review 评分徽章 |
-| 编译清理 | 移除 10 个 unused import/warning |
+| B3 启动 | `DynamicTrait` 从 `models.rs` 迁移到 `models_v3.rs` |
+| 编译清理 | 移除 10+ 个 unused import/warning |
+| B4 完成 | `repositories.rs` → `repositories_v3.rs` 迁移（5 个旧仓库），`repositories.rs` 改为兼容层 |
+| B5 完成 | 新增 `db/traits.rs`（6 个核心 Repository Trait），`story_commands.rs` 移除 `use crate::db::*` 通配符，提取 `get_story_scenes_core` + mock 测试 |
+| A5 验证 | Task System 命令边界已对齐：所有 IPC 命令均有前端调用者，内部系统已直接使用 `TaskService` 方法 |
+| C3 验证 | `memory/` 目录下无 `crate::creative_engine` 直接引用，已解耦 |
+
+**Git Commit**: `c926f9e`
 
 *文档由执行会话自动生成，用于防止上下文丢失。*

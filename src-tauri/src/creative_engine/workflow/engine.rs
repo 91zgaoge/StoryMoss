@@ -8,7 +8,9 @@ use crate::agents::{AgentContext, AgentResult};
 use crate::db::DbPool;
 use crate::db::repositories::ChapterRepository;
 use crate::db::CreateChapterRequest;
-use crate::db::repositories_v3::KnowledgeGraphRepository;
+use crate::db::repositories_v3::{KnowledgeGraphRepository, SceneRepository, WorldBuildingRepository, CharacterRepository, WritingStyleRepository};
+use crate::db::{SceneUpdate, CreateCharacterRequest, WritingStyleUpdate, WorldRule, Culture};
+use crate::agents::novel_creation::{WorldBuildingOption, CharacterProfileOption, WritingStyleOption};
 use crate::creative_engine::methodology::MethodologyConfig;
 use super::{WorkflowExecutionResult, WorkflowProgressEvent, WorkflowStage, CreationMode};
 use super::quality::QualityChecker;
@@ -304,49 +306,57 @@ impl CreationWorkflowEngine {
                 let story_id = context.story_id.clone();
                 let content = input.to_string();
 
-                // 1. 保存内容到数据库（Chapter）
-                let chapter_repo = ChapterRepository::new(self.pool.clone());
+                // 1. 保存内容到数据库（Scene）—— 统一创作流水线：Scene 为唯一提交粒度
+                let scene_repo = SceneRepository::new(self.pool.clone());
                 let mut saved_info = String::new();
 
-                match chapter_repo.get_by_story(&story_id) {
-                    Ok(chapters) => {
-                        if let Some(chapter) = chapters.into_iter().last() {
-                            // 更新最后一个 chapter
-                            match chapter_repo.update(&chapter.id, None, None, Some(content.clone()), None) {
+                match scene_repo.get_by_story(&story_id) {
+                    Ok(scenes) => {
+                        if let Some(scene) = scenes.into_iter().last() {
+                            // 更新最后一个 scene
+                            let update = SceneUpdate {
+                                content: Some(content.clone()),
+                                ..SceneUpdate::default()
+                            };
+                            match scene_repo.update(&scene.id, &update) {
                                 Ok(_) => {
                                     saved_info.push_str(&format!(
-                                        "已更新章节「{}」",
-                                        chapter.title.unwrap_or_else(|| format!("第{}章", chapter.chapter_number))
+                                        "已更新场景「{}」",
+                                        scene.title.unwrap_or_else(|| "未命名".to_string())
                                     ));
                                 }
                                 Err(e) => {
-                                    log::warn!("[Ingestion] 更新章节失败: {}", e);
+                                    log::warn!("[Ingestion] 更新场景失败: {}", e);
                                 }
                             }
                         } else {
-                            // 创建新 chapter
-                            let req = CreateChapterRequest {
-                                story_id: story_id.clone(),
-                                chapter_number: context.chapter_number as i32,
-                                title: Some(format!("第{}章", context.chapter_number)),
-                                outline: None,
-                                content: Some(content.clone()),
-                            };
-                            match chapter_repo.create(req) {
-                                Ok(chapter) => {
-                                    saved_info.push_str(&format!(
-                                        "已创建章节「{}」",
-                                        chapter.title.unwrap_or_else(|| format!("第{}章", chapter.chapter_number))
-                                    ));
+                            // 创建新 scene
+                            match scene_repo.create(&story_id, 1, Some("开场场景")) {
+                                Ok(scene) => {
+                                    let update = SceneUpdate {
+                                        content: Some(content.clone()),
+                                        ..SceneUpdate::default()
+                                    };
+                                    match scene_repo.update(&scene.id, &update) {
+                                        Ok(_) => {
+                                            saved_info.push_str(&format!(
+                                                "已创建场景「{}」",
+                                                scene.title.unwrap_or_else(|| "未命名".to_string())
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            log::warn!("[Ingestion] 更新新场景内容失败: {}", e);
+                                        }
+                                    }
                                 }
                                 Err(e) => {
-                                    log::warn!("[Ingestion] 创建章节失败: {}", e);
+                                    log::warn!("[Ingestion] 创建场景失败: {}", e);
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        log::warn!("[Ingestion] 获取章节列表失败: {}", e);
+                        log::warn!("[Ingestion] 获取场景列表失败: {}", e);
                     }
                 }
 
@@ -364,6 +374,54 @@ impl CreationWorkflowEngine {
                         entity_count += 1;
                     }
                 }
+
+                // 3. 确保故事拥有基础要素占位（统一数据模型：快速创作与向导产出一致）
+                // 若用户通过向导模式创建，这些记录已由 create_story_with_wizard 创建；
+                // 若通过快速创作，此处创建占位，供后续后台 enrich 完善。
+                let _ = WorldBuildingRepository::new(self.pool.clone())
+                    .get_by_story(&story_id)
+                    .and_then(|opt| {
+                        if opt.is_none() {
+                            WorldBuildingRepository::new(self.pool.clone())
+                                .create(&story_id, "待完善的世界观")
+                                .map(|_| ())
+                        } else {
+                            Ok(())
+                        }
+                    });
+
+                let _ = CharacterRepository::new(self.pool.clone())
+                    .get_by_story(&story_id)
+                    .and_then(|chars| {
+                        if chars.is_empty() {
+                            CharacterRepository::new(self.pool.clone())
+                                .create(CreateCharacterRequest {
+                                    story_id: story_id.clone(),
+                                    name: "主角".to_string(),
+                                    background: Some("待完善".to_string()),
+                                    personality: Some("待完善".to_string()),
+                                    goals: Some("待完善".to_string()),
+                                    appearance: None,
+                                    gender: None,
+                                    age: None,
+                                })
+                                .map(|_| ())
+                        } else {
+                            Ok(())
+                        }
+                    });
+
+                let _ = WritingStyleRepository::new(self.pool.clone())
+                    .get_by_story(&story_id)
+                    .and_then(|opt| {
+                        if opt.is_none() {
+                            WritingStyleRepository::new(self.pool.clone())
+                                .create(&story_id, Some("默认风格"))
+                                .map(|_| ())
+                        } else {
+                            Ok(())
+                        }
+                    });
 
                 if saved_info.is_empty() {
                     saved_info.push_str("内容已保存");
@@ -728,6 +786,214 @@ impl CreationWorkflowEngine {
         }
 
         entities
+    }
+
+    /// 后台 enrich：从 Scene 内容中提取/生成完整的故事要素，替换占位记录
+    ///
+    /// 当快速创作只创建了占位 WorldBuilding/Character/WritingStyle 时，
+    /// 调用此方法通过 LLM 分析正文，生成真实要素并更新数据库。
+    pub async fn enrich_story_elements(
+        &self,
+        story_id: &str,
+    ) -> Result<(), AppError> {
+        let scene_repo = SceneRepository::new(self.pool.clone());
+        let scenes = scene_repo.get_by_story(story_id).map_err(AppError::from)?;
+        let scene = scenes.into_iter().last()
+            .ok_or_else(|| AppError::from("No scene found for enrichment".to_string()))?;
+        let content = scene.content.unwrap_or_default();
+        if content.len() < 50 {
+            log::warn!("[enrich] Scene content too short, skipping enrichment for story_id={}", story_id);
+            return Ok(());
+        }
+
+        log::info!("[enrich] Starting enrichment for story_id={}", story_id);
+
+        // 使用 LLM 一次性生成所有要素
+        let llm_service = LlmService::new(self.agent_service.app_handle().clone());
+        let prompt = format!(
+            r#"请基于以下场景正文，提取故事的核心要素。只提取正文中明确出现或强烈暗示的信息，不要编造正文没有的内容。
+
+场景正文：
+{}
+
+请输出JSON格式：
+{{
+  "world_building": {{
+    "concept": "世界观核心概念（30-50字）",
+    "rules": [
+      {{"id": "r1", "name": "规则名称", "description": "规则描述", "rule_type": "Magic", "importance": 8}}
+    ],
+    "history": "历史背景（80-150字）",
+    "cultures": [
+      {{"name": "文化名称", "description": "文化描述", "customs": ["习俗1"], "values": ["价值观1"]}}
+    ]
+  }},
+  "characters": [
+    {{"id": "c1", "name": "角色名", "background": "背景（40-80字）", "personality": "性格（20-40字）", "goals": "目标（20-40字）", "voice_style": "语言风格"}}
+  ],
+  "writing_style": {{
+    "id": "ws1", "name": "风格名", "description": "风格描述（20-40字）", "tone": "语调", "pacing": "节奏", "vocabulary_level": "词汇水平", "sentence_structure": "句式结构", "sample_text": ""
+  }}
+}}
+
+注意：
+- 世界观规则类型：Magic（魔法）、Technology（科技）、Social（社会）、Physical（物理）、Biological（生物）、Historical（历史）、Cultural（文化）、Custom（自定义）
+- importance 范围 1-10
+- 角色不超过5个，姓名应符合世界观文化背景
+- 若正文中信息不足，允许输出简化版本，但不要虚构关键设定
+- 确保JSON格式正确"#,
+            content
+        );
+
+        let response = llm_service.generate(prompt, Some(2048), Some(0.7)).await?;
+        let parsed: serde_json::Value = serde_json::from_str(&response.content)
+            .map_err(|e| AppError::from(format!("Failed to parse enrich response: {}", e)))?;
+
+        // 更新 WorldBuilding
+        if let Some(wb_val) = parsed.get("world_building") {
+            if let Ok(wb_option) = serde_json::from_value::<WorldBuildingOption>(wb_val.clone()) {
+                let wb_repo = WorldBuildingRepository::new(self.pool.clone());
+                if let Ok(Some(existing)) = wb_repo.get_by_story(story_id) {
+                    if existing.concept == "待完善的世界观" {
+                        let _ = wb_repo.update(
+                            &existing.id,
+                            Some(&wb_option.concept),
+                            Some(&wb_option.rules),
+                            Some(&wb_option.history),
+                            Some(&wb_option.cultures),
+                        );
+                        log::info!("[enrich] Updated world_building for story_id={}", story_id);
+                    }
+                }
+            }
+        }
+
+        // 更新 Characters
+        if let Some(chars_val) = parsed.get("characters") {
+            if let Ok(char_options) = serde_json::from_value::<Vec<CharacterProfileOption>>(chars_val.clone()) {
+                let char_repo = CharacterRepository::new(self.pool.clone());
+                let existing_chars = char_repo.get_by_story(story_id).unwrap_or_default();
+                let is_placeholder_only = existing_chars.len() == 1 && existing_chars[0].name == "主角";
+
+                if is_placeholder_only {
+                    for c in &existing_chars {
+                        let _ = char_repo.delete(&c.id);
+                    }
+                    for c in char_options {
+                        let _ = char_repo.create(CreateCharacterRequest {
+                            story_id: story_id.to_string(),
+                            name: c.name,
+                            background: Some(c.background),
+                            personality: Some(c.personality),
+                            goals: Some(c.goals),
+                            appearance: None,
+                            gender: None,
+                            age: None,
+                        });
+                    }
+                    log::info!("[enrich] Replaced placeholder characters for story_id={}", story_id);
+                }
+            }
+        }
+
+        // 更新 WritingStyle
+        if let Some(style_val) = parsed.get("writing_style") {
+            if let Ok(style_option) = serde_json::from_value::<WritingStyleOption>(style_val.clone()) {
+                let ws_repo = WritingStyleRepository::new(self.pool.clone());
+                if let Ok(Some(existing)) = ws_repo.get_by_story(story_id) {
+                    if existing.name.as_deref() == Some("默认风格") {
+                        let ws_update = WritingStyleUpdate {
+                            name: Some(style_option.name),
+                            description: Some(style_option.description),
+                            tone: Some(style_option.tone),
+                            pacing: Some(style_option.pacing),
+                            vocabulary_level: Some(style_option.vocabulary_level),
+                            sentence_structure: Some(style_option.sentence_structure),
+                            custom_rules: Some(vec![]),
+                        };
+                        let _ = ws_repo.update(&existing.id, &ws_update);
+                        log::info!("[enrich] Updated writing_style for story_id={}", story_id);
+                    }
+                }
+            }
+        }
+
+        // 自动修正：检查 enrich 后的要素与正文是否一致，如有冲突修正正文
+        let wb_repo = WorldBuildingRepository::new(self.pool.clone());
+        let char_repo = CharacterRepository::new(self.pool.clone());
+        let ws_repo = WritingStyleRepository::new(self.pool.clone());
+        let scene_repo = SceneRepository::new(self.pool.clone());
+
+        let wb_opt = wb_repo.get_by_story(story_id).ok().flatten();
+        let chars = char_repo.get_by_story(story_id).unwrap_or_default();
+        let ws_opt = ws_repo.get_by_story(story_id).ok().flatten();
+        let scene_opt = scene_repo.get_by_story(story_id).ok().and_then(|s| s.into_iter().last());
+
+        if let Some(ref scene) = scene_opt {
+            if let Some(ref scene_content) = scene.content {
+                let world_info = wb_opt.as_ref().map(|w| {
+                    format!("世界观：{}\n规则：{}\n", w.concept,
+                        w.rules.iter().map(|r| format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))).collect::<Vec<_>>().join("\n"))
+                }).unwrap_or_default();
+
+                let char_info = chars.iter().map(|c| {
+                    format!("角色：{}，性格：{}，目标：{}", c.name,
+                        c.personality.as_deref().unwrap_or(""),
+                        c.goals.as_deref().unwrap_or(""))
+                }).collect::<Vec<_>>().join("\n");
+
+                let style_info = ws_opt.as_ref().map(|s| {
+                    format!("文字风格：{}，语调：{}，节奏：{}",
+                        s.name.as_deref().unwrap_or(""),
+                        s.tone.as_deref().unwrap_or(""),
+                        s.pacing.as_deref().unwrap_or(""))
+                }).unwrap_or_default();
+
+                let check_prompt = format!(
+                    r#"请检查以下场景正文是否与设定一致。如有冲突，只输出修正后的正文；如无冲突，只回复"无需修正"。
+
+设定：
+{}
+{}
+{}
+
+场景正文：
+{}
+
+注意：
+- 只修改与设定冲突的部分（如角色名错误、世界观矛盾等）
+- 保持原文的语言风格和节奏
+- 不要增加原文没有的内容
+- 只输出正文内容或"无需修正"，不要添加解释"#,
+                    world_info, char_info, style_info, scene_content
+                );
+
+                match llm_service.generate(check_prompt, Some(2048), Some(0.5)).await {
+                    Ok(check_response) => {
+                        let trimmed = check_response.content.trim();
+                        if trimmed != "无需修正" && trimmed.len() > scene_content.len() / 2 {
+                            let update = SceneUpdate {
+                                content: Some(trimmed.to_string()),
+                                ..SceneUpdate::default()
+                            };
+                            if let Err(e) = scene_repo.update(&scene.id, &update) {
+                                log::warn!("[enrich] Auto-correct update failed: {}", e);
+                            } else {
+                                log::info!("[enrich] Auto-corrected scene {} for story_id={}", scene.id, story_id);
+                            }
+                        } else {
+                            log::info!("[enrich] No correction needed for scene {} story_id={}", scene.id, story_id);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[enrich] Auto-correct LLM call failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        log::info!("[enrich] Completed enrichment for story_id={}", story_id);
+        Ok(())
     }
 }
 
