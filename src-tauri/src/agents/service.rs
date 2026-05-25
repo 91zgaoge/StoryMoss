@@ -337,10 +337,75 @@ impl AgentService {
             task.context.chapter_number as i32,
         );
         if !preflight.ready {
-            return Err(AppError::preflight_failed(
-                "写作前检查发现阻塞性问题",
-                preflight.blocking_issues,
-            ));
+            let is_missing_contracts = preflight.missing_contracts.iter().any(|c| c == "MASTER_SETTING" || c.starts_with("CHAPTER_"));
+            let is_missing_outline = preflight.blocking_issues.iter().any(|i| i.contains("大纲") || i.contains("outline"));
+
+            if is_missing_contracts || is_missing_outline {
+                log::info!("[AgentService] Preflight failed for story {} chapter {}, attempting auto-fill",
+                    task.context.story_id, task.context.chapter_number);
+
+                let _ = self.app_handle.emit("agent-stage-update", serde_json::json!({
+                    "agent_type": "Writer",
+                    "stage": "Started",
+                    "message": "检测到缺少合同/大纲，正在自动补齐...",
+                    "progress": 0.02,
+                    "request_id": null,
+                }));
+
+                let builder = crate::story_system::auto_contract::AutoContractBuilder::new(
+                    pool.inner().clone(),
+                    self.app_handle.clone(),
+                );
+
+                let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+                let target_scene_id = scene_repo.get_by_story(&task.context.story_id)
+                    .ok()
+                    .and_then(|scenes| scenes.into_iter().find(|s| s.sequence_number == task.context.chapter_number as i32))
+                    .map(|s| s.id);
+
+                match builder.auto_fill(
+                    &task.context.story_id,
+                    task.context.chapter_number as i32,
+                    target_scene_id.as_deref(),
+                ).await {
+                    Ok((created_master, created_chapter, created_outline)) => {
+                        if created_master || created_chapter || created_outline {
+                            log::info!("[AgentService] Auto-fill completed: master={}, chapter={}, outline={}",
+                                created_master, created_chapter, created_outline);
+
+                            let preflight_after = checker.check(
+                                pool.inner(),
+                                &task.context.story_id,
+                                task.context.chapter_number as i32,
+                            );
+                            if !preflight_after.ready {
+                                return Err(AppError::preflight_failed(
+                                    "自动补齐后写作前检查仍发现阻塞性问题",
+                                    preflight_after.blocking_issues,
+                                ));
+                            }
+                        } else {
+                            log::warn!("[AgentService] Auto-fill did not create any items");
+                            return Err(AppError::preflight_failed(
+                                "写作前检查发现阻塞性问题",
+                                preflight.blocking_issues,
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[AgentService] Auto-fill failed: {}", e);
+                        return Err(AppError::preflight_failed(
+                            "写作前检查发现阻塞性问题，自动补齐失败",
+                            preflight.blocking_issues,
+                        ));
+                    }
+                }
+            } else {
+                return Err(AppError::preflight_failed(
+                    "写作前检查发现阻塞性问题",
+                    preflight.blocking_issues,
+                ));
+            }
         }
 
         let tier = self.resolve_tier(&task);

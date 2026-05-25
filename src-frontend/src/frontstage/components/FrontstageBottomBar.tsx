@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Send, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Send, X, Activity, Loader2 } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
+import { useBackendActivityStore } from '@/stores/backendActivityStore';
+import type { BackendActivity } from '@/stores/backendActivityStore';
 
 interface FrontstageBottomBarProps {
   isZenMode: boolean;
@@ -18,6 +20,28 @@ interface FrontstageBottomBarProps {
   onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
+const categoryIcons: Record<BackendActivity['category'], string> = {
+  contract_fill: '📋',
+  orchestrator: '⚙️',
+  smart_execute: '💭',
+  pipeline: '📦',
+  auto_write: '✍️',
+  auto_revise: '🔧',
+  agent_stage: '🤖',
+  plan_executor: '📐',
+};
+
+const categoryLabels: Record<BackendActivity['category'], string> = {
+  contract_fill: '补齐',
+  orchestrator: '编排',
+  smart_execute: '智能执行',
+  pipeline: '流水线',
+  auto_write: '续写',
+  auto_revise: '修改',
+  agent_stage: 'Agent',
+  plan_executor: '计划',
+};
+
 const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   isZenMode,
   isGenerating,
@@ -34,8 +58,26 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   onInputKeyDown,
 }) => {
   const [showModelTooltip, setShowModelTooltip] = useState(false);
+  const [pulseTick, setPulseTick] = useState(0);
+
+  // v0.7.7: 订阅统一后台活动 store
+  const primaryActivity = useBackendActivityStore((state) => state.getPrimaryActivity());
+  const activeCount = useBackendActivityStore((state) => state.getActiveCount());
+
+  // 心跳动画：每秒触发一次重渲染，让进度条和脉冲动画持续更新
+  useEffect(() => {
+    if (!primaryActivity) return;
+    const interval = setInterval(() => setPulseTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [primaryActivity]);
 
   if (isZenMode) return null;
+
+  const hasAnyActivity = isGenerating || !!primaryActivity;
+  const displayMessage = isGenerating && generationStatus
+    ? generationStatus
+    : primaryActivity?.message || '';
+  const displayProgress = primaryActivity?.progress || 0;
 
   return (
     <div className="frontstage-bottom-bar">
@@ -106,10 +148,45 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           )}
         </div>
 
-        {/* 生成状态行 */}
-        {isGenerating && generationStatus && (
-          <div className="generation-status-row" title={generationStatus}>
-            <StatusIcon text={generationStatus} />
+        {/* v0.7.7: 统一后台活动状态栏 — 心跳式互动陪写 */}
+        {hasAnyActivity && displayMessage && (
+          <div className="generation-status-row" title={displayMessage}>
+            <div className="flex items-center gap-2 w-full">
+              {/* 心跳脉冲图标 */}
+              <div className="relative flex items-center justify-center w-4 h-4">
+                <Activity className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-20 animate-ping" style={{ animationDuration: '2s' }} />
+              </div>
+
+              {/* 主要活动文案 */}
+              <span className="text-xs text-amber-300 truncate flex-1">
+                {displayMessage}
+              </span>
+
+              {/* 进度条 */}
+              {displayProgress > 0 && (
+                <div className="w-16 h-1 bg-slate-700 rounded-full overflow-hidden flex-shrink-0">
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.round(displayProgress * 100)}%` }}
+                  />
+                </div>
+              )}
+
+              {/* 多任务计数 */}
+              {activeCount > 1 && (
+                <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-full">
+                  +{activeCount - 1}
+                </span>
+              )}
+
+              {/* 类别标签 */}
+              {primaryActivity && (
+                <span className="text-[10px] text-slate-500 hidden sm:inline">
+                  {categoryIcons[primaryActivity.category]} {categoryLabels[primaryActivity.category]}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

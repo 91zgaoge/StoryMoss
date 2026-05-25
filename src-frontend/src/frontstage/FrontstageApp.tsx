@@ -12,9 +12,11 @@ import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useAppStore } from '@/stores/appStore';
+import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress } from '@/hooks/usePipelineProgress';
+import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
@@ -234,6 +236,35 @@ const FrontstageApp: React.FC = () => {
     currentToastPhaseRef.current = phaseKey;
     toast.loading(`${phase.icon} ${phase.text}`, { id: activeToastIdRef.current });
   }, [getMajorPhase]);
+
+  // v0.7.7: 统一后台活动监听器 — 聚合所有进度事件到 backendActivityStore
+  useBackendActivityListener();
+
+  // v0.7.7: 监听统一后台活动 store，大阶段变化时及时 toast 提示
+  const lastActivityStageRef = useRef<string>('');
+  useEffect(() => {
+    const unsub = useBackendActivityStore.subscribe((state) => {
+      const primary = state.getPrimaryActivity();
+      if (!primary) {
+        lastActivityStageRef.current = '';
+        return;
+      }
+      const stageKey = `${primary.category}:${primary.stage}`;
+      if (lastActivityStageRef.current === stageKey) return;
+      lastActivityStageRef.current = stageKey;
+
+      // 大阶段变化时给出 toast 提示（仅对重要类别）
+      const importantCategories = ['contract_fill', 'pipeline', 'orchestrator', 'smart_execute'];
+      if (importantCategories.includes(primary.category) && primary.status === 'running') {
+        const icon = primary.category === 'contract_fill' ? '📋'
+          : primary.category === 'pipeline' ? '📦'
+          : primary.category === 'orchestrator' ? '⚙️'
+          : '💭';
+        toast(`${icon} ${primary.message}`, { icon: '🔔', duration: 3000 });
+      }
+    });
+    return unsub;
+  }, []);
 
   // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress + 顶部 Toast 大阶段）
   const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });

@@ -11,6 +11,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Zap, Wand2, Play, Square, Loader2, Settings2, X, Check, MessageSquare, Send } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel, recordFeedback } from '@/services/tauri';
+import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { StreamOutput } from '@/components/StreamOutput';
 import { listen } from '@tauri-apps/api/event';
 import toast from 'react-hot-toast';
@@ -86,6 +87,21 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           percentage: p.percentage,
           loop: p.current_loop,
         });
+        // v0.7.7: 同步到统一后台活动 store
+        const store = useBackendActivityStore.getState();
+        const actId = `auto-write-${p.task_id}`;
+        const msg = `自动续写中... 第 ${p.current_loop} 轮 (${p.current_chars}/${p.target_chars} 字)`;
+        if (!store.activities.find((a) => a.id === actId)) {
+          store.registerActivity({
+            id: actId,
+            category: 'auto_write',
+            stage: p.status,
+            message: msg,
+            progress: p.percentage / 100,
+          });
+        } else {
+          store.updateActivity(actId, { stage: p.status, message: msg, progress: p.percentage / 100 });
+        }
       });
       unlistenRef.current = unlisten;
     };
@@ -107,6 +123,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           setIsAutoWriting(false);
           setProgress(prev => ({ ...prev, percentage: 100 }));
           toast.success(`自动续写完成！共生成 ${event.payload.current_chars} 字`);
+          // v0.7.7: 同步完成状态到统一 store
+          const store = useBackendActivityStore.getState();
+          store.completeActivity(`auto-write-${autoWriteTaskId}`, `自动续写完成 (${event.payload.current_chars} 字)`);
           if (storyId) {
             recordFeedback({
               story_id: storyId,
@@ -127,6 +146,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         (event) => {
           setIsAutoWriting(false);
           const msg = event.payload;
+          // v0.7.7: 同步错误状态到统一 store
+          const store = useBackendActivityStore.getState();
+          store.failActivity(`auto-write-${autoWriteTaskId}`, `自动续写失败: ${msg}`);
           if (msg.includes('feature_locked') || msg.includes('pro_required')) {
             onShowUpgrade('自动续写需专业版');
           } else {
@@ -157,6 +179,20 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       }>(`auto-revise-progress-${autoReviseTaskId}`, (event) => {
         const p = event.payload;
         setReviseProgress({ stage: p.stage, progress: p.progress, message: p.message });
+        // v0.7.7: 同步到统一后台活动 store
+        const store = useBackendActivityStore.getState();
+        const actId = `auto-revise-${p.task_id}`;
+        if (!store.activities.find((a) => a.id === actId)) {
+          store.registerActivity({
+            id: actId,
+            category: 'auto_revise',
+            stage: p.stage,
+            message: p.message,
+            progress: p.progress,
+          });
+        } else {
+          store.updateActivity(actId, { stage: p.stage, message: p.message, progress: p.progress });
+        }
       });
       reviseUnlistenRef.current = unlisten;
       return unlisten;
@@ -183,6 +219,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         setIsAutoRevising(false);
         setReviseProgress({ stage: 'completed', progress: 1, message: '修改完成' });
         toast.success('自动修改完成！');
+        // v0.7.7: 同步完成状态到统一 store
+        const store = useBackendActivityStore.getState();
+        store.completeActivity(`auto-revise-${autoReviseTaskId}`, '自动修改完成');
         if (event.payload.revised_text) {
           setReviseResultText(event.payload.revised_text);
           setShowReviseResult(true);
@@ -207,6 +246,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         (event) => {
           setIsAutoRevising(false);
           const msg = event.payload;
+          // v0.7.7: 同步错误状态到统一 store
+          const store = useBackendActivityStore.getState();
+          store.failActivity(`auto-revise-${autoReviseTaskId}`, `自动修改失败: ${msg}`);
           if (msg.includes('feature_locked') || msg.includes('pro_required')) {
             onShowUpgrade('自动修改需专业版');
           } else {

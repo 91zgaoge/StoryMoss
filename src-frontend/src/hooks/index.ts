@@ -55,3 +55,4 @@ export { useSyncStore } from './useSyncStore';
 export { usePipelineProgress, usePipelineComplete } from './usePipelineProgress';
 export { useWorkflowNodes } from './useWorkflowNodes';
 export { useNetworkStatus, getNetworkStatus, subscribeNetworkStatus } from './useNetworkStatus';
+export { useBackendActivityListener } from './useBackendActivityListener';
