@@ -466,6 +466,7 @@ mod tests {
             foreshadowing_status: vec![],
             style_dna_info: None,
             mcp_tools_available: vec![],
+            style_weight: 50,
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");

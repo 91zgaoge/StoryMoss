@@ -754,6 +754,9 @@ mod tests {
         let result = WorkflowResult {
             final_content: "最终内容".to_string(),
             final_score: 0.85,
+            style_score: 0.8,
+            narrative_score: 0.9,
+            drift_details: vec![],
             steps: vec![
                 WorkflowStepResult {
                     step_type: WorkflowStepType::Generation,
