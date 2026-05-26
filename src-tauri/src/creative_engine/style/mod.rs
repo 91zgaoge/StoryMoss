@@ -17,6 +17,7 @@ pub mod classic_styles;
 pub mod classic_styles_extended;
 pub mod metrics;
 pub mod evolution;
+pub mod fingerprint;
 
 pub use dna::StyleDNA;
 pub use blend::StyleBlendConfig;

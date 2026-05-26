@@ -295,6 +295,8 @@ pub async fn writer_agent_execute(
             rewrite_threshold: c.rewrite_threshold,
             max_feedback_loops: c.max_feedback_loops,
             keep_revision_history: true,
+            style_weight: 0.5,
+            narrative_weight: 0.5,
         })
         .unwrap_or_default();
 

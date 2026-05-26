@@ -64,6 +64,9 @@ pub struct AgentContext {
     pub methodology_step: Option<String>, // 方法论当前步骤
     pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
     pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置
+    /// 风格指纹（v0.7.8: 续写加固 — 从参考文本提取的量化风格约束）
+    #[serde(default)]
+    pub style_fingerprint: Option<crate::creative_engine::style::fingerprint::StyleFingerprint>,
     /// 三层记忆包（Wave 3: MemoryPack 注入 AgentContext）
     #[serde(default)]
     pub memory_pack: Option<MemoryPack>,
@@ -118,6 +121,7 @@ impl AgentContext {
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
+            style_fingerprint: None,
             memory_pack: None,
         }
     }

@@ -461,6 +461,7 @@ impl ContextOptimizer {
             methodology_step: l0.methodology_step,
             style_dna_id: l0.style_dna_id,
             style_blend: l0.style_blend,
+            style_fingerprint: None,
             memory_pack,
         };
 

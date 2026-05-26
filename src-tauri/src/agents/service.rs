@@ -1006,6 +1006,38 @@ impl AgentService {
             tokio::task::yield_now().await;
         }
 
+        // v0.7.8: 注入风格指纹（从参考文本提取的量化风格约束）
+        // 优先级：style_fingerprint > style_blend > style_dna_id > current_content 实时提取
+        // fingerprint 提供基于实际文本的量化约束（句长分布、N-gram 白名单、锚点片段），
+        // 比 StyleDNA 的定性描述更精确，用于续写时严格保持语言风格一致。
+        emit_and_yield("正在提取风格指纹...", 0.176);
+        let fingerprint_text = if let Some(ref fingerprint) = ctx.style_fingerprint {
+            Some(fingerprint.to_prompt_section())
+        } else if let Some(ref content) = ctx.current_content {
+            // 如果没有预计算的 fingerprint，从当前内容实时提取
+            let trimmed = content.trim();
+            if trimmed.len() > 100 && trimmed != "无" {
+                let fingerprint = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(trimmed);
+                let section = fingerprint.to_prompt_section();
+                if !section.is_empty() {
+                    Some(section)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(ref section) = fingerprint_text {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(section);
+            log::info!("[build_writer_prompt] Injected style fingerprint for story {}", ctx.story_id);
+        }
+        tokio::task::yield_now().await;
+
         // 注入 Canonical State（叙事阶段、伏笔、角色状态、活跃冲突）
         emit_and_yield("正在构建叙事状态快照...", 0.185);
         {

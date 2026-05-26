@@ -64,6 +64,11 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   // 自由指令状态
   const [freePromptText, setFreePromptText] = useState('');
 
+  // v0.7.8: 风格指纹相关状态
+  const [referenceText, setReferenceText] = useState('');
+  const [showRefTextInput, setShowRefTextInput] = useState(false);
+  const [styleWeight, setStyleWeight] = useState(50); // 0=叙事优先, 50=平衡, 100=风格优先
+
   const unlistenRef = useRef<(() => void) | null>(null);
   const reviseUnlistenRef = useRef<(() => void) | null>(null);
 
@@ -443,6 +448,62 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             {!isPro && charsPerLoop > 1000 && (
               <span className="wensi-hint">免费版每次最多 1000 字</span>
             )}
+          </div>
+
+          {/* v0.7.8: 参考文本切换 */}
+          <div className="wensi-row" style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setShowRefTextInput(!showRefTextInput)}
+              className="wensi-btn-secondary"
+              disabled={isAutoWriting}
+              style={{ fontSize: 12, padding: '4px 10px' }}
+            >
+              {showRefTextInput ? '隐藏参考文本' : '更换参考文本'}
+            </button>
+            {referenceText && !showRefTextInput && (
+              <span className="wensi-hint">已设置外部参考文本（{referenceText.length} 字）</span>
+            )}
+          </div>
+
+          {showRefTextInput && (
+            <div className="wensi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+              <textarea
+                value={referenceText}
+                onChange={(e) => setReferenceText(e.target.value.slice(0, 5000))}
+                placeholder="粘贴任意参考文本（最多5000字），续写将模仿其风格。留空则使用当前故事前文。"
+                className="wensi-input"
+                rows={3}
+                style={{ fontSize: 12, resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888' }}>
+                <span>{referenceText.length} / 5000 字</span>
+                <button
+                  onClick={() => { setReferenceText(''); setShowRefTextInput(false); }}
+                  style={{ fontSize: 11, color: '#c45c3e', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  清除并使用前文
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* v0.7.8: 风格-叙事平衡滑块 */}
+          <div className="wensi-row" style={{ marginTop: 8, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+              <span style={{ color: styleWeight > 60 ? '#c45c3e' : '#888' }}>风格优先</span>
+              <span style={{ color: '#666' }}>{styleWeight}% 风格 / {100 - styleWeight}% 叙事</span>
+              <span style={{ color: styleWeight < 40 ? '#c45c3e' : '#888' }}>叙事优先</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={styleWeight}
+              onChange={(e) => setStyleWeight(Number(e.target.value))}
+              className="wensi-input"
+              disabled={isAutoWriting}
+              style={{ accentColor: '#c45c3e' }}
+            />
           </div>
 
           {/* 进度条 */}

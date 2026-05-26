@@ -129,6 +129,7 @@ impl ShortTermMemory {
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
+            style_fingerprint: None,
             memory_pack,
         }
     }

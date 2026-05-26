@@ -1,6 +1,7 @@
 pub mod text;
 pub mod file;
 pub mod validation;
+pub mod style_align;
 
 #[cfg(test)]
 #[path = "validation_tests.rs"]

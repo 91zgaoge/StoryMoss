@@ -194,6 +194,7 @@ impl StoryContextBuilder {
             methodology_step: None,
             style_dna_id: story.style_dna_id,
             style_blend,
+            style_fingerprint: None,
             memory_pack,
         })
     }

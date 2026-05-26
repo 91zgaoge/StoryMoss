@@ -42,6 +42,10 @@ pub struct WorkflowConfig {
     pub max_feedback_loops: u32,
     /// 是否在循环中保留历史版本
     pub keep_revision_history: bool,
+    /// 风格权重（0-1，默认 0.5）
+    pub style_weight: f32,
+    /// 叙事权重（0-1，默认 0.5）
+    pub narrative_weight: f32,
 }
 
 impl Default for WorkflowConfig {
@@ -50,6 +54,8 @@ impl Default for WorkflowConfig {
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,
             keep_revision_history: true,
+            style_weight: 0.5,
+            narrative_weight: 0.5,
         }
     }
 }
@@ -61,6 +67,12 @@ pub struct WorkflowResult {
     pub final_content: String,
     /// 质检评分（最后一次）
     pub final_score: f32,
+    /// 风格一致性评分（0-1）
+    pub style_score: f32,
+    /// 叙事推进评分（0-1）
+    pub narrative_score: f32,
+    /// 风格漂移详情
+    pub drift_details: Vec<String>,
     /// 执行步骤记录
     pub steps: Vec<WorkflowStepResult>,
     /// 是否经过改写
@@ -193,6 +205,9 @@ impl AgentOrchestrator {
         Ok(WorkflowResult {
             final_content: writer_result.content,
             final_score: writer_result.score.unwrap_or(1.0),
+            style_score: 0.0,
+            narrative_score: 0.0,
+            drift_details: Vec::new(),
             steps,
             was_rewritten: false,
             rewrite_count: 0,
@@ -243,10 +258,18 @@ impl AgentOrchestrator {
             };
 
             let inspect_result = Box::pin(self.service.execute_task(inspect_task)).await?;
-            let mut inspect_score = inspect_result.score.unwrap_or(0.0);
+            let base_inspect_score = inspect_result.score.unwrap_or(0.0);
             let mut style_issues = Vec::new();
 
-            // StyleChecker 验证：支持混合风格和单一 DNA
+            // v0.7.8: 双轨评分 — 从 Inspector JSON 响应中解析风格分数
+            let (style_score, narrative_score, mut drift_details) =
+                Self::parse_inspector_style_analysis(&inspect_result.content, base_inspect_score);
+
+            // 综合分数 = 风格分 * style_weight + 叙事分 * narrative_weight
+            let composite_score = style_score * self.config.style_weight
+                + narrative_score * self.config.narrative_weight;
+
+            // StyleChecker 验证（保留原有逻辑作为兜底）
             if let Some(ref blend) = task.context.style_blend {
                 let pool = self.app_handle.state::<DbPool>();
                 {
@@ -263,9 +286,6 @@ impl AgentOrchestrator {
                         let check_result = StyleChecker::check_blend(&current_content, blend, &dnas);
                         if !check_result.passed {
                             style_issues = check_result.issues;
-                            inspect_score = inspect_score
-                                .min(self.config.rewrite_threshold - 0.01)
-                                .max(0.0);
                         }
                     }
                 }
@@ -278,35 +298,38 @@ impl AgentOrchestrator {
                             let check_result = StyleChecker::check(&current_content, &target_dna);
                             if !check_result.passed {
                                 style_issues = check_result.issues;
-                                // 降低分数以确保触发改写
-                                inspect_score = inspect_score
-                                    .min(self.config.rewrite_threshold - 0.01)
-                                    .max(0.0);
                             }
                         }
                     }
                 }
             }
 
-            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), Some(inspect_score));
+            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), Some(composite_score));
 
             let mut all_suggestions = inspect_result.suggestions.clone();
             all_suggestions.extend(style_issues);
+            all_suggestions.extend(drift_details.clone());
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Inspection,
                 agent_type: AgentType::Inspector,
                 content: inspect_result.content.clone(),
-                score: Some(inspect_score),
+                score: Some(composite_score),
                 suggestions: all_suggestions,
             });
 
-            // 检查是否达标
-            if inspect_score >= self.config.rewrite_threshold {
-                // 质检通过，结束循环
+            // v0.7.8: 双轨达标判断
+            let style_ok = style_score >= 0.70;
+            let narrative_ok = narrative_score >= self.config.rewrite_threshold;
+
+            if style_ok && narrative_ok {
+                // 双达标，通过
                 return Ok(WorkflowResult {
                     final_content: current_content,
-                    final_score: inspect_score,
+                    final_score: composite_score,
+                    style_score,
+                    narrative_score,
+                    drift_details,
                     steps,
                     was_rewritten,
                     rewrite_count,
@@ -314,8 +337,14 @@ impl AgentOrchestrator {
                 });
             }
 
-            // 需要改写，准备反馈
-            let feedback = Self::build_rewrite_feedback(&inspect_result);
+            // 需要改写，准备双轨反馈
+            let feedback = Self::build_rewrite_feedback_dual(
+                &inspect_result,
+                style_score,
+                narrative_score,
+                &drift_details,
+                self.config.style_weight,
+            );
             was_rewritten = true;
             rewrite_count += 1;
 
@@ -358,16 +387,25 @@ impl AgentOrchestrator {
         }
 
         // 达到最大循环次数，返回最后一次结果
-        let final_score = steps
+        let final_step = steps
             .iter()
             .filter(|s| s.step_type == WorkflowStepType::Inspection)
-            .last()
-            .and_then(|s| s.score)
-            .unwrap_or(0.0);
+            .last();
+        let final_score = final_step.and_then(|s| s.score).unwrap_or(0.0);
+        // 提取最后一次的风格分数（从步骤建议中推断）
+        let (last_style_score, last_narrative_score, last_drift) =
+            if let Some(ref content) = final_step.map(|s| s.content.clone()) {
+                Self::parse_inspector_style_analysis(content, final_score)
+            } else {
+                (0.0, final_score, Vec::new())
+            };
 
         Ok(WorkflowResult {
             final_content: current_content,
             final_score,
+            style_score: last_style_score,
+            narrative_score: last_narrative_score,
+            drift_details: last_drift,
             steps,
             was_rewritten,
             rewrite_count,
@@ -375,7 +413,124 @@ impl AgentOrchestrator {
         })
     }
 
-    /// 构建改写反馈指令
+    /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）
+    fn parse_inspector_style_analysis(content: &str, fallback_score: f32) -> (f32, f32, Vec<String>) {
+        // 尝试从 content 中提取 JSON
+        let json_str = Self::extract_json_from_content(content);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            let style_score = json
+                .get("style_analysis")
+                .and_then(|s| s.get("style_score"))
+                .and_then(|s| s.as_f64())
+                .map(|s| (s as f32 / 100.0).min(1.0))
+                .unwrap_or(fallback_score);
+
+            let narrative_score = json
+                .get("dimension_scores")
+                .and_then(|d| {
+                    let logic = d.get("logic").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let character = d.get("character").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let writing = d.get("writing").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let pacing = d.get("pacing").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let world = d.get("world").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let total = logic + character + writing + pacing + world;
+                    Some((total as f32 / 100.0).min(1.0))
+                })
+                .unwrap_or(fallback_score);
+
+            let drift_details: Vec<String> = json
+                .get("style_analysis")
+                .and_then(|s| s.get("function_word_drift"))
+                .and_then(|f| f.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            return (style_score, narrative_score, drift_details);
+        }
+
+        // 解析失败，回退到 base score
+        (fallback_score, fallback_score, Vec::new())
+    }
+
+    /// 从文本中提取 JSON（支持 markdown 代码块）
+    fn extract_json_from_content(content: &str) -> String {
+        let trimmed = content.trim();
+        if let Some(start) = trimmed.find("```") {
+            let after_start = &trimmed[start + 3..];
+            let code_start = if after_start.starts_with("json") {
+                after_start[4..].trim_start()
+            } else {
+                after_start.trim_start()
+            };
+            if let Some(end) = code_start.find("```") {
+                return code_start[..end].trim().to_string();
+            }
+        }
+        if let Some(start) = trimmed.find('{') {
+            if let Some(end) = trimmed.rfind('}') {
+                if end > start {
+                    return trimmed[start..=end].to_string();
+                }
+            }
+        }
+        trimmed.to_string()
+    }
+
+    /// 构建双轨改写反馈指令（v0.7.8）
+    fn build_rewrite_feedback_dual(
+        inspect_result: &AgentResult,
+        style_score: f32,
+        narrative_score: f32,
+        drift_details: &[String],
+        style_weight: f32,
+    ) -> String {
+        let mut feedback = String::from("【质检反馈】\n");
+
+        feedback.push_str(&format!("叙事评分: {:.0}% | 风格评分: {:.0}%\n",
+            narrative_score * 100.0,
+            style_score * 100.0
+        ));
+
+        // 判断哪个方向问题更严重
+        let style_worse = style_score < narrative_score;
+        let priority = if style_worse && style_weight >= 0.6 {
+            "风格优先"
+        } else if !style_worse && style_weight <= 0.4 {
+            "叙事优先"
+        } else {
+            "平衡调整"
+        };
+        feedback.push_str(&format!("调整方向: {}\n", priority));
+
+        // 风格漂移详情
+        if !drift_details.is_empty() {
+            feedback.push_str("\n【风格问题】\n");
+            for detail in drift_details {
+                feedback.push_str(&format!("- {}\n", detail));
+            }
+        }
+
+        if !inspect_result.suggestions.is_empty() {
+            feedback.push_str("\n【叙事/文笔问题】\n");
+            for (i, suggestion) in inspect_result.suggestions.iter().enumerate() {
+                feedback.push_str(&format!("{}. {}\n", i + 1, suggestion));
+            }
+        }
+
+        if style_worse {
+            feedback.push_str("\n【重点】本次改写请优先解决风格一致性问题。保持与参考文本相同的句长分布、虚词偏好和四字格密度，宁可放慢叙事节奏也要保证语言风格统一。");
+        } else {
+            feedback.push_str("\n【重点】本次改写请优先解决叙事和文笔问题。在保持现有语言风格的基础上，改进情节连贯性和描写质量。");
+        }
+
+        feedback
+    }
+
+    /// 构建改写反馈指令（保留原有单轨版本作为兼容）
     fn build_rewrite_feedback(inspect_result: &AgentResult) -> String {
         let mut feedback = String::from("【质检反馈】\n");
 
