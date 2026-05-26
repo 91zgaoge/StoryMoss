@@ -222,6 +222,17 @@ jobs:
           args: ${{ matrix.args }}
           includeUpdaterJson: true
 
+      - name: Upload PR build artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyforge-pr-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: ignore
+
       - name: Get version from package.json
         id: get_version
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
@@ -255,6 +266,17 @@ jobs:
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true
 
+      - name: Upload nightly build artifacts
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyforge-nightly-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: ignore
+
       - name: Build Tauri app and release (stable)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
@@ -285,3 +307,14 @@ jobs:
           args: ${{ matrix.args }}
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true
+
+      - name: Upload stable build artifacts
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyforge-stable-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: ignore
