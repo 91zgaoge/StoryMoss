@@ -161,6 +161,7 @@ impl PromptLibrary {
 4. 节奏把控 - 快慢是否得当，有无冗余
 5. 世界观一致性 - 是否违反已设定的规则
 6. 风格一致性（v0.7.8 新增）- 语言风格是否与前文/参考文本一致
+7. 记忆一致性（v0.8.0 新增）- 是否与已有记忆冲突
 
 【风格一致性评分细则】（如果提供了参考文本或前文）
 - 句长分布偏离度（25分）：对比参考文本的句长均值和标准差
@@ -171,6 +172,16 @@ impl PromptLibrary {
 - 四字格密度（15分）：四字结构占比是否匹配参考文本
 - 整体语感（20分）：这段文字读起来是否像参考文本的风格
 
+【记忆一致性评分细则】（如果提供了记忆上下文）
+- 角色状态一致性（30分）：角色属性/位置/状态是否与记忆一致
+  完全一致: 30分 | 轻微偏差: 20分 | 明显矛盾: 5分
+- 伏笔回收状态（25分）：已 setup 的伏笔是否被遗忘或错误回收
+  全部处理: 25分 | 遗漏1项: 15分 | 遗漏2项+: 5分
+- 世界观规则遵守（25分）：是否违反世界观/规则设定
+  无违反: 25分 | 轻微突破: 15分 | 严重违反: 5分
+- 时间线连续性（20分）：事件顺序是否与已有记忆矛盾
+  完全一致: 20分 | 轻微错位: 10分 | 严重矛盾: 0分
+
 请按以下 JSON 格式输出质检结果（确保是合法 JSON）：
 {
   "score": 82,
@@ -180,7 +191,8 @@ impl PromptLibrary {
     "writing": 17,
     "pacing": 15,
     "world": 10,
-    "style": 15
+    "style": 15,
+    "memory": 12
   },
   "style_analysis": {
     "sentence_length_deviation": "+23%",
@@ -189,6 +201,13 @@ impl PromptLibrary {
     "four_char_density": "8% vs 参考12%",
     "style_score": 62
   },
+  "memory_analysis": {
+    "memory_score": 78,
+    "character_conflicts": ["角色张三在记忆中被设定为受伤，但本段写他全力奔跑"],
+    "foreshadowing_misses": ["伏笔神秘信封在第3章setup，本段未提及回收"],
+    "world_rule_violations": [],
+    "timeline_issues": []
+  },
   "suggestions": [
     "建议1：具体内容",
     "建议2：具体内容"
@@ -196,8 +215,9 @@ impl PromptLibrary {
 }
 
 - score: 总体分数（0-100）
-- dimension_scores: 各维度得分
+- dimension_scores: 各维度得分（新增 memory）
 - style_analysis: 风格一致性分析（如果有参考文本）
+- memory_analysis: 记忆一致性分析（如果有记忆上下文）
 - suggestions: 改进建议数组"#
     }
 

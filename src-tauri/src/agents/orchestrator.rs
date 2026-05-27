@@ -422,7 +422,7 @@ impl AgentOrchestrator {
         })
     }
 
-    /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）
+    /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）和记忆分析（v0.8.0）
     fn parse_inspector_style_analysis(content: &str, fallback_score: f32) -> (f32, f32, Vec<String>) {
         // 尝试从 content 中提取 JSON
         let json_str = Self::extract_json_from_content(content);
@@ -434,6 +434,7 @@ impl AgentOrchestrator {
                 .map(|s| (s as f32 / 100.0).min(1.0))
                 .unwrap_or(fallback_score);
 
+            // v0.8.0: 叙事分包含 memory 维度
             let narrative_score = json
                 .get("dimension_scores")
                 .and_then(|d| {
@@ -442,12 +443,13 @@ impl AgentOrchestrator {
                     let writing = d.get("writing").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let pacing = d.get("pacing").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let world = d.get("world").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let total = logic + character + writing + pacing + world;
-                    Some((total as f32 / 100.0).min(1.0))
+                    let memory = d.get("memory").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let total = logic + character + writing + pacing + world + memory;
+                    Some((total as f32 / 125.0).min(1.0)) // 6维度总分125，归一化到0-1
                 })
                 .unwrap_or(fallback_score);
 
-            let drift_details: Vec<String> = json
+            let mut drift_details: Vec<String> = json
                 .get("style_analysis")
                 .and_then(|s| s.get("function_word_drift"))
                 .and_then(|f| f.as_array())
@@ -457,6 +459,38 @@ impl AgentOrchestrator {
                         .collect()
                 })
                 .unwrap_or_default();
+
+            // v0.8.0: 提取记忆冲突并合并到 drift_details
+            if let Some(mem) = json.get("memory_analysis") {
+                if let Some(conflicts) = mem.get("character_conflicts").and_then(|c| c.as_array()) {
+                    for c in conflicts {
+                        if let Some(s) = c.as_str() {
+                            drift_details.push(format!("[记忆-角色] {}", s));
+                        }
+                    }
+                }
+                if let Some(misses) = mem.get("foreshadowing_misses").and_then(|c| c.as_array()) {
+                    for c in misses {
+                        if let Some(s) = c.as_str() {
+                            drift_details.push(format!("[记忆-伏笔] {}", s));
+                        }
+                    }
+                }
+                if let Some(violations) = mem.get("world_rule_violations").and_then(|c| c.as_array()) {
+                    for c in violations {
+                        if let Some(s) = c.as_str() {
+                            drift_details.push(format!("[记忆-世界观] {}", s));
+                        }
+                    }
+                }
+                if let Some(issues) = mem.get("timeline_issues").and_then(|c| c.as_array()) {
+                    for c in issues {
+                        if let Some(s) = c.as_str() {
+                            drift_details.push(format!("[记忆-时间线] {}", s));
+                        }
+                    }
+                }
+            }
 
             return (style_score, narrative_score, drift_details);
         }
