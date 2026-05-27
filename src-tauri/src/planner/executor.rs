@@ -482,7 +482,9 @@ impl PlanExecutor {
             self.app_handle.clone(),
         );
         let selected_text = plan_context.selected_text.clone();
-        let context = self.build_agent_context(&story_id, current_content, selected_text)?;
+        let mut context = self.build_agent_context(&story_id, current_content, selected_text)?;
+        // v0.8.0: 使用 PlanContext 中的章节号（用户当前编辑的场景），而非最新场景
+        context.chapter_number = plan_context.chapter_number.max(1) as u32;
 
         // Phase 5: 将 PlanContext 中的结构信息注入到 AgentTask 参数
         let mut enriched_params = params.clone();

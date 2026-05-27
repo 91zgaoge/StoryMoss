@@ -402,11 +402,16 @@ pub async fn auto_write(
     let pool = app_handle.state::<DbPool>();
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
-    // 读取当前场景内容作为上下文
-    let current_content = scene_repo.get_by_id(&request.chapter_id)
-        .map_err(AppError::from)?
-        .map(|s| s.content.unwrap_or_default())
-        .unwrap_or_default();
+    // v0.8.0: 读取当前场景内容和序号，正确传递章节号用于记忆构建
+    let (current_content, current_scene) = match scene_repo.get_by_id(&request.chapter_id)
+        .map_err(AppError::from)? {
+        Some(scene) => {
+            let content = scene.content.clone().unwrap_or_default();
+            (content, Some(scene))
+        }
+        None => (String::new(), None)
+    };
+    let scene_sequence = current_scene.as_ref().map(|s| s.sequence_number as u32).unwrap_or(1);
 
     let task_id_clone = task_id.clone();
     let app_handle_clone = app_handle.clone();
@@ -462,7 +467,7 @@ pub async fn auto_write(
                 &ExecuteAgentRequest {
                     agent_type: AgentType::Writer,
                     story_id: story_id.clone(),
-                    chapter_number: None,
+                    chapter_number: Some(scene_sequence),
                     input: instruction.clone(),
                     parameters: None,
                 },

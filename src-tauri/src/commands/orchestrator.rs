@@ -236,7 +236,8 @@ pub async fn smart_execute(
     let (
         _scenes, scene_count, scenes_summary, current_scene_id, current_scene_stage,
         total_word_count, latest_chapter_word_count, story_progress,
-        world_building_summary, character_list, foreshadowing_status, style_dna_info, mcp_tools_available
+        world_building_summary, character_list, foreshadowing_status, style_dna_info, mcp_tools_available,
+        chapter_number
     ) = if let Some(ref story_id) = current_story_id {
         let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.clone());
         let scenes = scene_repo.get_by_story(story_id)
@@ -264,6 +265,7 @@ pub async fn smart_execute(
 
         let current_scene_id = current_scene.map(|s| s.id.clone());
         let current_scene_stage = current_scene.and_then(|s| s.execution_stage.clone());
+        let chapter_number = current_scene.map(|s| s.sequence_number).unwrap_or(1);
 
         let total_word_count = chapters.iter()
             .filter_map(|c| c.word_count)
@@ -368,10 +370,11 @@ pub async fn smart_execute(
 
         (scenes, scene_count, scenes_summary, current_scene_id, current_scene_stage,
          total_word_count, latest_chapter_word_count, story_progress,
-         world_building_summary, character_list, foreshadowing_status, style_dna_info, mcp_tools_available)
+         world_building_summary, character_list, foreshadowing_status, style_dna_info, mcp_tools_available,
+         chapter_number)
     } else {
         (vec![], 0, vec![], None, None, 0, 0, "no_story".to_string(),
-         None, vec![], vec![], None, vec![])
+         None, vec![], vec![], None, vec![], 1)
     };
 
     // Phase 3: 意图路由增强 — 自动检测更多用户意图
@@ -408,6 +411,7 @@ pub async fn smart_execute(
             mcp_tools_available: mcp_tools_available.clone(),
             selected_text: None,
             style_weight,
+            chapter_number,
         }).await;
         return Ok(result);
     }
@@ -442,6 +446,7 @@ pub async fn smart_execute(
         mcp_tools_available,
         selected_text: None,
         style_weight,
+        chapter_number,
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）

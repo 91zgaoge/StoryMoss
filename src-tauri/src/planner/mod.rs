@@ -82,6 +82,8 @@ pub struct PlanContext {
     pub selected_text: Option<String>,
     // v0.7.8: 风格权重（0-100，默认50）
     pub style_weight: i32,
+    // v0.8.0: 当前章节号（用于记忆构建）
+    pub chapter_number: i32,
 }
 
 /// 计划生成器
@@ -467,6 +469,7 @@ mod tests {
             style_dna_info: None,
             mcp_tools_available: vec![],
             style_weight: 50,
+            chapter_number: 1,
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");
