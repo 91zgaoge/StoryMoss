@@ -3,6 +3,7 @@
 use tauri::{AppHandle, Emitter, Wry};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
 use crate::db::{DbPool, SceneRepository, DraftRepository, ChapterReadingPowerRepository};
@@ -27,6 +28,7 @@ pub struct AutomationService {
     trigger_history: Arc<RwLock<HashMap<String, chrono::DateTime<chrono::Utc>>>>,
     event_queue: Arc<RwLock<Vec<QueuedEvent>>>,
     is_processing: Arc<RwLock<bool>>,
+    is_shutdown: Arc<AtomicBool>,
 }
 
 impl AutomationService {
@@ -40,6 +42,7 @@ impl AutomationService {
             trigger_history: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
             is_processing: Arc::new(RwLock::new(false)),
+            is_shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -232,11 +235,21 @@ impl AutomationService {
         Ok(())
     }
 
+    /// 优雅关闭自动化服务
+    pub fn shutdown(&self) {
+        self.is_shutdown.store(true, Ordering::Relaxed);
+        log::info!("Automation service shutdown requested");
+    }
+
     /// 启动事件处理循环
     async fn start_event_processor(&self) {
         let service = self.clone();
         tokio::spawn(async move {
             loop {
+                if service.is_shutdown.load(Ordering::Relaxed) {
+                    log::info!("Automation service event processor shutting down");
+                    break;
+                }
                 if let Err(e) = service.process_event_queue().await {
                     log::error!("Error processing event queue: {}", e);
                 }
@@ -713,6 +726,7 @@ impl Clone for AutomationService {
             trigger_history: self.trigger_history.clone(),
             event_queue: self.event_queue.clone(),
             is_processing: self.is_processing.clone(),
+            is_shutdown: self.is_shutdown.clone(),
         }
     }
 }
