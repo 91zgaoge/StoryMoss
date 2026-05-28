@@ -66,7 +66,7 @@ pub struct PipelineContext {
 pub struct LlmService {
     app_handle: AppHandle,
     config: Arc<Mutex<AppConfig>>,
-    cancel_senders: Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<()>>>>,
+    cancel_senders: Arc<Mutex<HashMap<String, Option<tokio::sync::mpsc::Sender<()>>>>>,
 }
 
 impl LlmService {
@@ -305,7 +305,7 @@ impl LlmService {
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
         {
             let mut senders = self.cancel_senders.lock().unwrap();
-            senders.insert(request_id.clone(), cancel_tx);
+            senders.insert(request_id.clone(), Some(cancel_tx));
         }
 
         let start_time = std::time::Instant::now();
@@ -327,7 +327,7 @@ impl LlmService {
             }
         };
 
-        let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+        let _ = self.cancel_senders.lock().unwrap().remove(&request_id).flatten();
 
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -454,7 +454,7 @@ impl LlmService {
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
         {
             let mut senders = self.cancel_senders.lock().unwrap();
-            senders.insert(request_id.clone(), cancel_tx);
+            senders.insert(request_id.clone(), Some(cancel_tx));
         }
 
         let start_time = std::time::Instant::now();
@@ -476,7 +476,7 @@ impl LlmService {
             }
         };
 
-        let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+        let _ = self.cancel_senders.lock().unwrap().remove(&request_id).flatten();
 
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -540,7 +540,7 @@ impl LlmService {
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
         {
             let mut senders = self.cancel_senders.lock().unwrap();
-            senders.insert(request_id.clone(), cancel_tx);
+            senders.insert(request_id.clone(), Some(cancel_tx));
         }
 
         // chunk 超时：15 秒没有收到新数据就中断
@@ -664,11 +664,15 @@ impl LlmService {
     /// 取消指定 request_id 的流式生成
     pub fn cancel_generation(&self, request_id: &str) {
         let mut senders = self.cancel_senders.lock().unwrap();
-        if let Some(sender) = senders.remove(request_id) {
-            let _ = sender.try_send(());
-            log::info!("[LLM] Cancel signal sent for request_id: {}", request_id);
+        if let Some(opt_sender) = senders.get_mut(request_id) {
+            if let Some(sender) = opt_sender.take() {
+                let _ = sender.try_send(());
+                log::info!("[LLM] Cancel signal sent for request_id: {}", request_id);
+            } else {
+                log::info!("[LLM] Cancel already requested for request_id: {}", request_id);
+            }
         } else {
-            log::warn!("[LLM] No active generation found for request_id: {}", request_id);
+            log::info!("[LLM] No active generation found for request_id: {}", request_id);
         }
     }
 
