@@ -2,6 +2,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Result;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -15,10 +16,14 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
 
     let mut conn = pool.get()?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY KEY,\n            applied_at INTEGER NOT NULL\n        )",
+        [],
+    )?;
+
     create_tables(&mut conn)?;
-    create_v3_tables(&mut conn)?;
     run_migrations(&mut conn)?;
-    
+
     // 测试环境：创建 scene_versions 表（被 change_tracks/comment_threads 外键引用）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS scene_versions (
@@ -37,6 +42,27 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     Ok(pool)
 }
 
+fn get_current_version(conn: &rusqlite::Connection) -> i32 {
+    conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |row| row.get(0),
+    )
+    .unwrap_or(0)
+}
+
+fn record_migration(conn: &rusqlite::Connection, version: i32) -> Result<(), rusqlite::Error> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        rusqlite::params![version, now],
+    )?;
+    Ok(())
+}
+
 pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let db_path = app_dir.join("cinema_ai.db");
     let manager = SqliteConnectionManager::file(&db_path)
@@ -48,14 +74,20 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     // Initialize tables
     let mut conn = pool.get()?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY KEY,\n            applied_at INTEGER NOT NULL\n        )",
+        [],
+    )?;
+
     create_tables(&mut conn)?;
-    create_v3_tables(&mut conn)?;
     run_migrations(&mut conn)?;
 
     Ok(pool)
 }
 
 fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let current_version = get_current_version(conn);
+
     conn.execute_batch(
         r#"
         -- Stories table
@@ -109,324 +141,337 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         "#
     )?;
     // Migration 17: 创建任务表和任务日志表
-    let task_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 1 {
+        let task_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if task_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE tasks (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                task_type TEXT NOT NULL DEFAULT 'custom',
-                schedule_type TEXT NOT NULL DEFAULT 'once',
-                cron_pattern TEXT,
-                payload TEXT,
-                status TEXT NOT NULL DEFAULT 'pending',
-                progress INTEGER NOT NULL DEFAULT 0,
-                result TEXT,
-                error_message TEXT,
-                max_retries INTEGER NOT NULL DEFAULT 3,
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                last_run_at TEXT,
-                next_run_at TEXT,
-                last_heartbeat_at TEXT,
-                heartbeat_timeout_seconds INTEGER NOT NULL DEFAULT 300,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_tasks_status ON tasks(status)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_tasks_type ON tasks(task_type)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_tasks_enabled ON tasks(enabled)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_tasks_next_run ON tasks(next_run_at)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE task_logs (
-                id TEXT PRIMARY KEY,
-                task_id TEXT NOT NULL,
-                log_level TEXT NOT NULL,
-                message TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_task_logs_task ON task_logs(task_id)",
-            [],
-        )?;
+        if task_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE tasks (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    task_type TEXT NOT NULL DEFAULT 'custom',
+                    schedule_type TEXT NOT NULL DEFAULT 'once',
+                    cron_pattern TEXT,
+                    payload TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    result TEXT,
+                    error_message TEXT,
+                    max_retries INTEGER NOT NULL DEFAULT 3,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    last_run_at TEXT,
+                    next_run_at TEXT,
+                    last_heartbeat_at TEXT,
+                    heartbeat_timeout_seconds INTEGER NOT NULL DEFAULT 300,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_tasks_status ON tasks(status)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_tasks_type ON tasks(task_type)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_tasks_enabled ON tasks(enabled)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_tasks_next_run ON tasks(next_run_at)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE task_logs (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    log_level TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_task_logs_task ON task_logs(task_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 1)?;
     }
 
     // Migration 28: 创建协作会话表（协同编辑持久化)
-    let collab_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 2 {
+        let collab_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if collab_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE collab_sessions (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                chapter_id TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE collab_participants (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                user_name TEXT NOT NULL,
-                cursor_line INTEGER,
-                cursor_column INTEGER,
-                joined_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES collab_sessions(id) ON DELETE CASCADE,
-                UNIQUE(session_id, user_id)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_collab_sessions_story ON collab_sessions(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_collab_participants_session ON collab_participants(session_id)",
-            [],
-        )?;
+        if collab_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE collab_sessions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    chapter_id TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE collab_participants (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    user_name TEXT NOT NULL,
+                    cursor_line INTEGER,
+                    cursor_column INTEGER,
+                    joined_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES collab_sessions(id) ON DELETE CASCADE,
+                    UNIQUE(session_id, user_id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_collab_sessions_story ON collab_sessions(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_collab_participants_session ON collab_participants(session_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 2)?;
     }
 
     // Migration 29: 创建小说初始化会话追踪表
-    let bootstrap_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='novel_bootstrap_sessions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 3 {
+        let bootstrap_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='novel_bootstrap_sessions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if bootstrap_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE novel_bootstrap_sessions (
-                id TEXT PRIMARY KEY,
-                story_id TEXT,
-                status TEXT NOT NULL DEFAULT 'in_progress',
-                current_step TEXT NOT NULL DEFAULT 'concept',
-                steps_completed INTEGER DEFAULT 0,
-                total_steps INTEGER DEFAULT 5,
-                error_message TEXT,
-                created_at TEXT NOT NULL,
-                completed_at TEXT
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_bootstrap_story ON novel_bootstrap_sessions(story_id)",
-            [],
-        )?;
+        if bootstrap_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE novel_bootstrap_sessions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'in_progress',
+                    current_step TEXT NOT NULL DEFAULT 'concept',
+                    steps_completed INTEGER DEFAULT 0,
+                    total_steps INTEGER DEFAULT 5,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_bootstrap_story ON novel_bootstrap_sessions(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 3)?;
     }
 
     // Migration 39: 创建导出模板表
-    let export_template_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 5 {
+        let export_template_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if export_template_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE export_templates (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                format TEXT NOT NULL,
-                template_content TEXT NOT NULL,
-                is_builtin INTEGER NOT NULL DEFAULT 0,
-                is_user_created INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_export_templates_format ON export_templates(format)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_export_templates_builtin ON export_templates(is_builtin)",
-            [],
-        )?;
+        if export_template_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE export_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    format TEXT NOT NULL,
+                    template_content TEXT NOT NULL,
+                    is_builtin INTEGER NOT NULL DEFAULT 0,
+                    is_user_created INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_export_templates_format ON export_templates(format)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_export_templates_builtin ON export_templates(is_builtin)",
+                [],
+            )?;
+        }
+        record_migration(conn, 5)?;
     }
 
     // Migration 40: 创建 AI 操作历史表
-    let ai_op_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 6 {
+        let ai_op_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if ai_op_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE ai_operations (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_id TEXT,
-                operation_type TEXT NOT NULL,
-                operation_name TEXT NOT NULL,
-                input_summary TEXT,
-                output_summary TEXT,
-                previous_content TEXT,
-                new_content TEXT,
-                metadata TEXT,
-                status TEXT NOT NULL DEFAULT 'success',
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ai_operations_story ON ai_operations(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ai_operations_scene ON ai_operations(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ai_operations_chapter ON ai_operations(chapter_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ai_operations_type ON ai_operations(operation_type)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ai_operations_created ON ai_operations(created_at)",
-            [],
-        )?;
+        if ai_op_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE ai_operations (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_id TEXT,
+                    operation_type TEXT NOT NULL,
+                    operation_name TEXT NOT NULL,
+                    input_summary TEXT,
+                    output_summary TEXT,
+                    previous_content TEXT,
+                    new_content TEXT,
+                    metadata TEXT,
+                    status TEXT NOT NULL DEFAULT 'success',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ai_operations_story ON ai_operations(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ai_operations_scene ON ai_operations(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ai_operations_chapter ON ai_operations(chapter_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ai_operations_type ON ai_operations(operation_type)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ai_operations_created ON ai_operations(created_at)",
+                [],
+            )?;
+        }
+        record_migration(conn, 6)?;
     }
 
     // Migration 38: 统一叙事元素表
-    let narrative_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 4 {
+        let narrative_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if narrative_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE narrative_characters (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                role_type TEXT,
-                personality TEXT,
-                background TEXT,
-                goals TEXT,
-                appearance TEXT,
-                gender TEXT,
-                age INTEGER,
-                importance_score REAL,
-                source TEXT NOT NULL DEFAULT 'user_created',
-                source_ref_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_narrative_chars_story ON narrative_characters(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_narrative_chars_source ON narrative_characters(source)",
-            [],
-        )?;
+        if narrative_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_characters (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    role_type TEXT,
+                    personality TEXT,
+                    background TEXT,
+                    goals TEXT,
+                    appearance TEXT,
+                    gender TEXT,
+                    age INTEGER,
+                    importance_score REAL,
+                    source TEXT NOT NULL DEFAULT 'user_created',
+                    source_ref_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_story ON narrative_characters(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_source ON narrative_characters(source)",
+                [],
+            )?;
 
-        conn.execute(
-            "CREATE TABLE narrative_scenes (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                sequence_number INTEGER NOT NULL,
-                title TEXT,
-                summary TEXT,
-                dramatic_goal TEXT,
-                external_pressure TEXT,
-                conflict_type TEXT,
-                characters_present TEXT,
-                setting_location TEXT,
-                setting_time TEXT,
-                content TEXT,
-                source TEXT NOT NULL DEFAULT 'user_created',
-                source_ref_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_story ON narrative_scenes(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_source ON narrative_scenes(source)",
-            [],
-        )?;
+            conn.execute(
+                "CREATE TABLE narrative_scenes (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    sequence_number INTEGER NOT NULL,
+                    title TEXT,
+                    summary TEXT,
+                    dramatic_goal TEXT,
+                    external_pressure TEXT,
+                    conflict_type TEXT,
+                    characters_present TEXT,
+                    setting_location TEXT,
+                    setting_time TEXT,
+                    content TEXT,
+                    source TEXT NOT NULL DEFAULT 'user_created',
+                    source_ref_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_story ON narrative_scenes(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_source ON narrative_scenes(source)",
+                [],
+            )?;
 
-        conn.execute(
-            "CREATE TABLE narrative_world_buildings (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL UNIQUE,
-                concept TEXT NOT NULL,
-                rules TEXT,
-                history TEXT,
-                key_locations TEXT,
-                power_system TEXT,
-                source TEXT NOT NULL DEFAULT 'user_created',
-                source_ref_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_narrative_wb_story ON narrative_world_buildings(story_id)",
-            [],
-        )?;
+            conn.execute(
+                "CREATE TABLE narrative_world_buildings (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL UNIQUE,
+                    concept TEXT NOT NULL,
+                    rules TEXT,
+                    history TEXT,
+                    key_locations TEXT,
+                    power_system TEXT,
+                    source TEXT NOT NULL DEFAULT 'user_created',
+                    source_ref_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_wb_story ON narrative_world_buildings(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 4)?;
     }
 
-    Ok(())
-}
-
-/// V3架构新表结构
-fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         r#"
         -- ==================== V3 新表结构 ====================
@@ -774,2297 +819,2505 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_ref_scenes_book ON reference_scenes(book_id);
         "#
     )?;
+
     Ok(())
 }
 
 /// 数据库迁移
 fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let current_version = get_current_version(conn);
+
     // Migration 1: 添加实体归档字段
-    let columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(kg_entities)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-    
-    if !columns.iter().any(|c| c == "is_archived") {
+    if current_version < 7 {
+        let columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(kg_entities)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        if !columns.iter().any(|c| c == "is_archived") {
+            conn.execute(
+                "ALTER TABLE kg_entities ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        if !columns.iter().any(|c| c == "archived_at") {
+            conn.execute(
+                "ALTER TABLE kg_entities ADD COLUMN archived_at TEXT",
+                [],
+            )?;
+        }
+
+        // 创建归档索引（仅在 kg_entities 表已存在时）
         conn.execute(
-            "ALTER TABLE kg_entities ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS idx_kg_entities_archived ON kg_entities(is_archived)",
             [],
         )?;
+        record_migration(conn, 7)?;
     }
-    if !columns.iter().any(|c| c == "archived_at") {
-        conn.execute(
-            "ALTER TABLE kg_entities ADD COLUMN archived_at TEXT",
-            [],
-        )?;
-    }
-    
-    // 创建归档索引（仅在 kg_entities 表已存在时）
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kg_entities_archived ON kg_entities(is_archived)",
-        [],
-    )?;
-    
+
     // Migration 2: 添加实体保留字段
-    if !columns.iter().any(|c| c == "confidence_score") {
-        conn.execute(
-            "ALTER TABLE kg_entities ADD COLUMN confidence_score REAL",
-            [],
-        )?;
-    }
-    if !columns.iter().any(|c| c == "access_count") {
-        conn.execute(
-            "ALTER TABLE kg_entities ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    if !columns.iter().any(|c| c == "last_accessed") {
-        conn.execute(
-            "ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT",
-            [],
-        )?;
+    if current_version < 8 {
+        let columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(kg_entities)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        if !columns.iter().any(|c| c == "confidence_score") {
+            conn.execute(
+                "ALTER TABLE kg_entities ADD COLUMN confidence_score REAL",
+                [],
+            )?;
+        }
+        if !columns.iter().any(|c| c == "access_count") {
+            conn.execute(
+                "ALTER TABLE kg_entities ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        if !columns.iter().any(|c| c == "last_accessed") {
+            conn.execute(
+                "ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 8)?;
     }
 
     // Migration 3: 创建场景批注表
-    let annotation_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 9 {
+            let annotation_tables: Vec<String> = conn.prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'"
+            )?.query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?.collect::<Result<Vec<_>, _>>()?;
 
-    if annotation_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_annotations (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT NOT NULL,
-                story_id TEXT NOT NULL,
-                content TEXT NOT NULL,
-                annotation_type TEXT NOT NULL DEFAULT 'note',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                resolved_at TEXT,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_annotations_scene ON scene_annotations(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
-            [],
-        )?;
+            if annotation_tables.is_empty() {
+                conn.execute(
+                    "CREATE TABLE scene_annotations (
+                        id TEXT PRIMARY KEY,
+                        scene_id TEXT NOT NULL,
+                        story_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        annotation_type TEXT NOT NULL DEFAULT 'note',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        resolved_at TEXT,
+                        FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                        FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                    )",
+                    [],
+                )?;
+                conn.execute(
+                    "CREATE INDEX idx_scene_annotations_scene ON scene_annotations(scene_id)",
+                    [],
+                )?;
+                conn.execute(
+                    "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
+                    [],
+                )?;
+            }
+            record_migration(conn, 9)?;
     }
 
     // Migration 4: 创建文本内联批注表
-    let text_annotation_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 10 {
+        let text_annotation_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if text_annotation_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE text_annotations (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_id TEXT,
-                content TEXT NOT NULL,
-                annotation_type TEXT NOT NULL DEFAULT 'note',
-                from_pos INTEGER NOT NULL,
-                to_pos INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                resolved_at TEXT,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_text_annotations_story ON text_annotations(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_text_annotations_scene ON text_annotations(scene_id)",
-            [],
-        )?;
+        if text_annotation_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE text_annotations (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_id TEXT,
+                    content TEXT NOT NULL,
+                    annotation_type TEXT NOT NULL DEFAULT 'note',
+                    from_pos INTEGER NOT NULL,
+                    to_pos INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_text_annotations_story ON text_annotations(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_text_annotations_scene ON text_annotations(scene_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 10)?;
     }
 
     // Migration 5: 创建变更追踪表
-    let change_track_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 11 {
+        let change_track_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if change_track_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE change_tracks (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT,
-                chapter_id TEXT,
-                version_id TEXT,
-                author_id TEXT NOT NULL,
-                author_name TEXT,
-                change_type TEXT NOT NULL,
-                from_pos INTEGER NOT NULL,
-                to_pos INTEGER NOT NULL,
-                content TEXT,
-                status TEXT NOT NULL DEFAULT 'Pending',
-                created_at TEXT NOT NULL,
-                resolved_at TEXT,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-                FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_change_tracks_scene ON change_tracks(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_change_tracks_chapter ON change_tracks(chapter_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_change_tracks_status ON change_tracks(status)",
-            [],
-        )?;
+        if change_track_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE change_tracks (
+                    id TEXT PRIMARY KEY,
+                    scene_id TEXT,
+                    chapter_id TEXT,
+                    version_id TEXT,
+                    author_id TEXT NOT NULL,
+                    author_name TEXT,
+                    change_type TEXT NOT NULL,
+                    from_pos INTEGER NOT NULL,
+                    to_pos INTEGER NOT NULL,
+                    content TEXT,
+                    status TEXT NOT NULL DEFAULT 'Pending',
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                    FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_change_tracks_scene ON change_tracks(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_change_tracks_chapter ON change_tracks(chapter_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_change_tracks_status ON change_tracks(status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 11)?;
     }
 
     // Migration 5.1: 为旧版 change_tracks 添加 chapter_id
-    let change_track_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(change_tracks)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 12 {
+        let change_track_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(change_tracks)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !change_track_columns.iter().any(|c| c == "chapter_id") {
-        conn.execute(
-            "ALTER TABLE change_tracks ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id)",
-            [],
-        )?;
+        if !change_track_columns.iter().any(|c| c == "chapter_id") {
+            conn.execute(
+                "ALTER TABLE change_tracks ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 12)?;
     }
 
     // Migration 6: 创建评论线程表
-    let comment_thread_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 13 {
+        let comment_thread_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if comment_thread_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE comment_threads (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT,
-                chapter_id TEXT,
-                version_id TEXT,
-                anchor_type TEXT NOT NULL,
-                from_pos INTEGER,
-                to_pos INTEGER,
-                selected_text TEXT,
-                status TEXT NOT NULL DEFAULT 'Open',
-                created_at TEXT NOT NULL,
-                resolved_at TEXT,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-                FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_comment_threads_scene ON comment_threads(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_comment_threads_chapter ON comment_threads(chapter_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE comment_messages (
-                id TEXT PRIMARY KEY,
-                thread_id TEXT NOT NULL,
-                author_id TEXT NOT NULL,
-                author_name TEXT,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (thread_id) REFERENCES comment_threads(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_comment_messages_thread ON comment_messages(thread_id)",
-            [],
-        )?;
+        if comment_thread_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE comment_threads (
+                    id TEXT PRIMARY KEY,
+                    scene_id TEXT,
+                    chapter_id TEXT,
+                    version_id TEXT,
+                    anchor_type TEXT NOT NULL,
+                    from_pos INTEGER,
+                    to_pos INTEGER,
+                    selected_text TEXT,
+                    status TEXT NOT NULL DEFAULT 'Open',
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                    FOREIGN KEY (version_id) REFERENCES scene_versions(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_comment_threads_scene ON comment_threads(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_comment_threads_chapter ON comment_threads(chapter_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE comment_messages (
+                    id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    author_id TEXT NOT NULL,
+                    author_name TEXT,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (thread_id) REFERENCES comment_threads(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_comment_messages_thread ON comment_messages(thread_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 13)?;
     }
 
     // Migration 7: 创建角色状态追踪表（智能化创作)
-    let character_state_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 14 {
+        let character_state_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if character_state_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE character_states (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                character_id TEXT NOT NULL,
-                current_location TEXT,
-                current_emotion TEXT,
-                active_goal TEXT,
-                secrets_known TEXT,
-                secrets_unknown TEXT,
-                arc_progress REAL,
-                last_updated TEXT,
-                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_character_states_story ON character_states(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_character_states_character ON character_states(character_id)",
-            [],
-        )?;
+        if character_state_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE character_states (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    character_id TEXT NOT NULL,
+                    current_location TEXT,
+                    current_emotion TEXT,
+                    active_goal TEXT,
+                    secrets_known TEXT,
+                    secrets_unknown TEXT,
+                    arc_progress REAL,
+                    last_updated TEXT,
+                    FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_character_states_story ON character_states(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_character_states_character ON character_states(character_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 14)?;
     }
 
     // Migration 8: 创建伏笔追踪表（智能化创作)
-    let foreshadowing_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='foreshadowing_tracker'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 15 {
+        let foreshadowing_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='foreshadowing_tracker'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if foreshadowing_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE foreshadowing_tracker (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                content TEXT NOT NULL,
-                setup_scene_id TEXT,
-                payoff_scene_id TEXT,
-                status TEXT NOT NULL DEFAULT 'setup',
-                importance INTEGER,
-                created_at TEXT NOT NULL,
-                resolved_at TEXT
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_foreshadowing_story ON foreshadowing_tracker(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_foreshadowing_status ON foreshadowing_tracker(status)",
-            [],
-        )?;
+        if foreshadowing_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE foreshadowing_tracker (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    setup_scene_id TEXT,
+                    payoff_scene_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'setup',
+                    importance INTEGER,
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_foreshadowing_story ON foreshadowing_tracker(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_foreshadowing_status ON foreshadowing_tracker(status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 15)?;
     }
 
     // Migration 9: 创建用户偏好表（自适应学习)
-    let preference_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 16 {
+        let preference_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if preference_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE user_preferences (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                preference_type TEXT,
-                preference_key TEXT,
-                preference_value TEXT,
-                confidence REAL,
-                evidence_count INTEGER,
-                updated_at TEXT
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_user_preferences_story ON user_preferences(story_id)",
-            [],
-        )?;
+        if preference_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE user_preferences (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    preference_type TEXT,
+                    preference_key TEXT,
+                    preference_value TEXT,
+                    confidence REAL,
+                    evidence_count INTEGER,
+                    updated_at TEXT
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_user_preferences_story ON user_preferences(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 16)?;
     }
 
     // Migration 10: 创建风格 DNA 表（深度风格系统)
-    let style_dna_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 17 {
+        let style_dna_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if style_dna_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE style_dnas (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                author TEXT,
-                dna_json TEXT NOT NULL,
-                is_builtin INTEGER NOT NULL DEFAULT 0,
-                is_user_created INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_style_dnas_builtin ON style_dnas(is_builtin)",
-            [],
-        )?;
+        if style_dna_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE style_dnas (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    author TEXT,
+                    dna_json TEXT NOT NULL,
+                    is_builtin INTEGER NOT NULL DEFAULT 0,
+                    is_user_created INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_style_dnas_builtin ON style_dnas(is_builtin)",
+                [],
+            )?;
+        }
+        record_migration(conn, 17)?;
     }
 
     // Migration 11: 创建用户反馈日志表（自适应学习)
-    let feedback_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 18 {
+        let feedback_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if feedback_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE user_feedback_log (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_id TEXT,
-                feedback_type TEXT NOT NULL,    -- accept / reject / modify
-                agent_type TEXT,                -- writer / inspector / etc
-                original_ai_text TEXT,          -- AI 生成的原始文本
-                final_text TEXT,                -- 用户最终接受的文本
-                ai_score REAL,                  -- AI 自评分数
-                user_satisfaction INTEGER,      -- 用户满意度 1-5（如提供）
-                metadata TEXT,                  -- JSON: 额外上下文
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_feedback_story ON user_feedback_log(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_feedback_type ON user_feedback_log(feedback_type)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_feedback_created ON user_feedback_log(created_at)",
-            [],
-        )?;
+        if feedback_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE user_feedback_log (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_id TEXT,
+                    feedback_type TEXT NOT NULL,    -- accept / reject / modify
+                    agent_type TEXT,                -- writer / inspector / etc
+                    original_ai_text TEXT,          -- AI 生成的原始文本
+                    final_text TEXT,                -- 用户最终接受的文本
+                    ai_score REAL,                  -- AI 自评分数
+                    user_satisfaction INTEGER,      -- 用户满意度 1-5（如提供）
+                    metadata TEXT,                  -- JSON: 额外上下文
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_feedback_story ON user_feedback_log(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_feedback_type ON user_feedback_log(feedback_type)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_feedback_created ON user_feedback_log(created_at)",
+                [],
+            )?;
+        }
+        record_migration(conn, 18)?;
     }
 
     // Migration 12: 创建订阅表
-    let subscription_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 19 {
+        let subscription_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if subscription_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE subscriptions (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                tier TEXT NOT NULL DEFAULT 'free',
-                status TEXT NOT NULL DEFAULT 'active',
-                started_at TEXT NOT NULL,
-                expires_at TEXT,
-                payment_provider TEXT,
-                payment_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_subscriptions_user ON subscriptions(user_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_subscriptions_tier ON subscriptions(tier)",
-            [],
-        )?;
+        if subscription_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE subscriptions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    tier TEXT NOT NULL DEFAULT 'free',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    started_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    payment_provider TEXT,
+                    payment_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_subscriptions_user ON subscriptions(user_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_subscriptions_tier ON subscriptions(tier)",
+                [],
+            )?;
+        }
+        record_migration(conn, 19)?;
     }
 
     // Migration 14: 创建 AI 调用日志表
-    let usage_log_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 20 {
+        let usage_log_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if usage_log_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE ai_usage_logs (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                story_id TEXT,
-                chapter_id TEXT,
-                agent_type TEXT NOT NULL,
-                instruction TEXT,
-                prompt_tokens INTEGER,
-                completion_tokens INTEGER,
-                model_used TEXT,
-                cost REAL,
-                duration_ms INTEGER,
-                tier_at_time TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_usage_logs_user ON ai_usage_logs(user_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_usage_logs_created ON ai_usage_logs(created_at)",
-            [],
-        )?;
+        if usage_log_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE ai_usage_logs (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    story_id TEXT,
+                    chapter_id TEXT,
+                    agent_type TEXT NOT NULL,
+                    instruction TEXT,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    model_used TEXT,
+                    cost REAL,
+                    duration_ms INTEGER,
+                    tier_at_time TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_usage_logs_user ON ai_usage_logs(user_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_usage_logs_created ON ai_usage_logs(created_at)",
+                [],
+            )?;
+        }
+        record_migration(conn, 20)?;
     }
 
     // Migration 16: 创建拆书功能参考表
-    let ref_book_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 21 {
+        let ref_book_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if ref_book_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE reference_books (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                author TEXT,
-                genre TEXT,
-                word_count INTEGER,
-                file_format TEXT,
-                file_hash TEXT UNIQUE,
-                file_path TEXT,
-                world_setting TEXT,
-                plot_summary TEXT,
-                story_arc TEXT,
-                analysis_status TEXT NOT NULL DEFAULT 'pending',
-                analysis_progress INTEGER DEFAULT 0,
-                analysis_error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ref_books_hash ON reference_books(file_hash)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ref_books_status ON reference_books(analysis_status)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE reference_characters (
-                id TEXT PRIMARY KEY,
-                book_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                role_type TEXT,
-                personality TEXT,
-                appearance TEXT,
-                relationships TEXT,
-                key_scenes TEXT,
-                importance_score REAL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ref_characters_book ON reference_characters(book_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE reference_scenes (
-                id TEXT PRIMARY KEY,
-                book_id TEXT NOT NULL,
-                sequence_number INTEGER NOT NULL,
-                title TEXT,
-                summary TEXT,
-                characters_present TEXT,
-                key_events TEXT,
-                conflict_type TEXT,
-                emotional_tone TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ref_scenes_book ON reference_scenes(book_id)",
-            [],
-        )?;
+        if ref_book_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE reference_books (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    author TEXT,
+                    genre TEXT,
+                    word_count INTEGER,
+                    file_format TEXT,
+                    file_hash TEXT UNIQUE,
+                    file_path TEXT,
+                    world_setting TEXT,
+                    plot_summary TEXT,
+                    story_arc TEXT,
+                    analysis_status TEXT NOT NULL DEFAULT 'pending',
+                    analysis_progress INTEGER DEFAULT 0,
+                    analysis_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ref_books_hash ON reference_books(file_hash)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ref_books_status ON reference_books(analysis_status)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE reference_characters (
+                    id TEXT PRIMARY KEY,
+                    book_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    role_type TEXT,
+                    personality TEXT,
+                    appearance TEXT,
+                    relationships TEXT,
+                    key_scenes TEXT,
+                    importance_score REAL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ref_characters_book ON reference_characters(book_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE reference_scenes (
+                    id TEXT PRIMARY KEY,
+                    book_id TEXT NOT NULL,
+                    sequence_number INTEGER NOT NULL,
+                    title TEXT,
+                    summary TEXT,
+                    characters_present TEXT,
+                    key_events TEXT,
+                    conflict_type TEXT,
+                    emotional_tone TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ref_scenes_book ON reference_scenes(book_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 21)?;
     }
 
     // Migration 18: reference_books 增加 task_id 字段，支持取消拆书任务
-    let ref_book_cols: Vec<String> = conn.prepare(
-        "SELECT name FROM pragma_table_info('reference_books')"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 22 {
+        let ref_book_cols: Vec<String> = conn.prepare(
+            "SELECT name FROM pragma_table_info('reference_books')"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !ref_book_cols.iter().any(|c| c == "task_id") {
-        conn.execute(
-            "ALTER TABLE reference_books ADD COLUMN task_id TEXT",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ref_books_task ON reference_books(task_id)",
-            [],
-        )?;
+        if !ref_book_cols.iter().any(|c| c == "task_id") {
+            conn.execute(
+                "ALTER TABLE reference_books ADD COLUMN task_id TEXT",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ref_books_task ON reference_books(task_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 22)?;
     }
 
     // Migration 19: 创建 scene_versions 表（生产环境缺失修复）
-    let sv_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_versions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 23 {
+        let sv_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_versions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if sv_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_versions (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT NOT NULL,
-                version_number INTEGER NOT NULL,
-                title TEXT,
-                content TEXT,
-                dramatic_goal TEXT,
-                external_pressure TEXT,
-                conflict_type TEXT,
-                characters_present TEXT,
-                character_conflicts TEXT,
-                setting_location TEXT,
-                setting_time TEXT,
-                setting_atmosphere TEXT,
-                word_count INTEGER,
-                change_summary TEXT NOT NULL,
-                created_by TEXT NOT NULL,
-                model_used TEXT,
-                confidence_score REAL,
-                previous_version_id TEXT,
-                superseded_by TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id),
-                FOREIGN KEY (superseded_by) REFERENCES scene_versions(id)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_versions_scene ON scene_versions(scene_id)",
-            [],
-        )?;
+        if sv_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_versions (
+                    id TEXT PRIMARY KEY,
+                    scene_id TEXT NOT NULL,
+                    version_number INTEGER NOT NULL,
+                    title TEXT,
+                    content TEXT,
+                    dramatic_goal TEXT,
+                    external_pressure TEXT,
+                    conflict_type TEXT,
+                    characters_present TEXT,
+                    character_conflicts TEXT,
+                    setting_location TEXT,
+                    setting_time TEXT,
+                    setting_atmosphere TEXT,
+                    word_count INTEGER,
+                    change_summary TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    model_used TEXT,
+                    confidence_score REAL,
+                    previous_version_id TEXT,
+                    superseded_by TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id),
+                    FOREIGN KEY (superseded_by) REFERENCES scene_versions(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_versions_scene ON scene_versions(scene_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 23)?;
     }
 
     // Migration 20: 为 stories 表添加 style_dna_id 字段
-    let story_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(stories)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 24 {
+        let story_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(stories)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !story_columns.iter().any(|c| c == "style_dna_id") {
-        conn.execute(
-            "ALTER TABLE stories ADD COLUMN style_dna_id TEXT",
-            [],
-        )?;
+        if !story_columns.iter().any(|c| c == "style_dna_id") {
+            conn.execute(
+                "ALTER TABLE stories ADD COLUMN style_dna_id TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 24)?;
     }
 
     // Migration 21: 为 scenes 和 kg_relations 表添加 confidence_score 字段
-    let scene_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(scenes)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 25 {
+        let scene_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(scenes)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !scene_columns.iter().any(|c| c == "confidence_score") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN confidence_score REAL",
-            [],
-        )?;
-    }
+        if !scene_columns.iter().any(|c| c == "confidence_score") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN confidence_score REAL",
+                [],
+            )?;
+        }
 
-    let relation_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(kg_relations)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+        let relation_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(kg_relations)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !relation_columns.iter().any(|c| c == "confidence_score") {
-        conn.execute(
-            "ALTER TABLE kg_relations ADD COLUMN confidence_score REAL",
-            [],
-        )?;
+        if !relation_columns.iter().any(|c| c == "confidence_score") {
+            conn.execute(
+                "ALTER TABLE kg_relations ADD COLUMN confidence_score REAL",
+                [],
+            )?;
+        }
+        record_migration(conn, 25)?;
     }
 
     // Migration 22: 为 stories 表添加 methodology_id 和 methodology_step 字段
-    let story_columns_m22: Vec<String> = conn.prepare(
-        "PRAGMA table_info(stories)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 26 {
+        let story_columns_m22: Vec<String> = conn.prepare(
+            "PRAGMA table_info(stories)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !story_columns_m22.iter().any(|c| c == "methodology_id") {
-        conn.execute(
-            "ALTER TABLE stories ADD COLUMN methodology_id TEXT",
-            [],
-        )?;
-    }
-    if !story_columns_m22.iter().any(|c| c == "methodology_step") {
-        conn.execute(
-            "ALTER TABLE stories ADD COLUMN methodology_step INTEGER",
-            [],
-        )?;
+        if !story_columns_m22.iter().any(|c| c == "methodology_id") {
+            conn.execute(
+                "ALTER TABLE stories ADD COLUMN methodology_id TEXT",
+                [],
+            )?;
+        }
+        if !story_columns_m22.iter().any(|c| c == "methodology_step") {
+            conn.execute(
+                "ALTER TABLE stories ADD COLUMN methodology_step INTEGER",
+                [],
+            )?;
+        }
+        record_migration(conn, 26)?;
     }
 
     // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger 时间窗口与风险信号
-    let foreshadowing_columns_m24: Vec<String> = conn.prepare(
-        "PRAGMA table_info(foreshadowing_tracker)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 27 {
+        let foreshadowing_columns_m24: Vec<String> = conn.prepare(
+            "PRAGMA table_info(foreshadowing_tracker)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !foreshadowing_columns_m24.iter().any(|c| c == "target_start_scene") {
-        conn.execute(
-            "ALTER TABLE foreshadowing_tracker ADD COLUMN target_start_scene INTEGER",
-            [],
-        )?;
-    }
-    if !foreshadowing_columns_m24.iter().any(|c| c == "target_end_scene") {
-        conn.execute(
-            "ALTER TABLE foreshadowing_tracker ADD COLUMN target_end_scene INTEGER",
-            [],
-        )?;
-    }
-    if !foreshadowing_columns_m24.iter().any(|c| c == "risk_signals") {
-        conn.execute(
-            "ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals TEXT",
-            [],
-        )?;
-    }
-    if !foreshadowing_columns_m24.iter().any(|c| c == "scope_type") {
-        conn.execute(
-            "ALTER TABLE foreshadowing_tracker ADD COLUMN scope_type TEXT DEFAULT 'story'",
-            [],
-        )?;
-    }
-    if !foreshadowing_columns_m24.iter().any(|c| c == "ledger_key") {
-        conn.execute(
-            "ALTER TABLE foreshadowing_tracker ADD COLUMN ledger_key TEXT",
-            [],
-        )?;
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_foreshadowing_ledger_key ON foreshadowing_tracker(ledger_key)",
-            [],
-        )?;
+        if !foreshadowing_columns_m24.iter().any(|c| c == "target_start_scene") {
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN target_start_scene INTEGER",
+                [],
+            )?;
+        }
+        if !foreshadowing_columns_m24.iter().any(|c| c == "target_end_scene") {
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN target_end_scene INTEGER",
+                [],
+            )?;
+        }
+        if !foreshadowing_columns_m24.iter().any(|c| c == "risk_signals") {
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals TEXT",
+                [],
+            )?;
+        }
+        if !foreshadowing_columns_m24.iter().any(|c| c == "scope_type") {
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN scope_type TEXT DEFAULT 'story'",
+                [],
+            )?;
+        }
+        if !foreshadowing_columns_m24.iter().any(|c| c == "ledger_key") {
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN ledger_key TEXT",
+                [],
+            )?;
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_foreshadowing_ledger_key ON foreshadowing_tracker(ledger_key)",
+                [],
+            )?;
+        }
+        record_migration(conn, 27)?;
     }
 
     // Migration 25: 为 scenes 表添加结构化大纲字段
-    let scene_columns_m25: Vec<String> = conn.prepare(
-        "PRAGMA table_info(scenes)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 28 {
+        let scene_columns_m25: Vec<String> = conn.prepare(
+            "PRAGMA table_info(scenes)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !scene_columns_m25.iter().any(|c| c == "execution_stage") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN execution_stage TEXT DEFAULT 'drafting'",
-            [],
-        )?;
-    }
-    if !scene_columns_m25.iter().any(|c| c == "outline_content") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN outline_content TEXT",
-            [],
-        )?;
-    }
-    if !scene_columns_m25.iter().any(|c| c == "draft_content") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN draft_content TEXT",
-            [],
-        )?;
+        if !scene_columns_m25.iter().any(|c| c == "execution_stage") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN execution_stage TEXT DEFAULT 'drafting'",
+                [],
+            )?;
+        }
+        if !scene_columns_m25.iter().any(|c| c == "outline_content") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN outline_content TEXT",
+                [],
+            )?;
+        }
+        if !scene_columns_m25.iter().any(|c| c == "draft_content") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN draft_content TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 28)?;
     }
 
     // Migration 26: 创建聊天会话和消息表（持久化聊天)
-    let chat_session_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 29 {
+        let chat_session_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if chat_session_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE chat_sessions (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                context TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_chat_sessions_story ON chat_sessions(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE chat_messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_chat_messages_session ON chat_messages(session_id)",
-            [],
-        )?;
+        if chat_session_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    context TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_chat_sessions_story ON chat_sessions(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE chat_messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_chat_messages_session ON chat_messages(session_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 29)?;
     }
 
     // Migration 27: 创建故事运行状态表（持久化状态)
-    let story_state_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 30 {
+        let story_state_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if story_state_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE story_runtime_states (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL UNIQUE,
-                state_json TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_runtime_states_story ON story_runtime_states(story_id)",
-            [],
-        )?;
+        if story_state_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE story_runtime_states (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL UNIQUE,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_runtime_states_story ON story_runtime_states(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 30)?;
     }
 
     // Migration 30: 创建故事风格混合配置表
-    let story_style_config_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 31 {
+        let story_style_config_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if story_style_config_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE story_style_configs (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                name TEXT NOT NULL DEFAULT '默认混合',
-                blend_json TEXT NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_style_configs_story ON story_style_configs(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_style_configs_active ON story_style_configs(story_id, is_active)",
-            [],
-        )?;
+        if story_style_config_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE story_style_configs (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    name TEXT NOT NULL DEFAULT '默认混合',
+                    blend_json TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_style_configs_story ON story_style_configs(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_style_configs_active ON story_style_configs(story_id, is_active)",
+                [],
+            )?;
+        }
+        record_migration(conn, 31)?;
     }
 
     // Migration 31: 为 scenes 表添加风格混合覆盖字段
-    let scene_columns_m31: Vec<String> = conn.prepare(
-        "PRAGMA table_info(scenes)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 32 {
+        let scene_columns_m31: Vec<String> = conn.prepare(
+            "PRAGMA table_info(scenes)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !scene_columns_m31.iter().any(|c| c == "style_blend_override") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN style_blend_override TEXT",
-            [],
-        )?;
+        if !scene_columns_m31.iter().any(|c| c == "style_blend_override") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN style_blend_override TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 32)?;
     }
 
     // Migration 32: 用户认证系统
-    let auth_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 33 {
+        let auth_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if auth_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE users (
-                id TEXT PRIMARY KEY,
-                email TEXT UNIQUE,
-                display_name TEXT,
-                avatar_url TEXT,
-                is_local_user INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE oauth_accounts (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                provider TEXT NOT NULL,
-                provider_account_id TEXT NOT NULL,
-                access_token TEXT,
-                refresh_token TEXT,
-                expires_at TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(provider, provider_account_id)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_oauth_accounts_user ON oauth_accounts(user_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_oauth_accounts_provider ON oauth_accounts(provider, provider_account_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE sessions (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                token TEXT NOT NULL UNIQUE,
-                expires_at TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_sessions_token ON sessions(token)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_sessions_user ON sessions(user_id)",
-            [],
-        )?;
+        if auth_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE,
+                    display_name TEXT,
+                    avatar_url TEXT,
+                    is_local_user INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE oauth_accounts (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    provider_account_id TEXT NOT NULL,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    expires_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(provider, provider_account_id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_oauth_accounts_user ON oauth_accounts(user_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_oauth_accounts_provider ON oauth_accounts(provider, provider_account_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_sessions_token ON sessions(token)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_sessions_user ON sessions(user_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 33)?;
     }
 
     // Migration 33: subscriptions 表添加 real_user_id
-    let sub_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(subscriptions)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 34 {
+        let sub_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(subscriptions)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !sub_columns.iter().any(|c| c == "real_user_id") {
-        conn.execute(
-            "ALTER TABLE subscriptions ADD COLUMN real_user_id TEXT REFERENCES users(id)",
-            [],
-        )?;
+        if !sub_columns.iter().any(|c| c == "real_user_id") {
+            conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN real_user_id TEXT REFERENCES users(id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 34)?;
     }
 
     // Migration 34: 创建故事大纲表
-    let outline_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 35 {
+        let outline_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if outline_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE story_outlines (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL UNIQUE,
-                content TEXT NOT NULL,
-                structure_json TEXT,
-                act_count INTEGER DEFAULT 3,
-                total_scenes_estimate INTEGER,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_outlines_story ON story_outlines(story_id)",
-            [],
-        )?;
+        if outline_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE story_outlines (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL UNIQUE,
+                    content TEXT NOT NULL,
+                    structure_json TEXT,
+                    act_count INTEGER DEFAULT 3,
+                    total_scenes_estimate INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_outlines_story ON story_outlines(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 35)?;
     }
 
     // Migration 35: characters 表增强 + character_relationships 表
-    let char_columns_m35: Vec<String> = conn.prepare(
-        "PRAGMA table_info(characters)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 36 {
+        let char_columns_m35: Vec<String> = conn.prepare(
+            "PRAGMA table_info(characters)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !char_columns_m35.iter().any(|c| c == "appearance") {
-        conn.execute(
-            "ALTER TABLE characters ADD COLUMN appearance TEXT",
-            [],
-        )?;
-    }
-    if !char_columns_m35.iter().any(|c| c == "gender") {
-        conn.execute(
-            "ALTER TABLE characters ADD COLUMN gender TEXT",
-            [],
-        )?;
-    }
-    if !char_columns_m35.iter().any(|c| c == "age") {
-        conn.execute(
-            "ALTER TABLE characters ADD COLUMN age INTEGER",
-            [],
-        )?;
-    }
+        if !char_columns_m35.iter().any(|c| c == "appearance") {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN appearance TEXT",
+                [],
+            )?;
+        }
+        if !char_columns_m35.iter().any(|c| c == "gender") {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN gender TEXT",
+                [],
+            )?;
+        }
+        if !char_columns_m35.iter().any(|c| c == "age") {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN age INTEGER",
+                [],
+            )?;
+        }
 
-    let rel_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='character_relationships'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+        let rel_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_relationships'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if rel_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE character_relationships (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                source_character_id TEXT NOT NULL,
-                target_character_id TEXT NOT NULL,
-                relationship_type TEXT NOT NULL,
-                description TEXT,
-                dynamic TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (source_character_id) REFERENCES characters(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_character_id) REFERENCES characters(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_char_rel_story ON character_relationships(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_char_rel_source ON character_relationships(source_character_id)",
-            [],
-        )?;
+        if rel_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE character_relationships (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    source_character_id TEXT NOT NULL,
+                    target_character_id TEXT NOT NULL,
+                    relationship_type TEXT NOT NULL,
+                    description TEXT,
+                    dynamic TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (source_character_id) REFERENCES characters(id) ON DELETE CASCADE,
+                    FOREIGN KEY (target_character_id) REFERENCES characters(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_char_rel_story ON character_relationships(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_char_rel_source ON character_relationships(source_character_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 36)?;
     }
 
     // Migration 36: scenes 表新增 foreshadowing_ids
-    let scene_columns_m36: Vec<String> = conn.prepare(
-        "PRAGMA table_info(scenes)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 37 {
+        let scene_columns_m36: Vec<String> = conn.prepare(
+            "PRAGMA table_info(scenes)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !scene_columns_m36.iter().any(|c| c == "foreshadowing_ids") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN foreshadowing_ids TEXT",
-            [],
-        )?;
+        if !scene_columns_m36.iter().any(|c| c == "foreshadowing_ids") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN foreshadowing_ids TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 37)?;
     }
 
     // Migration 37: Chapter↔Scene 双轨映射
-    let chapter_columns_m37: Vec<String> = conn.prepare(
-        "PRAGMA table_info(chapters)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 38 {
+        let chapter_columns_m37: Vec<String> = conn.prepare(
+            "PRAGMA table_info(chapters)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !chapter_columns_m37.iter().any(|c| c == "scene_id") {
-        conn.execute(
-            "ALTER TABLE chapters ADD COLUMN scene_id TEXT REFERENCES scenes(id) ON DELETE SET NULL",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chapters_scene ON chapters(scene_id)",
-            [],
-        )?;
-    }
+        if !chapter_columns_m37.iter().any(|c| c == "scene_id") {
+            conn.execute(
+                "ALTER TABLE chapters ADD COLUMN scene_id TEXT REFERENCES scenes(id) ON DELETE SET NULL",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chapters_scene ON chapters(scene_id)",
+                [],
+            )?;
+        }
 
-    let scene_columns_m37: Vec<String> = conn.prepare(
-        "PRAGMA table_info(scenes)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns_m37: Vec<String> = conn.prepare(
+            "PRAGMA table_info(scenes)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !scene_columns_m37.iter().any(|c| c == "chapter_id") {
-        conn.execute(
-            "ALTER TABLE scenes ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_scenes_chapter ON scenes(chapter_id)",
-            [],
-        )?;
+        if !scene_columns_m37.iter().any(|c| c == "chapter_id") {
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scenes_chapter ON scenes(chapter_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 38)?;
     }
 
     // Migration 41: 创建 Workflow 实例持久化表
-    let workflow_instance_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 39 {
+        let workflow_instance_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if workflow_instance_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE workflow_instances (
-                id TEXT PRIMARY KEY,
-                workflow_id TEXT NOT NULL,
-                story_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                instance_json TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_workflow_instances_workflow ON workflow_instances(workflow_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_workflow_instances_story ON workflow_instances(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_workflow_instances_status ON workflow_instances(status)",
-            [],
-        )?;
+        if workflow_instance_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE workflow_instances (
+                    id TEXT PRIMARY KEY,
+                    workflow_id TEXT NOT NULL,
+                    story_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    instance_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_workflow_instances_workflow ON workflow_instances(workflow_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_workflow_instances_story ON workflow_instances(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_workflow_instances_status ON workflow_instances(status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 39)?;
     }
 
     // Migration 42: 创建 Pending Vector Indexes 表
-    let pending_vector_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_vector_indexes'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 40 {
+        let pending_vector_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_vector_indexes'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if pending_vector_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE pending_vector_indexes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chapter_id TEXT NOT NULL UNIQUE,
-                created_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_pending_vector_chapter ON pending_vector_indexes(chapter_id)",
-            [],
-        )?;
+        if pending_vector_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE pending_vector_indexes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chapter_id TEXT NOT NULL UNIQUE,
+                    created_at INTEGER NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_pending_vector_chapter ON pending_vector_indexes(chapter_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 40)?;
     }
 
     // Migration 43: 创建 story_metadata 表
-    let story_metadata_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 41 {
+        let story_metadata_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if story_metadata_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE story_metadata (
-                story_id TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (story_id, key),
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_metadata_story ON story_metadata(story_id)",
-            [],
-        )?;
+        if story_metadata_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE story_metadata (
+                    story_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (story_id, key),
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_metadata_story ON story_metadata(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 41)?;
     }
 
     // Migration 44: 创建 scene_characters 表
-    let scene_characters_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 42 {
+        let scene_characters_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if scene_characters_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_characters (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT NOT NULL,
-                character_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE,
-                UNIQUE(scene_id, character_id)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_characters_scene ON scene_characters(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_characters_character ON scene_characters(character_id)",
-            [],
-        )?;
+        if scene_characters_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_characters (
+                    id TEXT PRIMARY KEY,
+                    scene_id TEXT NOT NULL,
+                    character_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE,
+                    UNIQUE(scene_id, character_id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_characters_scene ON scene_characters(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_characters_character ON scene_characters(character_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 42)?;
     }
 
     // Migration 45: 创建 scene_character_actions 表
-    let scene_character_actions_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_character_actions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 43 {
+        let scene_character_actions_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_character_actions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if scene_character_actions_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_character_actions (
-                id TEXT PRIMARY KEY,
-                scene_id TEXT NOT NULL,
-                character_id TEXT NOT NULL,
-                action_type TEXT,
-                content TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_character_actions_scene ON scene_character_actions(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_character_actions_character ON scene_character_actions(character_id)",
-            [],
-        )?;
+        if scene_character_actions_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_character_actions (
+                    id TEXT PRIMARY KEY,
+                    scene_id TEXT NOT NULL,
+                    character_id TEXT NOT NULL,
+                    action_type TEXT,
+                    content TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_character_actions_scene ON scene_character_actions(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_character_actions_character ON scene_character_actions(character_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 43)?;
     }
 
     // Migration 46: 创建 plan_templates 表
-    let plan_templates_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 44 {
+        let plan_templates_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if plan_templates_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE plan_templates (
-                id TEXT PRIMARY KEY,
-                trigger_patterns TEXT NOT NULL,
-                plan_json TEXT NOT NULL,
-                success_count INTEGER NOT NULL DEFAULT 0,
-                failure_count INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_plan_templates_patterns ON plan_templates(trigger_patterns)",
-            [],
-        )?;
+        if plan_templates_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE plan_templates (
+                    id TEXT PRIMARY KEY,
+                    trigger_patterns TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    success_count INTEGER NOT NULL DEFAULT 0,
+                    failure_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_plan_templates_patterns ON plan_templates(trigger_patterns)",
+                [],
+            )?;
+        }
+
+        // ==================== Story System 合同驱动体系 ====================
+        record_migration(conn, 44)?;
     }
 
-    // ==================== Story System 合同驱动体系 ====================
-
     // Migration 47: 创建 story_contracts 表 — 合同真源
-    let story_contract_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_contracts'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 45 {
+        let story_contract_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_contracts'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if story_contract_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE story_contracts (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                contract_type TEXT NOT NULL,
-                contract_json TEXT NOT NULL,
-                version INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_contracts_story ON story_contracts(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_story_contracts_type ON story_contracts(story_id, contract_type)",
-            [],
-        )?;
+        if story_contract_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE story_contracts (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    contract_type TEXT NOT NULL,
+                    contract_json TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_contracts_story ON story_contracts(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_story_contracts_type ON story_contracts(story_id, contract_type)",
+                [],
+            )?;
+        }
+        record_migration(conn, 45)?;
     }
 
     // Migration 48: 创建 scene_commits 表 — Scene 提交链
-    let scene_commit_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 46 {
+        let scene_commit_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if scene_commit_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_commits (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL,
-                chapter_number INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                outline_snapshot_json TEXT,
-                review_result_json TEXT,
-                fulfillment_result_json TEXT,
-                accepted_events_json TEXT,
-                state_deltas_json TEXT,
-                entity_deltas_json TEXT,
-                summary_text TEXT,
-                dominant_strand TEXT,
-                projection_status_json TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_commits_story ON scene_commits(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_commits_scene ON scene_commits(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE UNIQUE INDEX idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
-            [],
-        )?;
+        if scene_commit_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_commits (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL,
+                    chapter_number INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    outline_snapshot_json TEXT,
+                    review_result_json TEXT,
+                    fulfillment_result_json TEXT,
+                    accepted_events_json TEXT,
+                    state_deltas_json TEXT,
+                    entity_deltas_json TEXT,
+                    summary_text TEXT,
+                    dominant_strand TEXT,
+                    projection_status_json TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_commits_story ON scene_commits(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_commits_scene ON scene_commits(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
+                [],
+            )?;
+        }
+        record_migration(conn, 46)?;
     }
 
     // Migration 49: 创建 memory_items 表 — 长期记忆
-    let memory_item_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 47 {
+        let memory_item_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if memory_item_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE memory_items (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                category TEXT NOT NULL,
-                subject TEXT,
-                field TEXT,
-                value TEXT,
-                source_chapter INTEGER,
-                confidence REAL NOT NULL DEFAULT 1.0,
-                status TEXT NOT NULL DEFAULT 'active',
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_memory_items_story ON memory_items(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_memory_items_category ON memory_items(story_id, category)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_memory_items_status ON memory_items(story_id, status)",
-            [],
-        )?;
+        if memory_item_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE memory_items (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    subject TEXT,
+                    field TEXT,
+                    value TEXT,
+                    source_chapter INTEGER,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_memory_items_story ON memory_items(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_memory_items_category ON memory_items(story_id, category)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_memory_items_status ON memory_items(story_id, status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 47)?;
     }
 
     // Migration 50: 创建 chapter_reading_power 表 — 追读力
-    let reading_power_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_reading_power'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 48 {
+        let reading_power_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_reading_power'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if reading_power_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE chapter_reading_power (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_number INTEGER NOT NULL,
-                hook_type TEXT,
-                hook_strength TEXT DEFAULT 'medium',
-                coolpoint_patterns_json TEXT,
-                micropayoffs_json TEXT,
-                hard_violations_json TEXT,
-                soft_suggestions_json TEXT,
-                is_transition INTEGER NOT NULL DEFAULT 0,
-                override_count INTEGER NOT NULL DEFAULT 0,
-                debt_balance REAL NOT NULL DEFAULT 0.0,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_reading_power_story ON chapter_reading_power(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE UNIQUE INDEX idx_reading_power_chapter ON chapter_reading_power(story_id, chapter_number)",
-            [],
-        )?;
+        if reading_power_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE chapter_reading_power (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_number INTEGER NOT NULL,
+                    hook_type TEXT,
+                    hook_strength TEXT DEFAULT 'medium',
+                    coolpoint_patterns_json TEXT,
+                    micropayoffs_json TEXT,
+                    hard_violations_json TEXT,
+                    soft_suggestions_json TEXT,
+                    is_transition INTEGER NOT NULL DEFAULT 0,
+                    override_count INTEGER NOT NULL DEFAULT 0,
+                    debt_balance REAL NOT NULL DEFAULT 0.0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_reading_power_story ON chapter_reading_power(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_reading_power_chapter ON chapter_reading_power(story_id, chapter_number)",
+                [],
+            )?;
+        }
+        record_migration(conn, 48)?;
     }
 
     // Migration 51: 创建 chase_debt 表 — 追读力债务
-    let chase_debt_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chase_debt'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 49 {
+        let chase_debt_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chase_debt'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if chase_debt_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE chase_debt (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                story_id TEXT NOT NULL,
-                debt_type TEXT NOT NULL,
-                original_amount REAL NOT NULL DEFAULT 1.0,
-                current_amount REAL NOT NULL DEFAULT 1.0,
-                interest_rate REAL NOT NULL DEFAULT 0.1,
-                source_chapter INTEGER NOT NULL,
-                due_chapter INTEGER NOT NULL,
-                override_contract_id INTEGER,
-                status TEXT NOT NULL DEFAULT 'active',
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_chase_debt_story ON chase_debt(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_chase_debt_status ON chase_debt(story_id, status)",
-            [],
-        )?;
+        if chase_debt_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE chase_debt (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    story_id TEXT NOT NULL,
+                    debt_type TEXT NOT NULL,
+                    original_amount REAL NOT NULL DEFAULT 1.0,
+                    current_amount REAL NOT NULL DEFAULT 1.0,
+                    interest_rate REAL NOT NULL DEFAULT 0.1,
+                    source_chapter INTEGER NOT NULL,
+                    due_chapter INTEGER NOT NULL,
+                    override_contract_id INTEGER,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_chase_debt_story ON chase_debt(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_chase_debt_status ON chase_debt(story_id, status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 49)?;
     }
 
     // Migration 52: 创建 override_contracts 表 — 违背约束合约
-    let override_contract_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='override_contracts'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 50 {
+        let override_contract_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='override_contracts'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if override_contract_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE override_contracts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                story_id TEXT NOT NULL,
-                chapter_number INTEGER NOT NULL,
-                constraint_type TEXT NOT NULL,
-                constraint_id TEXT NOT NULL,
-                rationale_type TEXT NOT NULL,
-                rationale_text TEXT NOT NULL,
-                payback_plan TEXT NOT NULL,
-                due_chapter INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                fulfilled_at TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_override_contracts_story ON override_contracts(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_override_contracts_status ON override_contracts(story_id, status)",
-            [],
-        )?;
+        if override_contract_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE override_contracts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    story_id TEXT NOT NULL,
+                    chapter_number INTEGER NOT NULL,
+                    constraint_type TEXT NOT NULL,
+                    constraint_id TEXT NOT NULL,
+                    rationale_type TEXT NOT NULL,
+                    rationale_text TEXT NOT NULL,
+                    payback_plan TEXT NOT NULL,
+                    due_chapter INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    fulfilled_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_override_contracts_story ON override_contracts(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_override_contracts_status ON override_contracts(story_id, status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 50)?;
     }
 
     // Migration 53: 创建 review_issues 表 — 结构化审查问题
-    let review_issue_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='review_issues'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 51 {
+        let review_issue_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='review_issues'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if review_issue_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE review_issues (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT,
-                chapter_number INTEGER NOT NULL,
-                severity TEXT NOT NULL,
-                category TEXT NOT NULL,
-                location TEXT,
-                description TEXT NOT NULL,
-                evidence TEXT,
-                fix_hint TEXT,
-                blocking INTEGER NOT NULL DEFAULT 0,
-                resolved INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_review_issues_story ON review_issues(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_review_issues_severity ON review_issues(story_id, severity)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_review_issues_blocking ON review_issues(story_id, blocking)",
-            [],
-        )?;
+        if review_issue_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE review_issues (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT,
+                    chapter_number INTEGER NOT NULL,
+                    severity TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    location TEXT,
+                    description TEXT NOT NULL,
+                    evidence TEXT,
+                    fix_hint TEXT,
+                    blocking INTEGER NOT NULL DEFAULT 0,
+                    resolved INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_review_issues_story ON review_issues(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_review_issues_severity ON review_issues(story_id, severity)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_review_issues_blocking ON review_issues(story_id, blocking)",
+                [],
+            )?;
+        }
+        record_migration(conn, 51)?;
     }
 
     // Migration 54: 创建 genre_profiles 表 — 体裁画像
-    let genre_profile_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='genre_profiles'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 52 {
+        let genre_profile_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='genre_profiles'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if genre_profile_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE genre_profiles (
-                id TEXT PRIMARY KEY,
-                genre_name TEXT NOT NULL UNIQUE,
-                canonical_name TEXT NOT NULL,
-                aliases_json TEXT,
-                core_tone TEXT,
-                pacing_strategy TEXT,
-                anti_patterns_json TEXT,
-                reference_tables_json TEXT,
-                is_builtin INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_genre_profiles_canonical ON genre_profiles(canonical_name)",
-            [],
-        )?;
+        if genre_profile_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE genre_profiles (
+                    id TEXT PRIMARY KEY,
+                    genre_name TEXT NOT NULL UNIQUE,
+                    canonical_name TEXT NOT NULL,
+                    aliases_json TEXT,
+                    core_tone TEXT,
+                    pacing_strategy TEXT,
+                    anti_patterns_json TEXT,
+                    reference_tables_json TEXT,
+                    is_builtin INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_genre_profiles_canonical ON genre_profiles(canonical_name)",
+                [],
+            )?;
+        }
+        record_migration(conn, 52)?;
     }
 
     // Migration 55: 为 chapters 表添加 writing_phase 字段 — 写作流程状态机
-    let chapter_columns_m55: Vec<String> = conn.prepare(
-        "PRAGMA table_info(chapters)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 53 {
+        let chapter_columns_m55: Vec<String> = conn.prepare(
+            "PRAGMA table_info(chapters)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !chapter_columns_m55.iter().any(|c| c == "writing_phase") {
-        conn.execute(
-            "ALTER TABLE chapters ADD COLUMN writing_phase TEXT DEFAULT 'planning'",
-            [],
-        )?;
+        if !chapter_columns_m55.iter().any(|c| c == "writing_phase") {
+            conn.execute(
+                "ALTER TABLE chapters ADD COLUMN writing_phase TEXT DEFAULT 'planning'",
+                [],
+            )?;
+        }
+        record_migration(conn, 53)?;
     }
 
     // Migration 56: 创建 ingest_jobs 表 — Ingest 作业追踪
-    let ingest_jobs_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 54 {
+        let ingest_jobs_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if ingest_jobs_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE ingest_jobs (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                resource_type TEXT NOT NULL,
-                resource_id TEXT,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                created_at TEXT NOT NULL,
-                completed_at TEXT
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ingest_jobs_story ON ingest_jobs(story_id, created_at)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_ingest_jobs_status ON ingest_jobs(story_id, status)",
-            [],
-        )?;
+        if ingest_jobs_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE ingest_jobs (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ingest_jobs_story ON ingest_jobs(story_id, created_at)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_ingest_jobs_status ON ingest_jobs(story_id, status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 54)?;
     }
 
     // Migration 57: 创建 feature_usage_logs 表 — 功能使用度量
-    let feature_usage_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 55 {
+        let feature_usage_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if feature_usage_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE feature_usage_logs (
-                id TEXT PRIMARY KEY,
-                feature_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                story_id TEXT,
-                metadata TEXT,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_feature_usage_feature ON feature_usage_logs(feature_id, created_at)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_feature_usage_story ON feature_usage_logs(story_id, created_at)",
-            [],
-        )?;
+        if feature_usage_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE feature_usage_logs (
+                    id TEXT PRIMARY KEY,
+                    feature_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    story_id TEXT,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_feature_usage_feature ON feature_usage_logs(feature_id, created_at)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_feature_usage_story ON feature_usage_logs(story_id, created_at)",
+                [],
+            )?;
+        }
+
+        // ==================== Pipeline 管线体系（基于 Vela 学习借鉴）====================
+        record_migration(conn, 55)?;
     }
 
-    // ==================== Pipeline 管线体系（基于 Vela 学习借鉴）====================
-
     // Migration 58: 创建 blueprints 表 — 章节蓝图/细纲
-    let blueprint_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 56 {
+        let blueprint_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if blueprint_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE blueprints (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                chapter_number INTEGER NOT NULL,
-                title TEXT,
-                role TEXT,
-                purpose TEXT,
-                key_events TEXT,
-                characters TEXT,
-                suspense_hook TEXT,
-                user_guidance TEXT,
-                notes TEXT,
-                notes_updated_at TEXT,
-                knowledge_query_hint TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                UNIQUE(story_id, chapter_number)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_blueprints_story ON blueprints(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_blueprints_chapter ON blueprints(story_id, chapter_number)",
-            [],
-        )?;
+        if blueprint_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE blueprints (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    chapter_number INTEGER NOT NULL,
+                    title TEXT,
+                    role TEXT,
+                    purpose TEXT,
+                    key_events TEXT,
+                    characters TEXT,
+                    suspense_hook TEXT,
+                    user_guidance TEXT,
+                    notes TEXT,
+                    notes_updated_at TEXT,
+                    knowledge_query_hint TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    UNIQUE(story_id, chapter_number)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_blueprints_story ON blueprints(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_blueprints_chapter ON blueprints(story_id, chapter_number)",
+                [],
+            )?;
+        }
+        record_migration(conn, 56)?;
     }
 
     // Migration 59: 创建 drafts 表 — 草稿版本管理
-    let draft_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='drafts'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 57 {
+        let draft_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='drafts'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if draft_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE drafts (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                chapter_number INTEGER NOT NULL,
-                version INTEGER NOT NULL DEFAULT 1,
-                status TEXT NOT NULL DEFAULT 'draft',
-                source TEXT NOT NULL DEFAULT 'write',
-                content TEXT NOT NULL DEFAULT '',
-                word_count INTEGER NOT NULL DEFAULT 0,
-                model_used TEXT,
-                cost REAL,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                UNIQUE(story_id, chapter_number, version)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_drafts_story_chapter ON drafts(story_id, chapter_number)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_drafts_status ON drafts(status)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_drafts_finalized ON drafts(story_id, chapter_number, status)",
-            [],
-        )?;
+        if draft_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE drafts (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    chapter_number INTEGER NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    source TEXT NOT NULL DEFAULT 'write',
+                    content TEXT NOT NULL DEFAULT '',
+                    word_count INTEGER NOT NULL DEFAULT 0,
+                    model_used TEXT,
+                    cost REAL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    UNIQUE(story_id, chapter_number, version)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_drafts_story_chapter ON drafts(story_id, chapter_number)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_drafts_status ON drafts(status)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_drafts_finalized ON drafts(story_id, chapter_number, status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 57)?;
     }
 
     // Migration 60: 创建 revisions 表 — 修稿记录
-    let revision_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='revisions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 58 {
+        let revision_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='revisions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if revision_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE revisions (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                draft_id TEXT NOT NULL,
-                revision_index INTEGER NOT NULL,
-                revision_type TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                user_prompt TEXT,
-                original_content TEXT NOT NULL,
-                revised_content TEXT NOT NULL,
-                word_count INTEGER NOT NULL DEFAULT 0,
-                change_summary TEXT,
-                model_used TEXT,
-                cost REAL,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_revisions_draft ON revisions(draft_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_revisions_story ON revisions(story_id)",
-            [],
-        )?;
+        if revision_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE revisions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    draft_id TEXT NOT NULL,
+                    revision_index INTEGER NOT NULL,
+                    revision_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    user_prompt TEXT,
+                    original_content TEXT NOT NULL,
+                    revised_content TEXT NOT NULL,
+                    word_count INTEGER NOT NULL DEFAULT 0,
+                    change_summary TEXT,
+                    model_used TEXT,
+                    cost REAL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_revisions_draft ON revisions(draft_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_revisions_story ON revisions(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 58)?;
     }
 
     // Migration 61: 创建 reviews 表 — 审稿报告（与 review_issues 不同，review_issues 是 Anti-AI 审查问题）
-    let review_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 59 {
+        let review_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if review_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE reviews (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                draft_id TEXT NOT NULL,
-                review_index INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                dimensions TEXT,
-                issues TEXT,
-                overall_score REAL,
-                review_focus TEXT,
-                model_used TEXT,
-                cost REAL,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_reviews_draft ON reviews(draft_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_reviews_story ON reviews(story_id)",
-            [],
-        )?;
+        if review_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE reviews (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    draft_id TEXT NOT NULL,
+                    review_index INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    dimensions TEXT,
+                    issues TEXT,
+                    overall_score REAL,
+                    review_focus TEXT,
+                    model_used TEXT,
+                    cost REAL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_reviews_draft ON reviews(draft_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_reviews_story ON reviews(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 59)?;
     }
 
     // Migration 62: 创建 post_process_runs 和 post_process_steps 表 — 后处理管线持久化
-    let post_process_run_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_runs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 60 {
+        let post_process_run_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_runs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if post_process_run_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE post_process_runs (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                chapter_number INTEGER NOT NULL,
-                source_label TEXT NOT NULL,
-                scope TEXT,
-                status TEXT NOT NULL DEFAULT 'running',
-                started_at TEXT NOT NULL,
-                completed_at TEXT,
-                error_message TEXT,
-                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_post_process_runs_story ON post_process_runs(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_post_process_runs_chapter ON post_process_runs(story_id, chapter_number)",
-            [],
-        )?;
-    }
+        if post_process_run_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE post_process_runs (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    chapter_number INTEGER NOT NULL,
+                    source_label TEXT NOT NULL,
+                    scope TEXT,
+                    status TEXT NOT NULL DEFAULT 'running',
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    error_message TEXT,
+                    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_post_process_runs_story ON post_process_runs(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_post_process_runs_chapter ON post_process_runs(story_id, chapter_number)",
+                [],
+            )?;
+        }
 
-    let post_process_step_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_steps'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+        let post_process_step_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_steps'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if post_process_step_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE post_process_steps (
-                id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                step_key TEXT NOT NULL,
-                step_label TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                critical INTEGER NOT NULL DEFAULT 0,
-                log_output TEXT,
-                error_message TEXT,
-                started_at TEXT,
-                completed_at TEXT,
-                FOREIGN KEY (run_id) REFERENCES post_process_runs(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_post_process_steps_run ON post_process_steps(run_id)",
-            [],
-        )?;
+        if post_process_step_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE post_process_steps (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    step_key TEXT NOT NULL,
+                    step_label TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    critical INTEGER NOT NULL DEFAULT 0,
+                    log_output TEXT,
+                    error_message TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    FOREIGN KEY (run_id) REFERENCES post_process_runs(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_post_process_steps_run ON post_process_steps(run_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 60)?;
     }
 
     // Migration 63: 扩展 characters 表 — 添加 cs_* 动态状态字段
-    let character_columns_m63: Vec<String> = conn.prepare(
-        "PRAGMA table_info(characters)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 61 {
+        let character_columns_m63: Vec<String> = conn.prepare(
+            "PRAGMA table_info(characters)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !character_columns_m63.iter().any(|c| c == "cs_location") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_location TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_power_level") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_power_level TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_physical_state") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_physical_state TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_mental_state") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_mental_state TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_key_items") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_key_items TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_recent_events") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_recent_events TEXT", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_updated_at_chapter") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_updated_at_chapter INTEGER", [])?;
-    }
-    if !character_columns_m63.iter().any(|c| c == "cs_json") {
-        conn.execute("ALTER TABLE characters ADD COLUMN cs_json TEXT", [])?;
+        if !character_columns_m63.iter().any(|c| c == "cs_location") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_location TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_power_level") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_power_level TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_physical_state") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_physical_state TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_mental_state") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_mental_state TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_key_items") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_key_items TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_recent_events") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_recent_events TEXT", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_updated_at_chapter") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_updated_at_chapter INTEGER", [])?;
+        }
+        if !character_columns_m63.iter().any(|c| c == "cs_json") {
+            conn.execute("ALTER TABLE characters ADD COLUMN cs_json TEXT", [])?;
+        }
+        record_migration(conn, 61)?;
     }
 
     // Migration 64: 创建 llm_calls 表 — LLM 用量统计与审计
-    let llm_call_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_calls'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 62 {
+        let llm_call_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_calls'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if llm_call_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE llm_calls (
-                id TEXT PRIMARY KEY,
-                story_id TEXT,
-                draft_id TEXT,
-                revision_id TEXT,
-                model_id TEXT NOT NULL,
-                model_name TEXT,
-                purpose TEXT NOT NULL,
-                prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                completion_tokens INTEGER NOT NULL DEFAULT 0,
-                total_tokens INTEGER NOT NULL DEFAULT 0,
-                duration_ms INTEGER NOT NULL DEFAULT 0,
-                success INTEGER NOT NULL DEFAULT 1,
-                error_message TEXT,
-                prompt_preview TEXT,
-                metadata TEXT,
-                created_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_llm_calls_time ON llm_calls(created_at)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_llm_calls_story ON llm_calls(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_llm_calls_purpose ON llm_calls(purpose)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_llm_calls_model ON llm_calls(model_id)",
-            [],
-        )?;
+        if llm_call_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE llm_calls (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT,
+                    draft_id TEXT,
+                    revision_id TEXT,
+                    model_id TEXT NOT NULL,
+                    model_name TEXT,
+                    purpose TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    duration_ms INTEGER NOT NULL DEFAULT 0,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    error_message TEXT,
+                    prompt_preview TEXT,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_llm_calls_time ON llm_calls(created_at)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_llm_calls_story ON llm_calls(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_llm_calls_purpose ON llm_calls(purpose)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_llm_calls_model ON llm_calls(model_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 62)?;
     }
 
     // Migration 65: AI 使用配额表添加 offline_grace_used 字段 (W1-B6: 离线配额快照)
-    // 注：配额系统已移除 (A1)，此迁移保留以兼容旧数据库，但跳过无表的情况
-    let quota_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-
-    if !quota_tables.is_empty() {
-        let quota_v3_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(ai_usage_quota)"
+    if current_version < 63 {
+        // 注：配额系统已移除 (A1)，此迁移保留以兼容旧数据库，但跳过无表的情况
+        let quota_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
         )?.query_map([], |row| {
-            let name: String = row.get(1)?;
+            let name: String = row.get(0)?;
             Ok(name)
         })?.collect::<Result<Vec<_>, _>>()?;
 
-        if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
-            conn.execute(
-                "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
+        if !quota_tables.is_empty() {
+            let quota_v3_columns: Vec<String> = conn.prepare(
+                "PRAGMA table_info(ai_usage_quota)"
+            )?.query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?.collect::<Result<Vec<_>, _>>()?;
+
+            if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
+                conn.execute(
+                    "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )?;
+            }
         }
+        record_migration(conn, 63)?;
     }
 
     // Migration 66: 创建 style_snapshots 表 — StyleDNA 六维向量存储 (W3-B7)
-    let snapshot_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='style_snapshots'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-
-    if snapshot_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE style_snapshots (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                chapter_number INTEGER,
-                scene_number INTEGER,
-                sentence_length REAL NOT NULL,
-                dialogue_ratio REAL NOT NULL,
-                metaphor_density REAL NOT NULL,
-                inner_monologue_ratio REAL NOT NULL,
-                emotion_density REAL NOT NULL,
-                rhythm_score REAL NOT NULL,
-                computed_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_style_snapshots_story ON style_snapshots(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_style_snapshots_story_chapter ON style_snapshots(story_id, chapter_number)",
-            [],
-        )?;
-    }
-
-    // Migration 67: narrative_* 表添加 status 字段 — Deconstruction 存储统一 (W3-B2/W3-B3)
-    for table in ["narrative_characters", "narrative_scenes", "narrative_world_buildings"] {
-        let columns: Vec<String> = conn.prepare(
-            &format!("PRAGMA table_info({})", table)
+    if current_version < 64 {
+        let snapshot_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='style_snapshots'"
         )?.query_map([], |row| {
-            let name: String = row.get(1)?;
+            let name: String = row.get(0)?;
             Ok(name)
         })?.collect::<Result<Vec<_>, _>>()?;
 
-        if !columns.iter().any(|c| c == "status") {
+        if snapshot_tables.is_empty() {
             conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'", table),
+                "CREATE TABLE style_snapshots (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    chapter_number INTEGER,
+                    scene_number INTEGER,
+                    sentence_length REAL NOT NULL,
+                    dialogue_ratio REAL NOT NULL,
+                    metaphor_density REAL NOT NULL,
+                    inner_monologue_ratio REAL NOT NULL,
+                    emotion_density REAL NOT NULL,
+                    rhythm_score REAL NOT NULL,
+                    computed_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_style_snapshots_story ON style_snapshots(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_style_snapshots_story_chapter ON style_snapshots(story_id, chapter_number)",
                 [],
             )?;
         }
+        record_migration(conn, 64)?;
+    }
+
+    // Migration 67: narrative_* 表添加 status 字段 — Deconstruction 存储统一 (W3-B2/W3-B3)
+    if current_version < 65 {
+        for table in ["narrative_characters", "narrative_scenes", "narrative_world_buildings"] {
+            let columns: Vec<String> = conn.prepare(
+                &format!("PRAGMA table_info({})", table)
+            )?.query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?.collect::<Result<Vec<_>, _>>()?;
+
+            if !columns.iter().any(|c| c == "status") {
+                conn.execute(
+                    &format!("ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'", table),
+                    [],
+                )?;
+            }
+        }
+        record_migration(conn, 65)?;
     }
 
     // W2-B9: genesis_runs 表 — GenesisRun 状态机持久化
-    let genesis_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='genesis_runs'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 66 {
+        let genesis_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='genesis_runs'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if genesis_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE genesis_runs (
-                id TEXT PRIMARY KEY,
-                story_id TEXT,
-                session_id TEXT NOT NULL,
-                premise TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                current_step TEXT,
-                current_step_number INTEGER NOT NULL DEFAULT 0,
-                total_steps INTEGER NOT NULL DEFAULT 7,
-                steps_json TEXT NOT NULL DEFAULT '{}',
-                error_message TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_genesis_runs_story ON genesis_runs(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_genesis_runs_session ON genesis_runs(session_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_genesis_runs_status ON genesis_runs(status)",
-            [],
-        )?;
+        if genesis_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE genesis_runs (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT,
+                    session_id TEXT NOT NULL,
+                    premise TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    current_step TEXT,
+                    current_step_number INTEGER NOT NULL DEFAULT 0,
+                    total_steps INTEGER NOT NULL DEFAULT 7,
+                    steps_json TEXT NOT NULL DEFAULT '{}',
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_genesis_runs_story ON genesis_runs(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_genesis_runs_session ON genesis_runs(session_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_genesis_runs_status ON genesis_runs(status)",
+                [],
+            )?;
+        }
+        record_migration(conn, 66)?;
     }
 
     // Migration 68: scene_commits (原 chapter_commits) 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
-    let scene_commit_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
-    let table_name = if scene_commit_exists { "scene_commits" } else { "chapter_commits" };
-
-    let cc_columns_m68: Vec<String> = conn.prepare(
-        &format!("PRAGMA table_info({})", table_name)
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-
-    if !cc_columns_m68.iter().any(|c| c == "chapter_id") {
-        conn.execute(
-            &format!("ALTER TABLE {} ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL", table_name),
-            [],
-        )?;
-        conn.execute(
-            &format!("CREATE INDEX IF NOT EXISTS idx_{}_chapter ON {}(chapter_id)", table_name.replace("_commits", "_commits"), table_name),
-            [],
-        )?;
-    }
-
-    // Migration 69: 将 reference_characters / reference_scenes 历史数据迁移到 narrative_* 统一表 (W3-B3)
-    let has_reference_characters: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_characters'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
-
-    if has_reference_characters {
-        conn.execute(
-            "INSERT OR IGNORE INTO narrative_characters (
-                id, story_id, name, role_type, personality, background, goals, appearance,
-                gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
-            )
-            SELECT
-                rc.id, rc.book_id, rc.name, rc.role_type, rc.personality, '', '', rc.appearance,
-                '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, 'reference', rc.created_at, rc.created_at
-            FROM reference_characters rc
-            LEFT JOIN narrative_characters nc ON nc.id = rc.id
-            WHERE nc.id IS NULL
-                AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rc.book_id)",
-            [],
-        )?;
-    }
-
-    let has_reference_scenes: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_scenes'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
-
-    if has_reference_scenes {
-        conn.execute(
-            "INSERT OR IGNORE INTO narrative_scenes (
-                id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
-                conflict_type, characters_present, setting_location, setting_time, content,
-                source, source_ref_id, status, created_at, updated_at
-            )
-            SELECT
-                rs.id, rs.book_id, rs.sequence_number, rs.title, rs.summary, '', '',
-                rs.conflict_type, rs.characters_present, '', '', NULL,
-                'extracted', rs.book_id, 'reference', rs.created_at, rs.created_at
-            FROM reference_scenes rs
-            LEFT JOIN narrative_scenes ns ON ns.id = rs.id
-            WHERE ns.id IS NULL
-                AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rs.book_id)",
-            [],
-        )?;
-    }
-
-    // Migration 70: chapter_commits 重命名为 scene_commits
-    let has_old_table: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
-
-    if has_old_table {
-        // 如果 Migration 48 已经创建了空的 scene_commits（旧数据库升级场景），先删除它
-        let has_new_table: bool = conn.query_row(
+    if current_version < 67 {
+        let scene_commit_exists: bool = conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
             [],
             |row| row.get(0),
         ).unwrap_or(0) > 0;
-        if has_new_table {
-            conn.execute("DROP TABLE scene_commits", [])?;
+        let table_name = if scene_commit_exists { "scene_commits" } else { "chapter_commits" };
+
+        let cc_columns_m68: Vec<String> = conn.prepare(
+            &format!("PRAGMA table_info({})", table_name)
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        if !cc_columns_m68.iter().any(|c| c == "chapter_id") {
+            conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL", table_name),
+                [],
+            )?;
+            conn.execute(
+                &format!("CREATE INDEX IF NOT EXISTS idx_{}_chapter ON {}(chapter_id)", table_name.replace("_commits", "_commits"), table_name),
+                [],
+            )?;
         }
-        conn.execute(
-            "ALTER TABLE chapter_commits RENAME TO scene_commits",
+        record_migration(conn, 67)?;
+    }
+
+    // Migration 69: 将 reference_characters / reference_scenes 历史数据迁移到 narrative_* 统一表 (W3-B3)
+    if current_version < 68 {
+        let has_reference_characters: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_characters'",
             [],
-        )?;
-        // SQLite RENAME TABLE 会自动更新大部分索引引用，
-        // 但含有旧表名的索引名需要删除后重建
-        conn.execute(
-            "DROP INDEX IF EXISTS idx_chapter_commits_story",
+            |row| row.get(0),
+        ).unwrap_or(0) > 0;
+
+        if has_reference_characters {
+            conn.execute(
+                "INSERT OR IGNORE INTO narrative_characters (
+                    id, story_id, name, role_type, personality, background, goals, appearance,
+                    gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
+                )
+                SELECT
+                    rc.id, rc.book_id, rc.name, rc.role_type, rc.personality, '', '', rc.appearance,
+                    '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, 'reference', rc.created_at, rc.created_at
+                FROM reference_characters rc
+                LEFT JOIN narrative_characters nc ON nc.id = rc.id
+                WHERE nc.id IS NULL
+                    AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rc.book_id)",
+                [],
+            )?;
+        }
+
+        let has_reference_scenes: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_scenes'",
             [],
-        )?;
-        conn.execute(
-            "DROP INDEX IF EXISTS idx_chapter_commits_scene",
+            |row| row.get(0),
+        ).unwrap_or(0) > 0;
+
+        if has_reference_scenes {
+            conn.execute(
+                "INSERT OR IGNORE INTO narrative_scenes (
+                    id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
+                    conflict_type, characters_present, setting_location, setting_time, content,
+                    source, source_ref_id, status, created_at, updated_at
+                )
+                SELECT
+                    rs.id, rs.book_id, rs.sequence_number, rs.title, rs.summary, '', '',
+                    rs.conflict_type, rs.characters_present, '', '', NULL,
+                    'extracted', rs.book_id, 'reference', rs.created_at, rs.created_at
+                FROM reference_scenes rs
+                LEFT JOIN narrative_scenes ns ON ns.id = rs.id
+                WHERE ns.id IS NULL
+                    AND EXISTS (SELECT 1 FROM stories s WHERE s.id = rs.book_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 68)?;
+    }
+
+    // Migration 70: chapter_commits 重命名为 scene_commits
+    if current_version < 69 {
+        let has_old_table: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
             [],
-        )?;
-        conn.execute(
-            "DROP INDEX IF EXISTS idx_chapter_commits_number",
-            [],
-        )?;
-        conn.execute(
-            "DROP INDEX IF EXISTS idx_chapter_commits_chapter",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_scene_commits_story ON scene_commits(story_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_scene_commits_scene ON scene_commits(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_scene_commits_chapter ON scene_commits(chapter_id)",
-            [],
-        )?;
+            |row| row.get(0),
+        ).unwrap_or(0) > 0;
+
+        if has_old_table {
+            // 如果 Migration 48 已经创建了空的 scene_commits（旧数据库升级场景），先删除它
+            let has_new_table: bool = conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0) > 0;
+            if has_new_table {
+                conn.execute("DROP TABLE scene_commits", [])?;
+            }
+            conn.execute(
+                "ALTER TABLE chapter_commits RENAME TO scene_commits",
+                [],
+            )?;
+            // SQLite RENAME TABLE 会自动更新大部分索引引用，
+            // 但含有旧表名的索引名需要删除后重建
+            conn.execute(
+                "DROP INDEX IF EXISTS idx_chapter_commits_story",
+                [],
+            )?;
+            conn.execute(
+                "DROP INDEX IF EXISTS idx_chapter_commits_scene",
+                [],
+            )?;
+            conn.execute(
+                "DROP INDEX IF EXISTS idx_chapter_commits_number",
+                [],
+            )?;
+            conn.execute(
+                "DROP INDEX IF EXISTS idx_chapter_commits_chapter",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scene_commits_story ON scene_commits(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scene_commits_scene ON scene_commits(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scene_commits_chapter ON scene_commits(chapter_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 69)?;
     }
 
     // Migration 71: 废弃 chapters.scene_id，完成 1:N 架构语义对齐
-    let chapter_columns_m71: Vec<String> = conn.prepare(
-        "PRAGMA table_info(chapters)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 70 {
+        let chapter_columns_m71: Vec<String> = conn.prepare(
+            "PRAGMA table_info(chapters)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if chapter_columns_m71.iter().any(|c| c == "scene_id") {
-        // 必须先删除索引，再删除列（SQLite DROP COLUMN 不能删除有索引的列）
-        // 使用显式事务包裹，避免 SQLite schema 缓存导致 drop column 时仍能看到已删除的索引
-        let tx = conn.transaction()?;
-        tx.execute(
-            "DROP INDEX IF EXISTS idx_chapters_scene",
-            [],
-        )?;
-        tx.execute(
-            "ALTER TABLE chapters DROP COLUMN scene_id",
-            [],
-        )?;
-        tx.commit()?;
+        if chapter_columns_m71.iter().any(|c| c == "scene_id") {
+            // 必须先删除索引，再删除列（SQLite DROP COLUMN 不能删除有索引的列）
+            // 使用显式事务包裹，避免 SQLite schema 缓存导致 drop column 时仍能看到已删除的索引
+            let tx = conn.transaction()?;
+            tx.execute(
+                "DROP INDEX IF EXISTS idx_chapters_scene",
+                [],
+            )?;
+            tx.execute(
+                "ALTER TABLE chapters DROP COLUMN scene_id",
+                [],
+            )?;
+            tx.commit()?;
+        }
+        record_migration(conn, 70)?;
     }
 
     // Migration 72: 创建 scene_divider_nodes 表
-    let divider_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 71 {
+        let divider_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if divider_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE scene_divider_nodes (
-                id TEXT PRIMARY KEY,
-                chapter_id TEXT NOT NULL,
-                position INTEGER NOT NULL,
-                scene_id TEXT NOT NULL,
-                label TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                UNIQUE(chapter_id, position)
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)",
-            [],
-        )?;
+        if divider_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_divider_nodes (
+                    id TEXT PRIMARY KEY,
+                    chapter_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    label TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    UNIQUE(chapter_id, position)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 71)?;
     }
 
     // Migration 73: 创建 entity_mentions 表 — Cascade Rewriter 实体引用索引 (D1)
-    let mention_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_mentions'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
+    if current_version < 72 {
+        let mention_tables: Vec<String> = conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_mentions'"
+        )?.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-    if mention_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE entity_mentions (
-                id TEXT PRIMARY KEY,
-                story_id TEXT NOT NULL,
-                scene_id TEXT NOT NULL,
-                entity_id TEXT NOT NULL,
-                entity_type TEXT NOT NULL,
-                start_pos INTEGER NOT NULL,
-                end_pos INTEGER NOT NULL,
-                mention_text TEXT NOT NULL,
-                confidence REAL NOT NULL DEFAULT 1.0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-                FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_mentions_entity ON entity_mentions(entity_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_mentions_scene ON entity_mentions(scene_id)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_mentions_story ON entity_mentions(story_id)",
-            [],
-        )?;
+        if mention_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE entity_mentions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    start_pos INTEGER NOT NULL,
+                    end_pos INTEGER NOT NULL,
+                    mention_text TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_mentions_entity ON entity_mentions(entity_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_mentions_scene ON entity_mentions(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_mentions_story ON entity_mentions(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 72)?;
     }
 
     Ok(())
