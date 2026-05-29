@@ -1,6 +1,6 @@
 /**
  * FrontstageLauncher - 幕前窗口启动器
- * 
+ *
  * 提供快速打开/关闭幕前窗口的按钮
  */
 
@@ -53,9 +53,10 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
         className={`
           flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm
           transition-all duration-300 shadow-lg
-          ${isOpen
-            ? 'bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/30'
-            : 'bg-cinema-800 text-white hover:bg-cinema-700 border border-cinema-700'
+          ${
+            isOpen
+              ? 'bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/30'
+              : 'bg-cinema-800 text-white hover:bg-cinema-700 border border-cinema-700'
           }
         `}
       >

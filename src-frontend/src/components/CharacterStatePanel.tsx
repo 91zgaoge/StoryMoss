@@ -22,13 +22,23 @@ interface CharacterStatePanelProps {
   onUpdate?: () => void;
 }
 
-const stateFields: { key: keyof CharacterState; label: string; icon: React.ElementType; placeholder: string }[] = [
+const stateFields: {
+  key: keyof CharacterState;
+  label: string;
+  icon: React.ElementType;
+  placeholder: string;
+}[] = [
   { key: 'location', label: '位置', icon: MapPin, placeholder: '例如：长安城、飞船甲板' },
   { key: 'power_level', label: '实力', icon: Zap, placeholder: '例如：筑基期、S级异能者' },
   { key: 'physical_state', label: '身体', icon: Heart, placeholder: '例如：轻伤、疲惫、健康' },
   { key: 'mental_state', label: '心理', icon: Brain, placeholder: '例如：焦虑、坚定、迷茫' },
   { key: 'key_items', label: '持有物品', icon: Backpack, placeholder: '例如：玉佩、激光枪、密信' },
-  { key: 'recent_events', label: '近期事件', icon: Clock, placeholder: '例如：与主角决裂、获得传承' },
+  {
+    key: 'recent_events',
+    label: '近期事件',
+    icon: Clock,
+    placeholder: '例如：与主角决裂、获得传承',
+  },
 ];
 
 export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanelProps) {
@@ -45,9 +55,7 @@ export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanel
     updated_at_chapter: character.cs_updated_at_chapter,
   });
 
-  const hasAnyState = stateFields.some(
-    (f) => character[`cs_${f.key}` as keyof Character]
-  );
+  const hasAnyState = stateFields.some(f => character[`cs_${f.key}` as keyof Character]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -94,9 +102,7 @@ export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanel
         <span className="flex items-center gap-1.5">
           <Activity className="w-3.5 h-3.5" />
           动态状态
-          {hasAnyState && (
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-          )}
+          {hasAnyState && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
         </span>
         {isExpanded ? (
           <ChevronUp className="w-3.5 h-3.5" />
@@ -119,9 +125,7 @@ export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanel
                     <input
                       type="text"
                       value={(formData[key] as string) || ''}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
+                      onChange={e => setFormData(prev => ({ ...prev, [key]: e.target.value }))}
                       placeholder={placeholder}
                       className="w-full mt-0.5 px-2 py-1 text-xs bg-cinema-800/50 border border-cinema-700 rounded text-white placeholder:text-gray-600 focus:outline-none focus:border-cinema-gold/50"
                     />
@@ -165,9 +169,7 @@ export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanel
                   <span>更新于第 {character.cs_updated_at_chapter} 章</span>
                 </div>
               )}
-              {!hasAnyState && (
-                <p className="text-[11px] text-gray-600 italic">暂无动态状态记录</p>
-              )}
+              {!hasAnyState && <p className="text-[11px] text-gray-600 italic">暂无动态状态记录</p>}
               <button
                 onClick={() => setIsEditing(true)}
                 className="w-full mt-1 py-1 text-[11px] text-cinema-gold/60 hover:text-cinema-gold border border-dashed border-cinema-700 hover:border-cinema-gold/30 rounded transition-colors"

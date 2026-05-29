@@ -52,7 +52,7 @@ export function useReloadWorkflows() {
     mutationFn: async () => {
       return loggedInvoke<number>('reload_workflows');
     },
-    onSuccess: (count) => {
+    onSuccess: count => {
       toast.success(`已重新加载 ${count} 个工作流`);
     },
     onError: (error: Error) => {

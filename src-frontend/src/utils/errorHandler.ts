@@ -48,7 +48,10 @@ export function parseStructuredError(error: unknown): StructuredError | null {
       return {
         code: obj.code,
         message: obj.message,
-        data: obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>) : undefined,
+        data:
+          obj.data && typeof obj.data === 'object'
+            ? (obj.data as Record<string, unknown>)
+            : undefined,
       };
     }
   }
@@ -71,7 +74,10 @@ export function parseStructuredError(error: unknown): StructuredError | null {
           return {
             code: parsed.code,
             message: parsed.message,
-            data: parsed.data && typeof parsed.data === 'object' ? (parsed.data as Record<string, unknown>) : undefined,
+            data:
+              parsed.data && typeof parsed.data === 'object'
+                ? (parsed.data as Record<string, unknown>)
+                : undefined,
           };
         }
       } catch {
@@ -115,7 +121,10 @@ function extractStack(error: unknown): string | undefined {
 /**
  * 根据 code 返回推荐的用户提示文案和动作类型
  */
-function resolveUserFacingMessage(structured: StructuredError | null, fallback: string): { text: string; action?: 'upgrade' | 'check_model' | 'retry' | 'none' } {
+function resolveUserFacingMessage(
+  structured: StructuredError | null,
+  fallback: string
+): { text: string; action?: 'upgrade' | 'check_model' | 'retry' | 'none' } {
   if (!structured) {
     return { text: fallback, action: 'none' };
   }
@@ -124,7 +133,10 @@ function resolveUserFacingMessage(structured: StructuredError | null, fallback: 
     case 'FEATURE_LOCKED':
       return { text: structured.message || '此功能需专业版', action: 'upgrade' };
     case 'LLM_TIMEOUT':
-      return { text: structured.message || '模型响应超时，请检查模型配置或网络', action: 'check_model' };
+      return {
+        text: structured.message || '模型响应超时，请检查模型配置或网络',
+        action: 'check_model',
+      };
     case 'DB_LOCKED':
       return { text: '操作过于频繁，请稍后重试', action: 'retry' };
     case 'CANCELLATION':
@@ -252,9 +264,7 @@ export function silently<TArgs extends unknown[], TReturn>(
 /**
  * 为 React Query / TanStack Query 的 onError 提供统一处理
  */
-export function queryOnError(
-  options: Omit<ErrorHandlerOptions, 'context'> & { context: string }
-) {
+export function queryOnError(options: Omit<ErrorHandlerOptions, 'context'> & { context: string }) {
   return (error: unknown) => {
     handleError(error, options);
   };

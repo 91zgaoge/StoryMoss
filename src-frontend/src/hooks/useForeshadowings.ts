@@ -137,7 +137,10 @@ export function useDetectOverduePayoffs(storyId: string | null, currentSceneNumb
   });
 }
 
-export function useRecommendPayoffTiming(storyId: string | null, currentSceneNumber: number | null) {
+export function useRecommendPayoffTiming(
+  storyId: string | null,
+  currentSceneNumber: number | null
+) {
   return useQuery({
     queryKey: [RECOMMENDATIONS_KEY, storyId, currentSceneNumber],
     queryFn: async () => {

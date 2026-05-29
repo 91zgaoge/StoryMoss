@@ -1,5 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GitBranch, Quote, Check, Loader2, Scissors, Copy, Clipboard, CheckSquare } from 'lucide-react';
+import {
+  GitBranch,
+  Quote,
+  Check,
+  Loader2,
+  Scissors,
+  Copy,
+  Clipboard,
+  CheckSquare,
+} from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface EditorContextMenuProps {
@@ -98,7 +107,9 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
       disabled={disabled}
       className={cn(
         'w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors',
-        disabled ? 'text-[var(--stone-gray)]/60 cursor-not-allowed' : 'hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]'
+        disabled
+          ? 'text-[var(--stone-gray)]/60 cursor-not-allowed'
+          : 'hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]'
       )}
     >
       {children}
@@ -110,7 +121,7 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      onMouseDown={(e) => {
+      onMouseDown={e => {
         e.preventDefault();
         e.stopPropagation();
       }}
@@ -144,7 +155,12 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
       <Divider />
 
       <MenuItem onClick={onToggleRevision}>
-        <GitBranch className={cn('w-4 h-4', isRevisionMode ? 'text-[var(--terracotta)]' : 'text-[var(--stone-gray)]')} />
+        <GitBranch
+          className={cn(
+            'w-4 h-4',
+            isRevisionMode ? 'text-[var(--terracotta)]' : 'text-[var(--stone-gray)]'
+          )}
+        />
         <span className="flex-1">修订模式</span>
         {isRevisionMode && <Check className="w-4 h-4 text-[var(--terracotta)]" />}
       </MenuItem>

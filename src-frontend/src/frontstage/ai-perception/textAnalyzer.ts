@@ -49,9 +49,12 @@ function splitSentences(text: string): string[] {
 function isDialogue(text: string): boolean {
   // 检测中文/英文引号包裹的内容
   const quotePairs = [
-    ['\u201C', '\u201D'], ['\u2018', '\u2019'], // 中文弯引号 " " ' '
-    ['\u300C', '\u300D'], ['\u300E', '\u300F'], // 中文角引号 「 」 『 』
-    ['"', '"'], ["'", "'"], // 英文直引号
+    ['\u201C', '\u201D'],
+    ['\u2018', '\u2019'], // 中文弯引号 " " ' '
+    ['\u300C', '\u300D'],
+    ['\u300E', '\u300F'], // 中文角引号 「 」 『 』
+    ['"', '"'],
+    ["'", "'"], // 英文直引号
   ];
   for (const [open, close] of quotePairs) {
     const regex = new RegExp(open + '.{2,50}' + close);
@@ -63,10 +66,39 @@ function isDialogue(text: string): boolean {
 /** 检测是否为描写（环境/动作/外貌） */
 function isDescription(text: string): boolean {
   const descKeywords = [
-    '风', '雨', '雪', '云', '天', '地', '山', '水', '花', '树',
-    '阳光', '月光', '灯光', '影子', '颜色', '声音', '气味',
-    '走', '跑', '站', '坐', '看', '望', '低', '抬', '转',
-    '红', '绿', '蓝', '白', '黑', '金', '银',
+    '风',
+    '雨',
+    '雪',
+    '云',
+    '天',
+    '地',
+    '山',
+    '水',
+    '花',
+    '树',
+    '阳光',
+    '月光',
+    '灯光',
+    '影子',
+    '颜色',
+    '声音',
+    '气味',
+    '走',
+    '跑',
+    '站',
+    '坐',
+    '看',
+    '望',
+    '低',
+    '抬',
+    '转',
+    '红',
+    '绿',
+    '蓝',
+    '白',
+    '黑',
+    '金',
+    '银',
   ];
   const descCount = descKeywords.filter(kw => text.includes(kw)).length;
   return descCount >= 2;
@@ -75,9 +107,29 @@ function isDescription(text: string): boolean {
 /** 检测是否为心理/情感描写 */
 function isEmotion(text: string): boolean {
   const emotionKeywords = [
-    '想', '觉得', '感到', '感觉', '心里', '心中', '念头',
-    '喜', '怒', '哀', '乐', '悲', '欢', '愁', '恨', '爱',
-    '紧张', '害怕', '兴奋', '难过', '开心', '痛苦', '幸福',
+    '想',
+    '觉得',
+    '感到',
+    '感觉',
+    '心里',
+    '心中',
+    '念头',
+    '喜',
+    '怒',
+    '哀',
+    '乐',
+    '悲',
+    '欢',
+    '愁',
+    '恨',
+    '爱',
+    '紧张',
+    '害怕',
+    '兴奋',
+    '难过',
+    '开心',
+    '痛苦',
+    '幸福',
   ];
   const emotionCount = emotionKeywords.filter(kw => text.includes(kw)).length;
   return emotionCount >= 1;
@@ -89,19 +141,74 @@ function simpleTokenize(text: string): string[] {
   const chars = text.split('');
   const words: string[] = [];
   const stopChars = new Set([
-    '\uFF0C', '\u3002', '\uFF01', '\uFF1F', '\uFF1B', '\uFF1A', '\u3001', // ，。！？；：、
-    '\u201C', '\u201D', '\u2018', '\u2019', // " " ' '
-    '\u300C', '\u300D', '\u300E', '\u300F', // 「 」 『 』
-    '\uFF08', '\uFF09', '\u3010', '\u3011', '\u300A', '\u300B', // （）【】《》
-    ' ', '\n', '\t',
+    '\uFF0C',
+    '\u3002',
+    '\uFF01',
+    '\uFF1F',
+    '\uFF1B',
+    '\uFF1A',
+    '\u3001', // ，。！？；：、
+    '\u201C',
+    '\u201D',
+    '\u2018',
+    '\u2019', // " " ' '
+    '\u300C',
+    '\u300D',
+    '\u300E',
+    '\u300F', // 「 」 『 』
+    '\uFF08',
+    '\uFF09',
+    '\u3010',
+    '\u3011',
+    '\u300A',
+    '\u300B', // （）【】《》
+    ' ',
+    '\n',
+    '\t',
   ]);
 
   // 简单的双字词检测
   const commonWords = new Set([
-    '一个', '没有', '什么', '自己', '知道', '可以', '就是', '还是', '这样', '那个',
-    '已经', '开始', '突然', '看着', '听到', '感觉', '心里', '不知', '只是', '一直',
-    '不会', '不能', '不要', '这么', '那么', '如何', '为什么', '因为', '所以', '但是',
-    '时间', '地方', '世界', '目光', '声音', '身体', '脸上', '眼中', '心中', '手里',
+    '一个',
+    '没有',
+    '什么',
+    '自己',
+    '知道',
+    '可以',
+    '就是',
+    '还是',
+    '这样',
+    '那个',
+    '已经',
+    '开始',
+    '突然',
+    '看着',
+    '听到',
+    '感觉',
+    '心里',
+    '不知',
+    '只是',
+    '一直',
+    '不会',
+    '不能',
+    '不要',
+    '这么',
+    '那么',
+    '如何',
+    '为什么',
+    '因为',
+    '所以',
+    '但是',
+    '时间',
+    '地方',
+    '世界',
+    '目光',
+    '声音',
+    '身体',
+    '脸上',
+    '眼中',
+    '心中',
+    '手里',
   ]);
 
   let i = 0;
@@ -217,9 +324,7 @@ function analyzeSentencePattern(paragraphs: string[]): SentencePatternAnalysis {
     .slice(0, 5);
 
   // 判断句式是否单调
-  const maxStarterRatio = topStarters.length > 0
-    ? topStarters[0].count / totalSentences
-    : 0;
+  const maxStarterRatio = topStarters.length > 0 ? topStarters[0].count / totalSentences : 0;
   const isMonotonous = maxStarterRatio > 0.4 || varietyIndex < 0.15;
 
   return {
@@ -256,9 +361,41 @@ function analyzeVocabulary(paragraphs: string[]): VocabularyAnalysis {
 
   // 找出高频重复词（排除常见虚词）
   const stopWords = new Set([
-    '的', '了', '是', '在', '有', '我', '他', '她', '它', '你', '我们', '他们',
-    '一', '不', '人', '都', '要', '会', '对', '也', '很', '好', '就', '让',
-    '上', '下', '来', '去', '到', '说', '看', '着', '个', '这', '那',
+    '的',
+    '了',
+    '是',
+    '在',
+    '有',
+    '我',
+    '他',
+    '她',
+    '它',
+    '你',
+    '我们',
+    '他们',
+    '一',
+    '不',
+    '人',
+    '都',
+    '要',
+    '会',
+    '对',
+    '也',
+    '很',
+    '好',
+    '就',
+    '让',
+    '上',
+    '下',
+    '来',
+    '去',
+    '到',
+    '说',
+    '看',
+    '着',
+    '个',
+    '这',
+    '那',
   ]);
 
   const repeatedWords = Array.from(freq.entries())
@@ -274,12 +411,70 @@ function analyzeVocabulary(paragraphs: string[]): VocabularyAnalysis {
   const hasRepetition = repeatedWords.some(r => r.ratio > 0.05);
 
   // 简单的形容词/动词密度估计
-  const adjIndicators = ['大', '小', '高', '低', '长', '短', '深', '浅', '新', '旧',
-    '美', '丑', '冷', '热', '快', '慢', '轻', '重', '明', '暗',
-    '红', '绿', '蓝', '白', '黑', '金', '银', '紫', '青', '黄'];
-  const verbIndicators = ['走', '跑', '跳', '站', '坐', '躺', '看', '望', '听', '说',
-    '想', '拿', '放', '推', '拉', '打', '抓', '握', '挥', '点',
-    '笑', '哭', '怒', '喜', '叹', '叫', '喊', '问', '答', '唱'];
+  const adjIndicators = [
+    '大',
+    '小',
+    '高',
+    '低',
+    '长',
+    '短',
+    '深',
+    '浅',
+    '新',
+    '旧',
+    '美',
+    '丑',
+    '冷',
+    '热',
+    '快',
+    '慢',
+    '轻',
+    '重',
+    '明',
+    '暗',
+    '红',
+    '绿',
+    '蓝',
+    '白',
+    '黑',
+    '金',
+    '银',
+    '紫',
+    '青',
+    '黄',
+  ];
+  const verbIndicators = [
+    '走',
+    '跑',
+    '跳',
+    '站',
+    '坐',
+    '躺',
+    '看',
+    '望',
+    '听',
+    '说',
+    '想',
+    '拿',
+    '放',
+    '推',
+    '拉',
+    '打',
+    '抓',
+    '握',
+    '挥',
+    '点',
+    '笑',
+    '哭',
+    '怒',
+    '喜',
+    '叹',
+    '叫',
+    '喊',
+    '问',
+    '答',
+    '唱',
+  ];
 
   const adjCount = words.filter(w => adjIndicators.includes(w)).length;
   const verbCount = words.filter(w => verbIndicators.includes(w)).length;
@@ -319,13 +514,15 @@ function analyzePacing(paragraphs: string[]): PacingAnalysis {
   for (let i = 1; i < paraAnalyses.length; i++) {
     const prev = paraAnalyses[i - 1].type;
     const curr = paraAnalyses[i].type;
-    if ((prev === 'dialogue' && curr !== 'dialogue') || (prev !== 'dialogue' && curr === 'dialogue')) {
+    if (
+      (prev === 'dialogue' && curr !== 'dialogue') ||
+      (prev !== 'dialogue' && curr === 'dialogue')
+    ) {
       alternations++;
     }
   }
-  const dialogueNarrativeAlternation = paraAnalyses.length > 1
-    ? alternations / (paraAnalyses.length - 1)
-    : 0;
+  const dialogueNarrativeAlternation =
+    paraAnalyses.length > 1 ? alternations / (paraAnalyses.length - 1) : 0;
 
   // 检测连续同类型段落
   let maxSameTypeSequence = 1;
@@ -350,12 +547,15 @@ function analyzePacing(paragraphs: string[]): PacingAnalysis {
     currentPacing = 'fast';
   } else if (avgRecentLength > 150) {
     currentPacing = 'slow';
-  } else if (recent.some(p => p.type === 'description') && recent.some(p => p.type === 'dialogue')) {
+  } else if (
+    recent.some(p => p.type === 'description') &&
+    recent.some(p => p.type === 'dialogue')
+  ) {
     currentPacing = 'mixed';
   }
 
   // 综合变化度评分
-  const variationScore = (paragraphVariation * 0.4 + dialogueNarrativeAlternation * 0.6);
+  const variationScore = paragraphVariation * 0.4 + dialogueNarrativeAlternation * 0.6;
 
   return {
     variationScore,
@@ -432,7 +632,10 @@ export function analyzeText(htmlContent: string): PerceptionResult {
  * 增量分析：只分析最近添加/修改的部分
  * 用于性能优化，避免每次全量分析
  */
-export function analyzeRecent(htmlContent: string, lastAnalyzedText: string): PerceptionResult | null {
+export function analyzeRecent(
+  htmlContent: string,
+  lastAnalyzedText: string
+): PerceptionResult | null {
   const text = htmlToText(htmlContent);
   if (text === lastAnalyzedText) return null;
 

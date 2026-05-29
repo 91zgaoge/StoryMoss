@@ -1,6 +1,6 @@
 /**
  * StreamingText - 流式文字渲染组件
- * 
+ *
  * 设计理念：
  * - 双状态文本编辑器：用户正文 + AI 生成预览
  * - AI 生成文字实时流式显示在用户光标位置
@@ -58,7 +58,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
     onComplete: () => {
       setShowAcceptHint(true);
     },
-    onAccept: (text) => {
+    onAccept: text => {
       // 将 AI 生成内容合并到用户内容
       const newContent = userContent + text;
       onUserContentChange(newContent);
@@ -88,7 +88,10 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
       }
 
       // Esc: 拒绝生成
-      if (e.key === 'Escape' && (state === 'generating' || state === 'completed' || state === 'paused')) {
+      if (
+        e.key === 'Escape' &&
+        (state === 'generating' || state === 'completed' || state === 'paused')
+      ) {
         e.preventDefault();
         rejectGeneration();
       }
@@ -115,15 +118,15 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
 
   const handleRequestGeneration = useCallback(async () => {
     if (!aiEnabled || !chapterId) return;
-    
+
     // 清除之前的生成
     clearGeneration();
-    
+
     try {
       // 获取上下文（最后 300 字）
       const context = userContent.slice(-300);
       const generatedText = await onRequestGeneration(context);
-      
+
       if (generatedText) {
         startGeneration(generatedText);
       }
@@ -143,17 +146,17 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
   // 计算光标位置（简化版本）
   const getCursorPosition = () => {
     if (!textareaRef.current) return { top: 0, left: 0 };
-    
+
     const textarea = textareaRef.current;
     const textBeforeCursor = userContent.slice(0, textarea.selectionStart);
     const lines = textBeforeCursor.split('\n');
     const currentLine = lines.length;
     const currentColumn = lines[lines.length - 1].length;
-    
+
     // 估算位置（实际应该使用 canvas 测量）
     const lineHeight = 32.4; // 18px * 1.8
     const charWidth = 18;
-    
+
     return {
       top: currentLine * lineHeight,
       left: currentColumn * charWidth,
@@ -171,10 +174,10 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
           className="user-text-editor"
           value={userContent}
           onChange={handleUserInput}
-          placeholder='开始书写你的故事...'
+          placeholder="开始书写你的故事..."
           spellCheck={false}
         />
-        
+
         {/* AI 生成文本覆盖层 */}
         {(isGenerating || state === 'completed' || state === 'paused') && generatedText && (
           <div
@@ -189,15 +192,13 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
           >
             {/* 呼吸光晕效果 */}
             <div className="ai-breathing-glow" />
-            
+
             {/* AI 生成文本 */}
-            <span className="ai-generating-content">
-              {generatedText}
-            </span>
-            
+            <span className="ai-generating-content">{generatedText}</span>
+
             {/* 闪烁光标 */}
             {isGenerating && <span className="ai-cursor-blink" />}
-            
+
             {/* 控制按钮（悬停或完成时显示） */}
             {(isHoveringAI || state === 'completed' || state === 'paused') && (
               <div className="ai-control-buttons">
@@ -210,7 +211,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
                     <Pause className="w-3 h-3" />
                   </button>
                 )}
-                
+
                 {isPaused && (
                   <button
                     className="ai-btn resume"
@@ -220,23 +221,15 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
                     <Play className="w-3 h-3" />
                   </button>
                 )}
-                
-                <button
-                  className="ai-btn accept"
-                  onClick={acceptGeneration}
-                  title="采纳 (Tab)"
-                >
+
+                <button className="ai-btn accept" onClick={acceptGeneration} title="采纳 (Tab)">
                   <Check className="w-3 h-3" />
                 </button>
-                
-                <button
-                  className="ai-btn reject"
-                  onClick={rejectGeneration}
-                  title="弃用 (Esc)"
-                >
+
+                <button className="ai-btn reject" onClick={rejectGeneration} title="弃用 (Esc)">
                   <X className="w-3 h-3" />
                 </button>
-                
+
                 <button
                   className="ai-btn restart"
                   onClick={handleRequestGeneration}
@@ -265,10 +258,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
       {/* 生成进度指示器 */}
       {isGenerating && (
         <div className="ai-progress-bar">
-          <div 
-            className="ai-progress-fill"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="ai-progress-fill" style={{ width: `${progress}%` }} />
         </div>
       )}
 

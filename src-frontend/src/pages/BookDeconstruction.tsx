@@ -29,9 +29,10 @@ export function BookDeconstruction() {
   const selectedStatus = useBookAnalysisStatus(selectedBookId);
   const cancelMutation = useCancelBookAnalysis();
 
-  const filteredBooks = books?.filter((book) =>
-    book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (book.author?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+  const filteredBooks = books?.filter(
+    book =>
+      book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (book.author?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
   );
 
   const handleUpload = async (filePath: string) => {
@@ -84,10 +85,7 @@ export function BookDeconstruction() {
     if (showUpload) {
       return (
         <div className="max-w-2xl mx-auto mt-8">
-          <BookUploadPanel
-            onUpload={handleUpload}
-            isUploading={uploadMutation.isPending}
-          />
+          <BookUploadPanel onUpload={handleUpload} isUploading={uploadMutation.isPending} />
         </div>
       );
     }
@@ -176,7 +174,7 @@ export function BookDeconstruction() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={e => setSearchQuery(e.target.value)}
               placeholder="搜索书籍..."
               className="w-full pl-9 pr-3 py-2 rounded-lg bg-cinema-800 border border-cinema-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold/50"
             />
@@ -191,7 +189,7 @@ export function BookDeconstruction() {
             <BookListGrid
               books={filteredBooks}
               selectedId={selectedBookId}
-              onSelect={(id) => {
+              onSelect={id => {
                 setSelectedBookId(id);
                 setShowUpload(false);
               }}

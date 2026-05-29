@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  getModelProviders,
-  getProviderDefaultModels,
-  setActiveModel,
-} from '../settings';
+import { getModelProviders, getProviderDefaultModels, setActiveModel } from '../settings';
 
 // Mock Tauri invoke
 vi.mock('@tauri-apps/api/core', () => ({
@@ -13,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 describe('getModelProviders', () => {
   it('should return all supported providers', () => {
     const providers = getModelProviders();
-    const ids = providers.map((p) => p.id);
+    const ids = providers.map(p => p.id);
 
     expect(ids).toContain('openai');
     expect(ids).toContain('anthropic');
@@ -28,9 +24,9 @@ describe('getModelProviders', () => {
 
   it('should indicate API key requirement correctly', () => {
     const providers = getModelProviders();
-    const openai = providers.find((p) => p.id === 'openai');
-    const ollama = providers.find((p) => p.id === 'ollama');
-    const custom = providers.find((p) => p.id === 'custom');
+    const openai = providers.find(p => p.id === 'openai');
+    const ollama = providers.find(p => p.id === 'ollama');
+    const custom = providers.find(p => p.id === 'custom');
 
     expect(openai?.requiresApiKey).toBe(true);
     expect(ollama?.requiresApiKey).toBe(false);
@@ -39,7 +35,7 @@ describe('getModelProviders', () => {
 
   it('should list supported types for each provider', () => {
     const providers = getModelProviders();
-    const openai = providers.find((p) => p.id === 'openai');
+    const openai = providers.find(p => p.id === 'openai');
 
     expect(openai?.supports).toContain('chat');
     expect(openai?.supports).toContain('embedding');

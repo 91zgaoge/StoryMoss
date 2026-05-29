@@ -1,5 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList, History, RotateCcw, GitMerge } from 'lucide-react';
+import {
+  Plus,
+  BookOpen,
+  Download,
+  Trash2,
+  Edit3,
+  ArrowRight,
+  Check,
+  X,
+  FolderOpen,
+  Sparkles,
+  Loader2,
+  Palette,
+  ChevronDown,
+  Wand2,
+  Eye,
+  Users,
+  FileText,
+  LayoutList,
+  History,
+  RotateCcw,
+  GitMerge,
+} from 'lucide-react';
 import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -13,7 +35,15 @@ import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
 import type { Story } from '@/types/index';
 import toast from 'react-hot-toast';
-import { runCreationWorkflow, createStoryWithWizard, listStyleDnas, setStoryStyleDna, analyzeStyleSample, getStoryStyleBlend, setStoryStyleBlend } from '@/services/tauri';
+import {
+  runCreationWorkflow,
+  createStoryWithWizard,
+  listStyleDnas,
+  setStoryStyleDna,
+  analyzeStyleSample,
+  getStoryStyleBlend,
+  setStoryStyleBlend,
+} from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
 import type { StyleBlendConfig } from '@/types/index';
@@ -44,7 +74,9 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
             {outline.act_count > 0 && (
               <p className="mt-2 text-xs text-gray-500">
                 {outline.act_count} 幕
-                {outline.total_scenes_estimate ? ` · 预计 ${outline.total_scenes_estimate} 个场景` : ''}
+                {outline.total_scenes_estimate
+                  ? ` · 预计 ${outline.total_scenes_estimate} 个场景`
+                  : ''}
               </p>
             )}
           </div>
@@ -61,7 +93,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
           <p className="text-lg font-bold text-white">{characters.length}</p>
           {characters.length > 0 && (
             <div className="mt-1 flex -space-x-1">
-              {characters.slice(0, 4).map((c) => (
+              {characters.slice(0, 4).map(c => (
                 <div
                   key={c.id}
                   className="w-5 h-5 rounded-full bg-cinema-700 border border-cinema-800 flex items-center justify-center text-[9px] text-gray-300"
@@ -87,7 +119,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
           <p className="text-lg font-bold text-white">{scenes.length}</p>
           {scenes.length > 0 && (
             <div className="mt-1 space-y-0.5">
-              {scenes.slice(0, 3).map((s) => (
+              {scenes.slice(0, 3).map(s => (
                 <p key={s.id} className="text-[10px] text-gray-600 truncate">
                   #{s.sequence_number} {s.title || `场景 ${s.sequence_number}`}
                 </p>
@@ -107,15 +139,15 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
           <p className="text-lg font-bold text-white">{foreshadowings.length}</p>
           {foreshadowings.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
-              {foreshadowings.slice(0, 3).map((f) => (
+              {foreshadowings.slice(0, 3).map(f => (
                 <span
                   key={f.id}
                   className={`text-[9px] px-1.5 py-0.5 rounded ${
                     f.status === 'setup'
                       ? 'bg-yellow-500/10 text-yellow-400'
                       : f.status === 'payoff'
-                      ? 'bg-green-500/10 text-green-400'
-                      : 'bg-gray-500/10 text-gray-400'
+                        ? 'bg-green-500/10 text-green-400'
+                        : 'bg-gray-500/10 text-gray-400'
                   }`}
                 >
                   {f.status === 'setup' ? '未收' : f.status === 'payoff' ? '已收' : '放弃'}
@@ -137,7 +169,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
             创作管线进度
           </h4>
           <div className="space-y-1.5">
-            {scenes.map((scene) => {
+            {scenes.map(scene => {
               const stage = scene.execution_stage || 'planning';
               const stageColors: Record<string, string> = {
                 planning: 'bg-gray-500/20 text-gray-400',
@@ -156,8 +188,12 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
               return (
                 <div key={scene.id} className="flex items-center gap-2 text-xs">
                   <span className="text-gray-500 w-8">#{scene.sequence_number}</span>
-                  <span className="text-white/70 flex-1 truncate">{scene.title || `场景 ${scene.sequence_number}`}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${stageColors[stage] || stageColors.planning}`}>
+                  <span className="text-white/70 flex-1 truncate">
+                    {scene.title || `场景 ${scene.sequence_number}`}
+                  </span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded ${stageColors[stage] || stageColors.planning}`}
+                  >
                     {stageLabels[stage] || stage}
                   </span>
                 </div>
@@ -165,9 +201,18 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
             })}
           </div>
           <div className="mt-2 h-1.5 bg-cinema-800 rounded-full overflow-hidden flex">
-            {scenes.map((scene) => {
+            {scenes.map(scene => {
               const stage = scene.execution_stage || 'planning';
-              const stageColor = stage === 'final' ? 'bg-green-400' : stage === 'review' ? 'bg-amber-400' : stage === 'drafting' ? 'bg-purple-400' : stage === 'outline' ? 'bg-blue-400' : 'bg-gray-600';
+              const stageColor =
+                stage === 'final'
+                  ? 'bg-green-400'
+                  : stage === 'review'
+                    ? 'bg-amber-400'
+                    : stage === 'drafting'
+                      ? 'bg-purple-400'
+                      : stage === 'outline'
+                        ? 'bg-blue-400'
+                        : 'bg-gray-600';
               return (
                 <div
                   key={scene.id}
@@ -189,7 +234,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
             AI 操作历史
           </h4>
           <div className="space-y-2">
-            {operations.slice(0, 5).map((op) => (
+            {operations.slice(0, 5).map(op => (
               <div
                 key={op.id}
                 className={`p-2.5 rounded-lg border text-xs ${
@@ -200,11 +245,15 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                      op.operation_type === 'bootstrap' ? 'bg-green-400' :
-                      op.operation_type === 'smart_execute' ? 'bg-blue-400' :
-                      'bg-gray-400'
-                    }`} />
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        op.operation_type === 'bootstrap'
+                          ? 'bg-green-400'
+                          : op.operation_type === 'smart_execute'
+                            ? 'bg-blue-400'
+                            : 'bg-gray-400'
+                      }`}
+                    />
                     <span className="font-medium text-gray-300 truncate">{op.operation_name}</span>
                   </div>
                   <span className="text-gray-600 flex-shrink-0">{formatDate(op.created_at)}</span>
@@ -248,7 +297,13 @@ export function Stories() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [exportStory, setExportStory] = useState<{ id: string; title: string } | null>(null);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
-  const [editForm, setEditForm] = useState({ title: '', description: '', genre: '', methodology_id: '', methodology_step: 1 });
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    genre: '',
+    methodology_id: '',
+    methodology_step: 1,
+  });
   const [creatingStoryId, setCreatingStoryId] = useState<string | null>(null);
   const [styleDnaModalStory, setStyleDnaModalStory] = useState<Story | null>(null);
   const [showStyleSampleInput, setShowStyleSampleInput] = useState(false);
@@ -258,8 +313,15 @@ export function Stories() {
   const [currentBlend, setCurrentBlend] = useState<StyleBlendConfig | undefined>(undefined);
   const [blendTab, setBlendTab] = useState<'single' | 'blend'>('single');
   const queryClient = useQueryClient();
-  const [creationMode, setCreationMode] = useState<'ai_only' | 'ai_draft_human_edit' | 'human_draft_ai_polish'>('ai_only');
-  const { progress, isActive: isWorkflowActive, startListening, stopListening } = useWorkflowProgress();
+  const [creationMode, setCreationMode] = useState<
+    'ai_only' | 'ai_draft_human_edit' | 'human_draft_ai_polish'
+  >('ai_only');
+  const {
+    progress,
+    isActive: isWorkflowActive,
+    startListening,
+    stopListening,
+  } = useWorkflowProgress();
   const [showAiMenu, setShowAiMenu] = useState<string | null>(null);
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const [highlightedStoryId, setHighlightedStoryId] = useState<string | null>(null);
@@ -269,8 +331,8 @@ export function Stories() {
   const [isWizardCreating, setIsWizardCreating] = useState(false);
 
   // W2-F2: 替代 backstage-navigate-to-story DOM CustomEvent，改用 Zustand store
-  const navigateHighlightStoryId = useAppStore((state) => state.navigateHighlightStoryId);
-  const setNavigateHighlightStoryId = useAppStore((state) => state.setNavigateHighlightStoryId);
+  const navigateHighlightStoryId = useAppStore(state => state.navigateHighlightStoryId);
+  const setNavigateHighlightStoryId = useAppStore(state => state.setNavigateHighlightStoryId);
   useEffect(() => {
     if (navigateHighlightStoryId) {
       setHighlightedStoryId(navigateHighlightStoryId);
@@ -290,35 +352,40 @@ export function Stories() {
   // 加载当前故事的混合配置
   useEffect(() => {
     if (styleDnaModalStory && blendTab === 'blend') {
-      getStoryStyleBlend(styleDnaModalStory.id).then((result) => {
-        if (result?.blend) {
-          setCurrentBlend(result.blend);
-        } else {
-          setCurrentBlend(undefined);
-        }
-      }).catch(() => setCurrentBlend(undefined));
+      getStoryStyleBlend(styleDnaModalStory.id)
+        .then(result => {
+          if (result?.blend) {
+            setCurrentBlend(result.blend);
+          } else {
+            setCurrentBlend(undefined);
+          }
+        })
+        .catch(() => setCurrentBlend(undefined));
     }
   }, [styleDnaModalStory, blendTab]);
 
-  const currentStory = useAppStore((s) => s.currentStory);
-  const setCurrentStory = useAppStore((s) => s.setCurrentStory);
-  const setCurrentView = useAppStore((s) => s.setCurrentView);
+  const currentStory = useAppStore(s => s.currentStory);
+  const setCurrentStory = useAppStore(s => s.setCurrentStory);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     const formData = new FormData(form);
 
-    createStory.mutate({
-      title: formData.get('title') as string,
-      description: formData.get('description') as string,
-      genre: formData.get('genre') as string,
-    }, {
-      onSuccess: () => {
-        setIsModalOpen(false);
-        form.reset();
+    createStory.mutate(
+      {
+        title: formData.get('title') as string,
+        description: formData.get('description') as string,
+        genre: formData.get('genre') as string,
       },
-    });
+      {
+        onSuccess: () => {
+          setIsModalOpen(false);
+          form.reset();
+        },
+      }
+    );
   };
 
   const handleSelectStory = (story: Story) => {
@@ -346,20 +413,23 @@ export function Stories() {
   const handleEditSave = () => {
     if (!editingStory) return;
 
-    updateStory.mutate({
-      id: editingStory.id,
-      updates: {
-        title: editForm.title,
-        description: editForm.description || undefined,
-        genre: editForm.genre || undefined,
-        methodology_id: editForm.methodology_id || undefined,
-        methodology_step: editForm.methodology_id ? editForm.methodology_step : undefined,
+    updateStory.mutate(
+      {
+        id: editingStory.id,
+        updates: {
+          title: editForm.title,
+          description: editForm.description || undefined,
+          genre: editForm.genre || undefined,
+          methodology_id: editForm.methodology_id || undefined,
+          methodology_step: editForm.methodology_id ? editForm.methodology_step : undefined,
+        },
       },
-    }, {
-      onSuccess: () => {
-        setEditingStory(null);
-      },
-    });
+      {
+        onSuccess: () => {
+          setEditingStory(null);
+        },
+      }
+    );
   };
 
   const handleEditCancel = () => {
@@ -383,10 +453,16 @@ export function Stories() {
     setCreatingStoryId(story.id);
     startListening();
     try {
-      const result = await runCreationWorkflow(story.id, creationMode, story.description || story.title);
+      const result = await runCreationWorkflow(
+        story.id,
+        creationMode,
+        story.description || story.title
+      );
       if (result.success) {
         if (creationMode === 'ai_draft_human_edit') {
-          toast.success(`AI 初稿已完成！请在幕前编辑后继续。已完成 ${result.completed_phases.length} 个阶段`);
+          toast.success(
+            `AI 初稿已完成！请在幕前编辑后继续。已完成 ${result.completed_phases.length} 个阶段`
+          );
         } else if (creationMode === 'human_draft_ai_polish') {
           toast.success(`AI 润色完成！已完成 ${result.completed_phases.length} 个阶段`);
         } else {
@@ -494,7 +570,7 @@ export function Stories() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {stories.map((story) => {
+        {stories.map(story => {
           const isHighlighted = highlightedStoryId === story.id;
           const isOverviewOpen = openOverviewStoryId === story.id;
           return (
@@ -509,17 +585,17 @@ export function Stories() {
               <CardContent className="p-6">
                 {editingStory?.id === story.id ? (
                   // Edit Mode
-                  <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="space-y-3" onClick={e => e.stopPropagation()}>
                     <input
                       type="text"
                       value={editForm.title}
-                      onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                      onChange={e => setEditForm({ ...editForm, title: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                       placeholder="标题"
                     />
                     <select
                       value={editForm.genre}
-                      onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
+                      onChange={e => setEditForm({ ...editForm, genre: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                     >
                       <option value="">选择类型</option>
@@ -534,7 +610,7 @@ export function Stories() {
                     </select>
                     <select
                       value={editForm.methodology_id}
-                      onChange={(e) => setEditForm({ ...editForm, methodology_id: e.target.value })}
+                      onChange={e => setEditForm({ ...editForm, methodology_id: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                     >
                       <option value="">选择创作方法论（可选）</option>
@@ -547,12 +623,28 @@ export function Stories() {
                     {editForm.methodology_id === 'snowflake' && (
                       <select
                         value={editForm.methodology_step}
-                        onChange={(e) => setEditForm({ ...editForm, methodology_step: Number(e.target.value) })}
+                        onChange={e =>
+                          setEditForm({ ...editForm, methodology_step: Number(e.target.value) })
+                        }
                         className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                       >
                         {Array.from({ length: 10 }, (_, i) => (
                           <option key={i + 1} value={i + 1}>
-                            步骤 {i + 1}: {['一句话概括', '一段式概括', '人物概述', '一页纸大纲', '人物详细背景', '四页纸大纲', '人物完整档案', '场景清单', '场景扩展', '初稿写作'][i]}
+                            步骤 {i + 1}:{' '}
+                            {
+                              [
+                                '一句话概括',
+                                '一段式概括',
+                                '人物概述',
+                                '一页纸大纲',
+                                '人物详细背景',
+                                '四页纸大纲',
+                                '人物完整档案',
+                                '场景清单',
+                                '场景扩展',
+                                '初稿写作',
+                              ][i]
+                            }
                           </option>
                         ))}
                       </select>
@@ -560,7 +652,9 @@ export function Stories() {
                     {editForm.methodology_id === 'world_building' && (
                       <select
                         value={editForm.methodology_step}
-                        onChange={(e) => setEditForm({ ...editForm, methodology_step: Number(e.target.value) })}
+                        onChange={e =>
+                          setEditForm({ ...editForm, methodology_step: Number(e.target.value) })
+                        }
                         className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                       >
                         {[
@@ -577,7 +671,7 @@ export function Stories() {
                     )}
                     <textarea
                       value={editForm.description}
-                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                      onChange={e => setEditForm({ ...editForm, description: e.target.value })}
                       rows={2}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
                       placeholder="描述"
@@ -618,7 +712,7 @@ export function Stories() {
 
                     {/* Overview Toggle */}
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         setOpenOverviewStoryId(isOverviewOpen ? null : story.id);
                       }}
@@ -635,7 +729,7 @@ export function Stories() {
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           handleContinueStory(story);
                         }}
@@ -643,12 +737,15 @@ export function Stories() {
                         <FolderOpen className="w-4 h-4 mr-1" />
                         打开
                       </Button>
-                      <div className="relative" ref={showAiMenu === story.id ? aiMenuRef : undefined}>
+                      <div
+                        className="relative"
+                        ref={showAiMenu === story.id ? aiMenuRef : undefined}
+                      >
                         <Button
                           variant="ghost"
                           size="sm"
                           disabled={creatingStoryId === story.id}
-                          onClick={(e) => {
+                          onClick={e => {
                             e.stopPropagation();
                             setShowAiMenu(showAiMenu === story.id ? null : story.id);
                           }}
@@ -668,8 +765,10 @@ export function Stories() {
                             <div className="p-2 space-y-1">
                               <select
                                 value={creationMode}
-                                onChange={(e) => setCreationMode(e.target.value as typeof creationMode)}
-                                onClick={(e) => e.stopPropagation()}
+                                onChange={e =>
+                                  setCreationMode(e.target.value as typeof creationMode)
+                                }
+                                onClick={e => e.stopPropagation()}
                                 className="w-full px-2 py-1.5 bg-cinema-900 border border-cinema-700 rounded-lg text-xs text-white focus:border-cinema-gold focus:outline-none"
                                 title="选择创作模式"
                               >
@@ -678,25 +777,31 @@ export function Stories() {
                                 <option value="human_draft_ai_polish">我初稿 + AI 润色</option>
                               </select>
                               <button
-                                onClick={(e) => handleQuickCreate(story, e)}
+                                onClick={e => handleQuickCreate(story, e)}
                                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
                               >
                                 <Sparkles className="w-4 h-4 text-cinema-gold" />
                                 <div>
                                   <div className="text-white text-sm">快速创作</div>
                                   <div className="text-[10px] text-gray-500">
-                                    {creationMode === 'ai_only' ? 'AI 全自动生成' : creationMode === 'ai_draft_human_edit' ? 'AI 初稿 + 我精修' : '我初稿 + AI 润色'}
+                                    {creationMode === 'ai_only'
+                                      ? 'AI 全自动生成'
+                                      : creationMode === 'ai_draft_human_edit'
+                                        ? 'AI 初稿 + 我精修'
+                                        : '我初稿 + AI 润色'}
                                   </div>
                                 </div>
                               </button>
                               <button
-                                onClick={(e) => handleWizardCreate(story, e)}
+                                onClick={e => handleWizardCreate(story, e)}
                                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
                               >
                                 <Wand2 className="w-4 h-4 text-cinema-gold" />
                                 <div>
                                   <div className="text-white text-sm">向导创作</div>
-                                  <div className="text-[10px] text-gray-500">分步选择 AI 生成选项</div>
+                                  <div className="text-[10px] text-gray-500">
+                                    分步选择 AI 生成选项
+                                  </div>
                                 </div>
                               </button>
                             </div>
@@ -706,7 +811,7 @@ export function Stories() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           setStyleDnaModalStory(story);
                         }}
@@ -718,7 +823,7 @@ export function Stories() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           setExportStory({ id: story.id, title: story.title });
                         }}
@@ -726,19 +831,11 @@ export function Stories() {
                         <Download className="w-4 h-4 mr-1" />
                         导出
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => handleEditClick(story, e)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={e => handleEditClick(story, e)}>
                         <Edit3 className="w-4 h-4 mr-1" />
                         编辑
                       </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={(e) => handleDelete(story.id, e)}
-                      >
+                      <Button variant="danger" size="sm" onClick={e => handleDelete(story.id, e)}>
                         <Trash2 className="w-4 h-4 mr-1" />
                         删除
                       </Button>
@@ -777,7 +874,7 @@ export function Stories() {
           <Card className="w-full max-w-md mx-4">
             <CardContent className="p-6">
               <h2 className="font-display text-xl font-bold text-white mb-4">新建故事</h2>
-              
+
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">标题</label>
@@ -787,7 +884,7 @@ export function Stories() {
                     className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">类型</label>
                   <select
@@ -802,7 +899,7 @@ export function Stories() {
                     <option value="历史">历史</option>
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">描述</label>
                   <textarea
@@ -811,16 +908,12 @@ export function Stories() {
                     className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                   />
                 </div>
-                
+
                 <div className="flex gap-3 pt-4">
                   <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
                     取消
                   </Button>
-                  <Button 
-                    type="submit" 
-                    variant="primary"
-                    isLoading={createStory.isPending}
-                  >
+                  <Button type="submit" variant="primary" isLoading={createStory.isPending}>
                     创建
                   </Button>
                 </div>
@@ -857,7 +950,9 @@ export function Stories() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-cinema-gold font-medium">{progress?.phase || '启动'}</span>
-                  <span className="text-gray-400 font-mono">{Math.round((progress?.progress ?? 0) * 100)}%</span>
+                  <span className="text-gray-400 font-mono">
+                    {Math.round((progress?.progress ?? 0) * 100)}%
+                  </span>
                 </div>
                 <div className="h-2 bg-cinema-800 rounded-full overflow-hidden">
                   <div
@@ -872,16 +967,24 @@ export function Stories() {
                 {['构思', '大纲', '写作', '审阅', '入库'].map((phase, idx) => {
                   const thresholds = [0.0, 0.15, 0.5, 0.7, 1.0];
                   const currentProgress = progress?.progress ?? 0;
-                  const isActive = currentProgress >= thresholds[idx] && (idx === 4 || currentProgress < thresholds[idx + 1]);
+                  const isActive =
+                    currentProgress >= thresholds[idx] &&
+                    (idx === 4 || currentProgress < thresholds[idx + 1]);
                   const isDone = currentProgress >= thresholds[idx] + (idx < 4 ? 0.15 : 0);
                   return (
                     <div key={phase} className="flex flex-col items-center gap-1">
                       <div
                         className={`w-2 h-2 rounded-full ${
-                          isDone ? 'bg-cinema-gold' : isActive ? 'bg-cinema-gold/60 animate-pulse' : 'bg-cinema-700'
+                          isDone
+                            ? 'bg-cinema-gold'
+                            : isActive
+                              ? 'bg-cinema-gold/60 animate-pulse'
+                              : 'bg-cinema-700'
                         }`}
                       />
-                      <span className={isDone || isActive ? 'text-cinema-gold' : 'text-gray-600'}>{phase}</span>
+                      <span className={isDone || isActive ? 'text-cinema-gold' : 'text-gray-600'}>
+                        {phase}
+                      </span>
                     </div>
                   );
                 })}
@@ -896,9 +999,7 @@ export function Stories() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-xl mx-4">
             <CardContent className="p-6">
-              <h2 className="font-display text-xl font-bold text-white mb-2">
-                写作风格配置
-              </h2>
+              <h2 className="font-display text-xl font-bold text-white mb-2">写作风格配置</h2>
               <p className="text-sm text-gray-400 mb-4">
                 为「{styleDnaModalStory.title}」配置风格，AI 创作时将按此风格进行。
               </p>
@@ -945,7 +1046,7 @@ export function Stories() {
                       <div className="font-medium text-white">默认风格</div>
                       <div className="text-xs text-gray-400">不指定特定风格，使用通用创作风格</div>
                     </button>
-                    {styleDnas.map((dna) => (
+                    {styleDnas.map(dna => (
                       <button
                         key={dna.id}
                         onClick={async () => {
@@ -974,11 +1075,7 @@ export function Stories() {
                     ))}
                   </div>
                   <div className="flex justify-between mt-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowStyleSampleInput(true)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setShowStyleSampleInput(true)}>
                       <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
                       从文本生成风格
                     </Button>
@@ -992,7 +1089,7 @@ export function Stories() {
                   storyId={styleDnaModalStory.id}
                   availableDnas={styleDnas}
                   initialBlend={currentBlend}
-                  onSave={async (blend) => {
+                  onSave={async blend => {
                     try {
                       const blendJson = JSON.stringify(blend);
                       await setStoryStyleBlend(styleDnaModalStory.id, blend.name, blendJson);
@@ -1019,24 +1116,25 @@ export function Stories() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-lg mx-4">
             <CardContent className="p-6 space-y-4">
-              <h2 className="font-display text-xl font-bold text-white">
-                从文本样例生成风格
-              </h2>
+              <h2 className="font-display text-xl font-bold text-white">从文本样例生成风格</h2>
               <p className="text-sm text-gray-400">
                 粘贴一段你喜欢的文字（300-3000字），AI 将分析其风格特征并生成风格 DNA。
               </p>
               <textarea
                 value={styleSampleText}
-                onChange={(e) => setStyleSampleText(e.target.value)}
+                onChange={e => setStyleSampleText(e.target.value)}
                 rows={8}
                 placeholder="在此粘贴文本样例..."
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
               />
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => {
-                  setShowStyleSampleInput(false);
-                  setStyleSampleText('');
-                }}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setShowStyleSampleInput(false);
+                    setStyleSampleText('');
+                  }}
+                >
                   取消
                 </Button>
                 <Button

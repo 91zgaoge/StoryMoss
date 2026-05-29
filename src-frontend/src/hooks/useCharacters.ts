@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  getStoryCharacters, 
-  createCharacter, 
-  updateCharacter, 
+import {
+  getStoryCharacters,
+  createCharacter,
+  updateCharacter,
   deleteCharacter,
-  notifyFrontstageDataRefresh
+  notifyFrontstageDataRefresh,
 } from '@services/tauri';
 import type { CreateCharacterRequest, Character } from '@/types/index';
 import toast from 'react-hot-toast';
@@ -16,19 +16,19 @@ export function useCharacters(storyId: string | null) {
   // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理
   return useQuery<Character[]>({
     queryKey: [CHARACTERS_KEY, storyId],
-    queryFn: () => storyId ? getStoryCharacters(storyId) : Promise.resolve([]),
+    queryFn: () => (storyId ? getStoryCharacters(storyId) : Promise.resolve([])),
     enabled: !!storyId,
   });
 }
 
 export function useCreateCharacter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createCharacter,
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: [CHARACTERS_KEY, variables.story_id] 
+      queryClient.invalidateQueries({
+        queryKey: [CHARACTERS_KEY, variables.story_id],
       });
       toast.success('角色创建成功');
     },
@@ -40,9 +40,9 @@ export function useCreateCharacter() {
 
 export function useUpdateCharacter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<Character> }) => 
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<Character> }) =>
       updateCharacter(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
@@ -56,7 +56,7 @@ export function useUpdateCharacter() {
 
 export function useDeleteCharacter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteCharacter,
     onSuccess: () => {

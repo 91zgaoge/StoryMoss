@@ -1,6 +1,6 @@
 /**
  * EditorSettings - 编辑器设置组件
- * 
+ *
  * 包含：
  * - 写作风格选择
  * - 字体家族设置
@@ -10,18 +10,15 @@
  */
 
 import { useState, useEffect } from 'react';
-import {
-  Type, Palette, Check, ChevronDown,
-  Plus, Trash2, Settings2
-} from 'lucide-react';
+import { Type, Palette, Check, ChevronDown, Plus, Trash2, Settings2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { createLogger } from '@/utils/logger';
 import { useAppStore } from '@/stores/appStore';
-import { 
-  WritingStyle, 
-  WritingStyleId, 
+import {
+  WritingStyle,
+  WritingStyleId,
   styleList,
-  defaultStyle 
+  defaultStyle,
 } from '@/frontstage/config/writingStyles';
 
 const editorSettingsLogger = createLogger('ui:EditorSettings');
@@ -46,10 +43,30 @@ export interface CustomFont {
 
 // 预设字体列表
 const PRESET_FONTS: CustomFont[] = [
-  { id: 'lxgw', name: '霞鹜文楷', family: "'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', serif", source: 'google' },
-  { id: 'noto-serif', name: '思源宋体', family: "'Noto Serif SC', 'Source Han Serif CN', 'LXGW WenKai', serif", source: 'google' },
-  { id: 'system-serif', name: '系统宋体', family: "Georgia, 'STSong', 'SimSun', serif", source: 'system' },
-  { id: 'system-sans', name: '系统黑体', family: "'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif", source: 'system' },
+  {
+    id: 'lxgw',
+    name: '霞鹜文楷',
+    family: "'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', serif",
+    source: 'google',
+  },
+  {
+    id: 'noto-serif',
+    name: '思源宋体',
+    family: "'Noto Serif SC', 'Source Han Serif CN', 'LXGW WenKai', serif",
+    source: 'google',
+  },
+  {
+    id: 'system-serif',
+    name: '系统宋体',
+    family: "Georgia, 'STSong', 'SimSun', serif",
+    source: 'system',
+  },
+  {
+    id: 'system-sans',
+    name: '系统黑体',
+    family: "'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+    source: 'system',
+  },
 ];
 
 const STORAGE_KEY = 'storyforge-editor-config';
@@ -116,7 +133,7 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
   const handleStyleChange = (styleId: WritingStyleId) => {
     const style = styleList.find(s => s.id === styleId);
     if (style) {
-      updateConfig({ 
+      updateConfig({
         styleId,
         fontFamily: style.fontFamily,
         fontSize: style.fontSize,
@@ -156,23 +173,31 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
           <Palette className="w-4 h-4 text-cinema-gold" />
           写作风格
         </label>
-        
+
         <div className="relative">
           <button
             onClick={() => setShowStylePicker(!showStylePicker)}
             className="w-full flex items-center justify-between px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white hover:border-cinema-gold transition-colors"
           >
             <div className="flex items-center gap-3">
-              <div 
+              <div
                 className="w-8 h-8 rounded-lg"
-                style={{ backgroundColor: themeColors.paperColor, border: `2px solid ${themeColors.accentColor}` }}
+                style={{
+                  backgroundColor: themeColors.paperColor,
+                  border: `2px solid ${themeColors.accentColor}`,
+                }}
               />
               <div className="text-left">
                 <div className="font-medium">{currentStyle.name}</div>
                 <div className="text-xs text-gray-400">{currentStyle.description}</div>
               </div>
             </div>
-            <ChevronDown className={cn('w-5 h-5 text-gray-400 transition-transform', showStylePicker && 'rotate-180')} />
+            <ChevronDown
+              className={cn(
+                'w-5 h-5 text-gray-400 transition-transform',
+                showStylePicker && 'rotate-180'
+              )}
+            />
           </button>
 
           {showStylePicker && (
@@ -184,20 +209,23 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
                     onClick={() => handleStyleChange(style.id)}
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-colors',
-                      config.styleId === style.id 
-                        ? 'bg-cinema-gold/20 border border-cinema-gold/50' 
+                      config.styleId === style.id
+                        ? 'bg-cinema-gold/20 border border-cinema-gold/50'
                         : 'hover:bg-cinema-700/50'
                     )}
                   >
-                    <div 
+                    <div
                       className="w-6 h-6 rounded border-2 flex-shrink-0"
-                      style={{ 
-                        backgroundColor: themeColors.paperColor, 
-                        borderColor: themeColors.accentColor 
+                      style={{
+                        backgroundColor: themeColors.paperColor,
+                        borderColor: themeColors.accentColor,
                       }}
                     >
                       {config.styleId === style.id && (
-                        <Check className="w-4 h-4 m-0.5" style={{ color: themeColors.accentColor }} />
+                        <Check
+                          className="w-4 h-4 m-0.5"
+                          style={{ color: themeColors.accentColor }}
+                        />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -238,18 +266,22 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
           <label className="text-xs text-gray-500 mb-2 block">字体</label>
           <select
             value={config.fontFamily}
-            onChange={(e) => updateConfig({ fontFamily: e.target.value })}
+            onChange={e => updateConfig({ fontFamily: e.target.value })}
             className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
           >
             <optgroup label="预设字体">
               {PRESET_FONTS.map(font => (
-                <option key={font.id} value={font.family}>{font.name}</option>
+                <option key={font.id} value={font.family}>
+                  {font.name}
+                </option>
               ))}
             </optgroup>
             {config.customFonts.length > 0 && (
               <optgroup label="自定义字体">
                 {config.customFonts.map(font => (
-                  <option key={font.id} value={font.family}>{font.name}</option>
+                  <option key={font.id} value={font.family}>
+                    {font.name}
+                  </option>
                 ))}
               </optgroup>
             )}
@@ -266,19 +298,21 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
               max={32}
               step={1}
               value={config.fontSize}
-              onChange={(e) => updateConfig({ fontSize: Number(e.target.value) })}
+              onChange={e => updateConfig({ fontSize: Number(e.target.value) })}
               className="w-full accent-cinema-gold"
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-2 block">行高 {config.lineHeight.toFixed(1)}</label>
+            <label className="text-xs text-gray-500 mb-2 block">
+              行高 {config.lineHeight.toFixed(1)}
+            </label>
             <input
               type="range"
               min={1.2}
               max={3}
               step={0.1}
               value={config.lineHeight}
-              onChange={(e) => updateConfig({ lineHeight: Number(e.target.value) })}
+              onChange={e => updateConfig({ lineHeight: Number(e.target.value) })}
               className="w-full accent-cinema-gold"
             />
           </div>
@@ -288,21 +322,21 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
         {showFontSettings && (
           <div className="pt-4 border-t border-cinema-700 space-y-4">
             <h4 className="text-sm font-medium text-gray-300">自定义字体</h4>
-            
+
             {/* 添加新字体 */}
             <div className="space-y-2">
               <input
                 type="text"
                 placeholder="字体名称（如：我的字体）"
                 value={newFontName}
-                onChange={(e) => setNewFontName(e.target.value)}
+                onChange={e => setNewFontName(e.target.value)}
                 className="w-full px-3 py-2 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
               <input
                 type="text"
                 placeholder="CSS font-family（如：'My Font', serif）"
                 value={newFontFamily}
-                onChange={(e) => setNewFontFamily(e.target.value)}
+                onChange={e => setNewFontFamily(e.target.value)}
                 className="w-full px-3 py-2 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
               <button
@@ -320,7 +354,10 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
               <div className="space-y-2">
                 <label className="text-xs text-gray-500">已添加的字体</label>
                 {config.customFonts.map(font => (
-                  <div key={font.id} className="flex items-center justify-between px-3 py-2 bg-cinema-900 rounded-lg">
+                  <div
+                    key={font.id}
+                    className="flex items-center justify-between px-3 py-2 bg-cinema-900 rounded-lg"
+                  >
                     <div>
                       <div className="text-sm text-white">{font.name}</div>
                       <div className="text-xs text-gray-500 font-mono">{font.family}</div>
@@ -346,7 +383,7 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
       {/* 预览 */}
       <div className="space-y-2">
         <label className="text-xs text-gray-500">预览</label>
-        <div 
+        <div
           className="p-4 rounded-xl border border-cinema-700"
           style={{
             fontFamily: config.fontFamily,

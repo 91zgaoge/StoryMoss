@@ -59,7 +59,7 @@ export function useLlmStream(): UseLlmStreamReturn {
   const unlistenRefs = useRef<UnlistenFn[]>([]);
 
   const clearListeners = useCallback(() => {
-    unlistenRefs.current.forEach((u) => u());
+    unlistenRefs.current.forEach(u => u());
     unlistenRefs.current = [];
   }, []);
 
@@ -104,9 +104,9 @@ export function useLlmStream(): UseLlmStreamReturn {
       try {
         const unlistenChunk = await listen<LlmStreamChunk>(
           `llm-stream-chunk-${requestId}`,
-          (event) => {
+          event => {
             const chunk = event.payload.chunk;
-            setText((prev) => prev + chunk);
+            setText(prev => prev + chunk);
             params.onChunk?.(chunk);
           }
         );
@@ -114,7 +114,7 @@ export function useLlmStream(): UseLlmStreamReturn {
 
         const unlistenComplete = await listen<LlmStreamComplete>(
           `llm-stream-complete-${requestId}`,
-          (event) => {
+          event => {
             clearListeners();
             setIsStreaming(false);
             params.onComplete?.(event.payload);
@@ -124,7 +124,7 @@ export function useLlmStream(): UseLlmStreamReturn {
 
         const unlistenError = await listen<LlmStreamError>(
           `llm-stream-error-${requestId}`,
-          (event) => {
+          event => {
             clearListeners();
             setIsStreaming(false);
             params.onError?.(event.payload);

@@ -66,16 +66,13 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   return (
     <header className="frontstage-header">
       <div className="frontstage-header-left">
-        <span
-          className="frontstage-story-name"
-          onClick={onOpenBackstage}
-          title="点击回幕后工作室"
-        >
+        <span className="frontstage-story-name" onClick={onOpenBackstage} title="点击回幕后工作室">
           {currentStory?.title || '草苔'}
         </span>
         <div className="frontstage-status-bar">
           <span className="status-item">
-            {currentChapter?.title || (currentChapter ? `第${currentChapter.chapter_number}章` : '')}
+            {currentChapter?.title ||
+              (currentChapter ? `第${currentChapter.chapter_number}章` : '')}
           </span>
           <span className="status-separator">·</span>
           <span className="status-item" title="当前章节字数 / 全文字数">
@@ -118,8 +115,8 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
                 }
               >
                 {bootstrapProgress.stepName}
-                {bootstrapProgress.status === 'failed' ? ' ❌' : ''}
-                ({bootstrapProgress.stepNumber}/{bootstrapProgress.totalSteps})
+                {bootstrapProgress.status === 'failed' ? ' ❌' : ''}({bootstrapProgress.stepNumber}/
+                {bootstrapProgress.totalSteps})
               </span>
             </>
           )}
@@ -139,12 +136,15 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
               {wensiMode === 'active' ? '热' : wensiMode === 'passive' ? '温' : '·'}
             </span>
           </button>
-          <button
-            className="zen-mode-btn"
-            onClick={onToggleZenMode}
-            title="F11 禅模式"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <button className="zen-mode-btn" onClick={onToggleZenMode} title="F11 禅模式">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <path d="M9 3v18" />
             </svg>

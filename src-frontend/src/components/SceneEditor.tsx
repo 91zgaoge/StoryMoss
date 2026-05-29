@@ -55,14 +55,15 @@ const CONFLICT_TYPES: ConflictType[] = [
 
 type ExecutionStage = 'planning' | 'outline' | 'drafting' | 'review' | 'final';
 
-const STAGE_TABS: { id: ExecutionStage | 'annotations'; label: string; icon: React.ElementType }[] = [
-  { id: 'planning', label: '规划', icon: Target },
-  { id: 'outline', label: '大纲', icon: ClipboardList },
-  { id: 'drafting', label: '起草', icon: PenTool },
-  { id: 'review', label: '审校', icon: Search },
-  { id: 'final', label: '定稿', icon: Lock },
-  { id: 'annotations', label: '批注', icon: MessageSquare },
-];
+const STAGE_TABS: { id: ExecutionStage | 'annotations'; label: string; icon: React.ElementType }[] =
+  [
+    { id: 'planning', label: '规划', icon: Target },
+    { id: 'outline', label: '大纲', icon: ClipboardList },
+    { id: 'drafting', label: '起草', icon: PenTool },
+    { id: 'review', label: '审校', icon: Search },
+    { id: 'final', label: '定稿', icon: Lock },
+    { id: 'annotations', label: '批注', icon: MessageSquare },
+  ];
 
 const STAGE_LABELS: Record<ExecutionStage, string> = {
   planning: '规划',
@@ -76,7 +77,9 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   const [formData, setFormData] = useState<Partial<Scene>>({});
   const [activeTab, setActiveTab] = useState<ExecutionStage | 'annotations'>('planning');
   const [revisionMode, setRevisionMode] = useState(false);
-  const [compressionResult, setCompressionResult] = useState<import('@/types').AgentResult | null>(null);
+  const [compressionResult, setCompressionResult] = useState<import('@/types').AgentResult | null>(
+    null
+  );
   const [showCompression, setShowCompression] = useState(false);
   const [generatingOutline, setGeneratingOutline] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
@@ -125,7 +128,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       const result = await loggedInvoke<{ content: string }>('generate_scene_outline', {
         scene_id: scene.id,
       });
-      setFormData((prev) => ({
+      setFormData(prev => ({
         ...prev,
         outline_content: result.content,
         execution_stage: 'outline',
@@ -150,7 +153,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       const result = await loggedInvoke<{ content: string }>('generate_scene_draft', {
         scene_id: scene.id,
       });
-      setFormData((prev) => ({
+      setFormData(prev => ({
         ...prev,
         draft_content: result.content,
         execution_stage: 'drafting',
@@ -170,7 +173,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       toast.error('没有可提升为定稿的内容');
       return;
     }
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
       content: source,
       execution_stage: 'final',
@@ -183,7 +186,9 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   const computeDiff = (oldText: string, newText: string) => {
     const oldLines = oldText.split('\n');
     const newLines = newText.split('\n');
-    const lcs: number[][] = Array(oldLines.length + 1).fill(null).map(() => Array(newLines.length + 1).fill(0));
+    const lcs: number[][] = Array(oldLines.length + 1)
+      .fill(null)
+      .map(() => Array(newLines.length + 1).fill(0));
     for (let i = 1; i <= oldLines.length; i++) {
       for (let j = 1; j <= newLines.length; j++) {
         if (oldLines[i - 1] === newLines[j - 1]) {
@@ -193,12 +198,14 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         }
       }
     }
-    const result: Array<{type: 'added' | 'removed' | 'unchanged'; content: string}> = [];
-    let i = oldLines.length, j = newLines.length;
+    const result: Array<{ type: 'added' | 'removed' | 'unchanged'; content: string }> = [];
+    let i = oldLines.length,
+      j = newLines.length;
     while (i > 0 || j > 0) {
       if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
         result.unshift({ type: 'unchanged', content: oldLines[i - 1] });
-        i--; j--;
+        i--;
+        j--;
       } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
         result.unshift({ type: 'added', content: newLines[j - 1] });
         j--;
@@ -210,9 +217,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
     return result;
   };
 
-  const contentDiff = activeTab === 'final' && revisionMode && scene
-    ? computeDiff(scene.content || '', formData.content || '')
-    : null;
+  const contentDiff =
+    activeTab === 'final' && revisionMode && scene
+      ? computeDiff(scene.content || '', formData.content || '')
+      : null;
 
   const toggleCharacter = (charId: string) => {
     const current = formData.characters_present || [];
@@ -234,17 +242,17 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-white">
-            编辑场景 #{scene.sequence_number}
-          </h2>
-          <span className={`
+          <h2 className="text-lg font-semibold text-white">编辑场景 #{scene.sequence_number}</h2>
+          <span
+            className={`
             px-2 py-0.5 rounded-full text-xs font-medium
             ${currentStage === 'planning' ? 'bg-blue-500/20 text-blue-400' : ''}
             ${currentStage === 'outline' ? 'bg-amber-500/20 text-amber-400' : ''}
             ${currentStage === 'drafting' ? 'bg-purple-500/20 text-purple-400' : ''}
             ${currentStage === 'review' ? 'bg-orange-500/20 text-orange-400' : ''}
             ${currentStage === 'final' ? 'bg-green-500/20 text-green-400' : ''}
-          `}>
+          `}
+          >
             {STAGE_LABELS[currentStage] || '规划'}
           </span>
         </div>
@@ -258,7 +266,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 onClick={async () => {
                   if (!scene) return;
                   try {
-                    const result = await compressScene.mutateAsync({ scene_id: scene.id, target_ratio: 0.25 });
+                    const result = await compressScene.mutateAsync({
+                      scene_id: scene.id,
+                      target_ratio: 0.25,
+                    });
                     setCompressionResult(result);
                     setShowCompression(true);
                   } catch (e) {
@@ -266,15 +277,19 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                   }
                 }}
               >
-                {compressScene.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Minimize2 className="w-4 h-4 mr-1" />}
+                {compressScene.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Minimize2 className="w-4 h-4 mr-1" />
+                )}
                 记忆压缩
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setRevisionMode(!revisionMode)}
-              >
-                {revisionMode ? <EyeOff className="w-4 h-4 mr-1" /> : <GitCompare className="w-4 h-4 mr-1" />}
+              <Button variant="ghost" size="sm" onClick={() => setRevisionMode(!revisionMode)}>
+                {revisionMode ? (
+                  <EyeOff className="w-4 h-4 mr-1" />
+                ) : (
+                  <GitCompare className="w-4 h-4 mr-1" />
+                )}
                 {revisionMode ? '退出修订' : '修订模式'}
               </Button>
             </>
@@ -292,15 +307,16 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
       {/* Stage Tabs */}
       <div className="flex gap-1 mb-4 p-1 bg-cinema-800 rounded-lg">
-        {STAGE_TABS.map((tab) => (
+        {STAGE_TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`
               flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
-              ${activeTab === tab.id
-                ? 'bg-cinema-gold text-cinema-900'
-                : 'text-gray-400 hover:text-white hover:bg-cinema-700'
+              ${
+                activeTab === tab.id
+                  ? 'bg-cinema-gold text-cinema-900'
+                  : 'text-gray-400 hover:text-white hover:bg-cinema-700'
               }
             `}
           >
@@ -321,7 +337,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               <input
                 type="text"
                 value={formData.title || ''}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                onChange={e => setFormData({ ...formData, title: e.target.value })}
                 placeholder={`场景 ${scene.sequence_number}`}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none"
               />
@@ -334,35 +350,35 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                   <MapPin className="w-4 h-4 text-cinema-gold" />
                   场景设置
                 </h3>
-                
+
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">地点</label>
                   <input
                     type="text"
                     value={formData.setting_location || ''}
-                    onChange={(e) => setFormData({ ...formData, setting_location: e.target.value })}
+                    onChange={e => setFormData({ ...formData, setting_location: e.target.value })}
                     placeholder="例如：长安城、太空站..."
                     className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">时间</label>
                   <input
                     type="text"
                     value={formData.setting_time || ''}
-                    onChange={(e) => setFormData({ ...formData, setting_time: e.target.value })}
+                    onChange={e => setFormData({ ...formData, setting_time: e.target.value })}
                     placeholder="例如：黄昏、2145年..."
                     className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">氛围</label>
                   <input
                     type="text"
                     value={formData.setting_atmosphere || ''}
-                    onChange={(e) => setFormData({ ...formData, setting_atmosphere: e.target.value })}
+                    onChange={e => setFormData({ ...formData, setting_atmosphere: e.target.value })}
                     placeholder="例如：紧张、神秘、温馨..."
                     className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                   />
@@ -377,24 +393,27 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                   <Users className="w-4 h-4 text-cinema-gold" />
                   出场角色
                 </h3>
-                
+
                 <div className="grid grid-cols-2 gap-2">
-                  {characters.map((char) => (
+                  {characters.map(char => (
                     <button
                       key={char.id}
                       onClick={() => toggleCharacter(char.id)}
                       className={`
                         flex items-center gap-2 p-2 rounded-lg text-left text-sm transition-colors
-                        ${(formData.characters_present || []).includes(char.id)
-                          ? 'bg-cinema-gold/20 border border-cinema-gold/50 text-white'
-                          : 'bg-cinema-800 border border-transparent text-gray-300 hover:bg-cinema-700'
+                        ${
+                          (formData.characters_present || []).includes(char.id)
+                            ? 'bg-cinema-gold/20 border border-cinema-gold/50 text-white'
+                            : 'bg-cinema-800 border border-transparent text-gray-300 hover:bg-cinema-700'
                         }
                       `}
                     >
-                      <div className={`
+                      <div
+                        className={`
                         w-2 h-2 rounded-full
                         ${(formData.characters_present || []).includes(char.id) ? 'bg-cinema-gold' : 'bg-gray-600'}
-                      `} />
+                      `}
+                      />
                       <div>
                         <div className="font-medium">{char.name}</div>
                         {char.personality && (
@@ -406,9 +425,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 </div>
 
                 {characters.length === 0 && (
-                  <p className="text-sm text-gray-500 text-center py-4">
-                    还没有创建角色
-                  </p>
+                  <p className="text-sm text-gray-500 text-center py-4">还没有创建角色</p>
                 )}
               </CardContent>
             </Card>
@@ -420,12 +437,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                   <Target className="w-4 h-4 text-cinema-gold" />
                   戏剧目标
                 </h3>
-                <p className="text-xs text-gray-500 mb-2">
-                  这个场景要完成什么？推动什么情节？
-                </p>
+                <p className="text-xs text-gray-500 mb-2">这个场景要完成什么？推动什么情节？</p>
                 <textarea
                   value={formData.dramatic_goal || ''}
-                  onChange={(e) => setFormData({ ...formData, dramatic_goal: e.target.value })}
+                  onChange={e => setFormData({ ...formData, dramatic_goal: e.target.value })}
                   placeholder="例如：主角发现真相，反派暴露野心..."
                   rows={3}
                   className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
@@ -445,7 +460,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 </p>
                 <textarea
                   value={formData.external_pressure || ''}
-                  onChange={(e) => setFormData({ ...formData, external_pressure: e.target.value })}
+                  onChange={e => setFormData({ ...formData, external_pressure: e.target.value })}
                   placeholder="例如：暴雨将至，追兵逼近，时间紧迫..."
                   rows={3}
                   className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
@@ -467,7 +482,9 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                     max="1"
                     step="0.1"
                     value={formData.confidence_score ?? 0.5}
-                    onChange={(e) => setFormData({ ...formData, confidence_score: Number(e.target.value) })}
+                    onChange={e =>
+                      setFormData({ ...formData, confidence_score: Number(e.target.value) })
+                    }
                     className="flex-1 accent-cinema-gold"
                   />
                   <span className="text-sm text-cinema-gold font-medium w-12 text-right">
@@ -482,15 +499,16 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               <CardContent className="p-4">
                 <h3 className="font-medium text-white mb-3">冲突类型</h3>
                 <div className="grid grid-cols-3 gap-2">
-                  {CONFLICT_TYPES.map((type) => (
+                  {CONFLICT_TYPES.map(type => (
                     <button
                       key={type}
                       onClick={() => setFormData({ ...formData, conflict_type: type })}
                       className={`
                         flex items-center gap-2 p-3 rounded-lg text-left transition-colors
-                        ${formData.conflict_type === type
-                          ? 'bg-cinema-gold/20 border border-cinema-gold/50'
-                          : 'bg-cinema-800 border border-transparent hover:bg-cinema-700'
+                        ${
+                          formData.conflict_type === type
+                            ? 'bg-cinema-gold/20 border border-cinema-gold/50'
+                            : 'bg-cinema-800 border border-transparent hover:bg-cinema-700'
                         }
                       `}
                     >
@@ -498,10 +516,12 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: getConflictTypeColor(type) }}
                       />
-                      <span className={`
+                      <span
+                        className={`
                         text-sm
                         ${formData.conflict_type === type ? 'text-white' : 'text-gray-300'}
-                      `}>
+                      `}
+                      >
                         {getConflictTypeLabel(type)}
                       </span>
                     </button>
@@ -517,7 +537,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 onClick={handleGenerateOutline}
                 disabled={generatingOutline}
               >
-                {generatingOutline ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                {generatingOutline ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-2" />
+                )}
                 生成大纲
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -539,13 +563,17 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 onClick={handleGenerateOutline}
                 disabled={generatingOutline}
               >
-                {generatingOutline ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                {generatingOutline ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-1" />
+                )}
                 重新生成
               </Button>
             </div>
             <textarea
               value={formData.outline_content || ''}
-              onChange={(e) => setFormData({ ...formData, outline_content: e.target.value })}
+              onChange={e => setFormData({ ...formData, outline_content: e.target.value })}
               placeholder="在此输入或生成场景大纲..."
               rows={20}
               className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
@@ -560,7 +588,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 onClick={handleGenerateDraft}
                 disabled={generatingDraft || !formData.outline_content}
               >
-                {generatingDraft ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PenTool className="w-4 h-4 mr-1" />}
+                {generatingDraft ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <PenTool className="w-4 h-4 mr-1" />
+                )}
                 根据大纲起草
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -582,13 +614,17 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 onClick={handleGenerateDraft}
                 disabled={generatingDraft || !formData.outline_content}
               >
-                {generatingDraft ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                {generatingDraft ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-1" />
+                )}
                 重新起草
               </Button>
             </div>
             <textarea
               value={formData.draft_content || ''}
-              onChange={(e) => setFormData({ ...formData, draft_content: e.target.value })}
+              onChange={e => setFormData({ ...formData, draft_content: e.target.value })}
               placeholder="AI 根据大纲生成的草稿将显示在这里..."
               rows={20}
               className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
@@ -623,9 +659,18 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm text-gray-400">修订对比</label>
                   <div className="flex items-center gap-3 text-xs">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />新增</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />删除</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />未变</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      新增
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                      删除
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-gray-500" />
+                      未变
+                    </span>
                   </div>
                 </div>
                 <div className="bg-cinema-800 border border-cinema-700 rounded-lg p-4 space-y-1 max-h-[32rem] overflow-y-auto font-mono text-sm">
@@ -652,7 +697,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 <label className="block text-sm text-gray-400 mb-2">定稿内容</label>
                 <textarea
                   value={formData.content || ''}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  onChange={e => setFormData({ ...formData, content: e.target.value })}
                   placeholder="最终场景内容..."
                   rows={showCompression ? 12 : 20}
                   className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
@@ -710,7 +755,6 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
             </div>
           </div>
         )}
-
 
         {/* Annotations Tab */}
         {activeTab === 'annotations' && (

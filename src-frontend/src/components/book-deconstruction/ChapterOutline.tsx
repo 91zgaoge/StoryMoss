@@ -83,14 +83,12 @@ export function ChapterOutline({ scenes }: ChapterOutlineProps) {
 
                 {isExpanded && (
                   <div className="px-4 pb-4 pl-12">
-                    <p className="text-sm text-gray-400 mb-3">
-                      {scene.summary || '暂无概要'}
-                    </p>
+                    <p className="text-sm text-gray-400 mb-3">{scene.summary || '暂无概要'}</p>
 
                     {characters.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         <span className="text-xs text-gray-600">出场:</span>
-                        {characters.map((name) => (
+                        {characters.map(name => (
                           <span
                             key={name}
                             className="text-xs px-2 py-0.5 rounded bg-cinema-800 text-gray-400"
@@ -113,9 +111,7 @@ export function ChapterOutline({ scenes }: ChapterOutlineProps) {
                     )}
 
                     {scene.conflict_type && (
-                      <div className="mt-2 text-xs text-gray-600">
-                        冲突: {scene.conflict_type}
-                      </div>
+                      <div className="mt-2 text-xs text-gray-600">冲突: {scene.conflict_type}</div>
                     )}
                   </div>
                 )}

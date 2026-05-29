@@ -1,5 +1,18 @@
 import { useState, useMemo } from 'react';
-import { Download, FileText, BookOpen, Code, FileCode, FileType, LayoutTemplate, ShieldAlert, CheckCircle, AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  BookOpen,
+  Code,
+  FileCode,
+  FileType,
+  LayoutTemplate,
+  ShieldAlert,
+  CheckCircle,
+  AlertTriangle,
+  ArrowRight,
+  Loader2,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useExport, useExportTemplates, type ExportFormat } from '@/hooks/useExport';
@@ -13,7 +26,12 @@ interface ExportDialogProps {
   onClose: () => void;
 }
 
-const exportFormats: { id: ExportFormat; label: string; icon: typeof FileText; description: string }[] = [
+const exportFormats: {
+  id: ExportFormat;
+  label: string;
+  icon: typeof FileText;
+  description: string;
+}[] = [
   { id: 'markdown', label: 'Markdown', icon: FileText, description: 'Markdown格式，适合后续编辑' },
   { id: 'pdf', label: 'PDF', icon: BookOpen, description: 'PDF文档，适合分享和打印' },
   { id: 'epub', label: 'EPUB', icon: BookOpen, description: '电子书格式，适合阅读器' },
@@ -40,22 +58,31 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
 
   const compatibleTemplates = useMemo(() => {
     if (!templates) return [];
-    return templates.filter(t => t.format === selectedFormat || t.format === 'md' && selectedFormat === 'markdown' || t.format === 'txt' && selectedFormat === 'txt' || t.format === 'html' && selectedFormat === 'html');
+    return templates.filter(
+      t =>
+        t.format === selectedFormat ||
+        (t.format === 'md' && selectedFormat === 'markdown') ||
+        (t.format === 'txt' && selectedFormat === 'txt') ||
+        (t.format === 'html' && selectedFormat === 'html')
+    );
   }, [templates, selectedFormat]);
 
   const handleExport = () => {
-    exportMutation.mutate({
-      story_id: storyId,
-      format: selectedFormat,
-      include_metadata: includeMetadata,
-      include_outline: includeOutline,
-      include_characters: includeCharacters,
-      template_id: selectedTemplateId,
-    }, {
-      onSuccess: () => {
-        onClose();
+    exportMutation.mutate(
+      {
+        story_id: storyId,
+        format: selectedFormat,
+        include_metadata: includeMetadata,
+        include_outline: includeOutline,
+        include_characters: includeCharacters,
+        template_id: selectedTemplateId,
       },
-    });
+      {
+        onSuccess: () => {
+          onClose();
+        },
+      }
+    );
   };
 
   const handleRunAntiAi = async () => {
@@ -64,7 +91,10 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
     try {
       // Fetch all chapters and concatenate content
       const chapters = await getStoryChapters(storyId);
-      const fullText = chapters.map(c => c.content || '').filter(Boolean).join('\n\n');
+      const fullText = chapters
+        .map(c => c.content || '')
+        .filter(Boolean)
+        .join('\n\n');
       if (!fullText.trim()) {
         setReviewResult(null);
         setStep('review-results');
@@ -115,7 +145,7 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
               <div className="space-y-3 mb-6">
                 <label className="text-sm text-gray-400">选择格式</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {exportFormats.map((format) => {
+                  {exportFormats.map(format => {
                     const Icon = format.icon;
                     return (
                       <button
@@ -127,13 +157,17 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                             : 'bg-cinema-800/50 border-cinema-700 hover:border-cinema-600'
                         }`}
                       >
-                        <Icon className={`w-5 h-5 ${
-                          selectedFormat === format.id ? 'text-cinema-gold' : 'text-gray-500'
-                        }`} />
+                        <Icon
+                          className={`w-5 h-5 ${
+                            selectedFormat === format.id ? 'text-cinema-gold' : 'text-gray-500'
+                          }`}
+                        />
                         <div className="flex-1 min-w-0">
-                          <p className={`font-medium ${
-                            selectedFormat === format.id ? 'text-white' : 'text-gray-300'
-                          }`}>
+                          <p
+                            className={`font-medium ${
+                              selectedFormat === format.id ? 'text-white' : 'text-gray-300'
+                            }`}
+                          >
                             {format.label}
                           </p>
                           <p className="text-xs text-gray-500 truncate">{format.description}</p>
@@ -161,13 +195,15 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                       }`}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className={`font-medium ${!selectedTemplateId ? 'text-white' : 'text-gray-300'}`}>
+                        <p
+                          className={`font-medium ${!selectedTemplateId ? 'text-white' : 'text-gray-300'}`}
+                        >
                           默认样式
                         </p>
                         <p className="text-xs text-gray-500">使用内置默认排版</p>
                       </div>
                     </button>
-                    {compatibleTemplates.map((template) => (
+                    {compatibleTemplates.map(template => (
                       <button
                         key={template.id}
                         onClick={() => setSelectedTemplateId(template.id)}
@@ -178,10 +214,14 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                         }`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className={`font-medium ${selectedTemplateId === template.id ? 'text-white' : 'text-gray-300'}`}>
+                          <p
+                            className={`font-medium ${selectedTemplateId === template.id ? 'text-white' : 'text-gray-300'}`}
+                          >
                             {template.name}
                             {template.is_builtin && (
-                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-cinema-700 text-gray-400">内置</span>
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-cinema-700 text-gray-400">
+                                内置
+                              </span>
                             )}
                           </p>
                           {template.description && (
@@ -202,7 +242,7 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                     <input
                       type="checkbox"
                       checked={includeMetadata}
-                      onChange={(e) => setIncludeMetadata(e.target.checked)}
+                      onChange={e => setIncludeMetadata(e.target.checked)}
                       className="w-4 h-4 rounded border-cinema-600 bg-cinema-700 text-cinema-gold focus:ring-cinema-gold"
                     />
                     <span className="text-sm text-gray-300">包含元数据（标题、类型等）</span>
@@ -212,7 +252,7 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                     <input
                       type="checkbox"
                       checked={includeOutline}
-                      onChange={(e) => setIncludeOutline(e.target.checked)}
+                      onChange={e => setIncludeOutline(e.target.checked)}
                       className="w-4 h-4 rounded border-cinema-600 bg-cinema-700 text-cinema-gold focus:ring-cinema-gold"
                     />
                     <span className="text-sm text-gray-300">包含章节大纲</span>
@@ -222,7 +262,7 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                     <input
                       type="checkbox"
                       checked={includeCharacters}
-                      onChange={(e) => setIncludeCharacters(e.target.checked)}
+                      onChange={e => setIncludeCharacters(e.target.checked)}
                       className="w-4 h-4 rounded border-cinema-600 bg-cinema-700 text-cinema-gold focus:ring-cinema-gold"
                     />
                     <span className="text-sm text-gray-300">包含角色介绍</span>
@@ -260,7 +300,9 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                     </div>
                     <div>
                       <h3 className="text-white font-medium">出版前体检</h3>
-                      <p className="text-xs text-gray-400">运行 Anti-AI 审查，检测文本中的 AI 痕迹</p>
+                      <p className="text-xs text-gray-400">
+                        运行 Anti-AI 审查，检测文本中的 AI 痕迹
+                      </p>
                     </div>
                   </div>
 
@@ -276,18 +318,10 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                 <Button type="button" variant="ghost" onClick={handleBackToFormat}>
                   返回
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={handleSkipAntiAi}
-                  className="flex-1"
-                >
+                <Button variant="secondary" onClick={handleSkipAntiAi} className="flex-1">
                   跳过，直接导出
                 </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleRunAntiAi}
-                  className="flex-1 gap-2"
-                >
+                <Button variant="primary" onClick={handleRunAntiAi} className="flex-1 gap-2">
                   <ShieldAlert className="w-4 h-4" />
                   运行审查
                 </Button>
@@ -309,9 +343,15 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                 {reviewResult ? (
                   <>
                     <div className="flex items-center gap-4">
-                      <div className="text-3xl font-bold"
+                      <div
+                        className="text-3xl font-bold"
                         style={{
-                          color: reviewResult.overall_score > 0.7 ? '#4ade80' : reviewResult.overall_score > 0.4 ? '#fbbf24' : '#f87171'
+                          color:
+                            reviewResult.overall_score > 0.7
+                              ? '#4ade80'
+                              : reviewResult.overall_score > 0.4
+                                ? '#fbbf24'
+                                : '#f87171',
                         }}
                       >
                         {(reviewResult.overall_score * 100).toFixed(0)}
@@ -321,15 +361,21 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
 
                     {reviewResult.issues.length > 0 ? (
                       <div className="space-y-2">
-                        <p className="text-xs text-gray-400">发现 {reviewResult.issues.length} 个问题：</p>
+                        <p className="text-xs text-gray-400">
+                          发现 {reviewResult.issues.length} 个问题：
+                        </p>
                         {reviewResult.issues.slice(0, 5).map((issue, idx) => (
                           <div key={idx} className="p-2 bg-cinema-800 rounded text-sm">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                issue.severity === 'high' ? 'bg-red-900/50 text-red-300' :
-                                issue.severity === 'medium' ? 'bg-yellow-900/50 text-yellow-300' :
-                                'bg-blue-900/50 text-blue-300'
-                              }`}>
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  issue.severity === 'high'
+                                    ? 'bg-red-900/50 text-red-300'
+                                    : issue.severity === 'medium'
+                                      ? 'bg-yellow-900/50 text-yellow-300'
+                                      : 'bg-blue-900/50 text-blue-300'
+                                }`}
+                              >
                                 {issue.severity}
                               </span>
                               <span className="text-gray-300">{issue.dimension}</span>

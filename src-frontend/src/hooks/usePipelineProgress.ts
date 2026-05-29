@@ -52,7 +52,7 @@ export function usePipelineProgress(options: UsePipelineProgressOptions = {}) {
         progress_percent: number;
         elapsed_seconds: number;
         metadata?: unknown;
-      }>('pipeline-progress', (event) => {
+      }>('pipeline-progress', event => {
         const p = event.payload;
 
         // 过滤
@@ -103,7 +103,7 @@ export function usePipelineComplete() {
         pipeline_type: PipelineType;
         success: boolean;
         total_elapsed_seconds: number;
-      }>('pipeline-complete', (event) => {
+      }>('pipeline-complete', event => {
         setLastComplete({
           pipelineId: event.payload.pipeline_id,
           pipelineType: event.payload.pipeline_type,

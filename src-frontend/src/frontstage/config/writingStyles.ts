@@ -1,6 +1,6 @@
 /**
  * 写作风格配置
- * 
+ *
  * 定义不同的写作风格主题，包括字体、字号、行高、颜色等
  */
 
@@ -80,7 +80,8 @@ export const writingStyles: Record<WritingStyleId, WritingStyle> = {
     description: '仿海明威，简洁有力',
     author: '海明威风格',
     preview: '文字简洁。句子很短。但有力。',
-    fontFamily: "'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+    fontFamily:
+      "'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
     fontSize: 20,
     lineHeight: 1.6,
     letterSpacing: '0.01em',

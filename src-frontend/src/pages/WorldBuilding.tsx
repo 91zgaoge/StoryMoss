@@ -47,9 +47,7 @@ const RULE_TYPE_COLORS: Record<RuleType, string> = {
 
 function RuleTypeBadge({ type }: { type: RuleType }) {
   return (
-    <span
-      className={`text-xs px-2 py-0.5 rounded-full border ${RULE_TYPE_COLORS[type]}`}
-    >
+    <span className={`text-xs px-2 py-0.5 rounded-full border ${RULE_TYPE_COLORS[type]}`}>
       {RULE_TYPE_LABELS[type]}
     </span>
   );
@@ -61,9 +59,7 @@ function ImportanceStars({ level }: { level: number }) {
       {Array.from({ length: 10 }).map((_, i) => (
         <Star
           key={i}
-          className={`w-3 h-3 ${
-            i < level ? 'text-cinema-gold fill-cinema-gold' : 'text-gray-600'
-          }`}
+          className={`w-3 h-3 ${i < level ? 'text-cinema-gold fill-cinema-gold' : 'text-gray-600'}`}
         />
       ))}
     </div>
@@ -124,7 +120,7 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
               <label className="block text-sm text-gray-400 mb-1">规则名称 *</label>
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
                 required
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                 placeholder="例如：重力异常"
@@ -134,7 +130,7 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
               <label className="block text-sm text-gray-400 mb-1">规则类型</label>
               <select
                 value={ruleType}
-                onChange={(e) => setRuleType(e.target.value as RuleType)}
+                onChange={e => setRuleType(e.target.value as RuleType)}
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
               >
                 {Object.entries(RULE_TYPE_LABELS).map(([key, label]) => (
@@ -145,15 +141,13 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                重要性: {importance}
-              </label>
+              <label className="block text-sm text-gray-400 mb-1">重要性: {importance}</label>
               <input
                 type="range"
                 min={1}
                 max={10}
                 value={importance}
-                onChange={(e) => setImportance(Number(e.target.value))}
+                onChange={e => setImportance(Number(e.target.value))}
                 className="w-full accent-cinema-gold"
               />
             </div>
@@ -161,7 +155,7 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
               <label className="block text-sm text-gray-400 mb-1">描述</label>
               <textarea
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={e => setDescription(e.target.value)}
                 rows={3}
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="该规则的具体描述..."
@@ -218,8 +212,14 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
     onSave({
       name: name.trim(),
       description: description.trim(),
-      customs: customs.split('\n').map((s) => s.trim()).filter(Boolean),
-      values: values.split('\n').map((s) => s.trim()).filter(Boolean),
+      customs: customs
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean),
+      values: values
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean),
     });
     onClose();
   };
@@ -236,7 +236,7 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
               <label className="block text-sm text-gray-400 mb-1">文化名称 *</label>
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
                 required
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                 placeholder="例如：东方修真文化"
@@ -246,7 +246,7 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
               <label className="block text-sm text-gray-400 mb-1">描述</label>
               <textarea
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={e => setDescription(e.target.value)}
                 rows={2}
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="该文化的总体描述..."
@@ -256,7 +256,7 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
               <label className="block text-sm text-gray-400 mb-1">习俗（每行一个）</label>
               <textarea
                 value={customs}
-                onChange={(e) => setCustoms(e.target.value)}
+                onChange={e => setCustoms(e.target.value)}
                 rows={3}
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="例如：&#10;晨间冥想&#10;拜师礼"
@@ -266,7 +266,7 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
               <label className="block text-sm text-gray-400 mb-1">价值观（每行一个）</label>
               <textarea
                 value={values}
-                onChange={(e) => setValues(e.target.value)}
+                onChange={e => setValues(e.target.value)}
                 rows={3}
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="例如：&#10;尊师重道&#10;天人合一"
@@ -289,7 +289,7 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
 }
 
 export function WorldBuilding() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const { data: worldBuilding, isLoading } = useWorldBuilding(currentStory?.id || null);
   const createWorldBuilding = useCreateWorldBuilding();
   const updateWorldBuilding = useUpdateWorldBuilding();
@@ -328,18 +328,29 @@ export function WorldBuilding() {
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      updateWorldBuilding.mutate({
-        id: worldBuilding.id,
-        storyId: currentStory.id,
-        concept: localConcept,
-        history: localHistory,
-        rules: localRules,
-        cultures: localCultures,
-      }, {
-        onSuccess: () => setHasLocalChanges(false),
-      });
+      updateWorldBuilding.mutate(
+        {
+          id: worldBuilding.id,
+          storyId: currentStory.id,
+          concept: localConcept,
+          history: localHistory,
+          rules: localRules,
+          cultures: localCultures,
+        },
+        {
+          onSuccess: () => setHasLocalChanges(false),
+        }
+      );
     }, 800);
-  }, [worldBuilding, currentStory, localConcept, localHistory, localRules, localCultures, updateWorldBuilding]);
+  }, [
+    worldBuilding,
+    currentStory,
+    localConcept,
+    localHistory,
+    localRules,
+    localCultures,
+    updateWorldBuilding,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -359,7 +370,7 @@ export function WorldBuilding() {
 
   const handleAddRule = (rule: WorldRule) => {
     const next = editingRule
-      ? localRules.map((r) => (r.id === rule.id ? rule : r))
+      ? localRules.map(r => (r.id === rule.id ? rule : r))
       : [...localRules, rule];
     setLocalRules(next);
     setEditingRule(null);
@@ -368,13 +379,13 @@ export function WorldBuilding() {
 
   const handleDeleteRule = (id: string) => {
     if (!confirm('确定删除这条世界规则吗？')) return;
-    setLocalRules((prev) => prev.filter((r) => r.id !== id));
+    setLocalRules(prev => prev.filter(r => r.id !== id));
     triggerSave();
   };
 
   const handleAddCulture = (culture: Culture) => {
     const next = editingCulture
-      ? localCultures.map((c) => (c.name === culture.name ? culture : c))
+      ? localCultures.map(c => (c.name === culture.name ? culture : c))
       : [...localCultures, culture];
     setLocalCultures(next);
     setEditingCulture(null);
@@ -383,7 +394,7 @@ export function WorldBuilding() {
 
   const handleDeleteCulture = (name: string) => {
     if (!confirm('确定删除这个文化体系吗？')) return;
-    setLocalCultures((prev) => prev.filter((c) => c.name !== name));
+    setLocalCultures(prev => prev.filter(c => c.name !== name));
     triggerSave();
   };
 
@@ -405,9 +416,7 @@ export function WorldBuilding() {
         <Card>
           <CardContent className="p-8 text-center">
             <Globe className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <h2 className="font-display text-xl font-semibold text-white mb-2">
-              先选择一个故事
-            </h2>
+            <h2 className="font-display text-xl font-semibold text-white mb-2">先选择一个故事</h2>
             <p className="text-gray-400">在故事库中选择一个故事来构建世界</p>
           </CardContent>
         </Card>
@@ -429,9 +438,7 @@ export function WorldBuilding() {
         <Card>
           <CardContent className="p-8 text-center max-w-md">
             <Globe className="w-16 h-16 text-cinema-gold/60 mx-auto mb-4" />
-            <h2 className="font-display text-2xl font-bold text-white mb-2">
-              世界尚未构建
-            </h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-2">世界尚未构建</h2>
             <p className="text-gray-400 mb-6">
               为「{currentStory.title}」初始化世界构建数据，开始设定小说的世界观、规则和文化。
             </p>
@@ -460,9 +467,7 @@ export function WorldBuilding() {
           </h1>
           <p className="text-gray-400 mt-1">
             {currentStory.title} · {localRules.length} 条规则 · {localCultures.length} 种文化
-            {hasLocalChanges && (
-              <span className="text-cinema-gold ml-2 text-sm">保存中...</span>
-            )}
+            {hasLocalChanges && <span className="text-cinema-gold ml-2 text-sm">保存中...</span>}
           </p>
         </div>
       </div>
@@ -476,7 +481,7 @@ export function WorldBuilding() {
           </div>
           <textarea
             value={localConcept}
-            onChange={(e) => handleConceptChange(e.target.value)}
+            onChange={e => handleConceptChange(e.target.value)}
             rows={4}
             className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
             placeholder="描述这个世界的核心概念、基本法则和独特之处..."
@@ -490,9 +495,7 @@ export function WorldBuilding() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-cinema-gold" />
-              <h2 className="font-display text-lg font-semibold text-white">
-                世界规则
-              </h2>
+              <h2 className="font-display text-lg font-semibold text-white">世界规则</h2>
               <span className="text-xs text-gray-500">({localRules.length})</span>
             </div>
             <Button
@@ -515,7 +518,7 @@ export function WorldBuilding() {
             </div>
           ) : (
             <div className="space-y-3">
-              {localRules.map((rule) => (
+              {localRules.map(rule => (
                 <div
                   key={rule.id}
                   className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
@@ -569,7 +572,7 @@ export function WorldBuilding() {
           </div>
           <textarea
             value={localHistory}
-            onChange={(e) => handleHistoryChange(e.target.value)}
+            onChange={e => handleHistoryChange(e.target.value)}
             rows={6}
             className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
             placeholder="记录这个世界的历史脉络、重大事件和时间线..."
@@ -583,9 +586,7 @@ export function WorldBuilding() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Palette className="w-5 h-5 text-cinema-gold" />
-              <h2 className="font-display text-lg font-semibold text-white">
-                文化体系
-              </h2>
+              <h2 className="font-display text-lg font-semibold text-white">文化体系</h2>
               <span className="text-xs text-gray-500">({localCultures.length})</span>
             </div>
             <Button
@@ -608,7 +609,7 @@ export function WorldBuilding() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {localCultures.map((culture) => (
+              {localCultures.map(culture => (
                 <div
                   key={culture.name}
                   className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
@@ -634,15 +635,13 @@ export function WorldBuilding() {
                     </div>
                   </div>
                   {culture.description && (
-                    <p className="text-sm text-gray-400 mt-1 line-clamp-2">
-                      {culture.description}
-                    </p>
+                    <p className="text-sm text-gray-400 mt-1 line-clamp-2">{culture.description}</p>
                   )}
                   {culture.customs.length > 0 && (
                     <div className="mt-3">
                       <p className="text-xs text-gray-500 mb-1">习俗</p>
                       <div className="flex flex-wrap gap-1">
-                        {culture.customs.map((c) => (
+                        {culture.customs.map(c => (
                           <span
                             key={c}
                             className="text-xs px-2 py-0.5 rounded-full bg-cinema-700 text-gray-300"
@@ -657,7 +656,7 @@ export function WorldBuilding() {
                     <div className="mt-2">
                       <p className="text-xs text-gray-500 mb-1">价值观</p>
                       <div className="flex flex-wrap gap-1">
-                        {culture.values.map((v) => (
+                        {culture.values.map(v => (
                           <span
                             key={v}
                             className="text-xs px-2 py-0.5 rounded-full bg-cinema-900/80 text-gray-400 border border-cinema-700"

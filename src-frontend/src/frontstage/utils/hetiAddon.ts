@@ -63,17 +63,12 @@ const REG_PUNCT_QUARTER_2 = new RegExp(
 );
 
 // 需要跳过的标签
-const SKIPPED_TAGS = new Set([
-  'pre', 'code', 'sup', 'sub', 'script', 'style', 'textarea',
-]);
+const SKIPPED_TAGS = new Set(['pre', 'code', 'sup', 'sub', 'script', 'style', 'textarea']);
 
 // ==================== 工具函数 ====================
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** 对单个文本节点应用排版增强 */
@@ -85,37 +80,37 @@ function processTextNode(node: Text): void {
   let hasChange = false;
 
   // 1. 中西文混排：CJK 包围的 ANS（如「hello世界」→ 「<span>hello</span>世界」）
-  html = html.replace(REG_CJK_FULL, (match) => {
+  html = html.replace(REG_CJK_FULL, match => {
     hasChange = true;
     return `<span class="heti-spacing heti-spacing-start heti-spacing-end">${match.trim()}</span>`;
   });
 
   // 2. 中西文混排：开头是 ANS，后面是 CJK（如 "Hello世界"）
-  html = html.replace(REG_CJK_START, (match) => {
+  html = html.replace(REG_CJK_START, match => {
     hasChange = true;
     return `<span class="heti-spacing heti-spacing-start">${match.trim()}</span>`;
   });
 
   // 3. 中西文混排：前面是 CJK，后面是 ANS（如 "世界Hello"）
-  html = html.replace(REG_CJK_END, (match) => {
+  html = html.replace(REG_CJK_END, match => {
     hasChange = true;
     return `<span class="heti-spacing heti-spacing-end">${match.trim()}</span>`;
   });
 
   // 4. 标点挤压：half
-  html = html.replace(REG_PUNCT_HALF, (match) => {
+  html = html.replace(REG_PUNCT_HALF, match => {
     hasChange = true;
     return `<span class="heti-adjacent heti-adjacent-half">${match}</span>`;
   });
 
   // 5. 标点挤压：quarter
-  html = html.replace(REG_PUNCT_QUARTER, (match) => {
+  html = html.replace(REG_PUNCT_QUARTER, match => {
     hasChange = true;
     return `<span class="heti-adjacent heti-adjacent-quarter">${match}</span>`;
   });
 
   // 6. 标点挤压：quarter（弯引号场景）
-  html = html.replace(REG_PUNCT_QUARTER_2, (match) => {
+  html = html.replace(REG_PUNCT_QUARTER_2, match => {
     hasChange = true;
     return `<span class="heti-adjacent heti-adjacent-quarter">${match}</span>`;
   });
@@ -147,7 +142,7 @@ function processTextNode(node: Text): void {
 export function applyHetiEnhancement(root: HTMLElement): void {
   // 收集所有需要处理的文本节点（先收集再处理，避免遍历过程中 DOM 变化导致问题）
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => {
+    acceptNode: node => {
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
 

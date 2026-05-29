@@ -64,13 +64,11 @@ export function CharacterPeekCard({ character, position, visible }: CharacterPee
       }}
     >
       <div className="p-2.5">
-        <p className="text-sm font-semibold text-[var(--charcoal)] truncate">
-          {character.name}
-        </p>
+        <p className="text-sm font-semibold text-[var(--charcoal)] truncate">{character.name}</p>
 
         {character.status_tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
-            {character.status_tags.slice(0, 3).map((tag) => (
+            {character.status_tags.slice(0, 3).map(tag => (
               <span
                 key={tag}
                 className="text-[10px] px-1 py-0.5 rounded bg-[var(--terracotta)]/10 text-[var(--terracotta)]"

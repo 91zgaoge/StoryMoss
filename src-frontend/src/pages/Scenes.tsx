@@ -7,7 +7,13 @@ import { SceneEditor } from '@/components/SceneEditor';
 import { VersionTimeline } from '@/components/VersionTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
 import { PipelinePanel } from '@/components/pipeline/PipelinePanel';
-import { useScenes, useCreateScene, useUpdateScene, useDeleteScene, useReorderScenes } from '@/hooks/useScenes';
+import {
+  useScenes,
+  useCreateScene,
+  useUpdateScene,
+  useDeleteScene,
+  useReorderScenes,
+} from '@/hooks/useScenes';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useAppStore } from '@/stores/appStore';
 import { useCreateSceneVersion } from '@/hooks/useSceneVersions';
@@ -16,7 +22,7 @@ import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
 export function Scenes() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
 
@@ -27,14 +33,14 @@ export function Scenes() {
 
   const { data: scenes = [], isLoading } = useScenes(currentStory?.id || null);
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
-  
+
   const createScene = useCreateScene();
   const updateScene = useUpdateScene();
   const deleteScene = useDeleteScene();
   const reorderScenes = useReorderScenes();
   const createVersion = useCreateSceneVersion();
 
-  const selectedScene = scenes.find((s) => s.id === selectedSceneId) || null;
+  const selectedScene = scenes.find(s => s.id === selectedSceneId) || null;
 
   const handleCreateScene = () => {
     if (!currentStory) {
@@ -42,9 +48,8 @@ export function Scenes() {
       return;
     }
 
-    const nextSequence = scenes.length > 0 
-      ? Math.max(...scenes.map(s => s.sequence_number)) + 1 
-      : 1;
+    const nextSequence =
+      scenes.length > 0 ? Math.max(...scenes.map(s => s.sequence_number)) + 1 : 1;
 
     createScene.mutate(
       {
@@ -53,7 +58,7 @@ export function Scenes() {
         title: `场景 ${nextSequence}`,
       },
       {
-        onSuccess: (newScene) => {
+        onSuccess: newScene => {
           toast.success('场景创建成功');
           setSelectedSceneId(newScene.id);
           setIsEditing(true);
@@ -100,8 +105,9 @@ export function Scenes() {
           toast.success('场景已保存');
           setIsEditing(false);
           // 自动创建版本快照（检测任何字段变更）
-          const hasContentChange = updates.content !== undefined && updates.content !== selectedScene.content;
-          const hasMetaChange = 
+          const hasContentChange =
+            updates.content !== undefined && updates.content !== selectedScene.content;
+          const hasMetaChange =
             updates.title !== selectedScene.title ||
             updates.dramatic_goal !== selectedScene.dramatic_goal ||
             updates.external_pressure !== selectedScene.external_pressure ||
@@ -116,14 +122,18 @@ export function Scenes() {
             if (hasContentChange) changeParts.push('内容');
             if (updates.title !== selectedScene.title) changeParts.push('标题');
             if (updates.dramatic_goal !== selectedScene.dramatic_goal) changeParts.push('戏剧目标');
-            if (updates.external_pressure !== selectedScene.external_pressure) changeParts.push('外部压迫');
+            if (updates.external_pressure !== selectedScene.external_pressure)
+              changeParts.push('外部压迫');
             if (updates.conflict_type !== selectedScene.conflict_type) changeParts.push('冲突类型');
-            if (updates.setting_location !== selectedScene.setting_location) changeParts.push('场景地点');
+            if (updates.setting_location !== selectedScene.setting_location)
+              changeParts.push('场景地点');
             if (updates.setting_time !== selectedScene.setting_time) changeParts.push('场景时间');
-            if (updates.setting_atmosphere !== selectedScene.setting_atmosphere) changeParts.push('场景氛围');
+            if (updates.setting_atmosphere !== selectedScene.setting_atmosphere)
+              changeParts.push('场景氛围');
             createVersion.mutate({
               sceneId: selectedScene.id,
-              changeSummary: changeParts.length > 0 ? `编辑${changeParts.join('、')}` : '编辑场景元数据',
+              changeSummary:
+                changeParts.length > 0 ? `编辑${changeParts.join('、')}` : '编辑场景元数据',
               createdBy: 'user',
             });
           }
@@ -134,7 +144,7 @@ export function Scenes() {
 
   const handleDeleteScene = (sceneId: string) => {
     if (!currentStory) return;
-    
+
     if (confirm('确定要删除这个场景吗？此操作不可撤销。')) {
       deleteScene.mutate(
         { sceneId, storyId: currentStory.id },
@@ -153,7 +163,7 @@ export function Scenes() {
 
   const handleReorderScenes = (sceneIds: string[]) => {
     if (!currentStory) return;
-    
+
     reorderScenes.mutate({
       storyId: currentStory.id,
       sceneIds,
@@ -164,16 +174,9 @@ export function Scenes() {
     return (
       <div className="p-8 flex flex-col items-center justify-center h-full text-center">
         <BookOpen className="w-16 h-16 text-cinema-700 mb-4" />
-        <h2 className="font-display text-xl font-semibold text-white mb-2">
-          还没有选择故事
-        </h2>
-        <p className="text-gray-500 max-w-md mb-6">
-          请先选择一个故事，然后开始创建场景
-        </p>
-        <Button 
-          variant="primary" 
-          onClick={() => useAppStore.getState().setCurrentView('stories')}
-        >
+        <h2 className="font-display text-xl font-semibold text-white mb-2">还没有选择故事</h2>
+        <p className="text-gray-500 max-w-md mb-6">请先选择一个故事，然后开始创建场景</p>
+        <Button variant="primary" onClick={() => useAppStore.getState().setCurrentView('stories')}>
           去故事库
         </Button>
       </div>
@@ -225,9 +228,11 @@ export function Scenes() {
                 onClick={() => setPreviewTab('content')}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
-                  ${previewTab === 'content'
-                    ? 'bg-cinema-gold text-cinema-900'
-                    : 'text-gray-400 hover:text-white hover:bg-cinema-800'}
+                  ${
+                    previewTab === 'content'
+                      ? 'bg-cinema-gold text-cinema-900'
+                      : 'text-gray-400 hover:text-white hover:bg-cinema-800'
+                  }
                 `}
               >
                 <FileText className="w-4 h-4" />
@@ -237,9 +242,11 @@ export function Scenes() {
                 onClick={() => setPreviewTab('versions')}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
-                  ${previewTab === 'versions'
-                    ? 'bg-cinema-gold text-cinema-900'
-                    : 'text-gray-400 hover:text-white hover:bg-cinema-800'}
+                  ${
+                    previewTab === 'versions'
+                      ? 'bg-cinema-gold text-cinema-900'
+                      : 'text-gray-400 hover:text-white hover:bg-cinema-800'
+                  }
                 `}
               >
                 <History className="w-4 h-4" />
@@ -255,7 +262,7 @@ export function Scenes() {
                     <h1 className="text-2xl font-bold text-white mb-4">
                       {selectedScene.title || `场景 ${selectedScene.sequence_number}`}
                     </h1>
-                    
+
                     {/* Scene Meta */}
                     <div className="flex flex-wrap gap-2 mb-6">
                       {selectedScene.conflict_type && (
@@ -273,11 +280,12 @@ export function Scenes() {
                           {selectedScene.characters_present.length} 个角色
                         </span>
                       )}
-                      {selectedScene.foreshadowing_ids && selectedScene.foreshadowing_ids.length > 0 && (
-                        <span className="px-3 py-1 text-sm rounded-full bg-purple-500/20 text-purple-300">
-                          伏笔: {selectedScene.foreshadowing_ids.length}
-                        </span>
-                      )}
+                      {selectedScene.foreshadowing_ids &&
+                        selectedScene.foreshadowing_ids.length > 0 && (
+                          <span className="px-3 py-1 text-sm rounded-full bg-purple-500/20 text-purple-300">
+                            伏笔: {selectedScene.foreshadowing_ids.length}
+                          </span>
+                        )}
                     </div>
 
                     {/* Characters present */}
@@ -285,8 +293,8 @@ export function Scenes() {
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xs text-gray-500">出场角色:</span>
                         <div className="flex flex-wrap gap-2">
-                          {selectedScene.characters_present.map((charId) => {
-                            const char = characters.find((c) => c.id === charId);
+                          {selectedScene.characters_present.map(charId => {
+                            const char = characters.find(c => c.id === charId);
                             return (
                               <span
                                 key={charId}
@@ -315,7 +323,9 @@ export function Scenes() {
                         {selectedScene.external_pressure && (
                           <div className="p-4 bg-cinema-800/50 rounded-lg">
                             <h3 className="text-sm font-medium text-cinema-gold mb-2">外部压迫</h3>
-                            <p className="text-sm text-gray-300">{selectedScene.external_pressure}</p>
+                            <p className="text-sm text-gray-300">
+                              {selectedScene.external_pressure}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -332,10 +342,7 @@ export function Scenes() {
                       <div className="text-center py-12">
                         <AlertCircle className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
                         <p className="text-gray-500 mb-4">这个场景还没有内容</p>
-                        <Button 
-                          variant="primary" 
-                          onClick={() => setIsEditing(true)}
-                        >
+                        <Button variant="primary" onClick={() => setIsEditing(true)}>
                           <Plus className="w-4 h-4 mr-2" />
                           开始写作
                         </Button>
@@ -347,10 +354,7 @@ export function Scenes() {
                 {/* Action Bar */}
                 <div className="p-4 border-t border-cinema-700 bg-cinema-900">
                   <div className="flex justify-center">
-                    <Button 
-                      variant="primary" 
-                      onClick={() => setIsEditing(true)}
-                    >
+                    <Button variant="primary" onClick={() => setIsEditing(true)}>
                       编辑场景
                     </Button>
                   </div>
@@ -394,12 +398,8 @@ export function Scenes() {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-8">
             <BookOpen className="w-16 h-16 text-cinema-700 mb-4" />
-            <h2 className="font-display text-xl font-semibold text-white mb-2">
-              选择一个场景
-            </h2>
-            <p className="text-gray-500 max-w-md">
-              从左侧选择一个场景查看详情，或创建新场景
-            </p>
+            <h2 className="font-display text-xl font-semibold text-white mb-2">选择一个场景</h2>
+            <p className="text-gray-500 max-w-md">从左侧选择一个场景查看详情，或创建新场景</p>
           </div>
         )}
       </div>
@@ -417,8 +417,8 @@ export function Scenes() {
           <ExecutionPanel
             storyId={currentStory.id}
             onCreateScene={handleCreateScene}
-            onEditScene={(sceneId) => {
-              const scene = scenes.find((s) => s.id === sceneId);
+            onEditScene={sceneId => {
+              const scene = scenes.find(s => s.id === sceneId);
               if (scene) handleEditScene(scene);
             }}
           />

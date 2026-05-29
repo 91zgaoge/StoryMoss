@@ -77,8 +77,8 @@ export function useExport() {
       a.href = url;
 
       // Get filename from path or generate default
-      const filename = data.file_path.split('\\').pop()?.split('/').pop()
-        || `export.${FILE_EXTENSIONS[format]}`;
+      const filename =
+        data.file_path.split('\\').pop()?.split('/').pop() || `export.${FILE_EXTENSIONS[format]}`;
       a.download = filename;
 
       document.body.appendChild(a);
@@ -98,8 +98,9 @@ export function useExportTemplates(formatFilter?: string) {
   return useQuery({
     queryKey: ['export-templates', formatFilter],
     queryFn: async () => {
-      return loggedInvoke<ExportTemplate[]>('list_export_templates', { format_filter: formatFilter });
+      return loggedInvoke<ExportTemplate[]>('list_export_templates', {
+        format_filter: formatFilter,
+      });
     },
   });
 }
-

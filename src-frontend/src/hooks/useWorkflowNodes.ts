@@ -26,7 +26,7 @@ export function useWorkflowNodes() {
     let cancelled = false;
 
     const setupListeners = async () => {
-      const unlistenStarted = await listen<WorkflowNodeEvent>('workflow-node-started', (event) => {
+      const unlistenStarted = await listen<WorkflowNodeEvent>('workflow-node-started', event => {
         if (cancelled) return;
         logger.info('[WorkflowNode] 开始执行', {
           instance_id: event.payload.instance_id,
@@ -36,15 +36,18 @@ export function useWorkflowNodes() {
         });
       });
 
-      const unlistenCompleted = await listen<WorkflowNodeEvent>('workflow-node-completed', (event) => {
-        if (cancelled) return;
-        logger.info('[WorkflowNode] 执行完成', {
-          instance_id: event.payload.instance_id,
-          node_id: event.payload.node_id,
-        });
-      });
+      const unlistenCompleted = await listen<WorkflowNodeEvent>(
+        'workflow-node-completed',
+        event => {
+          if (cancelled) return;
+          logger.info('[WorkflowNode] 执行完成', {
+            instance_id: event.payload.instance_id,
+            node_id: event.payload.node_id,
+          });
+        }
+      );
 
-      const unlistenFailed = await listen<WorkflowNodeEvent>('workflow-node-failed', (event) => {
+      const unlistenFailed = await listen<WorkflowNodeEvent>('workflow-node-failed', event => {
         if (cancelled) return;
         logger.warn('[WorkflowNode] 执行失败', {
           instance_id: event.payload.instance_id,
@@ -60,7 +63,7 @@ export function useWorkflowNodes() {
 
     return () => {
       cancelled = true;
-      unlistenRefs.current.forEach((unlisten) => unlisten());
+      unlistenRefs.current.forEach(unlisten => unlisten());
       unlistenRefs.current = [];
     };
   }, []);

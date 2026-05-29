@@ -4,10 +4,7 @@ import type { ChangeTrack } from '@/types/v3';
 
 const PENDING_CHANGES_KEY = 'pendingChanges';
 
-export function usePendingChanges(
-  sceneId: string | undefined,
-  chapterId: string | undefined
-) {
+export function usePendingChanges(sceneId: string | undefined, chapterId: string | undefined) {
   return useQuery({
     queryKey: [PENDING_CHANGES_KEY, sceneId, chapterId],
     queryFn: () => {
@@ -37,15 +34,19 @@ export function useVersionChangeTracks(versionId: string | undefined) {
 export function useTrackChange() {
   const queryClient = useQueryClient();
 
-  return useMutation<ChangeTrack, Error, {
-    sceneId?: string;
-    chapterId?: string;
-    changeType: 'Insert' | 'Delete' | 'Format';
-    fromPos: number;
-    toPos: number;
-    content?: string;
-    authorId?: string;
-  }>({
+  return useMutation<
+    ChangeTrack,
+    Error,
+    {
+      sceneId?: string;
+      chapterId?: string;
+      changeType: 'Insert' | 'Delete' | 'Format';
+      fromPos: number;
+      toPos: number;
+      content?: string;
+      authorId?: string;
+    }
+  >({
     mutationFn: ({ sceneId, chapterId, changeType, fromPos, toPos, content, authorId }) =>
       loggedInvoke<ChangeTrack>('track_change', {
         scene_id: sceneId ?? null,
@@ -57,7 +58,9 @@ export function useTrackChange() {
         author_id: authorId,
       }),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
+      queryClient.invalidateQueries({
+        queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId],
+      });
     },
   });
 }
@@ -68,7 +71,9 @@ export function useAcceptChange() {
   return useMutation<number, Error, { changeId: string; sceneId?: string; chapterId?: string }>({
     mutationFn: ({ changeId }) => loggedInvoke<number>('accept_change', { change_id: changeId }),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
+      queryClient.invalidateQueries({
+        queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId],
+      });
     },
   });
 }
@@ -79,7 +84,9 @@ export function useRejectChange() {
   return useMutation<number, Error, { changeId: string; sceneId?: string; chapterId?: string }>({
     mutationFn: ({ changeId }) => loggedInvoke<number>('reject_change', { change_id: changeId }),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
+      queryClient.invalidateQueries({
+        queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId],
+      });
     },
   });
 }
@@ -95,7 +102,9 @@ export function useAcceptAllChanges() {
       return loggedInvoke<number>('accept_all_changes', { chapter_id: chapterId });
     },
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
+      queryClient.invalidateQueries({
+        queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId],
+      });
     },
   });
 }
@@ -111,7 +120,9 @@ export function useRejectAllChanges() {
       return loggedInvoke<number>('reject_all_changes', { chapter_id: chapterId });
     },
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
+      queryClient.invalidateQueries({
+        queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId],
+      });
     },
   });
 }

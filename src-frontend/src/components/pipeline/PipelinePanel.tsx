@@ -164,7 +164,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
 
       {/* Tabs */}
       <div className="flex border-b border-white/5">
-        {(['actions', 'drafts', 'reviews'] as const).map((tab) => (
+        {(['actions', 'drafts', 'reviews'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -191,7 +191,12 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
               <div className="p-3 rounded-lg bg-white/5 border border-white/5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-white/60">当前草稿</span>
-                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded', getStatusColor(state.currentDraft.status))}>
+                  <span
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded',
+                      getStatusColor(state.currentDraft.status)
+                    )}
+                  >
                     {state.currentDraft.status}
                   </span>
                 </div>
@@ -222,7 +227,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                   <input
                     type="text"
                     value={refinePrompt}
-                    onChange={(e) => setRefinePrompt(e.target.value)}
+                    onChange={e => setRefinePrompt(e.target.value)}
                     placeholder="修稿指令（可选）..."
                     className="w-full px-2 py-1.5 text-xs bg-white/5 border border-white/10 rounded text-white/80 placeholder:text-white/30 focus:outline-none focus:border-purple-400/50"
                   />
@@ -279,19 +284,21 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
               <div className="mt-4">
                 <h4 className="text-xs font-medium text-white/50 mb-2">后处理进度</h4>
                 <div className="space-y-1.5">
-                  {state.postProcessSteps.map((step) => (
+                  {state.postProcessSteps.map(step => (
                     <div
                       key={step.id}
                       className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5"
                     >
-                      {step.status === 'running' && <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />}
-                      {step.status === 'success' && <CheckCircle className="w-3 h-3 text-green-400" />}
+                      {step.status === 'running' && (
+                        <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+                      )}
+                      {step.status === 'success' && (
+                        <CheckCircle className="w-3 h-3 text-green-400" />
+                      )}
                       {step.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400" />}
                       {step.status === 'pending' && <Clock className="w-3 h-3 text-white/30" />}
                       <span className="text-[11px] text-white/60 flex-1">{step.step_label}</span>
-                      {step.critical && (
-                        <span className="text-[10px] text-red-400/60">关键</span>
-                      )}
+                      {step.critical && <span className="text-[10px] text-red-400/60">关键</span>}
                     </div>
                   ))}
                 </div>
@@ -308,7 +315,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                 暂无草稿
               </div>
             )}
-            {state.drafts.map((draft) => (
+            {state.drafts.map(draft => (
               <button
                 key={draft.id}
                 onClick={() => setSelectedDraft(draft)}
@@ -320,10 +327,13 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-white/80">
-                    v{draft.version}
-                  </span>
-                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded', getStatusColor(draft.status))}>
+                  <span className="text-xs font-medium text-white/80">v{draft.version}</span>
+                  <span
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded',
+                      getStatusColor(draft.status)
+                    )}
+                  >
                     {draft.status}
                   </span>
                 </div>
@@ -358,7 +368,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                   </span>
                 </div>
                 <div className="mt-2 space-y-1.5">
-                  {state.latestReview.dimensions.map((dim) => (
+                  {state.latestReview.dimensions.map(dim => (
                     <div key={dim.name} className="flex items-center gap-2">
                       <span className="text-[11px] text-white/50 w-16">{dim.name}</span>
                       <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -373,15 +383,21 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                 </div>
                 {state.latestReview.issues.length > 0 && (
                   <div className="mt-3 space-y-1.5">
-                    <span className="text-[11px] text-white/40">发现问题 ({state.latestReview.issues.length})</span>
+                    <span className="text-[11px] text-white/40">
+                      发现问题 ({state.latestReview.issues.length})
+                    </span>
                     {state.latestReview.issues.slice(0, 3).map((issue, i) => (
                       <div key={i} className="px-2 py-1.5 rounded bg-white/5 text-[11px]">
-                        <span className={cn(
-                          'text-[10px] px-1 py-0.5 rounded mr-1.5',
-                          issue.severity === 'critical' ? 'bg-red-400/20 text-red-400' :
-                          issue.severity === 'high' ? 'bg-orange-400/20 text-orange-400' :
-                          'bg-yellow-400/20 text-yellow-400'
-                        )}>
+                        <span
+                          className={cn(
+                            'text-[10px] px-1 py-0.5 rounded mr-1.5',
+                            issue.severity === 'critical'
+                              ? 'bg-red-400/20 text-red-400'
+                              : issue.severity === 'high'
+                                ? 'bg-orange-400/20 text-orange-400'
+                                : 'bg-yellow-400/20 text-yellow-400'
+                          )}
+                        >
                           {issue.severity}
                         </span>
                         <span className="text-white/60">{issue.description}</span>
@@ -392,12 +408,14 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
               </div>
             )}
 
-            {state.reviews.map((review) => (
+            {state.reviews.map(review => (
               <div key={review.id} className="p-2.5 rounded-lg bg-white/5 border border-white/5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-white/50">审稿 #{review.review_index}</span>
                   {review.overall_score !== undefined && (
-                    <span className="text-xs font-medium text-white/70">{review.overall_score}分</span>
+                    <span className="text-xs font-medium text-white/70">
+                      {review.overall_score}分
+                    </span>
                   )}
                 </div>
                 {review.content && (

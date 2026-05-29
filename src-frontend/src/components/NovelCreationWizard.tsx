@@ -8,7 +8,7 @@ import {
   PenTool,
   BookOpen,
   Check,
-  RefreshCw
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -23,7 +23,7 @@ import type {
   CharacterProfileOption,
   WritingStyleOption,
   SceneProposal,
-  ConflictType
+  ConflictType,
 } from '@/types/v3';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -141,7 +141,13 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleComplete = () => {
-    if (selectedWorld === null || selectedCharacters === null || selectedStyle === null || !firstScene) return;
+    if (
+      selectedWorld === null ||
+      selectedCharacters === null ||
+      selectedStyle === null ||
+      !firstScene
+    )
+      return;
 
     onComplete({
       worldBuilding: worldOptions[selectedWorld],
@@ -186,7 +192,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       <div className="relative">
         <textarea
           value={genreInput}
-          onChange={(e) => setGenreInput(e.target.value)}
+          onChange={e => setGenreInput(e.target.value)}
           placeholder="小说类型：玄幻...商战...或随便定"
           className="w-full h-32 px-4 py-4 bg-cinema-800 border border-cinema-700 rounded-xl text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none resize-none text-lg"
         />
@@ -196,7 +202,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       </div>
 
       <div className="flex justify-between">
-        <Button variant="ghost" onClick={onCancel}>取消</Button>
+        <Button variant="ghost" onClick={onCancel}>
+          取消
+        </Button>
         <Button
           variant="primary"
           onClick={handleStartGeneration}
@@ -251,7 +259,10 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
                       <span className="text-xs text-gray-500">核心规则：</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {world.rules.map((rule, i) => (
-                          <span key={i} className="px-2 py-0.5 text-xs bg-cinema-800 rounded text-gray-300">
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 text-xs bg-cinema-800 rounded text-gray-300"
+                          >
                             {rule.name}
                           </span>
                         ))}
@@ -299,7 +310,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
                 </div>
                 <div className="flex-1">
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {characterSet.map((char) => (
+                    {characterSet.map(char => (
                       <span
                         key={char.id}
                         className="px-2.5 py-1 rounded-lg bg-cinema-800 text-gray-300 text-sm"
@@ -309,7 +320,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
                     ))}
                   </div>
                   <div className="space-y-1">
-                    {characterSet.map((char) => (
+                    {characterSet.map(char => (
                       <p key={char.id} className="text-sm text-gray-400">
                         <span className="text-gray-300">{char.name}：</span>
                         {char.personality} · {char.goals}
@@ -395,7 +406,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         </div>
         <div className="flex items-center gap-3">
           <Users className="w-5 h-5 text-cinema-gold" />
-          <span className="text-gray-300">{characterSets[selectedCharacters!]?.length || 0} 位角色已设定</span>
+          <span className="text-gray-300">
+            {characterSets[selectedCharacters!]?.length || 0} 位角色已设定
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <PenTool className="w-5 h-5 text-cinema-gold" />

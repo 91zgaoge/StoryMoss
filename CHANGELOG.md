@@ -2,6 +2,37 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.8.0] - 模型管理重构 + 浮点数精度修复 + 连接状态增强（2026-05-29）
+
+### 🎯 模型管理统一集中
+- **单一模型管理入口** — 将分散的 Chat/Embedding/Multimodal/Image 四个 Tab 合并为统一的"模型管理"页面 (`UnifiedModelManager`)
+- **顶部类型筛选器** — 全部 / 聊天 / 嵌入 / 多模态 / 图像五档筛选，实时过滤
+- **按类型分组展示** — 同类型模型归为一组，每组带图标和计数
+- **新建模型类型选择** — 添加模型时先选择类型（四卡片 UI），再进入配置表单
+
+### 🔢 浮点数精度全面修复
+- **后端 temperature 序列化规范化** (`settings.rs`) — 新增 `temperature_serde` 模块，序列化/反序列化时统一截断到 2 位小数，范围 `[0.0, 2.0]`
+- **前端数字工具函数** (`numberFormat.ts`) — `normalizeFloat` / `formatDisplayFloat` / `normalizeInt` / `clampNumber` / `formatLatencyWithQuality`
+- **GeneralSettings rewriteThreshold** — slider 值和展示值均经过 `normalizeFloat(value, 2)` 处理，彻底消除 `0.8999999` 类显示问题
+
+### 🔌 模型连接状态丰富化
+- **连接测试步骤可视化** (`ModelCard`) — 检测中显示当前步骤名称 + 脉冲动画；已连接显示延迟 + 质量评级（优秀/良好/一般）；连接失败显示红色状态 + 重试按钮 + 可展开的步骤详情列表
+- **全局连接状态 Store** (`modelConnectionStore.ts`) — Zustand 统一管理，支持自动轮询（30s）、手动重试、批量检测
+- **状态变更 Toast 提示** — 连接恢复 / 断开时自动弹出通知
+
+### 🖥️ 幕前底部栏 Tooltip 增强
+- **悬停模型状态点** 显示丰富信息：模型提供商、API Base 简写、连接延迟、最后检测时间
+- **连接失败时** 显示"前往配置 →"快捷链接，一键跳转到设置页
+
+### 🛠️ 后端命令重构
+- **`commands.rs` 辅助函数提取** — `parse_llm_provider` / `parse_capabilities` / `normalize_temperature` / `build_llm_profile`
+- **`create_model` 重复逻辑合并** — Chat/Multimodal 共用 `build_llm_profile`
+- **`test_model_connection` 重写** — 返回带 `steps` 字段的详细探测结果，每步包含 `name` / `status` / `detail`
+
+**编译状态**: `cargo check` 零错误，`cargo test` 通过，前端 `tsc --noEmit` 通过，单元测试 59 passed。
+
+---
+
 ## [v0.7.9] - 六阶段架构深度优化（2026-05-29）
 
 ### 🔒 安全与稳定性

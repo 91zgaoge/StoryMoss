@@ -32,7 +32,9 @@ describe('FrontstageBottomBar', () => {
   });
 
   it('生成状态下应该显示取消按钮', () => {
-    render(<FrontstageBottomBar {...defaultProps} isGenerating={true} generationStatus="正在生成…" />);
+    render(
+      <FrontstageBottomBar {...defaultProps} isGenerating={true} generationStatus="正在生成…" />
+    );
     expect(screen.getByTitle('取消生成')).toBeInTheDocument();
     expect(screen.queryByTitle('发送')).not.toBeInTheDocument();
   });

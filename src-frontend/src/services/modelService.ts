@@ -1,6 +1,6 @@
 /**
  * 模型服务层
- * 
+ *
  * 处理与LLM模型的API通信
  * 支持多模态、语言和Embedding模型
  */
@@ -159,7 +159,7 @@ class ModelService {
                 fullContent += content;
                 onStream(content);
               }
-              
+
               // 保存最后一个响应作为最终结果
               if (parsed.choices?.[0]?.finish_reason) {
                 finalResponse = parsed;
@@ -178,11 +178,13 @@ class ModelService {
       // 构造一个默认响应
       return {
         id: 'stream-response',
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: fullContent },
-          finish_reason: 'stop',
-        }],
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: fullContent },
+            finish_reason: 'stop',
+          },
+        ],
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
       };
     }
@@ -193,7 +195,7 @@ class ModelService {
   // 获取文本嵌入向量
   async getEmbedding(text: string | string[]): Promise<number[] | number[][]> {
     const config = getEmbeddingModel();
-    
+
     const requestBody: EmbeddingRequest = {
       model: config.id,
       input: text,
@@ -214,7 +216,7 @@ class ModelService {
     }
 
     const data: EmbeddingResponse = await response.json();
-    
+
     if (Array.isArray(text)) {
       return data.data.map(d => d.embedding);
     }
@@ -232,11 +234,11 @@ class ModelService {
   // 构建请求头
   private buildHeaders(config: ModelConfig): Record<string, string> {
     const headers: Record<string, string> = {};
-    
+
     if (config.useApiKey && config.apiKey) {
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
-    
+
     return headers;
   }
 }

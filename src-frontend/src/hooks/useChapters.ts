@@ -15,7 +15,7 @@ const CHAPTERS_KEY = 'chapters';
 export function useChapters(storyId: string | null) {
   return useQuery<Chapter[]>({
     queryKey: [CHAPTERS_KEY, storyId],
-    queryFn: () => storyId ? getStoryChapters(storyId) : Promise.resolve([]),
+    queryFn: () => (storyId ? getStoryChapters(storyId) : Promise.resolve([])),
     enabled: !!storyId,
   });
 }
@@ -23,14 +23,18 @@ export function useChapters(storyId: string | null) {
 export function useChapter(id: string | null) {
   return useQuery({
     queryKey: [CHAPTERS_KEY, 'detail', id],
-    queryFn: () => id ? getChapter(id) : Promise.resolve(null),
+    queryFn: () => (id ? getChapter(id) : Promise.resolve(null)),
     enabled: !!id,
   });
 }
 
 export function useChapterWithScene(chapterId: string | null) {
   const { data: chapter, isLoading: chapterLoading, isError: chapterError } = useChapter(chapterId);
-  const { data: scene, isLoading: sceneLoading, isError: sceneError } = useScene(chapter?.scene_id || null);
+  const {
+    data: scene,
+    isLoading: sceneLoading,
+    isError: sceneError,
+  } = useScene(chapter?.scene_id || null);
 
   return {
     chapter,
@@ -42,12 +46,12 @@ export function useChapterWithScene(chapterId: string | null) {
 
 export function useCreateChapter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createChapter,
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: [CHAPTERS_KEY, variables.story_id] 
+      queryClient.invalidateQueries({
+        queryKey: [CHAPTERS_KEY, variables.story_id],
       });
       toast.success('章节创建成功');
     },
@@ -59,9 +63,9 @@ export function useCreateChapter() {
 
 export function useUpdateChapter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<Chapter> }) => 
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<Chapter> }) =>
       updateChapter(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHAPTERS_KEY] });
@@ -75,7 +79,7 @@ export function useUpdateChapter() {
 
 export function useDeleteChapter() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteChapter,
     onSuccess: () => {

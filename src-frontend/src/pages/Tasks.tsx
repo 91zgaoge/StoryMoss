@@ -66,11 +66,20 @@ function getHeartbeatStatus(task: Task): { status: 'ok' | 'warning' | 'dead'; te
   }
   const elapsed = (Date.now() - new Date(task.last_heartbeat_at).getTime()) / 1000;
   if (elapsed > task.heartbeat_timeout_seconds) return { status: 'dead', text: '已超时' };
-  if (elapsed > task.heartbeat_timeout_seconds * 0.5) return { status: 'warning', text: ` ${formatDuration(Math.floor(elapsed))}前` };
+  if (elapsed > task.heartbeat_timeout_seconds * 0.5)
+    return { status: 'warning', text: ` ${formatDuration(Math.floor(elapsed))}前` };
   return { status: 'ok', text: '正常' };
 }
 
-function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExpand: () => void; isExpanded: boolean }) {
+function TaskRow({
+  task,
+  onToggleExpand,
+  isExpanded,
+}: {
+  task: Task;
+  onToggleExpand: () => void;
+  isExpanded: boolean;
+}) {
   const deleteMutation = useDeleteTask();
   const triggerMutation = useTriggerTask();
   const cancelMutation = useCancelTask();
@@ -126,12 +135,23 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
         className="flex items-center gap-3 px-4 py-3 hover:bg-cinema-800/30 transition-colors cursor-pointer"
         onClick={onToggleExpand}
       >
-        <StatusIcon className={cn('w-4 h-4 flex-shrink-0', status.color, task.status === 'running' && 'animate-spin')} />
+        <StatusIcon
+          className={cn(
+            'w-4 h-4 flex-shrink-0',
+            status.color,
+            task.status === 'running' && 'animate-spin'
+          )}
+        />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm text-white truncate">{task.name}</span>
-            <span className={cn('text-xs px-1.5 py-0.5 rounded', status.color.replace('text-', 'bg-').replace('400', '500/20'))}>
+            <span
+              className={cn(
+                'text-xs px-1.5 py-0.5 rounded',
+                status.color.replace('text-', 'bg-').replace('400', '500/20')
+              )}
+            >
               {status.label}
             </span>
           </div>
@@ -142,7 +162,9 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
               <span className="text-blue-400">{task.progress}%</span>
             )}
             {task.retry_count > 0 && (
-              <span className="text-orange-400">重试 {task.retry_count}/{task.max_retries}</span>
+              <span className="text-orange-400">
+                重试 {task.retry_count}/{task.max_retries}
+              </span>
             )}
           </div>
         </div>
@@ -150,17 +172,23 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
         {/* Heartbeat indicator */}
         {task.status === 'running' && (
           <div className="flex items-center gap-1 text-xs">
-            <Heart className={cn(
-              'w-3 h-3',
-              heartbeat.status === 'ok' && 'text-green-400 fill-green-400',
-              heartbeat.status === 'warning' && 'text-yellow-400',
-              heartbeat.status === 'dead' && 'text-red-400',
-            )} />
-            <span className={cn(
-              heartbeat.status === 'ok' && 'text-green-400',
-              heartbeat.status === 'warning' && 'text-yellow-400',
-              heartbeat.status === 'dead' && 'text-red-400',
-            )}>{heartbeat.text}</span>
+            <Heart
+              className={cn(
+                'w-3 h-3',
+                heartbeat.status === 'ok' && 'text-green-400 fill-green-400',
+                heartbeat.status === 'warning' && 'text-yellow-400',
+                heartbeat.status === 'dead' && 'text-red-400'
+              )}
+            />
+            <span
+              className={cn(
+                heartbeat.status === 'ok' && 'text-green-400',
+                heartbeat.status === 'warning' && 'text-yellow-400',
+                heartbeat.status === 'dead' && 'text-red-400'
+              )}
+            >
+              {heartbeat.text}
+            </span>
           </div>
         )}
 
@@ -175,7 +203,7 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
         )}
 
         {/* Actions */}
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
           {task.status === 'running' ? (
             <button
               onClick={handleCancel}
@@ -209,7 +237,11 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
-          {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4 text-gray-500" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-500" />
+          )}
         </div>
       </div>
 
@@ -237,33 +269,45 @@ function CascadeRewriteDetail({ task }: { task: Task }) {
     .map(({ i }) => i);
 
   const handleAccept = (idx: number) => {
-    applyMutation.mutate({ taskId: task.id, acceptedIndices: [idx] }, {
-      onSuccess: () => toast.success('已接受改写'),
-      onError: (e) => toast.error(`接受失败: ${e}`),
-    });
+    applyMutation.mutate(
+      { taskId: task.id, acceptedIndices: [idx] },
+      {
+        onSuccess: () => toast.success('已接受改写'),
+        onError: e => toast.error(`接受失败: ${e}`),
+      }
+    );
   };
 
   const handleReject = (idx: number) => {
-    rejectMutation.mutate({ taskId: task.id, rejectedIndices: [idx] }, {
-      onSuccess: () => toast.success('已拒绝改写'),
-      onError: (e) => toast.error(`拒绝失败: ${e}`),
-    });
+    rejectMutation.mutate(
+      { taskId: task.id, rejectedIndices: [idx] },
+      {
+        onSuccess: () => toast.success('已拒绝改写'),
+        onError: e => toast.error(`拒绝失败: ${e}`),
+      }
+    );
   };
 
   const handleAcceptAll = () => {
     if (pendingIndices.length === 0) return;
-    applyMutation.mutate({ taskId: task.id, acceptedIndices: pendingIndices }, {
-      onSuccess: () => toast.success(`已接受 ${pendingIndices.length} 处改写`),
-      onError: (e) => toast.error(`接受失败: ${e}`),
-    });
+    applyMutation.mutate(
+      { taskId: task.id, acceptedIndices: pendingIndices },
+      {
+        onSuccess: () => toast.success(`已接受 ${pendingIndices.length} 处改写`),
+        onError: e => toast.error(`接受失败: ${e}`),
+      }
+    );
   };
 
   const handleRejectAll = () => {
     if (pendingIndices.length === 0) return;
-    rejectMutation.mutate({ taskId: task.id, rejectedIndices: pendingIndices }, {
-      onSuccess: () => toast.success(`已拒绝 ${pendingIndices.length} 处改写`),
-      onError: (e) => toast.error(`拒绝失败: ${e}`),
-    });
+    rejectMutation.mutate(
+      { taskId: task.id, rejectedIndices: pendingIndices },
+      {
+        onSuccess: () => toast.success(`已拒绝 ${pendingIndices.length} 处改写`),
+        onError: e => toast.error(`拒绝失败: ${e}`),
+      }
+    );
   };
 
   return (
@@ -307,12 +351,14 @@ function CascadeRewriteDetail({ task }: { task: Task }) {
               <span className="text-[10px] text-gray-500">
                 场景 {segment.scene_id.slice(0, 8)}... · 段落 {segment.paragraph_index + 1}
               </span>
-              <span className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded',
-                segment.user_decision === 'pending' && 'bg-yellow-500/20 text-yellow-400',
-                segment.user_decision === 'accepted' && 'bg-green-500/20 text-green-400',
-                segment.user_decision === 'rejected' && 'bg-gray-500/20 text-gray-400',
-              )}>
+              <span
+                className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded',
+                  segment.user_decision === 'pending' && 'bg-yellow-500/20 text-yellow-400',
+                  segment.user_decision === 'accepted' && 'bg-green-500/20 text-green-400',
+                  segment.user_decision === 'rejected' && 'bg-gray-500/20 text-gray-400'
+                )}
+              >
                 {segment.user_decision === 'pending' && '待确认'}
                 {segment.user_decision === 'accepted' && '已接受'}
                 {segment.user_decision === 'rejected' && '已拒绝'}
@@ -359,16 +405,16 @@ function TaskDetail({ task }: { task: Task }) {
 
   return (
     <div className="px-4 pb-3 bg-cinema-900/50">
-      {task.description && (
-        <p className="text-xs text-gray-400 mt-2">{task.description}</p>
-      )}
+      {task.description && <p className="text-xs text-gray-400 mt-2">{task.description}</p>}
 
       <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-gray-500">
         <div>类型: {task.task_type}</div>
         <div>调度: {scheduleTypeLabels[task.schedule_type] || task.schedule_type}</div>
         {task.last_run_at && <div>上次运行: {new Date(task.last_run_at).toLocaleString()}</div>}
         {task.next_run_at && <div>下次运行: {new Date(task.next_run_at).toLocaleString()}</div>}
-        {task.last_heartbeat_at && <div>最后心跳: {new Date(task.last_heartbeat_at).toLocaleString()}</div>}
+        {task.last_heartbeat_at && (
+          <div>最后心跳: {new Date(task.last_heartbeat_at).toLocaleString()}</div>
+        )}
         <div>超时阈值: {formatDuration(task.heartbeat_timeout_seconds)}</div>
       </div>
 
@@ -379,9 +425,7 @@ function TaskDetail({ task }: { task: Task }) {
       )}
 
       {/* Cascade Rewrite Diff Viewer */}
-      {task.task_type === 'cascade_rewrite' && task.result && (
-        <CascadeRewriteDetail task={task} />
-      )}
+      {task.task_type === 'cascade_rewrite' && task.result && <CascadeRewriteDetail task={task} />}
 
       {/* Result Preview (non-cascade) */}
       {task.result && task.task_type !== 'cascade_rewrite' && (
@@ -395,10 +439,16 @@ function TaskDetail({ task }: { task: Task }) {
                 return (
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-xs text-gray-500">审稿评分:</span>
-                    <span className={cn(
-                      'text-sm font-bold',
-                      score >= 80 ? 'text-green-400' : score >= 60 ? 'text-yellow-400' : 'text-red-400'
-                    )}>
+                    <span
+                      className={cn(
+                        'text-sm font-bold',
+                        score >= 80
+                          ? 'text-green-400'
+                          : score >= 60
+                            ? 'text-yellow-400'
+                            : 'text-red-400'
+                      )}
+                    >
                       {score}%
                     </span>
                   </div>
@@ -410,14 +460,16 @@ function TaskDetail({ task }: { task: Task }) {
             }
           })()}
           <div className="max-h-40 overflow-y-auto p-2 bg-cinema-900 rounded border border-cinema-700">
-            <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all">{(() => {
-              try {
-                const parsed = JSON.parse(task.result);
-                return JSON.stringify(parsed, null, 2);
-              } catch {
-                return task.result;
-              }
-            })()}</pre>
+            <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all">
+              {(() => {
+                try {
+                  const parsed = JSON.parse(task.result);
+                  return JSON.stringify(parsed, null, 2);
+                } catch {
+                  return task.result;
+                }
+              })()}
+            </pre>
           </div>
         </div>
       )}
@@ -427,16 +479,22 @@ function TaskDetail({ task }: { task: Task }) {
         <div className="mt-3">
           <h4 className="text-xs font-medium text-gray-400 mb-1">执行日志</h4>
           <div className="max-h-32 overflow-y-auto space-y-1">
-            {logs.map((log) => (
+            {logs.map(log => (
               <div key={log.id} className="flex items-start gap-2 text-xs">
-                <span className={cn(
-                  'px-1 rounded text-[10px] flex-shrink-0',
-                  log.log_level === 'error' && 'bg-red-500/20 text-red-400',
-                  log.log_level === 'warn' && 'bg-orange-500/20 text-orange-400',
-                  log.log_level === 'info' && 'bg-blue-500/20 text-blue-400',
-                )}>{log.log_level}</span>
+                <span
+                  className={cn(
+                    'px-1 rounded text-[10px] flex-shrink-0',
+                    log.log_level === 'error' && 'bg-red-500/20 text-red-400',
+                    log.log_level === 'warn' && 'bg-orange-500/20 text-orange-400',
+                    log.log_level === 'info' && 'bg-blue-500/20 text-blue-400'
+                  )}
+                >
+                  {log.log_level}
+                </span>
                 <span className="text-gray-400">{log.message}</span>
-                <span className="text-gray-600 ml-auto flex-shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
+                <span className="text-gray-600 ml-auto flex-shrink-0">
+                  {new Date(log.created_at).toLocaleTimeString()}
+                </span>
               </div>
             ))}
           </div>
@@ -470,7 +528,9 @@ export function Tasks() {
         toast.error(message || `任务 ${task_id} 失败`);
       }
     });
-    return () => { unlisten.then((f) => f()); };
+    return () => {
+      unlisten.then(f => f());
+    };
   }, []);
 
   const handleCreate = async () => {
@@ -488,7 +548,13 @@ export function Tasks() {
       });
       toast.success('任务创建成功');
       setShowCreate(false);
-      setNewTask({ name: '', description: '', task_type: 'custom', schedule_type: 'once', cron_pattern: '' });
+      setNewTask({
+        name: '',
+        description: '',
+        task_type: 'custom',
+        schedule_type: 'once',
+        cron_pattern: '',
+      });
     } catch (e) {
       toast.error(`创建失败: ${e}`);
     }
@@ -497,11 +563,11 @@ export function Tasks() {
   const filteredTasks = tasks || [];
 
   const groupedTasks = {
-    running: filteredTasks.filter((t) => t.status === 'running'),
-    pending: filteredTasks.filter((t) => t.status === 'pending'),
-    completed: filteredTasks.filter((t) => t.status === 'completed'),
-    failed: filteredTasks.filter((t) => t.status === 'failed'),
-    cancelled: filteredTasks.filter((t) => t.status === 'cancelled'),
+    running: filteredTasks.filter(t => t.status === 'running'),
+    pending: filteredTasks.filter(t => t.status === 'pending'),
+    completed: filteredTasks.filter(t => t.status === 'completed'),
+    failed: filteredTasks.filter(t => t.status === 'failed'),
+    cancelled: filteredTasks.filter(t => t.status === 'cancelled'),
   };
 
   return (
@@ -531,12 +597,12 @@ export function Tasks() {
               type="text"
               placeholder="任务名称"
               value={newTask.name}
-              onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
+              onChange={e => setNewTask({ ...newTask, name: e.target.value })}
               className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
             />
             <select
               value={newTask.schedule_type}
-              onChange={(e) => setNewTask({ ...newTask, schedule_type: e.target.value })}
+              onChange={e => setNewTask({ ...newTask, schedule_type: e.target.value })}
               className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white focus:outline-none focus:border-cinema-gold"
             >
               <option value="once">一次性</option>
@@ -546,7 +612,7 @@ export function Tasks() {
             </select>
             <select
               value={newTask.task_type}
-              onChange={(e) => setNewTask({ ...newTask, task_type: e.target.value })}
+              onChange={e => setNewTask({ ...newTask, task_type: e.target.value })}
               className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white focus:outline-none focus:border-cinema-gold"
             >
               <option value="custom">自定义</option>
@@ -560,7 +626,7 @@ export function Tasks() {
               type="text"
               placeholder="描述 (可选)"
               value={newTask.description}
-              onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+              onChange={e => setNewTask({ ...newTask, description: e.target.value })}
               className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
             />
             {newTask.schedule_type === 'cron' && (
@@ -568,7 +634,7 @@ export function Tasks() {
                 type="text"
                 placeholder="Cron 表达式 (如: 0 3 * * *)"
                 value={newTask.cron_pattern}
-                onChange={(e) => setNewTask({ ...newTask, cron_pattern: e.target.value })}
+                onChange={e => setNewTask({ ...newTask, cron_pattern: e.target.value })}
                 className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
               />
             )}
@@ -593,7 +659,7 @@ export function Tasks() {
 
       {/* Filter tabs */}
       <div className="flex gap-1 mb-4">
-        {(['all', 'running', 'pending', 'completed', 'failed'] as StatusFilter[]).map((f) => (
+        {(['all', 'running', 'pending', 'completed', 'failed'] as StatusFilter[]).map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -641,7 +707,7 @@ export function Tasks() {
                   <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-blue-400">
                     执行中 ({groupedTasks.running.length})
                   </div>
-                  {groupedTasks.running.map((task) => (
+                  {groupedTasks.running.map(task => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -656,7 +722,7 @@ export function Tasks() {
                   <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-gray-400">
                     等待中 ({groupedTasks.pending.length})
                   </div>
-                  {groupedTasks.pending.map((task) => (
+                  {groupedTasks.pending.map(task => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -671,7 +737,7 @@ export function Tasks() {
                   <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-green-400">
                     已完成 ({groupedTasks.completed.length})
                   </div>
-                  {groupedTasks.completed.map((task) => (
+                  {groupedTasks.completed.map(task => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -686,7 +752,7 @@ export function Tasks() {
                   <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-red-400">
                     失败 ({groupedTasks.failed.length})
                   </div>
-                  {groupedTasks.failed.map((task) => (
+                  {groupedTasks.failed.map(task => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -699,7 +765,7 @@ export function Tasks() {
             </>
           ) : (
             // Flat list for filtered view
-            filteredTasks.map((task) => (
+            filteredTasks.map(task => (
               <TaskRow
                 key={task.id}
                 task={task}

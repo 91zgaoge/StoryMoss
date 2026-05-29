@@ -70,7 +70,7 @@ export function autoFormatText(input: string): string {
     text = text.replace(/<[^>]+>/g, '');
     text = normalizeQuotes(text);
     // 已有段落结构，不需要重新分段，但替换回原有结构
-    return input.replace(/(?!<)[^\u003c]+(?=<)/g, (match) => {
+    return input.replace(/(?!<)[^\u003c]+(?=<)/g, match => {
       return normalizeQuotes(match);
     });
   }
@@ -86,7 +86,10 @@ export function autoFormatText(input: string): string {
   text = normalizeQuotes(text);
 
   // 4. 按 \n\n 空行拆分（LLM 有时会用空行分段）
-  const rawParagraphs = text.split(/\n\n+/).map(s => s.trim()).filter(s => s.length > 0);
+  const rawParagraphs = text
+    .split(/\n\n+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
   if (rawParagraphs.length >= 2) {
     return rawParagraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('');
   }
@@ -103,7 +106,9 @@ export function autoFormatText(input: string): string {
 
     // 对话检测：以引号/书名号/括号开头的句子优先独立成段
     const isDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"\'「『（《].*/.test(sentence.trim());
-    const nextIsDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"\'「『（《].*/.test(nextSentence.trim());
+    const nextIsDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"\'「『（《].*/.test(
+      nextSentence.trim()
+    );
 
     const currentLen = currentPara.length;
     const sentenceLen = sentence.length;
@@ -181,8 +186,5 @@ function splitChineseSentences(text: string): string[] {
 
 /** 转义 HTML 特殊字符 */
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

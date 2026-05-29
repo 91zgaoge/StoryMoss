@@ -196,6 +196,27 @@ pub struct LlmConfig {
     pub temperature: f32,
 }
 
+/// temperature 序列化/反序列化规范化：限制到2位小数，避免浮点精度噪声
+mod temperature_serde {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(temp: &f32, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let normalized = ((temp * 100.0).round() / 100.0).clamp(0.0, 2.0);
+        serializer.serialize_f32(normalized)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<f32, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let temp = f32::deserialize(deserializer)?;
+        Ok(((temp * 100.0).round() / 100.0).clamp(0.0, 2.0))
+    }
+}
+
 /// LLM 模型配置档案
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProfile {
@@ -211,6 +232,7 @@ pub struct LlmProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
     pub max_tokens: i32,
+    #[serde(with = "temperature_serde")]
     pub temperature: f32,
     pub timeout_seconds: u64,
     #[serde(default)]

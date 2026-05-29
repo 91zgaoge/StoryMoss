@@ -71,7 +71,7 @@ afterEach(() => {
 
 async function dispatchSyncEvent(type: string, payload: Record<string, unknown>) {
   // 等待 useEffect 的 setup 完成（async listen）
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   const cb = listeners.get('sync-event');
   if (cb) {
     cb({ payload: { type, payload } });
@@ -79,7 +79,7 @@ async function dispatchSyncEvent(type: string, payload: Record<string, unknown>)
 }
 
 function hasInvalidationForKey(keyPrefix: string): boolean {
-  return invalidateQueriesCalls.some((call) => {
+  return invalidateQueriesCalls.some(call => {
     const arg = call[0] as { queryKey?: unknown[] } | unknown[] | undefined;
     let key: unknown[] | undefined;
     if (Array.isArray(arg)) {
@@ -109,7 +109,7 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
           });
 
           // 给事件 tick 一轮，确保 case 分支命中
-          await new Promise((r) => setTimeout(r, 0));
+          await new Promise(r => setTimeout(r, 0));
 
           // 断言：修复后 case 'payoffLedger' 存在
           // → 会 invalidate 'payoff-ledger' 前缀的 queryKey
@@ -119,9 +119,9 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
           // 期望 saw == true（bug 已修复）
           return saw;
-        },
+        }
       ),
-      { numRuns: 8 },
+      { numRuns: 8 }
     );
   });
 });

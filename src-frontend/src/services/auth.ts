@@ -29,8 +29,7 @@ export interface OAuthStartResponse {
 /**
  * 获取认证配置
  */
-export const getAuthConfig = () =>
-  loggedInvoke<AuthConfig>('get_auth_config');
+export const getAuthConfig = () => loggedInvoke<AuthConfig>('get_auth_config');
 
 /**
  * 开始 OAuth 登录流程
@@ -47,14 +46,12 @@ export const oauthCallback = (provider: string, code: string, state: string) =>
 /**
  * 获取当前登录用户
  */
-export const getCurrentUser = () =>
-  loggedInvoke<UserInfo | null>('get_current_user');
+export const getCurrentUser = () => loggedInvoke<UserInfo | null>('get_current_user');
 
 /**
  * 注销登录
  */
-export const logout = (token: string) =>
-  loggedInvoke<void>('logout', { token });
+export const logout = (token: string) => loggedInvoke<void>('logout', { token });
 
 /**
  * 打开系统浏览器进行 OAuth 授权

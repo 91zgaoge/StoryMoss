@@ -1,6 +1,14 @@
 import {
-  LayoutDashboard, BookOpen, Users, Clapperboard,
-  Wand2, Plug, Settings, Film, Sparkles, MonitorPlay,
+  LayoutDashboard,
+  BookOpen,
+  Users,
+  Clapperboard,
+  Wand2,
+  Plug,
+  Settings,
+  Film,
+  Sparkles,
+  MonitorPlay,
   Network,
   BookMarked,
   ListChecks,
@@ -8,7 +16,7 @@ import {
   ShieldCheck,
   BarChart3,
   Globe,
-  PenLine
+  PenLine,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -44,8 +52,8 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
 ];
 
 export function Sidebar({ currentView, onNavigate }: SidebarProps) {
-  const currentStory = useAppStore((s) => s.currentStory);
-  const currentUser = useAppStore((s) => s.currentUser);
+  const currentStory = useAppStore(s => s.currentStory);
+  const currentUser = useAppStore(s => s.currentUser);
 
   const handleOpenFrontstage = async () => {
     try {
@@ -81,14 +89,12 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <MonitorPlay className="w-5 h-5 flex-shrink-0" />
           <span className="hidden lg:block font-medium">开幕前写作</span>
         </button>
-        <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">
-          极简阅读写作界面
-        </p>
+        <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">极简阅读写作界面</p>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {navItems.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
 

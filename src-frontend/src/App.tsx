@@ -35,9 +35,9 @@ import toast from 'react-hot-toast';
 
 function App() {
   const queryClient = useQueryClient();
-  
+
   // v5.1.0: Zustand↔TanStack Query 状态同步 — currentStory 变化时自动刷新关联数据
-  const currentStory = useAppStore((state) => state.currentStory);
+  const currentStory = useAppStore(state => state.currentStory);
   useEffect(() => {
     if (currentStory?.id) {
       // Cancel stale requests before invalidating to prevent race conditions
@@ -55,7 +55,7 @@ function App() {
       queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
     }
   }, [currentStory?.id, queryClient]);
-  
+
   // v5.4.0: 监听 Workflow 节点级执行事件（日志/调试用途）
   useWorkflowNodes();
 
@@ -63,18 +63,18 @@ function App() {
   // W2-F2: 数据刷新已由 useSyncStore 内部通过 queryClient.invalidateQueries 完成，
   // 不再需要 backstage-data-refreshed DOM CustomEvent
   useSyncStore({
-    onStoryCreated: (storyId) => {
+    onStoryCreated: storyId => {
       toast.success('新故事已创建');
     },
     onStoryDeleted: () => {
       toast('故事已删除', { icon: '🗑️' });
     },
   });
-  
+
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   // W2-F2: 从 local state 迁移到 Zustand store，替代 DOM CustomEvent 通信
-  const isLoginOpen = useAppStore((state) => state.isLoginModalOpen);
+  const isLoginOpen = useAppStore(state => state.isLoginModalOpen);
   // W2-F3: WebView 重绘修复 — 封装 DOM hack 为可复用 hook
   const { mainRef, forceRedraw } = useWebViewRedrawFix();
 
@@ -96,8 +96,8 @@ function App() {
   useEffect(() => {
     const checkFrontstage = () => {
       const url = window.location.href;
-      const isFrontstage = url.includes('frontstage') ||
-                          (window as any).__TAURI__?.window?.label === 'frontstage';
+      const isFrontstage =
+        url.includes('frontstage') || (window as any).__TAURI__?.window?.label === 'frontstage';
       setIsFrontstageOpen(isFrontstage);
     };
 
@@ -198,13 +198,15 @@ function App() {
     let unlistenShown: (() => void) | undefined;
     const setupShownListener = async () => {
       try {
-        unlistenShown = await listen('backstage-shown', (event) => {
+        unlistenShown = await listen('backstage-shown', event => {
           // P1-14 修复: 使用事件中的 story_id 精准定位当前故事
           const payload = event.payload as { story_id?: string } | undefined;
           if (payload?.story_id) {
-            useAppStore.getState().setCurrentStory(
-              useAppStore.getState().stories.find(s => s.id === payload.story_id) || null
-            );
+            useAppStore
+              .getState()
+              .setCurrentStory(
+                useAppStore.getState().stories.find(s => s.id === payload.story_id) || null
+              );
           }
           handleWindowShown();
           forceRedraw();
@@ -229,22 +231,38 @@ function App() {
 
   const renderView = () => {
     switch (currentView) {
-      case 'dashboard': return <Dashboard />;
-      case 'stories': return <Stories />;
-      case 'characters': return <Characters />;
-      case 'world_building': return <WorldBuilding />;
-      case 'scenes': return <Scenes />;
-      case 'knowledge-graph': return <KnowledgeGraph />;
-      case 'skills': return <Skills />;
-      case 'mcp': return <Mcp />;
-      case 'settings': return <Settings />;
-      case 'book-deconstruction': return <BookDeconstruction />;
-      case 'tasks': return <Tasks />;
-      case 'foreshadowing': return <Foreshadowing />;
-      case 'story-system': return <StorySystem />;
-      case 'usage-stats': return <UsageStats />;
-      case 'writing-stats': return <WritingStats />;
-      default: return <Dashboard />;
+      case 'dashboard':
+        return <Dashboard />;
+      case 'stories':
+        return <Stories />;
+      case 'characters':
+        return <Characters />;
+      case 'world_building':
+        return <WorldBuilding />;
+      case 'scenes':
+        return <Scenes />;
+      case 'knowledge-graph':
+        return <KnowledgeGraph />;
+      case 'skills':
+        return <Skills />;
+      case 'mcp':
+        return <Mcp />;
+      case 'settings':
+        return <Settings />;
+      case 'book-deconstruction':
+        return <BookDeconstruction />;
+      case 'tasks':
+        return <Tasks />;
+      case 'foreshadowing':
+        return <Foreshadowing />;
+      case 'story-system':
+        return <StorySystem />;
+      case 'usage-stats':
+        return <UsageStats />;
+      case 'writing-stats':
+        return <WritingStats />;
+      default:
+        return <Dashboard />;
     }
   };
 
@@ -269,7 +287,10 @@ function App() {
           isOpen={isFrontstageOpen}
           onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}
         />
-        <LoginModal isOpen={isLoginOpen} onClose={() => useAppStore.getState().setLoginModalOpen(false)} />
+        <LoginModal
+          isOpen={isLoginOpen}
+          onClose={() => useAppStore.getState().setLoginModalOpen(false)}
+        />
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         <main ref={mainRef} className="flex-1 overflow-auto">
           {renderView()}

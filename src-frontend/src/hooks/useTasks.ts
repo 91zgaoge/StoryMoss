@@ -183,7 +183,13 @@ export function useCascadeRewriteResult(taskId?: string) {
 export function useApplyCascadeRewrite() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ taskId, acceptedIndices }: { taskId: string; acceptedIndices: number[] }) => {
+    mutationFn: async ({
+      taskId,
+      acceptedIndices,
+    }: {
+      taskId: string;
+      acceptedIndices: number[];
+    }) => {
       return loggedInvoke<number>('apply_cascade_rewrite', {
         task_id: taskId,
         accepted_indices: acceptedIndices,
@@ -199,7 +205,13 @@ export function useApplyCascadeRewrite() {
 export function useRejectCascadeRewrite() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ taskId, rejectedIndices }: { taskId: string; rejectedIndices: number[] }) => {
+    mutationFn: async ({
+      taskId,
+      rejectedIndices,
+    }: {
+      taskId: string;
+      rejectedIndices: number[];
+    }) => {
       return loggedInvoke<number>('reject_cascade_rewrite', {
         task_id: taskId,
         rejected_indices: rejectedIndices,

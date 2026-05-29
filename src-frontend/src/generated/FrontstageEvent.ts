@@ -3,4 +3,13 @@
 /**
  * 发送给幕前窗口的事件
  */
-export type FrontstageEvent = { "type": "contentUpdate", "payload": { text: string, chapter_id: string, } } | { "type": "appendContent", "payload": { text: string, chapter_id: string, } } | { "type": "aiPreview", "payload": { text: string, insert_position: number, } } | { "type": "chapterSwitch", "payload": { story_id: string, chapter_id: string, title: string, content: string | null, } } | { "type": "saveStatus", "payload": { saved: boolean, timestamp: string | null, } } | { "type": "dataRefresh", "payload": { entity: string, } };
+export type FrontstageEvent =
+  | { type: 'contentUpdate'; payload: { text: string; chapter_id: string } }
+  | { type: 'appendContent'; payload: { text: string; chapter_id: string } }
+  | { type: 'aiPreview'; payload: { text: string; insert_position: number } }
+  | {
+      type: 'chapterSwitch';
+      payload: { story_id: string; chapter_id: string; title: string; content: string | null };
+    }
+  | { type: 'saveStatus'; payload: { saved: boolean; timestamp: string | null } }
+  | { type: 'dataRefresh'; payload: { entity: string } };

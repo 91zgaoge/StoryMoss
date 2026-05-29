@@ -6,10 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  getSubscriptionStatus,
-  type SubscriptionStatus,
-} from '@/services/tauri';
+import { getSubscriptionStatus, type SubscriptionStatus } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 
 const subscriptionLogger = createLogger('hooks:useSubscription');
@@ -49,24 +46,33 @@ export function useSubscription() {
   }, []);
 
   // V2: 功能门控 —— Pro/Enterprise 解锁全部功能，免费版受限
-  const canUseFeature = useCallback((feature: string): boolean => {
-    if (state.tier === 'pro' || state.tier === 'enterprise') {
-      return true;
-    }
-    // 免费版可用功能白名单（基础写作、编辑、聊天）
-    const freeFeatures = ['chat', 'write', 'format_text', 'scene_edit', 'character_edit'];
-    return freeFeatures.includes(feature);
-  }, [state.tier]);
+  const canUseFeature = useCallback(
+    (feature: string): boolean => {
+      if (state.tier === 'pro' || state.tier === 'enterprise') {
+        return true;
+      }
+      // 免费版可用功能白名单（基础写作、编辑、聊天）
+      const freeFeatures = ['chat', 'write', 'format_text', 'scene_edit', 'character_edit'];
+      return freeFeatures.includes(feature);
+    },
+    [state.tier]
+  );
 
   // 向后兼容：auto_write 配额检查改为功能门控
-  const hasAutoWriteQuota = useCallback(async (_requestedChars: number): Promise<boolean> => {
-    return state.tier === 'pro' || state.tier === 'enterprise';
-  }, [state.tier]);
+  const hasAutoWriteQuota = useCallback(
+    async (_requestedChars: number): Promise<boolean> => {
+      return state.tier === 'pro' || state.tier === 'enterprise';
+    },
+    [state.tier]
+  );
 
   // 向后兼容：auto_revise 配额检查改为功能门控
-  const hasAutoReviseQuota = useCallback(async (_requestedChars: number): Promise<boolean> => {
-    return state.tier === 'pro' || state.tier === 'enterprise';
-  }, [state.tier]);
+  const hasAutoReviseQuota = useCallback(
+    async (_requestedChars: number): Promise<boolean> => {
+      return state.tier === 'pro' || state.tier === 'enterprise';
+    },
+    [state.tier]
+  );
 
   // 向后兼容：配额文本改为订阅状态文本
   const getQuotaText = useCallback((): string => {

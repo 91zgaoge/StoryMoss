@@ -1,12 +1,17 @@
 /**
  * useWritingStyle - 写作风格管理 Hook
- * 
+ *
  * 管理编辑器写作风格的状态，并持久化到 localStorage
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { createLogger } from '@/utils/logger';
-import { WritingStyleId, WritingStyle, writingStyles, defaultStyle } from '@/frontstage/config/writingStyles';
+import {
+  WritingStyleId,
+  WritingStyle,
+  writingStyles,
+  defaultStyle,
+} from '@/frontstage/config/writingStyles';
 
 const writingStyleLogger = createLogger('hooks:useWritingStyle');
 

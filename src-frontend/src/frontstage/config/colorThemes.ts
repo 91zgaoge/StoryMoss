@@ -53,7 +53,7 @@ function deriveTheme(
   description: string,
   parchment: string,
   terracotta: string,
-  charcoal: string,
+  charcoal: string
 ): ColorTheme {
   // OKLCH 解析辅助: oklch(L% C H)
   const parse = (s: string) => {
@@ -61,7 +61,8 @@ function deriveTheme(
     if (!m) return { l: 0, c: 0, h: 0 };
     return { l: parseFloat(m[1]), c: parseFloat(m[2]), h: parseFloat(m[3]) };
   };
-  const fmt = (l: number, c: number, h: number) => `oklch(${l.toFixed(1)}% ${c.toFixed(3)} ${h.toFixed(0)})`;
+  const fmt = (l: number, c: number, h: number) =>
+    `oklch(${l.toFixed(1)}% ${c.toFixed(3)} ${h.toFixed(0)})`;
 
   const p = parse(parchment);
   const t = parse(terracotta);
@@ -95,7 +96,7 @@ export const colorThemes: Record<ColorThemeId, ColorTheme> = {
     '暖色纸张 + 赭红强调，默认温馨氛围',
     'oklch(96.5% 0.008 95)',
     'oklch(58% 0.13 45)',
-    'oklch(38% 0.015 85)',
+    'oklch(38% 0.015 85)'
   ),
   cool: deriveTheme(
     'cool',
@@ -103,7 +104,7 @@ export const colorThemes: Record<ColorThemeId, ColorTheme> = {
     '冷白灰蓝 + 青色强调，清新理性',
     'oklch(97% 0.012 220)',
     'oklch(52% 0.14 200)',
-    'oklch(32% 0.02 220)',
+    'oklch(32% 0.02 220)'
   ),
   amber: deriveTheme(
     'amber',
@@ -111,7 +112,7 @@ export const colorThemes: Record<ColorThemeId, ColorTheme> = {
     '暖米黄 + 琥珀橙强调，温润古典',
     'oklch(96% 0.015 85)',
     'oklch(60% 0.16 55)',
-    'oklch(35% 0.018 80)',
+    'oklch(35% 0.018 80)'
   ),
   indigo: deriveTheme(
     'indigo',
@@ -119,7 +120,7 @@ export const colorThemes: Record<ColorThemeId, ColorTheme> = {
     '冷灰白 + 靛蓝强调，沉静深邃',
     'oklch(98% 0.008 280)',
     'oklch(50% 0.18 270)',
-    'oklch(32% 0.02 270)',
+    'oklch(32% 0.02 270)'
   ),
 };
 

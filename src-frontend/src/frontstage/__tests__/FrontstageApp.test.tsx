@@ -53,6 +53,15 @@ vi.mock('@/hooks/useCharacters', () => ({
   useCharacters: () => ({ data: [] }),
 }));
 
+vi.mock('@/hooks/useSettings', () => ({
+  useSettings: () => ({ data: null }),
+  useModels: () => ({ data: [] }),
+}));
+
+vi.mock('@/stores/modelConnectionStore', () => ({
+  useModelConnectionStore: () => ({ states: {} }),
+}));
+
 vi.mock('react-hot-toast', () => ({
   default: {
     success: vi.fn(),

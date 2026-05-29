@@ -8,10 +8,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'secondary', size = 'md', isLoading, children, disabled, ...props }, ref) => {
+  (
+    { className, variant = 'secondary', size = 'md', isLoading, children, disabled, ...props },
+    ref
+  ) => {
     const variants = {
-      primary: 'bg-gradient-to-r from-cinema-gold to-cinema-gold-dark text-cinema-900 font-semibold hover:shadow-lg hover:shadow-cinema-gold/20',
-      secondary: 'bg-cinema-800 border border-cinema-700 text-gray-200 hover:border-cinema-gold/50 hover:bg-cinema-700',
+      primary:
+        'bg-gradient-to-r from-cinema-gold to-cinema-gold-dark text-cinema-900 font-semibold hover:shadow-lg hover:shadow-cinema-gold/20',
+      secondary:
+        'bg-cinema-800 border border-cinema-700 text-gray-200 hover:border-cinema-gold/50 hover:bg-cinema-700',
       ghost: 'bg-transparent text-gray-400 hover:text-white hover:bg-cinema-800/50',
       danger: 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20',
     };

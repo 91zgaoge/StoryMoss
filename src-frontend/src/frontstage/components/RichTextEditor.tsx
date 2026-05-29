@@ -7,21 +7,20 @@
  * - 批注与评论统一入口
  */
 
-import React, { useEffect, useCallback, forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
-import {
-  Sparkles,
-  Loader2,
-  X,
-  Check,
-  GitBranch,
-  CheckCheck,
-  Undo2,
-} from 'lucide-react';
+import { Sparkles, Loader2, X, Check, GitBranch, CheckCheck, Undo2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
 import type { Character } from '@/types/index';
@@ -29,10 +28,7 @@ import { CharacterCardPopup } from './CharacterCardPopup';
 import { CharacterPeekCard } from './CharacterPeekCard';
 import { getCharacterByName } from '@/services/tauri';
 import type { CharacterQuickView } from '@/services/tauri';
-import {
-  loadEditorConfig,
-  type EditorConfig
-} from '@/components/EditorSettings';
+import { loadEditorConfig, type EditorConfig } from '@/components/EditorSettings';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -46,7 +42,14 @@ import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackC
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
-import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
+import {
+  usePendingChanges,
+  useTrackChange,
+  useAcceptChange,
+  useRejectChange,
+  useAcceptAllChanges,
+  useRejectAllChanges,
+} from '@/hooks/useChangeTracking';
 import type { ChangeTrack } from '@/types/v3';
 
 interface RichTextEditorProps {
@@ -105,45 +108,59 @@ export interface RichTextEditorRef {
   generateCommentary: () => void;
   setContent: (text: string) => void;
   /** 加载聚合场景内容 — 将多个 Scene 用 divider 拼接后写入编辑器 */
-  loadAggregatedScenes: (scenes: Array<{ id: string; sequence_number: number; title?: string | null; content?: string | null }>) => void;
+  loadAggregatedScenes: (
+    scenes: Array<{
+      id: string;
+      sequence_number: number;
+      title?: string | null;
+      content?: string | null;
+    }>
+  ) => void;
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
-  ({
-    content,
-    onChange,
-    placeholder = '开始写作...',
-    className,
-    characters = [],
-    wensiMode = 'off',
-    generatedText = '',
-    isGenerating = false,
-    onAcceptGeneration,
-    onRejectGeneration,
-    fontSize: externalFontSize,
-    onFontSizeChange,
-    isZenMode = false,
-    onZenModeChange,
-    storyId,
-    chapterId,
-    chapterNumber,
-    onRequestGeneration,
-    onSmartGeneration,
-    onSlashCommand,
-    isRevisionMode: externalIsRevisionMode = false,
-    onRevisionModeChange,
-    smartGhostText,
-    inlineSuggestion,
-    onClearInlineSuggestion,
-    subscription,
-  }, ref) => {
+  (
+    {
+      content,
+      onChange,
+      placeholder = '开始写作...',
+      className,
+      characters = [],
+      wensiMode = 'off',
+      generatedText = '',
+      isGenerating = false,
+      onAcceptGeneration,
+      onRejectGeneration,
+      fontSize: externalFontSize,
+      onFontSizeChange,
+      isZenMode = false,
+      onZenModeChange,
+      storyId,
+      chapterId,
+      chapterNumber,
+      onRequestGeneration,
+      onSmartGeneration,
+      onSlashCommand,
+      isRevisionMode: externalIsRevisionMode = false,
+      onRevisionModeChange,
+      smartGhostText,
+      inlineSuggestion,
+      onClearInlineSuggestion,
+      subscription,
+    },
+    ref
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
     const [isAiThinking, setIsAiThinking] = useState(false);
     const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
 
     // 选区状态（用于角色卡片弹窗）
-    const [selectedRange, setSelectedRange] = useState<{ from: number; to: number; text: string } | null>(null);
+    const [selectedRange, setSelectedRange] = useState<{
+      from: number;
+      to: number;
+      text: string;
+    } | null>(null);
 
     // ===== 编辑器内 Slash 指令输入框 =====
     const [showSlashInput, setShowSlashInput] = useState(false);
@@ -161,7 +178,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     chapterIdRef.current = chapterId;
 
     // 右键菜单状态
-    const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
+    const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number }>({
+      visible: false,
+      x: 0,
+      y: 0,
+    });
     const { data: pendingChanges = [] } = usePendingChanges(undefined, chapterId || undefined);
     const trackChangeMutation = useTrackChange();
     const acceptChangeMutation = useAcceptChange();
@@ -184,7 +205,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // 同步状态到 ref，避免 useEditor 闭包问题
     const showSlashInputRef = useRef(showSlashInput);
-    useEffect(() => { showSlashInputRef.current = showSlashInput; }, [showSlashInput]);
+    useEffect(() => {
+      showSlashInputRef.current = showSlashInput;
+    }, [showSlashInput]);
 
     const editor = useEditor({
       extensions: [
@@ -212,7 +235,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           if (prevText && currentText !== prevText) {
             if (currentText.length > prevText.length) {
               const insertPos = findFirstDiff(prevText, currentText);
-              const insertedText = currentText.slice(insertPos, insertPos + (currentText.length - prevText.length));
+              const insertedText = currentText.slice(
+                insertPos,
+                insertPos + (currentText.length - prevText.length)
+              );
               if (insertedText.trim()) {
                 trackChangeMutation.mutate({
                   chapterId: chapterIdRef.current,
@@ -223,12 +249,21 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 });
                 const pmPos = textOffsetToPmPosition(editor, insertPos, insertedText.length);
                 if (pmPos) {
-                  editor.chain().focus().setTextSelection({ from: pmPos.from, to: pmPos.to }).setMark('trackInsert', { changeId: `temp-${Date.now()}` }).setTextSelection(pmPos.to).run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setTextSelection({ from: pmPos.from, to: pmPos.to })
+                    .setMark('trackInsert', { changeId: `temp-${Date.now()}` })
+                    .setTextSelection(pmPos.to)
+                    .run();
                 }
               }
             } else if (currentText.length < prevText.length) {
               const deletePos = findFirstDiff(prevText, currentText);
-              const deletedText = prevText.slice(deletePos, deletePos + (prevText.length - currentText.length));
+              const deletedText = prevText.slice(
+                deletePos,
+                deletePos + (prevText.length - currentText.length)
+              );
               if (deletedText.trim()) {
                 trackChangeMutation.mutate({
                   chapterId: chapterIdRef.current,
@@ -257,7 +292,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         },
         handleKeyDown: (view, event) => {
           // Slash 指令输入框 — 首次输入 /
-          if (event.key === '/' && wensiMode !== 'off' && !isZenMode && !showSlashInputRef.current) {
+          if (
+            event.key === '/' &&
+            wensiMode !== 'off' &&
+            !isZenMode &&
+            !showSlashInputRef.current
+          ) {
             // 删除刚输入的 / 字符
             const { from } = view.state.selection;
             const textBefore = view.state.doc.textBetween(Math.max(0, from - 1), from);
@@ -287,7 +327,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     });
 
     // W2-F2: 监听配置变化（替代 editor-config-changed DOM CustomEvent）
-    const storeEditorConfig = useAppStore((state) => state.editorConfig);
+    const storeEditorConfig = useAppStore(state => state.editorConfig);
     useEffect(() => {
       if (storeEditorConfig) {
         setEditorConfig(storeEditorConfig);
@@ -771,52 +811,63 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     }, [generatedText, handleAcceptAndContinue, onRejectGeneration, isZenMode]);
 
     // 暴露方法给父组件
-    useImperativeHandle(ref, () => ({
-      insertText: (text: string) => {
-        if (editor) {
-          if (selectedRange) {
-            editor.chain().focus().setTextSelection({ from: selectedRange.from, to: selectedRange.to }).insertContent(text).run();
-          } else {
-            editor.chain().focus().insertContent(text).run();
+    useImperativeHandle(
+      ref,
+      () => ({
+        insertText: (text: string) => {
+          if (editor) {
+            if (selectedRange) {
+              editor
+                .chain()
+                .focus()
+                .setTextSelection({ from: selectedRange.from, to: selectedRange.to })
+                .insertContent(text)
+                .run();
+            } else {
+              editor.chain().focus().insertContent(text).run();
+            }
           }
-        }
-      },
-      getText: () => editor?.getText() || '',
-      getSelectedText: () => {
-        if (!editor) return '';
-        const { from, to } = editor.state.selection;
-        if (from === to) return '';
-        return editor.state.doc.textBetween(from, to, '\n');
-      },
-      focus: () => editor?.commands.focus(),
-      generateCommentary: () => {
-        handleGenerateCommentary();
-      },
-      setContent: (text: string) => {
-        if (editor) {
-          editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
-        }
-      },
-      loadAggregatedScenes: (scenes) => {
-        if (!editor) return;
-        const fragments: string[] = [];
-        for (const scene of scenes) {
-          const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
-          fragments.push(dividerHtml);
-          if (scene.content) {
-            fragments.push(scene.content);
+        },
+        getText: () => editor?.getText() || '',
+        getSelectedText: () => {
+          if (!editor) return '';
+          const { from, to } = editor.state.selection;
+          if (from === to) return '';
+          return editor.state.doc.textBetween(from, to, '\n');
+        },
+        focus: () => editor?.commands.focus(),
+        generateCommentary: () => {
+          handleGenerateCommentary();
+        },
+        setContent: (text: string) => {
+          if (editor) {
+            editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
           }
-        }
-        const html = fragments.join('');
-        editor.commands.setContent(html || '<p></p>');
-      },
-    }), [editor, handleGenerateCommentary, selectedRange]);
+        },
+        loadAggregatedScenes: scenes => {
+          if (!editor) return;
+          const fragments: string[] = [];
+          for (const scene of scenes) {
+            const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
+            fragments.push(dividerHtml);
+            if (scene.content) {
+              fragments.push(scene.content);
+            }
+          }
+          const html = fragments.join('');
+          editor.commands.setContent(html || '<p></p>');
+        },
+      }),
+      [editor, handleGenerateCommentary, selectedRange]
+    );
 
     // AI 生成时自动滚动到编辑器底部，让幽灵文本和 Tab/Esc 提示可见
     useEffect(() => {
       if (generatedText || isGenerating) {
         requestAnimationFrame(() => {
-          const scrollContainer = containerRef.current?.querySelector('.overflow-auto') as HTMLElement | null;
+          const scrollContainer = containerRef.current?.querySelector(
+            '.overflow-auto'
+          ) as HTMLElement | null;
           if (scrollContainer) {
             scrollContainer.scrollTo({
               top: scrollContainer.scrollHeight,
@@ -852,7 +903,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           className
         )}
         style={styleVars}
-        onContextMenu={(e) => {
+        onContextMenu={e => {
           e.preventDefault();
           e.stopPropagation();
           setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
@@ -886,10 +937,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     <Undo2 className="w-3.5 h-3.5" />
                     全部拒绝
                   </button>
-                  <button
-                    onClick={() => setIsRevisionMode(false)}
-                    className="revision-banner-btn"
-                  >
+                  <button onClick={() => setIsRevisionMode(false)} className="revision-banner-btn">
                     退出
                   </button>
                 </div>
@@ -897,16 +945,22 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               {/* 变更列表折叠展开 */}
               {pendingChanges.length > 0 && (
                 <div className="revision-changes-list">
-                  {pendingChanges.map((change) => (
+                  {pendingChanges.map(change => (
                     <div key={change.id} className="revision-change-item">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={cn(
-                          'revision-change-badge',
-                          change.change_type === 'Insert' && 'revision-badge-insert',
-                          change.change_type === 'Delete' && 'revision-badge-delete',
-                          change.change_type === 'Format' && 'revision-badge-format'
-                        )}>
-                          {change.change_type === 'Insert' ? '插入' : change.change_type === 'Delete' ? '删除' : '排版'}
+                        <span
+                          className={cn(
+                            'revision-change-badge',
+                            change.change_type === 'Insert' && 'revision-badge-insert',
+                            change.change_type === 'Delete' && 'revision-badge-delete',
+                            change.change_type === 'Format' && 'revision-badge-format'
+                          )}
+                        >
+                          {change.change_type === 'Insert'
+                            ? '插入'
+                            : change.change_type === 'Delete'
+                              ? '删除'
+                              : '排版'}
                         </span>
                         <span className="text-gray-300 truncate">
                           {change.content || '（无内容）'}
@@ -949,8 +1003,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 ref={slashInputRef}
                 type="text"
                 value={slashInputText}
-                onChange={(e) => setSlashInputText(e.target.value)}
-                onKeyDown={(e) => {
+                onChange={e => setSlashInputText(e.target.value)}
+                onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     handleSlashSubmit();
@@ -986,9 +1040,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText && (
-                <p className="ghost-paragraph">{generatedText}</p>
-              )}
+              {generatedText && <p className="ghost-paragraph">{generatedText}</p>}
               {generatedText && (
                 <div className="ghost-hint-bar">
                   <kbd className="ghost-kbd">Tab</kbd>
@@ -1015,11 +1067,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               <span className="blank-state-sub">按 / 查看可用命令</span>
             </div>
           )}
-
-
         </div>
-
-
 
         {/* 编辑器右键菜单 */}
         <EditorContextMenu
@@ -1040,7 +1088,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
         {/* 角色卡片弹窗 */}
         <CharacterCardPopup
-          character={selectedCharacter || { id: '', story_id: '', name: '', created_at: '', updated_at: '' }}
+          character={
+            selectedCharacter || { id: '', story_id: '', name: '', created_at: '', updated_at: '' }
+          }
           position={popupPosition}
           visible={showPopup}
           onClose={() => setShowPopup(false)}
@@ -1048,11 +1098,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         />
 
         {/* 角色 hover 微型卡片 */}
-        <CharacterPeekCard
-          character={peekCharacter}
-          position={peekPosition}
-          visible={showPeek}
-        />
+        <CharacterPeekCard character={peekCharacter} position={peekPosition} visible={showPeek} />
       </div>
     );
   }

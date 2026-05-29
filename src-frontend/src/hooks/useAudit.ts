@@ -28,7 +28,11 @@ export interface AuditReport {
 
 const AUDIT_KEY = 'audit';
 
-export function useAuditScene(sceneId: string | null, auditType: string = 'light', enabled: boolean = false) {
+export function useAuditScene(
+  sceneId: string | null,
+  auditType: string = 'light',
+  enabled: boolean = false
+) {
   return useQuery<AuditReport>({
     queryKey: [AUDIT_KEY, sceneId, auditType],
     queryFn: async () => {

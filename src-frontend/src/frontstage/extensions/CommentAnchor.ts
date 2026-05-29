@@ -26,8 +26,8 @@ export const CommentAnchorMark = Mark.create<CommentAnchorOptions>({
     return {
       threadId: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-thread-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-thread-id'),
+        renderHTML: attributes => ({
           'data-thread-id': attributes.threadId,
         }),
       },
@@ -46,7 +46,8 @@ export const CommentAnchorMark = Mark.create<CommentAnchorOptions>({
     return [
       'span',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        style: 'background-color: rgba(250, 204, 21, 0.35); border-bottom: 2px solid rgba(234, 179, 8, 0.8); cursor: pointer; border-radius: 2px; transition: background-color 0.15s;',
+        style:
+          'background-color: rgba(250, 204, 21, 0.35); border-bottom: 2px solid rgba(234, 179, 8, 0.8); cursor: pointer; border-radius: 2px; transition: background-color 0.15s;',
         onmouseenter: "this.style.backgroundColor='rgba(250, 204, 21, 0.55)'",
         onmouseleave: "this.style.backgroundColor='rgba(250, 204, 21, 0.35)'",
       }),
@@ -57,7 +58,7 @@ export const CommentAnchorMark = Mark.create<CommentAnchorOptions>({
   addCommands() {
     return {
       setCommentAnchor:
-        (attributes) =>
+        attributes =>
         ({ commands }) => {
           return commands.setMark(this.name, attributes);
         },

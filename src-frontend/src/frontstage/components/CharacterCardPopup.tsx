@@ -1,6 +1,6 @@
 /**
  * CharacterCardPopup - 角色卡片弹窗组件
- * 
+ *
  * 在编辑器中点击/悬停角色名时显示的详情卡片
  */
 
@@ -107,9 +107,7 @@ export function CharacterCardPopup({
             <h3 className="font-display text-lg font-semibold text-[var(--charcoal)]">
               {character.name}
             </h3>
-            <p className="text-xs text-[var(--stone-gray)]">
-              主要角色
-            </p>
+            <p className="text-xs text-[var(--stone-gray)]">主要角色</p>
           </div>
         </div>
         <button
@@ -129,9 +127,7 @@ export function CharacterCardPopup({
               <BookOpen className="w-4 h-4" />
               <span className="text-xs font-medium uppercase tracking-wider">背景故事</span>
             </div>
-            <p className="text-sm text-[var(--charcoal)] leading-relaxed">
-              {character.background}
-            </p>
+            <p className="text-sm text-[var(--charcoal)] leading-relaxed">{character.background}</p>
           </div>
         )}
 
@@ -155,9 +151,7 @@ export function CharacterCardPopup({
               <Target className="w-4 h-4" />
               <span className="text-xs font-medium uppercase tracking-wider">目标与动机</span>
             </div>
-            <p className="text-sm text-[var(--charcoal)] leading-relaxed">
-              {character.goals}
-            </p>
+            <p className="text-sm text-[var(--charcoal)] leading-relaxed">{character.goals}</p>
           </div>
         )}
 
@@ -171,9 +165,7 @@ export function CharacterCardPopup({
 
       {/* 底部 */}
       <div className="px-4 py-3 border-t border-[var(--warm-sand)] bg-[var(--parchment-dark)]/50 rounded-b-xl">
-        <p className="text-xs text-[var(--stone-gray)] text-center">
-          按 ESC 或点击外部关闭
-        </p>
+        <p className="text-xs text-[var(--stone-gray)] text-center">按 ESC 或点击外部关闭</p>
       </div>
     </div>
   );

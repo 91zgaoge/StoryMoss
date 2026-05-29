@@ -19,15 +19,15 @@ interface FrontstageState {
   chapterId: string | null;
   chapterTitle: string | null;
   storyTitle: string | null;
-  
+
   // AI Hints
   aiHints: AiHint[];
-  
+
   // Status
   isSaved: boolean;
   lastSavedAt: string | null;
   isGenerating: boolean;
-  
+
   // Actions
   setContent: (content: string | ((prev: string) => string)) => void;
   setChapterInfo: (id: string, title: string, storyTitle?: string) => void;
@@ -38,7 +38,7 @@ interface FrontstageState {
   setGenerating: (generating: boolean) => void;
 }
 
-export const useFrontstageStore = create<FrontstageState>((set) => ({
+export const useFrontstageStore = create<FrontstageState>(set => ({
   // Initial state
   content: '',
   chapterId: null,
@@ -48,33 +48,41 @@ export const useFrontstageStore = create<FrontstageState>((set) => ({
   isSaved: true,
   lastSavedAt: null,
   isGenerating: false,
-  
+
   // Actions
-  setContent: (content) => set((state) => ({
-    content: typeof content === 'function' ? (content as (prev: string) => string)(state.content) : content,
-    isSaved: false,
-  })),
-  
-  setChapterInfo: (id, title, storyTitle) => set({
-    chapterId: id,
-    chapterTitle: title,
-    storyTitle: storyTitle || null,
-  }),
-  
-  addAiHint: (hint) => set((state) => ({
-    aiHints: [...state.aiHints, hint],
-  })),
-  
-  removeAiHint: (id) => set((state) => ({
-    aiHints: state.aiHints.filter((h) => h.id !== id),
-  })),
-  
+  setContent: content =>
+    set(state => ({
+      content:
+        typeof content === 'function'
+          ? (content as (prev: string) => string)(state.content)
+          : content,
+      isSaved: false,
+    })),
+
+  setChapterInfo: (id, title, storyTitle) =>
+    set({
+      chapterId: id,
+      chapterTitle: title,
+      storyTitle: storyTitle || null,
+    }),
+
+  addAiHint: hint =>
+    set(state => ({
+      aiHints: [...state.aiHints, hint],
+    })),
+
+  removeAiHint: id =>
+    set(state => ({
+      aiHints: state.aiHints.filter(h => h.id !== id),
+    })),
+
   clearAiHints: () => set({ aiHints: [] }),
-  
-  setSaveStatus: (saved, timestamp) => set({
-    isSaved: saved,
-    lastSavedAt: timestamp || null,
-  }),
-  
-  setGenerating: (generating) => set({ isGenerating: generating }),
+
+  setSaveStatus: (saved, timestamp) =>
+    set({
+      isSaved: saved,
+      lastSavedAt: timestamp || null,
+    }),
+
+  setGenerating: generating => set({ isGenerating: generating }),
 }));

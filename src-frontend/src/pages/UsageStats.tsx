@@ -15,9 +15,17 @@ import {
 import type { LlmCall } from '@/types';
 
 export function UsageStats() {
-  const currentStory = useAppStore((s) => s.currentStory);
-  const [globalStats, setGlobalStats] = useState<{ count: number; total_tokens: number; total_cost: number } | null>(null);
-  const [storyStats, setStoryStats] = useState<{ count: number; total_tokens: number; total_cost: number } | null>(null);
+  const currentStory = useAppStore(s => s.currentStory);
+  const [globalStats, setGlobalStats] = useState<{
+    count: number;
+    total_tokens: number;
+    total_cost: number;
+  } | null>(null);
+  const [storyStats, setStoryStats] = useState<{
+    count: number;
+    total_tokens: number;
+    total_cost: number;
+  } | null>(null);
   const [recentCalls, setRecentCalls] = useState<LlmCall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -86,16 +94,12 @@ export function UsageStats() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wider">总调用次数</p>
-                <p className="text-2xl font-bold text-white mt-1">
-                  {globalStats?.count ?? 0}
-                </p>
+                <p className="text-2xl font-bold text-white mt-1">{globalStats?.count ?? 0}</p>
               </div>
               <Hash className="w-8 h-8 text-cinema-gold/40" />
             </div>
             {storyStats != null && (
-              <p className="text-xs text-cinema-gold/60 mt-2">
-                本故事: {storyStats.count}
-              </p>
+              <p className="text-xs text-cinema-gold/60 mt-2">本故事: {storyStats.count}</p>
             )}
           </CardContent>
         </Card>
@@ -145,15 +149,13 @@ export function UsageStats() {
                 <p className="text-xs text-gray-500 uppercase tracking-wider">成功率</p>
                 <p className="text-2xl font-bold text-white mt-1">
                   {recentCalls.length > 0
-                    ? `${Math.round((recentCalls.filter((c) => c.success).length / recentCalls.length) * 100)}%`
+                    ? `${Math.round((recentCalls.filter(c => c.success).length / recentCalls.length) * 100)}%`
                     : 'N/A'}
                 </p>
               </div>
               <BarChart3 className="w-8 h-8 text-purple-400/40" />
             </div>
-            <p className="text-xs text-gray-600 mt-2">
-              基于最近 {recentCalls.length} 次调用
-            </p>
+            <p className="text-xs text-gray-600 mt-2">基于最近 {recentCalls.length} 次调用</p>
           </CardContent>
         </Card>
       </div>
@@ -167,9 +169,7 @@ export function UsageStats() {
           </div>
 
           {recentCalls.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              暂无 LLM 调用记录
-            </div>
+            <div className="text-center py-8 text-gray-500">暂无 LLM 调用记录</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -184,10 +184,12 @@ export function UsageStats() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-cinema-800">
-                  {recentCalls.map((call) => (
+                  {recentCalls.map(call => (
                     <tr key={call.id} className="hover:bg-cinema-800/30 transition-colors">
                       <td className="py-2 px-3 text-white/80">{call.purpose}</td>
-                      <td className="py-2 px-3 text-gray-400">{call.model_name || call.model_id}</td>
+                      <td className="py-2 px-3 text-gray-400">
+                        {call.model_name || call.model_id}
+                      </td>
                       <td className="py-2 px-3 text-right text-gray-400">
                         {call.total_tokens.toLocaleString()}
                       </td>

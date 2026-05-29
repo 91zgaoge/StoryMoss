@@ -8,11 +8,11 @@ interface CharacterListProps {
 export function CharacterList({ characters }: CharacterListProps) {
   const getRoleBadge = (role?: string) => {
     const map: Record<string, { label: string; color: string }> = {
-      '主角': { label: '主角', color: 'bg-cinema-gold/20 text-cinema-gold' },
-      '主人公': { label: '主角', color: 'bg-cinema-gold/20 text-cinema-gold' },
-      '反派': { label: '反派', color: 'bg-red-500/20 text-red-400' },
-      '配角': { label: '配角', color: 'bg-blue-500/20 text-blue-400' },
-      '龙套': { label: '龙套', color: 'bg-gray-500/20 text-gray-400' },
+      主角: { label: '主角', color: 'bg-cinema-gold/20 text-cinema-gold' },
+      主人公: { label: '主角', color: 'bg-cinema-gold/20 text-cinema-gold' },
+      反派: { label: '反派', color: 'bg-red-500/20 text-red-400' },
+      配角: { label: '配角', color: 'bg-blue-500/20 text-blue-400' },
+      龙套: { label: '龙套', color: 'bg-gray-500/20 text-gray-400' },
     };
     return map[role || ''] || { label: role || '未知', color: 'bg-gray-500/20 text-gray-400' };
   };
@@ -33,7 +33,7 @@ export function CharacterList({ characters }: CharacterListProps) {
         <div className="text-center py-8 text-gray-500">暂无人物数据</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {characters.map((char) => {
+          {characters.map(char => {
             const badge = getRoleBadge(char.role_type);
             return (
               <div
@@ -52,14 +52,10 @@ export function CharacterList({ characters }: CharacterListProps) {
                       </span>
                     </div>
                     {char.personality && (
-                      <p className="text-xs text-gray-400 mt-1 line-clamp-2">
-                        {char.personality}
-                      </p>
+                      <p className="text-xs text-gray-400 mt-1 line-clamp-2">{char.personality}</p>
                     )}
                     {char.appearance && (
-                      <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                        {char.appearance}
-                      </p>
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-1">{char.appearance}</p>
                     )}
                     {/* 重要度条 */}
                     {char.importance_score !== undefined && (

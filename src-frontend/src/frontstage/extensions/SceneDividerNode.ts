@@ -57,23 +57,23 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
     return {
       sceneId: {
         default: '',
-        parseHTML: (element) => element.getAttribute('data-scene-id') || '',
-        renderHTML: (attributes) => {
+        parseHTML: element => element.getAttribute('data-scene-id') || '',
+        renderHTML: attributes => {
           if (!attributes.sceneId) return {};
           return { 'data-scene-id': attributes.sceneId };
         },
       },
       sceneNumber: {
         default: 1,
-        parseHTML: (element) => parseInt(element.getAttribute('data-scene-number') || '1', 10),
-        renderHTML: (attributes) => {
+        parseHTML: element => parseInt(element.getAttribute('data-scene-number') || '1', 10),
+        renderHTML: attributes => {
           return { 'data-scene-number': String(attributes.sceneNumber) };
         },
       },
       sceneTitle: {
         default: '',
-        parseHTML: (element) => element.getAttribute('data-scene-title') || '',
-        renderHTML: (attributes) => {
+        parseHTML: element => element.getAttribute('data-scene-title') || '',
+        renderHTML: attributes => {
           if (!attributes.sceneTitle) return {};
           return { 'data-scene-title': attributes.sceneTitle };
         },
@@ -91,17 +91,14 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
 
   renderHTML({ HTMLAttributes }) {
     const { sceneNumber, sceneTitle, ...rest } = HTMLAttributes;
-    const label = sceneTitle
-      ? `场景 ${sceneNumber}: ${sceneTitle}`
-      : `场景 ${sceneNumber}`;
+    const label = sceneTitle ? `场景 ${sceneNumber}: ${sceneTitle}` : `场景 ${sceneNumber}`;
 
     return [
       'div',
-      mergeAttributes(
-        this.options.HTMLAttributes,
-        rest,
-        { 'data-scene-divider': 'true', 'data-label': label }
-      ),
+      mergeAttributes(this.options.HTMLAttributes, rest, {
+        'data-scene-divider': 'true',
+        'data-label': label,
+      }),
       ['span', { class: 'scene-divider-label' }, label],
     ];
   },
@@ -109,7 +106,7 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
   addCommands() {
     return {
       insertSceneDivider:
-        (attrs) =>
+        attrs =>
         ({ chain, state }) => {
           const { from } = state.selection;
           return chain()
@@ -121,7 +118,7 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
         },
 
       removeSceneDivider:
-        (sceneId) =>
+        sceneId =>
         ({ state, chain }) => {
           let dividerPos = -1;
           let dividerNodeSize = 0;
@@ -173,9 +170,7 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
         const nodeAfter = $from.nodeAfter;
         if (nodeAfter && nodeAfter.type.name === 'sceneDivider') {
           const pos = $from.pos;
-          view.dispatch(
-            state.tr.insert(pos, state.schema.nodes.paragraph.create())
-          );
+          view.dispatch(state.tr.insert(pos, state.schema.nodes.paragraph.create()));
           return true;
         }
 
@@ -183,9 +178,7 @@ export const SceneDividerNode = Node.create<SceneDividerOptions>({
         const nodeBefore = $from.nodeBefore;
         if (nodeBefore && nodeBefore.type.name === 'sceneDivider') {
           const pos = $from.pos;
-          view.dispatch(
-            state.tr.insert(pos, state.schema.nodes.paragraph.create())
-          );
+          view.dispatch(state.tr.insert(pos, state.schema.nodes.paragraph.create()));
           return true;
         }
 

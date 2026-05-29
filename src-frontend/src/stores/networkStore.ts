@@ -21,7 +21,7 @@ function deriveOffline(state: NetworkStatus): boolean {
   return state.state === 'offline';
 }
 
-export const useNetworkStore = create<NetworkStore>((set) => {
+export const useNetworkStore = create<NetworkStore>(set => {
   const initial: NetworkStatus = {
     isOnline: navigator.onLine,
     state: navigator.onLine ? 'online' : 'offline',
@@ -29,7 +29,7 @@ export const useNetworkStore = create<NetworkStore>((set) => {
   };
 
   // 订阅全局网络状态变化
-  const unsubscribe = subscribeNetworkStatus((status) => {
+  const unsubscribe = subscribeNetworkStatus(status => {
     set({
       ...status,
       isOffline: deriveOffline(status),
@@ -44,7 +44,7 @@ export const useNetworkStore = create<NetworkStore>((set) => {
   return {
     ...initial,
     isOffline: deriveOffline(initial),
-    setStatus: (status) => set({ ...status, isOffline: deriveOffline(status) }),
+    setStatus: status => set({ ...status, isOffline: deriveOffline(status) }),
   };
 });
 
@@ -55,6 +55,8 @@ export const useNetworkStore = create<NetworkStore>((set) => {
  * - local / user_owned → 始终可用（本地模型不依赖平台网络）
  * - platform / undefined → 离线时禁用
  */
-export function isModelAvailableOffline(modelSource?: 'platform' | 'local' | 'user_owned'): boolean {
+export function isModelAvailableOffline(
+  modelSource?: 'platform' | 'local' | 'user_owned'
+): boolean {
   return modelSource === 'local' || modelSource === 'user_owned';
 }

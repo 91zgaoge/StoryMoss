@@ -1,6 +1,6 @@
 /**
  * AiHintOverlay - AI 提示浮现动效组件
- * 
+ *
  * 设计理念：
  * - 灰色小字如文思泉涌般浮现
  * - 渐变出现、停留、消失的动画
@@ -74,7 +74,7 @@ export function AiHintOverlay({ hints }: AiHintOverlayProps) {
 
   return (
     <div className="ai-hint-overlay">
-      {positionedHints.map((hint) => (
+      {positionedHints.map(hint => (
         <div
           key={hint.id}
           className={`ai-hint-bubble ${hint.isPreview ? 'preview' : ''}`}
@@ -93,7 +93,7 @@ export function AiHintOverlay({ hints }: AiHintOverlayProps) {
           <div className="ai-hint-glow"></div>
         </div>
       ))}
-      
+
       {/* Ambient hints that float around */}
       <div className="ambient-hints">
         <FloatingHint text="情节可以更紧凑..." delay={0} />

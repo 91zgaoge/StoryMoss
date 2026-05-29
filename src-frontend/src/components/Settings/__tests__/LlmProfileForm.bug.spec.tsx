@@ -54,19 +54,14 @@ describe.skip('LlmProfileForm bug exploration (C_1_11)', () => {
   it('image provider_type is still declared as a valid ModelType (bug surface)', () => {
     // 先确认 "image" 确实是合法的 ModelType —— UI 才有入口创建 image Profile
     const llmTypes = readLlmTypesSource();
-    expect(
-      llmTypes.includes("'image'") || llmTypes.includes('"image"'),
-    ).toBe(true);
+    expect(llmTypes.includes("'image'") || llmTypes.includes('"image"')).toBe(true);
   });
 
   it('Settings.tsx does NOT warn / block image-type profile creation', () => {
     const src = readSettingsSource();
 
     // 1) 确认 image tab 存在
-    expect(
-      src.includes("activeTab === 'image'") ||
-        src.includes('activeTab==="image"'),
-    ).toBe(true);
+    expect(src.includes("activeTab === 'image'") || src.includes('activeTab==="image"')).toBe(true);
 
     // 2) 不应存在任何"实验性 / 暂未实现 / 敬请期待 / unsupported / unsupported_type / dead_end"
     //    级别的文案或守卫。如果任何一个出现，说明 UI 已经修复了死胡同。
@@ -80,7 +75,7 @@ describe.skip('LlmProfileForm bug exploration (C_1_11)', () => {
       'image-disabled',
       'image_experimental',
     ];
-    const found = warningMarkers.filter((m) => src.includes(m));
+    const found = warningMarkers.filter(m => src.includes(m));
     // 期望 found 为空 → bug 成立（UI 没警告）
     expect(found).toEqual([]);
   });

@@ -33,11 +33,13 @@ export function WorkflowSettings() {
         <div className="text-center py-12 text-gray-500">
           <GitBranch className="w-8 h-8 mx-auto mb-3 opacity-50" />
           <p>暂无工作流模板</p>
-          <p className="text-sm mt-1">在应用数据目录 workflows/ 文件夹中放入 .json 或 .yaml 文件即可自动加载</p>
+          <p className="text-sm mt-1">
+            在应用数据目录 workflows/ 文件夹中放入 .json 或 .yaml 文件即可自动加载
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {workflows.map((wf) => (
+          {workflows.map(wf => (
             <Card key={wf.id} className="bg-cinema-900/50 border-cinema-800">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
@@ -45,7 +47,9 @@ export function WorkflowSettings() {
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-medium text-white">{wf.name}</h4>
                       {wf.is_builtin && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-700 text-gray-400">内置</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-700 text-gray-400">
+                          内置
+                        </span>
                       )}
                     </div>
                     <p className="text-sm text-gray-400">{wf.description}</p>
@@ -66,7 +70,7 @@ export function WorkflowSettings() {
                 {/* Node list */}
                 <div className="mt-3 pt-3 border-t border-cinema-800">
                   <div className="flex flex-wrap gap-2">
-                    {wf.nodes.map((node) => (
+                    {wf.nodes.map(node => (
                       <span
                         key={node.id}
                         className={`text-xs px-2 py-1 rounded border ${

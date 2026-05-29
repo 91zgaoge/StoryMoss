@@ -46,7 +46,7 @@ export function BookListGrid({ books, selectedId, onSelect, onDelete }: BookList
 
   return (
     <div className="grid grid-cols-1 gap-3">
-      {books.map((book) => (
+      {books.map(book => (
         <div
           key={book.id}
           onClick={() => onSelect(book.id)}
@@ -62,13 +62,9 @@ export function BookListGrid({ books, selectedId, onSelect, onDelete }: BookList
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-medium text-white truncate">{book.title}</h4>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-gray-500">
-                {book.author || '未知作者'}
-              </span>
+              <span className="text-xs text-gray-500">{book.author || '未知作者'}</span>
               {book.word_count && (
-                <span className="text-xs text-gray-600">
-                  {formatWordCount(book.word_count)}
-                </span>
+                <span className="text-xs text-gray-600">{formatWordCount(book.word_count)}</span>
               )}
             </div>
           </div>
@@ -77,7 +73,7 @@ export function BookListGrid({ books, selectedId, onSelect, onDelete }: BookList
             <span className="text-xs text-gray-500">{getStatusLabel(book.analysis_status)}</span>
             {book.analysis_status !== 'analyzing' && book.analysis_status !== 'extracting' && (
               <button
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation();
                   onDelete(book.id);
                 }}

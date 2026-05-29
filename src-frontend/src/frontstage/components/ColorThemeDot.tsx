@@ -69,28 +69,17 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
       onMouseLeave={handleMouseLeave}
     >
       {/* 选择面板 - 向下展开 */}
-      <div
-        className={cn(
-          'color-theme-panel',
-          panelOpen && 'open'
-        )}
-      >
+      <div className={cn('color-theme-panel', panelOpen && 'open')}>
         <div className="color-theme-panel-title">色调</div>
         <div className="color-theme-options">
-          {colorThemeList.map((theme) => (
+          {colorThemeList.map(theme => (
             <button
               key={theme.id}
-              className={cn(
-                'color-theme-option',
-                currentThemeId === theme.id && 'active'
-              )}
+              className={cn('color-theme-option', currentThemeId === theme.id && 'active')}
               onClick={() => handleSelect(theme.id)}
               title={theme.description}
             >
-              <span
-                className="color-theme-swatch"
-                style={{ backgroundColor: theme.terracotta }}
-              />
+              <span className="color-theme-swatch" style={{ backgroundColor: theme.terracotta }} />
               <span className="color-theme-label">{theme.name}</span>
             </button>
           ))}
@@ -99,10 +88,7 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
 
       {/* 状态点 */}
       <div
-        className={cn(
-          'color-theme-dot',
-          isHovered && 'hovered'
-        )}
+        className={cn('color-theme-dot', isHovered && 'hovered')}
         style={{ backgroundColor: currentTheme.terracotta }}
         title="切换色调主题"
       />

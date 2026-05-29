@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  History, 
-  User, 
-  Bot, 
-  Settings, 
-  GitCompare, 
+import {
+  History,
+  User,
+  Bot,
+  Settings,
+  GitCompare,
   RotateCcw,
   Trash2,
   Check,
@@ -14,14 +14,14 @@ import {
   Plus,
   Minus,
   Edit3,
-  Network
+  Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { cn } from '@/utils/cn';
 import type { SceneVersion, CreatorType, VersionStats, ChangeTrack } from '@/types';
-import { 
-  useSceneVersions, 
+import {
+  useSceneVersions,
   useVersionStats,
   useVersionChain,
   useRestoreSceneVersion,
@@ -31,7 +31,7 @@ import {
   getConfidenceColor,
   getConfidenceLabel,
   formatVersionNumber,
-  calculateWordCountDelta
+  calculateWordCountDelta,
 } from '@/hooks/useSceneVersions';
 import { useVersionChangeTracks } from '@/hooks/useChangeTracking';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
@@ -96,8 +96,8 @@ function VersionItem({
     <div
       className={cn(
         'relative flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 cursor-pointer group',
-        isSelected 
-          ? 'bg-cinema-gold/10 border-cinema-gold/50 ring-1 ring-cinema-gold/30' 
+        isSelected
+          ? 'bg-cinema-gold/10 border-cinema-gold/50 ring-1 ring-cinema-gold/30'
           : isCompareSelected
             ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/30'
             : 'bg-cinema-800/50 border-cinema-700/50 hover:bg-cinema-800 hover:border-cinema-600'
@@ -106,16 +106,18 @@ function VersionItem({
     >
       {/* Timeline connector */}
       <div className="absolute left-6 top-0 -translate-y-1/2 w-px h-4 bg-cinema-700" />
-      
+
       {/* Version number badge */}
-      <div className={cn(
-        'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors',
-        isSelected
-          ? 'bg-cinema-gold text-cinema-900'
-          : isCompareSelected
-            ? 'bg-blue-500 text-white'
-            : 'bg-cinema-700 text-gray-300'
-      )}>
+      <div
+        className={cn(
+          'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors',
+          isSelected
+            ? 'bg-cinema-gold text-cinema-900'
+            : isCompareSelected
+              ? 'bg-blue-500 text-white'
+              : 'bg-cinema-700 text-gray-300'
+        )}
+      >
         {formatVersionNumber(version.version_number)}
       </div>
 
@@ -134,7 +136,7 @@ function VersionItem({
               })}
             </span>
           </div>
-          
+
           {/* Actions */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {selectionMode === 'compare' && (
@@ -142,7 +144,7 @@ function VersionItem({
                 variant={isCompareSelected ? 'primary' : 'ghost'}
                 size="sm"
                 className="h-7 px-2 text-xs"
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation();
                   onToggleCompare();
                 }}
@@ -164,7 +166,7 @@ function VersionItem({
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              onClick={(e) => {
+              onClick={e => {
                 e.stopPropagation();
                 onRestore();
               }}
@@ -176,7 +178,7 @@ function VersionItem({
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
-              onClick={(e) => {
+              onClick={e => {
                 e.stopPropagation();
                 onDelete();
               }}
@@ -199,29 +201,26 @@ function VersionItem({
             <FileText className="w-3.5 h-3.5 text-gray-500" />
             <span className="text-gray-400">{version.word_count.toLocaleString()} 字</span>
             {wordDelta && (
-              <span className={cn(
-                'font-medium',
-                wordDelta.isIncrease ? 'text-green-400' : 'text-red-400'
-              )}>
-                {wordDelta.isIncrease ? '+' : ''}{wordDelta.delta}
+              <span
+                className={cn(
+                  'font-medium',
+                  wordDelta.isIncrease ? 'text-green-400' : 'text-red-400'
+                )}
+              >
+                {wordDelta.isIncrease ? '+' : ''}
+                {wordDelta.delta}
               </span>
             )}
           </div>
 
           {/* Confidence score */}
           {version.confidence_score !== undefined && (
-            <ConfidenceIndicator 
-              score={version.confidence_score} 
-              size="sm" 
-              showLabel 
-            />
+            <ConfidenceIndicator score={version.confidence_score} size="sm" showLabel />
           )}
 
           {/* Model info */}
           {version.model_used && (
-            <span className="text-xs text-gray-500">
-              {version.model_used}
-            </span>
+            <span className="text-xs text-gray-500">{version.model_used}</span>
           )}
         </div>
       </div>
@@ -259,11 +258,14 @@ function VersionStatsPanel({ stats }: { stats: VersionStats | null | undefined }
             <div className="text-xs text-gray-400">用户/AI/系统</div>
           </div>
           <div className="bg-cinema-700/50 rounded-lg p-3">
-            <div className={cn(
-              'text-lg font-bold',
-              stats.total_word_delta >= 0 ? 'text-green-400' : 'text-red-400'
-            )}>
-              {stats.total_word_delta >= 0 ? '+' : ''}{stats.total_word_delta}
+            <div
+              className={cn(
+                'text-lg font-bold',
+                stats.total_word_delta >= 0 ? 'text-green-400' : 'text-red-400'
+              )}
+            >
+              {stats.total_word_delta >= 0 ? '+' : ''}
+              {stats.total_word_delta}
             </div>
             <div className="text-xs text-gray-400">字数变化</div>
           </div>
@@ -278,12 +280,14 @@ function ChangeTrackItem({ track }: { track: ChangeTrack }) {
   const isDelete = track.change_type === 'Delete';
 
   return (
-    <div className={cn(
-      'flex items-start gap-2 p-2 rounded-lg text-sm',
-      isInsert && 'bg-green-500/10',
-      isDelete && 'bg-red-500/10',
-      track.change_type === 'Format' && 'bg-blue-500/10'
-    )}>
+    <div
+      className={cn(
+        'flex items-start gap-2 p-2 rounded-lg text-sm',
+        isInsert && 'bg-green-500/10',
+        isDelete && 'bg-red-500/10',
+        track.change_type === 'Format' && 'bg-blue-500/10'
+      )}
+    >
       <span className="mt-0.5 shrink-0">
         {isInsert && <Plus className="w-3.5 h-3.5 text-green-400" />}
         {isDelete && <Minus className="w-3.5 h-3.5 text-red-400" />}
@@ -293,14 +297,18 @@ function ChangeTrackItem({ track }: { track: ChangeTrack }) {
         <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
           <span>{isInsert ? '插入' : isDelete ? '删除' : '格式'}</span>
           <span>·</span>
-          <span>位置 {track.from_pos}-{track.to_pos}</span>
+          <span>
+            位置 {track.from_pos}-{track.to_pos}
+          </span>
         </div>
-        <p className={cn(
-          'break-words',
-          isInsert && 'text-green-300',
-          isDelete && 'text-red-300 line-through',
-          track.change_type === 'Format' && 'text-blue-300'
-        )}>
+        <p
+          className={cn(
+            'break-words',
+            isInsert && 'text-green-300',
+            isDelete && 'text-red-300 line-through',
+            track.change_type === 'Format' && 'text-blue-300'
+          )}
+        >
           {track.content || ' '}
         </p>
       </div>
@@ -312,35 +320,27 @@ function VersionChangeTracksPanel({ versionId }: { versionId: string }) {
   const { data: tracks = [], isLoading } = useVersionChangeTracks(versionId);
 
   if (isLoading) {
-    return (
-      <div className="p-4 text-center text-sm text-gray-500">
-        加载变更追踪...
-      </div>
-    );
+    return <div className="p-4 text-center text-sm text-gray-500">加载变更追踪...</div>;
   }
 
   if (tracks.length === 0) {
-    return (
-      <div className="p-4 text-center text-sm text-gray-500">
-        此版本没有记录的变更追踪
-      </div>
-    );
+    return <div className="p-4 text-center text-sm text-gray-500">此版本没有记录的变更追踪</div>;
   }
 
   return (
     <div className="space-y-2">
-      {tracks.map((track) => (
+      {tracks.map(track => (
         <ChangeTrackItem key={track.id} track={track} />
       ))}
     </div>
   );
 }
 
-export function VersionTimeline({ 
-  sceneId, 
+export function VersionTimeline({
+  sceneId,
   storyId,
   onVersionSelect,
-  onCompare 
+  onCompare,
 }: VersionTimelineProps) {
   const [selectionMode, setSelectionMode] = useState<'none' | 'single' | 'compare'>('none');
   const [selectedVersion, setSelectedVersion] = useState<SceneVersion | null>(null);
@@ -434,14 +434,16 @@ export function VersionTimeline({
           <h3 className="text-lg font-semibold text-white">版本历史</h3>
           <span className="text-sm text-gray-500">({versions.length})</span>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-cinema-800 rounded-lg p-1">
             <button
               onClick={() => setViewMode('timeline')}
               className={cn(
                 'px-2 py-1 rounded text-xs font-medium transition-colors',
-                viewMode === 'timeline' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                viewMode === 'timeline'
+                  ? 'bg-cinema-700 text-white'
+                  : 'text-gray-400 hover:text-white'
               )}
             >
               时间线
@@ -458,9 +460,7 @@ export function VersionTimeline({
           </div>
           {selectionMode === 'compare' ? (
             <>
-              <span className="text-sm text-gray-400">
-                已选 {compareVersions.length}/2
-              </span>
+              <span className="text-sm text-gray-400">已选 {compareVersions.length}/2</span>
               <Button
                 variant="primary"
                 size="sm"
@@ -499,7 +499,7 @@ export function VersionTimeline({
           <>
             {/* Timeline vertical line */}
             <div className="absolute left-9 top-4 bottom-4 w-px bg-cinema-700/50" />
-            
+
             {sortedVersions.map((version, index) => (
               <VersionItem
                 key={version.id}
@@ -517,7 +517,7 @@ export function VersionTimeline({
           </>
         ) : (
           <div className="space-y-1">
-            {chainNodes.map((node) => (
+            {chainNodes.map(node => (
               <div
                 key={node.version.id}
                 className={cn(

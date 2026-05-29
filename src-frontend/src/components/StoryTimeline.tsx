@@ -1,16 +1,16 @@
 import React, { useState, useCallback } from 'react';
-import { 
-  Plus, 
-  Trash2, 
-  Edit3, 
-  ArrowUp, 
+import {
+  Plus,
+  Trash2,
+  Edit3,
+  ArrowUp,
   ArrowDown,
   GripVertical,
   Target,
   Zap,
   Users,
   Eye,
-  FileText
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -35,23 +35,35 @@ function getScenePhaseLabel(sequenceNumber: number): string {
 // W4-B11: 场景执行阶段标签
 function getExecutionStageLabel(stage?: string): string {
   switch (stage) {
-    case 'planning': return '规划';
-    case 'outline': return '大纲';
-    case 'drafting': return '起草';
-    case 'review': return '审校';
-    case 'final': return '定稿';
-    default: return '规划';
+    case 'planning':
+      return '规划';
+    case 'outline':
+      return '大纲';
+    case 'drafting':
+      return '起草';
+    case 'review':
+      return '审校';
+    case 'final':
+      return '定稿';
+    default:
+      return '规划';
   }
 }
 
 function getExecutionStageColor(stage?: string): { bg: string; text: string } {
   switch (stage) {
-    case 'planning': return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
-    case 'outline': return { bg: 'bg-blue-500/20', text: 'text-blue-400' };
-    case 'drafting': return { bg: 'bg-purple-500/20', text: 'text-purple-400' };
-    case 'review': return { bg: 'bg-orange-500/20', text: 'text-orange-400' };
-    case 'final': return { bg: 'bg-green-500/20', text: 'text-green-400' };
-    default: return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
+    case 'planning':
+      return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
+    case 'outline':
+      return { bg: 'bg-blue-500/20', text: 'text-blue-400' };
+    case 'drafting':
+      return { bg: 'bg-purple-500/20', text: 'text-purple-400' };
+    case 'review':
+      return { bg: 'bg-orange-500/20', text: 'text-orange-400' };
+    case 'final':
+      return { bg: 'bg-green-500/20', text: 'text-green-400' };
+    default:
+      return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
   }
 }
 
@@ -96,37 +108,43 @@ export function StoryTimeline({
     setDragOverIndex(index);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    if (!draggedScene) return;
+  const handleDrop = useCallback(
+    (e: React.DragEvent, dropIndex: number) => {
+      e.preventDefault();
+      if (!draggedScene) return;
 
-    const draggedIndex = scenes.findIndex(s => s.id === draggedScene.id);
-    if (draggedIndex === dropIndex) {
+      const draggedIndex = scenes.findIndex(s => s.id === draggedScene.id);
+      if (draggedIndex === dropIndex) {
+        setDraggedScene(null);
+        setDragOverIndex(null);
+        return;
+      }
+
+      // Reorder
+      const newScenes = [...scenes];
+      const [removed] = newScenes.splice(draggedIndex, 1);
+      newScenes.splice(dropIndex, 0, removed);
+
+      onReorderScenes(newScenes.map(s => s.id));
       setDraggedScene(null);
       setDragOverIndex(null);
-      return;
-    }
+    },
+    [draggedScene, scenes, onReorderScenes]
+  );
 
-    // Reorder
-    const newScenes = [...scenes];
-    const [removed] = newScenes.splice(draggedIndex, 1);
-    newScenes.splice(dropIndex, 0, removed);
+  const moveScene = useCallback(
+    (index: number, direction: 'up' | 'down') => {
+      if (direction === 'up' && index === 0) return;
+      if (direction === 'down' && index === scenes.length - 1) return;
 
-    onReorderScenes(newScenes.map(s => s.id));
-    setDraggedScene(null);
-    setDragOverIndex(null);
-  }, [draggedScene, scenes, onReorderScenes]);
+      const newScenes = [...scenes];
+      const swapIndex = direction === 'up' ? index - 1 : index + 1;
+      [newScenes[index], newScenes[swapIndex]] = [newScenes[swapIndex], newScenes[index]];
 
-  const moveScene = useCallback((index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === scenes.length - 1) return;
-
-    const newScenes = [...scenes];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    [newScenes[index], newScenes[swapIndex]] = [newScenes[swapIndex], newScenes[index]];
-
-    onReorderScenes(newScenes.map(s => s.id));
-  }, [scenes, onReorderScenes]);
+      onReorderScenes(newScenes.map(s => s.id));
+    },
+    [scenes, onReorderScenes]
+  );
 
   return (
     <div className="space-y-4">
@@ -152,14 +170,15 @@ export function StoryTimeline({
             key={scene.id}
             draggable
             onDragStart={() => handleDragStart(scene)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDrop={(e) => handleDrop(e, index)}
+            onDragOver={e => handleDragOver(e, index)}
+            onDrop={e => handleDrop(e, index)}
             className={`
               relative flex items-start gap-3 p-3 rounded-lg cursor-pointer
               transition-all duration-200 group
-              ${currentSceneId === scene.id 
-                ? 'bg-cinema-gold/10 border border-cinema-gold/30' 
-                : 'bg-cinema-800/50 border border-transparent hover:bg-cinema-800'
+              ${
+                currentSceneId === scene.id
+                  ? 'bg-cinema-gold/10 border border-cinema-gold/30'
+                  : 'bg-cinema-800/50 border border-transparent hover:bg-cinema-800'
               }
               ${dragOverIndex === index ? 'border-dashed border-cinema-gold' : ''}
             `}
@@ -167,7 +186,9 @@ export function StoryTimeline({
           >
             {/* Timeline dot with phase color */}
             <div className="relative z-10 flex-shrink-0 flex flex-col items-center gap-1">
-              <div className={`w-3 h-3 rounded-full ${getScenePhaseColor(scene.sequence_number)}`} />
+              <div
+                className={`w-3 h-3 rounded-full ${getScenePhaseColor(scene.sequence_number)}`}
+              />
               <span className="text-[10px] text-gray-500 leading-none">
                 {getScenePhaseLabel(scene.sequence_number)}
               </span>
@@ -186,11 +207,13 @@ export function StoryTimeline({
                 </h3>
 
                 {/* Execution stage badge */}
-                <span className={`
+                <span
+                  className={`
                   inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0
                   ${getExecutionStageColor(scene.execution_stage).bg}
                   ${getExecutionStageColor(scene.execution_stage).text}
-                `}>
+                `}
+                >
                   {getExecutionStageLabel(scene.execution_stage)}
                 </span>
 
@@ -200,7 +223,7 @@ export function StoryTimeline({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       moveScene(index, 'up');
                     }}
@@ -212,7 +235,7 @@ export function StoryTimeline({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       moveScene(index, 'down');
                     }}
@@ -224,7 +247,7 @@ export function StoryTimeline({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       onEditScene(scene);
                     }}
@@ -235,7 +258,7 @@ export function StoryTimeline({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       onDeleteScene(scene.id);
                     }}
@@ -267,14 +290,14 @@ export function StoryTimeline({
                     {getConflictTypeLabel(scene.conflict_type)}
                   </span>
                 )}
-                
+
                 {scene.dramatic_goal && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-cinema-700 text-gray-300">
                     <Target className="w-3 h-3" />
                     有戏剧目标
                   </span>
                 )}
-                
+
                 {scene.characters_present.length > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-cinema-700 text-gray-300">
                     <Users className="w-3 h-3" />
@@ -294,7 +317,7 @@ export function StoryTimeline({
               {scene.characters_present.length > 0 && (
                 <div className="mt-2 flex items-center gap-1">
                   <div className="flex -space-x-1.5">
-                    {scene.characters_present.slice(0, 5).map((charId) => {
+                    {scene.characters_present.slice(0, 5).map(charId => {
                       const charName = characterMap.get(charId) || '?';
                       return (
                         <div
@@ -313,7 +336,10 @@ export function StoryTimeline({
                     )}
                   </div>
                   <span className="text-[10px] text-gray-600 ml-1">
-                    {scene.characters_present.map((id) => characterMap.get(id) || '?').slice(0, 3).join('、')}
+                    {scene.characters_present
+                      .map(id => characterMap.get(id) || '?')
+                      .slice(0, 3)
+                      .join('、')}
                     {scene.characters_present.length > 3 && ' 等'}
                   </span>
                 </div>

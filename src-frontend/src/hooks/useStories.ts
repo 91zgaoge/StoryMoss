@@ -14,7 +14,7 @@ export function useStories() {
 
 export function useCreateStory() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createStory,
     onSuccess: () => {
@@ -29,9 +29,9 @@ export function useCreateStory() {
 
 export function useUpdateStory() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<Story> }) => 
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<Story> }) =>
       updateStory(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [STORIES_KEY] });
@@ -45,7 +45,7 @@ export function useUpdateStory() {
 
 export function useDeleteStory() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteStory,
     onSuccess: () => {

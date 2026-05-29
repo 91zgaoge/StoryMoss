@@ -54,34 +54,34 @@ function getConfidenceIcon(score?: number) {
 }
 
 // Circular Progress Component
-function CircularProgress({ 
-  score, 
+function CircularProgress({
+  score,
   size,
-  showLabel 
-}: { 
-  score?: number; 
+  showLabel,
+}: {
+  score?: number;
   size: 'sm' | 'md' | 'lg';
   showLabel?: boolean;
 }) {
   const color = getConfidenceColor(score);
   const percentage = score !== undefined ? Math.round(score * 100) : 0;
-  
+
   const dimensions = {
     sm: { width: 32, strokeWidth: 3, fontSize: 10 },
     md: { width: 48, strokeWidth: 4, fontSize: 12 },
     lg: { width: 64, strokeWidth: 5, fontSize: 14 },
   };
-  
+
   const { width, strokeWidth, fontSize } = dimensions[size];
   const radius = (width - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percentage / 100) * circumference;
-  
+
   const Icon = getConfidenceIcon(score);
 
   if (score === undefined) {
     return (
-      <div 
+      <div
         className="flex items-center justify-center rounded-full bg-gray-500/20"
         style={{ width, height: width }}
       >
@@ -117,21 +117,15 @@ function CircularProgress({
           className="transition-all duration-500 ease-out"
         />
       </svg>
-      
+
       {/* Center content */}
       <div className="absolute inset-0 flex items-center justify-center">
         {size === 'lg' && showLabel ? (
-          <span 
-            className="font-semibold"
-            style={{ fontSize, color }}
-          >
+          <span className="font-semibold" style={{ fontSize, color }}>
             {percentage}%
           </span>
         ) : (
-          <Icon 
-            className="text-gray-400" 
-            style={{ width: width * 0.4, height: width * 0.4 }} 
-          />
+          <Icon className="text-gray-400" style={{ width: width * 0.4, height: width * 0.4 }} />
         )}
       </div>
     </div>
@@ -139,12 +133,12 @@ function CircularProgress({
 }
 
 // Bar Progress Component
-function BarProgress({ 
-  score, 
+function BarProgress({
+  score,
   size,
-  showLabel 
-}: { 
-  score?: number; 
+  showLabel,
+}: {
+  score?: number;
   size: 'sm' | 'md' | 'lg';
   showLabel?: boolean;
 }) {
@@ -153,7 +147,7 @@ function BarProgress({
   const bgColorClass = getConfidenceBgColor(score);
   const textColorClass = getConfidenceTextColor(score);
   const Icon = getConfidenceIcon(score);
-  
+
   const heights = {
     sm: 'h-1.5',
     md: 'h-2',
@@ -165,27 +159,25 @@ function BarProgress({
       <div className={cn('flex-1 bg-cinema-700 rounded-full overflow-hidden', heights[size])}>
         <div
           className="h-full rounded-full transition-all duration-500 ease-out"
-          style={{ 
+          style={{
             width: `${percentage}%`,
             backgroundColor: color,
           }}
         />
       </div>
-      
+
       {showLabel && (
         <div className={cn('flex items-center gap-1 shrink-0', textColorClass)}>
-          <Icon className={cn(
-            size === 'sm' ? 'w-3 h-3' : size === 'md' ? 'w-4 h-4' : 'w-5 h-5'
-          )} />
-          <span className={cn(
-            'font-medium whitespace-nowrap',
-            size === 'sm' ? 'text-xs' : size === 'md' ? 'text-sm' : 'text-base'
-          )}>
+          <Icon className={cn(size === 'sm' ? 'w-3 h-3' : size === 'md' ? 'w-4 h-4' : 'w-5 h-5')} />
+          <span
+            className={cn(
+              'font-medium whitespace-nowrap',
+              size === 'sm' ? 'text-xs' : size === 'md' ? 'text-sm' : 'text-base'
+            )}
+          >
             {getConfidenceLabel(score)}
           </span>
-          {size === 'lg' && (
-            <span className="text-gray-500 text-sm">({percentage}%)</span>
-          )}
+          {size === 'lg' && <span className="text-gray-500 text-sm">({percentage}%)</span>}
         </div>
       )}
     </div>
@@ -206,7 +198,7 @@ export function ConfidenceIndicator({
   // Compact badge style (when not showing label and using bar variant)
   if (!showLabel && variant === 'bar') {
     return (
-      <div 
+      <div
         className={cn(
           'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
           bgColorClass,
@@ -217,15 +209,13 @@ export function ConfidenceIndicator({
       >
         <Icon className="w-3 h-3" />
         <span>置信度</span>
-        {score !== undefined && (
-          <span>{(score * 100).toFixed(0)}%</span>
-        )}
+        {score !== undefined && <span>{(score * 100).toFixed(0)}%</span>}
       </div>
     );
   }
 
   return (
-    <div 
+    <div
       className={cn(
         'inline-flex items-center gap-2',
         variant === 'circular' && size === 'lg' && 'flex-col gap-1',
@@ -238,7 +228,7 @@ export function ConfidenceIndicator({
       ) : (
         <BarProgress score={score} size={size} showLabel={showLabel} />
       )}
-      
+
       {showLabel && variant === 'circular' && size !== 'lg' && (
         <span className={cn('text-sm font-medium', textColorClass)}>
           {getConfidenceLabel(score)}
@@ -249,13 +239,7 @@ export function ConfidenceIndicator({
 }
 
 // Compact version for table/list displays
-export function ConfidenceBadge({ 
-  score, 
-  className 
-}: { 
-  score?: number; 
-  className?: string;
-}) {
+export function ConfidenceBadge({ score, className }: { score?: number; className?: string }) {
   const color = getConfidenceColor(score);
   const label = getConfidenceLabel(score);
   const Icon = getConfidenceIcon(score);

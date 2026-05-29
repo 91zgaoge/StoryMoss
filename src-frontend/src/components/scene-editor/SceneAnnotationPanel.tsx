@@ -21,7 +21,8 @@ interface SceneAnnotationPanelProps {
 
 export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelProps) {
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
-  const [newAnnotationType, setNewAnnotationType] = useState<SceneAnnotation['annotation_type']>('note');
+  const [newAnnotationType, setNewAnnotationType] =
+    useState<SceneAnnotation['annotation_type']>('note');
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
 
@@ -42,26 +43,29 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
             新建批注
           </h3>
           <div className="flex gap-2">
-            {(['note', 'todo', 'warning', 'idea'] as const).map((type) => (
+            {(['note', 'todo', 'warning', 'idea'] as const).map(type => (
               <button
                 key={type}
                 onClick={() => setNewAnnotationType(type)}
                 className={`
                   px-2.5 py-1 rounded-md text-xs font-medium transition-colors
-                  ${newAnnotationType === type
-                    ? 'bg-cinema-700 text-white'
-                    : 'bg-cinema-800 text-gray-400 hover:bg-cinema-700'
+                  ${
+                    newAnnotationType === type
+                      ? 'bg-cinema-700 text-white'
+                      : 'bg-cinema-800 text-gray-400 hover:bg-cinema-700'
                   }
                 `}
               >
-                <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${ANNOTATION_TYPE_COLORS[type]}`} />
+                <span
+                  className={`inline-block w-2 h-2 rounded-full mr-1.5 ${ANNOTATION_TYPE_COLORS[type]}`}
+                />
                 {ANNOTATION_TYPE_LABELS[type]}
               </button>
             ))}
           </div>
           <textarea
             value={newAnnotationContent}
-            onChange={(e) => setNewAnnotationContent(e.target.value)}
+            onChange={e => setNewAnnotationContent(e.target.value)}
             placeholder="记录想法、待办事项或提醒..."
             rows={3}
             className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
@@ -72,14 +76,17 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
               size="sm"
               disabled={!newAnnotationContent.trim() || createAnnotation.isPending}
               onClick={() => {
-                createAnnotation.mutate({
-                  scene_id: sceneId,
-                  story_id: storyId,
-                  content: newAnnotationContent.trim(),
-                  annotation_type: newAnnotationType,
-                }, {
-                  onSuccess: () => setNewAnnotationContent(''),
-                });
+                createAnnotation.mutate(
+                  {
+                    scene_id: sceneId,
+                    story_id: storyId,
+                    content: newAnnotationContent.trim(),
+                    annotation_type: newAnnotationType,
+                  },
+                  {
+                    onSuccess: () => setNewAnnotationContent(''),
+                  }
+                );
               }}
             >
               <Plus className="w-4 h-4 mr-1" />
@@ -96,17 +103,16 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
         <p className="text-sm text-gray-500 text-center py-8">暂无批注</p>
       ) : (
         <div className="space-y-3">
-          {annotations.map((annotation) => (
-            <Card
-              key={annotation.id}
-              className={annotation.resolved_at ? 'opacity-60' : ''}
-            >
+          {annotations.map(annotation => (
+            <Card key={annotation.id} className={annotation.resolved_at ? 'opacity-60' : ''}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
-                  <div className={`
+                  <div
+                    className={`
                     w-2 h-2 mt-1.5 rounded-full shrink-0
                     ${ANNOTATION_TYPE_COLORS[annotation.annotation_type]}
-                  `} />
+                  `}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium text-gray-400">
@@ -124,7 +130,7 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
                       <div className="space-y-2">
                         <textarea
                           value={editingContent}
-                          onChange={(e) => setEditingContent(e.target.value)}
+                          onChange={e => setEditingContent(e.target.value)}
                           rows={2}
                           className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
                         />
@@ -134,12 +140,15 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
                             size="sm"
                             disabled={!editingContent.trim() || updateAnnotation.isPending}
                             onClick={() => {
-                              updateAnnotation.mutate({
-                                annotationId: annotation.id,
-                                content: editingContent.trim(),
-                              }, {
-                                onSuccess: () => setEditingAnnotationId(null),
-                              });
+                              updateAnnotation.mutate(
+                                {
+                                  annotationId: annotation.id,
+                                  content: editingContent.trim(),
+                                },
+                                {
+                                  onSuccess: () => setEditingAnnotationId(null),
+                                }
+                              );
                             }}
                           >
                             保存
@@ -154,7 +163,9 @@ export function SceneAnnotationPanel({ sceneId, storyId }: SceneAnnotationPanelP
                         </div>
                       </div>
                     ) : (
-                      <p className={`text-sm ${annotation.resolved_at ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
+                      <p
+                        className={`text-sm ${annotation.resolved_at ? 'text-gray-500 line-through' : 'text-gray-200'}`}
+                      >
                         {annotation.content}
                       </p>
                     )}

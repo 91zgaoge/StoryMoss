@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { loggedInvoke } from '@/services/tauri';
-import type { 
-  SceneVersion, 
-  VersionDiff, 
-  VersionChainNode, 
+import type {
+  SceneVersion,
+  VersionDiff,
+  VersionChainNode,
   VersionStats,
-  CreatorType 
+  CreatorType,
 } from '@/types';
 
 const VERSIONS_KEY = 'scene-versions';
@@ -39,9 +39,9 @@ export function useVersionDiff(fromVersionId: string | null, toVersionId: string
     queryKey: [VERSIONS_KEY, 'diff', fromVersionId, toVersionId],
     queryFn: async () => {
       if (!fromVersionId || !toVersionId) return null;
-      return loggedInvoke<VersionDiff>('compare_scene_versions', { 
-        from_version_id: fromVersionId, 
-        to_version_id: toVersionId 
+      return loggedInvoke<VersionDiff>('compare_scene_versions', {
+        from_version_id: fromVersionId,
+        to_version_id: toVersionId,
       });
     },
     enabled: !!fromVersionId && !!toVersionId,
@@ -74,7 +74,7 @@ export function useVersionStats(sceneId: string | null) {
 
 export function useCreateSceneVersion() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: {
       sceneId: string;
@@ -99,13 +99,9 @@ export function useCreateSceneVersion() {
 
 export function useRestoreSceneVersion() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async (params: {
-      sceneId: string;
-      versionId: string;
-      restoredBy: CreatorType;
-    }) => {
+    mutationFn: async (params: { sceneId: string; versionId: string; restoredBy: CreatorType }) => {
       return loggedInvoke<SceneVersion>('restore_scene_version', {
         scene_id: params.sceneId,
         version_id: params.versionId,
@@ -122,14 +118,11 @@ export function useRestoreSceneVersion() {
 
 export function useDeleteSceneVersion() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async (params: {
-      versionId: string;
-      sceneId: string;
-    }) => {
-      return loggedInvoke<number>('delete_scene_version', { 
-        version_id: params.versionId 
+    mutationFn: async (params: { versionId: string; sceneId: string }) => {
+      return loggedInvoke<number>('delete_scene_version', {
+        version_id: params.versionId,
       });
     },
     onSuccess: (data, variables) => {
@@ -152,9 +145,9 @@ export function getCreatorTypeLabel(type: CreatorType): string {
 
 export function getCreatorTypeColor(type: CreatorType): string {
   const colors: Record<CreatorType, string> = {
-    user: '#3b82f6',    // blue
-    ai: '#10b981',      // emerald
-    system: '#6b7280',  // gray
+    user: '#3b82f6', // blue
+    ai: '#10b981', // emerald
+    system: '#6b7280', // gray
   };
   return colors[type] || '#6b7280';
 }
@@ -190,8 +183,11 @@ export function getConfidenceLabel(score?: number): string {
   return '极低置信度';
 }
 
-export function calculateWordCountDelta(current: number, previous: number): { 
-  delta: number; 
+export function calculateWordCountDelta(
+  current: number,
+  previous: number
+): {
+  delta: number;
   percentage: number;
   isIncrease: boolean;
 } {

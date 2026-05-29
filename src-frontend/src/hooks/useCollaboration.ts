@@ -150,17 +150,20 @@ export function useCollaboration({
     toast('已断开协同编辑连接');
   }, []);
 
-  const sendOperation = useCallback((operation: TextOperation) => {
-    wsLogger.debug('Sending operation', { operation });
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const msg: CollabMessage = {
-        type: 'operation',
-        operation,
-        client_version: version,
-      };
-      wsRef.current.send(JSON.stringify(msg));
-    }
-  }, [version]);
+  const sendOperation = useCallback(
+    (operation: TextOperation) => {
+      wsLogger.debug('Sending operation', { operation });
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const msg: CollabMessage = {
+          type: 'operation',
+          operation,
+          client_version: version,
+        };
+        wsRef.current.send(JSON.stringify(msg));
+      }
+    },
+    [version]
+  );
 
   const sendCursorPosition = useCallback((position: CursorPosition) => {
     wsLogger.debug('Sending cursor position', { position });

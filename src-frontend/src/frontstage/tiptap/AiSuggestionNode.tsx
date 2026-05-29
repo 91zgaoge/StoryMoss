@@ -59,22 +59,33 @@ const AiSuggestionView: React.FC<any> = ({ node, editor }) => {
   };
 
   const labels: Record<string, string> = {
-    pacing: '节奏', dialogue: '对话', description: '描写',
-    vocabulary: '词汇', sentence: '句式', emotion: '情感',
-    plot: '情节', structure: '结构',
+    pacing: '节奏',
+    dialogue: '对话',
+    description: '描写',
+    vocabulary: '词汇',
+    sentence: '句式',
+    emotion: '情感',
+    plot: '情节',
+    structure: '结构',
   };
 
   return (
     <NodeViewWrapper as="div" className={`ai-suggestion-node ai-suggestion-${category}`}>
-      <div className="ai-suggestion-label">
-        {labels[category] || '建议'} · Tab接受 · Esc拒绝
-      </div>
+      <div className="ai-suggestion-label">{labels[category] || '建议'} · Tab接受 · Esc拒绝</div>
       <p className="ai-suggestion-text">{suggestedText}</p>
       <div className="ai-suggestion-actions">
-        <button className="ai-suggestion-action-accept" onClick={handleAccept} title="接受修改 (Tab)">
+        <button
+          className="ai-suggestion-action-accept"
+          onClick={handleAccept}
+          title="接受修改 (Tab)"
+        >
           接受
         </button>
-        <button className="ai-suggestion-action-reject" onClick={handleReject} title="拒绝修改 (Esc)">
+        <button
+          className="ai-suggestion-action-reject"
+          onClick={handleReject}
+          title="拒绝修改 (Esc)"
+        >
           拒绝
         </button>
       </div>
@@ -147,11 +158,13 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['p', mergeAttributes(
-      { 'data-ai-suggestion': 'true' },
-      HTMLAttributes,
-      { class: `ai-suggestion-paragraph ai-suggestion-${HTMLAttributes['data-category'] || 'default'}` }
-    ), 0];
+    return [
+      'p',
+      mergeAttributes({ 'data-ai-suggestion': 'true' }, HTMLAttributes, {
+        class: `ai-suggestion-paragraph ai-suggestion-${HTMLAttributes['data-category'] || 'default'}`,
+      }),
+      0,
+    ];
   },
 
   addNodeView() {
@@ -165,7 +178,11 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
         const cursorPos = state.selection.from;
         let suggestionId: string | null = null;
         state.doc.descendants((node, nodePos) => {
-          if (node.type.name === 'aiSuggestion' && !suggestionId && Math.abs(nodePos - cursorPos) < 200) {
+          if (
+            node.type.name === 'aiSuggestion' &&
+            !suggestionId &&
+            Math.abs(nodePos - cursorPos) < 200
+          ) {
             suggestionId = node.attrs.suggestionId || null;
           }
         });
@@ -180,7 +197,11 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
         const cursorPos = state.selection.from;
         let suggestionId: string | null = null;
         state.doc.descendants((node, nodePos) => {
-          if (node.type.name === 'aiSuggestion' && !suggestionId && Math.abs(nodePos - cursorPos) < 200) {
+          if (
+            node.type.name === 'aiSuggestion' &&
+            !suggestionId &&
+            Math.abs(nodePos - cursorPos) < 200
+          ) {
             suggestionId = node.attrs.suggestionId || null;
           }
         });
@@ -221,7 +242,7 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
         },
 
       acceptAiSuggestion:
-        (suggestionId) =>
+        suggestionId =>
         ({ state, chain }) => {
           let suggestionPos = -1;
           let suggestionNodeSize = 0;
@@ -281,7 +302,7 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
         },
 
       rejectAiSuggestion:
-        (suggestionId) =>
+        suggestionId =>
         ({ state, chain }) => {
           let suggestionPos = -1;
           let suggestionNodeSize = 0;

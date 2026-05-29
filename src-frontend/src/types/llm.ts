@@ -1,6 +1,6 @@
 /**
  * LLM 相关类型定义
- * 
+ *
  * 支持多种类型的模型配置：
  * - Chat/Completion: 文本生成模型
  * - Embedding: 向量嵌入模型
@@ -9,9 +9,9 @@
  */
 
 // 模型能力
-export type ModelCapability = 
+export type ModelCapability =
   | 'chat'
-  | 'completion' 
+  | 'completion'
   | 'function_calling'
   | 'json_mode'
   | 'vision'
@@ -23,7 +23,7 @@ export type ModelCapability =
 export type ModelType = 'chat' | 'embedding' | 'multimodal' | 'image';
 
 // 提供商类型
-export type LlmProvider = 
+export type LlmProvider =
   | 'openai'
   | 'anthropic'
   | 'azure'
@@ -92,10 +92,10 @@ export interface ImageModelConfig extends BaseModelConfig {
 }
 
 // 统一模型配置类型
-export type ModelConfig = 
-  | ChatModelConfig 
-  | EmbeddingModelConfig 
-  | MultimodalModelConfig 
+export type ModelConfig =
+  | ChatModelConfig
+  | EmbeddingModelConfig
+  | MultimodalModelConfig
   | ImageModelConfig;
 
 // Agent 模型选择配置
@@ -112,7 +112,7 @@ export interface AgentModelMapping {
 export interface AppSettings {
   version: string;
   updated_at: string;
-  
+
   // 模型配置
   models: {
     chat: ChatModelConfig[];
@@ -120,7 +120,7 @@ export interface AppSettings {
     multimodal: MultimodalModelConfig[];
     image: ImageModelConfig[];
   };
-  
+
   // 当前激活的配置ID
   active_models: {
     chat?: string;
@@ -128,10 +128,10 @@ export interface AppSettings {
     multimodal?: string;
     image?: string;
   };
-  
+
   // Agent模型映射
   agent_mappings: AgentModelMapping[];
-  
+
   // 通用设置
   general: {
     theme: 'dark' | 'light' | 'system';
@@ -141,13 +141,13 @@ export interface AppSettings {
     font_size: number;
     line_height: number;
   };
-  
+
   // 隐私设置
   privacy: {
     share_usage_data: boolean;
     store_api_keys_securely: boolean;
   };
-  
+
   // 拆书分析 LLM 并发数（默认 3，本地模型可调到 50）
   book_deconstruction_concurrency: number;
 
@@ -178,6 +178,21 @@ export interface EncryptedApiKey {
   model_id: string;
   encrypted_key: string;
   iv: string;
+}
+
+// 连接测试步骤
+export interface ConnectionTestStep {
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  detail?: string;
+}
+
+// 连接测试结果
+export interface ConnectionTestResult {
+  success: boolean;
+  latency: number;
+  error?: string;
+  steps: ConnectionTestStep[];
 }
 
 // 预设模型配置

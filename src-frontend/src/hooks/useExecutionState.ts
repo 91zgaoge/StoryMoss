@@ -58,11 +58,9 @@ function computeTotalWordCount(scenes: Scene[]): number {
 }
 
 function computeAvgConfidence(scenes: Scene[]): number {
-  const scored = scenes.filter((s) => s.confidence_score !== undefined);
+  const scored = scenes.filter(s => s.confidence_score !== undefined);
   if (scored.length === 0) return 0;
-  return (
-    scored.reduce((sum, s) => sum + (s.confidence_score || 0), 0) / scored.length
-  );
+  return scored.reduce((sum, s) => sum + (s.confidence_score || 0), 0) / scored.length;
 }
 
 export function useExecutionState(storyId: string | null): {
@@ -72,8 +70,7 @@ export function useExecutionState(storyId: string | null): {
   const { data: scenes = [], isLoading: scenesLoading } = useScenes(storyId);
   const { data: foreshadowings = [], isLoading: foreshadowingsLoading } =
     useForeshadowings(storyId);
-  const { data: chapters = [], isLoading: chaptersLoading } =
-    useChapters(storyId);
+  const { data: chapters = [], isLoading: chaptersLoading } = useChapters(storyId);
 
   const { data: canonicalState, isLoading: canonicalLoading } = useQuery({
     queryKey: ['canonical_state', storyId],
@@ -96,12 +93,11 @@ export function useExecutionState(storyId: string | null): {
       : 'Setup';
     const overduePayoffs = canonicalState
       ? canonicalState.story_context.overdue_payoffs.length
-      : foreshadowings.filter((f) => f.status === 'setup').length;
+      : foreshadowings.filter(f => f.status === 'setup').length;
     const lastScene =
       sceneCount > 0
         ? scenes.reduce(
-            (latest, s) =>
-              s.sequence_number > latest.sequence_number ? s : latest,
+            (latest, s) => (s.sequence_number > latest.sequence_number ? s : latest),
             scenes[0]
           )
         : null;
@@ -122,11 +118,7 @@ export function useExecutionState(storyId: string | null): {
 
   return {
     state,
-    isLoading:
-      scenesLoading ||
-      foreshadowingsLoading ||
-      chaptersLoading ||
-      canonicalLoading,
+    isLoading: scenesLoading || foreshadowingsLoading || chaptersLoading || canonicalLoading,
   };
 }
 

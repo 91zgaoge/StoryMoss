@@ -1,6 +1,6 @@
 /**
  * CharacterNameMark - TipTap 扩展
- * 
+ *
  * 识别和高亮文本中的角色名，支持点击/悬停显示角色卡片
  */
 
@@ -42,8 +42,8 @@ export const CharacterNameMark = Mark.create<CharacterNameOptions>({
     return {
       'data-character-name': {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-character-name'),
-        renderHTML: (attributes) => {
+        parseHTML: element => element.getAttribute('data-character-name'),
+        renderHTML: attributes => {
           if (!attributes['data-character-name']) {
             return {};
           }

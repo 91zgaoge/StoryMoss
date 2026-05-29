@@ -138,7 +138,7 @@ export function Mcp() {
               <input
                 type="text"
                 value={serverName}
-                onChange={(e) => setServerName(e.target.value)}
+                onChange={e => setServerName(e.target.value)}
                 placeholder="例如: Filesystem MCP"
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
@@ -148,7 +148,7 @@ export function Mcp() {
               <input
                 type="text"
                 value={serverCommand}
-                onChange={(e) => setServerCommand(e.target.value)}
+                onChange={e => setServerCommand(e.target.value)}
                 placeholder="例如: npx 或 /usr/local/bin/mcp-server"
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
@@ -158,7 +158,7 @@ export function Mcp() {
               <input
                 type="text"
                 value={serverArgs}
-                onChange={(e) => setServerArgs(e.target.value)}
+                onChange={e => setServerArgs(e.target.value)}
                 placeholder="例如: -y @modelcontextprotocol/server-filesystem"
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
@@ -168,7 +168,7 @@ export function Mcp() {
               <input
                 type="text"
                 value={serverEnv}
-                onChange={(e) => setServerEnv(e.target.value)}
+                onChange={e => setServerEnv(e.target.value)}
                 placeholder='{"API_KEY":"xxx"}'
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
@@ -252,12 +252,10 @@ export function Mcp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">
-                    参数 (JSON)
-                  </label>
+                  <label className="block text-sm text-gray-400 mb-2">参数 (JSON)</label>
                   <textarea
                     value={toolArgs}
-                    onChange={(e) => setToolArgs(e.target.value)}
+                    onChange={e => setToolArgs(e.target.value)}
                     rows={6}
                     className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white font-mono text-sm focus:border-cinema-gold focus:outline-none"
                     placeholder='{"key": "value"}'

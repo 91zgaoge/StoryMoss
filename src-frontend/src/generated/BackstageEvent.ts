@@ -3,4 +3,13 @@
 /**
  * 发送给幕后窗口的事件
  */
-export type BackstageEvent = { "type": "contentChanged", "payload": { text: string, chapter_id: string, } } | { "type": "generationRequested", "payload": { chapter_id: string, context: string, } } | { "type": "frontstageClosed" } | { "type": "frontstageFocused" } | { "type": "dataRefresh", "payload": { entity: string, } } | { "type": "navigateTo", "payload": { view: string, highlight_story_id: string | null, open_panel: string | null, } };
+export type BackstageEvent =
+  | { type: 'contentChanged'; payload: { text: string; chapter_id: string } }
+  | { type: 'generationRequested'; payload: { chapter_id: string; context: string } }
+  | { type: 'frontstageClosed' }
+  | { type: 'frontstageFocused' }
+  | { type: 'dataRefresh'; payload: { entity: string } }
+  | {
+      type: 'navigateTo';
+      payload: { view: string; highlight_story_id: string | null; open_panel: string | null };
+    };

@@ -1,16 +1,18 @@
 /**
  * Settings Service
- * 
+ *
  * 与后端通信管理应用设置
  */
 
 import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
-import type { 
-  AppSettings, 
-  ModelConfig, 
+import type {
+  AppSettings,
+  ModelConfig,
   AgentModelMapping,
-  SettingsExport 
+  SettingsExport,
+  ConnectionTestResult,
+  ConnectionTestStep,
 } from '@/types/llm';
 
 const settingsServiceLogger = createLogger('services:settings');
@@ -182,49 +184,90 @@ export async function updateAgentMapping(mapping: AgentModelMapping): Promise<vo
 }
 
 // 浏览器环境下简单的连接探测
-async function browserTestModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
+async function browserTestModelConnection(modelId: string): Promise<ConnectionTestResult> {
+  const steps: ConnectionTestStep[] = [];
+
   const model = BROWSER_FALLBACK_MODELS.find(m => m.id === modelId);
   if (!model) {
-    return { success: false, latency: 0, error: '未知模型' };
+    return {
+      success: false,
+      latency: 0,
+      error: '未知模型',
+      steps: [{ name: '查找模型配置', status: 'failed', detail: '未知模型' }],
+    };
   }
   if (!model.api_base) {
-    return { success: false, latency: 0, error: '未配置 API Base' };
+    return {
+      success: false,
+      latency: 0,
+      error: '未配置 API Base',
+      steps: [{ name: '检查 API 地址', status: 'failed', detail: '未配置 API Base' }],
+    };
   }
+
   const start = performance.now();
+  steps.push({ name: '探测模型端点', status: 'running' });
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     // 先尝试 GET /models
-    const resp = await fetch(`${model.api_base}/models`, { method: 'GET', signal: controller.signal });
+    const resp = await fetch(`${model.api_base}/models`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
     if (resp.ok) {
-      return { success: true, latency: Math.round(performance.now() - start) };
+      const latency = Math.round(performance.now() - start);
+      steps[0] = { name: '探测模型端点', status: 'success' };
+      return { success: true, latency, steps };
     }
     // /models 404 时尝试 POST /chat/completions 轻量探测
+    steps[0] = { name: '探测模型列表', status: 'success' };
+    steps.push({ name: '测试 API 响应', status: 'running' });
+
     const postStart = performance.now();
     const postController = new AbortController();
     const postTimeout = setTimeout(() => postController.abort(), 5000);
     await fetch(`${model.api_base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+      body: JSON.stringify({
+        model: 'test',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1,
+      }),
       signal: postController.signal,
     });
     clearTimeout(postTimeout);
-    return { success: true, latency: Math.round(performance.now() - postStart) };
+
+    const latency = Math.round(performance.now() - postStart);
+    steps[1] = { name: '测试 API 响应', status: 'success' };
+    return { success: true, latency, steps };
   } catch (e: any) {
     const latency = Math.round(performance.now() - start);
-    if (e.name === 'AbortError') {
-      return { success: false, latency, error: '连接超时' };
+    const lastRunningIdx = steps.findIndex(s => s.status === 'running');
+    if (lastRunningIdx >= 0) {
+      const errMsg = e.name === 'AbortError' ? '连接超时' : e.message || '连接失败';
+      steps[lastRunningIdx] = {
+        ...steps[lastRunningIdx],
+        status: 'failed',
+        detail: errMsg,
+      };
     }
-    return { success: false, latency, error: e.message || '连接失败' };
+    return {
+      success: false,
+      latency,
+      error: e.name === 'AbortError' ? '连接超时' : e.message || '连接失败',
+      steps,
+    };
   }
 }
 
 // 测试模型连接
-export async function testModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
+export async function testModelConnection(modelId: string): Promise<ConnectionTestResult> {
   try {
-    return await loggedInvoke<{ success: boolean; latency: number; error?: string }>('test_model_connection', { modelId });
+    return await loggedInvoke<ConnectionTestResult>('test_model_connection', { modelId });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
@@ -261,17 +304,37 @@ export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Prom
 }
 
 // 获取模型提供商列表
-export function getModelProviders(): Array<{ id: string; name: string; requiresApiKey: boolean; supports: ModelConfig['type'][] }> {
+export function getModelProviders(): Array<{
+  id: string;
+  name: string;
+  requiresApiKey: boolean;
+  supports: ModelConfig['type'][];
+}> {
   return [
-    { id: 'openai', name: 'OpenAI', requiresApiKey: true, supports: ['chat', 'embedding', 'multimodal', 'image'] },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      requiresApiKey: true,
+      supports: ['chat', 'embedding', 'multimodal', 'image'],
+    },
     { id: 'anthropic', name: 'Anthropic', requiresApiKey: true, supports: ['chat', 'multimodal'] },
     { id: 'azure', name: 'Azure OpenAI', requiresApiKey: true, supports: ['chat', 'embedding'] },
-    { id: 'ollama', name: 'Ollama (Local)', requiresApiKey: false, supports: ['chat', 'embedding'] },
+    {
+      id: 'ollama',
+      name: 'Ollama (Local)',
+      requiresApiKey: false,
+      supports: ['chat', 'embedding'],
+    },
     { id: 'deepseek', name: 'DeepSeek', requiresApiKey: true, supports: ['chat'] },
     { id: 'qwen', name: '通义千问', requiresApiKey: true, supports: ['chat', 'multimodal'] },
     { id: 'moonshot', name: 'Moonshot', requiresApiKey: true, supports: ['chat'] },
     { id: 'zhipu', name: '智谱AI', requiresApiKey: true, supports: ['chat', 'multimodal'] },
-    { id: 'custom', name: 'Custom', requiresApiKey: false, supports: ['chat', 'embedding', 'multimodal'] },
+    {
+      id: 'custom',
+      name: 'Custom',
+      requiresApiKey: false,
+      supports: ['chat', 'embedding', 'multimodal'],
+    },
   ];
 }
 

@@ -1,9 +1,9 @@
 /**
  * 草苔项目模型配置
- * 
+ *
  * 配置三个模型：
  * 1. 多模态模型 - Gemma-4-31B-it-Q6_K
- * 2. 语言模型 - Qwen3.5-27B-Uncensored-Q4_K_M  
+ * 2. 语言模型 - Qwen3.5-27B-Uncensored-Q4_K_M
  * 3. Embedding嵌入模型 - bge-m3
  */
 
@@ -31,7 +31,7 @@ export const MODELS: Record<string, ModelConfig> = {
     maxTokens: 8192,
     temperature: 0.7,
   },
-  
+
   // 语言模型（默认）
   qwen35: {
     id: 'Qwen3.5-27B-Uncensored-Q4_K_M',
@@ -43,7 +43,7 @@ export const MODELS: Record<string, ModelConfig> = {
     maxTokens: 8192,
     temperature: 0.8,
   },
-  
+
   // Embedding嵌入模型
   bgeM3: {
     id: 'bge-m3',

@@ -2,19 +2,11 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { getWritingAnalytics } from '@/services/tauri';
 import { Card, CardContent } from '@/components/ui/Card';
-import {
-  FileText,
-  Layers,
-  Flame,
-  Target,
-  TrendingUp,
-  Calendar,
-  Loader2,
-} from 'lucide-react';
+import { FileText, Layers, Flame, Target, TrendingUp, Calendar, Loader2 } from 'lucide-react';
 import type { WritingAnalytics } from '@/types/v3';
 
 export function WritingStats() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const [analytics, setAnalytics] = useState<WritingAnalytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -83,9 +75,7 @@ export function WritingStats() {
         </Card>
       ) : !analytics ? (
         <Card>
-          <CardContent className="p-8 text-center text-gray-500">
-            暂无写作数据
-          </CardContent>
+          <CardContent className="p-8 text-center text-gray-500">暂无写作数据</CardContent>
         </Card>
       ) : (
         <>
@@ -102,9 +92,7 @@ export function WritingStats() {
                   </div>
                   <FileText className="w-8 h-8 text-cinema-gold/40" />
                 </div>
-                <p className="text-xs text-gray-600 mt-2">
-                  {analytics.total_scenes} 个场景
-                </p>
+                <p className="text-xs text-gray-600 mt-2">{analytics.total_scenes} 个场景</p>
               </CardContent>
             </Card>
 
@@ -113,14 +101,16 @@ export function WritingStats() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wider">总场景数</p>
-                    <p className="text-2xl font-bold text-white mt-1">
-                      {analytics.total_scenes}
-                    </p>
+                    <p className="text-2xl font-bold text-white mt-1">{analytics.total_scenes}</p>
                   </div>
                   <Layers className="w-8 h-8 text-blue-400/40" />
                 </div>
                 <p className="text-xs text-gray-600 mt-2">
-                  平均每场景 {analytics.total_scenes > 0 ? Math.round(analytics.total_words / analytics.total_scenes) : 0} 字
+                  平均每场景{' '}
+                  {analytics.total_scenes > 0
+                    ? Math.round(analytics.total_words / analytics.total_scenes)
+                    : 0}{' '}
+                  字
                 </p>
               </CardContent>
             </Card>
@@ -147,7 +137,9 @@ export function WritingStats() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wider">生产力分数</p>
-                    <p className={`text-2xl font-bold mt-1 ${productivityColor(analytics.productivity_score)}`}>
+                    <p
+                      className={`text-2xl font-bold mt-1 ${productivityColor(analytics.productivity_score)}`}
+                    >
                       {Math.round(analytics.productivity_score)}
                     </p>
                   </div>
@@ -177,9 +169,7 @@ export function WritingStats() {
                   </span>
                   <span className="text-gray-500">字/天</span>
                 </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  基于实际写作天数计算
-                </p>
+                <p className="text-sm text-gray-500 mt-2">基于实际写作天数计算</p>
               </CardContent>
             </Card>
 
@@ -192,7 +182,9 @@ export function WritingStats() {
                 <div className="flex items-baseline gap-2">
                   <span className="text-xl font-bold text-white">
                     {analytics.writing_streak.last_writing_date
-                      ? new Date(analytics.writing_streak.last_writing_date).toLocaleDateString('zh-CN')
+                      ? new Date(analytics.writing_streak.last_writing_date).toLocaleDateString(
+                          'zh-CN'
+                        )
                       : '无记录'}
                   </span>
                 </div>

@@ -64,9 +64,7 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
             <Sparkles size={32} />
           </div>
           <h2 className="upgrade-panel-title">解锁文思泉涌</h2>
-          <p className="upgrade-panel-subtitle">
-            {trigger || '升级专业版，释放 AI 创作全部潜能'}
-          </p>
+          <p className="upgrade-panel-subtitle">{trigger || '升级专业版，释放 AI 创作全部潜能'}</p>
         </div>
 
         <div className="upgrade-panel-features">
@@ -101,9 +99,7 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
           </button>
         </div>
 
-        <p className="upgrade-panel-footer">
-          当前为开发测试模式，点击升级即可解锁全部功能
-        </p>
+        <p className="upgrade-panel-footer">当前为开发测试模式，点击升级即可解锁全部功能</p>
       </div>
     </div>
   );

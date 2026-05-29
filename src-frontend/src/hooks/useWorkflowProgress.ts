@@ -36,7 +36,7 @@ export function useWorkflowProgress(): UseWorkflowProgressReturn {
         stage: string;
         message: string;
         progress: number;
-      }>('workflow-progress', (event) => {
+      }>('workflow-progress', event => {
         const p = event.payload;
         setProgress({
           workflowId: p.workflow_id,

@@ -17,7 +17,7 @@ const DIMENSIONS = [
   { key: 'rhythm_score', label: '节奏感', color: '#06b6d4' },
 ] as const;
 
-type DimensionKey = typeof DIMENSIONS[number]['key'];
+type DimensionKey = (typeof DIMENSIONS)[number]['key'];
 
 interface StyleDnaRadarProps {
   storyId: string;
@@ -94,10 +94,11 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
 
   const handleValueChange = (key: DimensionKey, val: number) => {
     const clamped = Math.min(1, Math.max(0, val));
-    setValues((prev) => {
+    setValues(prev => {
       const next = { ...prev, [key]: clamped };
       setHasChanges(
-        originalValues !== null && Object.keys(next).some((k) => next[k as DimensionKey] !== originalValues[k as DimensionKey])
+        originalValues !== null &&
+          Object.keys(next).some(k => next[k as DimensionKey] !== originalValues[k as DimensionKey])
       );
       return next;
     });
@@ -135,7 +136,8 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
   const gridLevels = [0.2, 0.4, 0.6, 0.8, 1.0];
 
   const dataPoints = DIMENSIONS.map((d, i) => getPoint(i, values[d.key]));
-  const dataPath = dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
+  const dataPath =
+    dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
 
   return (
     <div className={cn('bg-[#1a1a2e] border border-white/5 rounded-xl overflow-hidden', className)}>
@@ -183,7 +185,7 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
         <div className="relative">
           <svg width={size} height={size} className="block">
             {/* Background grid */}
-            {gridLevels.map((level) => {
+            {gridLevels.map(level => {
               const points = DIMENSIONS.map((_, i) => {
                 const p = getPoint(i, level);
                 return `${p.x},${p.y}`;
@@ -217,7 +219,7 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
 
             {/* Data area */}
             <polygon
-              points={dataPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+              points={dataPoints.map(p => `${p.x},${p.y}`).join(' ')}
               fill="rgba(245,158,11,0.15)"
               stroke="#f59e0b"
               strokeWidth={2}
@@ -263,7 +265,7 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center">
               <div className="text-lg font-bold text-cinema-gold">
-                {(Object.values(values).reduce((a, b) => a + b, 0) / 6 * 100).toFixed(0)}
+                {((Object.values(values).reduce((a, b) => a + b, 0) / 6) * 100).toFixed(0)}
               </div>
               <div className="text-[9px] text-white/30">综合分</div>
             </div>
@@ -272,7 +274,7 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
 
         {/* Dimension Sliders */}
         <div className="w-full mt-4 space-y-2.5">
-          {DIMENSIONS.map((dim) => {
+          {DIMENSIONS.map(dim => {
             const val = values[dim.key];
             const original = originalValues?.[dim.key];
             const isModified = original !== undefined && Math.abs(val - original) > 0.001;
@@ -281,14 +283,13 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
               <div key={dim.key} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: dim.color }}
-                    />
-                    <span className={cn(
-                      'text-[11px]',
-                      isModified ? 'text-cinema-gold font-medium' : 'text-white/50'
-                    )}>
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dim.color }} />
+                    <span
+                      className={cn(
+                        'text-[11px]',
+                        isModified ? 'text-cinema-gold font-medium' : 'text-white/50'
+                      )}
+                    >
                       {dim.label}
                     </span>
                   </div>
@@ -302,7 +303,7 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
                   max={1}
                   step={0.01}
                   value={val}
-                  onChange={(e) => handleValueChange(dim.key, parseFloat(e.target.value))}
+                  onChange={e => handleValueChange(dim.key, parseFloat(e.target.value))}
                   className="w-full h-1 bg-white/5 rounded-full appearance-none cursor-pointer accent-cinema-gold"
                   style={{
                     background: `linear-gradient(to right, ${dim.color} 0%, ${dim.color} ${val * 100}%, rgba(255,255,255,0.05) ${val * 100}%, rgba(255,255,255,0.05) 100%)`,
@@ -317,12 +318,8 @@ export const StyleDnaRadar: React.FC<StyleDnaRadarProps> = ({
         {snapshot && (
           <div className="w-full mt-3 pt-3 border-t border-white/5">
             <div className="flex items-center justify-between text-[10px] text-white/30">
-              <span>
-                基于第 {snapshot.chapter_number ?? '?'} 章分析
-              </span>
-              <span>
-                {new Date(snapshot.computed_at).toLocaleDateString()} 计算
-              </span>
+              <span>基于第 {snapshot.chapter_number ?? '?'} 章分析</span>
+              <span>{new Date(snapshot.computed_at).toLocaleDateString()} 计算</span>
             </div>
           </div>
         )}

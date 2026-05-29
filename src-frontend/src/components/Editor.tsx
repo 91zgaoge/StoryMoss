@@ -48,11 +48,13 @@ export function MonacoEditor({
     setIsFullscreen(!isFullscreen);
   };
 
-  const increaseFontSize = () => setFontSize((s) => Math.min(s + 2, 32));
-  const decreaseFontSize = () => setFontSize((s) => Math.max(s - 2, 12));
+  const increaseFontSize = () => setFontSize(s => Math.min(s + 2, 32));
+  const decreaseFontSize = () => setFontSize(s => Math.max(s - 2, 12));
 
   return (
-    <div className={`flex flex-col ${isFullscreen ? 'fixed inset-0 z-50 bg-cinema-950' : 'h-full'}`}>
+    <div
+      className={`flex flex-col ${isFullscreen ? 'fixed inset-0 z-50 bg-cinema-950' : 'h-full'}`}
+    >
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 bg-cinema-900 border-b border-cinema-800">
         <div className="flex items-center gap-2">
@@ -74,7 +76,12 @@ export function MonacoEditor({
             </Button>
           )}
 
-          <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? '退出全屏' : '全屏'}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? '退出全屏' : '全屏'}
+          >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </Button>
         </div>

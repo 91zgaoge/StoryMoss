@@ -115,24 +115,24 @@ export interface PerceptionResult {
 
 /** 建议类型 */
 export type SuggestionCategory =
-  | 'pacing'      // 节奏
-  | 'dialogue'    // 对话
+  | 'pacing' // 节奏
+  | 'dialogue' // 对话
   | 'description' // 描写
-  | 'vocabulary'  // 词汇
-  | 'sentence'    // 句式
-  | 'emotion'     // 情感
-  | 'plot'        // 情节
-  | 'structure';  // 结构
+  | 'vocabulary' // 词汇
+  | 'sentence' // 句式
+  | 'emotion' // 情感
+  | 'plot' // 情节
+  | 'structure'; // 结构
 
 /** 建议优先级 */
 export type SuggestionPriority = 'high' | 'medium' | 'low';
 
 /** 建议展示方式 */
 export type SuggestionPresentation =
-  | 'bubble'      // 右侧气泡（当前段落相关）
-  | 'ghost'       // Ghost Text（输入栏）
-  | 'inline'      // 内联提示（段落边缘）
-  | 'ambient';    // 环境提示（屏幕边缘）
+  | 'bubble' // 右侧气泡（当前段落相关）
+  | 'ghost' // Ghost Text（输入栏）
+  | 'inline' // 内联提示（段落边缘）
+  | 'ambient'; // 环境提示（屏幕边缘）
 
 /** 单条建议 */
 export interface WritingSuggestion {

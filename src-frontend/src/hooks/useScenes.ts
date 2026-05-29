@@ -30,7 +30,11 @@ export function useScene(sceneId: string | null) {
 
 export function useSceneWithChapter(sceneId: string | null) {
   const { data: scene, isLoading: sceneLoading, isError: sceneError } = useScene(sceneId);
-  const { data: chapter, isLoading: chapterLoading, isError: chapterError } = useQuery({
+  const {
+    data: chapter,
+    isLoading: chapterLoading,
+    isError: chapterError,
+  } = useQuery({
     queryKey: [SCENES_KEY, 'chapter', sceneId],
     queryFn: async () => {
       if (!scene?.chapter_id) return null;
@@ -51,7 +55,7 @@ export function useSceneWithChapter(sceneId: string | null) {
 
 export function useCreateScene() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: {
       storyId: string;
@@ -84,7 +88,7 @@ export function useCreateScene() {
 
 export function useUpdateScene() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: {
       sceneId: string;
@@ -105,7 +109,7 @@ export function useUpdateScene() {
 
 export function useDeleteScene() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: { sceneId: string; storyId: string }) => {
       return loggedInvoke<number>('delete_scene', { scene_id: params.sceneId });
@@ -118,7 +122,7 @@ export function useDeleteScene() {
 
 export function useReorderScenes() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: { storyId: string; sceneIds: string[] }) => {
       return loggedInvoke<void>('reorder_scenes', {
@@ -153,16 +157,16 @@ export function getConflictTypeLabel(type: ConflictType): string {
 
 export function getConflictTypeColor(type: ConflictType): string {
   const colors: Record<ConflictType, string> = {
-    ManVsMan: '#ef4444',        // red
-    ManVsSelf: '#8b5cf6',       // purple
-    ManVsSociety: '#f59e0b',    // amber
-    ManVsNature: '#10b981',     // emerald
+    ManVsMan: '#ef4444', // red
+    ManVsSelf: '#8b5cf6', // purple
+    ManVsSociety: '#f59e0b', // amber
+    ManVsNature: '#10b981', // emerald
     ManVsTechnology: '#3b82f6', // blue
-    ManVsFate: '#6366f1',       // indigo
+    ManVsFate: '#6366f1', // indigo
     ManVsSupernatural: '#ec4899', // pink
-    ManVsTime: '#06b6d4',       // cyan
-    ManVsMorality: '#f43f5e',   // rose
-    ManVsIdentity: '#14b8a6',   // teal
+    ManVsTime: '#06b6d4', // cyan
+    ManVsMorality: '#f43f5e', // rose
+    ManVsIdentity: '#14b8a6', // teal
     FactionVsFaction: '#64748b', // slate
   };
   return colors[type] || '#6b7280';

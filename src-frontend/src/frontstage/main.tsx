@@ -1,6 +1,6 @@
 /**
  * FrontStage 入口文件
- * 
+ *
  * 这是幕前窗口的独立入口
  */
 
@@ -37,5 +37,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         }}
       />
     </QueryClientProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );

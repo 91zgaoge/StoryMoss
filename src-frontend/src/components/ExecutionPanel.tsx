@@ -50,9 +50,7 @@ function StatCard({
     <div
       className={cn(
         'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-        alert
-          ? 'bg-red-500/10 border-red-500/30'
-          : 'bg-cinema-900/50 border-cinema-800'
+        alert ? 'bg-red-500/10 border-red-500/30' : 'bg-cinema-900/50 border-cinema-800'
       )}
     >
       <Icon
@@ -63,12 +61,7 @@ function StatCard({
       />
       <div className="min-w-0">
         <p className="text-xs text-gray-500">{label}</p>
-        <p
-          className={cn(
-            'text-sm font-semibold truncate',
-            alert ? 'text-red-400' : 'text-white'
-          )}
-        >
+        <p className={cn('text-sm font-semibold truncate', alert ? 'text-red-400' : 'text-white')}>
           {value}
         </p>
       </div>
@@ -98,7 +91,7 @@ export function ExecutionPanel({
   compact = false,
 }: ExecutionPanelProps) {
   const { state, isLoading } = useExecutionState(storyId);
-  const setCurrentView = useAppStore((s) => s.setCurrentView);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
 
   const primaryAction = resolvePrimaryAction(state);
 
@@ -157,12 +150,7 @@ export function ExecutionPanel({
 
   if (isLoading) {
     return (
-      <div
-        className={cn(
-          'flex items-center justify-center p-6',
-          className
-        )}
-      >
+      <div className={cn('flex items-center justify-center p-6', className)}>
         <Loader2 className="w-5 h-5 text-gray-500 animate-spin" />
       </div>
     );
@@ -193,12 +181,7 @@ export function ExecutionPanel({
   }
 
   return (
-    <div
-      className={cn(
-        'h-full flex flex-col bg-cinema-950 border-l border-cinema-800',
-        className
-      )}
-    >
+    <div className={cn('h-full flex flex-col bg-cinema-950 border-l border-cinema-800', className)}>
       {/* Header */}
       <div className="p-4 border-b border-cinema-800">
         <div className="flex items-center gap-2 mb-3">
@@ -237,18 +220,13 @@ export function ExecutionPanel({
               state.avgConfidence < 0.5
                 ? 'text-red-400'
                 : state.avgConfidence < 0.75
-                ? 'text-amber-400'
-                : 'text-green-400'
+                  ? 'text-amber-400'
+                  : 'text-green-400'
             }
           />
         )}
         {state.overduePayoffs > 0 && (
-          <StatCard
-            label="逾期伏笔"
-            value={state.overduePayoffs}
-            icon={AlertTriangle}
-            alert
-          />
+          <StatCard label="逾期伏笔" value={state.overduePayoffs} icon={AlertTriangle} alert />
         )}
       </div>
 
@@ -266,11 +244,7 @@ export function ExecutionPanel({
 
         {/* Secondary Actions */}
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => handleQuickAction('run_audit')}
-          >
+          <Button variant="secondary" size="sm" onClick={() => handleQuickAction('run_audit')}>
             <Zap className="w-3.5 h-3.5" />
             运行审校
           </Button>

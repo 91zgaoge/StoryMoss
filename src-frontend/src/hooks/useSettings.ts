@@ -1,12 +1,12 @@
 /**
  * useSettings - 应用设置管理 Hook
- * 
+ *
  * 管理LLM配置、Agent模型映射、通用设置
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  getSettings, 
+import {
+  getSettings,
   saveSettings,
   exportSettings,
   importSettings,
@@ -18,12 +18,7 @@ import {
   getAgentMappings,
   updateAgentMapping,
 } from '@/services/settings';
-import type { 
-  AppSettings, 
-  ModelConfig, 
-  AgentModelMapping,
-  SettingsExport 
-} from '@/types/llm';
+import type { AppSettings, ModelConfig, AgentModelMapping, SettingsExport } from '@/types/llm';
 import toast from 'react-hot-toast';
 
 const SETTINGS_KEY = 'settings';
@@ -41,7 +36,7 @@ export function useSettings() {
 // 保存设置
 export function useSaveSettings() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: saveSettings,
     onSuccess: () => {
@@ -58,7 +53,7 @@ export function useSaveSettings() {
 export function useExportSettings() {
   return useMutation({
     mutationFn: exportSettings,
-    onSuccess: (data) => {
+    onSuccess: data => {
       // 下载JSON文件
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -80,7 +75,7 @@ export function useExportSettings() {
 // 导入设置
 export function useImportSettings() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (file: File) => {
       const text = await file.text();
@@ -116,7 +111,7 @@ export function useModelsByType(type: ModelConfig['type']) {
 // 创建模型配置
 export function useCreateModel() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createModel,
     onSuccess: () => {
@@ -132,9 +127,9 @@ export function useCreateModel() {
 // 更新模型配置
 export function useUpdateModel() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: ({ id, config }: { id: string; config: Partial<ModelConfig> }) => 
+    mutationFn: ({ id, config }: { id: string; config: Partial<ModelConfig> }) =>
       updateModel(id, config),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [MODELS_KEY] });
@@ -149,7 +144,7 @@ export function useUpdateModel() {
 // 删除模型配置
 export function useDeleteModel() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteModel,
     onSuccess: () => {
@@ -165,7 +160,7 @@ export function useDeleteModel() {
 // 设置活跃模型
 export function useSetActiveModel() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ type, modelId }: { type: ModelConfig['type']; modelId: string }) =>
       setActiveModel(type, modelId),
@@ -190,7 +185,7 @@ export function useAgentMappings() {
 // 更新Agent模型映射
 export function useUpdateAgentMapping() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: updateAgentMapping,
     onSuccess: () => {

@@ -49,9 +49,7 @@ export function BookUploadPanel({ onUpload, isUploading }: BookUploadPanelProps)
       const { open } = await import('@tauri-apps/plugin-dialog');
       const selected = await open({
         multiple: false,
-        filters: [
-          { name: '小说文件', extensions: ['txt', 'pdf', 'epub'] },
-        ],
+        filters: [{ name: '小说文件', extensions: ['txt', 'pdf', 'epub'] }],
       });
       if (selected && typeof selected === 'string') {
         onUpload(selected);
@@ -64,7 +62,7 @@ export function BookUploadPanel({ onUpload, isUploading }: BookUploadPanelProps)
   return (
     <div
       onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={e => e.preventDefault()}
       className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-cinema-700 rounded-2xl bg-cinema-900/50 hover:border-cinema-gold/50 hover:bg-cinema-900 transition-all cursor-pointer"
       onClick={handleClick}
     >
@@ -74,9 +72,7 @@ export function BookUploadPanel({ onUpload, isUploading }: BookUploadPanelProps)
       <h3 className="text-lg font-medium text-white mb-2">
         {isUploading ? '正在上传...' : '上传小说文件'}
       </h3>
-      <p className="text-sm text-gray-500 text-center mb-4">
-        支持 txt、pdf、epub 格式，最大 100MB
-      </p>
+      <p className="text-sm text-gray-500 text-center mb-4">支持 txt、pdf、epub 格式，最大 100MB</p>
       <div className="flex items-center gap-4 text-xs text-gray-600">
         <span className="flex items-center gap-1">
           <FileText className="w-3 h-3" /> TXT

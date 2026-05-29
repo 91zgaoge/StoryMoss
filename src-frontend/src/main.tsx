@@ -14,7 +14,7 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       // Limit retries to prevent infinite loops
       retry: 2,
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
+      retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 5000),
     },
     mutations: {
       retry: 0,

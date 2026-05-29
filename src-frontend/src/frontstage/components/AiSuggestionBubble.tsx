@@ -1,6 +1,6 @@
 /**
  * AiSuggestionBubble - AI 提示意见气泡组件
- * 
+ *
  * 设计理念：
  * - 如萤火虫般在右侧留白区域随机位置浮现
  * - 灰色小字（Olive Gray oklch(52% 0.01 85)）
@@ -107,7 +107,7 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
     const type = types[Math.floor(Math.random() * types.length)];
     const texts = SUGGESTION_TEMPLATES[type];
     const text = texts[Math.floor(Math.random() * texts.length)];
-    
+
     return {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       text,
@@ -128,7 +128,7 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
       // 立即显示第一个提示
       const first = generateSuggestion();
       setSuggestions([first]);
-      
+
       // 渐显动画
       requestAnimationFrame(() => {
         setVisibleIds(prev => new Set([...prev, first.id]));
@@ -141,7 +141,7 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
           next.delete(first.id);
           return next;
         });
-        
+
         // 完全移除
         setTimeout(() => {
           setSuggestions(prev => prev.filter(s => s.id !== first.id));
@@ -169,9 +169,9 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
       // 随机决定是否生成新提示（70% 概率）
       if (Math.random() > 0.3) {
         const newSuggestion = generateSuggestion();
-        
+
         setSuggestions(prev => [...prev, newSuggestion]);
-        
+
         // 渐显
         requestAnimationFrame(() => {
           setVisibleIds(prev => new Set([...prev, newSuggestion.id]));
@@ -184,7 +184,7 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
             next.delete(newSuggestion.id);
             return next;
           });
-          
+
           setTimeout(() => {
             setSuggestions(prev => prev.filter(s => s.id !== newSuggestion.id));
           }, 600);
@@ -204,7 +204,7 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
 
   return (
     <div className="ai-suggestion-container">
-      {suggestions.map((suggestion) => (
+      {suggestions.map(suggestion => (
         <div
           key={suggestion.id}
           className={`ai-suggestion-bubble ${visibleIds.has(suggestion.id) ? 'visible' : ''}`}
@@ -217,17 +217,13 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
           <div className="ai-suggestion-pulse">
             <span className="ai-suggestion-icon">{TYPE_ICONS[suggestion.type]}</span>
           </div>
-          
+
           {/* 内容区域 */}
           <div className="ai-suggestion-content">
-            <div className="ai-suggestion-type">
-              {TYPE_LABELS[suggestion.type]}
-            </div>
-            <div className="ai-suggestion-text">
-              {suggestion.text}
-            </div>
+            <div className="ai-suggestion-type">{TYPE_LABELS[suggestion.type]}</div>
+            <div className="ai-suggestion-text">{suggestion.text}</div>
           </div>
-          
+
           {/* 装饰性光晕 */}
           <div className="ai-suggestion-glow" />
         </div>
@@ -243,12 +239,14 @@ export const AiSuggestionBubble: React.FC<AiSuggestionBubbleProps> = ({
 export const FloatingAmbientHint: React.FC<{
   enabled?: boolean;
 }> = ({ enabled = true }) => {
-  const [hints, setHints] = useState<Array<{
-    id: string;
-    text: string;
-    y: number;
-    visible: boolean;
-  }>>([]);
+  const [hints, setHints] = useState<
+    Array<{
+      id: string;
+      text: string;
+      y: number;
+      visible: boolean;
+    }>
+  >([]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -272,22 +270,18 @@ export const FloatingAmbientHint: React.FC<{
         const id = Date.now().toString();
         const y = 20 + Math.random() * 60;
         const text = ambientTexts[Math.floor(Math.random() * ambientTexts.length)];
-        
+
         setHints(prev => [...prev, { id, text, y, visible: false }]);
-        
+
         // 渐显
         requestAnimationFrame(() => {
-          setHints(prev => prev.map(h => 
-            h.id === id ? { ...h, visible: true } : h
-          ));
+          setHints(prev => prev.map(h => (h.id === id ? { ...h, visible: true } : h)));
         });
 
         // 6秒后消失
         setTimeout(() => {
-          setHints(prev => prev.map(h => 
-            h.id === id ? { ...h, visible: false } : h
-          ));
-          
+          setHints(prev => prev.map(h => (h.id === id ? { ...h, visible: false } : h)));
+
           setTimeout(() => {
             setHints(prev => prev.filter(h => h.id !== id));
           }, 500);
@@ -296,7 +290,7 @@ export const FloatingAmbientHint: React.FC<{
         // 递归创建下一个
         createFloatingHint(8000 + Math.random() * 4000);
       }, delay);
-      
+
       timers.push(timer);
     };
 

@@ -1,6 +1,6 @@
 /**
  * ChapterOutline - 章节大纲侧边栏组件
- * 
+ *
  * 功能：
  * - 显示章节大纲结构
  * - 支持拖动排序
@@ -9,14 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { 
-  GripVertical, 
-  ChevronRight, 
-  ChevronDown, 
-  Plus,
-  Edit3,
-  Trash2
-} from 'lucide-react';
+import { GripVertical, ChevronRight, ChevronDown, Plus, Edit3, Trash2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface OutlineItem {
@@ -88,11 +81,11 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
 
     const draggedIndex = items.findIndex(item => item.id === draggedId);
     const targetIndex = items.findIndex(item => item.id === targetId);
-    
+
     const newItems = [...items];
     const [removed] = newItems.splice(draggedIndex, 1);
     newItems.splice(targetIndex, 0, removed);
-    
+
     onReorder(newItems);
     setDraggedId(null);
     setDragOverId(null);
@@ -129,7 +122,9 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
   });
 
   return (
-    <div className={cn('chapter-outline flex flex-col h-full bg-[var(--parchment-dark)]', className)}>
+    <div
+      className={cn('chapter-outline flex flex-col h-full bg-[var(--parchment-dark)]', className)}
+    >
       {/* 头部 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--warm-sand)]">
         <h3 className="text-sm font-medium text-[var(--charcoal)]">章节大纲</h3>
@@ -159,9 +154,9 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
             <div
               key={item.id}
               draggable
-              onDragStart={(e) => handleDragStart(e, item.id)}
-              onDragOver={(e) => handleDragOver(e, item.id)}
-              onDrop={(e) => handleDrop(e, item.id)}
+              onDragStart={e => handleDragStart(e, item.id)}
+              onDragOver={e => handleDragOver(e, item.id)}
+              onDrop={e => handleDrop(e, item.id)}
               className={cn(
                 'group relative flex items-center py-2 px-3 mx-2 rounded-lg cursor-pointer transition-colors duration-200',
                 'hover:bg-[var(--warm-sand)]',
@@ -176,7 +171,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
               {/* 拖动手柄 */}
               <div
                 className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing"
-                onClick={(e) => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
               >
                 <GripVertical className="w-4 h-4 text-[var(--stone-gray)]" />
               </div>
@@ -184,7 +179,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
               {/* 展开/折叠按钮 */}
               {item.content && (
                 <button
-                  onClick={(e) => {
+                  onClick={e => {
                     e.stopPropagation();
                     toggleExpand(item.id);
                   }}
@@ -204,25 +199,27 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
                   <input
                     type="text"
                     value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
+                    onChange={e => setEditValue(e.target.value)}
                     onBlur={handleEditSave}
                     onKeyDown={handleKeyDown}
                     autoFocus
                     className="w-full px-2 py-1 text-sm bg-white border border-[var(--terracotta)] rounded focus:outline-none"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
                   />
                 ) : (
                   <>
-                    <p className={cn(
-                      'text-sm truncate',
-                      selectedId === item.id ? 'text-[var(--terracotta)] font-medium' : 'text-[var(--charcoal)]'
-                    )}>
+                    <p
+                      className={cn(
+                        'text-sm truncate',
+                        selectedId === item.id
+                          ? 'text-[var(--terracotta)] font-medium'
+                          : 'text-[var(--charcoal)]'
+                      )}
+                    >
                       {item.title || '未命名章节'}
                     </p>
                     {item.wordCount !== undefined && (
-                      <p className="text-xs text-[var(--stone-gray)]">
-                        {item.wordCount} 字
-                      </p>
+                      <p className="text-xs text-[var(--stone-gray)]">{item.wordCount} 字</p>
                     )}
                   </>
                 )}
@@ -231,7 +228,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
               {/* 操作按钮 */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  onClick={(e) => {
+                  onClick={e => {
                     e.stopPropagation();
                     handleEditStart(item);
                   }}
@@ -241,7 +238,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
                   <Edit3 className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={(e) => {
+                  onClick={e => {
                     e.stopPropagation();
                     onDelete(item.id);
                   }}
@@ -260,9 +257,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
       {items.length > 0 && (
         <div className="px-4 py-3 border-t border-[var(--warm-sand)] text-xs text-[var(--stone-gray)]">
           <p>共 {items.length} 个章节</p>
-          <p>
-            总计 {items.reduce((sum, item) => sum + (item.wordCount || 0), 0)} 字
-          </p>
+          <p>总计 {items.reduce((sum, item) => sum + (item.wordCount || 0), 0)} 字</p>
         </div>
       )}
     </div>

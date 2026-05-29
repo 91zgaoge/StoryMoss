@@ -67,7 +67,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
       setRuns(data);
       // 如果有 sessionId 且存在对应 run，自动选中
       if (sessionId) {
-        const matched = data.find((r) => r.session_id === sessionId);
+        const matched = data.find(r => r.session_id === sessionId);
         if (matched) setSelectedRun(matched);
       } else if (data.length > 0 && !selectedRun) {
         setSelectedRun(data[0]);
@@ -89,7 +89,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     if (selectedRun.status === 'running' || selectedRun.status === 'pending') {
       const interval = setInterval(() => {
         getGenesisRun(selectedRun.id)
-          .then((run) => {
+          .then(run => {
             if (run) setSelectedRun(run);
           })
           .catch(() => {});
@@ -123,13 +123,20 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     } catch {
       return GENESIS_STEP_NAMES.slice(0, run.total_steps).map((name, i) => ({
         name,
-        status: i < run.current_step_number ? 'completed' : i === run.current_step_number ? (run.status === 'running' ? 'running' : 'pending') : 'pending',
+        status:
+          i < run.current_step_number
+            ? 'completed'
+            : i === run.current_step_number
+              ? run.status === 'running'
+                ? 'running'
+                : 'pending'
+              : 'pending',
       }));
     }
   };
 
   const toggleStep = (idx: number) => {
-    setExpandedSteps((prev) => {
+    setExpandedSteps(prev => {
       const next = new Set(prev);
       if (next.has(idx)) next.delete(idx);
       else next.add(idx);
@@ -192,7 +199,9 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
   const isRunning = selectedRun?.status === 'running' || selectedRun?.status === 'pending';
 
   return (
-    <div className={cn('flex flex-col h-full bg-[#1a1a2e]', embedded ? '' : 'border-l border-white/5')}>
+    <div
+      className={cn('flex flex-col h-full bg-[#1a1a2e]', embedded ? '' : 'border-l border-white/5')}
+    >
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
@@ -223,14 +232,14 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
         <div className="px-4 py-2 border-b border-white/5">
           <select
             value={selectedRun?.id || ''}
-            onChange={(e) => {
-              const run = runs.find((r) => r.id === e.target.value);
+            onChange={e => {
+              const run = runs.find(r => r.id === e.target.value);
               setSelectedRun(run || null);
               setExpandedSteps(new Set());
             }}
             className="w-full px-2 py-1.5 text-xs bg-cinema-800 border border-cinema-700 rounded-lg text-white/80 focus:border-cinema-gold focus:outline-none"
           >
-            {runs.map((run) => (
+            {runs.map(run => (
               <option key={run.id} value={run.id}>
                 {run.premise.slice(0, 30)}... ({run.status})
               </option>
@@ -244,7 +253,8 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
         <div className="px-4 py-2 border-b border-white/5">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs text-white/50">
-              {selectedRun.premise.slice(0, 40)}{selectedRun.premise.length > 40 ? '...' : ''}
+              {selectedRun.premise.slice(0, 40)}
+              {selectedRun.premise.length > 40 ? '...' : ''}
             </span>
             <span
               className={cn(
@@ -252,10 +262,10 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
                 selectedRun.status === 'completed'
                   ? 'bg-green-400/10 text-green-400'
                   : selectedRun.status === 'failed'
-                  ? 'bg-red-400/10 text-red-400'
-                  : selectedRun.status === 'running'
-                  ? 'bg-cinema-gold/10 text-cinema-gold'
-                  : 'bg-white/5 text-white/40'
+                    ? 'bg-red-400/10 text-red-400'
+                    : selectedRun.status === 'running'
+                      ? 'bg-cinema-gold/10 text-cinema-gold'
+                      : 'bg-white/5 text-white/40'
               )}
             >
               {selectedRun.status}
@@ -265,7 +275,11 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
             <div
               className={cn(
                 'h-full rounded-full transition-all duration-500',
-                isRunning ? 'bg-cinema-gold' : progressPercent === 100 ? 'bg-green-400' : 'bg-cinema-gold/50'
+                isRunning
+                  ? 'bg-cinema-gold'
+                  : progressPercent === 100
+                    ? 'bg-green-400'
+                    : 'bg-cinema-gold/50'
               )}
               style={{ width: `${progressPercent}%` }}
             />
@@ -275,9 +289,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
               {selectedRun.current_step_number} / {selectedRun.total_steps} 步
             </span>
             {progress && (
-              <span className="text-[10px] text-cinema-gold/60">
-                {progress.message}
-              </span>
+              <span className="text-[10px] text-cinema-gold/60">{progress.message}</span>
             )}
           </div>
         </div>

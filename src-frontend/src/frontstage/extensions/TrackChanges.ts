@@ -8,7 +8,11 @@ declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     trackChange: {
       setTrackInsert: (attributes: { changeId: string; authorId?: string }) => ReturnType;
-      setTrackDelete: (attributes: { changeId: string; authorId?: string; originalText?: string }) => ReturnType;
+      setTrackDelete: (attributes: {
+        changeId: string;
+        authorId?: string;
+        originalText?: string;
+      }) => ReturnType;
       unsetTrackChange: () => ReturnType;
     };
   }
@@ -27,15 +31,15 @@ export const TrackInsertMark = Mark.create<TrackChangeOptions>({
     return {
       changeId: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-change-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-change-id'),
+        renderHTML: attributes => ({
           'data-change-id': attributes.changeId,
         }),
       },
       authorId: {
         default: 'user',
-        parseHTML: (element) => element.getAttribute('data-author-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-author-id'),
+        renderHTML: attributes => ({
           'data-author-id': attributes.authorId,
         }),
       },
@@ -55,7 +59,8 @@ export const TrackInsertMark = Mark.create<TrackChangeOptions>({
       'span',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         'data-track': 'insert',
-        style: 'background-color: rgba(59, 130, 246, 0.18); border-bottom: 2px solid rgba(59, 130, 246, 0.7); cursor: pointer; border-radius: 2px;',
+        style:
+          'background-color: rgba(59, 130, 246, 0.18); border-bottom: 2px solid rgba(59, 130, 246, 0.7); cursor: pointer; border-radius: 2px;',
       }),
       0,
     ];
@@ -64,7 +69,7 @@ export const TrackInsertMark = Mark.create<TrackChangeOptions>({
   addCommands() {
     return {
       setTrackInsert:
-        (attributes) =>
+        attributes =>
         ({ commands }) => {
           return commands.setMark(this.name, attributes);
         },
@@ -90,22 +95,22 @@ export const TrackDeleteMark = Mark.create<TrackChangeOptions>({
     return {
       changeId: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-change-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-change-id'),
+        renderHTML: attributes => ({
           'data-change-id': attributes.changeId,
         }),
       },
       authorId: {
         default: 'user',
-        parseHTML: (element) => element.getAttribute('data-author-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-author-id'),
+        renderHTML: attributes => ({
           'data-author-id': attributes.authorId,
         }),
       },
       originalText: {
         default: '',
-        parseHTML: (element) => element.getAttribute('data-original-text'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-original-text'),
+        renderHTML: attributes => ({
           'data-original-text': attributes.originalText,
         }),
       },
@@ -125,7 +130,8 @@ export const TrackDeleteMark = Mark.create<TrackChangeOptions>({
       'span',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         'data-track': 'delete',
-        style: 'background-color: rgba(239, 68, 68, 0.12); text-decoration: line-through; color: rgba(239, 68, 68, 0.8); cursor: pointer; border-radius: 2px;',
+        style:
+          'background-color: rgba(239, 68, 68, 0.12); text-decoration: line-through; color: rgba(239, 68, 68, 0.8); cursor: pointer; border-radius: 2px;',
       }),
       0,
     ];
@@ -134,7 +140,7 @@ export const TrackDeleteMark = Mark.create<TrackChangeOptions>({
   addCommands() {
     return {
       setTrackDelete:
-        (attributes) =>
+        attributes =>
         ({ commands }) => {
           return commands.setMark(this.name, attributes);
         },

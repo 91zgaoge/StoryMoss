@@ -76,23 +76,26 @@ function assertUnreachable(x: never): never {
 
 const KEYS = {
   stories: ['stories'],
-  characters: (storyId?: string) => storyId ? ['characters', storyId] : ['characters'],
-  scenes: (storyId?: string) => storyId ? ['scenes', storyId] : ['scenes'],
+  characters: (storyId?: string) => (storyId ? ['characters', storyId] : ['characters']),
+  scenes: (storyId?: string) => (storyId ? ['scenes', storyId] : ['scenes']),
   sceneDetail: (sceneId?: string) => ['scenes', 'detail', sceneId],
-  chapters: (storyId?: string) => storyId ? ['chapters', storyId] : ['chapters'],
+  chapters: (storyId?: string) => (storyId ? ['chapters', storyId] : ['chapters']),
   chapterDetail: (chapterId?: string) => ['chapters', 'detail', chapterId],
-  worldBuilding: (storyId?: string) => storyId ? ['world_building', storyId] : ['world_building'],
-  foreshadowings: (storyId?: string) => storyId ? ['foreshadowings', storyId] : ['foreshadowings'],
-  storyOutlines: (storyId?: string) => storyId ? ['story-outline', storyId] : ['story-outline'],
-  knowledgeGraph: (storyId?: string) => storyId ? ['knowledge-graph', storyId] : ['knowledge-graph'],
-  characterRelationships: (storyId?: string) => storyId ? ['character-relationships', storyId] : ['character-relationships'],
-  payoffLedger: (storyId?: string) => storyId ? ['payoff-ledger', storyId] : ['payoff-ledger'],
-  storyTimeline: (storyId?: string) => storyId ? ['story-timeline', storyId] : ['story-timeline'],
+  worldBuilding: (storyId?: string) => (storyId ? ['world_building', storyId] : ['world_building']),
+  foreshadowings: (storyId?: string) =>
+    storyId ? ['foreshadowings', storyId] : ['foreshadowings'],
+  storyOutlines: (storyId?: string) => (storyId ? ['story-outline', storyId] : ['story-outline']),
+  knowledgeGraph: (storyId?: string) =>
+    storyId ? ['knowledge-graph', storyId] : ['knowledge-graph'],
+  characterRelationships: (storyId?: string) =>
+    storyId ? ['character-relationships', storyId] : ['character-relationships'],
+  payoffLedger: (storyId?: string) => (storyId ? ['payoff-ledger', storyId] : ['payoff-ledger']),
+  storyTimeline: (storyId?: string) => (storyId ? ['story-timeline', storyId] : ['story-timeline']),
   tasks: ['tasks'],
   sceneAnnotations: (sceneId?: string) => ['scene-annotations', sceneId],
   storyUnresolvedAnnotations: (storyId?: string) => ['story-unresolved-annotations', storyId],
   textAnnotations: (scope?: string, id?: string) => ['text-annotations', scope, id],
-  writingStyle: (storyId?: string) => storyId ? ['writing_style', storyId] : ['writing_style'],
+  writingStyle: (storyId?: string) => (storyId ? ['writing_style', storyId] : ['writing_style']),
 };
 
 // ==================== Hook ====================
@@ -106,7 +109,7 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
     let unlisten: UnlistenFn | undefined;
 
     const setup = async () => {
-      unlisten = await listen<SyncEvent>('sync-event', (event) => {
+      unlisten = await listen<SyncEvent>('sync-event', event => {
         const { type, payload } = event.payload;
 
         switch (type) {
@@ -141,7 +144,9 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(payload.story_id) });
             queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(payload.story_id) });
             queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.story_id) });
-            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.story_id) });
+            queryClient.invalidateQueries({
+              queryKey: KEYS.characterRelationships(payload.story_id),
+            });
             optionsRef.current.onStorySelected?.(payload.story_id, payload.title ?? undefined);
             break;
           }
@@ -149,7 +154,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           // === Character ===
           case 'characterCreated': {
             queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
-            optionsRef.current.onCharacterCreated?.(payload.story_id, payload.character_id, payload.name);
+            optionsRef.current.onCharacterCreated?.(
+              payload.story_id,
+              payload.character_id,
+              payload.name
+            );
             break;
           }
           case 'characterUpdated': {
@@ -158,7 +167,10 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             } else {
               queryClient.invalidateQueries({ queryKey: KEYS.characters() });
             }
-            optionsRef.current.onCharacterUpdated?.(payload.character_id, payload.name ?? undefined);
+            optionsRef.current.onCharacterUpdated?.(
+              payload.character_id,
+              payload.name ?? undefined
+            );
             break;
           }
           case 'characterDeleted': {
@@ -176,7 +188,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
             // v5.6.1 修复: Scene 创建会关联/创建 Chapter，同步刷新 chapters 缓存
             queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
-            optionsRef.current.onSceneCreated?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
+            optionsRef.current.onSceneCreated?.(
+              payload.story_id,
+              payload.scene_id,
+              payload.title ?? undefined
+            );
             break;
           }
           case 'sceneUpdated': {
@@ -186,7 +202,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({ queryKey: KEYS.sceneDetail(payload.scene_id) });
             // P1-15 修复: 失效 useSceneWithChapter 的缓存
             queryClient.invalidateQueries({ queryKey: ['scenes', 'chapter', payload.scene_id] });
-            optionsRef.current.onSceneUpdated?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
+            optionsRef.current.onSceneUpdated?.(
+              payload.story_id,
+              payload.scene_id,
+              payload.title ?? undefined
+            );
             break;
           }
           case 'sceneDeleted': {
@@ -200,14 +220,22 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             break;
           }
           case 'sceneSelected': {
-            optionsRef.current.onSceneSelected?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
+            optionsRef.current.onSceneSelected?.(
+              payload.story_id,
+              payload.scene_id,
+              payload.title ?? undefined
+            );
             break;
           }
 
           // === Chapter ===
           case 'chapterCreated': {
             queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
-            optionsRef.current.onChapterCreated?.(payload.story_id, payload.chapter_id, payload.title ?? undefined);
+            optionsRef.current.onChapterCreated?.(
+              payload.story_id,
+              payload.chapter_id,
+              payload.title ?? undefined
+            );
             break;
           }
           case 'chapterUpdated': {
@@ -236,12 +264,18 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           }
           case 'worldBuildingCreated': {
             queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
-            optionsRef.current.onWorldBuildingCreated?.(payload.story_id, payload.world_building_id);
+            optionsRef.current.onWorldBuildingCreated?.(
+              payload.story_id,
+              payload.world_building_id
+            );
             break;
           }
           case 'worldBuildingDeleted': {
             queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
-            optionsRef.current.onWorldBuildingDeleted?.(payload.story_id, payload.world_building_id);
+            optionsRef.current.onWorldBuildingDeleted?.(
+              payload.story_id,
+              payload.world_building_id
+            );
             break;
           }
 
@@ -272,22 +306,40 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           // === Annotation ===
           case 'annotationCreated': {
             queryClient.invalidateQueries({ queryKey: KEYS.sceneAnnotations(payload.scene_id) });
-            queryClient.invalidateQueries({ queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id) });
-            queryClient.invalidateQueries({ queryKey: KEYS.textAnnotations('scene', payload.scene_id) });
-            optionsRef.current.onAnnotationCreated?.(payload.story_id, payload.annotation_id, payload.scene_id);
+            queryClient.invalidateQueries({
+              queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id),
+            });
+            queryClient.invalidateQueries({
+              queryKey: KEYS.textAnnotations('scene', payload.scene_id),
+            });
+            optionsRef.current.onAnnotationCreated?.(
+              payload.story_id,
+              payload.annotation_id,
+              payload.scene_id
+            );
             break;
           }
           case 'annotationResolved': {
             queryClient.invalidateQueries({ queryKey: KEYS.sceneAnnotations(payload.scene_id) });
-            queryClient.invalidateQueries({ queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id) });
-            queryClient.invalidateQueries({ queryKey: KEYS.textAnnotations('scene', payload.scene_id) });
-            optionsRef.current.onAnnotationResolved?.(payload.story_id, payload.annotation_id, payload.scene_id);
+            queryClient.invalidateQueries({
+              queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id),
+            });
+            queryClient.invalidateQueries({
+              queryKey: KEYS.textAnnotations('scene', payload.scene_id),
+            });
+            optionsRef.current.onAnnotationResolved?.(
+              payload.story_id,
+              payload.annotation_id,
+              payload.scene_id
+            );
             break;
           }
 
           // === v5.6.4 修复: 补全独立同步事件响应 ===
           case 'characterRelationshipsUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.story_id) });
+            queryClient.invalidateQueries({
+              queryKey: KEYS.characterRelationships(payload.story_id),
+            });
             break;
           }
           case 'payoffLedgerUpdated': {

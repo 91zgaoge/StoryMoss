@@ -41,7 +41,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '连续的环境描写让节奏变慢了，或许可以加入一段对话或动作来推进情节。',
     ],
     condition: p => p.pacing.hasMonotonousSequence,
-    score: p => p.pacing.hasMonotonousSequence ? 0.9 : 0,
+    score: p => (p.pacing.hasMonotonousSequence ? 0.9 : 0),
   },
   {
     category: 'pacing',
@@ -53,7 +53,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '大段描写正在铺陈氛围，注意不要让读者失去耐心。',
     ],
     condition: p => p.pacing.currentPacing === 'slow' && p.paragraphs.length >= 3,
-    score: p => p.pacing.currentPacing === 'slow' ? 0.6 : 0,
+    score: p => (p.pacing.currentPacing === 'slow' ? 0.6 : 0),
   },
   {
     category: 'pacing',
@@ -65,7 +65,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '情节推进很快，可以考虑在某处稍作停顿，加深情感张力。',
     ],
     condition: p => p.pacing.currentPacing === 'fast' && p.paragraphs.length >= 3,
-    score: p => p.pacing.currentPacing === 'fast' ? 0.5 : 0,
+    score: p => (p.pacing.currentPacing === 'fast' ? 0.5 : 0),
   },
 
   // === 对话类 ===
@@ -146,7 +146,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '用词有重复倾向，可以尝试换一种说法，增加语言的丰富性。',
     ],
     condition: p => p.vocabulary.hasRepetition,
-    score: p => p.vocabulary.hasRepetition ? 0.85 : 0,
+    score: p => (p.vocabulary.hasRepetition ? 0.85 : 0),
   },
   {
     category: 'vocabulary',
@@ -173,7 +173,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '注意句式的多样性，适当使用倒装、省略或排比等手法。',
     ],
     condition: p => p.sentencePattern.isMonotonous,
-    score: p => p.sentencePattern.isMonotonous ? 0.75 : 0,
+    score: p => (p.sentencePattern.isMonotonous ? 0.75 : 0),
   },
   {
     category: 'sentence',
@@ -226,7 +226,7 @@ const TEMPLATES: SuggestionTemplate[] = [
       '情节正在推进，考虑一下下一步的转折是否合理且有张力。',
     ],
     condition: p => p.totalChars > 300 && p.pacing.currentPacing === 'mixed',
-    score: p => p.totalChars > 300 ? 0.3 : 0,
+    score: p => (p.totalChars > 300 ? 0.3 : 0),
   },
 
   // === 结构类 ===
@@ -253,10 +253,7 @@ const TEMPLATES: SuggestionTemplate[] = [
     priority: 'low',
     presentation: 'ambient',
     title: '段落结构',
-    messages: [
-      '段落长度变化丰富，结构有层次感。',
-      '段落节奏不错，长短交错自然。',
-    ],
+    messages: ['段落长度变化丰富，结构有层次感。', '段落节奏不错，长短交错自然。'],
     condition: p => p.pacing.paragraphVariation > 0.5 && p.paragraphs.length >= 5,
     score: p => p.pacing.paragraphVariation * 0.3,
   },
@@ -286,7 +283,10 @@ export function generateSuggestions(perception: PerceptionResult): DecisionResul
       finalMessage = finalMessage.replace('{word}', perception.vocabulary.repeatedWords[0].word);
     }
     if (finalMessage.includes('{starter}') && perception.sentencePattern.topStarters.length > 0) {
-      finalMessage = finalMessage.replace('{starter}', perception.sentencePattern.topStarters[0].word);
+      finalMessage = finalMessage.replace(
+        '{starter}',
+        perception.sentencePattern.topStarters[0].word
+      );
     }
 
     // 默认指令映射
@@ -312,7 +312,10 @@ export function generateSuggestions(perception: PerceptionResult): DecisionResul
       triggerReason: `score=${score.toFixed(2)}, condition matched`,
       createdAt: Date.now(),
       userFeedback: null,
-      instruction: (template as any).instruction || defaultInstructions[template.category] || '润色这段文字，提升写作质量。',
+      instruction:
+        (template as any).instruction ||
+        defaultInstructions[template.category] ||
+        '润色这段文字，提升写作质量。',
     });
   }
 
@@ -322,7 +325,8 @@ export function generateSuggestions(perception: PerceptionResult): DecisionResul
 
   // 确定是否处于高创作负荷状态
   // 如果用户正在快速写作（字数多、段落多、节奏快），减少打扰
-  const isHighLoad = perception.totalChars > 500 &&
+  const isHighLoad =
+    perception.totalChars > 500 &&
     perception.paragraphs.length > 8 &&
     perception.pacing.currentPacing === 'fast';
 

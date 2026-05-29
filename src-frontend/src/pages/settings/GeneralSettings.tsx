@@ -21,6 +21,7 @@ import {
   type ColorThemeId,
 } from '@/frontstage/config/colorThemes';
 import { cn } from '@/utils/cn';
+import { normalizeFloat, formatDisplayFloat } from '@/utils/numberFormat';
 
 // 颜色主题选择器组件
 function ColorThemeSelector() {
@@ -36,7 +37,7 @@ function ColorThemeSelector() {
     <div className="space-y-3">
       <label className="block text-sm text-gray-400">颜色主题</label>
       <div className="flex flex-wrap gap-3">
-        {colorThemeList.map((theme) => (
+        {colorThemeList.map(theme => (
           <button
             key={theme.id}
             onClick={() => handleSelect(theme.id)}
@@ -77,15 +78,9 @@ export function GeneralSettings() {
 
   const { data: settings } = useSettings();
   const saveSettingsMutation = useSaveSettings();
-  const [concurrency, setConcurrency] = useState(
-    settings?.book_deconstruction_concurrency ?? 3
-  );
-  const [rewriteThreshold, setRewriteThreshold] = useState(
-    settings?.rewrite_threshold ?? 0.75
-  );
-  const [maxFeedbackLoops, setMaxFeedbackLoops] = useState(
-    settings?.max_feedback_loops ?? 2
-  );
+  const [concurrency, setConcurrency] = useState(settings?.book_deconstruction_concurrency ?? 3);
+  const [rewriteThreshold, setRewriteThreshold] = useState(settings?.rewrite_threshold ?? 0.75);
+  const [maxFeedbackLoops, setMaxFeedbackLoops] = useState(settings?.max_feedback_loops ?? 2);
   const [writingStrategy, setWritingStrategy] = useState(
     settings?.writing_strategy ?? {
       run_mode: 'fast' as const,
@@ -131,12 +126,13 @@ export function GeneralSettings() {
   };
 
   const handleRewriteThresholdChange = (value: number) => {
-    setRewriteThreshold(value);
+    const normalized = normalizeFloat(value, 2);
+    setRewriteThreshold(normalized);
     const timer = setTimeout(() => {
       if (settings) {
         saveSettingsMutation.mutate({
           ...settings,
-          rewrite_threshold: value,
+          rewrite_threshold: normalized,
         });
       }
     }, 300);
@@ -156,9 +152,7 @@ export function GeneralSettings() {
     return () => clearTimeout(timer);
   };
 
-  const handleWritingStrategyChange = (
-    partial: Partial<typeof writingStrategy>
-  ) => {
+  const handleWritingStrategyChange = (partial: Partial<typeof writingStrategy>) => {
     const next = { ...writingStrategy, ...partial };
     setWritingStrategy(next);
     const timer = setTimeout(() => {
@@ -186,27 +180,19 @@ export function GeneralSettings() {
                 <h3 className="text-lg font-medium text-white">StoryForge (草苔)</h3>
                 <p className="text-gray-400">当前版本: v{currentVersion}</p>
                 {hasUpdate && !isInstalling && (
-                  <p className="text-terracotta text-sm">
-                    新版本可用: v{latestVersion}
-                  </p>
+                  <p className="text-terracotta text-sm">新版本可用: v{latestVersion}</p>
                 )}
                 {isInstalling && downloadProgress && (
                   <p className="text-cinema-gold text-sm">
                     正在下载 v{latestVersion}… {downloadProgress.percentage.toFixed(0)}%
                   </p>
                 )}
-                {error && (
-                  <p className="text-red-400 text-sm">{error}</p>
-                )}
+                {error && <p className="text-red-400 text-sm">{error}</p>}
               </div>
             </div>
             <div className="flex gap-2">
               {hasUpdate ? (
-                <Button
-                  variant="primary"
-                  onClick={installUpdate}
-                  disabled={isInstalling}
-                >
+                <Button variant="primary" onClick={installUpdate} disabled={isInstalling}>
                   {isInstalling ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -220,11 +206,7 @@ export function GeneralSettings() {
                   )}
                 </Button>
               ) : (
-                <Button
-                  variant="secondary"
-                  onClick={checkUpdate}
-                  disabled={isChecking}
-                >
+                <Button variant="secondary" onClick={checkUpdate} disabled={isChecking}>
                   {isChecking ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -253,7 +235,10 @@ export function GeneralSettings() {
               <div className="flex justify-between text-xs text-gray-500">
                 <span>下载更新包</span>
                 {downloadProgress.total && downloadProgress.total > 0 && (
-                  <span>{formatBytes(downloadProgress.downloaded)} / {formatBytes(downloadProgress.total)}</span>
+                  <span>
+                    {formatBytes(downloadProgress.downloaded)} /{' '}
+                    {formatBytes(downloadProgress.total)}
+                  </span>
                 )}
               </div>
             </div>
@@ -282,9 +267,7 @@ export function GeneralSettings() {
                 <Zap className="w-4 h-4 text-cinema-gold" />
                 <span className="text-sm text-white">LLM 并发数</span>
               </div>
-              <span className="text-lg font-bold text-cinema-gold font-mono">
-                {concurrency}
-              </span>
+              <span className="text-lg font-bold text-cinema-gold font-mono">{concurrency}</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -294,7 +277,7 @@ export function GeneralSettings() {
                 min={1}
                 max={50}
                 value={concurrency}
-                onChange={(e) => handleConcurrencyChange(Number(e.target.value))}
+                onChange={e => handleConcurrencyChange(Number(e.target.value))}
                 className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
               />
               <span className="text-xs text-gray-500 w-8">50</span>
@@ -308,8 +291,7 @@ export function GeneralSettings() {
             <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
               <p className="text-xs text-gray-400">
                 <span className="text-cinema-gold font-medium">提示：</span>
-                远程 API 建议 1~5，本地模型（Ollama/vLLM）建议 10~50。
-                当前设置会在下次拆书时生效。
+                远程 API 建议 1~5，本地模型（Ollama/vLLM）建议 10~50。 当前设置会在下次拆书时生效。
               </p>
             </div>
           </div>
@@ -325,9 +307,7 @@ export function GeneralSettings() {
             </div>
             <div>
               <h3 className="text-lg font-medium text-white">Agent 质检配置</h3>
-              <p className="text-sm text-gray-500">
-                调整 Writer → Inspector 闭环优化的质检严格度
-              </p>
+              <p className="text-sm text-gray-500">调整 Writer → Inspector 闭环优化的质检严格度</p>
             </div>
           </div>
 
@@ -340,7 +320,7 @@ export function GeneralSettings() {
                   <span className="text-sm text-white">质检阈值</span>
                 </div>
                 <span className="text-lg font-bold text-cinema-gold font-mono">
-                  {rewriteThreshold.toFixed(2)}
+                  {formatDisplayFloat(rewriteThreshold, 2)}
                 </span>
               </div>
 
@@ -351,10 +331,8 @@ export function GeneralSettings() {
                   min={0.6}
                   max={0.9}
                   step={0.05}
-                  value={rewriteThreshold}
-                  onChange={(e) =>
-                    handleRewriteThresholdChange(Number(e.target.value))
-                  }
+                  value={normalizeFloat(rewriteThreshold, 2)}
+                  onChange={e => handleRewriteThresholdChange(Number(e.target.value))}
                   className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
                 />
                 <span className="text-xs text-gray-500 w-8">0.9</span>
@@ -393,9 +371,7 @@ export function GeneralSettings() {
                   max={5}
                   step={1}
                   value={maxFeedbackLoops}
-                  onChange={(e) =>
-                    handleMaxFeedbackLoopsChange(Number(e.target.value))
-                  }
+                  onChange={e => handleMaxFeedbackLoopsChange(Number(e.target.value))}
                   className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
                 />
                 <span className="text-xs text-gray-500 w-8">5</span>
@@ -436,9 +412,7 @@ export function GeneralSettings() {
               <label className="block text-sm text-gray-400 mb-2">运行模式</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() =>
-                    handleWritingStrategyChange({ run_mode: 'fast' })
-                  }
+                  onClick={() => handleWritingStrategyChange({ run_mode: 'fast' })}
                   className={`p-3 rounded-lg text-left transition-colors border ${
                     writingStrategy.run_mode === 'fast'
                       ? 'bg-cinema-gold/20 border-cinema-gold/50'
@@ -446,14 +420,10 @@ export function GeneralSettings() {
                   }`}
                 >
                   <div className="font-medium text-white">快速</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    高 temperature，注重效率
-                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">高 temperature，注重效率</div>
                 </button>
                 <button
-                  onClick={() =>
-                    handleWritingStrategyChange({ run_mode: 'polish' })
-                  }
+                  onClick={() => handleWritingStrategyChange({ run_mode: 'polish' })}
                   className={`p-3 rounded-lg text-left transition-colors border ${
                     writingStrategy.run_mode === 'polish'
                       ? 'bg-cinema-gold/20 border-cinema-gold/50'
@@ -461,9 +431,7 @@ export function GeneralSettings() {
                   }`}
                 >
                   <div className="font-medium text-white">精修</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    低 temperature，注重质量
-                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">低 temperature，注重质量</div>
                 </button>
               </div>
             </div>
@@ -487,7 +455,7 @@ export function GeneralSettings() {
                   max={100}
                   step={1}
                   value={writingStrategy.conflict_level}
-                  onChange={(e) =>
+                  onChange={e =>
                     handleWritingStrategyChange({
                       conflict_level: Number(e.target.value),
                     })
@@ -518,7 +486,7 @@ export function GeneralSettings() {
                   { id: 'slow', label: '慢', desc: '细腻描写' },
                   { id: 'balanced', label: '均衡', desc: '动作描写交替' },
                   { id: 'fast', label: '快', desc: '快速推进' },
-                ].map((opt) => (
+                ].map(opt => (
                   <button
                     key={opt.id}
                     onClick={() =>
@@ -547,7 +515,7 @@ export function GeneralSettings() {
                   { id: 'low', label: '低', desc: '严格遵循设定' },
                   { id: 'medium', label: '中', desc: '核心约束+发挥' },
                   { id: 'high', label: '高', desc: '允许创新转折' },
-                ].map((opt) => (
+                ].map(opt => (
                   <button
                     key={opt.id}
                     onClick={() =>
@@ -580,9 +548,7 @@ export function GeneralSettings() {
             </div>
             <div>
               <h3 className="text-lg font-medium text-white">编辑器设置</h3>
-              <p className="text-sm text-gray-500">
-                幕前写作界面的字体、风格等配置
-              </p>
+              <p className="text-sm text-gray-500">幕前写作界面的字体、风格等配置</p>
             </div>
           </div>
           <EditorSettings />
@@ -598,9 +564,7 @@ export function GeneralSettings() {
             </div>
             <div>
               <h3 className="text-lg font-medium text-white">颜色主题</h3>
-              <p className="text-sm text-gray-500">
-                幕前写作界面的冷暖撞色色调
-              </p>
+              <p className="text-sm text-gray-500">幕前写作界面的冷暖撞色色调</p>
             </div>
           </div>
           <ColorThemeSelector />

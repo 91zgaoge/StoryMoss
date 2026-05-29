@@ -26,15 +26,15 @@ export const TextAnnotationMark = Mark.create<TextAnnotationMarkOptions>({
     return {
       type: {
         default: 'note',
-        parseHTML: (element) => element.getAttribute('data-annotation-type'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-annotation-type'),
+        renderHTML: attributes => ({
           'data-annotation-type': attributes.type,
         }),
       },
       annotationId: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-annotation-id'),
-        renderHTML: (attributes) => ({
+        parseHTML: element => element.getAttribute('data-annotation-id'),
+        renderHTML: attributes => ({
           'data-annotation-id': attributes.annotationId,
         }),
       },
@@ -76,7 +76,7 @@ export const TextAnnotationMark = Mark.create<TextAnnotationMarkOptions>({
   addCommands() {
     return {
       setTextAnnotation:
-        (attributes) =>
+        attributes =>
         ({ commands }) => {
           return commands.setMark(this.name, attributes);
         },

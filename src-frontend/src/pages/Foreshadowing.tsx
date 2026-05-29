@@ -51,10 +51,18 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
   abandoned: { label: '已放弃', color: 'text-gray-400', icon: XCircle },
 };
 
-const ledgerStatusConfig: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
+const ledgerStatusConfig: Record<
+  string,
+  { label: string; color: string; bg: string; icon: React.ElementType }
+> = {
   setup: { label: '已设置', color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Flag },
   hinted: { label: '已暗示', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: Eye },
-  pending_payoff: { label: '待回收', color: 'text-orange-400', bg: 'bg-orange-500/10', icon: Target },
+  pending_payoff: {
+    label: '待回收',
+    color: 'text-orange-400',
+    bg: 'bg-orange-500/10',
+    icon: Target,
+  },
   paid_off: { label: '已回收', color: 'text-green-400', bg: 'bg-green-500/10', icon: CheckCircle2 },
   failed: { label: '已失效', color: 'text-gray-400', bg: 'bg-gray-500/10', icon: XCircle },
   overdue: { label: '已逾期', color: 'text-red-400', bg: 'bg-red-500/10', icon: AlertTriangle },
@@ -115,20 +123,16 @@ function TimelineBar({
                     : 'bg-cinema-800'
                 )}
               />
-              {idx < steps.length - 1 && (
-                <div className="w-1 h-1.5 bg-cinema-800" />
-              )}
+              {idx < steps.length - 1 && <div className="w-1 h-1.5 bg-cinema-800" />}
             </div>
           );
         })}
       </div>
       <div className="flex items-center justify-between mt-1 text-[10px] text-gray-600">
-        {steps.map((step) => (
+        {steps.map(step => (
           <span key={step.key} className="flex-1 text-center">
             {step.label}
-            {step.scene != null && (
-              <span className="ml-0.5 text-gray-500">#{step.scene}</span>
-            )}
+            {step.scene != null && <span className="ml-0.5 text-gray-500">#{step.scene}</span>}
           </span>
         ))}
       </div>
@@ -182,12 +186,7 @@ function ForeshadowingRow({
   const isOverdue = ledgerItem?.current_status === 'overdue';
 
   return (
-    <div
-      className={cn(
-        'border-b border-cinema-800 last:border-b-0',
-        isOverdue && 'bg-red-500/5'
-      )}
-    >
+    <div className={cn('border-b border-cinema-800 last:border-b-0', isOverdue && 'bg-red-500/5')}>
       <div
         className={cn(
           'flex items-center gap-3 px-4 py-3 hover:bg-cinema-800/30 transition-colors cursor-pointer',
@@ -240,7 +239,7 @@ function ForeshadowingRow({
         </div>
 
         {item.status === 'setup' && (
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => handleStatusChange('payoff')}
               disabled={updateMutation.isPending}
@@ -304,7 +303,12 @@ function ForeshadowingRow({
                 {ledgerItem.scope_type && (
                   <div className="flex items-center gap-1">
                     <Eye className="w-3 h-3" />
-                    作用域: {ledgerItem.scope_type === 'story' ? '全故事' : ledgerItem.scope_type === 'arc' ? '故事弧' : '单场景'}
+                    作用域:{' '}
+                    {ledgerItem.scope_type === 'story'
+                      ? '全故事'
+                      : ledgerItem.scope_type === 'arc'
+                        ? '故事弧'
+                        : '单场景'}
                   </div>
                 )}
                 {ledgerItem.confidence != null && (
@@ -347,7 +351,13 @@ function RecommendationCard({
       <div className="flex items-center justify-between">
         <span className="text-sm text-white font-medium truncate">{rec.title}</span>
         <span className={cn('text-[10px] px-1.5 py-0.5 rounded border', urgencyColor)}>
-          {rec.urgency === 'critical' ? '紧急' : rec.urgency === 'high' ? '高' : rec.urgency === 'medium' ? '中' : '低'}
+          {rec.urgency === 'critical'
+            ? '紧急'
+            : rec.urgency === 'high'
+              ? '高'
+              : rec.urgency === 'medium'
+                ? '中'
+                : '低'}
         </span>
       </div>
       <div className="mt-1 text-xs text-gray-500">{rec.reason}</div>
@@ -365,7 +375,7 @@ function RecommendationCard({
 }
 
 export function Foreshadowing() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -394,7 +404,7 @@ export function Foreshadowing() {
   // 当前场景号 = 最大场景序号
   const currentSceneNumber = useMemo(() => {
     if (scenes.length === 0) return 0;
-    return Math.max(...scenes.map((s) => s.sequence_number));
+    return Math.max(...scenes.map(s => s.sequence_number));
   }, [scenes]);
 
   const { data: overdueItems = [] } = useDetectOverduePayoffs(
@@ -416,9 +426,9 @@ export function Foreshadowing() {
   }, [ledgerItems]);
 
   const grouped = {
-    setup: items.filter((i) => i.status === 'setup'),
-    payoff: items.filter((i) => i.status === 'payoff'),
-    abandoned: items.filter((i) => i.status === 'abandoned'),
+    setup: items.filter(i => i.status === 'setup'),
+    payoff: items.filter(i => i.status === 'payoff'),
+    abandoned: items.filter(i => i.status === 'abandoned'),
   };
 
   const handleCreate = async () => {
@@ -535,9 +545,7 @@ export function Foreshadowing() {
         <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
           <div className="flex items-center gap-2 text-red-400 mb-1">
             <AlertTriangle className="w-4 h-4" />
-            <span className="text-sm font-medium">
-              发现 {overdueItems.length} 个逾期伏笔
-            </span>
+            <span className="text-sm font-medium">发现 {overdueItems.length} 个逾期伏笔</span>
           </div>
           <p className="text-xs text-gray-500">
             当前场景 #{currentSceneNumber}，以下伏笔已超过目标回收窗口或设置超过 10 个场景未回收。
@@ -553,7 +561,7 @@ export function Foreshadowing() {
             <span className="text-sm font-medium">回收时机推荐</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {recommendations.slice(0, 4).map((rec) => (
+            {recommendations.slice(0, 4).map(rec => (
               <RecommendationCard key={rec.foreshadowing_id} rec={rec} />
             ))}
           </div>
@@ -569,14 +577,14 @@ export function Foreshadowing() {
               type="text"
               placeholder="伏笔内容"
               value={newItem.content}
-              onChange={(e) => setNewItem({ ...newItem, content: e.target.value })}
+              onChange={e => setNewItem({ ...newItem, content: e.target.value })}
               className="col-span-2 px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
             />
             <input
               type="text"
               placeholder="设置场景 ID (可选)"
               value={newItem.setup_scene_id}
-              onChange={(e) => setNewItem({ ...newItem, setup_scene_id: e.target.value })}
+              onChange={e => setNewItem({ ...newItem, setup_scene_id: e.target.value })}
               className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
             />
             <div className="flex items-center gap-2">
@@ -586,7 +594,7 @@ export function Foreshadowing() {
                 min={1}
                 max={10}
                 value={newItem.importance}
-                onChange={(e) => setNewItem({ ...newItem, importance: parseInt(e.target.value) })}
+                onChange={e => setNewItem({ ...newItem, importance: parseInt(e.target.value) })}
                 className="flex-1"
               />
               <span className="text-sm text-white w-6 text-center">{newItem.importance}</span>
@@ -635,7 +643,7 @@ export function Foreshadowing() {
               <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-yellow-400">
                 未回收 ({grouped.setup.length})
               </div>
-              {grouped.setup.map((item) => (
+              {grouped.setup.map(item => (
                 <ForeshadowingRow
                   key={item.id}
                   item={item}
@@ -653,7 +661,7 @@ export function Foreshadowing() {
               <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-green-400">
                 已回收 ({grouped.payoff.length})
               </div>
-              {grouped.payoff.map((item) => (
+              {grouped.payoff.map(item => (
                 <ForeshadowingRow
                   key={item.id}
                   item={item}
@@ -671,7 +679,7 @@ export function Foreshadowing() {
               <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-gray-400">
                 已放弃 ({grouped.abandoned.length})
               </div>
-              {grouped.abandoned.map((item) => (
+              {grouped.abandoned.map(item => (
                 <ForeshadowingRow
                   key={item.id}
                   item={item}

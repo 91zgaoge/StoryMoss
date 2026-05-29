@@ -63,7 +63,7 @@ export function BookDetailView({ analysis, onConvertToStory, isConverting }: Boo
 
       {/* 标签页 */}
       <div className="flex border-b border-cinema-800 bg-cinema-950">
-        {tabs.map((tab) => {
+        {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -95,7 +95,9 @@ export function BookDetailView({ analysis, onConvertToStory, isConverting }: Boo
               </div>
               <div className="bg-cinema-900 border border-cinema-800 rounded-xl p-4">
                 <div className="text-xs text-gray-500 mb-1">总字数</div>
-                <div className="text-sm font-medium text-white">{formatWordCount(book.word_count)}</div>
+                <div className="text-sm font-medium text-white">
+                  {formatWordCount(book.word_count)}
+                </div>
               </div>
               <div className="bg-cinema-900 border border-cinema-800 rounded-xl p-4">
                 <div className="text-xs text-gray-500 mb-1">人物数</div>

@@ -1,15 +1,35 @@
-import { useState } from 'react';
-import { X, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Eye, EyeOff, RefreshCw, MessageSquare, Database, Sparkles, Image } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useForm } from 'react-hook-form';
 import { useCreateModel, useUpdateModel } from '@/hooks/useSettings';
-import { getModelProviders, getProviderDefaultModels, fetchModelsFromApi, getModelApiKey } from '@/services/settings';
+import {
+  getModelProviders,
+  getProviderDefaultModels,
+  fetchModelsFromApi,
+  getModelApiKey,
+} from '@/services/settings';
 import toast from 'react-hot-toast';
 import type { ModelType, ModelConfig, LlmProvider } from '@/types/llm';
+import { cn } from '@/utils/cn';
+
+const typeLabels: Record<ModelType, string> = {
+  chat: '聊天',
+  embedding: '嵌入',
+  multimodal: '多模态',
+  image: '图像',
+};
+
+const typeIcons: Record<ModelType, React.ReactNode> = {
+  chat: <MessageSquare className="w-5 h-5" />,
+  embedding: <Database className="w-5 h-5" />,
+  multimodal: <Sparkles className="w-5 h-5" />,
+  image: <Image className="w-5 h-5" />,
+};
 
 export function ModelModal({
-  type,
+  type: initialType,
   model,
   onClose,
 }: {
@@ -17,6 +37,10 @@ export function ModelModal({
   model: ModelConfig | null;
   onClose: () => void;
 }) {
+  // 编辑时固定为 model.type，新建时可选择类型
+  const [selectedType, setSelectedType] = useState<ModelType>(model?.type || initialType);
+  const effectiveType = model ? model.type : selectedType;
+
   const defaultValues = {
     name: '',
     provider: 'openai' as LlmProvider,
@@ -32,12 +56,23 @@ export function ModelModal({
 
   const { register, handleSubmit, watch, setValue, getValues } = useForm({
     defaultValues: model
-      ? { ...defaultValues, ...model, api_key: model.api_key === '***' ? '' : (model.api_key || '') }
-      : defaultValues
+      ? { ...defaultValues, ...model, api_key: model.api_key === '***' ? '' : model.api_key || '' }
+      : defaultValues,
   });
 
+  // 类型切换时，若当前 provider 不被新类型支持则重置为第一个支持的 provider
+  useEffect(() => {
+    const currentProvider = getValues('provider');
+    const supportedProviders = getModelProviders().filter(p => p.supports.includes(effectiveType));
+    const isSupported = supportedProviders.some(p => p.id === currentProvider);
+    if (!isSupported && supportedProviders.length > 0) {
+      setValue('provider', supportedProviders[0].id as LlmProvider);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveType]);
+
   const provider = watch('provider');
-  const providers = getModelProviders().filter(p => p.supports.includes(type));
+  const providers = getModelProviders().filter(p => p.supports.includes(effectiveType));
   const defaultModels = getProviderDefaultModels(provider);
   const requiresApiKey = providers.find(p => p.id === provider)?.requiresApiKey ?? true;
   const showApiKeyField = requiresApiKey || provider === 'custom';
@@ -57,7 +92,7 @@ export function ModelModal({
       model: data.model,
       description: data.description || undefined,
       api_base: data.api_base || undefined,
-      model_type: type,
+      model_type: effectiveType,
       is_default: !!data.is_default,
       enabled: data.enabled !== false,
     };
@@ -78,23 +113,21 @@ export function ModelModal({
     }
     // 编辑且空字符串：不传递 api_key 字段，后端保留旧值
 
-    if (type === 'chat' || type === 'multimodal') {
+    if (effectiveType === 'chat' || effectiveType === 'multimodal') {
       payload.temperature = Number(data.temperature);
       payload.max_tokens = Number(data.max_tokens);
-      payload.capabilities = type === 'chat'
-        ? ['chat', 'completion', 'long_context']
-        : ['chat', 'vision', 'long_context'];
+      payload.capabilities =
+        effectiveType === 'chat'
+          ? ['chat', 'completion', 'long_context']
+          : ['chat', 'vision', 'long_context'];
     }
 
-    if (type === 'embedding') {
+    if (effectiveType === 'embedding') {
       payload.dimensions = Number(data.dimensions);
     }
 
     if (model) {
-      updateModelMutation.mutate(
-        { id: model.id, config: payload },
-        { onSuccess: onClose }
-      );
+      updateModelMutation.mutate({ id: model.id, config: payload }, { onSuccess: onClose });
     } else {
       createModelMutation.mutate(payload as Omit<ModelConfig, 'id'>, { onSuccess: onClose });
     }
@@ -114,6 +147,31 @@ export function ModelModal({
               </button>
             </div>
 
+            {/* 模型类型选择（仅新建时） */}
+            {!model && (
+              <div className="space-y-3">
+                <label className="block text-sm text-gray-400">选择模型类型</label>
+                <div className="grid grid-cols-4 gap-3">
+                  {(['chat', 'embedding', 'multimodal', 'image'] as ModelType[]).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setSelectedType(t)}
+                      className={cn(
+                        'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all',
+                        selectedType === t
+                          ? 'border-cinema-gold bg-cinema-gold/10 text-cinema-gold'
+                          : 'border-cinema-700 bg-cinema-800 text-gray-400 hover:border-cinema-600'
+                      )}
+                    >
+                      {typeIcons[t]}
+                      <span className="text-sm font-medium">{typeLabels[t]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 基本配置 */}
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
@@ -132,7 +190,9 @@ export function ModelModal({
                   className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                 >
                   {providers.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -146,7 +206,9 @@ export function ModelModal({
                   placeholder="例如: gpt-4"
                 />
                 <datalist id="model-suggestions">
-                  {defaultModels.map(m => <option key={m} value={m} />)}
+                  {defaultModels.map(m => (
+                    <option key={m} value={m} />
+                  ))}
                 </datalist>
                 {fetchedModels.length > 0 && (
                   <div className="mt-2">
@@ -173,7 +235,9 @@ export function ModelModal({
 
             {/* API配置 */}
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">API配置</h3>
+              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                API配置
+              </h3>
 
               {showApiKeyField && (
                 <div>
@@ -221,7 +285,9 @@ export function ModelModal({
                   </div>
                   <p className="text-xs mt-1">
                     {model?.api_key === '***' ? (
-                      <span className="text-green-400">✓ API Key 已设置{showApiKey ? '（明文显示中）' : '，输入新值覆盖'}</span>
+                      <span className="text-green-400">
+                        ✓ API Key 已设置{showApiKey ? '（明文显示中）' : '，输入新值覆盖'}
+                      </span>
                     ) : (
                       <span className="text-gray-500">API Key 将被安全存储</span>
                     )}
@@ -273,9 +339,11 @@ export function ModelModal({
             </div>
 
             {/* 模型参数 */}
-            {(type === 'chat' || type === 'multimodal') && (
+            {(effectiveType === 'chat' || effectiveType === 'multimodal') && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">模型参数</h3>
+                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                  模型参数
+                </h3>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -301,9 +369,11 @@ export function ModelModal({
               </div>
             )}
 
-            {type === 'embedding' && (
+            {effectiveType === 'embedding' && (
               <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">嵌入参数</h3>
+                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                  嵌入参数
+                </h3>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>

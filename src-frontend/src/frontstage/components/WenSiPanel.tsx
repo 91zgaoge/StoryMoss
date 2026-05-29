@@ -8,9 +8,26 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Zap, Wand2, Play, Square, Loader2, Settings2, X, Check, MessageSquare, Send } from 'lucide-react';
+import {
+  Zap,
+  Wand2,
+  Play,
+  Square,
+  Loader2,
+  Settings2,
+  X,
+  Check,
+  MessageSquare,
+  Send,
+} from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel, recordFeedback } from '@/services/tauri';
+import {
+  autoWrite,
+  autoWriteCancel,
+  autoRevise,
+  autoReviseCancel,
+  recordFeedback,
+} from '@/services/tauri';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { StreamOutput } from '@/components/StreamOutput';
 import { listen } from '@tauri-apps/api/event';
@@ -50,7 +67,14 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   const [autoWriteTaskId, setAutoWriteTaskId] = useState<string | null>(null);
   const [targetChars, setTargetChars] = useState(5000);
   const [charsPerLoop, setCharsPerLoop] = useState(1000);
-  const [progress, setProgress] = useState({ current: 0, target: 0, percentage: 0, loop: 0, styleScore: 0, driftDetails: [] as string[] });
+  const [progress, setProgress] = useState({
+    current: 0,
+    target: 0,
+    percentage: 0,
+    loop: 0,
+    styleScore: 0,
+    driftDetails: [] as string[],
+  });
 
   // 自动修改状态
   const [isAutoRevising, setIsAutoRevising] = useState(false);
@@ -86,7 +110,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         status: string;
         style_score: number;
         drift_details: string[];
-      }>(`auto-write-progress-${autoWriteTaskId}`, (event) => {
+      }>(`auto-write-progress-${autoWriteTaskId}`, event => {
         const p = event.payload;
         setProgress({
           current: p.current_chars,
@@ -100,7 +124,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         const store = useBackendActivityStore.getState();
         const actId = `auto-write-${p.task_id}`;
         const msg = `自动续写中... 第 ${p.current_loop} 轮 (${p.current_chars}/${p.target_chars} 字)`;
-        if (!store.activities.find((a) => a.id === actId)) {
+        if (!store.activities.find(a => a.id === actId)) {
           store.registerActivity({
             id: actId,
             category: 'auto_write',
@@ -109,7 +133,11 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             progress: p.percentage / 100,
           });
         } else {
-          store.updateActivity(actId, { stage: p.status, message: msg, progress: p.percentage / 100 });
+          store.updateActivity(actId, {
+            stage: p.status,
+            message: msg,
+            progress: p.percentage / 100,
+          });
         }
       });
       unlistenRef.current = unlisten;
@@ -128,13 +156,16 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     const setupComplete = async () => {
       const unlisten = await listen<{ status: string; current_chars: number }>(
         `auto-write-complete-${autoWriteTaskId}`,
-        (event) => {
+        event => {
           setIsAutoWriting(false);
           setProgress(prev => ({ ...prev, percentage: 100 }));
           toast.success(`自动续写完成！共生成 ${event.payload.current_chars} 字`);
           // v0.7.7: 同步完成状态到统一 store
           const store = useBackendActivityStore.getState();
-          store.completeActivity(`auto-write-${autoWriteTaskId}`, `自动续写完成 (${event.payload.current_chars} 字)`);
+          store.completeActivity(
+            `auto-write-${autoWriteTaskId}`,
+            `自动续写完成 (${event.payload.current_chars} 字)`
+          );
           if (storyId) {
             recordFeedback({
               story_id: storyId,
@@ -150,21 +181,18 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     const unlistenPromise = setupComplete();
 
     const setupError = async () => {
-      const unlisten = await listen<string>(
-        `auto-write-error-${autoWriteTaskId}`,
-        (event) => {
-          setIsAutoWriting(false);
-          const msg = event.payload;
-          // v0.7.7: 同步错误状态到统一 store
-          const store = useBackendActivityStore.getState();
-          store.failActivity(`auto-write-${autoWriteTaskId}`, `自动续写失败: ${msg}`);
-          if (msg.includes('feature_locked') || msg.includes('pro_required')) {
-            onShowUpgrade('自动续写需专业版');
-          } else {
-            toast.error(`自动续写出错：${msg}`);
-          }
+      const unlisten = await listen<string>(`auto-write-error-${autoWriteTaskId}`, event => {
+        setIsAutoWriting(false);
+        const msg = event.payload;
+        // v0.7.7: 同步错误状态到统一 store
+        const store = useBackendActivityStore.getState();
+        store.failActivity(`auto-write-${autoWriteTaskId}`, `自动续写失败: ${msg}`);
+        if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+          onShowUpgrade('自动续写需专业版');
+        } else {
+          toast.error(`自动续写出错：${msg}`);
         }
-      );
+      });
       return unlisten;
     };
     const unlistenErrorPromise = setupError();
@@ -185,13 +213,13 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         stage: string;
         progress: number;
         message: string;
-      }>(`auto-revise-progress-${autoReviseTaskId}`, (event) => {
+      }>(`auto-revise-progress-${autoReviseTaskId}`, event => {
         const p = event.payload;
         setReviseProgress({ stage: p.stage, progress: p.progress, message: p.message });
         // v0.7.7: 同步到统一后台活动 store
         const store = useBackendActivityStore.getState();
         const actId = `auto-revise-${p.task_id}`;
-        if (!store.activities.find((a) => a.id === actId)) {
+        if (!store.activities.find(a => a.id === actId)) {
           store.registerActivity({
             id: actId,
             category: 'auto_revise',
@@ -224,7 +252,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         progress: number;
         message: string;
         revised_text?: string;
-      }>(`auto-revise-complete-${autoReviseTaskId}`, (event) => {
+      }>(`auto-revise-complete-${autoReviseTaskId}`, event => {
         setIsAutoRevising(false);
         setReviseProgress({ stage: 'completed', progress: 1, message: '修改完成' });
         toast.success('自动修改完成！');
@@ -250,21 +278,18 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     const unlistenCompletePromise = setupComplete();
 
     const setupError = async () => {
-      const unlisten = await listen<string>(
-        `auto-revise-error-${autoReviseTaskId}`,
-        (event) => {
-          setIsAutoRevising(false);
-          const msg = event.payload;
-          // v0.7.7: 同步错误状态到统一 store
-          const store = useBackendActivityStore.getState();
-          store.failActivity(`auto-revise-${autoReviseTaskId}`, `自动修改失败: ${msg}`);
-          if (msg.includes('feature_locked') || msg.includes('pro_required')) {
-            onShowUpgrade('自动修改需专业版');
-          } else {
-            toast.error(`自动修改出错：${msg}`);
-          }
+      const unlisten = await listen<string>(`auto-revise-error-${autoReviseTaskId}`, event => {
+        setIsAutoRevising(false);
+        const msg = event.payload;
+        // v0.7.7: 同步错误状态到统一 store
+        const store = useBackendActivityStore.getState();
+        store.failActivity(`auto-revise-${autoReviseTaskId}`, `自动修改失败: ${msg}`);
+        if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+          onShowUpgrade('自动修改需专业版');
+        } else {
+          toast.error(`自动修改出错：${msg}`);
         }
-      );
+      });
       return unlisten;
     };
     const unlistenErrorPromise = setupError();
@@ -296,7 +321,14 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       });
       setAutoWriteTaskId(result.task_id);
       setIsAutoWriting(true);
-      setProgress({ current: 0, target: targetChars, percentage: 0, loop: 0, styleScore: 0, driftDetails: [] });
+      setProgress({
+        current: 0,
+        target: targetChars,
+        percentage: 0,
+        loop: 0,
+        styleScore: 0,
+        driftDetails: [],
+      });
       toast.success('自动续写已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -355,7 +387,16 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         toast.error(`启动失败：${msg}`);
       }
     }
-  }, [storyId, chapterId, reviseScope, reviseType, selectedText, editorContent, hasAutoReviseQuota, onShowUpgrade]);
+  }, [
+    storyId,
+    chapterId,
+    reviseScope,
+    reviseType,
+    selectedText,
+    editorContent,
+    hasAutoReviseQuota,
+    onShowUpgrade,
+  ]);
 
   const handleStopAutoRevise = useCallback(async () => {
     if (autoReviseTaskId) {
@@ -410,10 +451,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           </button>
           <button
             onClick={() => setActiveTab(activeTab === 'dialog' ? 'none' : 'dialog')}
-            className={cn(
-              'wensi-tab',
-              activeTab === 'dialog' && 'wensi-tab-active'
-            )}
+            className={cn('wensi-tab', activeTab === 'dialog' && 'wensi-tab-active')}
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>自由指令</span>
@@ -429,7 +467,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <input
               type="number"
               value={targetChars}
-              onChange={(e) => setTargetChars(Math.max(100, Math.min(500000, Number(e.target.value))))}
+              onChange={e =>
+                setTargetChars(Math.max(100, Math.min(500000, Number(e.target.value))))
+              }
               className="wensi-input"
               min={100}
               max={500000}
@@ -440,7 +480,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <input
               type="number"
               value={charsPerLoop}
-              onChange={(e) => {
+              onChange={e => {
                 const v = Math.max(100, Math.min(maxCharsPerCall, Number(e.target.value)));
                 setCharsPerLoop(v);
               }}
@@ -472,20 +512,39 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           </div>
 
           {showRefTextInput && (
-            <div className="wensi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+            <div
+              className="wensi-row"
+              style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}
+            >
               <textarea
                 value={referenceText}
-                onChange={(e) => setReferenceText(e.target.value.slice(0, 5000))}
+                onChange={e => setReferenceText(e.target.value.slice(0, 5000))}
                 placeholder="粘贴任意参考文本（最多5000字），续写将模仿其风格。留空则使用当前故事前文。"
                 className="wensi-input"
                 rows={3}
                 style={{ fontSize: 12, resize: 'vertical' }}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 11,
+                  color: '#888',
+                }}
+              >
                 <span>{referenceText.length} / 5000 字</span>
                 <button
-                  onClick={() => { setReferenceText(''); setShowRefTextInput(false); }}
-                  style={{ fontSize: 11, color: '#c45c3e', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onClick={() => {
+                    setReferenceText('');
+                    setShowRefTextInput(false);
+                  }}
+                  style={{
+                    fontSize: 11,
+                    color: '#c45c3e',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
                 >
                   清除并使用前文
                 </button>
@@ -494,10 +553,15 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           )}
 
           {/* v0.7.8: 风格-叙事平衡滑块 */}
-          <div className="wensi-row" style={{ marginTop: 8, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+          <div
+            className="wensi-row"
+            style={{ marginTop: 8, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
               <span style={{ color: styleWeight > 60 ? '#c45c3e' : '#888' }}>风格优先</span>
-              <span style={{ color: '#666' }}>{styleWeight}% 风格 / {100 - styleWeight}% 叙事</span>
+              <span style={{ color: '#666' }}>
+                {styleWeight}% 风格 / {100 - styleWeight}% 叙事
+              </span>
               <span style={{ color: styleWeight < 40 ? '#c45c3e' : '#888' }}>叙事优先</span>
             </div>
             <input
@@ -505,7 +569,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
               min={0}
               max={100}
               value={styleWeight}
-              onChange={(e) => setStyleWeight(Number(e.target.value))}
+              onChange={e => setStyleWeight(Number(e.target.value))}
               className="wensi-input"
               disabled={isAutoWriting}
               style={{ accentColor: '#c45c3e' }}
@@ -522,9 +586,20 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
                 />
               </div>
               <div className="wensi-progress-text">
-                {progress.percentage}% · {progress.current}/{progress.target} 字 · 第 {progress.loop} 轮
+                {progress.percentage}% · {progress.current}/{progress.target} 字 · 第{' '}
+                {progress.loop} 轮
                 {progress.styleScore > 0 && (
-                  <span style={{ marginLeft: 8, color: progress.styleScore >= 0.7 ? '#4caf50' : progress.styleScore >= 0.5 ? '#ff9800' : '#f44336' }}>
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      color:
+                        progress.styleScore >= 0.7
+                          ? '#4caf50'
+                          : progress.styleScore >= 0.5
+                            ? '#ff9800'
+                            : '#f44336',
+                    }}
+                  >
                     风格一致: {(progress.styleScore * 100).toFixed(0)}%
                   </span>
                 )}
@@ -560,7 +635,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <label className="wensi-label">范围</label>
             <select
               value={reviseScope}
-              onChange={(e) => setReviseScope(e.target.value as any)}
+              onChange={e => setReviseScope(e.target.value as any)}
               className="wensi-select"
               disabled={isAutoRevising}
             >
@@ -571,7 +646,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <label className="wensi-label">类型</label>
             <select
               value={reviseType}
-              onChange={(e) => setReviseType(e.target.value)}
+              onChange={e => setReviseType(e.target.value)}
               className="wensi-select"
               disabled={isAutoRevising}
             >
@@ -619,11 +694,11 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           <div className="wensi-row flex-col items-stretch gap-2">
             <textarea
               value={freePromptText}
-              onChange={(e) => setFreePromptText(e.target.value)}
+              onChange={e => setFreePromptText(e.target.value)}
               placeholder="输入创作指令，例如：写一篇武侠小说吧、让主角遭遇一场意外、增加一段环境描写..."
               className="wensi-textarea"
               rows={3}
-              onKeyDown={(e) => {
+              onKeyDown={e => {
                 if (e.key === 'Enter' && e.ctrlKey && freePromptText.trim()) {
                   e.preventDefault();
                   onFreePrompt?.(freePromptText.trim());

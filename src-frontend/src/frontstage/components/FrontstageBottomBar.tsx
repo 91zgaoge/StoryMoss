@@ -13,11 +13,35 @@ interface FrontstageBottomBarProps {
   hintSource: 'llm' | 'history';
   modelStatus: 'connected' | 'disconnected' | 'connecting';
   modelName: string;
+  modelProvider?: string;
+  modelApiBase?: string;
+  modelLatency?: number;
+  lastCheckedAt?: number;
+  onGoToSettings?: () => void;
   onInputChange: (value: string) => void;
   onInputSubmit: () => void;
   onCancelGeneration: () => void;
   onInputFocus: () => void;
   onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+}
+
+function abbreviateApiBase(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.host;
+  } catch {
+    return url.length > 28 ? url.slice(0, 28) + '…' : url;
+  }
+}
+
+function formatTimeAgo(timestamp: number): string {
+  if (!timestamp || timestamp <= 0) return '';
+  const diff = Math.floor((Date.now() - timestamp) / 1000);
+  if (diff < 5) return '刚刚';
+  if (diff < 60) return `${diff}秒前`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
+  return `${Math.floor(diff / 86400)}天前`;
 }
 
 const categoryIcons: Record<BackendActivity['category'], string> = {
@@ -51,6 +75,11 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   hintSource,
   modelStatus,
   modelName,
+  modelProvider,
+  modelApiBase,
+  modelLatency,
+  lastCheckedAt,
+  onGoToSettings,
   onInputChange,
   onInputSubmit,
   onCancelGeneration,
@@ -61,22 +90,21 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const [pulseTick, setPulseTick] = useState(0);
 
   // v0.7.7: 订阅统一后台活动 store
-  const primaryActivity = useBackendActivityStore((state) => state.getPrimaryActivity());
-  const activeCount = useBackendActivityStore((state) => state.getActiveCount());
+  const primaryActivity = useBackendActivityStore(state => state.getPrimaryActivity());
+  const activeCount = useBackendActivityStore(state => state.getActiveCount());
 
   // 心跳动画：每秒触发一次重渲染，让进度条和脉冲动画持续更新
   useEffect(() => {
     if (!primaryActivity) return;
-    const interval = setInterval(() => setPulseTick((t) => t + 1), 1000);
+    const interval = setInterval(() => setPulseTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [primaryActivity]);
 
   if (isZenMode) return null;
 
   const hasAnyActivity = isGenerating || !!primaryActivity;
-  const displayMessage = isGenerating && generationStatus
-    ? generationStatus
-    : primaryActivity?.message || '';
+  const displayMessage =
+    isGenerating && generationStatus ? generationStatus : primaryActivity?.message || '';
   const displayProgress = primaryActivity?.progress || 0;
 
   return (
@@ -96,10 +124,54 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 <div className="model-tooltip-header">
                   <span className="model-name">{modelName || '未配置'}</span>
                   <span className={`model-status-text status-${modelStatus}`}>
-                    {modelStatus === 'connected' ? '已连接' : modelStatus === 'connecting' ? '检测中' : '未连接'}
+                    {modelStatus === 'connected'
+                      ? '已连接'
+                      : modelStatus === 'connecting'
+                        ? '检测中'
+                        : '未连接'}
                   </span>
                 </div>
-                <div className="model-id">{modelStatus === 'connected' ? '模型就绪，可直接输入指令' : '请检查模型配置'}</div>
+                <div className="model-tooltip-body">
+                  {modelProvider && (
+                    <div className="model-tooltip-row">
+                      <span className="model-tooltip-label">提供商</span>
+                      <span className="model-tooltip-value">{modelProvider}</span>
+                    </div>
+                  )}
+                  {modelApiBase && (
+                    <div className="model-tooltip-row">
+                      <span className="model-tooltip-label">API Base</span>
+                      <span className="model-tooltip-value">{abbreviateApiBase(modelApiBase)}</span>
+                    </div>
+                  )}
+                  {modelStatus === 'connected' &&
+                    typeof modelLatency === 'number' &&
+                    modelLatency > 0 && (
+                      <div className="model-tooltip-row">
+                        <span className="model-tooltip-label">延迟</span>
+                        <span className="model-tooltip-value">{modelLatency}ms</span>
+                      </div>
+                    )}
+                  {lastCheckedAt && lastCheckedAt > 0 && (
+                    <div className="model-tooltip-row">
+                      <span className="model-tooltip-label">检测于</span>
+                      <span className="model-tooltip-value">{formatTimeAgo(lastCheckedAt)}</span>
+                    </div>
+                  )}
+                  {modelStatus !== 'connected' && onGoToSettings && (
+                    <div className="model-tooltip-row">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          onGoToSettings();
+                        }}
+                        className="model-tooltip-link"
+                      >
+                        前往配置 →
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -119,7 +191,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 className="frontstage-input-textarea"
                 placeholder={ghostHint ? '' : '输入任意指令…'}
                 value={inputValue}
-                onChange={(e) => onInputChange(e.target.value)}
+                onChange={e => onInputChange(e.target.value)}
                 onKeyDown={onInputKeyDown}
                 onFocus={onInputFocus}
                 disabled={isGenerating}
@@ -155,13 +227,14 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               {/* 心跳脉冲图标 */}
               <div className="relative flex items-center justify-center w-4 h-4">
                 <Activity className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-20 animate-ping" style={{ animationDuration: '2s' }} />
+                <span
+                  className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-20 animate-ping"
+                  style={{ animationDuration: '2s' }}
+                />
               </div>
 
               {/* 主要活动文案 */}
-              <span className="text-xs text-amber-300 truncate flex-1">
-                {displayMessage}
-              </span>
+              <span className="text-xs text-amber-300 truncate flex-1">{displayMessage}</span>
 
               {/* 进度条 */}
               {displayProgress > 0 && (
@@ -183,7 +256,8 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               {/* 类别标签 */}
               {primaryActivity && (
                 <span className="text-[10px] text-slate-500 hidden sm:inline">
-                  {categoryIcons[primaryActivity.category]} {categoryLabels[primaryActivity.category]}
+                  {categoryIcons[primaryActivity.category]}{' '}
+                  {categoryLabels[primaryActivity.category]}
                 </span>
               )}
             </div>

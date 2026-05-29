@@ -1,6 +1,6 @@
 /**
  * useStreamingGeneration - AI 流式生成 Hook
- * 
+ *
  * 功能：
  * - 管理 AI 生成状态
  * - 逐字流式输出效果
@@ -10,7 +10,13 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 
-export type GenerationState = 'idle' | 'generating' | 'paused' | 'completed' | 'accepted' | 'rejected';
+export type GenerationState =
+  | 'idle'
+  | 'generating'
+  | 'paused'
+  | 'completed'
+  | 'accepted'
+  | 'rejected';
 
 interface UseStreamingGenerationOptions {
   /** 打字速度（每字间隔 ms） */
@@ -53,17 +59,12 @@ interface UseStreamingGenerationReturn {
 export function useStreamingGeneration(
   options: UseStreamingGenerationOptions = {}
 ): UseStreamingGenerationReturn {
-  const {
-    typingSpeed = { min: 30, max: 80 },
-    onComplete,
-    onAccept,
-    onReject,
-  } = options;
+  const { typingSpeed = { min: 30, max: 80 }, onComplete, onAccept, onReject } = options;
 
   const [state, setState] = useState<GenerationState>('idle');
   const [generatedText, setGeneratedText] = useState('');
   const [progress, setProgress] = useState(0);
-  
+
   const fullTextRef = useRef('');
   const currentIndexRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,18 +92,18 @@ export function useStreamingGeneration(
     // 获取下一个字符（处理 Unicode）
     const nextChar = fullText[currentIndex];
     const newText = fullText.slice(0, currentIndex + 1);
-    
+
     setGeneratedText(newText);
     currentIndexRef.current = currentIndex + 1;
-    setProgress(Math.round((currentIndex + 1) / fullText.length * 100));
+    setProgress(Math.round(((currentIndex + 1) / fullText.length) * 100));
 
     // 计算下一个字符的延迟（随机模拟真实打字）
     // 标点符号后延迟更长，模拟思考
     const isPunctuation = /[。，！？.!?;；]/.test(nextChar);
-    const baseDelay = isPunctuation 
-      ? typingSpeed.max * 2 
+    const baseDelay = isPunctuation
+      ? typingSpeed.max * 2
       : typingSpeed.min + Math.random() * (typingSpeed.max - typingSpeed.min);
-    
+
     // 偶尔添加额外停顿（模拟 AI 思考）
     const thinkPause = Math.random() > 0.95 ? 200 : 0;
     const delay = baseDelay + thinkPause;
@@ -110,18 +111,21 @@ export function useStreamingGeneration(
     timeoutRef.current = setTimeout(typeNextChar, delay);
   }, [typingSpeed, onComplete]);
 
-  const startGeneration = useCallback((fullText: string) => {
-    clearTimeoutSafe();
-    fullTextRef.current = fullText;
-    currentIndexRef.current = 0;
-    isPausedRef.current = false;
-    setGeneratedText('');
-    setProgress(0);
-    setState('generating');
-    
-    // 稍微延迟后开始，给用户准备时间
-    timeoutRef.current = setTimeout(typeNextChar, 300);
-  }, [clearTimeoutSafe, typeNextChar]);
+  const startGeneration = useCallback(
+    (fullText: string) => {
+      clearTimeoutSafe();
+      fullTextRef.current = fullText;
+      currentIndexRef.current = 0;
+      isPausedRef.current = false;
+      setGeneratedText('');
+      setProgress(0);
+      setState('generating');
+
+      // 稍微延迟后开始，给用户准备时间
+      timeoutRef.current = setTimeout(typeNextChar, 300);
+    },
+    [clearTimeoutSafe, typeNextChar]
+  );
 
   const pauseGeneration = useCallback(() => {
     if (state === 'generating') {
@@ -153,13 +157,16 @@ export function useStreamingGeneration(
     onReject?.();
   }, [clearTimeoutSafe, onReject]);
 
-  const restartGeneration = useCallback((fullText: string) => {
-    rejectGeneration();
-    // 短暂延迟后重新开始
-    setTimeout(() => {
-      startGeneration(fullText);
-    }, 200);
-  }, [rejectGeneration, startGeneration]);
+  const restartGeneration = useCallback(
+    (fullText: string) => {
+      rejectGeneration();
+      // 短暂延迟后重新开始
+      setTimeout(() => {
+        startGeneration(fullText);
+      }, 200);
+    },
+    [rejectGeneration, startGeneration]
+  );
 
   const clearGeneration = useCallback(() => {
     clearTimeoutSafe();
@@ -193,5 +200,3 @@ export function useStreamingGeneration(
     clearGeneration,
   };
 }
-
-

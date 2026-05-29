@@ -26,7 +26,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
 
   // 保持 store 引用最新
   useEffect(() => {
-    const unsub = useBackendActivityStore.subscribe((state) => {
+    const unsub = useBackendActivityStore.subscribe(state => {
       storeRef.current = state;
     });
     return unsub;
@@ -43,10 +43,10 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         stage: string;
         message: string;
         progress: number;
-      }>('contract-auto-progress', (event) => {
+      }>('contract-auto-progress', event => {
         const p = event.payload;
         const id = 'contract-auto-fill';
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         if (!existing) {
           store.registerActivity({
             id,
@@ -76,14 +76,14 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         step_type: string;
         loop_idx?: number;
         score?: number;
-      }>('orchestrator-step', (event) => {
+      }>('orchestrator-step', event => {
         const p = event.payload;
         const id = `orch-${p.task_id}`;
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         const stepNames: Record<string, string> = {
-          'Generation': 'AI 生成中...',
-          'Inspection': 'AI 质检中...',
-          'Rewrite': 'AI 优化中...',
+          Generation: 'AI 生成中...',
+          Inspection: 'AI 质检中...',
+          Rewrite: 'AI 优化中...',
         };
         let message = stepNames[p.step_type] || p.step_type;
         if (p.step_type === 'Rewrite' && typeof p.loop_idx === 'number') {
@@ -92,7 +92,8 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         if (p.step_type === 'Inspection' && typeof p.score === 'number') {
           message = `质检评分 ${p.score}%`;
         }
-        const progress = p.step_type === 'Generation' ? 0.3 : p.step_type === 'Inspection' ? 0.6 : 0.9;
+        const progress =
+          p.step_type === 'Generation' ? 0.3 : p.step_type === 'Inspection' ? 0.6 : 0.9;
         if (!existing) {
           store.registerActivity({
             id,
@@ -114,10 +115,10 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         message: string;
         progress: number;
         request_id?: string | null;
-      }>('agent-stage-update', (event) => {
+      }>('agent-stage-update', event => {
         const p = event.payload;
         const id = `agent-stage-${p.agent_type}-${p.request_id || 'global'}`;
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         if (!existing) {
           store.registerActivity({
             id,
@@ -150,11 +151,11 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         message: string;
         step_number: number;
         total_steps: number;
-      }>('smart-execute-progress', (event) => {
+      }>('smart-execute-progress', event => {
         const p = event.payload;
         const id = 'smart-execute';
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         if (!existing) {
           store.registerActivity({
             id,
@@ -181,10 +182,10 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         status: string;
         message: string;
         progress_percent: number;
-      }>('pipeline-progress', (event) => {
+      }>('pipeline-progress', event => {
         const p = event.payload;
         const id = `pipeline-${p.pipeline_id}`;
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         const progress = p.progress_percent / 100;
         if (!existing) {
           store.registerActivity({
@@ -214,11 +215,11 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         total_steps: number;
         status: string;
         message: string;
-      }>('plan-executor-step', (event) => {
+      }>('plan-executor-step', event => {
         const p = event.payload;
         const id = 'plan-executor';
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
-        const existing = store.activities.find((a) => a.id === id);
+        const existing = store.activities.find(a => a.id === id);
         if (!existing) {
           store.registerActivity({
             id,
@@ -250,7 +251,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
     setup();
 
     return () => {
-      unlistens.forEach((u) => u());
+      unlistens.forEach(u => u());
     };
   }, [enabled]);
 }

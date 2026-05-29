@@ -6,7 +6,13 @@
 import { create } from 'zustand';
 import { createLogger } from '@/utils/logger';
 import type { UserInfo, AuthConfig } from '@/services/auth';
-import { getAuthConfig, getCurrentUser, logout as logoutApi, openOAuthBrowser, oauthCallback } from '@/services/auth';
+import {
+  getAuthConfig,
+  getCurrentUser,
+  logout as logoutApi,
+  openOAuthBrowser,
+  oauthCallback,
+} from '@/services/auth';
 
 const authLogger = createLogger('auth:store');
 
@@ -35,9 +41,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   authConfig: null,
   authToken: localStorage.getItem('sf_auth_token'),
 
-  setUser: (user) => set({ user, isLoggedIn: !!user }),
+  setUser: user => set({ user, isLoggedIn: !!user }),
 
-  setAuthToken: (token) => {
+  setAuthToken: token => {
     if (token) {
       localStorage.setItem('sf_auth_token', token);
     } else {

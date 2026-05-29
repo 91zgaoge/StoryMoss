@@ -6,7 +6,9 @@ import { getFeatureUsageStats } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 export function StatsSettings() {
-  const [stats, setStats] = useState<Array<{ feature_id: string; action: string; count: number }>>([]);
+  const [stats, setStats] = useState<Array<{ feature_id: string; action: string; count: number }>>(
+    []
+  );
   const [loading, setLoading] = useState(false);
 
   const loadStats = async () => {
@@ -35,7 +37,7 @@ export function StatsSettings() {
 
   const getCount = (featureId: string, action?: string) => {
     return stats
-      .filter((s) => s.feature_id === featureId && (action ? s.action === action : true))
+      .filter(s => s.feature_id === featureId && (action ? s.action === action : true))
       .reduce((sum, s) => sum + s.count, 0);
   };
 
@@ -44,13 +46,17 @@ export function StatsSettings() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-white">功能使用统计（最近 30 天）</h3>
         <Button size="sm" onClick={loadStats} disabled={loading}>
-          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          {loading ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <RefreshCw className="w-3 h-3" />
+          )}
           <span className="ml-1">刷新</span>
         </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {features.map((f) => {
+        {features.map(f => {
           const opened = getCount(f.id, 'opened');
           const executed = getCount(f.id, 'executed');
           return (

@@ -97,12 +97,12 @@ function shouldLog(level: LogLevel, namespace: string): boolean {
   }
 
   // 命名空间过滤
-  if (config.disabledNamespaces.some((n) => namespace.startsWith(n))) {
+  if (config.disabledNamespaces.some(n => namespace.startsWith(n))) {
     return false;
   }
   if (
     config.enabledNamespaces.length > 0 &&
-    !config.enabledNamespaces.some((n) => namespace.startsWith(n))
+    !config.enabledNamespaces.some(n => namespace.startsWith(n))
   ) {
     return false;
   }
@@ -170,8 +170,7 @@ function log(level: LogLevel, namespace: string, message: string, args: unknown[
 // ---- Logger 工厂 ----
 
 export function createLogger(options: string | LoggerOptions) {
-  const opts: LoggerOptions =
-    typeof options === 'string' ? { namespace: options } : options;
+  const opts: LoggerOptions = typeof options === 'string' ? { namespace: options } : options;
 
   const ns = opts.namespace;
   const syncToBackend = opts.syncToBackend ?? true;
@@ -190,10 +189,11 @@ export function createLogger(options: string | LoggerOptions) {
       log('error', ns, message, args);
     },
     /** 创建一个子命名空间 logger */
-    child: (subNamespace: string) => createLogger({
-      namespace: `${ns}:${subNamespace}`,
-      syncToBackend,
-    }),
+    child: (subNamespace: string) =>
+      createLogger({
+        namespace: `${ns}:${subNamespace}`,
+        syncToBackend,
+      }),
   };
 }
 

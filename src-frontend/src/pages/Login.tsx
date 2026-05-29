@@ -51,10 +51,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
       }`}
     >
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
       <Card className="relative w-full max-w-md mx-4 p-6 transform transition-all duration-200">
@@ -69,9 +66,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         {/* Header */}
         <div className="text-center mb-6">
           <h2 className="text-xl font-semibold text-stone-800">登录 StoryForge</h2>
-          <p className="text-sm text-stone-500 mt-1">
-            登录后可解锁云同步等跨设备功能
-          </p>
+          <p className="text-sm text-stone-500 mt-1">登录后可解锁云同步等跨设备功能</p>
         </div>
 
         {/* OAuth Buttons */}
@@ -129,12 +124,8 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             !authConfig.wechat_enabled &&
             !authConfig.qq_enabled && (
               <div className="text-center py-4">
-                <p className="text-sm text-stone-500">
-                  尚未配置 OAuth 登录选项
-                </p>
-                <p className="text-xs text-stone-400 mt-1">
-                  请在设置中配置 OAuth 客户端信息
-                </p>
+                <p className="text-sm text-stone-500">尚未配置 OAuth 登录选项</p>
+                <p className="text-xs text-stone-400 mt-1">请在设置中配置 OAuth 客户端信息</p>
               </div>
             )}
         </div>

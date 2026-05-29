@@ -11,15 +11,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  Copy,
-  Check,
-  Maximize2,
-  Minimize2,
-  Square,
-  Type,
-  Loader2,
-} from 'lucide-react';
+import { Copy, Check, Maximize2, Minimize2, Square, Type, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { llmCancelGeneration } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
@@ -75,10 +67,7 @@ function renderMarkdownToHtml(text: string): string {
   html = html.replace(/`([^`]+)`/g, '<code class="stream-inline-code">$1</code>');
 
   // 引用块
-  html = html.replace(
-    /^&gt; (.*$)/gim,
-    '<blockquote class="stream-blockquote">$1</blockquote>'
-  );
+  html = html.replace(/^&gt; (.*$)/gim, '<blockquote class="stream-blockquote">$1</blockquote>');
 
   // 标题
   html = html.replace(/^#### (.*$)/gim, '<h4 class="stream-h4">$1</h4>');
@@ -94,17 +83,11 @@ function renderMarkdownToHtml(text: string): string {
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
   // 无序列表
-  html = html.replace(
-    /^[\s]*[-*+] (.*$)/gim,
-    '<li class="stream-li">$1</li>'
-  );
+  html = html.replace(/^[\s]*[-*+] (.*$)/gim, '<li class="stream-li">$1</li>');
   // 将连续的 li 包装在 ul 中（简化处理：运行时通过 DOM 处理更好）
 
   // 有序列表
-  html = html.replace(
-    /^[\s]*\d+\. (.*$)/gim,
-    '<li class="stream-li stream-ol-li">$1</li>'
-  );
+  html = html.replace(/^[\s]*\d+\. (.*$)/gim, '<li class="stream-li stream-ol-li">$1</li>');
 
   // 分隔线
   html = html.replace(/^---$/gim, '<hr class="stream-hr" />');
@@ -112,7 +95,7 @@ function renderMarkdownToHtml(text: string): string {
   // 换行转 <br> 和段落
   const paragraphs = html.split(/\n\n+/);
   html = paragraphs
-    .map((p) => {
+    .map(p => {
       const trimmed = p.trim();
       if (
         !trimmed ||
@@ -178,7 +161,7 @@ export const StreamOutput: React.FC<StreamOutputProps> = ({
   }, [streamType, requestId, onStop]);
 
   const handleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev);
+    setIsFullscreen(prev => !prev);
   }, []);
 
   // 自动滚动到底部
@@ -225,27 +208,15 @@ export const StreamOutput: React.FC<StreamOutputProps> = ({
 
             {/* 停止按钮 */}
             {isStreaming && (
-              <button
-                className="stream-btn stream-btn-stop"
-                onClick={handleStop}
-                title="停止生成"
-              >
+              <button className="stream-btn stream-btn-stop" onClick={handleStop} title="停止生成">
                 <Square className="w-3 h-3" />
                 停止
               </button>
             )}
 
             {/* 复制按钮 */}
-            <button
-              className="stream-btn stream-btn-copy"
-              onClick={handleCopy}
-              title="复制全文"
-            >
-              {copied ? (
-                <Check className="w-3 h-3 text-green-400" />
-              ) : (
-                <Copy className="w-3 h-3" />
-              )}
+            <button className="stream-btn stream-btn-copy" onClick={handleCopy} title="复制全文">
+              {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
               {copied ? '已复制' : '复制'}
             </button>
 
@@ -255,11 +226,7 @@ export const StreamOutput: React.FC<StreamOutputProps> = ({
               onClick={handleFullscreen}
               title={isFullscreen ? '退出全屏' : '全屏'}
             >
-              {isFullscreen ? (
-                <Minimize2 className="w-3 h-3" />
-              ) : (
-                <Maximize2 className="w-3 h-3" />
-              )}
+              {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
             </button>
 
             {extraActions}

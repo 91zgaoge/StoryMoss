@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Users, FileText, Sparkles, ArrowRight, Clock, FolderOpen, Activity } from 'lucide-react';
+import {
+  BookOpen,
+  Users,
+  FileText,
+  Sparkles,
+  ArrowRight,
+  Clock,
+  FolderOpen,
+  Activity,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
@@ -14,12 +23,12 @@ import toast from 'react-hot-toast';
 const dashboardLogger = createLogger('ui:Dashboard');
 
 export function Dashboard() {
-  const stories = useAppStore((s) => s.stories);
-  const setStories = useAppStore((s) => s.setStories);
-  const setCurrentUser = useAppStore((s) => s.setCurrentUser);
-  const setCurrentStory = useAppStore((s) => s.setCurrentStory);
-  const setCurrentView = useAppStore((s) => s.setCurrentView);
-  const isLoading = useAppStore((s) => s.isLoading);
+  const stories = useAppStore(s => s.stories);
+  const setStories = useAppStore(s => s.setStories);
+  const setCurrentUser = useAppStore(s => s.setCurrentUser);
+  const setCurrentStory = useAppStore(s => s.setCurrentStory);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
+  const isLoading = useAppStore(s => s.isLoading);
   const hasHydrated = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -62,20 +71,23 @@ export function Dashboard() {
     const form = e.currentTarget;
     const formData = new FormData(form);
 
-    createStory.mutate({
-      title: formData.get('title') as string,
-      description: formData.get('description') as string,
-      genre: formData.get('genre') as string,
-    }, {
-      onSuccess: (newStory) => {
-        setIsModalOpen(false);
-        form.reset();
-        // Auto-select the new story and navigate to chapters
-        setCurrentStory(newStory);
-        setCurrentView('scenes');
-        toast.success(`故事 "${newStory.title}" 创建成功！`);
+    createStory.mutate(
+      {
+        title: formData.get('title') as string,
+        description: formData.get('description') as string,
+        genre: formData.get('genre') as string,
       },
-    });
+      {
+        onSuccess: newStory => {
+          setIsModalOpen(false);
+          form.reset();
+          // Auto-select the new story and navigate to chapters
+          setCurrentStory(newStory);
+          setCurrentView('scenes');
+          toast.success(`故事 "${newStory.title}" 创建成功！`);
+        },
+      }
+    );
   };
 
   const handleWizardComplete = async (data: {
@@ -112,7 +124,7 @@ export function Dashboard() {
     }
   };
 
-  const handleContinueStory = (story: typeof stories[0]) => {
+  const handleContinueStory = (story: (typeof stories)[0]) => {
     setCurrentStory(story);
     setCurrentView('scenes');
   };
@@ -128,9 +140,7 @@ export function Dashboard() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
         <div className="relative z-10">
-          <h1 className="font-display text-4xl font-bold text-white mb-2">
-            欢迎回到创作工作室
-          </h1>
+          <h1 className="font-display text-4xl font-bold text-white mb-2">欢迎回到创作工作室</h1>
           <p className="text-gray-400 text-lg font-body italic max-w-2xl">
             "每一个伟大的故事，都始于一个勇敢的开始。"
           </p>
@@ -154,7 +164,7 @@ export function Dashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((stat) => {
+        {stats.map(stat => {
           const Icon = stat.icon;
           return (
             <Card key={stat.label} hover>
@@ -202,8 +212,13 @@ export function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {recentStories.map((story) => (
-              <Card key={story.id} hover className="cursor-pointer group" onClick={() => handleContinueStory(story)}>
+            {recentStories.map(story => (
+              <Card
+                key={story.id}
+                hover
+                className="cursor-pointer group"
+                onClick={() => handleContinueStory(story)}
+              >
                 <CardContent className="p-5">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-lg bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
@@ -214,7 +229,8 @@ export function Dashboard() {
                         {story.title}
                       </h3>
                       <p className="text-sm text-gray-500 mt-1">
-                        {story.genre || '未分类'} · {story.chapter_count || 0} 章{(story as any).word_count > 0 && ` · ${(story as any).word_count} 字`}
+                        {story.genre || '未分类'} · {story.chapter_count || 0} 章
+                        {(story as any).word_count > 0 && ` · ${(story as any).word_count} 字`}
                       </p>
                       <p className="text-xs text-gray-600 mt-2">
                         更新于 {formatDate(story.updated_at)}
@@ -233,11 +249,10 @@ export function Dashboard() {
         <Card className="py-12">
           <CardContent className="text-center">
             <BookOpen className="w-16 h-16 text-cinema-700 mx-auto mb-4" />
-            <h3 className="font-display text-xl font-semibold text-white mb-2">
-              开始你的创作之旅
-            </h3>
+            <h3 className="font-display text-xl font-semibold text-white mb-2">开始你的创作之旅</h3>
             <p className="text-gray-500 max-w-md mx-auto mb-6">
-              使用 AI 向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI 辅助写作。
+              使用 AI 向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI
+              辅助写作。
             </p>
             <div className="flex justify-center gap-4">
               <Button variant="primary" onClick={() => setIsWizardOpen(true)}>

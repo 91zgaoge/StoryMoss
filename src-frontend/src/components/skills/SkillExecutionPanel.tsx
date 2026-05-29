@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Loader2, 
-  CheckCircle, 
-  XCircle, 
-  Sparkles, 
+import {
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Sparkles,
   PenTool,
   Search,
   FileText,
@@ -18,13 +18,18 @@ import {
   RotateCcw,
   Copy,
   Check,
-  OctagonX
+  OctagonX,
 } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 
-export type AgentType = 'writer' | 'inspector' | 'outline_planner' | 'style_mimic' | 'plot_analyzer';
+export type AgentType =
+  | 'writer'
+  | 'inspector'
+  | 'outline_planner'
+  | 'style_mimic'
+  | 'plot_analyzer';
 
 interface SkillExecutionPanelProps {
   storyId: string;
@@ -125,7 +130,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
         stage: string;
         message: string;
         progress: number;
-      }>(`agent-event-${taskId}`, (event) => {
+      }>(`agent-event-${taskId}`, event => {
         const payload = event.payload;
         const stageMap: Record<string, ExecutionProgress['stage']> = {
           started: 'started',
@@ -141,21 +146,21 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
           progress: payload.progress,
         });
       }),
-      listen<ExecutionResult>(`agent-complete-${taskId}`, (event) => {
+      listen<ExecutionResult>(`agent-complete-${taskId}`, event => {
         setResult(event.payload);
         setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
         setIsExecuting(false);
         setTaskId(null);
       }),
-      listen<string>(`agent-error-${taskId}`, (event) => {
+      listen<string>(`agent-error-${taskId}`, event => {
         setError(event.payload);
         setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
         setIsExecuting(false);
         setTaskId(null);
       }),
-    ]).then((unlistens) => {
+    ]).then(unlistens => {
       if (cancelled) {
-        unlistens.forEach((u) => u());
+        unlistens.forEach(u => u());
         return;
       }
       unlisteners = unlistens;
@@ -163,7 +168,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
 
     return () => {
       cancelled = true;
-      unlisteners.forEach((u) => u());
+      unlisteners.forEach(u => u());
     };
   }, [taskId]);
 
@@ -224,7 +229,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const selectedAgentInfo = AGENTS.find(a => a.type === selectedAgent);
 
   return (
-    <div className={cn("flex flex-col h-full bg-white/50 rounded-lg", className)}>
+    <div className={cn('flex flex-col h-full bg-white/50 rounded-lg', className)}>
       {/* 标题 */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-stone-200">
         <Wand2 className="w-5 h-5 text-terracotta" />
@@ -236,20 +241,25 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
         <div className="p-4 space-y-3">
           <p className="text-sm text-stone-600">选择要执行的AI助手：</p>
           <div className="grid grid-cols-1 gap-2">
-            {AGENTS.map((agent) => (
+            {AGENTS.map(agent => (
               <button
                 key={agent.type}
                 onClick={() => setSelectedAgent(agent.type)}
                 disabled={isExecuting}
                 className={cn(
-                  "flex items-center gap-3 p-3 rounded-lg border transition-all text-left",
+                  'flex items-center gap-3 p-3 rounded-lg border transition-all text-left',
                   selectedAgent === agent.type
-                    ? "border-terracotta bg-terracotta/5 shadow-sm"
-                    : "border-stone-200 hover:border-terracotta/50 hover:bg-stone-50",
-                  isExecuting && "opacity-50 cursor-not-allowed"
+                    ? 'border-terracotta bg-terracotta/5 shadow-sm'
+                    : 'border-stone-200 hover:border-terracotta/50 hover:bg-stone-50',
+                  isExecuting && 'opacity-50 cursor-not-allowed'
                 )}
               >
-                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white", agent.color)}>
+                <div
+                  className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center text-white',
+                    agent.color
+                  )}
+                >
                   {agent.icon}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -272,11 +282,15 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
             value={input}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
             placeholder={
-              selectedAgent === 'writer' ? '输入写作要求，例如：续写主角进入古宅的场景...' :
-              selectedAgent === 'inspector' ? '粘贴需要检查的内容...' :
-              selectedAgent === 'outline_planner' ? '描述你的故事创意...' :
-              selectedAgent === 'style_mimic' ? '输入需要改写的文本，并在参数中指定参考文风...' :
-              '输入需要分析的情节内容...'
+              selectedAgent === 'writer'
+                ? '输入写作要求，例如：续写主角进入古宅的场景...'
+                : selectedAgent === 'inspector'
+                  ? '粘贴需要检查的内容...'
+                  : selectedAgent === 'outline_planner'
+                    ? '描述你的故事创意...'
+                    : selectedAgent === 'style_mimic'
+                      ? '输入需要改写的文本，并在参数中指定参考文风...'
+                      : '输入需要分析的情节内容...'
             }
             disabled={isExecuting}
             className="min-h-[100px] resize-none bg-white/80 border border-stone-200 focus:border-terracotta rounded-md p-2 w-full"
@@ -302,11 +316,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
               )}
             </Button>
             {isExecuting && (
-              <Button
-                variant="secondary"
-                onClick={handleCancel}
-                className="px-3"
-              >
+              <Button variant="secondary" onClick={handleCancel} className="px-3">
                 <OctagonX className="w-4 h-4" />
               </Button>
             )}
@@ -376,7 +386,12 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
               <div className="flex items-center gap-2">
                 {selectedAgentInfo && (
                   <>
-                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-white", selectedAgentInfo.color)}>
+                    <div
+                      className={cn(
+                        'w-6 h-6 rounded-full flex items-center justify-center text-white',
+                        selectedAgentInfo.color
+                      )}
+                    >
                       {selectedAgentInfo.icon}
                     </div>
                     <span className="font-medium text-stone-800">{selectedAgentInfo.name}</span>
@@ -385,12 +400,16 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {result.score !== undefined && (
-                  <span className={cn(
-                    "text-xs px-2 py-1 rounded-full",
-                    result.score >= 0.8 ? "bg-green-100 text-green-700" :
-                    result.score >= 0.6 ? "bg-yellow-100 text-yellow-700" :
-                    "bg-red-100 text-red-700"
-                  )}>
+                  <span
+                    className={cn(
+                      'text-xs px-2 py-1 rounded-full',
+                      result.score >= 0.8
+                        ? 'bg-green-100 text-green-700'
+                        : result.score >= 0.6
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                    )}
+                  >
                     质量分: {Math.round(result.score * 100)}
                   </span>
                 )}
@@ -410,7 +429,11 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
                     onClick={() => setShowSuggestions(!showSuggestions)}
                     className="flex items-center gap-2 text-sm text-stone-600 hover:text-terracotta"
                   >
-                    {showSuggestions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {showSuggestions ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
                     改进建议 ({result.suggestions.length})
                   </button>
                   <AnimatePresence>
@@ -422,7 +445,10 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
                         className="mt-2 space-y-2"
                       >
                         {result.suggestions.map((suggestion, idx) => (
-                          <li key={idx} className="text-sm text-stone-600 bg-amber-50 px-3 py-2 rounded">
+                          <li
+                            key={idx}
+                            className="text-sm text-stone-600 bg-amber-50 px-3 py-2 rounded"
+                          >
                             • {suggestion}
                           </li>
                         ))}
@@ -435,12 +461,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
 
             {/* 操作按钮 */}
             <div className="p-4 border-t border-stone-200 flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleCopy}
-                className="flex-1"
-              >
+              <Button variant="secondary" size="sm" onClick={handleCopy} className="flex-1">
                 {copied ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
                 {copied ? '已复制' : '复制'}
               </Button>

@@ -7,7 +7,7 @@ import { useUpdateStory } from '@/hooks/useStories';
 import toast from 'react-hot-toast';
 
 export function MethodologySettings() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const updateStoryMutation = useUpdateStory();
 
   const [methodologyId, setMethodologyId] = useState(currentStory?.methodology_id || '');
@@ -22,11 +22,31 @@ export function MethodologySettings() {
 
   const methodologies = [
     { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
-    { id: 'snowflake', name: '雪花法', description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者' },
-    { id: 'scene_structure', name: '场景节拍', description: '以场景为单位构建叙事节拍，适合重视节奏的作者' },
-    { id: 'hero_journey', name: '英雄之旅', description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事' },
-    { id: 'character_depth', name: '人物深度', description: '以人物为核心驱动故事，适合重视角色塑造的作者' },
-    { id: 'world_building', name: '高密度世界构建', description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说' },
+    {
+      id: 'snowflake',
+      name: '雪花法',
+      description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者',
+    },
+    {
+      id: 'scene_structure',
+      name: '场景节拍',
+      description: '以场景为单位构建叙事节拍，适合重视节奏的作者',
+    },
+    {
+      id: 'hero_journey',
+      name: '英雄之旅',
+      description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事',
+    },
+    {
+      id: 'character_depth',
+      name: '人物深度',
+      description: '以人物为核心驱动故事，适合重视角色塑造的作者',
+    },
+    {
+      id: 'world_building',
+      name: '高密度世界构建',
+      description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说',
+    },
   ];
 
   const snowflakeSteps = [
@@ -51,20 +71,26 @@ export function MethodologySettings() {
 
   const handleSave = () => {
     if (!currentStory) return;
-    updateStoryMutation.mutate({
-      id: currentStory.id,
-      updates: {
-        methodology_id: methodologyId || undefined,
-        methodology_step: (methodologyId === 'snowflake' || methodologyId === 'world_building') ? methodologyStep : undefined,
+    updateStoryMutation.mutate(
+      {
+        id: currentStory.id,
+        updates: {
+          methodology_id: methodologyId || undefined,
+          methodology_step:
+            methodologyId === 'snowflake' || methodologyId === 'world_building'
+              ? methodologyStep
+              : undefined,
+        },
       },
-    }, {
-      onSuccess: () => {
-        toast.success('创作方法论已保存');
-      },
-      onError: (err: any) => {
-        toast.error(`保存失败: ${err?.message || String(err)}`);
-      },
-    });
+      {
+        onSuccess: () => {
+          toast.success('创作方法论已保存');
+        },
+        onError: (err: any) => {
+          toast.error(`保存失败: ${err?.message || String(err)}`);
+        },
+      }
+    );
   };
 
   if (!currentStory) {
@@ -97,7 +123,7 @@ export function MethodologySettings() {
             <div>
               <label className="block text-sm text-gray-400 mb-2">选择方法论</label>
               <div className="space-y-2">
-                {methodologies.map((m) => (
+                {methodologies.map(m => (
                   <button
                     key={m.id}
                     onClick={() => setMethodologyId(m.id)}
@@ -137,7 +163,9 @@ export function MethodologySettings() {
 
             {methodologyId === 'world_building' && (
               <div>
-                <label className="block text-sm text-gray-400 mb-2">当前阶段（高密度世界构建）</label>
+                <label className="block text-sm text-gray-400 mb-2">
+                  当前阶段（高密度世界构建）
+                </label>
                 <div className="space-y-1.5">
                   {worldBuildingPhases.map((phase, idx) => (
                     <button

@@ -25,9 +25,7 @@ export function AccountSettings() {
 
   const loadAuthConfig = async () => {
     try {
-      const config = await import('@/services/auth').then((m) =>
-        m.getAuthConfig()
-      );
+      const config = await import('@/services/auth').then(m => m.getAuthConfig());
       setAuthConfig(config);
     } catch (e) {
       accountLogger.error('Failed to load auth config', { error: e });
@@ -51,11 +49,7 @@ export function AccountSettings() {
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-cinema-800 flex items-center justify-center">
               {user?.avatar_url ? (
-                <img
-                  src={user.avatar_url}
-                  alt=""
-                  className="w-14 h-14 rounded-full object-cover"
-                />
+                <img src={user.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover" />
               ) : (
                 <User className="w-7 h-7 text-gray-400" />
               )}
@@ -75,9 +69,7 @@ export function AccountSettings() {
               ) : (
                 <>
                   <h3 className="text-lg font-medium text-white">未登录</h3>
-                  <p className="text-sm text-gray-400">
-                    登录后可使用云同步等跨设备功能
-                  </p>
+                  <p className="text-sm text-gray-400">登录后可使用云同步等跨设备功能</p>
                 </>
               )}
             </div>
@@ -131,8 +123,7 @@ export function AccountSettings() {
             />
           </div>
           <p className="text-xs text-gray-500 mt-4">
-            在配置文件中设置 OAuth 客户端 ID
-            后，对应登录选项将自动启用。 微信/QQ
+            在配置文件中设置 OAuth 客户端 ID 后，对应登录选项将自动启用。 微信/QQ
             登录需要在中国内地开放平台注册应用。
           </p>
         </CardContent>
@@ -160,9 +151,7 @@ function ProviderStatus({
       </div>
       <span
         className={`text-xs px-2 py-0.5 rounded-full ${
-          enabled
-            ? 'bg-green-500/10 text-green-400'
-            : 'bg-gray-700 text-gray-500'
+          enabled ? 'bg-green-500/10 text-green-400' : 'bg-gray-700 text-gray-500'
         }`}
       >
         {enabled ? '已启用' : '未配置'}

@@ -84,7 +84,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
   useEffect(() => {
     loggedInvoke<string>('get_current_version')
       .then(setCurrentVersion)
-      .catch((err) => updaterLogger.error('Failed to get current version', { error: err }));
+      .catch(err => updaterLogger.error('Failed to get current version', { error: err }));
   }, []);
 
   // 监听下载进度事件
@@ -93,19 +93,16 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
       try {
         progressUnlistenRef.current = await listen<UpdateDownloadProgress>(
           'update-download-progress',
-          (event) => {
+          event => {
             setDownloadProgress(event.payload);
             updaterLogger.debug(
               `[Updater] Download progress: ${event.payload.percentage.toFixed(1)}%`
             );
           }
         );
-        completeUnlistenRef.current = await listen(
-          'update-download-complete',
-          () => {
-            updaterLogger.info('[Updater] Download completed, app will restart');
-          }
-        );
+        completeUnlistenRef.current = await listen('update-download-complete', () => {
+          updaterLogger.info('[Updater] Download completed, app will restart');
+        });
       } catch (e) {
         updaterLogger.error('Failed to setup update progress listeners', { error: e });
       }

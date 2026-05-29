@@ -36,6 +36,97 @@ pub struct ModelConfigInput {
     pub enabled: Option<bool>,
 }
 
+// ============================================================================
+// 辅助函数 — 消除 Chat/Multimodal 重复逻辑
+// ============================================================================
+
+/// 解析提供商字符串为 LlmProvider
+fn parse_llm_provider(provider: &str) -> LlmProvider {
+    match provider {
+        "anthropic" => LlmProvider::Anthropic,
+        "azure" => LlmProvider::Azure,
+        "ollama" => LlmProvider::Ollama,
+        "deepseek" => LlmProvider::DeepSeek,
+        "qwen" => LlmProvider::Qwen,
+        "custom" => LlmProvider::Custom,
+        _ => LlmProvider::OpenAI,
+    }
+}
+
+/// 解析能力字符串列表为 ModelCapability 列表
+fn parse_capabilities(caps: Vec<String>) -> Vec<ModelCapability> {
+    caps.into_iter()
+        .filter_map(|c| match c.as_str() {
+            "chat" => Some(ModelCapability::Chat),
+            "completion" => Some(ModelCapability::Completion),
+            "function_calling" => Some(ModelCapability::FunctionCalling),
+            "json_mode" => Some(ModelCapability::JsonMode),
+            "vision" => Some(ModelCapability::Vision),
+            "long_context" => Some(ModelCapability::LongContext),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 规范化 temperature：限制到2位小数，避免浮点精度噪声
+fn normalize_temperature(temp: f32) -> f32 {
+    ((temp * 100.0).round() / 100.0).clamp(0.0, 2.0)
+}
+
+/// 构建 LlmProfile（Chat 和 Multimodal 共用）
+fn build_llm_profile(
+    model_id: String,
+    config: &ModelConfigInput,
+    force_vision: bool,
+) -> LlmProfile {
+    let mut capabilities = config
+        .capabilities
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|c| match c.as_str() {
+            "chat" => Some(ModelCapability::Chat),
+            "completion" => Some(ModelCapability::Completion),
+            "function_calling" => Some(ModelCapability::FunctionCalling),
+            "json_mode" => Some(ModelCapability::JsonMode),
+            "vision" => Some(ModelCapability::Vision),
+            "long_context" => Some(ModelCapability::LongContext),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if force_vision && !capabilities.contains(&ModelCapability::Vision) {
+        capabilities.push(ModelCapability::Vision);
+    }
+
+    // 确保 chat capability 始终存在
+    if !capabilities.contains(&ModelCapability::Chat) {
+        capabilities.push(ModelCapability::Chat);
+    }
+
+    let provider = parse_llm_provider(&config.provider);
+    let model_source = match config.provider.as_str() {
+        "ollama" | "local" => ModelSource::Local,
+        _ => ModelSource::Platform,
+    };
+
+    LlmProfile {
+        id: model_id,
+        name: config.name.clone(),
+        description: config.description.clone(),
+        provider,
+        model: config.model.clone(),
+        api_key: config.api_key.clone().unwrap_or_default(),
+        api_base: config.api_base.clone(),
+        max_tokens: config.max_tokens.unwrap_or(2000),
+        temperature: normalize_temperature(config.temperature.unwrap_or(0.7)),
+        timeout_seconds: 120,
+        is_default: config.is_default.unwrap_or(false),
+        capabilities,
+        model_source,
+    }
+}
+
 /// 应用设置导出格式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettingsExport {
@@ -308,52 +399,7 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
     
     match config.model_type {
         ModelType::Chat => {
-            let capabilities = config
-                .capabilities
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|c| match c.as_str() {
-                    "chat" => Some(ModelCapability::Chat),
-                    "completion" => Some(ModelCapability::Completion),
-                    "function_calling" => Some(ModelCapability::FunctionCalling),
-                    "json_mode" => Some(ModelCapability::JsonMode),
-                    "vision" => Some(ModelCapability::Vision),
-                    "long_context" => Some(ModelCapability::LongContext),
-                    _ => None,
-                })
-                .collect();
-            
-            let provider = match config.provider.as_str() {
-                "anthropic" => LlmProvider::Anthropic,
-                "azure" => LlmProvider::Azure,
-                "ollama" => LlmProvider::Ollama,
-                "deepseek" => LlmProvider::DeepSeek,
-                "qwen" => LlmProvider::Qwen,
-                "custom" => LlmProvider::Custom,
-                _ => LlmProvider::OpenAI,
-            };
-            
-            let model_source = match config.provider.as_str() {
-                "ollama" | "local" => ModelSource::Local,
-                _ => ModelSource::Platform,
-            };
-
-            let profile = LlmProfile {
-                id: model_id.clone(),
-                name: config.name,
-                description: config.description,
-                provider,
-                model: config.model,
-                api_key: config.api_key.unwrap_or_default(),
-                api_base: config.api_base,
-                max_tokens: config.max_tokens.unwrap_or(2000),
-                temperature: config.temperature.unwrap_or(0.7),
-                timeout_seconds: 120,
-                is_default: config.is_default.unwrap_or(false),
-                capabilities,
-                model_source,
-            };
-
+            let profile = build_llm_profile(model_id.clone(), &config, false);
             app_config.add_llm_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Embedding => {
@@ -364,7 +410,7 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 "custom" => EmbeddingProvider::Custom,
                 _ => EmbeddingProvider::OpenAI,
             };
-            
+
             let profile = EmbeddingProfile {
                 id: model_id.clone(),
                 name: config.name,
@@ -377,60 +423,11 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 max_input_tokens: 8192,
                 is_default: config.is_default.unwrap_or(false),
             };
-            
+
             app_config.add_embedding_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Multimodal => {
-            let provider = match config.provider.as_str() {
-                "anthropic" => LlmProvider::Anthropic,
-                "azure" => LlmProvider::Azure,
-                "ollama" => LlmProvider::Ollama,
-                "deepseek" => LlmProvider::DeepSeek,
-                "qwen" => LlmProvider::Qwen,
-                "custom" => LlmProvider::Custom,
-                _ => LlmProvider::OpenAI,
-            };
-            
-            let mut capabilities = config
-                .capabilities
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|c| match c.as_str() {
-                    "chat" => Some(ModelCapability::Chat),
-                    "completion" => Some(ModelCapability::Completion),
-                    "function_calling" => Some(ModelCapability::FunctionCalling),
-                    "json_mode" => Some(ModelCapability::JsonMode),
-                    "vision" => Some(ModelCapability::Vision),
-                    "long_context" => Some(ModelCapability::LongContext),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            
-            if !capabilities.contains(&ModelCapability::Vision) {
-                capabilities.push(ModelCapability::Vision);
-            }
-            
-            let model_source = match config.provider.as_str() {
-                "ollama" | "local" => ModelSource::Local,
-                _ => ModelSource::Platform,
-            };
-
-            let profile = LlmProfile {
-                id: model_id.clone(),
-                name: config.name,
-                description: config.description,
-                provider,
-                model: config.model,
-                api_key: config.api_key.unwrap_or_default(),
-                api_base: config.api_base,
-                max_tokens: config.max_tokens.unwrap_or(2000),
-                temperature: config.temperature.unwrap_or(0.7),
-                timeout_seconds: 120,
-                is_default: config.is_default.unwrap_or(false),
-                capabilities,
-                model_source,
-            };
-            
+            let profile = build_llm_profile(model_id.clone(), &config, true);
             app_config.add_llm_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Image => {
@@ -483,15 +480,7 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
             if let Some(desc) = config.description {
                 profile.description = if desc.is_empty() { None } else { Some(desc) };
             }
-            profile.provider = match config.provider.as_str() {
-                "anthropic" => LlmProvider::Anthropic,
-                "azure" => LlmProvider::Azure,
-                "ollama" => LlmProvider::Ollama,
-                "deepseek" => LlmProvider::DeepSeek,
-                "qwen" => LlmProvider::Qwen,
-                "custom" => LlmProvider::Custom,
-                _ => LlmProvider::OpenAI,
-            };
+            profile.provider = parse_llm_provider(&config.provider);
             profile.model = config.model;
 
             // API Key: 前端传了值就更新（包括空字符串表示清空）；None 表示未修改，保留旧值
@@ -503,23 +492,13 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
                 profile.api_base = if base.is_empty() { None } else { Some(base) };
             }
             if let Some(temp) = config.temperature {
-                profile.temperature = temp;
+                profile.temperature = normalize_temperature(temp);
             }
             if let Some(max_tok) = config.max_tokens {
                 profile.max_tokens = max_tok;
             }
             if let Some(caps) = config.capabilities {
-                profile.capabilities = caps.into_iter()
-                    .filter_map(|c| match c.as_str() {
-                        "chat" => Some(ModelCapability::Chat),
-                        "completion" => Some(ModelCapability::Completion),
-                        "function_calling" => Some(ModelCapability::FunctionCalling),
-                        "json_mode" => Some(ModelCapability::JsonMode),
-                        "vision" => Some(ModelCapability::Vision),
-                        "long_context" => Some(ModelCapability::LongContext),
-                        _ => None,
-                    })
-                    .collect();
+                profile.capabilities = parse_capabilities(caps);
             }
             if let Some(is_def) = config.is_default {
                 profile.is_default = is_def;
@@ -673,7 +652,16 @@ pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Res
     Ok(())
 }
 
-/// 测试模型连接
+/// 单步探测结果
+#[derive(Debug, Serialize)]
+struct ConnectionStep {
+    name: String,
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// 测试模型连接，返回带 `steps` 字段的详细探测结果
 #[command]
 pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
     let app_dir = app_handle
@@ -705,6 +693,7 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
             "success": false,
             "latency": 0,
             "error": "未配置 API Base",
+            "steps": [],
         }));
     }
 
@@ -715,14 +704,18 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
         .map_err(AppError::from)?;
 
     let api_key_ref = api_key.as_deref();
-
-    // 探测策略：只要收到任何 HTTP 响应（不论状态码）即视为网络可通
+    let mut steps: Vec<ConnectionStep> = Vec::new();
     let mut connected = false;
 
     // 1. GET base_url（根路径）
-    if client.get(&api_base).send().await.is_ok() {
-        connected = true;
-    }
+    let step1 = match client.get(&api_base).send().await {
+        Ok(_) => {
+            connected = true;
+            ConnectionStep { name: "GET root".to_string(), success: true, error: None }
+        }
+        Err(e) => ConnectionStep { name: "GET root".to_string(), success: false, error: Some(e.to_string()) },
+    };
+    steps.push(step1);
 
     // 2. GET /models
     if !connected {
@@ -732,9 +725,14 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
                 req = req.header("Authorization", format!("Bearer {}", key));
             }
         }
-        if req.send().await.is_ok() {
-            connected = true;
-        }
+        let step2 = match req.send().await {
+            Ok(_) => {
+                connected = true;
+                ConnectionStep { name: "GET /models".to_string(), success: true, error: None }
+            }
+            Err(e) => ConnectionStep { name: "GET /models".to_string(), success: false, error: Some(e.to_string()) },
+        };
+        steps.push(step2);
     }
 
     // 3. POST /chat/completions
@@ -746,9 +744,14 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
             }
         }
         req = req.header("Content-Type", "application/json");
-        if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
-            connected = true;
-        }
+        let step3 = match req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await {
+            Ok(_) => {
+                connected = true;
+                ConnectionStep { name: "POST /chat/completions".to_string(), success: true, error: None }
+            }
+            Err(e) => ConnectionStep { name: "POST /chat/completions".to_string(), success: false, error: Some(e.to_string()) },
+        };
+        steps.push(step3);
     }
 
     // 4. POST /v1/chat/completions
@@ -760,9 +763,14 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
             }
         }
         req = req.header("Content-Type", "application/json");
-        if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
-            connected = true;
-        }
+        let step4 = match req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await {
+            Ok(_) => {
+                connected = true;
+                ConnectionStep { name: "POST /v1/chat/completions".to_string(), success: true, error: None }
+            }
+            Err(e) => ConnectionStep { name: "POST /v1/chat/completions".to_string(), success: false, error: Some(e.to_string()) },
+        };
+        steps.push(step4);
     }
 
     if connected {
@@ -770,12 +778,14 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
         Ok(serde_json::json!({
             "success": true,
             "latency": latency,
+            "steps": steps,
         }))
     } else {
         Ok(serde_json::json!({
             "success": false,
             "latency": 0,
             "error": "无法连接到模型服务".to_string(),
+            "steps": steps,
         }))
     }
 }

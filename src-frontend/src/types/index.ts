@@ -103,15 +103,15 @@ export interface Chapter {
   updated_at: string;
 }
 
-export type SkillCategory = 
-  | 'writing' 
-  | 'analysis' 
-  | 'character' 
-  | 'world_building' 
-  | 'style' 
-  | 'plot' 
-  | 'export' 
-  | 'integration' 
+export type SkillCategory =
+  | 'writing'
+  | 'analysis'
+  | 'character'
+  | 'world_building'
+  | 'style'
+  | 'plot'
+  | 'export'
+  | 'integration'
   | 'custom';
 
 export interface SkillParameter {

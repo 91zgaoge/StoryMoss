@@ -42,9 +42,9 @@ export function useBookAnalysisStatus(bookId: string | null) {
     let unlisten: (() => void) | undefined;
 
     const setup = async () => {
-      unlisten = await listen<BookAnalysisProgressEvent>('book-analysis-progress', (event) => {
+      unlisten = await listen<BookAnalysisProgressEvent>('book-analysis-progress', event => {
         if (event.payload.book_id === bookId) {
-          setLiveStatus((prev) => ({
+          setLiveStatus(prev => ({
             book_id: bookId,
             status: event.payload.status,
             progress: event.payload.progress,
@@ -79,13 +79,14 @@ export function useBookAnalysisStatus(bookId: string | null) {
         status: string;
         message: string;
         progress_percent: number;
-      }>('pipeline-progress', (event) => {
+      }>('pipeline-progress', event => {
         const p = event.payload;
         if (p.pipeline_type !== 'analysis') return;
         // pipeline_id 对应 book_id
-        setLiveStatus((prev) => ({
+        setLiveStatus(prev => ({
           book_id: bookId,
-          status: p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'analyzing',
+          status:
+            p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'analyzing',
           progress: p.progress_percent,
           current_step: p.message,
           error: undefined,
@@ -109,14 +110,19 @@ export function useBookAnalysisStatus(bookId: string | null) {
     let unlistenStatus: (() => void) | undefined;
 
     const setup = async () => {
-      unlistenProgress = await listen<TaskProgressEvent>('task-progress', (event) => {
-        setLiveStatus((prev) => {
+      unlistenProgress = await listen<TaskProgressEvent>('task-progress', event => {
+        setLiveStatus(prev => {
           // 过滤非当前任务的事件
           if (prev?.task_id && event.payload.task_id !== prev.task_id) {
             return prev;
           }
           // 如果 prev 存在但状态已不是分析中，忽略
-          if (prev && prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing') {
+          if (
+            prev &&
+            prev.status !== 'pending' &&
+            prev.status !== 'extracting' &&
+            prev.status !== 'analyzing'
+          ) {
             return prev;
           }
           // 即使 prev 为 null（轮询还没返回），也要创建状态
@@ -135,14 +141,19 @@ export function useBookAnalysisStatus(bookId: string | null) {
         });
       });
 
-      unlistenStatus = await listen<TaskStatusChangedEvent>('task-status-changed', (event) => {
-        setLiveStatus((prev) => {
+      unlistenStatus = await listen<TaskStatusChangedEvent>('task-status-changed', event => {
+        setLiveStatus(prev => {
           // 过滤非当前任务的事件
           if (prev?.task_id && event.payload.task_id !== prev.task_id) {
             return prev;
           }
           // 如果 prev 存在但状态已不是分析中，忽略
-          if (prev && prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing') {
+          if (
+            prev &&
+            prev.status !== 'pending' &&
+            prev.status !== 'extracting' &&
+            prev.status !== 'analyzing'
+          ) {
             return prev;
           }
           const base = prev ?? {
@@ -192,13 +203,18 @@ export function useBookAnalysisStatus(bookId: string | null) {
     queryKey: [STATUS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const status: AnalysisStatusResponse = await loggedInvoke<AnalysisStatusResponse>('get_analysis_status', { bookId });
+      const status: AnalysisStatusResponse = await loggedInvoke<AnalysisStatusResponse>(
+        'get_analysis_status',
+        { bookId }
+      );
       return status;
     },
-    refetchInterval: (query) => {
+    refetchInterval: query => {
       const data = query.state.data;
       if (!data) return false;
-      return data.status === 'pending' || data.status === 'extracting' || data.status === 'analyzing'
+      return data.status === 'pending' ||
+        data.status === 'extracting' ||
+        data.status === 'analyzing'
         ? 3000
         : false;
     },
@@ -215,7 +231,10 @@ export function useBookAnalysis(bookId: string | null) {
     queryKey: [ANALYSIS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const result: BookAnalysisResult = await loggedInvoke<BookAnalysisResult>('get_book_analysis', { bookId });
+      const result: BookAnalysisResult = await loggedInvoke<BookAnalysisResult>(
+        'get_book_analysis',
+        { bookId }
+      );
       return result;
     },
     enabled: !!bookId,
@@ -228,7 +247,8 @@ export function useReferenceBooks() {
   return useQuery({
     queryKey: [BOOKS_KEY],
     queryFn: async () => {
-      const books: ReferenceBookSummary[] = await loggedInvoke<ReferenceBookSummary[]>('list_reference_books');
+      const books: ReferenceBookSummary[] =
+        await loggedInvoke<ReferenceBookSummary[]>('list_reference_books');
       return books;
     },
   });

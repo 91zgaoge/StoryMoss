@@ -11,15 +11,19 @@ import type { CharacterRelationship } from '@/types/index';
 
 type CharacterTab = 'info' | 'relationships';
 
-function RelationshipCard({ rel, characterId }: { rel: CharacterRelationship; characterId: string }) {
+function RelationshipCard({
+  rel,
+  characterId,
+}: {
+  rel: CharacterRelationship;
+  characterId: string;
+}) {
   const isOutgoing = rel.source_character_id === characterId;
   return (
     <div className="p-3 bg-cinema-800/50 rounded-lg border border-cinema-700">
       <div className="flex items-center gap-2 text-sm">
         <Link2 className="w-3.5 h-3.5 text-cinema-gold" />
-        <span className="text-white font-medium">
-          {isOutgoing ? '→' : '←'}
-        </span>
+        <span className="text-white font-medium">{isOutgoing ? '→' : '←'}</span>
         <span className="text-cinema-gold">{rel.relationship_type}</span>
         {rel.target_character_name && (
           <span className="text-gray-400">
@@ -30,15 +34,13 @@ function RelationshipCard({ rel, characterId }: { rel: CharacterRelationship; ch
       {rel.description && (
         <p className="mt-1 text-xs text-gray-500 line-clamp-2">{rel.description}</p>
       )}
-      {rel.dynamic && (
-        <p className="mt-1 text-xs text-gray-600 italic">动态: {rel.dynamic}</p>
-      )}
+      {rel.dynamic && <p className="mt-1 text-xs text-gray-600 italic">动态: {rel.dynamic}</p>}
     </div>
   );
 }
 
 export function Characters() {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const queryClient = useQueryClient();
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
   const { data: relationships = [] } = useCharacterRelationships(currentStory?.id || undefined);
@@ -58,21 +60,24 @@ export function Characters() {
     const form = e.currentTarget;
     const formData = new FormData(form);
 
-    createCharacter.mutate({
-      story_id: currentStory.id,
-      name: formData.get('name') as string,
-      background: formData.get('background') as string || undefined,
-      personality: formData.get('personality') as string || undefined,
-      goals: formData.get('goals') as string || undefined,
-      appearance: formData.get('appearance') as string || undefined,
-      gender: formData.get('gender') as string || undefined,
-      age: formData.get('age') ? Number(formData.get('age')) : undefined,
-    }, {
-      onSuccess: () => {
-        setIsModalOpen(false);
-        form.reset();
+    createCharacter.mutate(
+      {
+        story_id: currentStory.id,
+        name: formData.get('name') as string,
+        background: (formData.get('background') as string) || undefined,
+        personality: (formData.get('personality') as string) || undefined,
+        goals: (formData.get('goals') as string) || undefined,
+        appearance: (formData.get('appearance') as string) || undefined,
+        gender: (formData.get('gender') as string) || undefined,
+        age: formData.get('age') ? Number(formData.get('age')) : undefined,
       },
-    });
+      {
+        onSuccess: () => {
+          setIsModalOpen(false);
+          form.reset();
+        },
+      }
+    );
   };
 
   const handleDelete = (id: string) => {
@@ -86,7 +91,7 @@ export function Characters() {
 
   const getCharacterRelationships = (charId: string) => {
     return relationships.filter(
-      (r) => r.source_character_id === charId || r.target_character_id === charId
+      r => r.source_character_id === charId || r.target_character_id === charId
     );
   };
 
@@ -109,7 +114,9 @@ export function Characters() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-3xl font-bold text-white">角色管理</h1>
-          <p className="text-gray-400">{currentStory.title} - 共 {characters.length} 个角色</p>
+          <p className="text-gray-400">
+            {currentStory.title} - 共 {characters.length} 个角色
+          </p>
         </div>
         <Button variant="primary" onClick={() => setIsModalOpen(true)}>
           <Plus className="w-4 h-4" />
@@ -122,9 +129,7 @@ export function Characters() {
         <button
           onClick={() => setActiveTab('info')}
           className={`px-4 py-1.5 rounded-md text-sm transition-colors ${
-            activeTab === 'info'
-              ? 'bg-cinema-700 text-white'
-              : 'text-gray-400 hover:text-gray-200'
+            activeTab === 'info' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           资料
@@ -143,7 +148,7 @@ export function Characters() {
 
       {activeTab === 'info' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {characters.map((char) => (
+          {characters.map(char => (
             <Card key={char.id} hover className="group">
               <CardContent className="p-6">
                 <div className="flex items-center gap-4">
@@ -151,7 +156,9 @@ export function Characters() {
                     {char.name.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-lg font-semibold text-white truncate">{char.name}</h3>
+                    <h3 className="font-display text-lg font-semibold text-white truncate">
+                      {char.name}
+                    </h3>
                     {char.personality && (
                       <p className="text-sm text-gray-400 mt-1 line-clamp-1">{char.personality}</p>
                     )}
@@ -216,7 +223,7 @@ export function Characters() {
         </div>
       ) : (
         <div className="space-y-6">
-          {characters.map((char) => {
+          {characters.map(char => {
             const charRels = getCharacterRelationships(char.id);
             return (
               <Card key={char.id}>
@@ -226,14 +233,12 @@ export function Characters() {
                       {char.name.charAt(0)}
                     </div>
                     <h3 className="font-display text-lg font-semibold text-white">{char.name}</h3>
-                    <span className="text-xs text-gray-500">
-                      {charRels.length} 个关系
-                    </span>
+                    <span className="text-xs text-gray-500">{charRels.length} 个关系</span>
                   </div>
 
                   {charRels.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {charRels.map((rel) => (
+                      {charRels.map(rel => (
                         <RelationshipCard key={rel.id} rel={rel} characterId={char.id} />
                       ))}
                     </div>
@@ -336,11 +341,7 @@ export function Characters() {
                   <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
                     取消
                   </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    isLoading={createCharacter.isPending}
-                  >
+                  <Button type="submit" variant="primary" isLoading={createCharacter.isPending}>
                     创建
                   </Button>
                 </div>

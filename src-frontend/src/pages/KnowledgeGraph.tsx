@@ -1,14 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { KnowledgeGraphView } from '@/components/KnowledgeGraph';
-import { getStoryGraph, getRetentionReport, archiveForgottenEntities, getArchivedEntities, restoreArchivedEntity } from '@/services/tauri';
+import {
+  getStoryGraph,
+  getRetentionReport,
+  archiveForgottenEntities,
+  getArchivedEntities,
+  restoreArchivedEntity,
+} from '@/services/tauri';
 import { useAppStore } from '@/stores/appStore';
 import type { StoryGraph, RetentionReport, Entity, StorySummary } from '@/types/v3';
-import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive, RotateCcw, PackageOpen, Sparkles, Trash2 } from 'lucide-react';
+import {
+  Network,
+  RefreshCw,
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  Brain,
+  Archive,
+  RotateCcw,
+  PackageOpen,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
 const kgLogger = createLogger('ui:KnowledgeGraph');
-import { useStorySummaries, useDistillStoryKnowledge, useDeleteStorySummary } from '@/hooks/useKnowledgeDistillation';
+import {
+  useStorySummaries,
+  useDistillStoryKnowledge,
+  useDeleteStorySummary,
+} from '@/hooks/useKnowledgeDistillation';
 
 type TabType = 'graph' | 'memory' | 'archived' | 'distillation';
 
@@ -38,7 +60,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 };
 
 export const KnowledgeGraph: React.FC = () => {
-  const currentStory = useAppStore((s) => s.currentStory);
+  const currentStory = useAppStore(s => s.currentStory);
   const [activeTab, setActiveTab] = useState<TabType>('graph');
   const [graphData, setGraphData] = useState<StoryGraph | null>(null);
   const [report, setReport] = useState<RetentionReport | null>(null);
@@ -180,7 +202,9 @@ export const KnowledgeGraph: React.FC = () => {
                 <Activity className="w-5 h-5 text-cinema-gold" />
                 <span className="text-sm text-gray-400">平均优先级</span>
               </div>
-              <p className="text-2xl font-bold text-white">{(report.avg_priority * 100).toFixed(1)}%</p>
+              <p className="text-2xl font-bold text-white">
+                {(report.avg_priority * 100).toFixed(1)}%
+              </p>
             </div>
             <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-4">
               <div className="flex items-center gap-3 mb-2">
@@ -215,7 +239,9 @@ export const KnowledgeGraph: React.FC = () => {
                 >
                   <Archive className={cn('w-4 h-4', isArchiving && 'animate-pulse')} />
                   <span className="text-sm font-medium">
-                    {isArchiving ? '归档中...' : `归档 ${report.forgotten_entities.length} 个遗忘实体`}
+                    {isArchiving
+                      ? '归档中...'
+                      : `归档 ${report.forgotten_entities.length} 个遗忘实体`}
                   </span>
                 </button>
               )}
@@ -232,14 +258,18 @@ export const KnowledgeGraph: React.FC = () => {
                   return order.indexOf(a) - order.indexOf(b);
                 })
                 .map(([level, count]) => {
-                  const percentage = report.total_entities > 0
-                    ? (count / report.total_entities) * 100
-                    : 0;
+                  const percentage =
+                    report.total_entities > 0 ? (count / report.total_entities) * 100 : 0;
                   return (
                     <div key={level}>
                       <div className="flex items-center justify-between text-sm mb-1">
                         <span className="flex items-center gap-2 text-gray-300">
-                          <span className={cn('w-2.5 h-2.5 rounded-full', LEVEL_COLORS[level] || 'bg-gray-500')} />
+                          <span
+                            className={cn(
+                              'w-2.5 h-2.5 rounded-full',
+                              LEVEL_COLORS[level] || 'bg-gray-500'
+                            )}
+                          />
                           {LEVEL_LABELS[level] || level}
                         </span>
                         <span className="text-gray-400">
@@ -248,7 +278,10 @@ export const KnowledgeGraph: React.FC = () => {
                       </div>
                       <div className="h-2 bg-cinema-800 rounded-full overflow-hidden">
                         <div
-                          className={cn('h-full rounded-full transition-all', LEVEL_COLORS[level] || 'bg-gray-500')}
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            LEVEL_COLORS[level] || 'bg-gray-500'
+                          )}
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
@@ -266,7 +299,7 @@ export const KnowledgeGraph: React.FC = () => {
                   关键实体 ({report.critical_entities.length})
                 </h3>
                 <div className="flex flex-wrap gap-2">
-                  {report.critical_entities.map((name) => (
+                  {report.critical_entities.map(name => (
                     <span
                       key={name}
                       className="px-2.5 py-1 rounded-lg bg-red-500/10 text-red-300 text-sm border border-red-500/20"
@@ -283,7 +316,7 @@ export const KnowledgeGraph: React.FC = () => {
                   建议归档 ({report.forgotten_entities.length})
                 </h3>
                 <div className="flex flex-wrap gap-2">
-                  {report.forgotten_entities.map((name) => (
+                  {report.forgotten_entities.map(name => (
                     <span
                       key={name}
                       className="px-2.5 py-1 rounded-lg bg-gray-500/10 text-gray-400 text-sm border border-gray-500/20"
@@ -319,9 +352,7 @@ export const KnowledgeGraph: React.FC = () => {
                 <Sparkles className="w-5 h-5 text-cinema-gold" />
                 知识蒸馏
               </h3>
-              <p className="text-sm text-gray-500 mt-1">
-                基于知识图谱自动生成故事摘要与洞察
-              </p>
+              <p className="text-sm text-gray-500 mt-1">基于知识图谱自动生成故事摘要与洞察</p>
             </div>
             <button
               onClick={handleDistill}
@@ -339,11 +370,13 @@ export const KnowledgeGraph: React.FC = () => {
             <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-8 text-center">
               <Sparkles className="w-12 h-12 mx-auto mb-4 text-cinema-700" />
               <p className="text-gray-300 mb-2">暂无知识摘要</p>
-              <p className="text-sm text-gray-500">点击右上角按钮，AI 将基于当前知识图谱生成故事摘要</p>
+              <p className="text-sm text-gray-500">
+                点击右上角按钮，AI 将基于当前知识图谱生成故事摘要
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {summaries.map((summary) => (
+              {summaries.map(summary => (
                 <div
                   key={summary.id}
                   className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-5"
@@ -404,11 +437,14 @@ export const KnowledgeGraph: React.FC = () => {
           <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-cinema-800 flex items-center justify-between">
               <h3 className="font-semibold text-white">
-                已归档实体 <span className="text-gray-500 text-sm font-normal">({archivedEntities.length})</span>
+                已归档实体{' '}
+                <span className="text-gray-500 text-sm font-normal">
+                  ({archivedEntities.length})
+                </span>
               </h3>
             </div>
             <div className="divide-y divide-cinema-800">
-              {archivedEntities.map((entity) => (
+              {archivedEntities.map(entity => (
                 <div
                   key={entity.id}
                   className="px-5 py-4 flex items-center justify-between hover:bg-cinema-800/50 transition-colors"
@@ -420,7 +456,10 @@ export const KnowledgeGraph: React.FC = () => {
                     <div>
                       <p className="font-medium text-white">{entity.name}</p>
                       <p className="text-xs text-gray-500">
-                        归档于 {entity.archived_at ? new Date(entity.archived_at).toLocaleString() : '未知时间'}
+                        归档于{' '}
+                        {entity.archived_at
+                          ? new Date(entity.archived_at).toLocaleString()
+                          : '未知时间'}
                       </p>
                     </div>
                   </div>
@@ -429,7 +468,9 @@ export const KnowledgeGraph: React.FC = () => {
                     disabled={isRestoringId === entity.id}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cinema-800 text-gray-300 hover:text-white hover:bg-cinema-700 transition-colors disabled:opacity-50 text-sm"
                   >
-                    <RotateCcw className={cn('w-4 h-4', isRestoringId === entity.id && 'animate-spin')} />
+                    <RotateCcw
+                      className={cn('w-4 h-4', isRestoringId === entity.id && 'animate-spin')}
+                    />
                     {isRestoringId === entity.id ? '恢复中...' : '恢复'}
                   </button>
                 </div>
@@ -451,7 +492,10 @@ export const KnowledgeGraph: React.FC = () => {
             知识图谱
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {currentStory.title} · {graphData ? `${graphData.entities.length} 实体 · ${graphData.relations.length} 关系` : '加载中...'}
+            {currentStory.title} ·{' '}
+            {graphData
+              ? `${graphData.entities.length} 实体 · ${graphData.relations.length} 关系`
+              : '加载中...'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -461,7 +505,9 @@ export const KnowledgeGraph: React.FC = () => {
               onClick={() => setActiveTab('graph')}
               className={cn(
                 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                activeTab === 'graph' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                activeTab === 'graph'
+                  ? 'bg-cinema-700 text-white'
+                  : 'text-gray-400 hover:text-white'
               )}
             >
               图谱
@@ -470,7 +516,9 @@ export const KnowledgeGraph: React.FC = () => {
               onClick={() => setActiveTab('memory')}
               className={cn(
                 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                activeTab === 'memory' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                activeTab === 'memory'
+                  ? 'bg-cinema-700 text-white'
+                  : 'text-gray-400 hover:text-white'
               )}
             >
               记忆健康
@@ -479,7 +527,9 @@ export const KnowledgeGraph: React.FC = () => {
               onClick={() => setActiveTab('archived')}
               className={cn(
                 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                activeTab === 'archived' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                activeTab === 'archived'
+                  ? 'bg-cinema-700 text-white'
+                  : 'text-gray-400 hover:text-white'
               )}
             >
               已归档
@@ -488,7 +538,9 @@ export const KnowledgeGraph: React.FC = () => {
               onClick={() => setActiveTab('distillation')}
               className={cn(
                 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                activeTab === 'distillation' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                activeTab === 'distillation'
+                  ? 'bg-cinema-700 text-white'
+                  : 'text-gray-400 hover:text-white'
               )}
             >
               知识蒸馏
@@ -503,7 +555,9 @@ export const KnowledgeGraph: React.FC = () => {
             disabled={isLoading || isSummariesLoading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-800 hover:bg-cinema-700 text-gray-300 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={cn('w-4 h-4', (isLoading || isSummariesLoading) && 'animate-spin')} />
+            <RefreshCw
+              className={cn('w-4 h-4', (isLoading || isSummariesLoading) && 'animate-spin')}
+            />
             <span className="text-sm">刷新</span>
           </button>
         </div>

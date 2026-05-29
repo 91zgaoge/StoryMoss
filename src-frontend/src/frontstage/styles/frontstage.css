@@ -30,16 +30,20 @@
   --ink: oklch(25% 0.015 85);
   --ivory: oklch(98% 0.005 95);
   --gold: oklch(72% 0.1 85);
-  
+
   /* Typography */
-  --font-serif: 'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', Georgia, 'STSong', 'SimSun', serif;
-  --font-sans: 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
-  
+  --font-serif:
+    'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', Georgia, 'STSong', 'SimSun',
+    serif;
+  --font-sans:
+    'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system,
+    sans-serif;
+
   /* Spacing */
   --content-max-width: 900px;
   --line-height: 1.8;
   --paragraph-spacing: 0;
-  
+
   /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s ease;
@@ -64,7 +68,9 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
 }
@@ -76,7 +82,9 @@ body {
   line-height: var(--line-height);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.5s ease, color 0.5s ease;
+  transition:
+    background-color 0.5s ease,
+    color 0.5s ease;
 }
 
 /* Custom Scrollbar */
@@ -128,7 +136,11 @@ body {
   color: var(--fs-ink-color, var(--charcoal));
   line-height: var(--fs-line-height, var(--line-height));
   letter-spacing: var(--fs-letter-spacing, normal);
-  transition: color 0.3s ease, font-size 0.3s ease, line-height 0.3s ease, letter-spacing 0.3s ease;
+  transition:
+    color 0.3s ease,
+    font-size 0.3s ease,
+    line-height 0.3s ease,
+    letter-spacing 0.3s ease;
   /* 借鉴 heti：针对混合英文段落，按词折行 */
   overflow-wrap: break-word;
   word-wrap: break-word;
@@ -300,7 +312,7 @@ body {
 
 /* 中文引号规范化（借鉴 heti _variables.scss，采用 common 规范） */
 .ProseMirror q {
-  quotes: "「" "」" "『" "』";
+  quotes: '「' '」' '『' '』';
 }
 
 /* 禁用中文斜体（借鉴 heti _inline.scss） */
@@ -437,15 +449,23 @@ body {
   background: var(--parchment-dark);
   border: 1px solid var(--warm-sand);
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.08);
   width: 340px;
   overflow: hidden;
   animation: help-panel-in 0.2s ease-out;
 }
 
 @keyframes help-panel-in {
-  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .frontstage-help-header {
@@ -546,8 +566,13 @@ body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* ===== Sidebar ===== */
@@ -589,7 +614,10 @@ body {
   cursor: pointer;
   margin-bottom: 6px;
   font-size: 14px;
-  transition: background-color var(--transition-fast), color var(--transition-fast), transform 0.1s ease;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform 0.1s ease;
 }
 
 .sidebar-item:hover {
@@ -612,7 +640,9 @@ body {
   margin-bottom: 4px;
   font-size: 13px;
   color: var(--charcoal-light);
-  transition: color var(--transition-fast), transform 0.1s ease;
+  transition:
+    color var(--transition-fast),
+    transform 0.1s ease;
 }
 
 .sidebar-chapter-item:hover,
@@ -633,7 +663,9 @@ body {
   cursor: pointer;
   text-align: center;
   font-size: 14px;
-  transition: background-color var(--transition-fast), transform 0.1s ease;
+  transition:
+    background-color var(--transition-fast),
+    transform 0.1s ease;
   border: none;
   width: 100%;
 }
@@ -657,7 +689,9 @@ body {
   border: none;
   background: transparent;
   cursor: pointer;
-  transition: background-color var(--transition-fast), transform 0.15s ease;
+  transition:
+    background-color var(--transition-fast),
+    transform 0.15s ease;
   font-size: 14px;
   line-height: 1;
 }
@@ -695,7 +729,10 @@ body {
   background: transparent;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast), transform 0.15s ease;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform 0.15s ease;
 }
 
 .zen-mode-btn:hover {
@@ -716,7 +753,10 @@ body {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast), transform 0.1s ease;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform 0.1s ease;
 }
 
 .sidebar-dock-btn:hover {
@@ -798,7 +838,9 @@ body {
   border-radius: 24px;
   padding: 8px 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .chat-input-container:hover {
@@ -836,7 +878,10 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .chat-toggle-btn:hover {
@@ -864,7 +909,9 @@ body {
   height: 8px;
   border-radius: 50%;
   background-color: var(--stone-gray);
-  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .model-status-dot.status-connected {
@@ -883,7 +930,8 @@ body {
 }
 
 @keyframes status-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     box-shadow: 0 0 0 0 oklch(75% 0.16 95 / 0.7);
   }
@@ -970,6 +1018,56 @@ body {
   margin-top: 3px;
 }
 
+.model-tooltip-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--warm-sand);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.model-tooltip-label {
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  flex-shrink: 0;
+}
+
+.model-tooltip-value {
+  color: var(--charcoal);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
+.model-tooltip-link {
+  color: var(--terracotta);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: opacity 0.2s;
+}
+
+.model-tooltip-link:hover {
+  opacity: 0.8;
+}
+
 /* 中间区域：输入框 */
 .chat-input-middle {
   flex: 1;
@@ -1027,7 +1125,10 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .model-switch-btn:hover {
@@ -1059,7 +1160,10 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .chat-send-btn:hover:not(:disabled) {
@@ -1219,7 +1323,11 @@ body {
   color: var(--stone-gray);
   border: 1px solid var(--warm-sand);
   cursor: pointer;
-  transition: box-shadow var(--transition-normal), transform var(--transition-normal), color var(--transition-normal), background-color var(--transition-normal);
+  transition:
+    box-shadow var(--transition-normal),
+    transform var(--transition-normal),
+    color var(--transition-normal),
+    background-color var(--transition-normal);
   z-index: 1000;
 }
 
@@ -1281,7 +1389,10 @@ body {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   opacity: 0;
   transform: translateY(10px) scale(0.95);
-  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+  transition:
+    opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s ease;
   pointer-events: auto;
 }
 
@@ -1317,8 +1428,15 @@ body {
 }
 
 @keyframes suggestion-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(1.3); opacity: 0; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
 }
 
 .ai-suggestion-icon {
@@ -1354,8 +1472,14 @@ body {
 }
 
 @keyframes fade-in-char {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 0.8; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 0.8;
+    transform: translateY(0);
+  }
 }
 
 .ai-cursor {
@@ -1369,8 +1493,13 @@ body {
 }
 
 @keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 /* ===== Character Name Highlight ===== */
@@ -1379,7 +1508,9 @@ body {
   background-blend-mode: multiply;
   opacity: 0.85;
   cursor: pointer;
-  transition: background 0.2s ease, opacity 0.2s ease;
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
   border-radius: 2px;
 }
 
@@ -1442,7 +1573,8 @@ body {
 
 /* Minimal Style (海明威) */
 .writing-style-minimal .ProseMirror {
-  font-family: 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-family:
+    'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   font-size: 20px;
   line-height: 1.6;
   letter-spacing: 0.01em;
@@ -1469,7 +1601,7 @@ body {
 .writing-style-romantic .ProseMirror {
   font-family: 'LXGW WenKai', 'Noto Serif SC', 'STKaiti', 'KaiTi', serif;
   font-size: 19px;
-  line-height: 2.0;
+  line-height: 2;
   letter-spacing: 0.02em;
 }
 
@@ -1493,18 +1625,33 @@ body {
 
 /* ===== Animations ===== */
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
 }
 
 /* ===== Responsive ===== */
@@ -1512,15 +1659,15 @@ body {
   :root {
     --content-max-width: 100%;
   }
-  
+
   .frontstage-main {
     padding: 20px;
   }
-  
+
   .reader-writer-editor {
     font-size: 16px;
   }
-  
+
   .frontstage-sidebar {
     position: fixed;
     left: 0;
@@ -1529,7 +1676,7 @@ body {
     z-index: 20;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
   }
-  
+
   .ProseMirror {
     padding: 1rem;
   }
@@ -1549,7 +1696,6 @@ body {
   animation: fadeIn 0.2s ease-out;
 }
 
-
 /* ===== Color Theme Dot (Header embedded) ===== */
 .color-theme-dot-wrapper {
   position: relative;
@@ -1565,7 +1711,10 @@ body {
   border-radius: 50%;
   opacity: 0.3;
   cursor: pointer;
-  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
   box-shadow: 0 0 0 2px var(--parchment);
   flex-shrink: 0;
 }
@@ -1574,7 +1723,9 @@ body {
 .color-theme-dot.hovered {
   opacity: 1;
   transform: scale(1.2);
-  box-shadow: 0 0 0 3px var(--parchment), 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow:
+    0 0 0 3px var(--parchment),
+    0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* 选择面板 - 向下展开 */
@@ -1590,7 +1741,9 @@ body {
   opacity: 0;
   transform: translateY(-6px) scale(0.96);
   pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
   min-width: 100px;
   z-index: 100;
 }
@@ -1654,7 +1807,6 @@ body {
 .color-theme-label {
   white-space: nowrap;
 }
-
 
 /* ===== Ghost Text (Kimi Code style) ===== */
 .chat-ghost-text {
@@ -1721,7 +1873,6 @@ body {
   font-family: var(--font-sans);
 }
 
-
 /* ===== Smart Hint System (智能文思 — 表达层) ===== */
 
 .smart-hint-container {
@@ -1744,7 +1895,9 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   opacity: 0;
   transform: translateY(8px) scale(0.96);
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
   pointer-events: auto;
   cursor: default;
 }
@@ -1774,7 +1927,9 @@ body {
   border-radius: 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   opacity: 0;
-  transition: opacity 0.6s ease, transform 0.6s ease;
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
   z-index: 25;
   pointer-events: none;
   max-width: 180px;
@@ -1803,10 +1958,16 @@ body {
 }
 
 @keyframes ambient-pulse {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.3); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.3);
+  }
 }
-
 
 /* ===== AI Suggestion Inline Paragraph (内联建议段落) ===== */
 
@@ -1816,7 +1977,9 @@ body {
   margin-bottom: 1em !important;
   padding-left: 1.5em;
   border-left: 3px solid var(--stone-gray);
-  transition: opacity 0.3s ease, border-color 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .ai-suggestion-node .ai-suggestion-text {
@@ -1832,14 +1995,30 @@ body {
 }
 
 /* 各类别的颜色 */
-.ai-suggestion-node.ai-suggestion-pacing { border-left-color: #d97706; }
-.ai-suggestion-node.ai-suggestion-dialogue { border-left-color: #0ea5e9; }
-.ai-suggestion-node.ai-suggestion-description { border-left-color: #10b981; }
-.ai-suggestion-node.ai-suggestion-vocabulary { border-left-color: #8b5cf6; }
-.ai-suggestion-node.ai-suggestion-sentence { border-left-color: #f43f5e; }
-.ai-suggestion-node.ai-suggestion-emotion { border-left-color: #ec4899; }
-.ai-suggestion-node.ai-suggestion-plot { border-left-color: #f97316; }
-.ai-suggestion-node.ai-suggestion-structure { border-left-color: #64748b; }
+.ai-suggestion-node.ai-suggestion-pacing {
+  border-left-color: #d97706;
+}
+.ai-suggestion-node.ai-suggestion-dialogue {
+  border-left-color: #0ea5e9;
+}
+.ai-suggestion-node.ai-suggestion-description {
+  border-left-color: #10b981;
+}
+.ai-suggestion-node.ai-suggestion-vocabulary {
+  border-left-color: #8b5cf6;
+}
+.ai-suggestion-node.ai-suggestion-sentence {
+  border-left-color: #f43f5e;
+}
+.ai-suggestion-node.ai-suggestion-emotion {
+  border-left-color: #ec4899;
+}
+.ai-suggestion-node.ai-suggestion-plot {
+  border-left-color: #f97316;
+}
+.ai-suggestion-node.ai-suggestion-structure {
+  border-left-color: #64748b;
+}
 
 /* 建议提示标签 */
 .ai-suggestion-node .ai-suggestion-label {
@@ -1863,7 +2042,9 @@ body {
   margin-top: 6px;
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .ai-suggestion-node:hover .ai-suggestion-actions {
@@ -1881,7 +2062,9 @@ body {
   font-family: var(--font-sans);
   cursor: pointer;
   border: none;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
 }
 
 .ai-suggestion-actions button:active {
@@ -1904,7 +2087,6 @@ body {
 .ai-suggestion-action-reject:hover {
   background: var(--warm-sand);
 }
-
 
 /* ===== Free User Analysis Hint Toast (免费用户分析提示) ===== */
 
@@ -2035,8 +2217,12 @@ body {
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .upgrade-panel {
@@ -2078,7 +2264,9 @@ body {
   border-radius: 8px;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .upgrade-panel-close:hover {
@@ -2171,7 +2359,11 @@ body {
 .upgrade-panel-pricing {
   text-align: center;
   padding: 16px;
-  background: linear-gradient(135deg, var(--terracotta-light, rgba(180, 90, 60, 0.08)), transparent);
+  background: linear-gradient(
+    135deg,
+    var(--terracotta-light, rgba(180, 90, 60, 0.08)),
+    transparent
+  );
   border-radius: 14px;
   margin-bottom: 20px;
   border: 1px dashed var(--terracotta);
@@ -2224,7 +2416,9 @@ body {
   font-weight: 600;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
   box-shadow: 0 4px 16px rgba(180, 90, 60, 0.3);
 }
 
@@ -2267,8 +2461,14 @@ body {
 }
 
 @keyframes ghost-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ghost-paragraph {
@@ -2333,7 +2533,8 @@ body {
 }
 
 @keyframes send-pulse-flash {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 0 oklch(58% 0.13 45 / 0.5);
   }
   50% {
@@ -2397,8 +2598,14 @@ body {
 }
 
 @keyframes status-fade-in {
-  from { opacity: 0; transform: translateX(4px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* ===== 右侧边缘萤火提示 ===== */
@@ -2415,7 +2622,9 @@ body {
   line-height: 1.5;
   color: var(--olive-gray);
   opacity: 0;
-  animation: firefly-appear 0.8s ease forwards, firefly-vanish 1.2s ease 4s forwards;
+  animation:
+    firefly-appear 0.8s ease forwards,
+    firefly-vanish 1.2s ease 4s forwards;
   pointer-events: none;
   z-index: 20;
 }
@@ -2426,13 +2635,23 @@ body {
 }
 
 @keyframes firefly-appear {
-  from { opacity: 0; transform: translateY(-50%) translateX(6px); }
-  to { opacity: 0.5; transform: translateY(-50%) translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(6px);
+  }
+  to {
+    opacity: 0.5;
+    transform: translateY(-50%) translateX(0);
+  }
 }
 
 @keyframes firefly-vanish {
-  from { opacity: 0.5; }
-  to { opacity: 0; }
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .firefly-dot {
@@ -2447,8 +2666,15 @@ body {
 }
 
 @keyframes firefly-dot-pulse {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.4); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.4);
+  }
 }
 
 .firefly-message {
@@ -2469,8 +2695,14 @@ body {
 }
 
 @keyframes blank-hint-in {
-  from { opacity: 0; transform: translate(-50%, -45%); }
-  to { opacity: 1; transform: translate(-50%, -50%); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -45%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
 }
 
 .blank-state-hint p {
@@ -2547,8 +2779,13 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .wensi-tab:disabled {
@@ -2608,7 +2845,9 @@ body {
   font-family: var(--font-serif);
   line-height: 1.6;
   resize: vertical;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .wensi-textarea:focus {
@@ -2696,7 +2935,9 @@ body {
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
 }
 
 .wensi-btn-primary:hover {
@@ -2725,7 +2966,9 @@ body {
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
 }
 
 .wensi-btn-danger:hover {
@@ -2766,7 +3009,9 @@ body {
   font-family: var(--font-sans);
   cursor: pointer;
   border: none;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
   background: transparent;
   color: var(--stone-gray);
 }
@@ -2905,7 +3150,9 @@ body {
   font-size: 14px;
   font-family: var(--font-sans);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .editor-slash-input:focus {
@@ -3000,7 +3247,9 @@ body {
   font-family: var(--font-sans);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .ai-gen-btn-accept:hover {
@@ -3020,15 +3269,15 @@ body {
   font-size: 12px;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .ai-gen-btn-reject:hover {
   background: var(--warm-sand);
   color: var(--charcoal);
 }
-
-
 
 /* ===== AI Learning Indicator ===== */
 .ai-learning-indicator {
@@ -3040,7 +3289,7 @@ body {
   border: 1px solid var(--warm-sand, #e8e0d5);
   border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   z-index: 50;
   font-size: 13px;
   animation: hint-slide-in 0.3s ease-out;
@@ -3078,7 +3327,7 @@ body {
 
 .ai-learning-item {
   padding: 10px;
-  background: rgba(0,0,0,0.03);
+  background: rgba(0, 0, 0, 0.03);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -3123,14 +3372,15 @@ body {
   font-size: 12px;
   font-family: var(--font-sans);
   color: var(--charcoal-light);
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .ai-learning-actions button:hover {
   background: var(--warm-sand, #e8e0d5);
   color: var(--charcoal);
 }
-
 
 /* ===== Bottom Input Bar (v4.3 智能提示版) ===== */
 
@@ -3160,7 +3410,9 @@ body {
   border-radius: 20px;
   padding: 6px 6px 6px 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .frontstage-input-pill:hover {
@@ -3250,7 +3502,9 @@ body {
   border-radius: 50%;
   color: white;
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
   flex-shrink: 0;
 }
 
@@ -3280,7 +3534,9 @@ body {
   border-radius: 50%;
   color: white;
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
   flex-shrink: 0;
   animation: pulse-cancel 1.5s ease-in-out infinite;
 }
@@ -3294,8 +3550,13 @@ body {
 }
 
 @keyframes pulse-cancel {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 /* 模型状态文字颜色 */

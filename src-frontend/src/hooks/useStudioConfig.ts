@@ -21,7 +21,7 @@ export function useStudioConfig(storyId: string | null) {
 
 export function useCreateStudioConfig() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (storyId: string) => {
       return loggedInvoke<StudioConfig>('create_studio_config', { story_id: storyId });
@@ -34,7 +34,7 @@ export function useCreateStudioConfig() {
 
 export function useUpdateStudioConfig() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: {
       id: string;
@@ -64,19 +64,17 @@ export function useExportStudio() {
   return useMutation({
     mutationFn: async (request: StudioExportRequest) => {
       const data = await loggedInvoke<Uint8Array>('export_studio', { request });
-      
+
       // Save to file
       const filePath = await save({
-        filters: [
-          { name: 'StoryForge Studio', extensions: ['storyforge'] },
-        ],
+        filters: [{ name: 'StoryForge Studio', extensions: ['storyforge'] }],
         defaultPath: `${request.story_id}.storyforge`,
       });
-      
+
       if (filePath) {
         await writeFile(filePath, data);
       }
-      
+
       return filePath;
     },
   });
@@ -84,30 +82,28 @@ export function useExportStudio() {
 
 export function useImportStudio() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (options: ImportOptions) => {
       // Open file dialog
       const filePath = await open({
-        filters: [
-          { name: 'StoryForge Studio', extensions: ['storyforge'] },
-        ],
+        filters: [{ name: 'StoryForge Studio', extensions: ['storyforge'] }],
         multiple: false,
       });
-      
+
       if (!filePath) {
         throw new Error('No file selected');
       }
-      
+
       // Read file
       const data = await readFile(filePath as string);
-      
+
       // Import
       const story = await loggedInvoke<Story>('import_studio', {
         data: Array.from(data),
         options,
       });
-      
+
       return story;
     },
     onSuccess: () => {

@@ -32,7 +32,9 @@ export function useCreateTextAnnotation() {
     mutationFn: createTextAnnotation,
     onSuccess: (_, vars) => {
       if (vars.chapter_id) {
-        queryClient.invalidateQueries({ queryKey: ['text-annotations', 'chapter', vars.chapter_id] });
+        queryClient.invalidateQueries({
+          queryKey: ['text-annotations', 'chapter', vars.chapter_id],
+        });
       }
       if (vars.scene_id) {
         queryClient.invalidateQueries({ queryKey: ['text-annotations', 'scene', vars.scene_id] });

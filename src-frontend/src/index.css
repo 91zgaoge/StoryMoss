@@ -6,12 +6,17 @@
   * {
     @apply border-cinema-700;
   }
-  
+
   body {
     @apply bg-cinema-950 text-gray-100 font-body;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-display;
   }
 }
@@ -20,17 +25,21 @@
   .glass-cinema {
     @apply bg-cinema-850/50 backdrop-blur-xl border border-cinema-700/50;
   }
-  
+
   .gradient-border {
     @apply relative;
   }
-  
+
   .gradient-border::before {
     content: '';
     @apply absolute inset-0 rounded-2xl p-px;
     background: linear-gradient(135deg, rgba(212, 175, 55, 0.5), transparent 50%);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
   }

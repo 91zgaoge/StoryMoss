@@ -20,7 +20,7 @@ export function useWorldBuilding(storyId: string | null) {
 
 export function useCreateWorldBuilding() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: { storyId: string; concept: string }) => {
       return loggedInvoke<WorldBuilding>('create_world_building', {
@@ -36,7 +36,7 @@ export function useCreateWorldBuilding() {
 
 export function useUpdateWorldBuilding() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (params: {
       id: string;
@@ -88,7 +88,7 @@ export function useWritingStyle(storyId: string | null) {
 
 export function useCreateWritingStyle() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (storyId: string) => {
       return loggedInvoke<WritingStyle>('create_writing_style', { story_id: storyId });
@@ -101,13 +101,9 @@ export function useCreateWritingStyle() {
 
 export function useUpdateWritingStyle() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async (params: {
-      id: string;
-      storyId: string;
-      updates: WritingStyleUpdate;
-    }) => {
+    mutationFn: async (params: { id: string; storyId: string; updates: WritingStyleUpdate }) => {
       return loggedInvoke<number>('update_writing_style', {
         id: params.id,
         updates: params.updates,

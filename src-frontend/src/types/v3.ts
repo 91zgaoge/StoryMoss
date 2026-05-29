@@ -2,17 +2,17 @@
 
 // ==================== 场景类型 ====================
 
-export type ConflictType = 
-  | 'ManVsMan'        // 人与人
-  | 'ManVsSelf'       // 人与自我
-  | 'ManVsSociety'    // 人与社会
-  | 'ManVsNature'     // 人与自然
+export type ConflictType =
+  | 'ManVsMan' // 人与人
+  | 'ManVsSelf' // 人与自我
+  | 'ManVsSociety' // 人与社会
+  | 'ManVsNature' // 人与自然
   | 'ManVsTechnology' // 人与科技
-  | 'ManVsFate'       // 人与命运
+  | 'ManVsFate' // 人与命运
   | 'ManVsSupernatural' // 人与超自然
-  | 'ManVsTime'       // 人与时间
-  | 'ManVsMorality'   // 人与道德
-  | 'ManVsIdentity'   // 人与身份
+  | 'ManVsTime' // 人与时间
+  | 'ManVsMorality' // 人与道德
+  | 'ManVsIdentity' // 人与身份
   | 'FactionVsFaction'; // 群体冲突
 
 export interface CharacterConflict {
@@ -27,38 +27,38 @@ export interface Scene {
   story_id: string;
   sequence_number: number;
   title?: string;
-  
+
   // 戏剧结构
   dramatic_goal?: string;
   external_pressure?: string;
   conflict_type?: ConflictType;
-  
+
   // 角色参与
   characters_present: string[];
   character_conflicts: CharacterConflict[];
-  
+
   // 内容
   content?: string;
-  
+
   // 结构化大纲
   execution_stage?: 'planning' | 'outline' | 'drafting' | 'review' | 'final';
   outline_content?: string;
   draft_content?: string;
-  
+
   // AI 生成置信度
   confidence_score?: number;
-  
+
   // 场景设置
   setting_location?: string;
   setting_time?: string;
   setting_atmosphere?: string;
-  
+
   // 关联
   previous_scene_id?: string;
   next_scene_id?: string;
   foreshadowing_ids?: string[];
   chapter_id?: string;
-  
+
   // 元数据
   model_used?: string;
   cost?: number;
@@ -68,15 +68,15 @@ export interface Scene {
 
 // ==================== 世界观类型 ====================
 
-export type RuleType = 
-  | 'Magic'       // 魔法规则
-  | 'Technology'  // 科技规则
-  | 'Social'      // 社会规则
-  | 'Physical'    // 物理规则
-  | 'Biological'  // 生物规则
-  | 'Historical'  // 历史规则
-  | 'Cultural'    // 文化规则
-  | 'Custom';     // 自定义
+export type RuleType =
+  | 'Magic' // 魔法规则
+  | 'Technology' // 科技规则
+  | 'Social' // 社会规则
+  | 'Physical' // 物理规则
+  | 'Biological' // 生物规则
+  | 'Historical' // 历史规则
+  | 'Cultural' // 文化规则
+  | 'Custom'; // 自定义
 
 export interface WorldRule {
   id: string;
@@ -106,7 +106,7 @@ export interface WorldBuilding {
 
 // ==================== 场景设置类型 ====================
 
-export type LocationType = 
+export type LocationType =
   | 'City'
   | 'Building'
   | 'Nature'
@@ -183,13 +183,13 @@ export interface UiStudioConfig {
   backstage_accent_color: string;
 }
 
-export type AgentBotType = 
-  | 'WorldBuilding'  // 世界观助手
-  | 'Character'      // 人物助手
-  | 'WritingStyle'   // 文风助手
-  | 'Plot'           // 情节助手
-  | 'Scene'          // 场景助手
-  | 'Memory';        // 记忆助手
+export type AgentBotType =
+  | 'WorldBuilding' // 世界观助手
+  | 'Character' // 人物助手
+  | 'WritingStyle' // 文风助手
+  | 'Plot' // 情节助手
+  | 'Scene' // 场景助手
+  | 'Memory'; // 记忆助手
 
 export interface AgentBotConfig {
   id: string;
@@ -270,7 +270,7 @@ export interface VectorSearchResult {
 
 // ==================== 知识图谱类型 ====================
 
-export type EntityType = 
+export type EntityType =
   | 'Character'
   | 'Location'
   | 'Item'
@@ -295,19 +295,40 @@ export interface Entity {
   archived_at?: string;
 }
 
-export type RelationType = 
+export type RelationType =
   // 人际关系
-  | 'Friend' | 'Enemy' | 'Family' | 'Lover' | 'Mentor' | 'Rival' | 'Ally'
+  | 'Friend'
+  | 'Enemy'
+  | 'Family'
+  | 'Lover'
+  | 'Mentor'
+  | 'Rival'
+  | 'Ally'
   // 物品关系
-  | 'LocatedAt' | 'BelongsTo' | 'Uses' | 'Owns' | 'Created' | 'Destroyed'
+  | 'LocatedAt'
+  | 'BelongsTo'
+  | 'Uses'
+  | 'Owns'
+  | 'Created'
+  | 'Destroyed'
   // 组织关系
-  | 'PartOf' | 'Leads' | 'MemberOf' | 'FounderOf'
+  | 'PartOf'
+  | 'Leads'
+  | 'MemberOf'
+  | 'FounderOf'
   // 因果关系
-  | 'Causes' | 'Enables' | 'Prevents' | 'ResultsIn'
+  | 'Causes'
+  | 'Enables'
+  | 'Prevents'
+  | 'ResultsIn'
   // 语义关系
-  | 'SimilarTo' | 'OppositeOf' | 'RelatedTo' | 'EvolvesInto'
+  | 'SimilarTo'
+  | 'OppositeOf'
+  | 'RelatedTo'
+  | 'EvolvesInto'
   // 叙事关系 (v5.0.0+)
-  | 'ParticipatesIn' | 'SetUpIn';
+  | 'ParticipatesIn'
+  | 'SetUpIn';
 
 export interface Relation {
   id: string;
@@ -475,7 +496,16 @@ export interface SceneProposal {
 }
 
 export interface NovelCreationProgress {
-  step: 'genre_input' | 'generating_world' | 'selecting_world' | 'generating_characters' | 'selecting_characters' | 'generating_style' | 'selecting_style' | 'generating_first_scene' | 'completed';
+  step:
+    | 'genre_input'
+    | 'generating_world'
+    | 'selecting_world'
+    | 'generating_characters'
+    | 'selecting_characters'
+    | 'generating_style'
+    | 'selecting_style'
+    | 'generating_first_scene'
+    | 'completed';
   message: string;
   progress: number; // 0-100
 }
@@ -488,7 +518,7 @@ export interface SceneVersion {
   id: string;
   scene_id: string;
   version_number: number;
-  
+
   // 内容快照
   title?: string;
   content?: string;
@@ -500,18 +530,18 @@ export interface SceneVersion {
   setting_location?: string;
   setting_time?: string;
   setting_atmosphere?: string;
-  
+
   // 版本元数据
   word_count: number;
   change_summary: string;
   created_by: CreatorType;
   model_used?: string;
   confidence_score?: number;
-  
+
   // 版本链
   previous_version_id?: string;
   superseded_by?: string;
-  
+
   created_at: string;
 }
 

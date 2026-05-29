@@ -55,7 +55,7 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
     if (htmlContent === lastAnalyzedRef.current) return;
 
     lastAnalyzedRef.current = htmlContent;
-    
+
     // 清空已处理缓存，允许同类型建议在新内容下重新触发
     pendingSuggestionRef.current.clear();
 
@@ -63,9 +63,7 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
     const decision = generateSuggestions(perception);
 
     // 优先处理高优先级的内联修改建议
-    const highPriority = decision.suggestions.filter(
-      s => s.priority === 'high'
-    );
+    const highPriority = decision.suggestions.filter(s => s.priority === 'high');
 
     if (subscription?.isPro) {
       // Pro 用户：触发内联修改建议
@@ -79,9 +77,10 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
           .map(p => p.textContent || '')
           .filter(t => t.trim().length > 0);
 
-        const targetIndex = topSuggestion.targetParagraphIndex >= 0
-          ? topSuggestion.targetParagraphIndex
-          : paragraphs.length - 1;
+        const targetIndex =
+          topSuggestion.targetParagraphIndex >= 0
+            ? topSuggestion.targetParagraphIndex
+            : paragraphs.length - 1;
 
         const targetText = paragraphs[targetIndex] || '';
 
@@ -111,7 +110,15 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
         onFreeHint(topHint.title, topHint.message);
       }
     }
-  }, [htmlContent, isEnabled, isZenMode, onInlineSuggestion, onGhostSuggestion, onFreeHint, subscription]);
+  }, [
+    htmlContent,
+    isEnabled,
+    isZenMode,
+    onInlineSuggestion,
+    onGhostSuggestion,
+    onFreeHint,
+    subscription,
+  ]);
 
   // 防抖分析：用户停止输入 3 秒后触发
   useEffect(() => {

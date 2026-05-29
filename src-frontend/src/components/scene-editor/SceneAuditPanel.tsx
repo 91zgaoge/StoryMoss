@@ -9,9 +9,17 @@ interface SceneAuditPanelProps {
   onBackToDrafting: () => void;
 }
 
-export function SceneAuditPanel({ sceneId, onPromoteToFinal, onBackToDrafting }: SceneAuditPanelProps) {
+export function SceneAuditPanel({
+  sceneId,
+  onPromoteToFinal,
+  onBackToDrafting,
+}: SceneAuditPanelProps) {
   const [auditEnabled, setAuditEnabled] = useState(false);
-  const { data: auditReport, isLoading: auditLoading } = useAuditScene(sceneId, 'light', auditEnabled);
+  const { data: auditReport, isLoading: auditLoading } = useAuditScene(
+    sceneId,
+    'light',
+    auditEnabled
+  );
 
   return (
     <div className="space-y-4">
@@ -26,7 +34,11 @@ export function SceneAuditPanel({ sceneId, onPromoteToFinal, onBackToDrafting }:
           onClick={() => setAuditEnabled(true)}
           disabled={auditLoading}
         >
-          {auditLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Zap className="w-4 h-4 mr-1" />}
+          {auditLoading ? (
+            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+          ) : (
+            <Zap className="w-4 h-4 mr-1" />
+          )}
           运行审校
         </Button>
       </div>
@@ -59,18 +71,26 @@ export function SceneAuditPanel({ sceneId, onPromoteToFinal, onBackToDrafting }:
           <div className="p-4 bg-cinema-800/50 border border-cinema-700 rounded-lg">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-white">综合评分</span>
-              <span className={`text-lg font-bold ${
-                auditReport.overall_score >= 0.8 ? 'text-green-400' :
-                auditReport.overall_score >= 0.6 ? 'text-amber-400' : 'text-red-400'
-              }`}>
+              <span
+                className={`text-lg font-bold ${
+                  auditReport.overall_score >= 0.8
+                    ? 'text-green-400'
+                    : auditReport.overall_score >= 0.6
+                      ? 'text-amber-400'
+                      : 'text-red-400'
+                }`}
+              >
                 {(auditReport.overall_score * 100).toFixed(0)}分
               </span>
             </div>
             <div className="h-2 bg-cinema-700 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${
-                  auditReport.overall_score >= 0.8 ? 'bg-green-500' :
-                  auditReport.overall_score >= 0.6 ? 'bg-amber-500' : 'bg-red-500'
+                  auditReport.overall_score >= 0.8
+                    ? 'bg-green-500'
+                    : auditReport.overall_score >= 0.6
+                      ? 'bg-amber-500'
+                      : 'bg-red-500'
                 }`}
                 style={{ width: `${auditReport.overall_score * 100}%` }}
               />
@@ -84,22 +104,33 @@ export function SceneAuditPanel({ sceneId, onPromoteToFinal, onBackToDrafting }:
           </div>
 
           {/* Dimensions */}
-          {auditReport.dimensions.map((dim) => (
-            <div key={dim.name} className="p-3 bg-cinema-800/30 border border-cinema-700/50 rounded-lg">
+          {auditReport.dimensions.map(dim => (
+            <div
+              key={dim.name}
+              className="p-3 bg-cinema-800/30 border border-cinema-700/50 rounded-lg"
+            >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-gray-300">{dim.name}</span>
-                <span className={`text-sm font-medium ${
-                  dim.score >= 0.8 ? 'text-green-400' :
-                  dim.score >= 0.6 ? 'text-amber-400' : 'text-red-400'
-                }`}>
+                <span
+                  className={`text-sm font-medium ${
+                    dim.score >= 0.8
+                      ? 'text-green-400'
+                      : dim.score >= 0.6
+                        ? 'text-amber-400'
+                        : 'text-red-400'
+                  }`}
+                >
                   {(dim.score * 100).toFixed(0)}分
                 </span>
               </div>
               <div className="h-1.5 bg-cinema-700 rounded-full overflow-hidden mb-2">
                 <div
                   className={`h-full rounded-full ${
-                    dim.score >= 0.8 ? 'bg-green-500' :
-                    dim.score >= 0.6 ? 'bg-amber-500' : 'bg-red-500'
+                    dim.score >= 0.8
+                      ? 'bg-green-500'
+                      : dim.score >= 0.6
+                        ? 'bg-amber-500'
+                        : 'bg-red-500'
                   }`}
                   style={{ width: `${dim.score * 100}%` }}
                 />
@@ -110,19 +141,23 @@ export function SceneAuditPanel({ sceneId, onPromoteToFinal, onBackToDrafting }:
                     <div
                       key={idx}
                       className={`text-xs p-2 rounded ${
-                        issue.severity === 'blocking' ? 'bg-red-500/10 text-red-300 border border-red-500/20' :
-                        issue.severity === 'warning' ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' :
-                        'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                        issue.severity === 'blocking'
+                          ? 'bg-red-500/10 text-red-300 border border-red-500/20'
+                          : issue.severity === 'warning'
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                            : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
                       }`}
                     >
                       <div className="font-medium mb-0.5">
-                        {issue.severity === 'blocking' ? '🔴 阻塞' : issue.severity === 'warning' ? '🟡 警告' : '🔵 提示'}
-                        {' '}{issue.message}
+                        {issue.severity === 'blocking'
+                          ? '🔴 阻塞'
+                          : issue.severity === 'warning'
+                            ? '🟡 警告'
+                            : '🔵 提示'}{' '}
+                        {issue.message}
                       </div>
                       {issue.suggestion && (
-                        <div className="text-gray-400 pl-5">
-                          建议：{issue.suggestion}
-                        </div>
+                        <div className="text-gray-400 pl-5">建议：{issue.suggestion}</div>
                       )}
                     </div>
                   ))}

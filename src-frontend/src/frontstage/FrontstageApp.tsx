@@ -2,7 +2,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { X } from 'lucide-react';
-import { recordFeedback, smartExecute, checkPreflight, autoCreateMissingContracts, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
+import {
+  recordFeedback,
+  smartExecute,
+  checkPreflight,
+  autoCreateMissingContracts,
+  getInputHint,
+  runRefine,
+  runReview,
+  runFinalize,
+  getPipelineActiveDraft,
+} from '@/services/tauri';
 import { parseStructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
@@ -13,6 +23,8 @@ import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useAppStore } from '@/stores/appStore';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
+import { useSettings, useModels } from '@/hooks/useSettings';
+import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress } from '@/hooks/usePipelineProgress';
@@ -76,17 +88,25 @@ const FrontstageApp: React.FC = () => {
   const currentStoryRef = useRef(currentStory);
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
-  useEffect(() => { currentStoryRef.current = currentStory; }, [currentStory]);
-  useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
-  useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
-  const isSavedRef = useRef(isSaved);
-  useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
+  useEffect(() => {
+    currentStoryRef.current = currentStory;
+  }, [currentStory]);
+  useEffect(() => {
+    chaptersRef.current = chapters;
+  }, [chapters]);
+  useEffect(() => {
+    currentChapterRef.current = currentChapter;
+  }, [currentChapter]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   // W2-F1 TODO: `content` 和 `isSaved` 应迁移到 frontstageStore（唯一可写源）。
   // 当前已通过事件入口保护（ContentUpdate/ChapterSwitch 在 isSaved===false 时不覆盖）
   // 和 RichTextEditor 焦点保护满足验收标准。
   const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
+  const isSavedRef = useRef(isSaved);
+  useEffect(() => {
+    isSavedRef.current = isSaved;
+  }, [isSaved]);
   const [generatedText, setGeneratedText] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [fontSize, setFontSize] = useState(() => loadEditorConfig().fontSize);
@@ -97,7 +117,12 @@ const FrontstageApp: React.FC = () => {
   const [wensiMode, setWensiMode] = useState<WensiMode>('passive');
 
   const [smartGhostText, setSmartGhostText] = useState('');
-  const [inlineSuggestion, setInlineSuggestion] = useState<{ instruction: string; targetText: string; category: string; targetParagraphIndex: number } | null>(null);
+  const [inlineSuggestion, setInlineSuggestion] = useState<{
+    instruction: string;
+    targetText: string;
+    category: string;
+    targetParagraphIndex: number;
+  } | null>(null);
   const [showUpgradePanel, setShowUpgradePanel] = useState(false);
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const subscription = useSubscription();
@@ -114,23 +139,23 @@ const FrontstageApp: React.FC = () => {
       loadStories();
     },
     // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
-    onSceneCreated: (storyId) => {
+    onSceneCreated: storyId => {
       if (currentStory && storyId === currentStory.id) {
         loadStoryScenes(storyId);
       }
     },
-    onSceneUpdated: (storyId) => {
+    onSceneUpdated: storyId => {
       if (currentStory && storyId === currentStory.id) {
         loadStoryScenes(storyId);
       }
     },
-    onSceneDeleted: (storyId) => {
+    onSceneDeleted: storyId => {
       if (currentStory && storyId === currentStory.id) {
         loadStoryScenes(storyId);
       }
     },
     // v5.4.0: 监听 chapter 创建/删除（幕后增删章节后同步幕前列表）
-    onChapterCreated: (storyId) => {
+    onChapterCreated: storyId => {
       if (currentStory && storyId === currentStory.id) {
         loadStoryChapters(storyId);
       }
@@ -192,10 +217,21 @@ const FrontstageApp: React.FC = () => {
   /** 将细粒度步骤名映射为大阶段提示文案 */
   const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
     const s = stepName.toLowerCase();
-    if (s.includes('构思') || s.includes('概念') || s.includes('创意') || s.includes('conception')) {
+    if (
+      s.includes('构思') ||
+      s.includes('概念') ||
+      s.includes('创意') ||
+      s.includes('conception')
+    ) {
       return { icon: '🎨', text: '正在构思故事概念...' };
     }
-    if (s.includes('开篇') || s.includes('正文') || s.includes('第一章') || s.includes('first chapter') || s.includes('撰写')) {
+    if (
+      s.includes('开篇') ||
+      s.includes('正文') ||
+      s.includes('第一章') ||
+      s.includes('first chapter') ||
+      s.includes('撰写')
+    ) {
       return { icon: '✍️', text: '正在撰写第一章...' };
     }
     if (s.includes('世界') || s.includes('世界观') || s.includes('world')) {
@@ -229,15 +265,18 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   /** 更新顶部 Toast 的大阶段提示（仅在阶段变化时更新，避免闪烁） */
-  const updateToastPhase = useCallback((stepName: string) => {
-    const phase = getMajorPhase(stepName);
-    if (!phase || !activeToastIdRef.current) return;
-    const phaseKey = phase.text;
-    // 只有大阶段变化时才更新 toast
-    if (currentToastPhaseRef.current === phaseKey) return;
-    currentToastPhaseRef.current = phaseKey;
-    toast.loading(`${phase.icon} ${phase.text}`, { id: activeToastIdRef.current });
-  }, [getMajorPhase]);
+  const updateToastPhase = useCallback(
+    (stepName: string) => {
+      const phase = getMajorPhase(stepName);
+      if (!phase || !activeToastIdRef.current) return;
+      const phaseKey = phase.text;
+      // 只有大阶段变化时才更新 toast
+      if (currentToastPhaseRef.current === phaseKey) return;
+      currentToastPhaseRef.current = phaseKey;
+      toast.loading(`${phase.icon} ${phase.text}`, { id: activeToastIdRef.current });
+    },
+    [getMajorPhase]
+  );
 
   // v0.7.7: 统一后台活动监听器 — 聚合所有进度事件到 backendActivityStore
   useBackendActivityListener();
@@ -245,7 +284,7 @@ const FrontstageApp: React.FC = () => {
   // v0.7.7: 监听统一后台活动 store，大阶段变化时及时 toast 提示
   const lastActivityStageRef = useRef<string>('');
   useEffect(() => {
-    const unsub = useBackendActivityStore.subscribe((state) => {
+    const unsub = useBackendActivityStore.subscribe(state => {
       const primary = state.getPrimaryActivity();
       if (!primary) {
         lastActivityStageRef.current = '';
@@ -258,10 +297,14 @@ const FrontstageApp: React.FC = () => {
       // 大阶段变化时给出 toast 提示（仅对重要类别）
       const importantCategories = ['contract_fill', 'pipeline', 'orchestrator', 'smart_execute'];
       if (importantCategories.includes(primary.category) && primary.status === 'running') {
-        const icon = primary.category === 'contract_fill' ? '📋'
-          : primary.category === 'pipeline' ? '📦'
-          : primary.category === 'orchestrator' ? '⚙️'
-          : '💭';
+        const icon =
+          primary.category === 'contract_fill'
+            ? '📋'
+            : primary.category === 'pipeline'
+              ? '📦'
+              : primary.category === 'orchestrator'
+                ? '⚙️'
+                : '💭';
         toast(`${icon} ${primary.message}`, { icon: '🔔', duration: 3000 });
       }
     });
@@ -295,12 +338,22 @@ const FrontstageApp: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
 
   // 输入栏智能提示系统
-  const [ghostHint, setGhostHint] = useState('');           // 灰色提示内容
+  const [ghostHint, setGhostHint] = useState(''); // 灰色提示内容
   const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
   const [inputHistory, setInputHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);      // -1=LLM建议, 0+=历史
-  const [modelStatus, setModelStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
+  const [historyIndex, setHistoryIndex] = useState(-1); // -1=LLM建议, 0+=历史
+  const [modelStatus, setModelStatus] = useState<'connected' | 'disconnected' | 'connecting'>(
+    'connecting'
+  );
   const [modelName, setModelName] = useState('');
+
+  // v0.7.8: 使用新版模型管理系统丰富底部栏 tooltip
+  const { data: settings } = useSettings();
+  const { data: allModels = [] } = useModels();
+  const connectionStates = useModelConnectionStore(state => state.states);
+  const activeChatModelId = settings?.active_models?.chat;
+  const activeChatModel = allModels.find(m => m.id === activeChatModelId);
+  const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
 
   // AI 学习指示器
   const [learnings, setLearnings] = useState<LearningPoint[]>([]);
@@ -322,7 +375,9 @@ const FrontstageApp: React.FC = () => {
     lastEventTimeRef.current = Date.now();
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     elapsedTimerRef.current = setInterval(() => {
-      const elapsed = generationStartTimeRef.current ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000) : 0;
+      const elapsed = generationStartTimeRef.current
+        ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
+        : 0;
       setGenerationStatus(prev => {
         // 保留原有的状态前缀，只更新后面的时间部分
         const base = prev.split(' ('.split('')[0])[0];
@@ -338,7 +393,9 @@ const FrontstageApp: React.FC = () => {
           // 如果已经有模型生成中的提示，不要覆盖
           if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
           const base = prev.split(' (')[0];
-          const elapsed = generationStartTimeRef.current ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000) : 0;
+          const elapsed = generationStartTimeRef.current
+            ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
+            : 0;
           return `${base}（系统仍在处理中...） (${elapsed}s)`;
         });
       }
@@ -357,14 +414,14 @@ const FrontstageApp: React.FC = () => {
     }
     generationStartTimeRef.current = null;
   }, []);
-  
+
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {
     lastEventTimeRef.current = Date.now();
   }, []);
 
   // W2-F2: 监听编辑器配置变化（同步幕后设置到幕前），替代 editor-config-changed DOM CustomEvent
-  const editorConfig = useAppStore((state) => state.editorConfig);
+  const editorConfig = useAppStore(state => state.editorConfig);
   useEffect(() => {
     if (editorConfig?.fontSize) {
       setFontSize(editorConfig.fontSize);
@@ -392,7 +449,7 @@ const FrontstageApp: React.FC = () => {
   const setupEventListeners = async (unlisteners: (() => void)[]) => {
     try {
       // 监听 frontstage-update 事件
-      const unlisten1 = await listen<FrontstageEvent>('frontstage-update', (event) => {
+      const unlisten1 = await listen<FrontstageEvent>('frontstage-update', event => {
         const { type, payload } = event.payload;
 
         switch (type) {
@@ -417,7 +474,12 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              frontstageLogger.info('[ChapterSwitch] Received event', { story_id: payload.story_id, chapter_id: payload.chapter_id, has_content: !!payload.content, content_length: payload.content?.length || 0 });
+              frontstageLogger.info('[ChapterSwitch] Received event', {
+                story_id: payload.story_id,
+                chapter_id: payload.chapter_id,
+                has_content: !!payload.content,
+                content_length: payload.content?.length || 0,
+              });
               // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
               // W2-F1: 切换不同章节时无条件加载；同一章节且有未保存更改时不覆盖，避免内容回滚
               if (payload?.content && payload.content.trim().length > 0) {
@@ -426,7 +488,9 @@ const FrontstageApp: React.FC = () => {
                   frontstageLogger.info('[ChapterSwitch] Using content from event directly');
                   setContent(autoFormatText(payload.content));
                 } else {
-                  frontstageLogger.info('[ChapterSwitch] Skipping content overwrite (unsaved changes)');
+                  frontstageLogger.info(
+                    '[ChapterSwitch] Skipping content overwrite (unsaved changes)'
+                  );
                 }
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
@@ -435,11 +499,21 @@ const FrontstageApp: React.FC = () => {
                   try {
                     const allStories = await loggedInvoke<Story[]>('list_stories');
                     const targetStory = allStories.find(s => s.id === payload.story_id);
-                    frontstageLogger.info('[ChapterSwitch] Target story lookup', { found: !!targetStory, story_count: allStories.length });
+                    frontstageLogger.info('[ChapterSwitch] Target story lookup', {
+                      found: !!targetStory,
+                      story_count: allStories.length,
+                    });
                     if (targetStory) {
-                      const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
-                      const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
-                      frontstageLogger.info('[ChapterSwitch] Loaded chapters', { count: storyChapters.length, chapter_ids: storyChapters.map(c => c.id) });
+                      const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
+                        story_id: targetStory.id,
+                      });
+                      const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', {
+                        story_id: targetStory.id,
+                      });
+                      frontstageLogger.info('[ChapterSwitch] Loaded chapters', {
+                        count: storyChapters.length,
+                        chapter_ids: storyChapters.map(c => c.id),
+                      });
                       setCurrentStory(targetStory);
                       setChapters(storyChapters);
                       setScenes(storyScenes);
@@ -447,32 +521,40 @@ const FrontstageApp: React.FC = () => {
                       // v5.4.0 fallback: 如果找不到目标 chapter，尝试加载第一个 chapter
                       if (!targetChapter && storyChapters.length > 0) {
                         targetChapter = storyChapters[0];
-                        frontstageLogger.warn('[ChapterSwitch] Target chapter not found by ID, falling back to first chapter', {
-                          expected_id: payload.chapter_id,
-                          fallback_id: targetChapter.id,
-                          has_content: !!targetChapter.content
-                        });
+                        frontstageLogger.warn(
+                          '[ChapterSwitch] Target chapter not found by ID, falling back to first chapter',
+                          {
+                            expected_id: payload.chapter_id,
+                            fallback_id: targetChapter.id,
+                            has_content: !!targetChapter.content,
+                          }
+                        );
                       }
                       if (targetChapter) {
                         frontstageLogger.info('[ChapterSwitch] Selecting chapter', {
                           chapter_id: targetChapter.id,
-                          content_length: targetChapter.content?.length || 0
+                          content_length: targetChapter.content?.length || 0,
                         });
                         selectChapter(targetChapter);
                       } else {
-                        frontstageLogger.error('[ChapterSwitch] No chapters available for new story');
+                        frontstageLogger.error(
+                          '[ChapterSwitch] No chapters available for new story'
+                        );
                       }
                       // v5.0.0 修复：通知 backstage 刷新故事列表，确保幕后也能看到新故事
                       try {
                         await loggedInvoke<unknown>('notify_backstage_content_changed', {
                           text: targetChapter?.content || '',
-                          chapter_id: targetChapter?.id || ''
+                          chapter_id: targetChapter?.id || '',
                         });
                       } catch (e) {
                         // ignore
                       }
                     } else {
-                      frontstageLogger.error('[ChapterSwitch] Target story not found in list_stories', { story_id: payload.story_id });
+                      frontstageLogger.error(
+                        '[ChapterSwitch] Target story not found in list_stories',
+                        { story_id: payload.story_id }
+                      );
                     }
                   } catch (e) {
                     frontstageLogger.error('Failed to switch to new story', { error: e });
@@ -482,29 +564,47 @@ const FrontstageApp: React.FC = () => {
                 // v5.4.1: 使用 ref 获取最新 chapters，避免 stale closure
                 const chapter = chaptersRef.current.find(c => c.id === payload.chapter_id);
                 if (chapter) {
-                  frontstageLogger.info('[ChapterSwitch] Selecting chapter (same story)', { chapter_id: chapter.id, content_length: chapter.content?.length || 0 });
+                  frontstageLogger.info('[ChapterSwitch] Selecting chapter (same story)', {
+                    chapter_id: chapter.id,
+                    content_length: chapter.content?.length || 0,
+                  });
                   selectChapter(chapter);
                 } else {
                   // v5.4.1 fix: chaptersRef 可能为空（Bootstrap 竞态：storyCreated→loadStories→selectStory 在 ChapterSwitch 之前设置了空 chapters）
                   // 此时必须重新查询数据库获取最新章节
-                  frontstageLogger.warn('[ChapterSwitch] Chapter not found in current story, re-fetching from DB', { chapter_id: payload.chapter_id, story_id: payload.story_id });
+                  frontstageLogger.warn(
+                    '[ChapterSwitch] Chapter not found in current story, re-fetching from DB',
+                    { chapter_id: payload.chapter_id, story_id: payload.story_id }
+                  );
                   (async () => {
                     try {
-                      const freshChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: payload.story_id });
+                      const freshChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
+                        story_id: payload.story_id,
+                      });
                       const freshChapter = freshChapters.find(c => c.id === payload.chapter_id);
                       if (freshChapter) {
-                        frontstageLogger.info('[ChapterSwitch] Found chapter after re-fetch', { chapter_id: freshChapter.id, content_length: freshChapter.content?.length || 0 });
+                        frontstageLogger.info('[ChapterSwitch] Found chapter after re-fetch', {
+                          chapter_id: freshChapter.id,
+                          content_length: freshChapter.content?.length || 0,
+                        });
                         setChapters(freshChapters);
                         selectChapter(freshChapter);
                       } else if (freshChapters.length > 0) {
-                        frontstageLogger.warn('[ChapterSwitch] Target chapter not found after re-fetch, falling back to first', { expected_id: payload.chapter_id, fallback_id: freshChapters[0].id });
+                        frontstageLogger.warn(
+                          '[ChapterSwitch] Target chapter not found after re-fetch, falling back to first',
+                          { expected_id: payload.chapter_id, fallback_id: freshChapters[0].id }
+                        );
                         setChapters(freshChapters);
                         selectChapter(freshChapters[0]);
                       } else {
-                        frontstageLogger.error('[ChapterSwitch] No chapters available after re-fetch');
+                        frontstageLogger.error(
+                          '[ChapterSwitch] No chapters available after re-fetch'
+                        );
                       }
                     } catch (e) {
-                      frontstageLogger.error('[ChapterSwitch] Failed to re-fetch chapters', { error: e });
+                      frontstageLogger.error('[ChapterSwitch] Failed to re-fetch chapters', {
+                        error: e,
+                      });
                     }
                   })();
                 }
@@ -522,7 +622,7 @@ const FrontstageApp: React.FC = () => {
         step: string;
         story_id: string;
         error: string;
-      }>('novel-bootstrap-error', (event) => {
+      }>('novel-bootstrap-error', event => {
         const p = event.payload;
         frontstageLogger.error('[novel-bootstrap-error]', { step: p.step, error: p.error });
         toast.error(`后台完善失败（${p.step}）: ${p.error}`, { duration: 5000 });
@@ -544,7 +644,7 @@ const FrontstageApp: React.FC = () => {
         total_steps: number;
         message: string;
         status: string;
-      }>('novel-bootstrap-progress', (event) => {
+      }>('novel-bootstrap-progress', event => {
         const p = event.payload;
         updateLastEventTime();
         setBootstrapProgress({
@@ -595,7 +695,7 @@ const FrontstageApp: React.FC = () => {
       const unlisten4 = await listen<{
         stage: string;
         message: string;
-      }>('plan-generator-progress', (event) => {
+      }>('plan-generator-progress', event => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
@@ -609,7 +709,7 @@ const FrontstageApp: React.FC = () => {
         message: string;
         step_number: number;
         total_steps: number;
-      }>('smart-execute-progress', (event) => {
+      }>('smart-execute-progress', event => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
@@ -625,10 +725,14 @@ const FrontstageApp: React.FC = () => {
         message: string;
         steps_completed: number;
         total_steps: number;
-      }>('plan-executor-step', (event) => {
+      }>('plan-executor-step', event => {
         const p = event.payload;
         updateLastEventTime();
-        frontstageLogger.debug('[plan-executor-step]', { status: p.status, message: p.message, progress: `${p.steps_completed}/${p.total_steps}` });
+        frontstageLogger.debug('[plan-executor-step]', {
+          status: p.status,
+          message: p.message,
+          progress: `${p.steps_completed}/${p.total_steps}`,
+        });
         if (p.step_id === '__complete__') {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
@@ -648,10 +752,14 @@ const FrontstageApp: React.FC = () => {
         stage: string;
         message: string;
         progress: number;
-      }>('agent-stage-update', (event) => {
+      }>('agent-stage-update', event => {
         const p = event.payload;
         updateLastEventTime();
-        frontstageLogger.debug('[agent-stage-update]', { stage: p.stage, agent_type: p.agent_type, message: p.message });
+        frontstageLogger.debug('[agent-stage-update]', {
+          stage: p.stage,
+          agent_type: p.agent_type,
+          message: p.message,
+        });
         // 显示所有阶段，让用户看到完整流程
         setGenerationStatus(`${p.agent_type}: ${p.message}`);
         updateToastPhase(p.stage);
@@ -670,10 +778,14 @@ const FrontstageApp: React.FC = () => {
           total_steps: number;
           action: string;
         };
-      }>('llm-generating-progress', (event) => {
+      }>('llm-generating-progress', event => {
         const p = event.payload;
         updateLastEventTime();
-        frontstageLogger.debug('[llm-generating-progress]', { stage: p.stage, message: p.message, pipeline_context: p.pipeline_context });
+        frontstageLogger.debug('[llm-generating-progress]', {
+          stage: p.stage,
+          message: p.message,
+          pipeline_context: p.pipeline_context,
+        });
 
         // v5.2.4: 如果携带Pipeline步骤上下文，同步更新bootstrapProgress
         if (p.pipeline_context) {
@@ -696,7 +808,7 @@ const FrontstageApp: React.FC = () => {
         story_id: string;
         reason: string;
         fallback: string;
-      }>('context-degraded', (event) => {
+      }>('context-degraded', event => {
         const p = event.payload;
         frontstageLogger.warn('[context-degraded]', { reason: p.reason });
         toast('正在使用简化上下文生成内容...', { icon: '⚡', duration: 3000 });
@@ -766,7 +878,7 @@ const FrontstageApp: React.FC = () => {
     frontstageLogger.info('[selectChapter] Selecting chapter', {
       chapter_id: chapter.id,
       content_length: chapter.content?.length ?? 0,
-      content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY'
+      content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
     });
     cancelAutoSave();
     setCurrentChapter(chapter);
@@ -782,49 +894,52 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  const handleContentChange = useCallback(async (newContent: string) => {
-    setContent(newContent);
-    setIsSaved(false);
+  const handleContentChange = useCallback(
+    async (newContent: string) => {
+      setContent(newContent);
+      setIsSaved(false);
 
-    const text = newContent.replace(/<[^>]*>/g, '');
-    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
-    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
-    setWordCount(chineseChars + englishWords);
+      const text = newContent.replace(/<[^>]*>/g, '');
+      const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+      const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+      setWordCount(chineseChars + englishWords);
 
-    const computedWordCount = chineseChars + englishWords;
+      const computedWordCount = chineseChars + englishWords;
 
-    if (currentChapter) {
-      // W4-F7: 自动保存非阻塞化 — 使用 requestIdleCallback + startTransition
-      scheduleAutoSave(
-        {
-          chapterId: currentChapter.id,
-          title: currentChapter.title,
-          content: newContent,
-          wordCount: computedWordCount,
-        },
-        async (payload) => {
-          try {
-            await loggedInvoke<unknown>('update_chapter', {
-              id: payload.chapterId,
-              title: payload.title,
-              content: payload.content,
-              word_count: payload.wordCount,
-            });
-            setIsSaved(true);
-            justSavedRef.current = Date.now();
-          } catch (e) {
-            frontstageLogger.error('Auto-save failed', { error: e });
-          }
-        },
-        2000
-      );
+      if (currentChapter) {
+        // W4-F7: 自动保存非阻塞化 — 使用 requestIdleCallback + startTransition
+        scheduleAutoSave(
+          {
+            chapterId: currentChapter.id,
+            title: currentChapter.title,
+            content: newContent,
+            wordCount: computedWordCount,
+          },
+          async payload => {
+            try {
+              await loggedInvoke<unknown>('update_chapter', {
+                id: payload.chapterId,
+                title: payload.title,
+                content: payload.content,
+                word_count: payload.wordCount,
+              });
+              setIsSaved(true);
+              justSavedRef.current = Date.now();
+            } catch (e) {
+              frontstageLogger.error('Auto-save failed', { error: e });
+            }
+          },
+          2000
+        );
 
-      loggedInvoke<unknown>('notify_backstage_content_changed', {
-        text: newContent,
-        chapter_id: currentChapter.id
-      }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
-    }
-  }, [currentChapter]);
+        loggedInvoke<unknown>('notify_backstage_content_changed', {
+          text: newContent,
+          chapter_id: currentChapter.id,
+        }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
+      }
+    },
+    [currentChapter]
+  );
 
   const openBackstage = async () => {
     try {
@@ -848,68 +963,269 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   // Request AI generation -- now routes through backend smart_execute
-  const handleRequestGeneration = useCallback(async (context?: string) => {
-    if (isGenerating) {
-      toast('AI 正在生成中，请稍候...');
-      return;
-    }
+  const handleRequestGeneration = useCallback(
+    async (context?: string) => {
+      if (isGenerating) {
+        toast('AI 正在生成中，请稍候...');
+        return;
+      }
 
-    if (typewriterIntervalRef.current) {
-      clearInterval(typewriterIntervalRef.current);
-      typewriterIntervalRef.current = null;
-    }
+      if (typewriterIntervalRef.current) {
+        clearInterval(typewriterIntervalRef.current);
+        typewriterIntervalRef.current = null;
+      }
 
-    // v0.7.5: 写作前预检，提前发现阻塞性问题；缺少合同/大纲时自动补齐
-    if (currentStory?.id && currentChapter?.chapter_number !== undefined) {
-      try {
-        const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
-        if (!preflight.ready) {
-          const isMissingContracts = preflight.missing_contracts.length > 0;
-          const isMissingOutline = preflight.blocking_issues.some((i: string) => i.includes('大纲') || i.includes('outline'));
-          if (isMissingContracts || isMissingOutline) {
-            setIsGenerating(true);
-            // 生成明确的提示文案
-            const missingItems: string[] = [];
-            if (isMissingContracts) {
-              if (preflight.missing_contracts.includes('MASTER_SETTING')) missingItems.push('世界观合同');
-              if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_'))) missingItems.push('章节合同');
-            }
-            if (isMissingOutline) missingItems.push('场景大纲');
-            const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-            const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-            setGenerationStatus(hintMsg);
-            let progressUnlisten: (() => void) | null = null;
-            try {
-              progressUnlisten = await listen('contract-auto-progress', (event) => {
-                const p = event.payload as any;
-                setGenerationStatus(p.message);
-                const pct = Math.round((p.progress || 0) * 100);
-                toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-              });
-              const targetSceneId = currentScene?.id || currentChapter.scene_id;
-              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, targetSceneId);
-              if (!result.created_master_setting && !result.created_chapter_contract && !result.created_outline) {
-                toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, { id: loadingToastId });
+      // v0.7.5: 写作前预检，提前发现阻塞性问题；缺少合同/大纲时自动补齐
+      if (currentStory?.id && currentChapter?.chapter_number !== undefined) {
+        try {
+          const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
+          if (!preflight.ready) {
+            const isMissingContracts = preflight.missing_contracts.length > 0;
+            const isMissingOutline = preflight.blocking_issues.some(
+              (i: string) => i.includes('大纲') || i.includes('outline')
+            );
+            if (isMissingContracts || isMissingOutline) {
+              setIsGenerating(true);
+              // 生成明确的提示文案
+              const missingItems: string[] = [];
+              if (isMissingContracts) {
+                if (preflight.missing_contracts.includes('MASTER_SETTING'))
+                  missingItems.push('世界观合同');
+                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
+                  missingItems.push('章节合同');
+              }
+              if (isMissingOutline) missingItems.push('场景大纲');
+              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
+              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
+              setGenerationStatus(hintMsg);
+              let progressUnlisten: (() => void) | null = null;
+              try {
+                progressUnlisten = await listen('contract-auto-progress', event => {
+                  const p = event.payload as any;
+                  setGenerationStatus(p.message);
+                  const pct = Math.round((p.progress || 0) * 100);
+                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
+                });
+                const targetSceneId = currentScene?.id || currentChapter.scene_id;
+                const result = await autoCreateMissingContracts(
+                  currentStory.id,
+                  currentChapter.chapter_number,
+                  targetSceneId
+                );
+                if (
+                  !result.created_master_setting &&
+                  !result.created_chapter_contract &&
+                  !result.created_outline
+                ) {
+                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                    id: loadingToastId,
+                  });
+                  setIsGenerating(false);
+                  setGenerationStatus('');
+                  return;
+                }
+                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
+                  id: loadingToastId,
+                });
+                // 补齐成功，继续执行后续生成逻辑
+              } catch (e) {
+                frontstageLogger.error('Auto creation failed', { error: e });
+                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
                 setIsGenerating(false);
                 setGenerationStatus('');
                 return;
+              } finally {
+                if (progressUnlisten) progressUnlisten();
               }
-              toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, { id: loadingToastId });
-              // 补齐成功，继续执行后续生成逻辑
-            } catch (e) {
-              frontstageLogger.error('Auto creation failed', { error: e });
-              toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
+            } else {
+              const issues =
+                preflight.blocking_issues.length > 0
+                  ? preflight.blocking_issues
+                  : preflight.missing_contracts;
+              const firstIssue = issues[0] || '写作前检查未通过';
+              toast.error(
+                <div>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+                </div>,
+                { duration: 6000 }
+              );
               setIsGenerating(false);
-              setGenerationStatus('');
               return;
-            } finally {
-              if (progressUnlisten) progressUnlisten();
             }
+          }
+        } catch (e) {
+          frontstageLogger.warn('Preflight check failed silently', { error: e });
+          // 预检调用失败不阻断，让后端做最终检查
+        }
+      }
+
+      setGeneratedText('');
+      setIsGenerating(true);
+      setGenerationStatus('正在续写...');
+      setOrchestratorStatus(null);
+      startElapsedTimer();
+
+      let unlisten: (() => void) | null = null;
+      // 续写功能也添加90秒超时保护
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('前端超时：模型响应超过90秒，请检查模型服务是否正常运行'));
+        }, 90000);
+      });
+
+      try {
+        unlisten = await listen<{
+          task_id: string;
+          step_type: string;
+          loop_idx?: number;
+          score?: number;
+        }>('orchestrator-step', event => {
+          const p = event.payload;
+          updateLastEventTime();
+          const stepNames: Record<string, string> = {
+            生成: '生成中...',
+            质检: '质检中...',
+            改写: '改写中...',
+          };
+          let message = stepNames[p.step_type] || p.step_type;
+          if (p.step_type === '改写' && typeof p.loop_idx === 'number') {
+            message = `第 ${p.loop_idx + 1} 轮优化中...`;
+          }
+          if (p.step_type === '质检' && typeof p.score === 'number') {
+            message = `质检中... 评分 ${p.score}%`;
+          }
+          // 注意：orchestrator-step 事件会直接覆盖状态，暂时不叠加时间显示
+          setGenerationStatus(message);
+          setOrchestratorStatus({
+            stepType: p.step_type,
+            loopIdx: p.loop_idx,
+            score: p.score,
+            message,
+          });
+        });
+
+        const result = await Promise.race([
+          smartExecute({
+            user_input: context || '续写',
+            current_content: editorRef.current?.getText(),
+            style_weight: 50,
+          }),
+          timeoutPromise,
+        ]);
+        if (timeoutId) clearTimeout(timeoutId);
+
+        setGenerationStatus('质检通过，生成完成');
+        setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
+
+        // v5.1.0: Bootstrap 完成后自动加载新故事并切换到第一章
+        const storyCreatedMsg = result.messages?.find((m: string) =>
+          m.startsWith('story_created:')
+        );
+        if (storyCreatedMsg) {
+          const newStoryId = storyCreatedMsg.replace('story_created:', '');
+          (async () => {
+            try {
+              const allStories = await loggedInvoke<Story[]>('list_stories');
+              const targetStory = allStories.find(s => s.id === newStoryId);
+              if (targetStory) {
+                const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
+                  story_id: targetStory.id,
+                });
+                const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', {
+                  story_id: targetStory.id,
+                });
+                setCurrentStory(targetStory);
+                setChapters(storyChapters);
+                setScenes(storyScenes);
+                if (storyChapters.length > 0) {
+                  selectChapter(storyChapters[0]);
+                }
+              }
+            } catch (e) {
+              frontstageLogger.error('[Bootstrap] Failed to auto-load new story', { error: e });
+            }
+          })();
+        }
+
+        const text = result.final_content || '';
+        if (!text.trim()) {
+          frontstageLogger.error('[Generation] Backend returned empty content');
+          toast.error('AI 返回了空内容，请检查模型配置或重试', { duration: 5000 });
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          return;
+        }
+        // v5.6.4 fix: 去除与当前编辑器内容重复的前缀，防止 LLM 返回完整文本导致"重复输出"
+        let displayText = text;
+        const currentText = editorRef.current?.getText() || '';
+        if (currentText && displayText.startsWith(currentText)) {
+          displayText = displayText.slice(currentText.length).trimStart();
+          frontstageLogger.info(
+            '[RequestGeneration] Removed duplicate prefix from generated text',
+            {
+              prefix_len: currentText.length,
+              remaining_len: displayText.length,
+            }
+          );
+        }
+        // 如果去重后为空，说明 LLM 返回的内容与已有内容完全相同
+        if (!displayText.trim()) {
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          toast('AI 续写内容与当前文本相同，无需添加');
+          return;
+        }
+        let index = 0;
+        typewriterIntervalRef.current = setInterval(() => {
+          index += 3;
+          if (index >= displayText.length) {
+            if (typewriterIntervalRef.current) {
+              clearInterval(typewriterIntervalRef.current);
+              typewriterIntervalRef.current = null;
+            }
+            setGeneratedText(displayText);
+            stopElapsedTimer();
+            setIsGenerating(false);
+            setOrchestratorStatus(null);
           } else {
-            const issues = preflight.blocking_issues.length > 0
-              ? preflight.blocking_issues
-              : preflight.missing_contracts;
-            const firstIssue = issues[0] || '写作前检查未通过';
+            setGeneratedText(displayText.slice(0, index));
+          }
+        }, 16);
+      } catch (error) {
+        if (timeoutId) clearTimeout(timeoutId);
+        stopElapsedTimer();
+        frontstageLogger.error('Generation request failed', { error });
+        const structured = parseStructuredError(error);
+        const msg = error instanceof Error ? error.message : String(error);
+        if (structured?.code === 'PREFLIGHT_FAILED') {
+          const issues = (structured.data?.issues as string[]) || [];
+          const firstIssue = issues[0] || structured.message || '写作前检查未通过';
+          const isMissingContracts = issues.some(
+            (i: string) =>
+              i.includes('合同') || i.includes('MASTER_SETTING') || i.includes('章节合同')
+          );
+          if (
+            isMissingContracts &&
+            currentStory?.id &&
+            currentChapter?.chapter_number !== undefined
+          ) {
+            toast.error(
+              <div>
+                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+                <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
+                  正在尝试自动补齐合同，请重试...
+                </div>
+              </div>,
+              { duration: 6000 }
+            );
+          } else {
             toast.error(
               <div>
                 <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
@@ -917,182 +1233,23 @@ const FrontstageApp: React.FC = () => {
               </div>,
               { duration: 6000 }
             );
-            setIsGenerating(false);
-            return;
           }
+        } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
+          toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
+        } else {
+          toast.error(`生成失败: ${msg}`);
         }
-      } catch (e) {
-        frontstageLogger.warn('Preflight check failed silently', { error: e });
-        // 预检调用失败不阻断，让后端做最终检查
-      }
-    }
-
-    setGeneratedText('');
-    setIsGenerating(true);
-    setGenerationStatus('正在续写...');
-    setOrchestratorStatus(null);
-    startElapsedTimer();
-
-    let unlisten: (() => void) | null = null;
-    // 续写功能也添加90秒超时保护
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error('前端超时：模型响应超过90秒，请检查模型服务是否正常运行'));
-      }, 90000);
-    });
-
-    try {
-      unlisten = await listen<{
-        task_id: string;
-        step_type: string;
-        loop_idx?: number;
-        score?: number;
-      }>('orchestrator-step', (event) => {
-        const p = event.payload;
-        updateLastEventTime();
-        const stepNames: Record<string, string> = {
-          '生成': '生成中...',
-          '质检': '质检中...',
-          '改写': '改写中...',
-        };
-        let message = stepNames[p.step_type] || p.step_type;
-        if (p.step_type === '改写' && typeof p.loop_idx === 'number') {
-          message = `第 ${p.loop_idx + 1} 轮优化中...`;
-        }
-        if (p.step_type === '质检' && typeof p.score === 'number') {
-          message = `质检中... 评分 ${p.score}%`;
-        }
-        // 注意：orchestrator-step 事件会直接覆盖状态，暂时不叠加时间显示
-        setGenerationStatus(message);
-        setOrchestratorStatus({
-          stepType: p.step_type,
-          loopIdx: p.loop_idx,
-          score: p.score,
-          message,
-        });
-      });
-
-      const result = await Promise.race([
-        smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText(), style_weight: 50 }),
-        timeoutPromise,
-      ]);
-      if (timeoutId) clearTimeout(timeoutId);
-
-      setGenerationStatus('质检通过，生成完成');
-      setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
-
-      // v5.1.0: Bootstrap 完成后自动加载新故事并切换到第一章
-      const storyCreatedMsg = result.messages?.find((m: string) => m.startsWith('story_created:'));
-      if (storyCreatedMsg) {
-        const newStoryId = storyCreatedMsg.replace('story_created:', '');
-        (async () => {
-          try {
-            const allStories = await loggedInvoke<Story[]>('list_stories');
-            const targetStory = allStories.find(s => s.id === newStoryId);
-            if (targetStory) {
-              const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
-              const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
-              setCurrentStory(targetStory);
-              setChapters(storyChapters);
-              setScenes(storyScenes);
-              if (storyChapters.length > 0) {
-                selectChapter(storyChapters[0]);
-              }
-            }
-          } catch (e) {
-            frontstageLogger.error('[Bootstrap] Failed to auto-load new story', { error: e });
-          }
-        })();
-      }
-
-      const text = result.final_content || '';
-      if (!text.trim()) {
-        frontstageLogger.error('[Generation] Backend returned empty content');
-        toast.error('AI 返回了空内容，请检查模型配置或重试', { duration: 5000 });
-        stopElapsedTimer();
         setIsGenerating(false);
         setGenerationStatus('');
         setOrchestratorStatus(null);
-        return;
-      }
-      // v5.6.4 fix: 去除与当前编辑器内容重复的前缀，防止 LLM 返回完整文本导致"重复输出"
-      let displayText = text;
-      const currentText = editorRef.current?.getText() || '';
-      if (currentText && displayText.startsWith(currentText)) {
-        displayText = displayText.slice(currentText.length).trimStart();
-        frontstageLogger.info('[RequestGeneration] Removed duplicate prefix from generated text', {
-          prefix_len: currentText.length,
-          remaining_len: displayText.length
-        });
-      }
-      // 如果去重后为空，说明 LLM 返回的内容与已有内容完全相同
-      if (!displayText.trim()) {
-        stopElapsedTimer();
-        setIsGenerating(false);
-        setGenerationStatus('');
-        setOrchestratorStatus(null);
-        toast('AI 续写内容与当前文本相同，无需添加');
-        return;
-      }
-      let index = 0;
-      typewriterIntervalRef.current = setInterval(() => {
-        index += 3;
-        if (index >= displayText.length) {
-          if (typewriterIntervalRef.current) {
-            clearInterval(typewriterIntervalRef.current);
-            typewriterIntervalRef.current = null;
-          }
-          setGeneratedText(displayText);
-          stopElapsedTimer();
-          setIsGenerating(false);
-          setOrchestratorStatus(null);
-        } else {
-          setGeneratedText(displayText.slice(0, index));
+      } finally {
+        if (unlisten) {
+          unlisten();
         }
-      }, 16);
-    } catch (error) {
-      if (timeoutId) clearTimeout(timeoutId);
-      stopElapsedTimer();
-      frontstageLogger.error('Generation request failed', { error });
-      const structured = parseStructuredError(error);
-      const msg = error instanceof Error ? error.message : String(error);
-      if (structured?.code === 'PREFLIGHT_FAILED') {
-        const issues = (structured.data?.issues as string[]) || [];
-        const firstIssue = issues[0] || structured.message || '写作前检查未通过';
-        const isMissingContracts = issues.some((i: string) => i.includes('合同') || i.includes('MASTER_SETTING') || i.includes('章节合同'));
-        if (isMissingContracts && currentStory?.id && currentChapter?.chapter_number !== undefined) {
-          toast.error(
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>正在尝试自动补齐合同，请重试...</div>
-            </div>,
-            { duration: 6000 }
-          );
-        } else {
-          toast.error(
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-            </div>,
-            { duration: 6000 }
-          );
-        }
-      } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
-        toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
-      } else {
-        toast.error(`生成失败: ${msg}`);
       }
-      setIsGenerating(false);
-      setGenerationStatus('');
-      setOrchestratorStatus(null);
-    } finally {
-      if (unlisten) {
-        unlisten();
-      }
-    }
-  }, [isGenerating]);
+    },
+    [isGenerating]
+  );
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
@@ -1112,12 +1269,16 @@ const FrontstageApp: React.FC = () => {
             if (learnings && learnings.length > 0) {
               setLearnings(learnings);
             } else {
-              setLearnings([{ category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' }]);
+              setLearnings([
+                { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
+              ]);
             }
           })
           .catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
       } else {
-        setLearnings([{ category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' }]);
+        setLearnings([
+          { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
+        ]);
       }
       setGeneratedText('');
     }
@@ -1137,12 +1298,16 @@ const FrontstageApp: React.FC = () => {
           if (learnings && learnings.length > 0) {
             setLearnings(learnings);
           } else {
-            setLearnings([{ category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' }]);
+            setLearnings([
+              { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
+            ]);
           }
         })
         .catch(e => console.error('Feedback record failed:', e));
     } else {
-      setLearnings([{ category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' }]);
+      setLearnings([
+        { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
+      ]);
     }
     setGeneratedText('');
   }, [generatedText, currentStory, currentChapter]);
@@ -1171,7 +1336,9 @@ const FrontstageApp: React.FC = () => {
     // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
     if (sessionIdRef.current) {
       try {
-        await loggedInvoke<unknown>('cancel_genesis_pipeline', { session_id: sessionIdRef.current });
+        await loggedInvoke<unknown>('cancel_genesis_pipeline', {
+          session_id: sessionIdRef.current,
+        });
         toast('已取消生成并通知后端停止后台任务');
       } catch (e) {
         frontstageLogger.error('Failed to cancel genesis pipeline', { error: e });
@@ -1190,7 +1357,25 @@ const FrontstageApp: React.FC = () => {
   const isNovelCreationIntent = (input: string): boolean => {
     const txt = input.toLowerCase();
     // 明确的创建新小说意图词（必须包含至少一个）
-    const creationSignals = ['写一部', '写一本', '写一篇', '写个', '创作一部', '创作一本', '创作一篇', '创作个', '生成一部', '生成一本', '生成一篇', '新建', '创建', '新开', 'novel', 'story', 'book'];
+    const creationSignals = [
+      '写一部',
+      '写一本',
+      '写一篇',
+      '写个',
+      '创作一部',
+      '创作一本',
+      '创作一篇',
+      '创作个',
+      '生成一部',
+      '生成一本',
+      '生成一篇',
+      '新建',
+      '创建',
+      '新开',
+      'novel',
+      'story',
+      'book',
+    ];
     const hasCreationSignal = creationSignals.some(kw => txt.includes(kw));
     if (!hasCreationSignal) return false;
     // 排除明确的续写意图词
@@ -1202,253 +1387,301 @@ const FrontstageApp: React.FC = () => {
   };
 
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
-  const handleSmartGeneration = useCallback(async (userInput: string) => {
-    if (isGenerating) {
-      toast('AI 正在生成中，请稍候...');
-      return;
-    }
-
-    // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
-    // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
-    const isBootstrap = isNovelCreationIntent(userInput);
-    const timeoutSeconds = isBootstrap ? 600 : 90;
-    const timeoutMs = timeoutSeconds * 1000;
-
-    // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
-    if (!isBootstrap && currentStory?.id && currentChapter?.chapter_number !== undefined) {
-      try {
-        const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
-        if (!preflight.ready) {
-          const isMissingContracts = preflight.missing_contracts.length > 0;
-          const isMissingOutline = preflight.blocking_issues.some((i: string) => i.includes('大纲') || i.includes('outline'));
-          if (isMissingContracts || isMissingOutline) {
-            setIsGenerating(true);
-            const missingItems: string[] = [];
-            if (isMissingContracts) {
-              if (preflight.missing_contracts.includes('MASTER_SETTING')) missingItems.push('世界观合同');
-              if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_'))) missingItems.push('章节合同');
-            }
-            if (isMissingOutline) missingItems.push('场景大纲');
-            const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-            const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-            setGenerationStatus(hintMsg);
-            let progressUnlisten: (() => void) | null = null;
-            try {
-              progressUnlisten = await listen('contract-auto-progress', (event) => {
-                const p = event.payload as any;
-                setGenerationStatus(p.message);
-                const pct = Math.round((p.progress || 0) * 100);
-                toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-              });
-              const targetSceneId = currentScene?.id || currentChapter.scene_id;
-              const result = await autoCreateMissingContracts(currentStory.id, currentChapter.chapter_number, targetSceneId);
-              if (!result.created_master_setting && !result.created_chapter_contract && !result.created_outline) {
-                toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, { id: loadingToastId });
-                setIsGenerating(false);
-                setGenerationStatus('');
-                return;
-              }
-              toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, { id: loadingToastId });
-            } catch (e) {
-              frontstageLogger.error('Auto creation failed', { error: e });
-              toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
-              setIsGenerating(false);
-              setGenerationStatus('');
-              return;
-            } finally {
-              if (progressUnlisten) progressUnlisten();
-            }
-          } else {
-            const issues = preflight.blocking_issues.length > 0
-              ? preflight.blocking_issues
-              : preflight.missing_contracts;
-            const firstIssue = issues[0] || '写作前检查未通过';
-            toast.error(
-              <div>
-                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              </div>,
-              { duration: 6000 }
-            );
-            return;
-          }
-        }
-      } catch (e) {
-        frontstageLogger.warn('Preflight check failed silently', { error: e });
-      }
-    }
-
-    setIsGenerating(true);
-    setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
-    startElapsedTimer();
-    const initialToastMsg = isBootstrap
-      ? '🎨 正在构思故事概念...'
-      : '💭 正在理解您的创作意图...';
-    const toastId = toast.loading(initialToastMsg, { duration: Infinity });
-    activeToastIdRef.current = toastId;
-    currentToastPhaseRef.current = initialToastMsg;
-
-    // 方案A：前端动态超时 + 取消支持
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let aborted = false;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        aborted = true;
-        reject(new Error(
-          isBootstrap
-            ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
-            : `前端超时：模型响应超过${timeoutSeconds}秒，请检查模型服务是否正常运行`
-        ));
-      }, timeoutMs);
-    });
-
-    // 暴露取消函数
-    cancelGenerationRef.current = () => {
-      aborted = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-
-    try {
-      const result = await Promise.race([
-        smartExecute({ user_input: userInput, current_content: editorRef.current?.getText(), style_weight: 50 }),
-        timeoutPromise,
-      ]);
-
-      if (timeoutId) clearTimeout(timeoutId);
-      if (aborted) {
-        stopElapsedTimer();
-        setIsGenerating(false);
-        setGenerationStatus('');
+  const handleSmartGeneration = useCallback(
+    async (userInput: string) => {
+      if (isGenerating) {
+        toast('AI 正在生成中，请稍候...');
         return;
       }
 
-      toast.dismiss(toastId);
-      activeToastIdRef.current = null;
-      currentToastPhaseRef.current = null;
-      // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
-      const hasContent = result.final_content && result.final_content.trim().length > 0;
-      if (hasContent) {
-        // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
-        // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
-        const isBootstrapCompleted = result.messages.some(m => m.includes('novel_bootstrap'));
-        if (isBootstrapCompleted) {
-          toast.success('小说已创建！第一章已生成，您可以开始写作了');
-        } else {
-          // v5.4.0: 去除与当前编辑器内容重复的部分，防止 LLM 返回完整文本导致"重复输出"
-          let finalContent = result.final_content!;
-          const currentText = editorRef.current?.getText() || '';
-          if (currentText && finalContent.startsWith(currentText)) {
-            finalContent = finalContent.slice(currentText.length).trimStart();
-            frontstageLogger.info('[SmartGeneration] Removed duplicate prefix from generated text', {
-              prefix_len: currentText.length,
-              remaining_len: finalContent.length
-            });
-          }
-          setGeneratedText(finalContent);
-          toast.success('创作完成！');
-        }
-      } else if (!result.success) {
-        // 后端返回了失败
-        toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');
-      } else {
-        // 后端返回了成功但没有内容 — 显示明确的错误提示（修复"没有提示地停止"）
-        toast.error('AI 返回了空内容，请检查模型配置或稍后重试', { duration: 5000 });
-        frontstageLogger.error('[SmartGeneration] Backend returned success=true but empty final_content', { result });
-      }
+      // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
+      // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
+      const isBootstrap = isNovelCreationIntent(userInput);
+      const timeoutSeconds = isBootstrap ? 600 : 90;
+      const timeoutMs = timeoutSeconds * 1000;
 
-      // v5.4.1: Bootstrap 完成后直接加载新故事内容，不再完全依赖 ChapterSwitch 事件
-      const storyCreatedMsg = result.messages.find(m => m.startsWith('story_created:'));
-      if (storyCreatedMsg) {
-        const storyId = storyCreatedMsg.replace('story_created:', '');
-        frontstageLogger.info('[SmartGeneration] New story created, fetching content directly', { story_id: storyId });
-        // 直接加载新创建的故事和章节
-        (async () => {
-          try {
-            const allStories = await loggedInvoke<Story[]>('list_stories');
-            const targetStory = allStories.find(s => s.id === storyId);
-            if (targetStory) {
-              const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
-              const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
-              const firstChapter = storyChapters[0];
-              frontstageLogger.info('[SmartGeneration] Loaded new story', {
-                story_id: storyId,
-                chapter_count: storyChapters.length,
-                first_chapter_id: firstChapter?.id,
-                first_chapter_content_length: firstChapter?.content?.length ?? 0,
-                first_chapter_content_preview: firstChapter?.content?.slice(0, 100) ?? 'EMPTY'
-              });
-              setCurrentStory(targetStory);
-              setChapters(storyChapters);
-              setScenes(storyScenes);
-              if (storyChapters.length > 0) {
-                frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
-                  chapter_id: storyChapters[0].id,
-                  content_length: storyChapters[0].content?.length ?? 0
+      // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
+      if (!isBootstrap && currentStory?.id && currentChapter?.chapter_number !== undefined) {
+        try {
+          const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
+          if (!preflight.ready) {
+            const isMissingContracts = preflight.missing_contracts.length > 0;
+            const isMissingOutline = preflight.blocking_issues.some(
+              (i: string) => i.includes('大纲') || i.includes('outline')
+            );
+            if (isMissingContracts || isMissingOutline) {
+              setIsGenerating(true);
+              const missingItems: string[] = [];
+              if (isMissingContracts) {
+                if (preflight.missing_contracts.includes('MASTER_SETTING'))
+                  missingItems.push('世界观合同');
+                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
+                  missingItems.push('章节合同');
+              }
+              if (isMissingOutline) missingItems.push('场景大纲');
+              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
+              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
+              setGenerationStatus(hintMsg);
+              let progressUnlisten: (() => void) | null = null;
+              try {
+                progressUnlisten = await listen('contract-auto-progress', event => {
+                  const p = event.payload as any;
+                  setGenerationStatus(p.message);
+                  const pct = Math.round((p.progress || 0) * 100);
+                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
                 });
-                selectChapter(storyChapters[0]);
-                // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
-                if ((!firstChapter?.content || firstChapter.content.trim().length === 0) && result.final_content && result.final_content.trim().length > 0) {
-                  frontstageLogger.warn('[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback');
-                  setContent(autoFormatText(result.final_content));
+                const targetSceneId = currentScene?.id || currentChapter.scene_id;
+                const result = await autoCreateMissingContracts(
+                  currentStory.id,
+                  currentChapter.chapter_number,
+                  targetSceneId
+                );
+                if (
+                  !result.created_master_setting &&
+                  !result.created_chapter_contract &&
+                  !result.created_outline
+                ) {
+                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                    id: loadingToastId,
+                  });
+                  setIsGenerating(false);
+                  setGenerationStatus('');
+                  return;
                 }
-              } else if (result.final_content && result.final_content.trim().length > 0) {
-                // v5.4.1 fix: 极端情况——DB 中没有章节但 result.final_content 有内容，直接显示
-                frontstageLogger.warn('[SmartGeneration] No chapters in DB but final_content exists, displaying content directly');
-                setContent(autoFormatText(result.final_content));
+                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
+                  id: loadingToastId,
+                });
+              } catch (e) {
+                frontstageLogger.error('Auto creation failed', { error: e });
+                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
+                setIsGenerating(false);
+                setGenerationStatus('');
+                return;
+              } finally {
+                if (progressUnlisten) progressUnlisten();
               }
             } else {
-              frontstageLogger.error('[SmartGeneration] New story not found in list_stories', { story_id: storyId });
+              const issues =
+                preflight.blocking_issues.length > 0
+                  ? preflight.blocking_issues
+                  : preflight.missing_contracts;
+              const firstIssue = issues[0] || '写作前检查未通过';
+              toast.error(
+                <div>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+                </div>,
+                { duration: 6000 }
+              );
+              return;
             }
-          } catch (e) {
-            frontstageLogger.error('[SmartGeneration] Failed to load new story', { error: e });
           }
-        })();
+        } catch (e) {
+          frontstageLogger.warn('Preflight check failed silently', { error: e });
+        }
       }
-      // v5.4.0: 保存 session_id 用于取消后台任务
-      const sessionIdMsg = result.messages.find(m => m.startsWith('session_id:'));
-      if (sessionIdMsg) {
-        sessionIdRef.current = sessionIdMsg.replace('session_id:', '');
+
+      setIsGenerating(true);
+      setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
+      startElapsedTimer();
+      const initialToastMsg = isBootstrap ? '🎨 正在构思故事概念...' : '💭 正在理解您的创作意图...';
+      const toastId = toast.loading(initialToastMsg, { duration: Infinity });
+      activeToastIdRef.current = toastId;
+      currentToastPhaseRef.current = initialToastMsg;
+
+      // 方案A：前端动态超时 + 取消支持
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let aborted = false;
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          aborted = true;
+          reject(
+            new Error(
+              isBootstrap
+                ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
+                : `前端超时：模型响应超过${timeoutSeconds}秒，请检查模型服务是否正常运行`
+            )
+          );
+        }, timeoutMs);
+      });
+
+      // 暴露取消函数
+      cancelGenerationRef.current = () => {
+        aborted = true;
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+
+      try {
+        const result = await Promise.race([
+          smartExecute({
+            user_input: userInput,
+            current_content: editorRef.current?.getText(),
+            style_weight: 50,
+          }),
+          timeoutPromise,
+        ]);
+
+        if (timeoutId) clearTimeout(timeoutId);
+        if (aborted) {
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          return;
+        }
+
+        toast.dismiss(toastId);
+        activeToastIdRef.current = null;
+        currentToastPhaseRef.current = null;
+        // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
+        const hasContent = result.final_content && result.final_content.trim().length > 0;
+        if (hasContent) {
+          // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
+          // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
+          const isBootstrapCompleted = result.messages.some(m => m.includes('novel_bootstrap'));
+          if (isBootstrapCompleted) {
+            toast.success('小说已创建！第一章已生成，您可以开始写作了');
+          } else {
+            // v5.4.0: 去除与当前编辑器内容重复的部分，防止 LLM 返回完整文本导致"重复输出"
+            let finalContent = result.final_content!;
+            const currentText = editorRef.current?.getText() || '';
+            if (currentText && finalContent.startsWith(currentText)) {
+              finalContent = finalContent.slice(currentText.length).trimStart();
+              frontstageLogger.info(
+                '[SmartGeneration] Removed duplicate prefix from generated text',
+                {
+                  prefix_len: currentText.length,
+                  remaining_len: finalContent.length,
+                }
+              );
+            }
+            setGeneratedText(finalContent);
+            toast.success('创作完成！');
+          }
+        } else if (!result.success) {
+          // 后端返回了失败
+          toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');
+        } else {
+          // 后端返回了成功但没有内容 — 显示明确的错误提示（修复"没有提示地停止"）
+          toast.error('AI 返回了空内容，请检查模型配置或稍后重试', { duration: 5000 });
+          frontstageLogger.error(
+            '[SmartGeneration] Backend returned success=true but empty final_content',
+            { result }
+          );
+        }
+
+        // v5.4.1: Bootstrap 完成后直接加载新故事内容，不再完全依赖 ChapterSwitch 事件
+        const storyCreatedMsg = result.messages.find(m => m.startsWith('story_created:'));
+        if (storyCreatedMsg) {
+          const storyId = storyCreatedMsg.replace('story_created:', '');
+          frontstageLogger.info('[SmartGeneration] New story created, fetching content directly', {
+            story_id: storyId,
+          });
+          // 直接加载新创建的故事和章节
+          (async () => {
+            try {
+              const allStories = await loggedInvoke<Story[]>('list_stories');
+              const targetStory = allStories.find(s => s.id === storyId);
+              if (targetStory) {
+                const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
+                  story_id: storyId,
+                });
+                const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', {
+                  story_id: storyId,
+                });
+                const firstChapter = storyChapters[0];
+                frontstageLogger.info('[SmartGeneration] Loaded new story', {
+                  story_id: storyId,
+                  chapter_count: storyChapters.length,
+                  first_chapter_id: firstChapter?.id,
+                  first_chapter_content_length: firstChapter?.content?.length ?? 0,
+                  first_chapter_content_preview: firstChapter?.content?.slice(0, 100) ?? 'EMPTY',
+                });
+                setCurrentStory(targetStory);
+                setChapters(storyChapters);
+                setScenes(storyScenes);
+                if (storyChapters.length > 0) {
+                  frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
+                    chapter_id: storyChapters[0].id,
+                    content_length: storyChapters[0].content?.length ?? 0,
+                  });
+                  selectChapter(storyChapters[0]);
+                  // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
+                  if (
+                    (!firstChapter?.content || firstChapter.content.trim().length === 0) &&
+                    result.final_content &&
+                    result.final_content.trim().length > 0
+                  ) {
+                    frontstageLogger.warn(
+                      '[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback'
+                    );
+                    setContent(autoFormatText(result.final_content));
+                  }
+                } else if (result.final_content && result.final_content.trim().length > 0) {
+                  // v5.4.1 fix: 极端情况——DB 中没有章节但 result.final_content 有内容，直接显示
+                  frontstageLogger.warn(
+                    '[SmartGeneration] No chapters in DB but final_content exists, displaying content directly'
+                  );
+                  setContent(autoFormatText(result.final_content));
+                }
+              } else {
+                frontstageLogger.error('[SmartGeneration] New story not found in list_stories', {
+                  story_id: storyId,
+                });
+              }
+            } catch (e) {
+              frontstageLogger.error('[SmartGeneration] Failed to load new story', { error: e });
+            }
+          })();
+        }
+        // v5.4.0: 保存 session_id 用于取消后台任务
+        const sessionIdMsg = result.messages.find(m => m.startsWith('session_id:'));
+        if (sessionIdMsg) {
+          sessionIdRef.current = sessionIdMsg.replace('session_id:', '');
+        }
+      } catch (e: any) {
+        if (timeoutId) clearTimeout(timeoutId);
+        toast.dismiss(toastId);
+        activeToastIdRef.current = null;
+        currentToastPhaseRef.current = null;
+        frontstageLogger.error('Smart execution failed', { error: e });
+        const structured = parseStructuredError(e);
+        const msg = e?.message || String(e);
+        if (structured?.code === 'PREFLIGHT_FAILED') {
+          const issues = (structured.data?.issues as string[]) || [];
+          const firstIssue = issues[0] || structured.message || '写作前检查未通过';
+          toast.error(
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
+                请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同
+              </div>
+            </div>,
+            { duration: 6000 }
+          );
+        } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
+          toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
+        } else {
+          toast.error(`执行失败: ${msg}`);
+        }
+      } finally {
+        stopElapsedTimer();
+        cancelGenerationRef.current = null;
+        activeToastIdRef.current = null;
+        currentToastPhaseRef.current = null;
+        setIsGenerating(false);
+        // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
+        // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
+        if (isBootstrap) {
+          setGenerationStatus('后台正在完善小说世界...');
+        } else {
+          setGenerationStatus('');
+        }
       }
-    } catch (e: any) {
-      if (timeoutId) clearTimeout(timeoutId);
-      toast.dismiss(toastId);
-      activeToastIdRef.current = null;
-      currentToastPhaseRef.current = null;
-      frontstageLogger.error('Smart execution failed', { error: e });
-      const structured = parseStructuredError(e);
-      const msg = e?.message || String(e);
-      if (structured?.code === 'PREFLIGHT_FAILED') {
-        const issues = (structured.data?.issues as string[]) || [];
-        const firstIssue = issues[0] || structured.message || '写作前检查未通过';
-        toast.error(
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-            <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
-          </div>,
-          { duration: 6000 }
-        );
-      } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
-        toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
-      } else {
-        toast.error(`执行失败: ${msg}`);
-      }
-    } finally {
-      stopElapsedTimer();
-      cancelGenerationRef.current = null;
-      activeToastIdRef.current = null;
-      currentToastPhaseRef.current = null;
-      setIsGenerating(false);
-      // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
-      // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
-      if (isBootstrap) {
-        setGenerationStatus('后台正在完善小说世界...');
-      } else {
-        setGenerationStatus('');
-      }
-    }
-  }, [isGenerating]);
+    },
+    [isGenerating]
+  );
 
   // 底部输入栏提交
   const handleInputSubmit = useCallback(() => {
@@ -1504,69 +1737,80 @@ const FrontstageApp: React.FC = () => {
     }
   }, [inputValue, ghostHint, fetchSmartHint]);
 
-  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter 发送
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleInputSubmit();
-      return;
-    }
-    // ↑ 键：切换显示 ghost hint（LLM建议 → 历史记录）
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (hintSource === 'llm' && inputHistory.length > 0) {
-        // 切换到第一条历史
-        setHintSource('history');
-        setHistoryIndex(0);
-        setGhostHint(inputHistory[0]);
-      } else if (hintSource === 'history' && historyIndex < inputHistory.length - 1) {
-        // 下一条历史
-        const nextIdx = historyIndex + 1;
-        setHistoryIndex(nextIdx);
-        setGhostHint(inputHistory[nextIdx]);
-      } else if (hintSource === 'history') {
-        // 循环回到 LLM 建议
-        setHintSource('llm');
-        setHistoryIndex(-1);
-        fetchSmartHint();
-      } else {
-        // 当前是LLM建议但没有历史，重新获取
-        fetchSmartHint();
+  const handleInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Enter 发送
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleInputSubmit();
+        return;
       }
-      return;
-    }
-    // ↓ 键：从历史回到 LLM 建议
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (hintSource === 'history') {
-        if (historyIndex > 0) {
-          const prevIdx = historyIndex - 1;
-          setHistoryIndex(prevIdx);
-          setGhostHint(inputHistory[prevIdx]);
-        } else {
+      // ↑ 键：切换显示 ghost hint（LLM建议 → 历史记录）
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (hintSource === 'llm' && inputHistory.length > 0) {
+          // 切换到第一条历史
+          setHintSource('history');
+          setHistoryIndex(0);
+          setGhostHint(inputHistory[0]);
+        } else if (hintSource === 'history' && historyIndex < inputHistory.length - 1) {
+          // 下一条历史
+          const nextIdx = historyIndex + 1;
+          setHistoryIndex(nextIdx);
+          setGhostHint(inputHistory[nextIdx]);
+        } else if (hintSource === 'history') {
+          // 循环回到 LLM 建议
           setHintSource('llm');
           setHistoryIndex(-1);
           fetchSmartHint();
+        } else {
+          // 当前是LLM建议但没有历史，重新获取
+          fetchSmartHint();
         }
+        return;
       }
-      return;
-    }
-    // → 键：确认填充 ghost hint
-    if (e.key === 'ArrowRight' && ghostHint && !inputValue) {
-      e.preventDefault();
-      setInputValue(ghostHint);
-      setGhostHint('');
-      setHistoryIndex(-1);
-      setHintSource('llm');
-      return;
-    }
-    // 任意键输入时清除 ghost hint
-    if (e.key.length === 1 && ghostHint) {
-      setGhostHint('');
-      setHistoryIndex(-1);
-      setHintSource('llm');
-    }
-  }, [handleInputSubmit, ghostHint, inputValue, hintSource, historyIndex, inputHistory, fetchSmartHint]);
+      // ↓ 键：从历史回到 LLM 建议
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (hintSource === 'history') {
+          if (historyIndex > 0) {
+            const prevIdx = historyIndex - 1;
+            setHistoryIndex(prevIdx);
+            setGhostHint(inputHistory[prevIdx]);
+          } else {
+            setHintSource('llm');
+            setHistoryIndex(-1);
+            fetchSmartHint();
+          }
+        }
+        return;
+      }
+      // → 键：确认填充 ghost hint
+      if (e.key === 'ArrowRight' && ghostHint && !inputValue) {
+        e.preventDefault();
+        setInputValue(ghostHint);
+        setGhostHint('');
+        setHistoryIndex(-1);
+        setHintSource('llm');
+        return;
+      }
+      // 任意键输入时清除 ghost hint
+      if (e.key.length === 1 && ghostHint) {
+        setGhostHint('');
+        setHistoryIndex(-1);
+        setHintSource('llm');
+      }
+    },
+    [
+      handleInputSubmit,
+      ghostHint,
+      inputValue,
+      hintSource,
+      historyIndex,
+      inputHistory,
+      fetchSmartHint,
+    ]
+  );
 
   // Pipeline 命令处理
   const handlePipelineRefine = useCallback(async () => {
@@ -1582,7 +1826,9 @@ const FrontstageApp: React.FC = () => {
         return;
       }
       const result = await runRefine(currentStory.id, draft.id, undefined);
-      toast.success(`修稿完成：${result.change_summary || '已生成修订版本'}`, { id: 'pipeline-refine' });
+      toast.success(`修稿完成：${result.change_summary || '已生成修订版本'}`, {
+        id: 'pipeline-refine',
+      });
       // 刷新编辑器内容
       if (result.refined_content) {
         editorRef.current?.setContent(result.refined_content);
@@ -1623,7 +1869,12 @@ const FrontstageApp: React.FC = () => {
         toast.error('当前章节没有活跃草稿', { id: 'pipeline-finalize' });
         return;
       }
-      await runFinalize(currentStory.id, draft.id, currentChapter.chapter_number, currentChapter.title);
+      await runFinalize(
+        currentStory.id,
+        draft.id,
+        currentChapter.chapter_number,
+        currentChapter.title
+      );
       toast.success('定稿完成，后处理已启动', { id: 'pipeline-finalize' });
     } catch (e: any) {
       toast.error('定稿失败: ' + (e.message || String(e)), { id: 'pipeline-finalize' });
@@ -1751,7 +2002,7 @@ const FrontstageApp: React.FC = () => {
               onRequestGeneration={handleRequestGeneration}
               onSmartGeneration={handleSmartGeneration}
               onSlashCommand={handleSlashCommand}
-              placeholder='开始写作...'
+              placeholder="开始写作..."
               characters={characters}
               fontSize={fontSize}
               onFontSizeChange={setFontSize}
@@ -1762,7 +2013,6 @@ const FrontstageApp: React.FC = () => {
               chapterNumber={currentChapter?.chapter_number}
               isRevisionMode={isRevisionMode}
               onRevisionModeChange={setIsRevisionMode}
-
               smartGhostText={smartGhostText}
               inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
               onClearInlineSuggestion={() => setInlineSuggestion(null)}
@@ -1779,6 +2029,11 @@ const FrontstageApp: React.FC = () => {
             hintSource={hintSource}
             modelStatus={modelStatus}
             modelName={modelName}
+            modelProvider={activeChatModel?.provider}
+            modelApiBase={activeChatModel?.api_base}
+            modelLatency={chatConnectionState?.result?.latency}
+            lastCheckedAt={chatConnectionState?.lastCheckedAt}
+            onGoToSettings={openBackstage}
             onInputChange={setInputValue}
             onInputSubmit={handleInputSubmit}
             onCancelGeneration={handleCancelGeneration}
@@ -1806,7 +2061,7 @@ const FrontstageApp: React.FC = () => {
                 storyId={currentStory?.id}
                 chapterId={currentChapter?.id}
                 isPro={subscription?.isPro ?? false}
-                onShowUpgrade={(trigger) => {
+                onShowUpgrade={trigger => {
                   setUpgradeTrigger(trigger);
                   setShowUpgradePanel(true);
                 }}
@@ -1814,7 +2069,7 @@ const FrontstageApp: React.FC = () => {
                 hasAutoReviseQuota={subscription?.hasAutoReviseQuota || (async () => true)}
                 editorContent={editorRef.current?.getText()}
                 selectedText={editorRef.current?.getSelectedText()}
-                onReviseResult={(text) => {
+                onReviseResult={text => {
                   if (editorRef.current) {
                     // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
                     const html = autoFormatText(text);
@@ -1822,7 +2077,7 @@ const FrontstageApp: React.FC = () => {
                     toast.success('修改内容已应用到编辑器');
                   }
                 }}
-                onFreePrompt={(prompt) => {
+                onFreePrompt={prompt => {
                   handleSmartGeneration(prompt);
                   setShowWenSiPanel(false);
                 }}
@@ -1848,22 +2103,52 @@ const FrontstageApp: React.FC = () => {
             <div className="frontstage-help-body">
               <div className="frontstage-help-section">
                 <h4>写作</h4>
-                <div className="frontstage-help-row"><kbd>Ctrl</kbd>+<kbd>Enter</kbd><span>AI 续写</span></div>
-                <div className="frontstage-help-row"><kbd>/</kbd><span>输入任意指令</span></div>
-                <div className="frontstage-help-row"><kbd>Tab</kbd><span>接受 AI 建议</span></div>
-                <div className="frontstage-help-row"><kbd>Esc</kbd><span>拒绝 AI 建议</span></div>
+                <div className="frontstage-help-row">
+                  <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+                  <span>AI 续写</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <kbd>/</kbd>
+                  <span>输入任意指令</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <kbd>Tab</kbd>
+                  <span>接受 AI 建议</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <kbd>Esc</kbd>
+                  <span>拒绝 AI 建议</span>
+                </div>
               </div>
               <div className="frontstage-help-section">
                 <h4>模式</h4>
-                <div className="frontstage-help-row"><kbd>Ctrl</kbd>+<kbd>Space</kbd><span>循环文思模式</span></div>
-                <div className="frontstage-help-row"><kbd>F11</kbd><span>禅模式</span></div>
-                <div className="frontstage-help-row"><kbd>F1</kbd><span>本帮助面板</span></div>
+                <div className="frontstage-help-row">
+                  <kbd>Ctrl</kbd>+<kbd>Space</kbd>
+                  <span>循环文思模式</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <kbd>F11</kbd>
+                  <span>禅模式</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <kbd>F1</kbd>
+                  <span>本帮助面板</span>
+                </div>
               </div>
               <div className="frontstage-help-section">
                 <h4>操作</h4>
-                <div className="frontstage-help-row"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd><span>回幕后工作室</span></div>
-                <div className="frontstage-help-row"><span className="no-kbd">点击标题</span><span>回幕后工作室</span></div>
-                <div className="frontstage-help-row"><span className="no-kbd">修 / 批 / 幕</span><span>侧边栏快捷按钮</span></div>
+                <div className="frontstage-help-row">
+                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>
+                  <span>回幕后工作室</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <span className="no-kbd">点击标题</span>
+                  <span>回幕后工作室</span>
+                </div>
+                <div className="frontstage-help-row">
+                  <span className="no-kbd">修 / 批 / 幕</span>
+                  <span>侧边栏快捷按钮</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1893,11 +2178,11 @@ const FrontstageApp: React.FC = () => {
         <AiLearningIndicator
           learnings={learnings}
           onDismiss={() => setLearnings([])}
-          onStrengthen={(idx) => {
+          onStrengthen={idx => {
             toast.success(`已强化「${learnings[idx].category}」偏好`);
             setLearnings([]);
           }}
-          onIgnore={(idx) => {
+          onIgnore={idx => {
             toast('已忽略该观察');
             setLearnings(prev => prev.filter((_, i) => i !== idx));
           }}
@@ -1906,12 +2191,16 @@ const FrontstageApp: React.FC = () => {
 
       {/* 禅模式退出提示 */}
       {isZenMode && (
-        <button
-          onClick={() => setIsZenMode(false)}
-          className="zen-mode-exit"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+        <button onClick={() => setIsZenMode(false)} className="zen-mode-exit">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
           </svg>
           退出禅模式 (F11)
         </button>

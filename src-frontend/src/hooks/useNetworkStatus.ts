@@ -20,7 +20,7 @@ let globalStatus: NetworkStatus = {
 const listeners = new Set<(status: NetworkStatus) => void>();
 
 function notifyListeners() {
-  listeners.forEach((cb) => cb({ ...globalStatus }));
+  listeners.forEach(cb => cb({ ...globalStatus }));
 }
 
 function handleOnline() {

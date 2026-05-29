@@ -33,7 +33,7 @@ export function AnalysisProgress({
   const isCancelled = status === 'cancelled';
 
   // 根据进度确定当前活跃的大步骤
-  const activeIndex = STEPS.findIndex((s) => progress >= s.min && progress < s.max);
+  const activeIndex = STEPS.findIndex(s => progress >= s.min && progress < s.max);
   const normalizedActive = activeIndex >= 0 ? activeIndex : progress >= 100 ? STEPS.length - 1 : 0;
 
   // 从 currentStep 中提取块数信息（如 "(3/15)"）
@@ -69,14 +69,14 @@ export function AnalysisProgress({
           {progress < 10
             ? '正在读取文件...'
             : progress < 30
-            ? '正在调用 LLM 识别小说类型和世界观...'
-            : progress < 55
-            ? '正在逐个章节拆解人物角色（此阶段较耗时）...'
-            : progress < 80
-            ? '正在逐个章节生成概要（此阶段较耗时）...'
-            : progress < 93
-            ? '正在生成故事线...'
-            : '正在保存分析结果...'}
+              ? '正在调用 LLM 识别小说类型和世界观...'
+              : progress < 55
+                ? '正在逐个章节拆解人物角色（此阶段较耗时）...'
+                : progress < 80
+                  ? '正在逐个章节生成概要（此阶段较耗时）...'
+                  : progress < 93
+                    ? '正在生成故事线...'
+                    : '正在保存分析结果...'}
         </p>
       )}
 
@@ -84,7 +84,9 @@ export function AnalysisProgress({
       <div className="w-full max-w-md h-2.5 bg-cinema-800 rounded-full overflow-hidden mb-6">
         <div
           className={`h-full transition-all duration-500 rounded-full ${
-            isCancelled ? 'bg-orange-500/60' : 'bg-gradient-to-r from-cinema-gold to-cinema-gold-dark'
+            isCancelled
+              ? 'bg-orange-500/60'
+              : 'bg-gradient-to-r from-cinema-gold to-cinema-gold-dark'
           }`}
           style={{ width: `${progress}%` }}
         />
@@ -107,10 +109,10 @@ export function AnalysisProgress({
                 isActive
                   ? 'text-cinema-gold'
                   : isFailed
-                  ? 'text-orange-400'
-                  : isCompleted
-                  ? 'text-green-500'
-                  : 'text-gray-600'
+                    ? 'text-orange-400'
+                    : isCompleted
+                      ? 'text-green-500'
+                      : 'text-gray-600'
               }`}
             >
               <div
@@ -118,18 +120,16 @@ export function AnalysisProgress({
                   isActive
                     ? 'bg-cinema-gold/20 text-cinema-gold'
                     : isFailed
-                    ? 'bg-orange-500/20 text-orange-400'
-                    : isCompleted
-                    ? 'bg-green-500/20 text-green-500'
-                    : 'bg-cinema-800 text-gray-600'
+                      ? 'bg-orange-500/20 text-orange-400'
+                      : isCompleted
+                        ? 'bg-green-500/20 text-green-500'
+                        : 'bg-cinema-800 text-gray-600'
                 }`}
               >
                 {isCompleted ? '✓' : isFailed ? '!' : index + 1}
               </div>
               <span>{step.label}</span>
-              {isActive && (
-                <Loader2 className="w-3 h-3 animate-spin ml-auto flex-shrink-0" />
-              )}
+              {isActive && <Loader2 className="w-3 h-3 animate-spin ml-auto flex-shrink-0" />}
             </div>
           );
         })}
