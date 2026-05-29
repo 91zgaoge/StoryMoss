@@ -1,7 +1,8 @@
 pub mod commands;
 
-use crate::vector::{LanceVectorStore, VectorRecord};
 use serde::{Deserialize, Serialize};
+
+use crate::vector::{LanceVectorStore, VectorRecord};
 
 /// 知识库导入结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +46,9 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
                 chunks.push(current.trim().to_string());
                 current = String::new();
             }
-            let sentences: Vec<&str> = para.split(|c: char| c == '。' || c == '！' || c == '？').collect();
+            let sentences: Vec<&str> = para
+                .split(|c: char| c == '。' || c == '！' || c == '？')
+                .collect();
             let mut sentence_chunk = String::new();
             for sentence in sentences {
                 if sentence_chunk.len() + sentence.len() > max_chars && !sentence_chunk.is_empty() {
@@ -136,7 +139,11 @@ pub async fn import_text(
     let duration_ms = start.elapsed().as_millis() as u64;
     log::info!(
         "[kb_import] story_id={}, chapter={}, chunks={}, vectors={}, duration={}ms",
-        story_id, chapter_number, chunks_imported, vectors_indexed, duration_ms
+        story_id,
+        chapter_number,
+        chunks_imported,
+        vectors_indexed,
+        duration_ms
     );
 
     Ok(KbImportResult {
@@ -157,25 +164,30 @@ pub async fn kb_search(
 ) -> Result<Vec<KbSearchResult>, Box<dyn std::error::Error + Send + Sync>> {
     let results = match search_mode {
         "vector" => {
-            let embedding = crate::embeddings::embedding::embed_text_async(query.to_string()).await?;
+            let embedding =
+                crate::embeddings::embedding::embed_text_async(query.to_string()).await?;
             store.search(story_id, embedding, top_k).await?
         }
-        "fts" => {
-            store.text_search(story_id, query, top_k).await?
-        }
+        "fts" => store.text_search(story_id, query, top_k).await?,
         "hybrid" | _ => {
-            let embedding = crate::embeddings::embedding::embed_text_async(query.to_string()).await?;
-            store.hybrid_search(story_id, query, embedding, top_k).await?
+            let embedding =
+                crate::embeddings::embedding::embed_text_async(query.to_string()).await?;
+            store
+                .hybrid_search(story_id, query, embedding, top_k)
+                .await?
         }
     };
 
-    let mut kb_results: Vec<KbSearchResult> = results.into_iter().map(|r| KbSearchResult {
-        id: r.id,
-        chapter_number: r.chapter_number,
-        text: r.text,
-        score: r.score,
-        search_type: search_mode.to_string(),
-    }).collect();
+    let mut kb_results: Vec<KbSearchResult> = results
+        .into_iter()
+        .map(|r| KbSearchResult {
+            id: r.id,
+            chapter_number: r.chapter_number,
+            text: r.text,
+            score: r.score,
+            search_type: search_mode.to_string(),
+        })
+        .collect();
 
     // 章节范围过滤
     if let Some((from, to)) = chapter_range {

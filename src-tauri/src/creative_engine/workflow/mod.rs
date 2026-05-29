@@ -4,7 +4,8 @@
 //! 幕后编排，幕前只呈现最终结果。
 //!
 //! 创作阶段：
-//! Conception → Outlining → SceneDesign → Writing → Review → Iteration → Ingestion
+//! Conception → Outlining → SceneDesign → Writing → Review → Iteration →
+//! Ingestion
 
 pub mod engine;
 pub mod quality;
@@ -13,7 +14,6 @@ pub mod quality;
 pub use engine::*;
 #[allow(unused_imports)]
 pub use quality::*;
-
 use serde::{Deserialize, Serialize};
 
 /// 创作模式

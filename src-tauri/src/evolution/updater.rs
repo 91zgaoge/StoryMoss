@@ -1,6 +1,7 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Skill updater based on evolution analysis
 pub struct SkillUpdater;
@@ -132,7 +133,9 @@ impl SkillUpdater {
             return None;
         }
 
-        let changes: Vec<SkillChange> = analysis.writing_quality.weaknesses
+        let changes: Vec<SkillChange> = analysis
+            .writing_quality
+            .weaknesses
             .iter()
             .map(|weakness| SkillChange {
                 field: "style_guidelines".to_string(),
@@ -151,14 +154,16 @@ impl SkillUpdater {
         })
     }
 
-    pub fn apply_update(&self,
+    pub fn apply_update(
+        &self,
         update: &SkillUpdate,
         skills: &mut HashMap<String, crate::skills::Skill>,
     ) -> Result<(), String> {
         let skill_id = &update.skill_id;
-        let skill = skills.get_mut(skill_id)
+        let skill = skills
+            .get_mut(skill_id)
             .ok_or_else(|| format!("Skill not found: {}", skill_id))?;
-        
+
         for change in &update.changes {
             match change.change_type {
                 ChangeType::Addition => {
@@ -178,8 +183,12 @@ impl SkillUpdater {
                 }
             }
         }
-        
-        log::info!("[SkillUpdater] Applied {} changes to skill {}", update.changes.len(), skill_id);
+
+        log::info!(
+            "[SkillUpdater] Applied {} changes to skill {}",
+            update.changes.len(),
+            skill_id
+        );
         Ok(())
     }
 }

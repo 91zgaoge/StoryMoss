@@ -5,9 +5,9 @@
 //! - 英雄之旅 (Hero's Journey): 约瑟夫·坎贝尔的12阶段单一体神话结构
 //! - 场景结构 (Scene Structure): Swain 的场景-续接模型
 
-pub mod snowflake;
 pub mod hero_journey;
 pub mod scene_structure;
+pub mod snowflake;
 
 /// 所有支持的方法论
 pub enum Methodology {

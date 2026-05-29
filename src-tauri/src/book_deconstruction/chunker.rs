@@ -50,9 +50,7 @@ pub fn create_chunks(book: &ParsedBook) -> Vec<TextChunk> {
             split_by_fixed_size(&book.raw_text, LONG_CHUNK_SIZE)
         }
         // 兼容旧代码
-        ChunkingStrategy::SampledBlocks => {
-            split_by_fixed_size(&book.raw_text, LONG_CHUNK_SIZE)
-        }
+        ChunkingStrategy::SampledBlocks => split_by_fixed_size(&book.raw_text, LONG_CHUNK_SIZE),
     }
 }
 
@@ -181,7 +179,12 @@ fn count_chinese_words(text: &str) -> usize {
     let chinese_chars = text.chars().filter(|c| !c.is_ascii()).count();
     let english_words = text
         .split_whitespace()
-        .filter(|w| w.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false))
+        .filter(|w| {
+            w.chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic())
+                .unwrap_or(false)
+        })
         .count();
     chinese_chars + english_words
 }
@@ -219,7 +222,10 @@ mod tests {
     fn test_determine_strategy() {
         assert_eq!(determine_strategy(50_000), ChunkingStrategy::Full);
         assert_eq!(determine_strategy(200_000), ChunkingStrategy::ByChapters);
-        assert_eq!(determine_strategy(1_000_000), ChunkingStrategy::MergedBlocks);
+        assert_eq!(
+            determine_strategy(1_000_000),
+            ChunkingStrategy::MergedBlocks
+        );
     }
 
     #[test]

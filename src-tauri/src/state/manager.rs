@@ -2,17 +2,21 @@
 //!
 //! This module provides a runtime story state manager with character arcs,
 //! plot progression, and world state tracking. It is currently NOT integrated
-//! into the active creative flow and overlaps with CanonicalStateManager + StateSync.
+//! into the active creative flow and overlaps with CanonicalStateManager +
+//! StateSync.
 //!
 //! Re-enable when a dedicated runtime state machine is needed.
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use chrono::{DateTime, Utc};
-use crate::db::DbPool;
-use crate::error::AppError;
 use rusqlite::params;
+use serde::{Deserialize, Serialize};
+
+use crate::{db::DbPool, error::AppError};
 
 /// Global story state manager
 pub struct StoryStateManager {
@@ -170,15 +174,16 @@ impl StoryStateManager {
                 state_json,
                 Utc::now().to_rfc3339(),
             ],
-        ).map_err(AppError::from)?;
+        )
+        .map_err(AppError::from)?;
         Ok(())
     }
 
     pub fn get_state(&self, story_id: &str) -> Result<Option<StoryState>, AppError> {
         let conn = self.pool.get().map_err(AppError::from)?;
-        let mut stmt = conn.prepare(
-            "SELECT state_json FROM story_runtime_states WHERE story_id = ?1"
-        ).map_err(AppError::from)?;
+        let mut stmt = conn
+            .prepare("SELECT state_json FROM story_runtime_states WHERE story_id = ?1")
+            .map_err(AppError::from)?;
 
         let result = stmt.query_row([story_id], |row| {
             let json: String = row.get(0)?;
@@ -195,7 +200,11 @@ impl StoryStateManager {
         }
     }
 
-    pub fn update_state(&self, story_id: &str, updater: impl FnOnce(&mut StoryState)) -> Result<(), AppError> {
+    pub fn update_state(
+        &self,
+        story_id: &str,
+        updater: impl FnOnce(&mut StoryState),
+    ) -> Result<(), AppError> {
         let mut state = match self.get_state(story_id)? {
             Some(s) => s,
             None => return Err(AppError::internal("Story state not found")),
@@ -219,7 +228,12 @@ impl StoryStateManager {
         })
     }
 
-    pub fn update_chapter_status(&self, story_id: &str, chapter_id: &str, status: ChapterStatus) -> Result<(), AppError> {
+    pub fn update_chapter_status(
+        &self,
+        story_id: &str,
+        chapter_id: &str,
+        status: ChapterStatus,
+    ) -> Result<(), AppError> {
         self.update_state(story_id, |state| {
             if let Some(chapter) = state.chapters.iter_mut().find(|c| c.id == chapter_id) {
                 chapter.status = status;
@@ -235,16 +249,15 @@ impl StoryStateManager {
 
     pub fn get_all_states(&self) -> Result<Vec<StoryState>, AppError> {
         let conn = self.pool.get().map_err(AppError::from)?;
-        let mut stmt = conn.prepare(
-            "SELECT state_json FROM story_runtime_states"
-        ).map_err(AppError::from)?;
+        let mut stmt = conn
+            .prepare("SELECT state_json FROM story_runtime_states")
+            .map_err(AppError::from)?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(row.get::<_, String>(0)?)
-        })
-        .map_err(AppError::from)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(AppError::from)?;
+        let rows = stmt
+            .query_map([], |row| Ok(row.get::<_, String>(0)?))
+            .map_err(AppError::from)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
 
         rows.iter()
             .map(|json| serde_json::from_str(json).map_err(AppError::from))
@@ -254,7 +267,7 @@ impl StoryStateManager {
 
 impl Default for StoryStateManager {
     fn default() -> Self {
-        // Note: Default without pool is a placeholder. 
+        // Note: Default without pool is a placeholder.
         // Production code should always use StoryStateManager::new(pool).
         let manager = r2d2_sqlite::SqliteConnectionManager::memory();
         let pool = r2d2::Pool::builder().max_size(1).build(manager).unwrap();

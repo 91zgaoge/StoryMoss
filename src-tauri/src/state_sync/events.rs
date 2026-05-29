@@ -1,5 +1,5 @@
 //! 跨窗口状态同步事件定义
-//! 
+//!
 //! 所有数据变更操作完成后发射这些事件，前后台窗口监听并自动刷新对应数据。
 
 use serde::{Deserialize, Serialize};
@@ -172,29 +172,30 @@ impl SyncEvent {
     #[allow(dead_code)]
     pub fn resource_type(&self) -> &str {
         match self {
-            SyncEvent::StoryCreated { .. } |
-            SyncEvent::StoryUpdated { .. } |
-            SyncEvent::StoryDeleted { .. } |
-            SyncEvent::StorySelected { .. } => "stories",
-            SyncEvent::CharacterCreated { .. } |
-            SyncEvent::CharacterUpdated { .. } |
-            SyncEvent::CharacterDeleted { .. } => "characters",
-            SyncEvent::SceneCreated { .. } |
-            SyncEvent::SceneUpdated { .. } |
-            SyncEvent::SceneDeleted { .. } |
-            SyncEvent::SceneSelected { .. } => "scenes",
-            SyncEvent::ChapterCreated { .. } |
-            SyncEvent::ChapterUpdated { .. } |
-            SyncEvent::ChapterDeleted { .. } => "chapters",
-            SyncEvent::WorldBuildingUpdated { .. } |
-            SyncEvent::WorldBuildingCreated { .. } |
-            SyncEvent::WorldBuildingDeleted { .. } => "worldBuilding",
+            SyncEvent::StoryCreated { .. }
+            | SyncEvent::StoryUpdated { .. }
+            | SyncEvent::StoryDeleted { .. }
+            | SyncEvent::StorySelected { .. } => "stories",
+            SyncEvent::CharacterCreated { .. }
+            | SyncEvent::CharacterUpdated { .. }
+            | SyncEvent::CharacterDeleted { .. } => "characters",
+            SyncEvent::SceneCreated { .. }
+            | SyncEvent::SceneUpdated { .. }
+            | SyncEvent::SceneDeleted { .. }
+            | SyncEvent::SceneSelected { .. } => "scenes",
+            SyncEvent::ChapterCreated { .. }
+            | SyncEvent::ChapterUpdated { .. }
+            | SyncEvent::ChapterDeleted { .. } => "chapters",
+            SyncEvent::WorldBuildingUpdated { .. }
+            | SyncEvent::WorldBuildingCreated { .. }
+            | SyncEvent::WorldBuildingDeleted { .. } => "worldBuilding",
             SyncEvent::StyleDnaUpdated { .. } => "styleDna",
-            SyncEvent::TaskCreated { .. } |
-            SyncEvent::TaskUpdated { .. } |
-            SyncEvent::TaskCompleted { .. } => "tasks",
-            SyncEvent::AnnotationCreated { .. } |
-            SyncEvent::AnnotationResolved { .. } => "annotations",
+            SyncEvent::TaskCreated { .. }
+            | SyncEvent::TaskUpdated { .. }
+            | SyncEvent::TaskCompleted { .. } => "tasks",
+            SyncEvent::AnnotationCreated { .. } | SyncEvent::AnnotationResolved { .. } => {
+                "annotations"
+            }
             SyncEvent::CharacterRelationshipsUpdated { .. } => "characterRelationships",
             SyncEvent::PayoffLedgerUpdated { .. } => "payoffLedger",
             SyncEvent::IngestionCompleted { .. } => "ingestion",
@@ -246,15 +247,16 @@ impl SyncEvent {
 
 #[cfg(test)]
 mod ts_export_tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     /// 将 SyncEvent 导出为 TypeScript 类型定义。
     /// 运行 `cargo test ts_export_tests -- --nocapture` 即可更新前端绑定文件。
     #[test]
     fn export_sync_event_types() {
-        let export_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../src-frontend/src/generated");
+        let export_dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-frontend/src/generated");
 
         // 确保目标目录存在
         std::fs::create_dir_all(&export_dir).expect("创建 generated 目录失败");

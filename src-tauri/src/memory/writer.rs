@@ -5,9 +5,9 @@
 //! - 更新 scene_commits.summary_text
 //! - 异步更新 memory_items（简化：直接创建 summary 条目）
 
-use crate::db::{DbPool, MemoryItemRepository};
-use crate::db::repositories_story_system::SceneCommitRepository;
 use chrono::Local;
+
+use crate::db::{repositories_story_system::SceneCommitRepository, DbPool, MemoryItemRepository};
 
 pub struct MemoryWriter {
     pool: DbPool,
@@ -37,7 +37,9 @@ impl MemoryWriter {
         let summary = Self::extract_summary(content, 200);
         log::info!(
             "[MemoryWriter] Writing memory for story {} chapter {}: {} chars",
-            story_id, chapter_number, summary.chars().count()
+            story_id,
+            chapter_number,
+            summary.chars().count()
         );
 
         // 2. 更新 scene_commits
@@ -67,7 +69,8 @@ impl MemoryWriter {
         }
     }
 
-    /// 更新 scene_commits：找到该 chapter_number 的最新 commit，更新 summary_text
+    /// 更新 scene_commits：找到该 chapter_number 的最新 commit，更新
+    /// summary_text
     fn update_scene_commit(
         &self,
         story_id: &str,
@@ -75,11 +78,13 @@ impl MemoryWriter {
         summary: &str,
     ) -> Result<(), String> {
         let repo = SceneCommitRepository::new(self.pool.clone());
-        let commits = repo.get_by_story(story_id)
+        let commits = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("Failed to get commits: {}", e))?;
 
         // 找到该 chapter_number 的最新 commit
-        let target = commits.into_iter()
+        let target = commits
+            .into_iter()
             .filter(|c| c.chapter_number == chapter_number)
             .max_by_key(|c| c.created_at.clone());
 
@@ -96,21 +101,25 @@ impl MemoryWriter {
                 Some(summary),
                 commit.dominant_strand.as_deref(),
                 commit.projection_status_json.as_deref(),
-            ).map_err(|e| format!("Failed to update commit: {}", e))?;
+            )
+            .map_err(|e| format!("Failed to update commit: {}", e))?;
             log::info!("[MemoryWriter] Updated scene_commit {} summary", commit.id);
         } else {
             log::warn!(
                 "[MemoryWriter] No scene_commit found for story {} chapter {}, creating new one",
-                story_id, chapter_number
+                story_id,
+                chapter_number
             );
             // 创建新的 commit
-            let _ = repo.create(
-                story_id,
-                None, // scene_id
-                None, // chapter_id
-                chapter_number,
-                "draft",
-            ).map_err(|e| format!("Failed to create commit: {}", e))?;
+            let _ = repo
+                .create(
+                    story_id,
+                    None, // scene_id
+                    None, // chapter_id
+                    chapter_number,
+                    "draft",
+                )
+                .map_err(|e| format!("Failed to create commit: {}", e))?;
         }
 
         Ok(())
@@ -132,9 +141,13 @@ impl MemoryWriter {
             Some(summary),
             Some(chapter_number),
             0.9,
-        ).map_err(|e| format!("Failed to create memory item: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to create memory item: {}", e))?;
 
-        log::info!("[MemoryWriter] Created memory_item for chapter {}", chapter_number);
+        log::info!(
+            "[MemoryWriter] Created memory_item for chapter {}",
+            chapter_number
+        );
         Ok(())
     }
 }

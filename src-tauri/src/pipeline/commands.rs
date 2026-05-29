@@ -1,17 +1,22 @@
-use super::types::*;
-use super::{PipelineOrchestrator, PostProcessRunWithSteps};
-use crate::db::{DbPool, DraftRepository, PipelineReviewRepository};
-use crate::error::AppError;
-use crate::llm::LlmService;
-use crate::subscription::SubscriptionService;
 use tauri::{command, AppHandle, Manager, State};
+
+use super::{types::*, PipelineOrchestrator, PostProcessRunWithSteps};
+use crate::{
+    db::{DbPool, DraftRepository, PipelineReviewRepository},
+    error::AppError,
+    llm::LlmService,
+    subscription::SubscriptionService,
+};
 
 fn check_pipeline_feature_access(app_handle: &AppHandle, feature_id: &str) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let machine_id_path = app_dir.join(".machine_id");
     let user_id = if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+        std::fs::read_to_string(&machine_id_path)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     } else {
         "local".to_string()
     };
@@ -75,7 +80,13 @@ fn create_pipeline_tracking_task(
 
     let task = task_service.create_task(req)?;
     let repo = crate::task_system::repository::TaskRepository::new(pool.clone());
-    let _ = repo.update_status(&task.id, &crate::task_system::models::TaskStatus::Running, Some(0), None, None);
+    let _ = repo.update_status(
+        &task.id,
+        &crate::task_system::models::TaskStatus::Running,
+        Some(0),
+        None,
+        None,
+    );
     let _ = repo.update_last_run(&task.id);
     Ok(task.id)
 }
@@ -128,17 +139,31 @@ pub async fn run_refine(
         "draft_id": &draft_id,
         "user_prompt": user_prompt,
     });
-    let task_id = create_pipeline_tracking_task(&task_service, pool.inner(), "refine", &story_id, &draft_id, payload)
-        .unwrap_or_else(|e| {
-            log::warn!("[pipeline] Failed to create tracking task: {}", e);
-            String::new()
-        });
+    let task_id = create_pipeline_tracking_task(
+        &task_service,
+        pool.inner(),
+        "refine",
+        &story_id,
+        &draft_id,
+        payload,
+    )
+    .unwrap_or_else(|e| {
+        log::warn!("[pipeline] Failed to create tracking task: {}", e);
+        String::new()
+    });
 
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let silent = super::types::SilentCallbacks;
-    let pipeline_callbacks = PipelineTaskCallbacks { task_id: task_id.clone(), pool: pool.inner().clone() };
-    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() { &silent } else { &pipeline_callbacks };
+    let pipeline_callbacks = PipelineTaskCallbacks {
+        task_id: task_id.clone(),
+        pool: pool.inner().clone(),
+    };
+    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() {
+        &silent
+    } else {
+        &pipeline_callbacks
+    };
 
     let result = super::refine_draft(
         &story_id,
@@ -148,7 +173,8 @@ pub async fn run_refine(
         pool.inner(),
         &llm_service,
         callbacks,
-    ).await;
+    )
+    .await;
 
     match &result {
         Ok(refine_result) => {
@@ -181,17 +207,31 @@ pub async fn run_review(
         "draft_id": &draft_id,
         "review_focus": review_focus,
     });
-    let task_id = create_pipeline_tracking_task(&task_service, pool.inner(), "review", &story_id, &draft_id, payload)
-        .unwrap_or_else(|e| {
-            log::warn!("[pipeline] Failed to create tracking task: {}", e);
-            String::new()
-        });
+    let task_id = create_pipeline_tracking_task(
+        &task_service,
+        pool.inner(),
+        "review",
+        &story_id,
+        &draft_id,
+        payload,
+    )
+    .unwrap_or_else(|e| {
+        log::warn!("[pipeline] Failed to create tracking task: {}", e);
+        String::new()
+    });
 
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let silent = super::types::SilentCallbacks;
-    let pipeline_callbacks = PipelineTaskCallbacks { task_id: task_id.clone(), pool: pool.inner().clone() };
-    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() { &silent } else { &pipeline_callbacks };
+    let pipeline_callbacks = PipelineTaskCallbacks {
+        task_id: task_id.clone(),
+        pool: pool.inner().clone(),
+    };
+    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() {
+        &silent
+    } else {
+        &pipeline_callbacks
+    };
 
     let result = super::review_draft(
         &story_id,
@@ -201,7 +241,8 @@ pub async fn run_review(
         pool.inner(),
         &llm_service,
         callbacks,
-    ).await;
+    )
+    .await;
 
     match &result {
         Ok(review_result) => {
@@ -236,17 +277,34 @@ pub async fn run_finalize(
         "chapter_number": chapter_number,
         "chapter_title": chapter_title,
     });
-    let task_id = create_pipeline_tracking_task(&task_service, pool.inner(), "finalize", &story_id, &draft_id, payload)
-        .unwrap_or_else(|e| {
-            log::warn!("[pipeline] Failed to create tracking task: {}", e);
-            String::new()
-        });
+    let task_id = create_pipeline_tracking_task(
+        &task_service,
+        pool.inner(),
+        "finalize",
+        &story_id,
+        &draft_id,
+        payload,
+    )
+    .unwrap_or_else(|e| {
+        log::warn!("[pipeline] Failed to create tracking task: {}", e);
+        String::new()
+    });
 
     let config = PipelineConfig::default();
     let silent = super::types::SilentCallbacks;
-    let pipeline_callbacks = PipelineTaskCallbacks { task_id: task_id.clone(), pool: pool.inner().clone() };
-    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() { &silent } else { &pipeline_callbacks };
-    let chapter_info = ChapterInfo { chapter_number, title: chapter_title };
+    let pipeline_callbacks = PipelineTaskCallbacks {
+        task_id: task_id.clone(),
+        pool: pool.inner().clone(),
+    };
+    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() {
+        &silent
+    } else {
+        &pipeline_callbacks
+    };
+    let chapter_info = ChapterInfo {
+        chapter_number,
+        title: chapter_title,
+    };
 
     let post_process_run_id = super::finalize_draft(
         &story_id,
@@ -256,7 +314,8 @@ pub async fn run_finalize(
         pool.inner(),
         &app_handle,
         callbacks,
-    ).await;
+    )
+    .await;
 
     let app_result = match post_process_run_id {
         Ok(id) => Ok(PipelineResult {
@@ -296,7 +355,8 @@ pub async fn repair_finalize(
 ) -> Result<PipelineResult, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
 
-    let draft = orchestrator.get_finalized_draft(&story_id, chapter_number)?
+    let draft = orchestrator
+        .get_finalized_draft(&story_id, chapter_number)?
         .ok_or_else(|| AppError::internal("未找到已定稿的草稿"))?;
 
     let payload = serde_json::json!({
@@ -305,17 +365,34 @@ pub async fn repair_finalize(
         "draft_id": &draft.id,
         "chapter_number": chapter_number,
     });
-    let task_id = create_pipeline_tracking_task(&task_service, pool.inner(), "repair_finalize", &story_id, &draft.id, payload)
-        .unwrap_or_else(|e| {
-            log::warn!("[pipeline] Failed to create tracking task: {}", e);
-            String::new()
-        });
+    let task_id = create_pipeline_tracking_task(
+        &task_service,
+        pool.inner(),
+        "repair_finalize",
+        &story_id,
+        &draft.id,
+        payload,
+    )
+    .unwrap_or_else(|e| {
+        log::warn!("[pipeline] Failed to create tracking task: {}", e);
+        String::new()
+    });
 
     let config = PipelineConfig::default();
     let silent = super::types::SilentCallbacks;
-    let pipeline_callbacks = PipelineTaskCallbacks { task_id: task_id.clone(), pool: pool.inner().clone() };
-    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() { &silent } else { &pipeline_callbacks };
-    let chapter_info = ChapterInfo { chapter_number, title: None };
+    let pipeline_callbacks = PipelineTaskCallbacks {
+        task_id: task_id.clone(),
+        pool: pool.inner().clone(),
+    };
+    let callbacks: &dyn PipelineCallbacks = if task_id.is_empty() {
+        &silent
+    } else {
+        &pipeline_callbacks
+    };
+    let chapter_info = ChapterInfo {
+        chapter_number,
+        title: None,
+    };
 
     let post_process_run_id = super::finalize_draft(
         &story_id,
@@ -325,7 +402,8 @@ pub async fn repair_finalize(
         pool.inner(),
         &app_handle,
         callbacks,
-    ).await;
+    )
+    .await;
 
     let app_result = match post_process_run_id {
         Ok(id) => Ok(PipelineResult {
@@ -413,7 +491,8 @@ pub async fn get_story_chapter_drafts(
     pool: State<'_, DbPool>,
 ) -> Result<Vec<crate::db::Draft>, AppError> {
     let repo = DraftRepository::new(pool.inner().clone());
-    repo.get_by_story_chapter(&story_id, chapter_number).map_err(AppError::from)
+    repo.get_by_story_chapter(&story_id, chapter_number)
+        .map_err(AppError::from)
 }
 
 /// 获取草稿的最新审稿报告

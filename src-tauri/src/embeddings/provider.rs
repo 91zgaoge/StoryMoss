@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
 use super::embedding::*;
 
 #[async_trait]
@@ -51,7 +52,8 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
             input: texts.clone(),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.openai.com/v1/embeddings")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request)
@@ -70,18 +72,23 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
             });
         }
 
-        let result: OpenAIEmbeddingResponse = response.json().await
-            .map_err(|e| EmbeddingError {
+        let result: OpenAIEmbeddingResponse =
+            response.json().await.map_err(|e| EmbeddingError {
                 message: e.to_string(),
                 code: "PARSE_ERROR".to_string(),
             })?;
 
-        Ok(result.data.into_iter().enumerate().map(|(i, d)| Embedding {
-            id: format!("emb_{}", i),
-            vector: d.embedding,
-            dimensions: self.dimensions,
-            model: self.model.clone(),
-        }).collect())
+        Ok(result
+            .data
+            .into_iter()
+            .enumerate()
+            .map(|(i, d)| Embedding {
+                id: format!("emb_{}", i),
+                vector: d.embedding,
+                dimensions: self.dimensions,
+                model: self.model.clone(),
+            })
+            .collect())
     }
 
     fn dimensions(&self) -> usize {
@@ -148,7 +155,8 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                 model: self.model.clone(),
                 prompt: text,
             };
-            let response = self.client
+            let response = self
+                .client
                 .post(format!("{}/api/embeddings", self.api_base))
                 .json(&request)
                 .send()
@@ -166,8 +174,8 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                 });
             }
 
-            let result: OllamaEmbedResponse = response.json().await
-                .map_err(|e| EmbeddingError {
+            let result: OllamaEmbedResponse =
+                response.json().await.map_err(|e| EmbeddingError {
                     message: e.to_string(),
                     code: "PARSE_ERROR".to_string(),
                 })?;
@@ -238,10 +246,12 @@ impl EmbeddingProvider for LocalEmbeddingProvider {
 // ==================== 全局提供者管理 ====================
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use once_cell::sync::OnceCell;
 
-static GLOBAL_PROVIDER: OnceCell<Arc<Mutex<Box<dyn EmbeddingProvider + Send + Sync>>>> = OnceCell::new();
+use once_cell::sync::OnceCell;
+use tokio::sync::Mutex;
+
+static GLOBAL_PROVIDER: OnceCell<Arc<Mutex<Box<dyn EmbeddingProvider + Send + Sync>>>> =
+    OnceCell::new();
 
 /// 初始化全局嵌入提供者（从 AppConfig 读取）
 pub fn init_global_provider(config: &crate::config::settings::AppConfig) {
@@ -250,13 +260,18 @@ pub fn init_global_provider(config: &crate::config::settings::AppConfig) {
     log::info!("[EmbeddingProvider] 全局嵌入提供者已初始化");
 }
 
-fn build_provider_from_config(config: &crate::config::settings::AppConfig) -> Box<dyn EmbeddingProvider + Send + Sync> {
+fn build_provider_from_config(
+    config: &crate::config::settings::AppConfig,
+) -> Box<dyn EmbeddingProvider + Send + Sync> {
     // 如果有激活的 embedding profile，使用它
     if let Some(active_id) = &config.active_embedding_profile {
         if let Some(profile) = config.embedding_profiles.get(active_id) {
             match profile.provider {
                 crate::config::settings::EmbeddingProvider::Ollama => {
-                    log::info!("[EmbeddingProvider] 使用 Ollama 嵌入后端: {}", profile.model);
+                    log::info!(
+                        "[EmbeddingProvider] 使用 Ollama 嵌入后端: {}",
+                        profile.model
+                    );
                     return Box::new(OllamaEmbeddingProvider::new(
                         profile.model.clone(),
                         profile.api_base.clone(),
@@ -264,7 +279,10 @@ fn build_provider_from_config(config: &crate::config::settings::AppConfig) -> Bo
                     ));
                 }
                 crate::config::settings::EmbeddingProvider::OpenAI => {
-                    log::info!("[EmbeddingProvider] 使用 OpenAI 嵌入后端: {}", profile.model);
+                    log::info!(
+                        "[EmbeddingProvider] 使用 OpenAI 嵌入后端: {}",
+                        profile.model
+                    );
                     return Box::new(OpenAIEmbeddingProvider::new(
                         profile.api_key.clone(),
                         profile.model.clone(),
@@ -272,7 +290,10 @@ fn build_provider_from_config(config: &crate::config::settings::AppConfig) -> Bo
                     ));
                 }
                 _ => {
-                    log::warn!("[EmbeddingProvider] 不支持的嵌入后端: {:?}，回退到本地", profile.provider);
+                    log::warn!(
+                        "[EmbeddingProvider] 不支持的嵌入后端: {:?}，回退到本地",
+                        profile.provider
+                    );
                 }
             }
         }

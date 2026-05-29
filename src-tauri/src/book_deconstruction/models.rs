@@ -174,11 +174,11 @@ pub struct TextChunk {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkingStrategy {
-    Full,           // 短篇：全文一次处理
-    ByChapters,     // 中篇：按章节分块
-    MergedBlocks,   // 长篇：相邻章节合并成固定数量块，覆盖全部内容
+    Full,         // 短篇：全文一次处理
+    ByChapters,   // 中篇：按章节分块
+    MergedBlocks, // 长篇：相邻章节合并成固定数量块，覆盖全部内容
     #[allow(dead_code)]
-    SampledBlocks,  // 保留兼容（已不再使用）
+    SampledBlocks, // 保留兼容（已不再使用）
 }
 
 // ==================== 错误类型 ====================

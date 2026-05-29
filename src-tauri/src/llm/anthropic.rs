@@ -1,7 +1,9 @@
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use std::time::Duration;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+
+use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 
 pub struct AnthropicAdapter {
     client: Client,
@@ -101,7 +103,8 @@ impl LlmAdapter for AnthropicAdapter {
             stream: false,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/messages", self.api_base))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -125,7 +128,10 @@ impl LlmAdapter for AnthropicAdapter {
             .join("");
 
         let total_tokens = anthropic_resp.usage.input_tokens + anthropic_resp.usage.output_tokens;
-        let cost = self.calculate_cost(anthropic_resp.usage.input_tokens, anthropic_resp.usage.output_tokens);
+        let cost = self.calculate_cost(
+            anthropic_resp.usage.input_tokens,
+            anthropic_resp.usage.output_tokens,
+        );
 
         Ok(GenerateResponse {
             content,
@@ -138,7 +144,10 @@ impl LlmAdapter for AnthropicAdapter {
     async fn generate_stream(
         &self,
         request: GenerateRequest,
-    ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
@@ -151,7 +160,8 @@ impl LlmAdapter for AnthropicAdapter {
             stream: true,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/messages", self.api_base))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -166,7 +176,9 @@ impl LlmAdapter for AnthropicAdapter {
             return Err(format!("Anthropic API error: {}", error_text).into());
         }
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, Box<dyn std::error::Error + Send + Sync>>>(128);
+        let (tx, rx) = tokio::sync::mpsc::channel::<
+            Result<String, Box<dyn std::error::Error + Send + Sync>>,
+        >(128);
 
         tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -194,7 +206,11 @@ impl LlmAdapter for AnthropicAdapter {
                 }
                 match serde_json::from_str::<serde_json::Value>(data) {
                     Ok(json) => {
-                        if let Some(text) = json.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                        if let Some(text) = json
+                            .get("delta")
+                            .and_then(|d| d.get("text"))
+                            .and_then(|t| t.as_str())
+                        {
                             if tx.send(Ok(text.to_string())).await.is_err() {
                                 break;
                             }

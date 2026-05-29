@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Deep reviewer for story evolution analysis
 pub struct EvolutionReviewer;
@@ -216,9 +216,7 @@ impl EvolutionReviewer {
         }
     }
 
-    fn assess_overall(&self,
-        analyses: &[super::analyzer::AnalysisReport],
-    ) -> OverallAssessment {
+    fn assess_overall(&self, analyses: &[super::analyzer::AnalysisReport]) -> OverallAssessment {
         if analyses.is_empty() {
             return OverallAssessment {
                 narrative_coherence_score: 0.0,
@@ -230,30 +228,65 @@ impl EvolutionReviewer {
                 concerns_summary: vec!["No analysis data available".to_string()],
             };
         }
-        let avg_coherence = analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
-        let avg_quality = analyses.iter().map(|a| a.writing_quality.score).sum::<f32>() / analyses.len() as f32;
-        let avg_character = analyses.iter().map(|a| a.character_consistency.score).sum::<f32>() / analyses.len() as f32;
-        let avg_pacing = analyses.iter().map(|a| a.pacing_analysis.score).sum::<f32>() / analyses.len() as f32;
+        let avg_coherence =
+            analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
+        let avg_quality = analyses
+            .iter()
+            .map(|a| a.writing_quality.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
+        let avg_character = analyses
+            .iter()
+            .map(|a| a.character_consistency.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
+        let avg_pacing = analyses
+            .iter()
+            .map(|a| a.pacing_analysis.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
 
         let mut strengths = Vec::new();
         let mut concerns = Vec::new();
-        if avg_quality > 75.0 { strengths.push("写作质量良好".to_string()); }
-        if avg_coherence > 75.0 { strengths.push("情节连贯性佳".to_string()); }
-        if avg_character > 75.0 { strengths.push("角色一致性高".to_string()); }
-        if avg_pacing > 75.0 { strengths.push("节奏把控得当".to_string()); }
-        if avg_quality < 60.0 { concerns.push("写作质量有待提升".to_string()); }
-        if avg_coherence < 60.0 { concerns.push("情节连贯性需加强".to_string()); }
-        if avg_character < 60.0 { concerns.push("角色一致性存在问题".to_string()); }
-        if avg_pacing < 60.0 { concerns.push("节奏把控需要调整".to_string()); }
-        if strengths.is_empty() { strengths.push("整体表现平稳".to_string()); }
-        if concerns.is_empty() { concerns.push("继续保持当前水平".to_string()); }
+        if avg_quality > 75.0 {
+            strengths.push("写作质量良好".to_string());
+        }
+        if avg_coherence > 75.0 {
+            strengths.push("情节连贯性佳".to_string());
+        }
+        if avg_character > 75.0 {
+            strengths.push("角色一致性高".to_string());
+        }
+        if avg_pacing > 75.0 {
+            strengths.push("节奏把控得当".to_string());
+        }
+        if avg_quality < 60.0 {
+            concerns.push("写作质量有待提升".to_string());
+        }
+        if avg_coherence < 60.0 {
+            concerns.push("情节连贯性需加强".to_string());
+        }
+        if avg_character < 60.0 {
+            concerns.push("角色一致性存在问题".to_string());
+        }
+        if avg_pacing < 60.0 {
+            concerns.push("节奏把控需要调整".to_string());
+        }
+        if strengths.is_empty() {
+            strengths.push("整体表现平稳".to_string());
+        }
+        if concerns.is_empty() {
+            concerns.push("继续保持当前水平".to_string());
+        }
 
         OverallAssessment {
             narrative_coherence_score: avg_coherence / 100.0,
             character_development_score: avg_character / 100.0,
             world_building_consistency_score: avg_quality / 100.0,
             thematic_depth_score: (avg_coherence + avg_quality) / 200.0,
-            overall_progress: analyses.iter().map(|a| a.overall_score).sum::<f32>() / analyses.len() as f32 / 100.0,
+            overall_progress: analyses.iter().map(|a| a.overall_score).sum::<f32>()
+                / analyses.len() as f32
+                / 100.0,
             strengths_summary: strengths,
             concerns_summary: concerns,
         }
@@ -276,7 +309,11 @@ impl EvolutionReviewer {
             };
         }
 
-        let avg_pacing_score = analyses.iter().map(|a| a.pacing_analysis.score).sum::<f32>() / analyses.len() as f32;
+        let avg_pacing_score = analyses
+            .iter()
+            .map(|a| a.pacing_analysis.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
         let pacing_type = if avg_pacing_score > 80.0 {
             PacingType::Fast
         } else if avg_pacing_score > 60.0 {
@@ -308,7 +345,12 @@ impl EvolutionReviewer {
         }
 
         NarrativeArcAnalysis {
-            current_act: if avg_pacing_score > 70.0 { "高潮阶段" } else { "发展阶段" }.to_string(),
+            current_act: if avg_pacing_score > 70.0 {
+                "高潮阶段"
+            } else {
+                "发展阶段"
+            }
+            .to_string(),
             tension_curve: vec![],
             plot_points_evaluated: vec![],
             pacing_assessment: PacingAssessment {
@@ -321,7 +363,8 @@ impl EvolutionReviewer {
 
     fn analyze_themes(&self, analyses: &[super::analyzer::AnalysisReport]) -> ThemeDevelopment {
         // 从建议中推断主题
-        let mut theme_keywords: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut theme_keywords: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for analysis in analyses {
             for suggestion in &analysis.suggestions {
                 let text = suggestion.description.to_lowercase();
@@ -340,13 +383,18 @@ impl EvolutionReviewer {
         let secondary: Vec<String> = theme_keywords.keys().cloned().collect();
         ThemeDevelopment {
             primary_theme: "待分析".to_string(),
-            secondary_themes: if secondary.is_empty() { vec!["情节推进".to_string()] } else { secondary },
+            secondary_themes: if secondary.is_empty() {
+                vec!["情节推进".to_string()]
+            } else {
+                secondary
+            },
             theme_progression: vec![],
             symbol_usage: vec![],
         }
     }
 
-    fn predict_engagement(&self,
+    fn predict_engagement(
+        &self,
         analyses: &[super::analyzer::AnalysisReport],
     ) -> EngagementPrediction {
         if analyses.is_empty() {
@@ -361,9 +409,18 @@ impl EvolutionReviewer {
                 },
             };
         }
-        let avg_quality = analyses.iter().map(|a| a.writing_quality.score).sum::<f32>() / analyses.len() as f32;
-        let avg_coherence = analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
-        let avg_pacing = analyses.iter().map(|a| a.pacing_analysis.score).sum::<f32>() / analyses.len() as f32;
+        let avg_quality = analyses
+            .iter()
+            .map(|a| a.writing_quality.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
+        let avg_coherence =
+            analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
+        let avg_pacing = analyses
+            .iter()
+            .map(|a| a.pacing_analysis.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
 
         // 预测评分基于多维度综合
         let predicted_rating = 2.0 + (avg_quality + avg_coherence + avg_pacing) / 100.0;
@@ -421,8 +478,13 @@ impl EvolutionReviewer {
             }];
         }
 
-        let avg_quality = analyses.iter().map(|a| a.writing_quality.score).sum::<f32>() / analyses.len() as f32;
-        let avg_coherence = analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
+        let avg_quality = analyses
+            .iter()
+            .map(|a| a.writing_quality.score)
+            .sum::<f32>()
+            / analyses.len() as f32;
+        let avg_coherence =
+            analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
 
         let mut successful = Vec::new();
         let mut improvements = Vec::new();
@@ -443,9 +505,21 @@ impl EvolutionReviewer {
 
         vec![LearningOutcome {
             pattern_identified: "基于多章节分析的综合评估".to_string(),
-            successful_approaches: if successful.is_empty() { vec!["整体基础扎实".to_string()] } else { successful },
-            areas_for_improvement: if improvements.is_empty() { vec!["细节打磨".to_string()] } else { improvements },
-            recommended_practices: if practices.is_empty() { vec!["保持当前创作节奏".to_string()] } else { practices },
+            successful_approaches: if successful.is_empty() {
+                vec!["整体基础扎实".to_string()]
+            } else {
+                successful
+            },
+            areas_for_improvement: if improvements.is_empty() {
+                vec!["细节打磨".to_string()]
+            } else {
+                improvements
+            },
+            recommended_practices: if practices.is_empty() {
+                vec!["保持当前创作节奏".to_string()]
+            } else {
+                practices
+            },
         }]
     }
 }

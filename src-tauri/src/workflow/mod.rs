@@ -1,13 +1,16 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use chrono::{DateTime, Utc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
-pub mod scheduler;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
 pub mod loader;
+pub mod scheduler;
+pub use loader::{LoadedWorkflow, WorkflowLoader};
 pub use scheduler::WorkflowScheduler;
-pub use loader::{WorkflowLoader, LoadedWorkflow};
 
 /// Workflow definition - DAG structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +77,14 @@ pub struct EdgeCondition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConditionOperator {
-    Eq, Neq, Gt, Gte, Lt, Lte, Contains, NotContains,
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    Contains,
+    NotContains,
 }
 
 impl EdgeCondition {
@@ -82,66 +92,56 @@ impl EdgeCondition {
     pub fn evaluate(&self, variables: &HashMap<String, serde_json::Value>) -> bool {
         let field_value = variables.get(&self.field);
         match self.operator {
-            ConditionOperator::Eq => {
-                field_value.map(|v| v == &self.value).unwrap_or(false)
-            }
-            ConditionOperator::Neq => {
-                field_value.map(|v| v != &self.value).unwrap_or(true)
-            }
-            ConditionOperator::Gt => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
-                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a > b).unwrap_or(false)
-                    }
-                    _ => false,
+            ConditionOperator::Eq => field_value.map(|v| v == &self.value).unwrap_or(false),
+            ConditionOperator::Neq => field_value.map(|v| v != &self.value).unwrap_or(true),
+            ConditionOperator::Gt => match (field_value, &self.value) {
+                (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => a
+                    .as_f64()
+                    .zip(b.as_f64())
+                    .map(|(a, b)| a > b)
+                    .unwrap_or(false),
+                _ => false,
+            },
+            ConditionOperator::Gte => match (field_value, &self.value) {
+                (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => a
+                    .as_f64()
+                    .zip(b.as_f64())
+                    .map(|(a, b)| a >= b)
+                    .unwrap_or(false),
+                _ => false,
+            },
+            ConditionOperator::Lt => match (field_value, &self.value) {
+                (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => a
+                    .as_f64()
+                    .zip(b.as_f64())
+                    .map(|(a, b)| a < b)
+                    .unwrap_or(false),
+                _ => false,
+            },
+            ConditionOperator::Lte => match (field_value, &self.value) {
+                (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => a
+                    .as_f64()
+                    .zip(b.as_f64())
+                    .map(|(a, b)| a <= b)
+                    .unwrap_or(false),
+                _ => false,
+            },
+            ConditionOperator::Contains => match (field_value, &self.value) {
+                (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => a.contains(b),
+                (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
+                    a.iter().any(|v| v.as_str() == Some(b))
                 }
-            }
-            ConditionOperator::Gte => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
-                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a >= b).unwrap_or(false)
-                    }
-                    _ => false,
+                _ => false,
+            },
+            ConditionOperator::NotContains => match (field_value, &self.value) {
+                (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
+                    !a.contains(b)
                 }
-            }
-            ConditionOperator::Lt => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
-                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a < b).unwrap_or(false)
-                    }
-                    _ => false,
+                (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
+                    !a.iter().any(|v| v.as_str() == Some(b))
                 }
-            }
-            ConditionOperator::Lte => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::Number(a)), serde_json::Value::Number(b)) => {
-                        a.as_f64().zip(b.as_f64()).map(|(a, b)| a <= b).unwrap_or(false)
-                    }
-                    _ => false,
-                }
-            }
-            ConditionOperator::Contains => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
-                        a.contains(b)
-                    }
-                    (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
-                        a.iter().any(|v| v.as_str() == Some(b))
-                    }
-                    _ => false,
-                }
-            }
-            ConditionOperator::NotContains => {
-                match (field_value, &self.value) {
-                    (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
-                        !a.contains(b)
-                    }
-                    (Some(serde_json::Value::Array(a)), serde_json::Value::String(b)) => {
-                        !a.iter().any(|v| v.as_str() == Some(b))
-                    }
-                    _ => true,
-                }
-            }
+                _ => true,
+            },
         }
     }
 }
@@ -163,7 +163,12 @@ pub struct WorkflowInstance {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WorkflowStatus {
-    Pending, Running, Paused, Completed, Failed, Cancelled,
+    Pending,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,7 +192,11 @@ pub struct NodeState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NodeExecutionStatus {
-    Pending, Running, Completed, Failed, Skipped,
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Skipped,
 }
 
 /// Workflow engine
@@ -219,7 +228,10 @@ impl WorkflowEngine {
         } else {
             let instances = engine.instances.lock().unwrap();
             for (id, instance) in instances.iter() {
-                if matches!(instance.status, WorkflowStatus::Pending | WorkflowStatus::Running) {
+                if matches!(
+                    instance.status,
+                    WorkflowStatus::Pending | WorkflowStatus::Running
+                ) {
                     restored_ids.push(id.clone());
                 }
             }
@@ -228,9 +240,12 @@ impl WorkflowEngine {
     }
 
     fn load_instances_from_db(&mut self, pool: &crate::db::DbPool) -> Result<(), rusqlite::Error> {
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, instance_json FROM workflow_instances WHERE status IN ('Pending', 'Running', 'Paused')"
+            "SELECT id, instance_json FROM workflow_instances WHERE status IN ('Pending', \
+             'Running', 'Paused')",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
@@ -246,11 +261,18 @@ impl WorkflowEngine {
                     instances.insert(id, instance);
                 }
                 Err(e) => {
-                    log::warn!("[WorkflowEngine] Failed to deserialize instance {}: {}", id, e);
+                    log::warn!(
+                        "[WorkflowEngine] Failed to deserialize instance {}: {}",
+                        id,
+                        e
+                    );
                 }
             }
         }
-        log::info!("[WorkflowEngine] Loaded {} instances from database", instances.len());
+        log::info!(
+            "[WorkflowEngine] Loaded {} instances from database",
+            instances.len()
+        );
         Ok(())
     }
 
@@ -259,11 +281,14 @@ impl WorkflowEngine {
             Some(p) => p,
             None => return Ok(()),
         };
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let json = serde_json::to_string(instance).unwrap_or_default();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO workflow_instances (id, workflow_id, story_id, status, instance_json, updated_at)
+            "INSERT INTO workflow_instances (id, workflow_id, story_id, status, instance_json, \
+             updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(id) DO UPDATE SET
                  status = excluded.status,
@@ -281,8 +306,7 @@ impl WorkflowEngine {
         Ok(())
     }
 
-    pub fn register_workflow(
-        &self, workflow: Workflow) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn register_workflow(&self, workflow: Workflow) -> Result<(), Box<dyn std::error::Error>> {
         let mut workflows = self.workflows.lock().unwrap();
         if self.has_cycle(&workflow.nodes, &workflow.edges) {
             return Err("Workflow contains cycle".into());
@@ -305,15 +329,18 @@ impl WorkflowEngine {
 
         let mut node_states = HashMap::new();
         for node in &workflow.nodes {
-            node_states.insert(node.id.clone(), NodeState {
-                node_id: node.id.clone(),
-                status: NodeExecutionStatus::Pending,
-                started_at: None,
-                completed_at: None,
-                output: None,
-                error: None,
-                attempts: 0,
-            });
+            node_states.insert(
+                node.id.clone(),
+                NodeState {
+                    node_id: node.id.clone(),
+                    status: NodeExecutionStatus::Pending,
+                    started_at: None,
+                    completed_at: None,
+                    output: None,
+                    error: None,
+                    attempts: 0,
+                },
+            );
         }
 
         let instance = WorkflowInstance {
@@ -336,7 +363,11 @@ impl WorkflowEngine {
         let mut instances = self.instances.lock().unwrap();
         instances.insert(instance.id.clone(), instance.clone());
         if let Err(e) = self.save_instance_to_db(&instance) {
-            log::warn!("[WorkflowEngine] Failed to persist new instance {}: {}", instance.id, e);
+            log::warn!(
+                "[WorkflowEngine] Failed to persist new instance {}: {}",
+                instance.id,
+                e
+            );
         }
         Ok(instance)
     }
@@ -351,8 +382,12 @@ impl WorkflowEngine {
 
         instance.status = WorkflowStatus::Running;
         let workflows = self.workflows.lock().unwrap();
-        let workflow = workflows.get(&instance.workflow_id).ok_or("Workflow not found")?;
-        let start_node = workflow.nodes.iter()
+        let workflow = workflows
+            .get(&instance.workflow_id)
+            .ok_or("Workflow not found")?;
+        let start_node = workflow
+            .nodes
+            .iter()
             .find(|n| matches!(n.node_type, NodeType::Start))
             .ok_or("No start node found")?;
 
@@ -374,15 +409,19 @@ impl WorkflowEngine {
         let mut instances = self.instances.lock().unwrap();
         instances.insert(instance.id.clone(), instance.clone());
         if let Err(e) = self.save_instance_to_db(instance) {
-            log::warn!("[WorkflowEngine] Failed to persist instance {}: {}", instance.id, e);
+            log::warn!(
+                "[WorkflowEngine] Failed to persist instance {}: {}",
+                instance.id,
+                e
+            );
         }
     }
 
-    fn has_cycle(
-        &self, nodes: &[WorkflowNode], edges: &[WorkflowEdge]) -> bool {
+    fn has_cycle(&self, nodes: &[WorkflowNode], edges: &[WorkflowEdge]) -> bool {
         let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
         for edge in edges {
-            adjacency.entry(edge.from_node.clone())
+            adjacency
+                .entry(edge.from_node.clone())
                 .or_default()
                 .push(edge.to_node.clone());
         }
@@ -445,35 +484,66 @@ pub mod templates {
                     id: "start".to_string(),
                     name: "Start".to_string(),
                     node_type: NodeType::Start,
-                    config: NodeConfig { parameters: HashMap::new(), timeout_seconds: None, retry_count: None },
+                    config: NodeConfig {
+                        parameters: HashMap::new(),
+                        timeout_seconds: None,
+                        retry_count: None,
+                    },
                     position: Some(NodePosition { x: 100.0, y: 100.0 }),
                 },
                 WorkflowNode {
                     id: "write".to_string(),
                     name: "Write Chapter".to_string(),
                     node_type: NodeType::WriteChapter,
-                    config: NodeConfig { parameters: HashMap::new(), timeout_seconds: Some(300), retry_count: Some(2) },
+                    config: NodeConfig {
+                        parameters: HashMap::new(),
+                        timeout_seconds: Some(300),
+                        retry_count: Some(2),
+                    },
                     position: Some(NodePosition { x: 300.0, y: 100.0 }),
                 },
                 WorkflowNode {
                     id: "inspect".to_string(),
                     name: "Inspect".to_string(),
                     node_type: NodeType::Inspect,
-                    config: NodeConfig { parameters: HashMap::new(), timeout_seconds: Some(120), retry_count: Some(1) },
+                    config: NodeConfig {
+                        parameters: HashMap::new(),
+                        timeout_seconds: Some(120),
+                        retry_count: Some(1),
+                    },
                     position: Some(NodePosition { x: 500.0, y: 100.0 }),
                 },
                 WorkflowNode {
                     id: "end".to_string(),
                     name: "End".to_string(),
                     node_type: NodeType::End,
-                    config: NodeConfig { parameters: HashMap::new(), timeout_seconds: None, retry_count: None },
+                    config: NodeConfig {
+                        parameters: HashMap::new(),
+                        timeout_seconds: None,
+                        retry_count: None,
+                    },
                     position: Some(NodePosition { x: 700.0, y: 100.0 }),
                 },
             ],
             edges: vec![
-                WorkflowEdge { id: "e1".to_string(), from_node: "start".to_string(), to_node: "write".to_string(), condition: None },
-                WorkflowEdge { id: "e2".to_string(), from_node: "write".to_string(), to_node: "inspect".to_string(), condition: None },
-                WorkflowEdge { id: "e3".to_string(), from_node: "inspect".to_string(), to_node: "end".to_string(), condition: None },
+                WorkflowEdge {
+                    id: "e1".to_string(),
+                    from_node: "start".to_string(),
+                    to_node: "write".to_string(),
+                    condition: None,
+                },
+                WorkflowEdge {
+                    id: "e2".to_string(),
+                    from_node: "write".to_string(),
+                    to_node: "inspect".to_string(),
+                    condition: None,
+                },
+                WorkflowEdge {
+                    id: "e3".to_string(),
+                    from_node: "inspect".to_string(),
+                    to_node: "end".to_string(),
+                    condition: None,
+                },
             ],
             created_at: now,
         }

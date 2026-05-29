@@ -3,13 +3,14 @@
 //! 参考 memoh-X internal/heartbeat/engine.go 的心跳检测设计。
 //! 每 60 秒扫描所有 running 任务，检测心跳超时。
 
-use super::models::*;
-use super::repository::TaskRepository;
-use crate::db::DbPool;
-use chrono::Local;
 use std::time::Duration;
+
+use chrono::Local;
 use tauri::async_runtime::JoinHandle;
 use tokio::time::interval;
+
+use super::{models::*, repository::TaskRepository};
+use crate::db::DbPool;
 
 /// 心跳检测器
 pub struct HeartbeatMonitor {
@@ -60,7 +61,10 @@ impl HeartbeatMonitor {
         });
 
         self.handle = Some(handle);
-        log::info!("[HeartbeatMonitor] Started (interval: {}s)", self.check_interval_secs);
+        log::info!(
+            "[HeartbeatMonitor] Started (interval: {}s)",
+            self.check_interval_secs
+        );
     }
 
     /// 停止心跳检测
@@ -75,7 +79,11 @@ impl HeartbeatMonitor {
     pub fn record_heartbeat(pool: &DbPool, task_id: &str) {
         let repo = TaskRepository::new(pool.clone());
         if let Err(e) = repo.update_heartbeat(task_id) {
-            log::warn!("[HeartbeatMonitor] Failed to record heartbeat for {}: {}", task_id, e);
+            log::warn!(
+                "[HeartbeatMonitor] Failed to record heartbeat for {}: {}",
+                task_id,
+                e
+            );
         }
     }
 
@@ -93,11 +101,16 @@ impl HeartbeatMonitor {
                 Some(heartbeat_str) => {
                     match chrono::DateTime::parse_from_rfc3339(heartbeat_str) {
                         Ok(heartbeat) => {
-                            let elapsed = now.signed_duration_since(heartbeat.with_timezone(&chrono::Local));
+                            let elapsed =
+                                now.signed_duration_since(heartbeat.with_timezone(&chrono::Local));
                             elapsed.num_seconds() > timeout_secs
                         }
                         Err(e) => {
-                            log::warn!("[HeartbeatMonitor] Failed to parse heartbeat time for {}: {}", task.id, e);
+                            log::warn!(
+                                "[HeartbeatMonitor] Failed to parse heartbeat time for {}: {}",
+                                task.id,
+                                e
+                            );
                             true // 解析失败视为超时
                         }
                     }
@@ -105,15 +118,14 @@ impl HeartbeatMonitor {
                 None => {
                     // 没有心跳记录，检查任务开始运行时间
                     match &task.last_run_at {
-                        Some(run_str) => {
-                            match chrono::DateTime::parse_from_rfc3339(run_str) {
-                                Ok(run_time) => {
-                                    let elapsed = now.signed_duration_since(run_time.with_timezone(&chrono::Local));
-                                    elapsed.num_seconds() > timeout_secs
-                                }
-                                Err(_) => true,
+                        Some(run_str) => match chrono::DateTime::parse_from_rfc3339(run_str) {
+                            Ok(run_time) => {
+                                let elapsed = now
+                                    .signed_duration_since(run_time.with_timezone(&chrono::Local));
+                                elapsed.num_seconds() > timeout_secs
                             }
-                        }
+                            Err(_) => true,
+                        },
                         None => true, // 既没有心跳也没有运行时间，视为异常
                     }
                 }
@@ -131,26 +143,36 @@ impl HeartbeatMonitor {
                     let new_retry = task.retry_count + 1;
                     // 指数退避: 每次重试等待 30 * 2^(retry_count) 秒
                     let backoff_secs = 30u64 * (2u64.pow(new_retry as u32));
-                    let next_run = (Local::now() + chrono::Duration::seconds(backoff_secs as i64)).to_rfc3339();
-                    
+                    let next_run = (Local::now() + chrono::Duration::seconds(backoff_secs as i64))
+                        .to_rfc3339();
+
                     repo.update_status(
                         &task.id,
                         &TaskStatus::Pending,
                         Some(task.progress),
                         None,
-                        Some(format!("心跳超时，准备重试 ({}/{})", new_retry, task.max_retries)),
+                        Some(format!(
+                            "心跳超时，准备重试 ({}/{})",
+                            new_retry, task.max_retries
+                        )),
                     )?;
                     repo.update_next_run_at(&task.id, Some(&next_run))?;
                     repo.increment_retry(&task.id)?;
-                    
+
                     log::info!(
                         "[HeartbeatMonitor] Task {} rescheduled for retry ({}/{}), backoff={}s",
-                        task.id, new_retry, task.max_retries, backoff_secs
+                        task.id,
+                        new_retry,
+                        task.max_retries,
+                        backoff_secs
                     );
                     repo.create_log(
                         &task.id,
                         "info",
-                        &format!("心跳超时，已安排重试 ({}/{}), 退避 {} 秒", new_retry, task.max_retries, backoff_secs),
+                        &format!(
+                            "心跳超时，已安排重试 ({}/{}), 退避 {} 秒",
+                            new_retry, task.max_retries, backoff_secs
+                        ),
                     )?;
                 } else {
                     // 超过最大重试次数，标记为失败

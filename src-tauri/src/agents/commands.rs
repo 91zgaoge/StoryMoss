@@ -4,19 +4,26 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-use super::service::{AgentService, AgentTask, AgentType};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
-use crate::db::{DbPool, CreateStoryRequest};
-use crate::error::AppError;
-use crate::db::repositories::{StoryRepository};
-use crate::db::repositories::{SceneRepository, SceneUpdate};
-use crate::subscription::{SubscriptionService, SubscriptionTier};
-use crate::state_sync::StateSync;
+
+use super::service::{AgentService, AgentTask, AgentType};
+use crate::{
+    db::{
+        repositories::{SceneRepository, SceneUpdate, StoryRepository},
+        CreateStoryRequest, DbPool,
+    },
+    error::AppError,
+    state_sync::StateSync,
+    subscription::{SubscriptionService, SubscriptionTier},
+};
 
 /// 获取当前用户订阅层级（同步）
 fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
@@ -26,7 +33,10 @@ fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
     };
     let machine_id_path = app_dir.join(".machine_id");
     let user_id = if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+        std::fs::read_to_string(&machine_id_path)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     } else {
         return SubscriptionTier::Free;
     };
@@ -47,7 +57,10 @@ fn get_user_id(app_handle: &AppHandle) -> String {
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let machine_id_path = app_dir.join(".machine_id");
     if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+        std::fs::read_to_string(&machine_id_path)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     } else {
         let id = uuid::Uuid::new_v4().to_string();
         let _ = std::fs::create_dir_all(&app_dir);
@@ -55,7 +68,6 @@ fn get_user_id(app_handle: &AppHandle) -> String {
         id
     }
 }
-
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -85,10 +97,10 @@ pub async fn agent_execute(
     app_handle: AppHandle,
 ) -> Result<ExecuteAgentResponse, AppError> {
     let task_id = Uuid::new_v4().to_string();
-    
+
     // 构建上下文
     let context = build_agent_context(&app_handle, &request).await?;
-    
+
     let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
         id: task_id.clone(),
@@ -98,17 +110,15 @@ pub async fn agent_execute(
         parameters: request.parameters.unwrap_or_default(),
         tier: Some(tier),
     };
-    
+
     let service = AgentService::new(app_handle.clone());
-    
+
     match service.execute_task(task).await {
-        Ok(result) => {
-            Ok(ExecuteAgentResponse {
-                task_id,
-                result: Some(result),
-                error: None,
-            })
-        }
+        Ok(result) => Ok(ExecuteAgentResponse {
+            task_id,
+            result: Some(result),
+            error: None,
+        }),
         Err(e) => Ok(ExecuteAgentResponse {
             task_id,
             result: None,
@@ -155,7 +165,10 @@ pub async fn agent_execute_stream(
         let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
     });
 
-    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+    TASK_HANDLES
+        .lock()
+        .unwrap()
+        .insert(task_id.clone(), handle.abort_handle());
 
     Ok(task_id)
 }
@@ -220,14 +233,18 @@ pub async fn writer_agent_execute(
         let story_repo = StoryRepository::new(pool.inner().clone());
         let scene_repo = SceneRepository::new(pool.inner().clone());
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "未命名作品".to_string(),
-            description: Some(request.instruction.clone()),
-            genre: Some("小说".to_string()),
-            style_dna_id: None,
-        }).map_err(AppError::from)?;
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "未命名作品".to_string(),
+                description: Some(request.instruction.clone()),
+                genre: Some("小说".to_string()),
+                style_dna_id: None,
+            })
+            .map_err(AppError::from)?;
 
-        let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(AppError::from)?;
+        let scene = scene_repo
+            .create(&story.id, 1, Some("第一场景"))
+            .map_err(AppError::from)?;
 
         story_id = story.id.clone();
         chapter_number = 1;
@@ -249,16 +266,20 @@ pub async fn writer_agent_execute(
         // 通知幕后作品列表刷新
         let _ = crate::window::WindowManager::send_to_backstage(
             &app_handle,
-            crate::window::BackstageEvent::DataRefresh { entity: "stories".to_string() }
+            crate::window::BackstageEvent::DataRefresh {
+                entity: "stories".to_string(),
+            },
         );
     }
     if let Some(ref scene_id) = created_chapter_id {
-        let _ = automation_service.trigger_event(
-            crate::automation::triggers::TriggerEvent::SceneGenerationRequested {
-                story_id: story_id.clone(),
-                scene_id: scene_id.clone(),
-            }
-        ).await;
+        let _ = automation_service
+            .trigger_event(
+                crate::automation::triggers::TriggerEvent::SceneGenerationRequested {
+                    story_id: story_id.clone(),
+                    scene_id: scene_id.clone(),
+                },
+            )
+            .await;
     }
 
     let mut context = build_agent_context(
@@ -270,7 +291,8 @@ pub async fn writer_agent_execute(
             input: request.instruction.clone(),
             parameters: None,
         },
-    ).await?;
+    )
+    .await?;
 
     context.narrative.current_content = Some(request.current_content);
     context.narrative.selected_text = request.selected_text;
@@ -301,19 +323,29 @@ pub async fn writer_agent_execute(
         .unwrap_or_default();
 
     // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
-    let orchestrator = super::orchestrator::AgentOrchestrator::new(service, orchestrator_config, app_handle.clone());
+    let orchestrator = super::orchestrator::AgentOrchestrator::new(
+        service,
+        orchestrator_config,
+        app_handle.clone(),
+    );
 
-    match orchestrator.generate(task, super::orchestrator::GenerationMode::Full).await {
+    match orchestrator
+        .generate(task, super::orchestrator::GenerationMode::Full)
+        .await
+    {
         Ok(workflow_result) => {
-            log::info!("[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}", 
-                workflow_result.final_score, workflow_result.was_rewritten);
+            log::info!(
+                "[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}",
+                workflow_result.final_score,
+                workflow_result.was_rewritten
+            );
             if let Some(ref scene_id) = created_chapter_id {
-                let _ = automation_service.trigger_event(
-                    crate::automation::triggers::TriggerEvent::SceneGenerated {
+                let _ = automation_service
+                    .trigger_event(crate::automation::triggers::TriggerEvent::SceneGenerated {
                         story_id: story_id.clone(),
                         scene_id: scene_id.clone(),
-                    }
-                ).await;
+                    })
+                    .await;
             }
 
             // 如果创建了新场景，把生成的内容保存到数据库
@@ -343,7 +375,7 @@ pub async fn writer_agent_execute(
                 task_id,
                 chapter_id: created_chapter_id,
             })
-        },
+        }
         Err(e) => Err(e),
     }
 }
@@ -365,7 +397,9 @@ pub struct AutoWriteRequest {
     pub style_weight: i32,
 }
 
-fn default_style_weight() -> i32 { 50 }
+fn default_style_weight() -> i32 {
+    50
+}
 
 /// 自动续写响应
 #[derive(Debug, Serialize)]
@@ -403,15 +437,20 @@ pub async fn auto_write(
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
     // v0.8.0: 读取当前场景内容和序号，正确传递章节号用于记忆构建
-    let (current_content, current_scene) = match scene_repo.get_by_id(&request.chapter_id)
-        .map_err(AppError::from)? {
+    let (current_content, current_scene) = match scene_repo
+        .get_by_id(&request.chapter_id)
+        .map_err(AppError::from)?
+    {
         Some(scene) => {
             let content = scene.content.clone().unwrap_or_default();
             (content, Some(scene))
         }
-        None => (String::new(), None)
+        None => (String::new(), None),
     };
-    let scene_sequence = current_scene.as_ref().map(|s| s.sequence_number as u32).unwrap_or(1);
+    let scene_sequence = current_scene
+        .as_ref()
+        .map(|s| s.sequence_number as u32)
+        .unwrap_or(1);
 
     let task_id_clone = task_id.clone();
     let app_handle_clone = app_handle.clone();
@@ -429,7 +468,11 @@ pub async fn auto_write(
         .cloned()
         .unwrap_or_else(|| current_content.clone());
     let fingerprint = if fingerprint_source.chars().count() > 50 {
-        Some(crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&fingerprint_source))
+        Some(
+            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
+                &fingerprint_source,
+            ),
+        )
     } else {
         None
     };
@@ -454,12 +497,17 @@ pub async fn auto_write(
             // v0.7.8: 构建增强续写 prompt（注入风格指纹）
             let instruction = if let Some(ref fp) = fingerprint {
                 format!(
-                    "请继续续写以下内容，续写约 {} 字。\n\n【风格约束】\n{}\n\n请直接输出续写内容，不要重复前文。",
+                    "请继续续写以下内容，续写约 {} \
+                     字。\n\n【风格约束】\n{}\n\n请直接输出续写内容，不要重复前文。",
                     this_loop_chars,
                     fp.to_prompt_section()
                 )
             } else {
-                format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars)
+                format!(
+                    "请继续续写以下内容，续写约 {} \
+                     字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。",
+                    this_loop_chars
+                )
             };
 
             let mut context = build_agent_context(
@@ -471,7 +519,9 @@ pub async fn auto_write(
                     input: instruction.clone(),
                     parameters: None,
                 },
-            ).await.unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
+            )
+            .await
+            .unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
 
             // 注入当前已积累的上下文内容
             context.narrative.current_content = Some(accumulated_content.clone());
@@ -494,48 +544,98 @@ pub async fn auto_write(
             // v0.7.8: 跨段风格漂移检测 — 多维度（句长/四字格/虚词/标志性词汇）
             let (style_drift_warning, loop_style_score, loop_drift_details) = if loop_count > 0 {
                 if let Some(ref fp) = fingerprint {
-                    let recent = accumulated_content.chars().rev().take(500).collect::<String>();
-                    let recent_fp = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&recent);
+                    let recent = accumulated_content
+                        .chars()
+                        .rev()
+                        .take(500)
+                        .collect::<String>();
+                    let recent_fp =
+                        crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
+                            &recent,
+                        );
 
                     let mut drift_parts = Vec::new();
                     let mut warnings = Vec::new();
 
                     // 1. 句长偏离
-                    let len_diff = (recent_fp.syntax.avg_sentence_length - fp.syntax.avg_sentence_length).abs();
+                    let len_diff = (recent_fp.syntax.avg_sentence_length
+                        - fp.syntax.avg_sentence_length)
+                        .abs();
                     let len_deviation = if fp.syntax.avg_sentence_length > 0.0 {
                         len_diff / fp.syntax.avg_sentence_length
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
                     if len_deviation > 0.30 {
                         drift_parts.push(format!("句长偏离 {:.0}%", len_deviation * 100.0));
-                        warnings.push(format!("平均句长约 {:.0} 字", fp.syntax.avg_sentence_length));
+                        warnings.push(format!(
+                            "平均句长约 {:.0} 字",
+                            fp.syntax.avg_sentence_length
+                        ));
                     }
 
                     // 2. 四字格密度偏离
-                    let four_char_diff = (recent_fp.vocabulary.four_char_density - fp.vocabulary.four_char_density).abs();
+                    let four_char_diff = (recent_fp.vocabulary.four_char_density
+                        - fp.vocabulary.four_char_density)
+                        .abs();
                     if four_char_diff > 3.0 {
                         drift_parts.push(format!("四字格密度偏离 {:.1}%", four_char_diff));
-                        warnings.push(format!("四字格密度 {:.0}%", fp.vocabulary.four_char_density));
+                        warnings.push(format!(
+                            "四字格密度 {:.0}%",
+                            fp.vocabulary.four_char_density
+                        ));
                     }
 
                     // 3. 虚词偏好偏离 — 前5虚词重叠率
-                    let ref_fw: std::collections::HashSet<&String> = fp.vocabulary.function_words.iter().map(|(w, _)| w).collect();
-                    let recent_fw: std::collections::HashSet<&String> = recent_fp.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+                    let ref_fw: std::collections::HashSet<&String> = fp
+                        .vocabulary
+                        .function_words
+                        .iter()
+                        .map(|(w, _)| w)
+                        .collect();
+                    let recent_fw: std::collections::HashSet<&String> = recent_fp
+                        .vocabulary
+                        .function_words
+                        .iter()
+                        .map(|(w, _)| w)
+                        .collect();
                     if !ref_fw.is_empty() {
-                        let overlap = ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32;
+                        let overlap =
+                            ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32;
                         if overlap < 0.5 {
-                            drift_parts.push(format!("虚词偏好偏离（重叠率 {:.0}%）", overlap * 100.0));
-                            let preferred = fp.vocabulary.function_words.iter().take(3).map(|(w, _)| w.as_str()).collect::<Vec<_>>().join("、");
+                            drift_parts
+                                .push(format!("虚词偏好偏离（重叠率 {:.0}%）", overlap * 100.0));
+                            let preferred = fp
+                                .vocabulary
+                                .function_words
+                                .iter()
+                                .take(3)
+                                .map(|(w, _)| w.as_str())
+                                .collect::<Vec<_>>()
+                                .join("、");
                             warnings.push(format!("多用虚词：{}", preferred));
                         }
                     }
 
                     // 4. 标志性词汇偏离
-                    let ref_sw: std::collections::HashSet<&String> = fp.vocabulary.signature_words.iter().map(|(w, _)| w).collect();
-                    let recent_sw: std::collections::HashSet<&String> = recent_fp.vocabulary.signature_words.iter().map(|(w, _)| w).collect();
+                    let ref_sw: std::collections::HashSet<&String> = fp
+                        .vocabulary
+                        .signature_words
+                        .iter()
+                        .map(|(w, _)| w)
+                        .collect();
+                    let recent_sw: std::collections::HashSet<&String> = recent_fp
+                        .vocabulary
+                        .signature_words
+                        .iter()
+                        .map(|(w, _)| w)
+                        .collect();
                     if !ref_sw.is_empty() {
-                        let overlap = ref_sw.intersection(&recent_sw).count() as f32 / ref_sw.len() as f32;
+                        let overlap =
+                            ref_sw.intersection(&recent_sw).count() as f32 / ref_sw.len() as f32;
                         if overlap < 0.3 {
-                            drift_parts.push(format!("标志性词汇偏离（重叠率 {:.0}%）", overlap * 100.0));
+                            drift_parts
+                                .push(format!("标志性词汇偏离（重叠率 {:.0}%）", overlap * 100.0));
                         }
                     }
 
@@ -547,7 +647,8 @@ pub async fn auto_write(
                         ))
                     } else if len_deviation > 0.35 {
                         Some(format!(
-                            "\n\n【警告】上一段句长偏离 {:.0}%，本次续写请特别注意保持平均句长约 {:.0} 字、四字格密度 {:.0}%。",
+                            "\n\n【警告】上一段句长偏离 {:.0}%，本次续写请特别注意保持平均句长约 \
+                             {:.0} 字、四字格密度 {:.0}%。",
                             len_deviation * 100.0,
                             fp.syntax.avg_sentence_length,
                             fp.vocabulary.four_char_density
@@ -559,8 +660,11 @@ pub async fn auto_write(
                     let score = (1.0 - len_deviation).clamp(0.0, 1.0) * 0.4
                         + (1.0 - four_char_diff / 20.0).clamp(0.0, 1.0) * 0.35
                         + if !ref_fw.is_empty() {
-                            (ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32).clamp(0.0, 1.0)
-                        } else { 0.5 } * 0.25;
+                            (ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32)
+                                .clamp(0.0, 1.0)
+                        } else {
+                            0.5
+                        } * 0.25;
 
                     (warning_text, score.clamp(0.0, 1.0), drift_parts)
                 } else {
@@ -579,7 +683,10 @@ pub async fn auto_write(
                 config,
                 app_handle_clone.clone(),
             );
-            match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+            match orchestrator
+                .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+                .await
+            {
                 Ok(workflow_result) => {
                     let mut generated = workflow_result.final_content;
 
@@ -591,8 +698,13 @@ pub async fn auto_write(
                         );
 
                         // 四字格密度补偿：如果生成内容密度低于参考 30% 以上，注入四字词
-                        let generated_fp = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&generated);
-                        if generated_fp.vocabulary.four_char_density < fp.vocabulary.four_char_density * 0.7 {
+                        let generated_fp =
+                            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
+                                &generated,
+                            );
+                        if generated_fp.vocabulary.four_char_density
+                            < fp.vocabulary.four_char_density * 0.7
+                        {
                             generated = crate::utils::style_align::StyleAligner::inject_four_char(
                                 &generated,
                                 &fp.vocabulary.signature_words,
@@ -612,7 +724,8 @@ pub async fn auto_write(
                         text: generated,
                         chapter_id: chapter_id.clone(),
                     };
-                    let _ = crate::window::WindowManager::send_to_frontstage(&app_handle_clone, event);
+                    let _ =
+                        crate::window::WindowManager::send_to_frontstage(&app_handle_clone, event);
 
                     // 推送进度事件（含风格分数）
                     let percentage = ((total_written as f32 / target_chars as f32) * 100.0) as i32;
@@ -626,7 +739,8 @@ pub async fn auto_write(
                         style_score: loop_style_score,
                         drift_details: loop_drift_details.clone(),
                     };
-                    let _ = app_handle_clone.emit(&format!("auto-write-progress-{}", task_id_clone), progress);
+                    let _ = app_handle_clone
+                        .emit(&format!("auto-write-progress-{}", task_id_clone), progress);
 
                     // v0.8.0: 自动更新记忆（每轮续写后）
                     let pool_mem = app_handle_clone.state::<DbPool>();
@@ -636,30 +750,36 @@ pub async fn auto_write(
                     let acc = accumulated_content.clone();
                     tokio::spawn(async move {
                         match writer.write(&sid, seq, &acc).await {
-                            Ok(_) => log::info!("[auto_write] Memory updated for loop {}", loop_count),
+                            Ok(_) => {
+                                log::info!("[auto_write] Memory updated for loop {}", loop_count)
+                            }
                             Err(e) => log::warn!("[auto_write] Memory write failed: {}", e),
                         }
                     });
                 }
                 Err(e) => {
                     log::error!("[auto_write] Loop {} failed: {}", loop_count, e);
-                    let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
+                    let _ =
+                        app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
                     break;
                 }
             }
         }
 
         // 推送完成事件
-        let _ = app_handle_clone.emit(&format!("auto-write-complete-{}", task_id_clone), AutoWriteProgressEvent {
-            task_id: task_id_clone.clone(),
-            current_chars: total_written,
-            target_chars,
-            percentage: 100,
-            current_loop: loop_count,
-            status: "completed".to_string(),
-            style_score: 0.0,
-            drift_details: Vec::new(),
-        });
+        let _ = app_handle_clone.emit(
+            &format!("auto-write-complete-{}", task_id_clone),
+            AutoWriteProgressEvent {
+                task_id: task_id_clone.clone(),
+                current_chars: total_written,
+                target_chars,
+                percentage: 100,
+                current_loop: loop_count,
+                status: "completed".to_string(),
+                style_score: 0.0,
+                drift_details: Vec::new(),
+            },
+        );
 
         // 保存最终内容到数据库
         let pool = app_handle_clone.state::<DbPool>();
@@ -672,7 +792,11 @@ pub async fn auto_write(
                 ..Default::default()
             },
         );
-        log::info!("[auto_write] Saved {} chars to scene {}", accumulated_content.chars().count(), chapter_id);
+        log::info!(
+            "[auto_write] Saved {} chars to scene {}",
+            accumulated_content.chars().count(),
+            chapter_id
+        );
 
         // 后台触发知识图谱 Ingest
         let story_id_for_ingest = story_id.clone();
@@ -694,7 +818,8 @@ pub async fn auto_write(
 
             match pipeline.ingest(&ingest_content).await {
                 Ok(ingest_result) => {
-                    let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool_for_ingest);
+                    let kg_repo =
+                        crate::db::repositories::KnowledgeGraphRepository::new(pool_for_ingest);
                     let mut saved_entities = 0usize;
                     let mut saved_relations = 0usize;
 
@@ -710,14 +835,20 @@ pub async fn auto_write(
                         }
                     }
 
-                    let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
-                        .iter()
-                        .map(|e| (e.name.clone(), e.id.clone()))
-                        .collect();
+                    let entity_name_to_id: std::collections::HashMap<String, String> =
+                        ingest_result
+                            .entities
+                            .iter()
+                            .map(|e| (e.name.clone(), e.id.clone()))
+                            .collect();
 
                     for relation in &ingest_result.relations {
-                        let source_id = entity_name_to_id.get(&relation.source_id).unwrap_or(&relation.source_id);
-                        let target_id = entity_name_to_id.get(&relation.target_id).unwrap_or(&relation.target_id);
+                        let source_id = entity_name_to_id
+                            .get(&relation.source_id)
+                            .unwrap_or(&relation.source_id);
+                        let target_id = entity_name_to_id
+                            .get(&relation.target_id)
+                            .unwrap_or(&relation.target_id);
                         if let Ok(_) = kg_repo.create_relation(
                             &story_id_for_ingest,
                             source_id,
@@ -729,7 +860,11 @@ pub async fn auto_write(
                         }
                     }
 
-                    log::info!("[auto_write] Ingest complete: {} entities, {} relations saved", saved_entities, saved_relations);
+                    log::info!(
+                        "[auto_write] Ingest complete: {} entities, {} relations saved",
+                        saved_entities,
+                        saved_relations
+                    );
                 }
                 Err(e) => {
                     log::warn!("[auto_write] Ingest failed: {}", e);
@@ -741,7 +876,10 @@ pub async fn auto_write(
         let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
     });
 
-    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+    TASK_HANDLES
+        .lock()
+        .unwrap()
+        .insert(task_id.clone(), handle.abort_handle());
 
     Ok(AutoWriteResponse {
         task_id,
@@ -758,9 +896,9 @@ pub async fn auto_write(
 pub struct AutoReviseRequest {
     pub story_id: String,
     pub chapter_id: Option<String>,
-    pub scope: String,          // "full" | "chapter" | "selection"
+    pub scope: String, // "full" | "chapter" | "selection"
     pub selected_text: Option<String>,
-    pub revision_type: String,  // "style" | "plot" | "dialogue" | "description" | "comprehensive"
+    pub revision_type: String, // "style" | "plot" | "dialogue" | "description" | "comprehensive"
 }
 
 /// 自动修改响应
@@ -802,23 +940,32 @@ pub async fn auto_revise(
 
     // 预估算文本长度用于配额检查
     let _text_len = match request.scope.as_str() {
-        "selection" => request.selected_text.as_ref().map(|s| s.chars().count() as i32).unwrap_or(0),
+        "selection" => request
+            .selected_text
+            .as_ref()
+            .map(|s| s.chars().count() as i32)
+            .unwrap_or(0),
         "chapter" | "scene" => {
             if let Some(ref sid) = request.chapter_id {
                 let pool = app_handle.state::<DbPool>();
                 let scene_repo = SceneRepository::new(pool.inner().clone());
-                scene_repo.get_by_id(sid)
+                scene_repo
+                    .get_by_id(sid)
                     .map_err(AppError::from)?
                     .map(|s| s.content.unwrap_or_default().chars().count() as i32)
                     .unwrap_or(0)
-            } else { 0 }
+            } else {
+                0
+            }
         }
         _ => {
             let pool = app_handle.state::<DbPool>();
             let scene_repo = SceneRepository::new(pool.inner().clone());
-            let scenes = scene_repo.get_by_story(&request.story_id)
+            let scenes = scene_repo
+                .get_by_story(&request.story_id)
                 .map_err(AppError::from)?;
-            scenes.into_iter()
+            scenes
+                .into_iter()
                 .filter_map(|s| s.content)
                 .map(|c| c.chars().count() as i32)
                 .sum()
@@ -836,13 +983,16 @@ pub async fn auto_revise(
     // 在后台执行修改
     let handle = tokio::spawn(async move {
         // 阶段 1: 准备中
-        let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
-            task_id: task_id_clone.clone(),
-            stage: "preparing".to_string(),
-            progress: 0.1,
-            message: "读取目标文本...".to_string(),
-            revised_text: None,
-        });
+        let _ = app_handle_clone.emit(
+            &format!("auto-revise-progress-{}", task_id_clone),
+            AutoReviseProgressEvent {
+                task_id: task_id_clone.clone(),
+                stage: "preparing".to_string(),
+                progress: 0.1,
+                message: "读取目标文本...".to_string(),
+                revised_text: None,
+            },
+        );
 
         // 检查是否被取消
         if !TASK_HANDLES.lock().unwrap().contains_key(&task_id_clone) {
@@ -855,15 +1005,22 @@ pub async fn auto_revise(
         let target_text = match scope.as_str() {
             "chapter" | "scene" => {
                 if let Some(ref sid) = chapter_id {
-                    scene_repo.get_by_id(sid)
-                        .map(|s| s.map(|scene| scene.content.unwrap_or_default()).unwrap_or_default())
+                    scene_repo
+                        .get_by_id(sid)
+                        .map(|s| {
+                            s.map(|scene| scene.content.unwrap_or_default())
+                                .unwrap_or_default()
+                        })
                         .unwrap_or_default()
-                } else { String::new() }
+                } else {
+                    String::new()
+                }
             }
             "selection" => selected_text.unwrap_or_default(),
             _ => {
                 let scenes = scene_repo.get_by_story(&story_id).unwrap_or_default();
-                scenes.into_iter()
+                scenes
+                    .into_iter()
                     .filter_map(|s| s.content)
                     .collect::<Vec<_>>()
                     .join("\n\n")
@@ -871,24 +1028,30 @@ pub async fn auto_revise(
         };
 
         if target_text.is_empty() {
-            let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), "目标文本为空".to_string());
+            let _ = app_handle_clone.emit(
+                &format!("auto-revise-error-{}", task_id_clone),
+                "目标文本为空".to_string(),
+            );
             return;
         }
 
         // 阶段 2: 修改中
-        let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
-            task_id: task_id_clone.clone(),
-            stage: "revising".to_string(),
-            progress: 0.3,
-            message: "AI 正在修改文本...".to_string(),
-            revised_text: None,
-        });
+        let _ = app_handle_clone.emit(
+            &format!("auto-revise-progress-{}", task_id_clone),
+            AutoReviseProgressEvent {
+                task_id: task_id_clone.clone(),
+                stage: "revising".to_string(),
+                progress: 0.3,
+                message: "AI 正在修改文本...".to_string(),
+                revised_text: None,
+            },
+        );
 
         let revision_instruction = get_revision_instruction(&revision_type);
         let instruction = format!(
-            "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
-            revision_instruction,
-            target_text
+            "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\\
+             n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
+            revision_instruction, target_text
         );
 
         let context = match build_agent_context(
@@ -900,7 +1063,9 @@ pub async fn auto_revise(
                 input: instruction.clone(),
                 parameters: None,
             },
-        ).await {
+        )
+        .await
+        {
             Ok(c) => c,
             Err(e) => {
                 let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
@@ -923,22 +1088,32 @@ pub async fn auto_revise(
             app_handle_clone.clone(),
         );
 
-        match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+        match orchestrator
+            .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+            .await
+        {
             Ok(workflow_result) => {
                 let result = crate::agents::AgentResult {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
-                    suggestions: workflow_result.steps.iter().flat_map(|s| s.suggestions.clone()).collect(),
+                    suggestions: workflow_result
+                        .steps
+                        .iter()
+                        .flat_map(|s| s.suggestions.clone())
+                        .collect(),
                     request_id: None,
                 };
                 // 阶段 3: 保存中
-                let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
-                    task_id: task_id_clone.clone(),
-                    stage: "saving".to_string(),
-                    progress: 0.8,
-                    message: "保存修改结果...".to_string(),
-                    revised_text: None,
-                });
+                let _ = app_handle_clone.emit(
+                    &format!("auto-revise-progress-{}", task_id_clone),
+                    AutoReviseProgressEvent {
+                        task_id: task_id_clone.clone(),
+                        stage: "saving".to_string(),
+                        progress: 0.8,
+                        message: "保存修改结果...".to_string(),
+                        revised_text: None,
+                    },
+                );
 
                 // 保存到数据库
                 if let Some(ref sid) = chapter_id {
@@ -958,13 +1133,16 @@ pub async fn auto_revise(
                 }
 
                 // 阶段 4: 完成
-                let _ = app_handle_clone.emit(&format!("auto-revise-complete-{}", task_id_clone), AutoReviseProgressEvent {
-                    task_id: task_id_clone.clone(),
-                    stage: "completed".to_string(),
-                    progress: 1.0,
-                    message: "修改完成".to_string(),
-                    revised_text: Some(result.content.clone()),
-                });
+                let _ = app_handle_clone.emit(
+                    &format!("auto-revise-complete-{}", task_id_clone),
+                    AutoReviseProgressEvent {
+                        task_id: task_id_clone.clone(),
+                        stage: "completed".to_string(),
+                        progress: 1.0,
+                        message: "修改完成".to_string(),
+                        revised_text: Some(result.content.clone()),
+                    },
+                );
             }
             Err(e) => {
                 let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
@@ -975,7 +1153,10 @@ pub async fn auto_revise(
         let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
     });
 
-    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+    TASK_HANDLES
+        .lock()
+        .unwrap()
+        .insert(task_id.clone(), handle.abort_handle());
 
     Ok(AutoReviseResponse {
         task_id,
@@ -993,9 +1174,12 @@ pub(crate) async fn build_agent_context(
     app_handle: &AppHandle,
     request: &ExecuteAgentRequest,
 ) -> Result<super::AgentContext, AppError> {
-    use crate::db::DbPool;
-    use crate::agents::context_optimizer::{ContextOptimizer, default_writing_tools};
     use tauri::Manager;
+
+    use crate::{
+        agents::context_optimizer::{default_writing_tools, ContextOptimizer},
+        db::DbPool,
+    };
 
     let pool = app_handle.state::<DbPool>();
     let story_id = request.story_id.clone();
@@ -1007,38 +1191,49 @@ pub(crate) async fn build_agent_context(
     let l2_tools = match request.agent_type {
         super::service::AgentType::Writer => default_writing_tools(chapter_number),
         super::service::AgentType::Inspector => {
-            crate::agents::context_optimizer::default_inspection_tools(&request.input, chapter_number)
+            crate::agents::context_optimizer::default_inspection_tools(
+                &request.input,
+                chapter_number,
+            )
         }
         _ => vec![],
     };
 
-    let mut context = match optimizer.build_full_context(
-        &story_id,
-        chapter_number,
-        None,
-        None,
-        l2_tools,
-    ).await {
+    let mut context = match optimizer
+        .build_full_context(&story_id, chapter_number, None, None, l2_tools)
+        .await
+    {
         Ok(ctx) => ctx,
         Err(e) => {
-            log::warn!("[build_agent_context] ContextOptimizer failed: {}, falling back to minimal", e);
-            let _ = app_handle.emit("context-degraded", serde_json::json!({
-                "story_id": story_id,
-                "reason": format!("ContextOptimizer failed: {}", e),
-                "fallback": "minimal",
-            }));
+            log::warn!(
+                "[build_agent_context] ContextOptimizer failed: {}, falling back to minimal",
+                e
+            );
+            let _ = app_handle.emit(
+                "context-degraded",
+                serde_json::json!({
+                    "story_id": story_id,
+                    "reason": format!("ContextOptimizer failed: {}", e),
+                    "fallback": "minimal",
+                }),
+            );
             return Ok(super::AgentContext::minimal(story_id, String::new()));
         }
     };
 
     // 注入未解决的伏笔提示到世界观规则中
     {
-        let tracker = crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.inner().clone());
+        let tracker =
+            crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.inner().clone());
         match tracker.get_writing_hints(&story_id, 5) {
             Ok(hints) if !hints.is_empty() => {
                 let hints_text = format!("\n\n【伏笔提醒】\n{}", hints.join("\n"));
-                context.world.world_rules = Some(context.world.world_rules.unwrap_or_default() + &hints_text);
-                log::info!("[build_agent_context] Injected {} foreshadowing hints", hints.len());
+                context.world.world_rules =
+                    Some(context.world.world_rules.unwrap_or_default() + &hints_text);
+                log::info!(
+                    "[build_agent_context] Injected {} foreshadowing hints",
+                    hints.len()
+                );
             }
             Ok(_) => {}
             Err(e) => log::warn!("[build_agent_context] ForeshadowingTracker failed: {}", e),
@@ -1053,21 +1248,30 @@ pub(crate) async fn build_agent_context(
                 5,
                 None,
                 "hybrid",
-            ).await {
+            )
+            .await
+            {
                 Ok(results) if !results.is_empty() => {
                     let lines: Vec<String> = results
                         .iter()
-                        .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
+                        .map(|r| {
+                            format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text)
+                        })
                         .collect();
                     let semantic_text = format!("\n\n【相关记忆检索】\n{}", lines.join("\n"));
-                    context.world.scene_structure = Some(
-                        context.world.scene_structure.unwrap_or_default() + &semantic_text
+                    context.world.scene_structure =
+                        Some(context.world.scene_structure.unwrap_or_default() + &semantic_text);
+                    log::info!(
+                        "[build_agent_context] Injected {} semantic search results",
+                        results.len()
                     );
-                    log::info!("[build_agent_context] Injected {} semantic search results", results.len());
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    log::warn!("[build_agent_context] Semantic search failed: {}, skipping", e);
+                    log::warn!(
+                        "[build_agent_context] Semantic search failed: {}, skipping",
+                        e
+                    );
                 }
             }
         }
@@ -1079,7 +1283,10 @@ pub(crate) async fn build_agent_context(
         if let Ok(Some(story)) = story_repo.get_by_id(&story_id) {
             context.style.style_dna_id = story.style_dna_id;
             if context.style.style_dna_id.is_some() {
-                log::info!("[build_agent_context] Using style_dna_id: {:?}", context.style.style_dna_id);
+                log::info!(
+                    "[build_agent_context] Using style_dna_id: {:?}",
+                    context.style.style_dna_id
+                );
             }
             // 注入方法论配置
             context.world.methodology_id = story.methodology_id.clone();
@@ -1115,14 +1322,20 @@ pub(crate) async fn build_agent_context(
                 if !snapshot.story_context.pending_payoffs.is_empty() {
                     world_parts.push("【待回收伏笔】".to_string());
                     for payoff in snapshot.story_context.pending_payoffs.iter().take(5) {
-                        world_parts.push(format!("- [重要度{}] {}", payoff.importance, payoff.content));
+                        world_parts.push(format!(
+                            "- [重要度{}] {}",
+                            payoff.importance, payoff.content
+                        ));
                     }
                 }
 
                 if !snapshot.story_context.overdue_payoffs.is_empty() {
                     world_parts.push("【逾期伏笔】".to_string());
                     for payoff in snapshot.story_context.overdue_payoffs.iter().take(5) {
-                        world_parts.push(format!("- [重要度{}] {}", payoff.importance, payoff.content));
+                        world_parts.push(format!(
+                            "- [重要度{}] {}",
+                            payoff.importance, payoff.content
+                        ));
                     }
                 }
 
@@ -1136,26 +1349,47 @@ pub(crate) async fn build_agent_context(
                     scene_parts.push(existing.clone());
                 }
 
-                scene_parts.push(format!("【叙事阶段】{}\n{}", snapshot.narrative_phase, snapshot.narrative_phase.writer_guidance()));
+                scene_parts.push(format!(
+                    "【叙事阶段】{}\n{}",
+                    snapshot.narrative_phase,
+                    snapshot.narrative_phase.writer_guidance()
+                ));
 
                 if !snapshot.timeline.is_empty() {
-                    let recent_events: Vec<String> = snapshot.timeline.iter().rev().take(5).rev().map(|e| {
-                        format!("场景{}: {}", e.sequence_number, e.event_summary)
-                    }).collect();
+                    let recent_events: Vec<String> = snapshot
+                        .timeline
+                        .iter()
+                        .rev()
+                        .take(5)
+                        .rev()
+                        .map(|e| format!("场景{}: {}", e.sequence_number, e.event_summary))
+                        .collect();
                     scene_parts.push(format!("【近期时间线】\n{}", recent_events.join("\n")));
                 }
 
                 if !snapshot.story_context.active_conflicts.is_empty() {
-                    let conflicts: Vec<String> = snapshot.story_context.active_conflicts.iter().take(5).map(|c| {
-                        format!("- [{}] {} (涉及: {})", c.conflict_type, c.stakes, c.parties.join(", "))
-                    }).collect();
+                    let conflicts: Vec<String> = snapshot
+                        .story_context
+                        .active_conflicts
+                        .iter()
+                        .take(5)
+                        .map(|c| {
+                            format!(
+                                "- [{}] {} (涉及: {})",
+                                c.conflict_type,
+                                c.stakes,
+                                c.parties.join(", ")
+                            )
+                        })
+                        .collect();
                     scene_parts.push(format!("【活跃冲突】\n{}", conflicts.join("\n")));
                 }
 
                 context.world.scene_structure = Some(scene_parts.join("\n"));
 
                 log::info!(
-                    "[build_agent_context] CanonicalState injected: phase={}, facts={}, pending={}, overdue={}",
+                    "[build_agent_context] CanonicalState injected: phase={}, facts={}, \
+                     pending={}, overdue={}",
                     snapshot.narrative_phase,
                     snapshot.world_facts.len(),
                     snapshot.story_context.pending_payoffs.len(),
@@ -1163,7 +1397,10 @@ pub(crate) async fn build_agent_context(
                 );
             }
             Err(e) => {
-                log::warn!("[build_agent_context] CanonicalStateManager failed: {}, skipping", e);
+                log::warn!(
+                    "[build_agent_context] CanonicalStateManager failed: {}, skipping",
+                    e
+                );
             }
         }
     }

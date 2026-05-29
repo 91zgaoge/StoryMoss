@@ -1,19 +1,24 @@
 //! 两步思维链Ingest流程
-//! 
+//!
 //! 基于llm_wiki方法论：
 //! Step 1: 分析 - 使用LLM深入分析内容
 //! Step 2: 生成 - 基于分析结果生成结构化知识
 
-use crate::llm::LlmService;
-use crate::db::models::{Entity, EntityType, Relation, RelationType};
-use crate::db::DbPool;
-use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
+use std::{collections::HashMap, str::FromStr};
+
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use chrono::Local;
-use std::collections::HashMap;
-use std::str::FromStr;
 use tauri::Emitter;
+
+use crate::{
+    db::{
+        models::{Entity, EntityType, Relation, RelationType},
+        DbPool,
+    },
+    embeddings::{embed_entity, EntityEmbeddingRequest},
+    llm::LlmService,
+};
 
 /// Ingest作业记录
 #[derive(Debug, Clone, Serialize)]
@@ -91,7 +96,7 @@ pub struct AnalyzedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentimentAnalysis {
     pub overall: String, // positive/negative/neutral
-    pub intensity: f32, // 0-1
+    pub intensity: f32,  // 0-1
     pub arc: Vec<SentimentPoint>,
 }
 
@@ -172,7 +177,11 @@ fn extract_json(content: &str) -> Result<String, String> {
 
 impl IngestPipeline {
     pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service, pool: None, app_handle: None }
+        Self {
+            llm_service,
+            pool: None,
+            app_handle: None,
+        }
     }
 
     pub fn with_pool(mut self, pool: DbPool) -> Self {
@@ -186,14 +195,24 @@ impl IngestPipeline {
     }
 
     /// 执行两步思维链Ingest，自动追踪作业状态
-    pub async fn ingest(&self, content: &IngestContent) -> Result<IngestResult, Box<dyn std::error::Error>> {
+    pub async fn ingest(
+        &self,
+        content: &IngestContent,
+    ) -> Result<IngestResult, Box<dyn std::error::Error>> {
         let job_id = uuid::Uuid::new_v4().to_string();
-        let resource_type = content.scene_id.as_ref()
+        let resource_type = content
+            .scene_id
+            .as_ref()
             .map(|_| "scene".to_string())
             .unwrap_or_else(|| "chapter".to_string());
 
         // 插入 pending 记录
-        if let Err(e) = self.create_job(&job_id, &content.story_id, &resource_type, content.scene_id.as_deref()) {
+        if let Err(e) = self.create_job(
+            &job_id,
+            &content.story_id,
+            &resource_type,
+            content.scene_id.as_deref(),
+        ) {
             log::warn!("[IngestPipeline] Failed to create job record: {}", e);
         }
 
@@ -216,7 +235,10 @@ impl IngestPipeline {
         result
     }
 
-    async fn run_ingest(&self, content: &IngestContent) -> Result<IngestResult, Box<dyn std::error::Error>> {
+    async fn run_ingest(
+        &self,
+        content: &IngestContent,
+    ) -> Result<IngestResult, Box<dyn std::error::Error>> {
         // Step 1: 分析阶段
         let analysis = self.analyze_content(content).await?;
 
@@ -240,12 +262,23 @@ impl IngestPipeline {
         })
     }
 
-    fn create_job(&self, job_id: &str, story_id: &str, resource_type: &str, resource_id: Option<&str>) -> Result<(), rusqlite::Error> {
-        let Some(pool) = &self.pool else { return Ok(()); };
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    fn create_job(
+        &self,
+        job_id: &str,
+        story_id: &str,
+        resource_type: &str,
+        resource_id: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, \
+             created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![job_id, story_id, resource_type, resource_id, "pending", now],
         )?;
         self.emit_job_updated(story_id);
@@ -253,28 +286,45 @@ impl IngestPipeline {
     }
 
     fn complete_job(&self, job_id: &str) -> Result<(), rusqlite::Error> {
-        let Some(pool) = &self.pool else { return Ok(()); };
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE ingest_jobs SET status = ?1, completed_at = ?2 WHERE id = ?3",
             rusqlite::params!["completed", now, job_id],
         )?;
-        if let Ok(story_id) = conn.query_row("SELECT story_id FROM ingest_jobs WHERE id = ?1", [job_id], |row| row.get::<_, String>(0)) {
+        if let Ok(story_id) = conn.query_row(
+            "SELECT story_id FROM ingest_jobs WHERE id = ?1",
+            [job_id],
+            |row| row.get::<_, String>(0),
+        ) {
             self.emit_job_updated(&story_id);
         }
         Ok(())
     }
 
     fn fail_job(&self, job_id: &str, error_message: &str) -> Result<(), rusqlite::Error> {
-        let Some(pool) = &self.pool else { return Ok(()); };
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE ingest_jobs SET status = ?1, error_message = ?2, completed_at = ?3 WHERE id = ?4",
+            "UPDATE ingest_jobs SET status = ?1, error_message = ?2, completed_at = ?3 WHERE id = \
+             ?4",
             rusqlite::params!["failed", error_message, now, job_id],
         )?;
-        if let Ok(story_id) = conn.query_row("SELECT story_id FROM ingest_jobs WHERE id = ?1", [job_id], |row| row.get::<_, String>(0)) {
+        if let Ok(story_id) = conn.query_row(
+            "SELECT story_id FROM ingest_jobs WHERE id = ?1",
+            [job_id],
+            |row| row.get::<_, String>(0),
+        ) {
             self.emit_job_updated(&story_id);
         }
         Ok(())
@@ -282,16 +332,26 @@ impl IngestPipeline {
 
     fn emit_job_updated(&self, story_id: &str) {
         if let Some(app) = &self.app_handle {
-            let _ = app.emit("ingest-job-updated", serde_json::json!({ "story_id": story_id }));
+            let _ = app.emit(
+                "ingest-job-updated",
+                serde_json::json!({ "story_id": story_id }),
+            );
         }
     }
 
     /// 查询最近 N 条 ingest 作业
-    pub fn get_recent_jobs(story_id: &str, limit: i32, pool: &DbPool) -> Result<Vec<IngestJob>, rusqlite::Error> {
-        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_recent_jobs(
+        story_id: &str,
+        limit: i32,
+        pool: &DbPool,
+    ) -> Result<Vec<IngestJob>, rusqlite::Error> {
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, resource_type, resource_id, status, error_message, created_at, completed_at
-             FROM ingest_jobs WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+            "SELECT id, story_id, resource_type, resource_id, status, error_message, created_at, \
+             completed_at
+             FROM ingest_jobs WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(rusqlite::params![story_id, limit], |row| {
             Ok(IngestJob {
@@ -309,7 +369,10 @@ impl IngestPipeline {
     }
 
     /// Step 1: 使用LLM分析内容
-    async fn analyze_content(&self, content: &IngestContent) -> Result<ContentAnalysis, Box<dyn std::error::Error>> {
+    async fn analyze_content(
+        &self,
+        content: &IngestContent,
+    ) -> Result<ContentAnalysis, Box<dyn std::error::Error>> {
         let base_prompt = format!(
             r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
 
@@ -389,8 +452,7 @@ impl IngestPipeline {
 4. 事件重要性评估: 1(轻微提及) 到 10(核心转折)
 5. 确保输出是合法的JSON，不要添加markdown代码块标记
 6. 如果文本中没有足够信息，返回空数组即可，不要编造"#,
-            content.text,
-            content.source
+            content.text, content.source
         );
 
         let mut last_error: Option<String> = None;
@@ -398,7 +460,8 @@ impl IngestPipeline {
             let mut prompt = base_prompt.clone();
             if let Some(ref err) = last_error {
                 prompt.push_str(&format!(
-                    "\n\n【修正要求】之前输出存在问题: {}。请务必修正后，仅输出合法的JSON对象，不要添加任何markdown代码块标记。",
+                    "\n\n【修正要求】之前输出存在问题: \
+                     {}。请务必修正后，仅输出合法的JSON对象，不要添加任何markdown代码块标记。",
                     err
                 ));
             }
@@ -420,7 +483,11 @@ impl IngestPipeline {
                 Ok(analysis) => {
                     if let Err(e) = validate_content_analysis(&analysis) {
                         last_error = Some(e);
-                        log::warn!("[Ingest Step1] Attempt {}: validation failed: {}", attempt + 1, last_error.as_ref().unwrap());
+                        log::warn!(
+                            "[Ingest Step1] Attempt {}: validation failed: {}",
+                            attempt + 1,
+                            last_error.as_ref().unwrap()
+                        );
                         continue;
                     }
                     return Ok(analysis);
@@ -440,11 +507,15 @@ impl IngestPipeline {
         Err(format!(
             "[Ingest Step1] 3次尝试均失败. 最后错误: {}",
             last_error.unwrap_or_default()
-        ).into())
+        )
+        .into())
     }
 
     /// Step 2: 基于分析生成结构化知识
-    async fn generate_knowledge(&self, analysis: &ContentAnalysis) -> Result<GeneratedKnowledge, Box<dyn std::error::Error>> {
+    async fn generate_knowledge(
+        &self,
+        analysis: &ContentAnalysis,
+    ) -> Result<GeneratedKnowledge, Box<dyn std::error::Error>> {
         let analysis_json = serde_json::to_string_pretty(analysis)?;
 
         let base_prompt = format!(
@@ -497,7 +568,8 @@ impl IngestPipeline {
             let mut prompt = base_prompt.clone();
             if let Some(ref err) = last_error {
                 prompt.push_str(&format!(
-                    "\n\n【修正要求】之前输出存在问题: {}。请务必修正后，仅输出合法的JSON对象，不要添加任何markdown代码块标记。",
+                    "\n\n【修正要求】之前输出存在问题: \
+                     {}。请务必修正后，仅输出合法的JSON对象，不要添加任何markdown代码块标记。",
                     err
                 ));
             }
@@ -519,7 +591,11 @@ impl IngestPipeline {
                 Ok(knowledge) => {
                     if let Err(e) = validate_generated_knowledge(&knowledge) {
                         last_error = Some(e);
-                        log::warn!("[Ingest Step2] Attempt {}: validation failed: {}", attempt + 1, last_error.as_ref().unwrap());
+                        log::warn!(
+                            "[Ingest Step2] Attempt {}: validation failed: {}",
+                            attempt + 1,
+                            last_error.as_ref().unwrap()
+                        );
                         continue;
                     }
                     return Ok(knowledge);
@@ -539,33 +615,37 @@ impl IngestPipeline {
         Err(format!(
             "[Ingest Step2] 3次尝试均失败. 最后错误: {}",
             last_error.unwrap_or_default()
-        ).into())
+        )
+        .into())
     }
 
     /// 转换为数据库实体模型，并生成嵌入向量
     fn convert_entities(&self, profiles: &[EntityProfile], content: &IngestContent) -> Vec<Entity> {
-        profiles.iter().map(|profile| {
-            // 生成实体嵌入
-            let embedding = self.generate_entity_embedding(profile);
-            
-            Entity {
-                id: uuid::Uuid::new_v4().to_string(),
-                story_id: content.story_id.clone(),
-                name: profile.name.clone(),
-                entity_type: profile.entity_type.clone(),
-                attributes: profile.attributes.clone(),
-                embedding,
-                first_seen: Local::now(),
-                last_updated: Local::now(),
-                confidence_score: None,
-                access_count: 0,
-                last_accessed: None,
-                is_archived: false,
-                archived_at: None,
-            }
-        }).collect()
+        profiles
+            .iter()
+            .map(|profile| {
+                // 生成实体嵌入
+                let embedding = self.generate_entity_embedding(profile);
+
+                Entity {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    story_id: content.story_id.clone(),
+                    name: profile.name.clone(),
+                    entity_type: profile.entity_type.clone(),
+                    attributes: profile.attributes.clone(),
+                    embedding,
+                    first_seen: Local::now(),
+                    last_updated: Local::now(),
+                    confidence_score: None,
+                    access_count: 0,
+                    last_accessed: None,
+                    is_archived: false,
+                    archived_at: None,
+                }
+            })
+            .collect()
     }
-    
+
     /// 为单个实体生成嵌入向量
     fn generate_entity_embedding(&self, profile: &EntityProfile) -> Option<Vec<f32>> {
         // 将 serde_json::Value 转换为 HashMap
@@ -575,7 +655,7 @@ impl IngestPipeline {
             }
             _ => HashMap::new(),
         };
-        
+
         let request = EntityEmbeddingRequest {
             entity_id: profile.name.clone(), // 临时ID
             name: profile.name.clone(),
@@ -583,14 +663,18 @@ impl IngestPipeline {
             entity_type: profile.entity_type.to_string(),
             attributes,
         };
-        
+
         match embed_entity(&request) {
             Ok(embedding) => {
                 log::debug!("Generated embedding for entity: {}", profile.name);
                 Some(embedding)
             }
             Err(e) => {
-                log::warn!("Failed to generate embedding for entity {}: {}", profile.name, e);
+                log::warn!(
+                    "Failed to generate embedding for entity {}: {}",
+                    profile.name,
+                    e
+                );
                 None
             }
         }
@@ -639,16 +723,20 @@ impl IngestPipeline {
                 .get()
                 .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
             let mut stmt = conn.prepare(
-                "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated FROM kg_entities WHERE story_id = ?1"
+                "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, \
+                 last_updated FROM kg_entities WHERE story_id = ?1",
             )?;
             let rows = stmt.query_map([&story_id], |row| {
                 let entity_type_str: String = row.get(3)?;
-                let entity_type = EntityType::from_str(&entity_type_str).unwrap_or(EntityType::Character);
+                let entity_type =
+                    EntityType::from_str(&entity_type_str).unwrap_or(EntityType::Character);
                 let attributes_str: String = row.get(4).unwrap_or_default();
-                let attributes = serde_json::from_str(&attributes_str).unwrap_or(serde_json::Value::Null);
+                let attributes =
+                    serde_json::from_str(&attributes_str).unwrap_or(serde_json::Value::Null);
                 let embedding_bytes: Option<Vec<u8>> = row.get(5)?;
                 let embedding = embedding_bytes.map(|bytes| {
-                    bytes.chunks_exact(4)
+                    bytes
+                        .chunks_exact(4)
                         .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
                         .collect()
                 });
@@ -678,32 +766,40 @@ impl IngestPipeline {
         Ok(entities)
     }
 
-    /// 实体链接：按名称去重，合并属性，返回 (去重后实体列表, name -> final_id 映射)
+    /// 实体链接：按名称去重，合并属性，返回 (去重后实体列表, name -> final_id
+    /// 映射)
     async fn link_entities(
         &self,
         new_entities: Vec<Entity>,
         story_id: &str,
-    ) -> Result<(Vec<Entity>, std::collections::HashMap<String, String>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<Entity>, std::collections::HashMap<String, String>), Box<dyn std::error::Error>>
+    {
         let existing = self.load_existing_entities(story_id).await?;
 
         let mut final_entities = Vec::new();
-        let mut name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut name_to_id: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         for new_entity in new_entities {
             if let Some(existing_entity) = existing.iter().find(|e| e.name == new_entity.name) {
                 // 命中已有实体：复用ID，合并属性，保留最新嵌入
                 name_to_id.insert(new_entity.name.clone(), existing_entity.id.clone());
-                let merged_attrs = merge_json_objects(&existing_entity.attributes, &new_entity.attributes);
+                let merged_attrs =
+                    merge_json_objects(&existing_entity.attributes, &new_entity.attributes);
                 final_entities.push(Entity {
                     id: existing_entity.id.clone(),
                     story_id: new_entity.story_id,
                     name: new_entity.name,
                     entity_type: new_entity.entity_type,
                     attributes: merged_attrs,
-                    embedding: new_entity.embedding.or_else(|| existing_entity.embedding.clone()),
+                    embedding: new_entity
+                        .embedding
+                        .or_else(|| existing_entity.embedding.clone()),
                     first_seen: existing_entity.first_seen,
                     last_updated: Local::now(),
-                    confidence_score: new_entity.confidence_score.or(existing_entity.confidence_score),
+                    confidence_score: new_entity
+                        .confidence_score
+                        .or(existing_entity.confidence_score),
                     access_count: existing_entity.access_count,
                     last_accessed: existing_entity.last_accessed,
                     is_archived: existing_entity.is_archived,
@@ -736,7 +832,14 @@ fn merge_json_objects(base: &serde_json::Value, overlay: &serde_json::Value) -> 
 
 /// 验证 ContentAnalysis 的结构有效性
 fn validate_content_analysis(analysis: &ContentAnalysis) -> Result<(), String> {
-    let valid_types = ["Character", "Location", "Item", "Organization", "Concept", "Event"];
+    let valid_types = [
+        "Character",
+        "Location",
+        "Item",
+        "Organization",
+        "Concept",
+        "Event",
+    ];
     for (i, entity) in analysis.entities.iter().enumerate() {
         if entity.name.trim().is_empty() {
             return Err(format!("Entity[{}]: name is empty", i));
@@ -756,7 +859,10 @@ fn validate_content_analysis(analysis: &ContentAnalysis) -> Result<(), String> {
             return Err(format!("Relation[{}]: relation_type is empty", i));
         }
         if rel.strength < 0.0 || rel.strength > 1.0 {
-            return Err(format!("Relation[{}]: strength {} out of range [0,1]", i, rel.strength));
+            return Err(format!(
+                "Relation[{}]: strength {} out of range [0,1]",
+                i, rel.strength
+            ));
         }
     }
     for (i, event) in analysis.events.iter().enumerate() {
@@ -764,7 +870,10 @@ fn validate_content_analysis(analysis: &ContentAnalysis) -> Result<(), String> {
             return Err(format!("Event[{}]: description is empty", i));
         }
         if event.importance < 1 || event.importance > 10 {
-            return Err(format!("Event[{}]: importance {} out of range [1,10]", i, event.importance));
+            return Err(format!(
+                "Event[{}]: importance {} out of range [1,10]",
+                i, event.importance
+            ));
         }
     }
     Ok(())
@@ -777,7 +886,10 @@ fn validate_generated_knowledge(knowledge: &GeneratedKnowledge) -> Result<(), St
             return Err(format!("EntityProfile[{}]: name is empty", i));
         }
         if entity.importance < 1 || entity.importance > 10 {
-            return Err(format!("EntityProfile[{}]: importance {} out of range [1,10]", i, entity.importance));
+            return Err(format!(
+                "EntityProfile[{}]: importance {} out of range [1,10]",
+                i, entity.importance
+            ));
         }
     }
     for (i, rel) in knowledge.relations.iter().enumerate() {
@@ -785,7 +897,10 @@ fn validate_generated_knowledge(knowledge: &GeneratedKnowledge) -> Result<(), St
             return Err(format!("RelationProfile[{}]: source or target is empty", i));
         }
         if rel.strength < 0.0 || rel.strength > 1.0 {
-            return Err(format!("RelationProfile[{}]: strength {} out of range [0,1]", i, rel.strength));
+            return Err(format!(
+                "RelationProfile[{}]: strength {} out of range [0,1]",
+                i, rel.strength
+            ));
         }
     }
     for (i, event) in knowledge.events.iter().enumerate() {
@@ -793,7 +908,10 @@ fn validate_generated_knowledge(knowledge: &GeneratedKnowledge) -> Result<(), St
             return Err(format!("EventProfile[{}]: title is empty", i));
         }
         if event.importance < 1 || event.importance > 10 {
-            return Err(format!("EventProfile[{}]: importance {} out of range [1,10]", i, event.importance));
+            return Err(format!(
+                "EventProfile[{}]: importance {} out of range [1,10]",
+                i, event.importance
+            ));
         }
     }
     Ok(())
@@ -822,14 +940,18 @@ impl IngestBatch {
         self.contents.push(content);
     }
 
-    pub async fn process(&self, pipeline: &IngestPipeline) -> Vec<Result<IngestResult, Box<dyn std::error::Error>>> {
+    pub async fn process(
+        &self,
+        pipeline: &IngestPipeline,
+    ) -> Vec<Result<IngestResult, Box<dyn std::error::Error>>> {
         use futures::future::join_all;
-        
-        let futures: Vec<_> = self.contents
+
+        let futures: Vec<_> = self
+            .contents
             .iter()
             .map(|content| pipeline.ingest(content))
             .collect();
-        
+
         join_all(futures).await
     }
 }

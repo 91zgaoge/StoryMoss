@@ -4,8 +4,9 @@
 //! 核心理念：用极少的元素，通过状态驱动、桥节点连接、事件回流与多功能重用，
 //! 构建出远大于实际篇幅的"活的世界"。
 
-use super::Methodology;
 use std::str::FromStr;
+
+use super::Methodology;
 
 /// 高密度世界构建法的四个阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,7 +143,8 @@ impl WorldBuildingPhase {
     pub fn description(&self) -> &'static str {
         match self {
             WorldBuildingPhase::Seed => {
-                "设计一个高密度'小切片'（一个港口、一场聚会、一个关键物件），定义核心状态向量和3-5个桥节点"
+                "设计一个高密度'小切片'（一个港口、一场聚会、一个关键物件），\
+                 定义核心状态向量和3-5个桥节点"
             }
             WorldBuildingPhase::StateExpansion => {
                 "扩展主角群，每人赋予独特初始状态但共享部分桥节点，列出'状态触发表'"
@@ -207,7 +209,8 @@ impl HighDensityWorldBuildingMethodology {
         context.push_str("2. 克制即创造力：硬约束逼出纪律，让少量元素自发产生复杂性\n");
         context.push_str("3. 情节不是预设的，而是'当前状态 × 世界规则'的函数输出\n");
         context.push_str("4. 每一个重要元素都应至少承担3种功能（叙事、世界构建、象征/驱动）\n");
-        context.push_str("5. 读者在一条线看到另一条线的影子，世界瞬间变厚、有机且大于任何单视角\n\n");
+        context
+            .push_str("5. 读者在一条线看到另一条线的影子，世界瞬间变厚、有机且大于任何单视角\n\n");
 
         context.push_str("当前阶段：");
         context.push_str(self.phase.name());

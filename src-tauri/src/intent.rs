@@ -3,13 +3,19 @@
 //! 将创作者的自然语言输入解析为结构化意图，
 //! 驱动 workflow::scheduler 调用正确的 Agent 执行创作任务。
 
-use crate::agents::service::{AgentService, AgentTask, AgentType};
-use crate::agents::{AgentContext, AgentResult};
-use crate::llm::{GenerateResponse, LlmService};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use uuid::Uuid;
+
+use crate::{
+    agents::{
+        service::{AgentService, AgentTask, AgentType},
+        AgentContext, AgentResult,
+    },
+    llm::{GenerateResponse, LlmService},
+};
 
 /// 意图类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -116,11 +122,13 @@ impl IntentParser {
     /// 解析用户输入为结构化意图
     pub async fn parse(&self, user_input: &str) -> Result<Intent, String> {
         let prompt = Self::build_intent_prompt(user_input);
-        
-        match self.llm_service.generate(prompt, Some(512), Some(0.1)).await {
-            Ok(GenerateResponse { content, .. }) => {
-                Self::parse_intent_json(&content, user_input)
-            }
+
+        match self
+            .llm_service
+            .generate(prompt, Some(512), Some(0.1))
+            .await
+        {
+            Ok(GenerateResponse { content, .. }) => Self::parse_intent_json(&content, user_input),
             Err(e) => {
                 log::error!("[IntentParser] LLM generation failed: {}", e);
                 Ok(Intent::unknown(user_input))
@@ -253,9 +261,13 @@ impl IntentExecutor {
     }
 
     /// 执行意图对应的 Agent 任务
-    pub async fn execute(&self, intent: Intent, story_id: String) -> Result<IntentExecutionResult, String> {
+    pub async fn execute(
+        &self,
+        intent: Intent,
+        story_id: String,
+    ) -> Result<IntentExecutionResult, String> {
         let agents = Self::map_agents(&intent.required_agents);
-        
+
         if agents.is_empty() {
             return Ok(IntentExecutionResult {
                 intent_type: intent.intent_type.clone(),
@@ -268,12 +280,8 @@ impl IntentExecutor {
 
         let context = Self::build_context(&story_id, &intent, self.agent_service.app_handle());
         let steps = match intent.execution_mode {
-            ExecutionMode::Serial => {
-                self.execute_serial(agents, context, &intent).await
-            }
-            ExecutionMode::Parallel => {
-                self.execute_parallel(agents, context, &intent).await
-            }
+            ExecutionMode::Serial => self.execute_serial(agents, context, &intent).await,
+            ExecutionMode::Parallel => self.execute_parallel(agents, context, &intent).await,
         };
 
         let summary = Self::build_summary(&intent, &steps);
@@ -310,10 +318,14 @@ impl IntentExecutor {
     ///
     /// 使用 StoryContextBuilder 从数据库读取真实故事数据，
     /// 替代原有的硬编码默认值。
-    fn build_context(story_id: &str, _intent: &Intent, app_handle: &tauri::AppHandle) -> AgentContext {
-        use crate::db::DbPool;
-        use crate::creative_engine::StoryContextBuilder;
+    fn build_context(
+        story_id: &str,
+        _intent: &Intent,
+        app_handle: &tauri::AppHandle,
+    ) -> AgentContext {
         use tauri::Manager;
+
+        use crate::{creative_engine::StoryContextBuilder, db::DbPool};
 
         match app_handle.try_state::<DbPool>() {
             Some(pool_state) => {
@@ -322,7 +334,11 @@ impl IntentExecutor {
                 match builder.build_quick(story_id) {
                     Ok(ctx) => ctx,
                     Err(e) => {
-                        log::warn!("[IntentExecutor] Failed to build context from DB: {}, falling back to minimal", e);
+                        log::warn!(
+                            "[IntentExecutor] Failed to build context from DB: {}, falling back \
+                             to minimal",
+                            e
+                        );
                         AgentContext::minimal(story_id.to_string(), String::new())
                     }
                 }
@@ -443,7 +459,10 @@ impl IntentExecutor {
             params.insert("target_name".to_string(), serde_json::json!(target_name));
         }
         if !intent.constraints.is_empty() {
-            params.insert("constraints".to_string(), serde_json::json!(intent.constraints));
+            params.insert(
+                "constraints".to_string(),
+                serde_json::json!(intent.constraints),
+            );
         }
         params
     }
@@ -528,7 +547,9 @@ mod tests {
 
     #[test]
     fn test_parse_intent_json_with_markdown() {
-        let json = "```json\n{\"intent_type\": \"plot_suggest\", \"target\": {}, \"constraints\": [], \"required_agents\": [\"plot_analyzer\"], \"execution_mode\": \"serial\", \"feedback_type\": \"suggestion_card\"}\n```";
+        let json = "```json\n{\"intent_type\": \"plot_suggest\", \"target\": {}, \"constraints\": \
+                    [], \"required_agents\": [\"plot_analyzer\"], \"execution_mode\": \"serial\", \
+                    \"feedback_type\": \"suggestion_card\"}\n```";
 
         let intent = IntentParser::parse_intent_json(json, "帮我想个反转").unwrap();
         assert_eq!(intent.intent_type, IntentType::PlotSuggest);
@@ -556,14 +577,12 @@ mod tests {
     #[test]
     fn test_build_summary() {
         let intent = Intent::unknown("测试");
-        let steps = vec![
-            AgentStepResult {
-                agent_name: "Writer".to_string(),
-                success: true,
-                result: None,
-                error: None,
-            },
-        ];
+        let steps = vec![AgentStepResult {
+            agent_name: "Writer".to_string(),
+            success: true,
+            result: None,
+            error: None,
+        }];
         let summary = IntentExecutor::build_summary(&intent, &steps);
         assert!(summary.contains("自由对话"));
         assert!(summary.contains("1 个 Agent"));

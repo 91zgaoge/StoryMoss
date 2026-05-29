@@ -9,10 +9,14 @@
 //! - 结构偏好：段落长度、场景切换频率
 //! - 对话偏好：对话长度、对话标签风格
 
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::db::repositories::{UserFeedbackRepository, UserPreferenceRepository};
 use super::feedback::FeedbackRecorder;
+use crate::{
+    db::{
+        repositories::{UserFeedbackRepository, UserPreferenceRepository},
+        DbPool,
+    },
+    error::AppError,
+};
 
 /// 挖掘出的偏好
 #[derive(Debug, Clone)]
@@ -41,7 +45,8 @@ impl PreferenceMiner {
 
         // 1. 获取反馈日志
         let feedback_repo = UserFeedbackRepository::new(self.pool.clone());
-        let logs = feedback_repo.get_by_story(story_id, Some(100))
+        let logs = feedback_repo
+            .get_by_story(story_id, Some(100))
             .map_err(AppError::from)?;
 
         if logs.is_empty() {
@@ -74,7 +79,10 @@ impl PreferenceMiner {
     }
 
     /// 挖掘对话偏好
-    fn mine_dialogue_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_dialogue_preference(
+        &self,
+        logs: &[crate::db::models::UserFeedbackLog],
+    ) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         // 计算接受/拒绝/修改中对话的比例差异
@@ -116,11 +124,23 @@ impl PreferenceMiner {
 
             if diff.abs() > 0.1 {
                 let (pref_value, reasoning) = if diff > 0.0 {
-                    ("prefer_more_dialogue".to_string(),
-                     format!("用户接受的内容平均对话比例 {:.0}%，拒绝的内容平均 {:.0}%", avg_accept * 100.0, avg_reject * 100.0))
+                    (
+                        "prefer_more_dialogue".to_string(),
+                        format!(
+                            "用户接受的内容平均对话比例 {:.0}%，拒绝的内容平均 {:.0}%",
+                            avg_accept * 100.0,
+                            avg_reject * 100.0
+                        ),
+                    )
                 } else {
-                    ("prefer_less_dialogue".to_string(),
-                     format!("用户拒绝的内容平均对话比例 {:.0}%，接受的内容平均 {:.0}%", avg_reject * 100.0, avg_accept * 100.0))
+                    (
+                        "prefer_less_dialogue".to_string(),
+                        format!(
+                            "用户拒绝的内容平均对话比例 {:.0}%，接受的内容平均 {:.0}%",
+                            avg_reject * 100.0,
+                            avg_accept * 100.0
+                        ),
+                    )
                 };
 
                 preferences.push(MinedPreference {
@@ -138,7 +158,10 @@ impl PreferenceMiner {
     }
 
     /// 挖掘描写偏好
-    fn mine_description_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_description_preference(
+        &self,
+        logs: &[crate::db::models::UserFeedbackLog],
+    ) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         let mut accept_desc = 0.0f32;
@@ -168,11 +191,23 @@ impl PreferenceMiner {
 
             if diff.abs() > 0.1 {
                 let (pref_value, reasoning) = if diff > 0.0 {
-                    ("prefer_more_description".to_string(),
-                     format!("接受的内容环境描写更丰富（{:.0}% vs {:.0}%）", avg_accept * 100.0, avg_reject * 100.0))
+                    (
+                        "prefer_more_description".to_string(),
+                        format!(
+                            "接受的内容环境描写更丰富（{:.0}% vs {:.0}%）",
+                            avg_accept * 100.0,
+                            avg_reject * 100.0
+                        ),
+                    )
                 } else {
-                    ("prefer_less_description".to_string(),
-                     format!("拒绝的内容环境描写过多（{:.0}% vs {:.0}%）", avg_reject * 100.0, avg_accept * 100.0))
+                    (
+                        "prefer_less_description".to_string(),
+                        format!(
+                            "拒绝的内容环境描写过多（{:.0}% vs {:.0}%）",
+                            avg_reject * 100.0,
+                            avg_accept * 100.0
+                        ),
+                    )
                 };
 
                 preferences.push(MinedPreference {
@@ -190,7 +225,10 @@ impl PreferenceMiner {
     }
 
     /// 挖掘节奏偏好
-    fn mine_pacing_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_pacing_preference(
+        &self,
+        logs: &[crate::db::models::UserFeedbackLog],
+    ) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         let mut accept_sentence_len = 0.0f32;
@@ -220,11 +258,21 @@ impl PreferenceMiner {
 
             if diff.abs() > 5.0 {
                 let (pref_value, reasoning) = if diff > 0.0 {
-                    ("prefer_slower_pacing".to_string(),
-                     format!("接受的内容平均句长 {:.0} 字，拒绝的 {:.0} 字", avg_accept, avg_reject))
+                    (
+                        "prefer_slower_pacing".to_string(),
+                        format!(
+                            "接受的内容平均句长 {:.0} 字，拒绝的 {:.0} 字",
+                            avg_accept, avg_reject
+                        ),
+                    )
                 } else {
-                    ("prefer_faster_pacing".to_string(),
-                     format!("拒绝的内容平均句长 {:.0} 字，接受的 {:.0} 字", avg_reject, avg_accept))
+                    (
+                        "prefer_faster_pacing".to_string(),
+                        format!(
+                            "拒绝的内容平均句长 {:.0} 字，接受的 {:.0} 字",
+                            avg_reject, avg_accept
+                        ),
+                    )
                 };
 
                 preferences.push(MinedPreference {
@@ -242,10 +290,14 @@ impl PreferenceMiner {
     }
 
     /// 挖掘风格偏好（基于接受/拒绝的统计）
-    fn mine_style_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_style_preference(
+        &self,
+        logs: &[crate::db::models::UserFeedbackLog],
+    ) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
-        let stats = FeedbackRecorder::new(self.pool.clone()).get_stats(&logs.first().map(|l| l.story_id.clone()).unwrap_or_default());
+        let stats = FeedbackRecorder::new(self.pool.clone())
+            .get_stats(&logs.first().map(|l| l.story_id.clone()).unwrap_or_default());
         if let Ok(stats) = stats {
             let total = stats.accept + stats.reject + stats.modify;
             if total > 5 {
@@ -259,7 +311,10 @@ impl PreferenceMiner {
                         preference_value: "needs_improvement".to_string(),
                         confidence: reject_rate.min(1.0),
                         evidence_count: total as i32,
-                        reasoning: format!("拒绝率 {:.0}% 较高，系统需要调整生成策略", reject_rate * 100.0),
+                        reasoning: format!(
+                            "拒绝率 {:.0}% 较高，系统需要调整生成策略",
+                            reject_rate * 100.0
+                        ),
                     });
                 } else if accept_rate > 0.7 {
                     preferences.push(MinedPreference {
@@ -268,7 +323,10 @@ impl PreferenceMiner {
                         preference_value: "high_satisfaction".to_string(),
                         confidence: accept_rate.min(1.0),
                         evidence_count: total as i32,
-                        reasoning: format!("接受率 {:.0}% 较高，当前策略匹配用户偏好", accept_rate * 100.0),
+                        reasoning: format!(
+                            "接受率 {:.0}% 较高，当前策略匹配用户偏好",
+                            accept_rate * 100.0
+                        ),
                     });
                 }
             }
@@ -278,7 +336,10 @@ impl PreferenceMiner {
     }
 
     /// 挖掘叙事偏好
-    fn mine_narrative_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_narrative_preference(
+        &self,
+        logs: &[crate::db::models::UserFeedbackLog],
+    ) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         // 检查用户修改的内容中是否经常添加/删除内心独白
@@ -303,11 +364,21 @@ impl PreferenceMiner {
             let diff: i32 = added_interior - removed_interior;
             if diff.abs() >= 2 {
                 let (pref_value, reasoning) = if diff > 0 {
-                    ("prefer_more_interior_monologue".to_string(),
-                     format!("用户修改时 {} 次增加内心独白，{} 次减少", added_interior, removed_interior))
+                    (
+                        "prefer_more_interior_monologue".to_string(),
+                        format!(
+                            "用户修改时 {} 次增加内心独白，{} 次减少",
+                            added_interior, removed_interior
+                        ),
+                    )
                 } else {
-                    ("prefer_less_interior_monologue".to_string(),
-                     format!("用户修改时 {} 次减少内心独白，{} 次增加", removed_interior, added_interior))
+                    (
+                        "prefer_less_interior_monologue".to_string(),
+                        format!(
+                            "用户修改时 {} 次减少内心独白，{} 次增加",
+                            removed_interior, added_interior
+                        ),
+                    )
                 };
 
                 preferences.push(MinedPreference {
@@ -335,15 +406,19 @@ fn estimate_dialogue_ratio(text: &str) -> f32 {
         return 0.0;
     }
 
-    let dialogue_chars = text.chars().filter(|&c| dialogue_markers.contains(&c)).count() / 2;
+    let dialogue_chars = text
+        .chars()
+        .filter(|&c| dialogue_markers.contains(&c))
+        .count()
+        / 2;
     (dialogue_chars as f32 / total_chars as f32).min(1.0)
 }
 
 /// 估算文本中的环境描写比例（简化：基于自然意象词汇密度）
 fn estimate_description_ratio(text: &str) -> f32 {
     let desc_markers = [
-        "风", "雨", "雪", "月", "阳", "云", "山", "水", "花", "树",
-        "天", "地", "光", "影", "色", "香", "声", "冷", "热",
+        "风", "雨", "雪", "月", "阳", "云", "山", "水", "花", "树", "天", "地", "光", "影", "色",
+        "香", "声", "冷", "热",
     ];
     let total_chars = text.chars().count();
     if total_chars == 0 {

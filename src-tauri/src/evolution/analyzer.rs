@@ -106,7 +106,8 @@ impl ContentAnalyzer {
         Self
     }
 
-    pub fn analyze_chapter(&self,
+    pub fn analyze_chapter(
+        &self,
         content: &str,
         chapter_number: u32,
         characters: &[CharacterPresence],
@@ -123,7 +124,10 @@ impl ContentAnalyzer {
     }
 
     fn calculate_avg_sentence_length(&self, content: &str) -> f32 {
-        let sentences: Vec<&str> = content.split('.').filter(|s| !s.trim().is_empty()).collect();
+        let sentences: Vec<&str> = content
+            .split('.')
+            .filter(|s| !s.trim().is_empty())
+            .collect();
         if sentences.is_empty() {
             return 0.0;
         }
@@ -131,10 +135,10 @@ impl ContentAnalyzer {
         total_words as f32 / sentences.len() as f32
     }
 
-
     fn calculate_dialogue_ratio(&self, content: &str) -> f32 {
         let dialogue_markers = [34 as char, 34 as char, 39 as char, 39 as char];
-        let dialogue_chars: usize = content.chars()
+        let dialogue_chars: usize = content
+            .chars()
             .filter(|c| dialogue_markers.contains(c))
             .count();
         dialogue_chars as f32 / content.len() as f32
@@ -142,14 +146,26 @@ impl ContentAnalyzer {
 
     fn analyze_emotional_tone(&self, content: &str) -> String {
         // Simple emotional tone analysis based on keyword matching
-        let positive_words = ["happy", "joy", "love", "excited", "wonderful", "beautiful", "success"];
-        let negative_words = ["sad", "anger", "hate", "fear", "terrible", "horrible", "failure"];
+        let positive_words = [
+            "happy",
+            "joy",
+            "love",
+            "excited",
+            "wonderful",
+            "beautiful",
+            "success",
+        ];
+        let negative_words = [
+            "sad", "anger", "hate", "fear", "terrible", "horrible", "failure",
+        ];
 
         let content_lower = content.to_lowercase();
-        let positive_count: usize = positive_words.iter()
+        let positive_count: usize = positive_words
+            .iter()
             .map(|word| content_lower.matches(word).count())
             .sum();
-        let negative_count: usize = negative_words.iter()
+        let negative_count: usize = negative_words
+            .iter()
             .map(|word| content_lower.matches(word).count())
             .sum();
 
@@ -161,7 +177,6 @@ impl ContentAnalyzer {
             "neutral".to_string()
         }
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

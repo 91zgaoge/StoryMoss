@@ -1,23 +1,26 @@
 //! Skill commands
 
-use crate::commands::EmitSync;
-use crate::db::DbPool;
-use crate::skills::SkillInfo;
-use crate::error::AppError;
-use tauri::{Manager, AppHandle};
 use std::collections::HashMap;
-use crate::SKILL_MANAGER;
+
+use tauri::{AppHandle, Manager};
+
+use crate::{commands::EmitSync, db::DbPool, error::AppError, skills::SkillInfo, SKILL_MANAGER};
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_skills() -> Result<Vec<SkillInfo>, AppError> {
-    let skills = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.get_all_skills();
+    let skills = SKILL_MANAGER
+        .get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .get_all_skills();
     Ok(skills.into_iter().map(SkillInfo::from).collect())
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError> {
-    SKILL_MANAGER.get()
+    SKILL_MANAGER
+        .get()
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
@@ -27,10 +30,10 @@ pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError>
         .emit_sync(&app, None, "skills")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER.get()
+    SKILL_MANAGER
+        .get()
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
@@ -39,10 +42,10 @@ pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .emit_sync(&app, None, "skills")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER.get()
+    SKILL_MANAGER
+        .get()
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
@@ -51,10 +54,10 @@ pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .emit_sync(&app, None, "skills")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER.get()
+    SKILL_MANAGER
+        .get()
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
@@ -63,17 +66,27 @@ pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError>
         .emit_sync(&app, None, "skills")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_skill(skill_id: String) -> Result<SkillInfo, AppError> {
-    let skill = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.get_skill(&skill_id);
-    skill.map(SkillInfo::from).ok_or_else(|| AppError::not_found("Skill", &skill_id))
+    let skill = SKILL_MANAGER
+        .get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .get_skill(&skill_id);
+    skill
+        .map(SkillInfo::from)
+        .ok_or_else(|| AppError::not_found("Skill", &skill_id))
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
-pub fn update_skill(skill_id: String, manifest: crate::skills::SkillManifest, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER.get()
+pub fn update_skill(
+    skill_id: String,
+    manifest: crate::skills::SkillManifest,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    SKILL_MANAGER
+        .get()
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
@@ -82,7 +95,6 @@ pub fn update_skill(skill_id: String, manifest: crate::skills::SkillManifest, ap
         .emit_sync(&app, None, "skills")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub async fn execute_skill(
     skill_id: String,
@@ -90,7 +102,9 @@ pub async fn execute_skill(
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, AppError> {
     let mut params = params;
-    let story_id = params.remove("story_id").and_then(|v| v.as_str().map(|s| s.to_string()));
+    let story_id = params
+        .remove("story_id")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
 
     // Build context from database if story_id is provided
     let context = if let Some(story_id) = story_id {
@@ -101,7 +115,10 @@ pub async fn execute_skill(
                 match builder.build_quick(&story_id) {
                     Ok(ctx) => ctx,
                     Err(e) => {
-                        log::warn!("[execute_skill] StoryContextBuilder failed: {}, using minimal context", e);
+                        log::warn!(
+                            "[execute_skill] StoryContextBuilder failed: {}, using minimal context",
+                            e
+                        );
                         crate::agents::AgentContext::minimal(story_id, String::new())
                     }
                 }
@@ -117,17 +134,24 @@ pub async fn execute_skill(
 
     // Execute skill
     let manager = {
-        let guard = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?;
+        let guard = SKILL_MANAGER
+            .get()
+            .ok_or(AppError::internal("Skills not initialized"))?
+            .lock()
+            .map_err(|e| crate::error::AppError::from(e).to_string())?;
         guard.clone()
     };
-    
+
     let result = manager.execute_skill(&skill_id, &context, params).await?;
-    
+
     if !result.success {
-        return Err(AppError::internal(result.error.unwrap_or("Skill execution failed".to_string())));
+        return Err(AppError::internal(
+            result.error.unwrap_or("Skill execution failed".to_string()),
+        ));
     }
-    
-    // If LLM was already called (PromptRuntime with llm_service), return content directly
+
+    // If LLM was already called (PromptRuntime with llm_service), return content
+    // directly
     if let Some(content) = result.data.get("content").and_then(|v| v.as_str()) {
         return Ok(serde_json::json!({
             "success": true,
@@ -137,11 +161,19 @@ pub async fn execute_skill(
             "execution_time_ms": result.execution_time_ms,
         }));
     }
-    
+
     // Fallback: skill returned prompts but no LLM result, call LLM manually
-    let system_prompt = result.data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
-    let user_prompt = result.data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("");
-    
+    let system_prompt = result
+        .data
+        .get("system_prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let user_prompt = result
+        .data
+        .get("user_prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
     if system_prompt.is_empty() && user_prompt.is_empty() {
         return Err(AppError::internal("Skill did not produce a valid prompt"));
     }
@@ -150,11 +182,16 @@ pub async fn execute_skill(
     let full_prompt = if system_prompt.is_empty() {
         user_prompt.to_string()
     } else {
-        format!("[系统指令]\n{}\n\n[用户请求]\n{}", system_prompt, user_prompt)
+        format!(
+            "[系统指令]\n{}\n\n[用户请求]\n{}",
+            system_prompt, user_prompt
+        )
     };
-    
-    let response = llm_service.generate(full_prompt, Some(2000), Some(0.7)).await?;
-    
+
+    let response = llm_service
+        .generate(full_prompt, Some(2000), Some(0.7))
+        .await?;
+
     Ok(serde_json::json!({
         "success": true,
         "content": response.content,
@@ -163,7 +200,6 @@ pub async fn execute_skill(
         "execution_time_ms": result.execution_time_ms,
     }))
 }
-
 
 /// 使用 text_formatter skill 对文本进行智能排版
 #[tauri::command(rename_all = "snake_case")]
@@ -176,11 +212,12 @@ pub async fn format_text(content: String, app: AppHandle) -> Result<String, AppE
             p
         },
         app,
-    ).await?;
-    
-    result.get("content")
+    )
+    .await?;
+
+    result
+        .get("content")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::internal("LLM returned empty content"))
 }
-

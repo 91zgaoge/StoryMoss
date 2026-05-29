@@ -10,22 +10,22 @@ use tauri::Emitter;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PipelineType {
-    Genesis,    // 正向/创世
-    Analysis,   // 逆向/分析
-    Audit,      // 审计/检查
-    Export,     // 导出
-    Import,     // 导入
+    Genesis,  // 正向/创世
+    Analysis, // 逆向/分析
+    Audit,    // 审计/检查
+    Export,   // 导出
+    Import,   // 导入
 }
 
 /// 步骤状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
-    Running,    // 执行中
-    Completed,  // 已完成
-    Failed,     // 失败
-    Skipped,    // 已跳过
-    Cancelled,  // 已取消
+    Running,   // 执行中
+    Completed, // 已完成
+    Failed,    // 失败
+    Skipped,   // 已跳过
+    Cancelled, // 已取消
 }
 
 /// 统一的流水线进度事件
@@ -50,7 +50,7 @@ pub struct PipelineProgressEvent {
 pub struct LlmSubProgress {
     pub pipeline_id: String,
     pub step_name: String,
-    pub action: String,              // "正在连接模型" | "已发送请求" | "AI正在思考"
+    pub action: String, // "正在连接模型" | "已发送请求" | "AI正在思考"
     pub elapsed_seconds: u64,
     pub model: String,
 }
@@ -97,10 +97,22 @@ mod tests {
 
     #[test]
     fn test_step_status_serialization() {
-        assert_eq!(serde_json::to_string(&StepStatus::Running).unwrap(), "\"running\"");
-        assert_eq!(serde_json::to_string(&StepStatus::Completed).unwrap(), "\"completed\"");
-        assert_eq!(serde_json::to_string(&StepStatus::Failed).unwrap(), "\"failed\"");
-        assert_eq!(serde_json::to_string(&StepStatus::Cancelled).unwrap(), "\"cancelled\"");
+        assert_eq!(
+            serde_json::to_string(&StepStatus::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StepStatus::Completed).unwrap(),
+            "\"completed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StepStatus::Failed).unwrap(),
+            "\"failed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StepStatus::Cancelled).unwrap(),
+            "\"cancelled\""
+        );
     }
 
     #[test]

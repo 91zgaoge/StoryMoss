@@ -1,22 +1,24 @@
 //! 记忆保留管理 - Phase 1.4
-//! 
+//!
 //! 基于 Ebbinghaus 遗忘曲线理论的记忆优先级管理
 //! R(t) = R₀ × e^(-λt) + Σ(强化奖励)
 
-use crate::db::models::{Entity, RetentionConfig};
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, Local};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::db::models::{Entity, RetentionConfig};
 
 /// 记忆保留评分结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionScore {
     pub entity_id: String,
     pub entity_name: String,
-    pub base_score: f32,           // 基础置信度 R₀
-    pub decayed_score: f32,        // 衰减后分数 R(t)
-    pub reinforced_score: f32,     // 强化后分数
-    pub final_priority: f32,       // 最终优先级
+    pub base_score: f32,       // 基础置信度 R₀
+    pub decayed_score: f32,    // 衰减后分数 R(t)
+    pub reinforced_score: f32, // 强化后分数
+    pub final_priority: f32,   // 最终优先级
     pub priority_level: PriorityLevel,
     pub days_since_last_access: i64,
     pub access_count: i32,
@@ -25,11 +27,11 @@ pub struct RetentionScore {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PriorityLevel {
-    Critical,    // > 0.8 - 必须保留
-    High,        // 0.6 - 0.8 - 优先保留
-    Medium,      // 0.4 - 0.6 - 正常保留
-    Low,         // 0.2 - 0.4 - 可压缩
-    Forgotten,   // < 0.2 - 可遗忘
+    Critical,  // > 0.8 - 必须保留
+    High,      // 0.6 - 0.8 - 优先保留
+    Medium,    // 0.4 - 0.6 - 正常保留
+    Low,       // 0.2 - 0.4 - 可压缩
+    Forgotten, // < 0.2 - 可遗忘
 }
 
 impl PriorityLevel {
@@ -69,7 +71,7 @@ impl RetentionManager {
         Self {
             // 默认配置：中等衰减
             config: RetentionConfig {
-                lambda: 0.05,              // 中等衰减率
+                lambda: 0.05,             // 中等衰减率
                 reinforcement_bonus: 0.1, // 每次强化增加 0.1
             },
             // 架构级：衰减慢（重要设定）
@@ -103,10 +105,10 @@ impl RetentionManager {
     /// 计算实体的保留分数
     pub fn calculate_retention_score(&self, entity: &Entity) -> RetentionScore {
         let now = Local::now();
-        
+
         // 基础置信度
         let base_score = entity.confidence_score.unwrap_or(0.5);
-        
+
         // 计算距离上次访问的天数
         let days_since_access = entity
             .last_accessed
@@ -222,11 +224,7 @@ impl RetentionManager {
             .collect();
 
         // 按优先级排序
-        scored.sort_by(|a, b| {
-            b.1.final_priority
-                .partial_cmp(&a.1.final_priority)
-                .unwrap()
-        });
+        scored.sort_by(|a, b| b.1.final_priority.partial_cmp(&a.1.final_priority).unwrap());
 
         // 根据token预算选择
         let max_entities = token_budget / avg_tokens_per_entity;
@@ -237,7 +235,7 @@ impl RetentionManager {
     pub fn simulate_access(&self, entity: &mut Entity) {
         entity.access_count += 1;
         entity.last_accessed = Some(Local::now());
-        
+
         // 增加置信度（强化）
         let config = self.get_config_for_entity(entity);
         let boost = config.reinforcement_bonus as f32;
@@ -260,10 +258,10 @@ impl RetentionManager {
         }
 
         let config = self.get_config_for_entity(entity);
-        
+
         // 解算 R(t) = threshold: t = -ln(threshold/R₀) / λ
         let days_to_forget = -(threshold as f64 / base_score as f64).ln() / config.lambda;
-        
+
         if days_to_forget.is_finite() && days_to_forget > 0.0 {
             Some(Local::now() + Duration::days(days_to_forget as i64))
         } else {
@@ -274,7 +272,7 @@ impl RetentionManager {
     /// 生成保留报告
     pub fn generate_retention_report(&self, entities: &[Entity]) -> RetentionReport {
         let scores = self.batch_calculate(entities);
-        
+
         let mut level_counts: HashMap<String, usize> = HashMap::new();
         let mut total_priority = 0.0;
         let mut critical_entities = vec![];
@@ -341,7 +339,7 @@ impl RetentionManager {
             .iter()
             .filter(|s| matches!(s.priority_level, PriorityLevel::Forgotten))
             .count();
-        
+
         let critical_count = scores
             .iter()
             .filter(|s| matches!(s.priority_level, PriorityLevel::Critical))
@@ -416,11 +414,11 @@ mod tests {
     #[test]
     fn test_retention_score_calculation() {
         let manager = RetentionManager::new();
-        
+
         // 高置信度、最近访问的实体
         let entity = create_test_entity("主角", Some(0.9), 10);
         let score = manager.calculate_retention_score(&entity);
-        
+
         assert!(score.base_score > 0.8);
         assert!(score.final_priority > 0.5);
         assert!(!matches!(score.priority_level, PriorityLevel::Forgotten));
@@ -429,11 +427,11 @@ mod tests {
     #[test]
     fn test_forgotten_entity() {
         let manager = RetentionManager::new();
-        
+
         // 低置信度、从未访问的实体
         let entity = create_test_entity("龙套", Some(0.1), 0);
         let score = manager.calculate_retention_score(&entity);
-        
+
         assert!(matches!(score.priority_level, PriorityLevel::Forgotten));
     }
 
@@ -441,9 +439,9 @@ mod tests {
     fn test_simulate_access() {
         let manager = RetentionManager::new();
         let mut entity = create_test_entity("主角", Some(0.5), 0);
-        
+
         manager.simulate_access(&mut entity);
-        
+
         assert_eq!(entity.access_count, 1);
         assert!(entity.last_accessed.is_some());
         assert!(entity.confidence_score.unwrap() > 0.5);
@@ -453,7 +451,7 @@ mod tests {
     fn test_predict_forgetting_time() {
         let manager = RetentionManager::new();
         let entity = create_test_entity("主角", Some(0.8), 5);
-        
+
         let forget_time = manager.predict_forgetting_time(&entity, 0.3);
         assert!(forget_time.is_some());
         assert!(forget_time.unwrap() > Local::now());

@@ -1,9 +1,8 @@
 //! Core commands
 
-use tauri::{Manager, AppHandle, State};
-use crate::ChatMessageItem;
-use crate::db::DbPool;
-use crate::error::AppError;
+use tauri::{AppHandle, Manager, State};
+
+use crate::{db::DbPool, error::AppError, ChatMessageItem};
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn health_check(_pool: State<'_, DbPool>) -> Result<serde_json::Value, AppError> {
@@ -13,7 +12,6 @@ pub fn health_check(_pool: State<'_, DbPool>) -> Result<serde_json::Value, AppEr
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn chat_completion(
@@ -62,29 +60,45 @@ pub async fn chat_completion(
     Ok(data)
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
-pub async fn check_model_status(_pool: State<'_, DbPool>, app_handle: AppHandle) -> Result<String, AppError> {
+pub async fn check_model_status(
+    _pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<String, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| AppError::internal(format!("Failed to get app dir: {}", e)))?;
     let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
-    let active_profile_id = config.active_llm_profile.as_deref()
-        .or(config.llm_profiles.values().find(|p| p.is_default).map(|p| p.id.as_str()))
+    let active_profile_id = config
+        .active_llm_profile
+        .as_deref()
+        .or(config
+            .llm_profiles
+            .values()
+            .find(|p| p.is_default)
+            .map(|p| p.id.as_str()))
         .or(config.llm_profiles.keys().next().map(|s| s.as_str()))
         .ok_or("No LLM profile configured")?;
 
-    let profile = config.llm_profiles.get(active_profile_id)
+    let profile = config
+        .llm_profiles
+        .get(active_profile_id)
         .ok_or("Active LLM profile not found")?;
 
-    let base_url = profile.api_base.clone()
+    let base_url = profile
+        .api_base
+        .clone()
         .or(config.llm.api_base.clone())
         .unwrap_or_else(|| match profile.provider {
             crate::config::settings::LlmProvider::OpenAI => "https://api.openai.com/v1".to_string(),
-            crate::config::settings::LlmProvider::Anthropic => "https://api.anthropic.com".to_string(),
+            crate::config::settings::LlmProvider::Anthropic => {
+                "https://api.anthropic.com".to_string()
+            }
             crate::config::settings::LlmProvider::Ollama => "http://localhost:11434".to_string(),
-            crate::config::settings::LlmProvider::DeepSeek => "https://api.deepseek.com".to_string(),
+            crate::config::settings::LlmProvider::DeepSeek => {
+                "https://api.deepseek.com".to_string()
+            }
             _ => "http://localhost:11434".to_string(),
         });
 
@@ -99,7 +113,11 @@ pub async fn check_model_status(_pool: State<'_, DbPool>, app_handle: AppHandle)
         .build()
         .map_err(AppError::from)?;
 
-    let api_key_ref = if api_key.is_empty() { None } else { Some(api_key.as_str()) };
+    let api_key_ref = if api_key.is_empty() {
+        None
+    } else {
+        Some(api_key.as_str())
+    };
 
     // 探测策略：只要收到任何 HTTP 响应（不论状态码）即视为网络可通
     // 1. GET base_url（根路径，最宽容）
@@ -122,7 +140,12 @@ pub async fn check_model_status(_pool: State<'_, DbPool>, app_handle: AppHandle)
         req = req.header("Authorization", format!("Bearer {}", key));
     }
     req = req.header("Content-Type", "application/json");
-    if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+    if req
+        .body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#)
+        .send()
+        .await
+        .is_ok()
+    {
         return Ok("connected".to_string());
     }
 
@@ -132,7 +155,12 @@ pub async fn check_model_status(_pool: State<'_, DbPool>, app_handle: AppHandle)
         req = req.header("Authorization", format!("Bearer {}", key));
     }
     req = req.header("Content-Type", "application/json");
-    if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+    if req
+        .body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#)
+        .send()
+        .await
+        .is_ok()
+    {
         return Ok("connected".to_string());
     }
 

@@ -157,12 +157,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let char_repo = CharacterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let char_req = CreateCharacterRequest {
             story_id: story.id.clone(),
@@ -186,12 +188,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let char_repo = CharacterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let char_req = CreateCharacterRequest {
             story_id: story.id.clone(),
@@ -205,16 +209,18 @@ mod tests {
         };
         let character = char_repo.create(char_req).unwrap();
 
-        let count = char_repo.update(
-            &character.id,
-            Some("新名".to_string()),
-            Some("新背景".to_string()),
-            Some("开朗".to_string()),
-            Some("成为英雄".to_string()),
-            None,
-            None,
-            None,
-        ).unwrap();
+        let count = char_repo
+            .update(
+                &character.id,
+                Some("新名".to_string()),
+                Some("新背景".to_string()),
+                Some("开朗".to_string()),
+                Some("成为英雄".to_string()),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(count, 1);
 
         let updated = char_repo.get_by_id(&character.id).unwrap().unwrap();
@@ -230,12 +236,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let char_repo = CharacterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let char_req = CreateCharacterRequest {
             story_id: story.id.clone(),
@@ -264,12 +272,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let chapter_repo = ChapterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "章节测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "章节测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let chapter_req = CreateChapterRequest {
             story_id: story.id.clone(),
@@ -293,12 +303,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let chapter_repo = ChapterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let chapter_req = CreateChapterRequest {
             story_id: story.id.clone(),
@@ -319,12 +331,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let chapter_repo = ChapterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let chapter_req = CreateChapterRequest {
             story_id: story.id.clone(),
@@ -335,13 +349,15 @@ mod tests {
         };
         let chapter = chapter_repo.create(chapter_req).unwrap();
 
-        let count = chapter_repo.update(
-            &chapter.id,
-            Some("新标题".to_string()),
-            Some("新大纲".to_string()),
-            Some("新内容，更长一些".to_string()),
-            None, // word_count 应该从 content 自动计算
-        ).unwrap();
+        let count = chapter_repo
+            .update(
+                &chapter.id,
+                Some("新标题".to_string()),
+                Some("新大纲".to_string()),
+                Some("新内容，更长一些".to_string()),
+                None, // word_count 应该从 content 自动计算
+            )
+            .unwrap();
         assert_eq!(count, 1);
 
         let updated = chapter_repo.get_by_id(&chapter.id).unwrap().unwrap();
@@ -355,12 +371,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let chapter_repo = ChapterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let chapter_req = CreateChapterRequest {
             story_id: story.id.clone(),
@@ -384,12 +402,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let chapter_repo = ChapterRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "排序测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "排序测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let req1 = CreateChapterRequest {
             story_id: story.id.clone(),
@@ -422,12 +442,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let scene_repo = SceneRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "场景测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "场景测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let scene = scene_repo.create(&story.id, 1, Some("开场")).unwrap();
         assert_eq!(scene.sequence_number, 1);
@@ -446,12 +468,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let scene_repo = SceneRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let scene = scene_repo.create(&story.id, 1, Some("场景1")).unwrap();
         let fetched = scene_repo.get_by_id(&scene.id).unwrap().unwrap();
@@ -465,12 +489,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let scene_repo = SceneRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let scene = scene_repo.create(&story.id, 1, Some("原标题")).unwrap();
 
@@ -508,7 +534,10 @@ mod tests {
         assert_eq!(updated.dramatic_goal, Some("制造悬念".to_string()));
         assert_eq!(updated.external_pressure, Some("时间紧迫".to_string()));
         assert_eq!(updated.conflict_type, Some(ConflictType::ManVsMan));
-        assert_eq!(updated.characters_present, vec!["角色A".to_string(), "角色B".to_string()]);
+        assert_eq!(
+            updated.characters_present,
+            vec!["角色A".to_string(), "角色B".to_string()]
+        );
         assert_eq!(updated.content, Some("新的场景内容".to_string()));
         assert_eq!(updated.setting_location, Some("古堡".to_string()));
         assert_eq!(updated.setting_time, Some("午夜".to_string()));
@@ -522,12 +551,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let scene_repo = SceneRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let scene = scene_repo.create(&story.id, 1, Some("待删除")).unwrap();
         let count = scene_repo.delete(&scene.id).unwrap();
@@ -546,12 +577,14 @@ mod tests {
         let story_repo = StoryRepository::new(pool.clone());
         let scene_repo = SceneRepository::new(pool);
 
-        let story = story_repo.create(CreateStoryRequest {
-            title: "排序测试".to_string(),
-            description: None,
-            genre: None,
-            style_dna_id: None,
-        }).unwrap();
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "排序测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
 
         let scene1 = scene_repo.create(&story.id, 1, Some("场景1")).unwrap();
         let scene2 = scene_repo.create(&story.id, 2, Some("场景2")).unwrap();

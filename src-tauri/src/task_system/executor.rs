@@ -1,13 +1,15 @@
 //! Task Executor
 //!
 //! 任务执行trait + 具体执行器实现。
-//! 参考 memoh-X internal/schedule/trigger.go + internal/subagent/service.go 设计。
+//! 参考 memoh-X internal/schedule/trigger.go + internal/subagent/service.go
+//! 设计。
 
-use super::models::*;
-use super::repository::TaskRepository;
-use crate::db::DbPool;
 use std::sync::Arc;
+
 use tauri::{Emitter, Runtime};
+
+use super::{models::*, repository::TaskRepository};
+use crate::db::DbPool;
 
 /// 任务执行器 trait
 #[async_trait::async_trait]
@@ -36,7 +38,8 @@ impl ExecutorRegistry {
     }
 
     pub fn find_executor(&self, task_type: &TaskType) -> Option<Arc<dyn TaskExecutor>> {
-        self.executors.iter()
+        self.executors
+            .iter()
             .find(|e| e.can_handle(task_type))
             .cloned()
     }
@@ -59,7 +62,12 @@ pub struct TaskExecutionContext<R: Runtime = tauri::Wry> {
 
 impl<R: Runtime> TaskExecutionContext<R> {
     pub fn new(task_id: String, pool: DbPool, app_handle: tauri::AppHandle<R>) -> Self {
-        Self { task_id, pool, app_handle, progress: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)) }
+        Self {
+            task_id,
+            pool,
+            app_handle,
+            progress: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
+        }
     }
 
     pub fn get_progress(&self) -> i32 {
@@ -92,9 +100,16 @@ impl<R: Runtime> TaskExecutionContext<R> {
 
     /// 更新进度
     pub fn update_progress(&self, step: &str, progress: i32, message: &str) {
-        self.progress.store(progress, std::sync::atomic::Ordering::Relaxed);
+        self.progress
+            .store(progress, std::sync::atomic::Ordering::Relaxed);
         let repo = TaskRepository::new(self.pool.clone());
-        if let Err(e) = repo.update_status(&self.task_id, &TaskStatus::Running, Some(progress), None, None) {
+        if let Err(e) = repo.update_status(
+            &self.task_id,
+            &TaskStatus::Running,
+            Some(progress),
+            None,
+            None,
+        ) {
             log::warn!("[TaskExecution] Failed to update progress: {}", e);
         }
 
@@ -119,7 +134,13 @@ impl<R: Runtime> TaskExecutionContext<R> {
     pub fn complete(&self, result_json: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(self.pool.clone());
         repo.reset_retry(&self.task_id)?;
-        repo.update_status(&self.task_id, &TaskStatus::Completed, Some(100), result_json.clone(), None)?;
+        repo.update_status(
+            &self.task_id,
+            &TaskStatus::Completed,
+            Some(100),
+            result_json.clone(),
+            None,
+        )?;
         repo.create_log(&self.task_id, "info", "任务执行完成")?;
         self.emit_status_changed("completed", 100, Some("任务执行完成".to_string()));
         Ok(())
@@ -128,7 +149,13 @@ impl<R: Runtime> TaskExecutionContext<R> {
     /// 标记失败
     pub fn fail(&self, error: &str) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.update_status(&self.task_id, &TaskStatus::Failed, None, None, Some(error.to_string()))?;
+        repo.update_status(
+            &self.task_id,
+            &TaskStatus::Failed,
+            None,
+            None,
+            Some(error.to_string()),
+        )?;
         repo.create_log(&self.task_id, "error", &format!("任务执行失败: {}", error))?;
         self.emit_status_changed("failed", 0, Some(error.to_string()));
         Ok(())

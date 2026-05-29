@@ -24,8 +24,14 @@ pub fn topological_sort(steps: &[crate::planner::PlanStep]) -> ExecutionBatches 
         for dep in &step.depends_on {
             // 只统计存在于当前计划中的依赖
             if all_ids.contains(dep) || steps.iter().any(|s| s.step_id == *dep) {
-                in_degree.entry(step.step_id.clone()).and_modify(|e| *e += 1).or_insert(1);
-                dependents.entry(dep.clone()).or_default().push(step.step_id.clone());
+                in_degree
+                    .entry(step.step_id.clone())
+                    .and_modify(|e| *e += 1)
+                    .or_insert(1);
+                dependents
+                    .entry(dep.clone())
+                    .or_default()
+                    .push(step.step_id.clone());
             }
         }
     }
@@ -59,12 +65,16 @@ pub fn topological_sort(steps: &[crate::planner::PlanStep]) -> ExecutionBatches 
 
         if ready.is_empty() {
             // 存在循环依赖，打破循环（选择入度最小的一个）
-            let remaining: Vec<String> = all_ids.iter()
+            let remaining: Vec<String> = all_ids
+                .iter()
                 .filter(|id| !completed.contains(*id))
                 .cloned()
                 .collect();
             if let Some(first) = remaining.first() {
-                log::warn!("[Swarm] Circular dependency detected, forcing execution of {}", first);
+                log::warn!(
+                    "[Swarm] Circular dependency detected, forcing execution of {}",
+                    first
+                );
                 ready.push(first.clone());
             } else {
                 break;
@@ -82,7 +92,9 @@ pub fn topological_sort(steps: &[crate::planner::PlanStep]) -> ExecutionBatches 
 
 /// 检测计划是否包含 Inspector→Writer 闭环模式
 /// 返回闭环的起始 step_id 和结束 step_id
-pub fn detect_inspector_writer_loop(steps: &[crate::planner::PlanStep]) -> Option<(String, String)> {
+pub fn detect_inspector_writer_loop(
+    steps: &[crate::planner::PlanStep],
+) -> Option<(String, String)> {
     // 查找 writer step 前面有 inspector step 的模式
     for (i, step) in steps.iter().enumerate() {
         if step.capability_id == "writer" {

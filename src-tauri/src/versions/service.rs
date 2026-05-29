@@ -1,14 +1,18 @@
 //! 场景版本服务 - Phase 3.2
-//! 
+//!
 //! 提供版本比较、恢复和版本链管理功能
 #![allow(dead_code)]
 
-use crate::db::models::SceneVersion;
-use crate::db::repositories::{SceneRepository, SceneVersionRepository};
-use crate::db::DbPool;
+use std::collections::HashMap;
+
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::db::{
+    models::SceneVersion,
+    repositories::{SceneRepository, SceneVersionRepository},
+    DbPool,
+};
 
 /// 版本差异结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,11 +69,11 @@ impl SceneVersionService {
         to_version_id: &str,
     ) -> Result<VersionDiff, Box<dyn std::error::Error>> {
         let version_repo = SceneVersionRepository::new(self.pool.clone());
-        
+
         let from_version = version_repo
             .get_version(from_version_id)?
             .ok_or("Source version not found")?;
-        
+
         let to_version = version_repo
             .get_version(to_version_id)?
             .ok_or("Target version not found")?;
@@ -130,9 +134,7 @@ impl SceneVersionService {
             .ok_or("Version not found")?;
 
         // 获取当前场景
-        let scene = scene_repo
-            .get_by_id(scene_id)?
-            .ok_or("Scene not found")?;
+        let scene = scene_repo.get_by_id(scene_id)?.ok_or("Scene not found")?;
 
         // 创建场景更新
         let updates = crate::db::repositories::SceneUpdate {
@@ -165,8 +167,7 @@ impl SceneVersionService {
 
         let change_summary = format!(
             "恢复到版本 #{} ({})",
-            target_version.version_number,
-            target_version.change_summary
+            target_version.version_number, target_version.change_summary
         );
 
         let new_version = version_repo.create_version(
@@ -193,10 +194,8 @@ impl SceneVersionService {
         let versions = version_repo.get_versions(scene_id)?;
 
         // 构建版本ID到版本的映射
-        let version_map: HashMap<String, SceneVersion> = versions
-            .iter()
-            .map(|v| (v.id.clone(), v.clone()))
-            .collect();
+        let version_map: HashMap<String, SceneVersion> =
+            versions.iter().map(|v| (v.id.clone(), v.clone())).collect();
 
         // 构建父子关系
         let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -218,13 +217,7 @@ impl SceneVersionService {
         // 构建链
         let mut chain = vec![];
         for root in root_versions {
-            self.build_chain_nodes(
-                root,
-                &version_map,
-                &children_map,
-                0,
-                &mut chain,
-            );
+            self.build_chain_nodes(root, &version_map, &children_map, 0, &mut chain);
         }
 
         // 按版本号排序
@@ -315,7 +308,8 @@ impl SceneVersionService {
         let best = versions
             .into_iter()
             .filter(|v| {
-                v.confidence_score.map_or(false, |score| score >= min_confidence)
+                v.confidence_score
+                    .map_or(false, |score| score >= min_confidence)
                     && !matches!(v.created_by, crate::db::models::CreatorType::System)
             })
             .max_by(|a, b| {
@@ -329,11 +323,7 @@ impl SceneVersionService {
 
     // ============== 私有辅助方法 ==============
 
-    fn compute_text_diff(
-        &self,
-        old: Option<&str>,
-        new: Option<&str>,
-    ) -> Option<TextDiff> {
+    fn compute_text_diff(&self, old: Option<&str>, new: Option<&str>) -> Option<TextDiff> {
         let old = old?;
         let new = new?;
 

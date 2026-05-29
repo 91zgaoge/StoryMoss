@@ -1,12 +1,18 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
-use crate::error::AppError;
+use std::{
+    collections::HashMap,
+    process::Stdio,
+    sync::{Arc, Mutex},
+};
+
+use tokio::{
+    io::AsyncBufReadExt,
+    process::{Child, Command},
+};
+
 use super::types::*;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::process::Stdio;
-use tokio::io::AsyncBufReadExt;
-use tokio::process::{Child, Command};
+use crate::error::AppError;
 
 pub trait McpToolHandler: Send + Sync {
     fn handle(
@@ -23,7 +29,10 @@ impl McpToolHandler for FileSystemTool {
         &self,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let operation = arguments.get("operation").and_then(|v| v.as_str()).unwrap_or("read");
+        let operation = arguments
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("read");
         let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
 
         match operation {
@@ -32,7 +41,10 @@ impl McpToolHandler for FileSystemTool {
                 Ok(serde_json::json!({ "content": content }))
             }
             "write" => {
-                let content = arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = arguments
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 std::fs::write(path, content)?;
                 Ok(serde_json::json!({ "success": true }))
             }
@@ -56,7 +68,10 @@ impl McpToolHandler for TextProcessingTool {
         &self,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let operation = arguments.get("operation").and_then(|v| v.as_str()).unwrap_or("count");
+        let operation = arguments
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("count");
         let text = arguments.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
         match operation {
@@ -71,7 +86,10 @@ impl McpToolHandler for TextProcessingTool {
                 }))
             }
             "split" => {
-                let delimiter = arguments.get("delimiter").and_then(|v| v.as_str()).unwrap_or("\n");
+                let delimiter = arguments
+                    .get("delimiter")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("\n");
                 let parts: Vec<String> = text.split(delimiter).map(|s| s.to_string()).collect();
                 Ok(serde_json::json!({ "parts": parts }))
             }
@@ -94,7 +112,10 @@ impl McpToolHandler for WebSearchTool {
         &self,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let query = arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let query = arguments
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         // Simulate search results
         Ok(serde_json::json!({
@@ -186,16 +207,20 @@ impl McpServer {
         );
     }
 
-    pub fn register_tool(
-        &self,
-        tool: McpTool,
-        handler: Box<dyn McpToolHandler>,
-    ) {
-        self.tools.lock().unwrap().insert(tool.name.clone(), (tool, handler));
+    pub fn register_tool(&self, tool: McpTool, handler: Box<dyn McpToolHandler>) {
+        self.tools
+            .lock()
+            .unwrap()
+            .insert(tool.name.clone(), (tool, handler));
     }
 
     pub fn get_tools(&self) -> Vec<McpTool> {
-        self.tools.lock().unwrap().values().map(|(t, _)| t.clone()).collect()
+        self.tools
+            .lock()
+            .unwrap()
+            .values()
+            .map(|(t, _)| t.clone())
+            .collect()
     }
 
     pub fn handle_tool_call(
@@ -223,7 +248,9 @@ impl McpServer {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
-            let child = cmd.spawn().map_err(|e| McpError::TransportError(e.to_string()))?;
+            let child = cmd
+                .spawn()
+                .map_err(|e| McpError::TransportError(e.to_string()))?;
 
             *self.child_process.lock().unwrap() = Some(child);
         }
@@ -251,7 +278,9 @@ impl McpServer {
         if tool_name == "web_search" {
             return match tokio::time::timeout(timeout, async {
                 perform_web_search(arguments).await
-            }).await {
+            })
+            .await
+            {
                 Ok(Ok(result)) => Ok(result),
                 Ok(Err(e)) => Err(McpError::RpcError(e.to_string())),
                 Err(_) => Err(McpError::Timeout),
@@ -260,7 +289,9 @@ impl McpServer {
 
         match tokio::time::timeout(timeout, async {
             self.handle_tool_call(tool_name, arguments)
-        }).await {
+        })
+        .await
+        {
             Ok(result) => result,
             Err(_) => Err(McpError::Timeout),
         }
@@ -269,7 +300,10 @@ impl McpServer {
 
 /// 执行真实的网页搜索（使用 DuckDuckGo Lite）
 async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::Value, AppError> {
-    let query = arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    let query = arguments
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if query.is_empty() {
         return Ok(serde_json::json!({"query": "", "results": [], "note": "Empty query"}));
     }
@@ -277,7 +311,7 @@ async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::
     // 尝试 DuckDuckGo Lite
     let encoded_query = query.replace(' ', "+");
     let url = format!("https://lite.duckduckgo.com/lite/?q={}", encoded_query);
-    
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0")
@@ -303,7 +337,10 @@ async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::
     }
 
     // 回退到模拟数据
-    log::info!("[web_search] Falling back to simulated results for: {}", query);
+    log::info!(
+        "[web_search] Falling back to simulated results for: {}",
+        query
+    );
     Ok(serde_json::json!({
         "query": query,
         "results": [
@@ -335,8 +372,12 @@ fn parse_duckduckgo_results(html: &str) -> Vec<serde_json::Value> {
                 let title = if let Some(gt) = title_html.find('>') {
                     if let Some(lt) = title_html[gt..].find('<') {
                         title_html[gt + 1..gt + lt].trim().to_string()
-                    } else { href.to_string() }
-                } else { href.to_string() };
+                    } else {
+                        href.to_string()
+                    }
+                } else {
+                    href.to_string()
+                };
 
                 // 查找对应的 snippet
                 let snippet = if let Some(snippet_start) = html[link_abs..].find(snippet_pattern) {
@@ -345,9 +386,15 @@ fn parse_duckduckgo_results(html: &str) -> Vec<serde_json::Value> {
                     if let Some(gt) = snippet_html.find('>') {
                         if let Some(lt) = snippet_html[gt..].find('<') {
                             snippet_html[gt + 1..gt + lt].trim().to_string()
-                        } else { String::new() }
-                    } else { String::new() }
-                } else { String::new() };
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
 
                 if !title.is_empty() && title != href {
                     results.push(serde_json::json!({

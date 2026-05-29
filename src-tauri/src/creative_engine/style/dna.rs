@@ -28,7 +28,7 @@ pub struct StyleDNA {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct StyleMeta {
     pub name: String,
-    pub author: Option<String>,       // 来源作家（如"金庸"）
+    pub author: Option<String>, // 来源作家（如"金庸"）
     pub description: String,
     pub genre_association: Option<String>, // 关联题材
 }
@@ -141,10 +141,7 @@ impl StyleDNA {
 
     /// 将 StyleDNA 转换为可用于注入 Writer prompt 的文本
     pub fn to_prompt_extension(&self) -> String {
-        let mut parts = vec![
-            format!("【风格DNA: {}】", self.meta.name),
-            String::new(),
-        ];
+        let mut parts = vec![format!("【风格DNA: {}】", self.meta.name), String::new()];
 
         if !self.meta.description.is_empty() {
             parts.push(format!("概述: {}", self.meta.description));
@@ -155,38 +152,65 @@ impl StyleDNA {
         parts.push(format!("- 密度: {}", self.vocabulary.density));
         parts.push(format!("- 抽象度: {}", self.vocabulary.abstraction));
         if !self.vocabulary.preferred_categories.is_empty() {
-            parts.push(format!("- 偏好词类: {}", self.vocabulary.preferred_categories.join("、")));
+            parts.push(format!(
+                "- 偏好词类: {}",
+                self.vocabulary.preferred_categories.join("、")
+            ));
         }
         if !self.vocabulary.signature_words.is_empty() {
-            parts.push(format!("- 标志性词汇: {}", self.vocabulary.signature_words.join("、")));
+            parts.push(format!(
+                "- 标志性词汇: {}",
+                self.vocabulary.signature_words.join("、")
+            ));
         }
 
         // 句法
         parts.push("\n【句法特征】".to_string());
-        parts.push(format!("- 平均句长: {} 字", self.syntax.avg_sentence_length));
+        parts.push(format!(
+            "- 平均句长: {} 字",
+            self.syntax.avg_sentence_length
+        ));
         parts.push(format!("- 从句复杂度: {}", self.syntax.clause_complexity));
         if !self.syntax.rhythm_pattern.is_empty() {
             parts.push(format!("- 节奏模式: {}", self.syntax.rhythm_pattern));
         }
         if !self.syntax.preferred_structures.is_empty() {
-            parts.push(format!("- 偏好句式: {}", self.syntax.preferred_structures.join("、")));
+            parts.push(format!(
+                "- 偏好句式: {}",
+                self.syntax.preferred_structures.join("、")
+            ));
         }
 
         // 修辞
         parts.push("\n【修辞偏好】".to_string());
-        parts.push(format!("- 比喻密度: {:.1} 个/千字", self.rhetoric.metaphor_density));
+        parts.push(format!(
+            "- 比喻密度: {:.1} 个/千字",
+            self.rhetoric.metaphor_density
+        ));
         if !self.rhetoric.preferred_devices.is_empty() {
-            parts.push(format!("- 偏好手法: {}", self.rhetoric.preferred_devices.join("、")));
+            parts.push(format!(
+                "- 偏好手法: {}",
+                self.rhetoric.preferred_devices.join("、")
+            ));
         }
         if !self.rhetoric.imagery_preference.is_empty() {
-            parts.push(format!("- 意象偏好: {}", self.rhetoric.imagery_preference.join("、")));
+            parts.push(format!(
+                "- 意象偏好: {}",
+                self.rhetoric.imagery_preference.join("、")
+            ));
         }
 
         // 视角
         parts.push("\n【视角规范】".to_string());
         parts.push(format!("- POV: {}", self.perspective.pov_type));
-        parts.push(format!("- 叙事距离: {}", self.perspective.narrative_distance));
-        parts.push(format!("- 内心独白比例: {:.0}%", self.perspective.interior_monologue_ratio * 100.0));
+        parts.push(format!(
+            "- 叙事距离: {}",
+            self.perspective.narrative_distance
+        ));
+        parts.push(format!(
+            "- 内心独白比例: {:.0}%",
+            self.perspective.interior_monologue_ratio * 100.0
+        ));
 
         // 情感
         parts.push("\n【情感表达】".to_string());
@@ -198,11 +222,20 @@ impl StyleDNA {
 
         // 对话
         parts.push("\n【对话风格】".to_string());
-        parts.push(format!("- 对话占比: {:.0}%", self.dialogue.dialogue_ratio * 100.0));
+        parts.push(format!(
+            "- 对话占比: {:.0}%",
+            self.dialogue.dialogue_ratio * 100.0
+        ));
         parts.push(format!("- 对话长度: {}", self.dialogue.dialogue_length));
-        parts.push(format!("- 潜台词比例: {:.0}%", self.dialogue.subtext_ratio * 100.0));
+        parts.push(format!(
+            "- 潜台词比例: {:.0}%",
+            self.dialogue.subtext_ratio * 100.0
+        ));
         if !self.dialogue.signature_patterns.is_empty() {
-            parts.push(format!("- 对话特征: {}", self.dialogue.signature_patterns.join("、")));
+            parts.push(format!(
+                "- 对话特征: {}",
+                self.dialogue.signature_patterns.join("、")
+            ));
         }
 
         parts.push("\n【写作指令】".to_string());
@@ -219,15 +252,28 @@ impl StyleDNA {
 
         // 词汇密度匹配
         if !self.vocabulary.density.is_empty() && !other.vocabulary.density.is_empty() {
-            score += if self.vocabulary.density == other.vocabulary.density { 1.0 } else { 0.0 };
+            score += if self.vocabulary.density == other.vocabulary.density {
+                1.0
+            } else {
+                0.0
+            };
             count += 1.0;
         }
 
         // 平均句长差异（越小越相似，归一化到 0-1）
         if self.syntax.avg_sentence_length > 0 && other.syntax.avg_sentence_length > 0 {
-            let diff = (self.syntax.avg_sentence_length as f32 - other.syntax.avg_sentence_length as f32).abs();
-            let max_len = self.syntax.avg_sentence_length.max(other.syntax.avg_sentence_length) as f32;
-            score += if max_len > 0.0 { 1.0 - (diff / max_len).min(1.0) } else { 1.0 };
+            let diff = (self.syntax.avg_sentence_length as f32
+                - other.syntax.avg_sentence_length as f32)
+                .abs();
+            let max_len = self
+                .syntax
+                .avg_sentence_length
+                .max(other.syntax.avg_sentence_length) as f32;
+            score += if max_len > 0.0 {
+                1.0 - (diff / max_len).min(1.0)
+            } else {
+                1.0
+            };
             count += 1.0;
         }
 
@@ -247,17 +293,29 @@ impl StyleDNA {
 
         // POV 类型匹配
         if !self.perspective.pov_type.is_empty() && !other.perspective.pov_type.is_empty() {
-            score += if self.perspective.pov_type == other.perspective.pov_type { 1.0 } else { 0.0 };
+            score += if self.perspective.pov_type == other.perspective.pov_type {
+                1.0
+            } else {
+                0.0
+            };
             count += 1.0;
         }
 
         // 情感外露程度匹配
         if !self.emotion.expressiveness.is_empty() && !other.emotion.expressiveness.is_empty() {
-            score += if self.emotion.expressiveness == other.emotion.expressiveness { 1.0 } else { 0.0 };
+            score += if self.emotion.expressiveness == other.emotion.expressiveness {
+                1.0
+            } else {
+                0.0
+            };
             count += 1.0;
         }
 
-        if count > 0.0 { score / count } else { 0.0 }
+        if count > 0.0 {
+            score / count
+        } else {
+            0.0
+        }
     }
 }
 

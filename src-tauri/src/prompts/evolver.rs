@@ -4,8 +4,8 @@
 //! 这样prompt能够贴合当前故事的题材、风格、叙事阶段，真正实现"越写越懂"。
 
 use serde::{Deserialize, Serialize};
-use crate::llm::LlmService;
-use crate::error::AppError;
+
+use crate::{error::AppError, llm::LlmService};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptEvolution {
@@ -36,7 +36,10 @@ impl PromptEvolver {
     ) -> Result<PromptEvolution, AppError> {
         let evolution_prompt = self.build_evolution_prompt(original_prompt, story_context);
 
-        let response = self.llm_service.generate(evolution_prompt, Some(1500), Some(0.5)).await?;
+        let response = self
+            .llm_service
+            .generate(evolution_prompt, Some(1500), Some(0.5))
+            .await?;
 
         let evolved = self.parse_evolved_prompt(&response.content, original_prompt);
 
@@ -84,7 +87,10 @@ Rewritten system prompt (maintain the same structural elements but adapt the voi
             original_system_prompt
         );
 
-        let response = self.llm_service.generate(prompt, Some(1500), Some(0.5)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(1500), Some(0.5))
+            .await?;
         Ok(response.content.trim().to_string())
     }
 
@@ -129,10 +135,14 @@ Respond with JSON:
             original_user_template
         );
 
-        let response = self.llm_service.generate(prompt, Some(1500), Some(0.5)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(1500), Some(0.5))
+            .await?;
 
         // Try JSON parse
-        let cleaned = response.content
+        let cleaned = response
+            .content
             .trim()
             .trim_start_matches("```json")
             .trim_start_matches("```")
@@ -140,13 +150,22 @@ Respond with JSON:
             .trim();
 
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(cleaned) {
-            let sys = json.get("system_prompt").and_then(|v| v.as_str()).unwrap_or(original_system_prompt);
-            let usr = json.get("user_prompt_template").and_then(|v| v.as_str()).unwrap_or(original_user_template);
+            let sys = json
+                .get("system_prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or(original_system_prompt);
+            let usr = json
+                .get("user_prompt_template")
+                .and_then(|v| v.as_str())
+                .unwrap_or(original_user_template);
             return Ok((sys.to_string(), usr.to_string()));
         }
 
         // Fallback: return original
-        Ok((original_system_prompt.to_string(), original_user_template.to_string()))
+        Ok((
+            original_system_prompt.to_string(),
+            original_user_template.to_string(),
+        ))
     }
 
     fn build_evolution_prompt(&self, original: &str, context: &EvolutionContext) -> String {
@@ -176,7 +195,11 @@ Rewritten prompt (same structure but adapted voice, examples, and emphasis):"#,
     }
 
     fn parse_evolved_prompt(&self, content: &str, fallback: &str) -> String {
-        let cleaned = content.trim().trim_start_matches("```").trim_end_matches("```").trim();
+        let cleaned = content
+            .trim()
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
         if cleaned.is_empty() {
             fallback.to_string()
         } else {

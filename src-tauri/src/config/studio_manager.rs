@@ -1,15 +1,19 @@
 //! 工作室配置管理器
-//! 
+//!
 //! 负责每部小说的独立配置管理，包括导入/导出功能
 #![allow(dead_code)]
 
-use crate::db::*;
-use std::fs;
-use std::path::Path;
-use serde::{Serialize, Deserialize};
+use std::{
+    fs,
+    io::{Read, Write},
+    path::Path,
+};
+
 use chrono::Local;
-use zip::{ZipWriter, write::FileOptions};
-use std::io::{Read, Write};
+use serde::{Deserialize, Serialize};
+use zip::{write::FileOptions, ZipWriter};
+
+use crate::db::*;
 
 /// 工作室配置管理器
 pub struct StudioManager {
@@ -21,27 +25,31 @@ impl StudioManager {
     pub fn new(pool: DbPool, app_dir: &Path) -> Self {
         let studios_dir = app_dir.join("studios");
         fs::create_dir_all(&studios_dir).ok();
-        
+
         Self { pool, studios_dir }
     }
 
     /// 为小说创建默认工作室配置
-    pub fn create_default_studio(&self, story_id: &str, _title: &str) -> Result<StudioConfig, Box<dyn std::error::Error>> {
+    pub fn create_default_studio(
+        &self,
+        story_id: &str,
+        _title: &str,
+    ) -> Result<StudioConfig, Box<dyn std::error::Error>> {
         let studio_repo = StudioConfigRepository::new(self.pool.clone());
-        
+
         // 检查是否已存在
         if let Some(existing) = studio_repo.get_by_story(story_id)? {
             return Ok(existing);
         }
-        
+
         // 创建默认配置
         let mut studio = studio_repo.create(story_id)?;
-        
+
         // 设置默认值
         studio.llm_config = Self::default_llm_config();
         studio.ui_config = Self::default_ui_config();
         studio.agent_bots = Self::default_agent_bots();
-        
+
         // 保存到数据库
         studio_repo.update(
             &studio.id,
@@ -50,36 +58,40 @@ impl StudioManager {
             Some(&studio.ui_config),
             Some(&studio.agent_bots),
         )?;
-        
+
         // 创建配置文件目录
         let studio_dir = self.studios_dir.join(story_id);
         fs::create_dir_all(&studio_dir)?;
-        
+
         // 写入默认CSS主题
         let frontstage_css = Self::default_frontstage_theme();
         let backstage_css = Self::default_backstage_theme();
-        
+
         fs::write(studio_dir.join("frontstage_theme.css"), &frontstage_css)?;
         fs::write(studio_dir.join("backstage_theme.css"), &backstage_css)?;
-        
+
         studio_repo.update_themes(&studio.id, Some(&frontstage_css), Some(&backstage_css))?;
-        
+
         Ok(studio)
     }
 
     /// 导出工作室配置
-    pub fn export_studio(&self, req: &StudioExportRequest) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn export_studio(
+        &self,
+        req: &StudioExportRequest,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let story_repo = StoryRepository::new(self.pool.clone());
         let scene_repo = SceneRepository::new(self.pool.clone());
         let world_repo = WorldBuildingRepository::new(self.pool.clone());
         let style_repo = WritingStyleRepository::new(self.pool.clone());
         let char_repo = CharacterRepository::new(self.pool.clone());
         let studio_repo = StudioConfigRepository::new(self.pool.clone());
-        
+
         // 获取故事信息
-        let story = story_repo.get_by_id(&req.story_id)?
+        let story = story_repo
+            .get_by_id(&req.story_id)?
             .ok_or("Story not found")?;
-        
+
         // 构建导出数据
         let mut export_data = StudioExportData {
             manifest: ExportManifest {
@@ -95,91 +107,95 @@ impl StudioManager {
             scenes: vec![],
             studio_config: None,
         };
-        
+
         // 根据请求包含数据
         if req.include_world_building {
             export_data.world_building = world_repo.get_by_story(&req.story_id)?;
         }
-        
+
         if req.include_characters {
             export_data.characters = char_repo.get_by_story(&req.story_id)?;
         }
-        
+
         if req.include_writing_style {
             export_data.writing_style = style_repo.get_by_story(&req.story_id)?;
         }
-        
+
         if req.include_scenes {
             export_data.scenes = scene_repo.get_by_story(&req.story_id)?;
         }
-        
+
         if req.include_llm_config || req.include_ui_config || req.include_agent_bots {
             export_data.studio_config = studio_repo.get_by_story(&req.story_id)?;
         }
-        
+
         // 打包为ZIP
         let mut zip_buffer = Vec::new();
         {
             let mut zip = ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
-            let options = FileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated);
-            
+            let options =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
             // 写入manifest
             zip.start_file("manifest.json", options)?;
             zip.write_all(serde_json::to_string_pretty(&export_data.manifest)?.as_bytes())?;
-            
+
             // 写入story
             zip.start_file("story.json", options)?;
             zip.write_all(serde_json::to_string_pretty(&export_data.story)?.as_bytes())?;
-            
+
             // 写入world_building
             if let Some(wb) = &export_data.world_building {
                 zip.start_file("world_building.json", options)?;
                 zip.write_all(serde_json::to_string_pretty(wb)?.as_bytes())?;
             }
-            
+
             // 写入characters
             if !export_data.characters.is_empty() {
                 zip.start_file("characters.json", options)?;
                 zip.write_all(serde_json::to_string_pretty(&export_data.characters)?.as_bytes())?;
             }
-            
+
             // 写入writing_style
             if let Some(ws) = &export_data.writing_style {
                 zip.start_file("writing_style.json", options)?;
                 zip.write_all(serde_json::to_string_pretty(ws)?.as_bytes())?;
             }
-            
+
             // 写入scenes
             if !export_data.scenes.is_empty() {
                 zip.start_file("scenes.json", options)?;
                 zip.write_all(serde_json::to_string_pretty(&export_data.scenes)?.as_bytes())?;
             }
-            
+
             // 写入studio_config
             if let Some(sc) = &export_data.studio_config {
                 zip.start_file("studio_config.json", options)?;
                 zip.write_all(serde_json::to_string_pretty(sc)?.as_bytes())?;
             }
-            
+
             zip.finish()?;
         }
-        
+
         Ok(zip_buffer)
     }
 
     /// 导入工作室配置
-    pub fn import_studio(&self, data: &[u8], options: &ImportOptions) -> Result<Story, Box<dyn std::error::Error>> {
+    pub fn import_studio(
+        &self,
+        data: &[u8],
+        options: &ImportOptions,
+    ) -> Result<Story, Box<dyn std::error::Error>> {
         let story_repo = StoryRepository::new(self.pool.clone());
         let _scene_repo = SceneRepository::new(self.pool.clone());
         let _world_repo = WorldBuildingRepository::new(self.pool.clone());
         let _style_repo = WritingStyleRepository::new(self.pool.clone());
         let _char_repo = CharacterRepository::new(self.pool.clone());
         let _studio_repo = StudioConfigRepository::new(self.pool.clone());
-        
+
         // 解压ZIP
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(data))?;
-        
+
         // 读取manifest
         let manifest: ExportManifest = {
             let mut file = archive.by_name("manifest.json")?;
@@ -187,11 +203,13 @@ impl StudioManager {
             file.read_to_string(&mut contents)?;
             serde_json::from_str(&contents)?
         };
-        
+
         // 检查故事是否已存在
-        let existing_story = story_repo.get_all()?.into_iter()
+        let existing_story = story_repo
+            .get_all()?
+            .into_iter()
             .find(|s| s.title == manifest.story_title);
-        
+
         let story_id = if let Some(existing) = existing_story {
             if options.skip_existing {
                 return Ok(existing);
@@ -204,7 +222,7 @@ impl StudioManager {
         } else {
             uuid::Uuid::new_v4().to_string()
         };
-        
+
         // 读取并导入story
         let mut story: Story = {
             let mut file = archive.by_name("story.json")?;
@@ -213,12 +231,16 @@ impl StudioManager {
             serde_json::from_str(&contents)?
         };
         story.id = story_id.clone();
-        
+
         // 创建故事记录（使用低级别SQL因为我们可能需要自定义ID）
         {
-            let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+            let conn = self
+                .pool
+                .get()
+                .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
             conn.execute(
-                "INSERT OR REPLACE INTO stories (id, title, description, genre, tone, pacing, created_at, updated_at)
+                "INSERT OR REPLACE INTO stories (id, title, description, genre, tone, pacing, \
+                 created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
                     &story.id,
@@ -232,7 +254,7 @@ impl StudioManager {
                 ],
             )?;
         }
-        
+
         // 导入world_building
         if options.include_world_building {
             if let Ok(mut file) = archive.by_name("world_building.json") {
@@ -241,10 +263,14 @@ impl StudioManager {
                 let mut wb: WorldBuilding = serde_json::from_str(&contents)?;
                 wb.story_id = story_id.clone();
                 wb.id = uuid::Uuid::new_v4().to_string();
-                
-                let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+                let conn = self
+                    .pool
+                    .get()
+                    .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
                 conn.execute(
-                    "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at)
+                    "INSERT INTO world_buildings (id, story_id, concept, rules, history, \
+                     cultures, created_at, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     rusqlite::params![
                         &wb.id,
@@ -259,21 +285,25 @@ impl StudioManager {
                 )?;
             }
         }
-        
+
         // 导入characters
         if options.include_characters {
             if let Ok(mut file) = archive.by_name("characters.json") {
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
                 let characters: Vec<Character> = serde_json::from_str(&contents)?;
-                
+
                 for mut char in characters {
                     char.story_id = story_id.clone();
                     char.id = uuid::Uuid::new_v4().to_string();
-                    
-                    let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+                    let conn = self
+                        .pool
+                        .get()
+                        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
                     conn.execute(
-                        "INSERT INTO characters (id, story_id, name, background, personality, goals, dynamic_traits, created_at, updated_at)
+                        "INSERT INTO characters (id, story_id, name, background, personality, \
+                         goals, dynamic_traits, created_at, updated_at)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                         rusqlite::params![
                             &char.id,
@@ -290,7 +320,7 @@ impl StudioManager {
                 }
             }
         }
-        
+
         // 导入writing_style
         if options.include_writing_style {
             if let Ok(mut file) = archive.by_name("writing_style.json") {
@@ -299,10 +329,14 @@ impl StudioManager {
                 let mut ws: WritingStyle = serde_json::from_str(&contents)?;
                 ws.story_id = story_id.clone();
                 ws.id = uuid::Uuid::new_v4().to_string();
-                
-                let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+                let conn = self
+                    .pool
+                    .get()
+                    .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
                 conn.execute(
-                    "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing, vocabulary_level, sentence_structure, custom_rules, created_at, updated_at)
+                    "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing, \
+                     vocabulary_level, sentence_structure, custom_rules, created_at, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     rusqlite::params![
                         &ws.id,
@@ -320,24 +354,32 @@ impl StudioManager {
                 )?;
             }
         }
-        
+
         // 导入scenes
         if options.include_scenes {
             if let Ok(mut file) = archive.by_name("scenes.json") {
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
                 let scenes: Vec<Scene> = serde_json::from_str(&contents)?;
-                
+
                 for mut scene in scenes {
                     scene.story_id = story_id.clone();
                     scene.id = uuid::Uuid::new_v4().to_string();
                     scene.previous_scene_id = None;
                     scene.next_scene_id = None;
-                    
-                    let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+                    let conn = self
+                        .pool
+                        .get()
+                        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
                     conn.execute(
-                        "INSERT INTO scenes (id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type, characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere, content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                        "INSERT INTO scenes (id, story_id, sequence_number, title, dramatic_goal, \
+                         external_pressure, conflict_type, characters_present, \
+                         character_conflicts, setting_location, setting_time, setting_atmosphere, \
+                         content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
+                         updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
+                         ?16, ?17, ?18, ?19)",
                         rusqlite::params![
                             &scene.id,
                             &scene.story_id,
@@ -363,7 +405,7 @@ impl StudioManager {
                 }
             }
         }
-        
+
         // 导入studio_config
         if options.include_llm_config || options.include_ui_config || options.include_agent_bots {
             if let Ok(mut file) = archive.by_name("studio_config.json") {
@@ -372,10 +414,14 @@ impl StudioManager {
                 let mut sc: StudioConfig = serde_json::from_str(&contents)?;
                 sc.story_id = story_id.clone();
                 sc.id = uuid::Uuid::new_v4().to_string();
-                
-                let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+                let conn = self
+                    .pool
+                    .get()
+                    .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
                 conn.execute(
-                    "INSERT INTO studio_configs (id, story_id, pen_name, llm_config, ui_config, agent_bots, frontstage_theme, backstage_theme, created_at, updated_at)
+                    "INSERT INTO studio_configs (id, story_id, pen_name, llm_config, ui_config, \
+                     agent_bots, frontstage_theme, backstage_theme, created_at, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     rusqlite::params![
                         &sc.id,
@@ -392,7 +438,7 @@ impl StudioManager {
                 )?;
             }
         }
-        
+
         Ok(story)
     }
 
@@ -404,18 +450,16 @@ impl StudioManager {
             default_model: "gpt-4".to_string(),
             generation_temperature: 0.7,
             max_tokens: 4096,
-            profiles: vec![
-                LlmProfile {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    name: "默认配置".to_string(),
-                    provider: "openai".to_string(),
-                    model: "gpt-4".to_string(),
-                    api_key: None,
-                    base_url: None,
-                    temperature: 0.7,
-                    max_tokens: 4096,
-                },
-            ],
+            profiles: vec![LlmProfile {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "默认配置".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-4".to_string(),
+                api_key: None,
+                base_url: None,
+                temperature: 0.7,
+                max_tokens: 4096,
+            }],
         }
     }
 
@@ -495,7 +539,8 @@ body {
     border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
-"#.to_string()
+"#
+        .to_string()
     }
 
     fn default_backstage_theme() -> String {
@@ -519,7 +564,8 @@ body {
     background-color: var(--cinema-900);
     border-right: 1px solid var(--cinema-700);
 }
-"#.to_string()
+"#
+        .to_string()
     }
 }
 

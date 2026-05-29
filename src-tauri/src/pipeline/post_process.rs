@@ -1,6 +1,8 @@
 use super::types::*;
-use crate::db::{DbPool, BlueprintRepository, CharacterRepository, CharacterState};
-use crate::llm::LlmService;
+use crate::{
+    db::{BlueprintRepository, CharacterRepository, CharacterState, DbPool},
+    llm::LlmService,
+};
 
 /// 构建定稿后处理步骤列表
 pub fn build_finalize_steps(
@@ -44,9 +46,15 @@ pub async fn run_post_process_step(
 ) -> Result<(), PipelineError> {
     match step.key.as_str() {
         "kb_import" => run_kb_import(story_id, chapter_number, draft_content, pool).await,
-        "chapter_notes" => run_chapter_notes(story_id, chapter_number, draft_content, pool, llm_service).await,
-        "character_cards" => run_character_cards(story_id, chapter_number, draft_content, pool, llm_service).await,
-        "style_analysis" => run_style_analysis(story_id, chapter_number, draft_content, pool, llm_service).await,
+        "chapter_notes" => {
+            run_chapter_notes(story_id, chapter_number, draft_content, pool, llm_service).await
+        }
+        "character_cards" => {
+            run_character_cards(story_id, chapter_number, draft_content, pool, llm_service).await
+        }
+        "style_analysis" => {
+            run_style_analysis(story_id, chapter_number, draft_content, pool, llm_service).await
+        }
         _ => {
             log::warn!("[post_process] 未知步骤: {}", step.key);
             Ok(())
@@ -69,8 +77,14 @@ pub async fn run_post_process(
 ) -> Result<(), PipelineError> {
     for step in steps {
         let result = run_post_process_step(
-            story_id, chapter_number, draft_content, step, pool, llm_service,
-        ).await;
+            story_id,
+            chapter_number,
+            draft_content,
+            step,
+            pool,
+            llm_service,
+        )
+        .await;
 
         if let Err(e) = result {
             if step.critical {
@@ -95,17 +109,27 @@ async fn run_kb_import(
     draft_content: &str,
     _pool: &DbPool,
 ) -> Result<(), PipelineError> {
-    log::info!("[post_process] kb_import: story_id={}, chapter={}", story_id, chapter_number);
+    log::info!(
+        "[post_process] kb_import: story_id={}, chapter={}",
+        story_id,
+        chapter_number
+    );
 
     if let Some(store) = crate::VECTOR_STORE.get() {
         match crate::knowledge_base::import_text(
-            store, story_id, chapter_number, draft_content,
+            store,
+            story_id,
+            chapter_number,
+            draft_content,
             &format!("第{}章", chapter_number),
-        ).await {
+        )
+        .await
+        {
             Ok(result) => {
                 log::info!(
                     "[post_process] kb_import: 成功导入 {} chunks, {} vectors",
-                    result.chunks_imported, result.vectors_indexed
+                    result.chunks_imported,
+                    result.vectors_indexed
                 );
             }
             Err(e) => {
@@ -132,7 +156,11 @@ async fn run_chapter_notes(
     pool: &DbPool,
     llm_service: &LlmService,
 ) -> Result<(), PipelineError> {
-    log::info!("[post_process] chapter_notes: story_id={}, chapter={}", story_id, chapter_number);
+    log::info!(
+        "[post_process] chapter_notes: story_id={}, chapter={}",
+        story_id,
+        chapter_number
+    );
 
     let content_preview = if draft_content.len() > 8000 {
         &draft_content[..8000]
@@ -154,7 +182,10 @@ async fn run_chapter_notes(
         Ok(resp) => resp.content.trim().to_string(),
         Err(e) => {
             log::warn!("[post_process] chapter_notes LLM 调用失败，使用占位: {}", e);
-            format!("[第{}章] 剧情要点待提取\n- 核心事件待提取\n- 关键对话待提取\n- 伏笔和悬念待提取", chapter_number)
+            format!(
+                "[第{}章] 剧情要点待提取\n- 核心事件待提取\n- 关键对话待提取\n- 伏笔和悬念待提取",
+                chapter_number
+            )
         }
     };
 
@@ -178,11 +209,20 @@ async fn run_character_cards(
     pool: &DbPool,
     llm_service: &LlmService,
 ) -> Result<(), PipelineError> {
-    log::info!("[post_process] character_cards: story_id={}, chapter={}", story_id, chapter_number);
+    log::info!(
+        "[post_process] character_cards: story_id={}, chapter={}",
+        story_id,
+        chapter_number
+    );
 
     let char_repo = CharacterRepository::new(pool.clone());
-    let all_chars = char_repo.get_by_story(story_id)
-        .map_err(|e| PipelineError { phase: "post_process:character_cards".to_string(), message: format!("读取角色失败: {}", e), recoverable: true })?;
+    let all_chars = char_repo
+        .get_by_story(story_id)
+        .map_err(|e| PipelineError {
+            phase: "post_process:character_cards".to_string(),
+            message: format!("读取角色失败: {}", e),
+            recoverable: true,
+        })?;
 
     if all_chars.is_empty() {
         log::info!("[post_process] character_cards: 故事无角色，跳过");
@@ -199,12 +239,24 @@ async fn run_character_cards(
     let mut char_context_parts = Vec::new();
     for c in &all_chars {
         let mut parts = vec![format!("【{}】", c.name)];
-        if let Some(ref bg) = c.background { parts.push(format!("背景: {}", bg)); }
-        if let Some(ref loc) = c.cs_location { parts.push(format!("当前位置: {}", loc)); }
-        if let Some(ref phys) = c.cs_physical_state { parts.push(format!("身体状态: {}", phys)); }
-        if let Some(ref mental) = c.cs_mental_state { parts.push(format!("心理状态: {}", mental)); }
-        if let Some(ref items) = c.cs_key_items { parts.push(format!("持有物品: {}", items)); }
-        if let Some(ref recent) = c.cs_recent_events { parts.push(format!("近期事件: {}", recent)); }
+        if let Some(ref bg) = c.background {
+            parts.push(format!("背景: {}", bg));
+        }
+        if let Some(ref loc) = c.cs_location {
+            parts.push(format!("当前位置: {}", loc));
+        }
+        if let Some(ref phys) = c.cs_physical_state {
+            parts.push(format!("身体状态: {}", phys));
+        }
+        if let Some(ref mental) = c.cs_mental_state {
+            parts.push(format!("心理状态: {}", mental));
+        }
+        if let Some(ref items) = c.cs_key_items {
+            parts.push(format!("持有物品: {}", items));
+        }
+        if let Some(ref recent) = c.cs_recent_events {
+            parts.push(format!("近期事件: {}", recent));
+        }
         char_context_parts.push(parts.join(" | "));
     }
     let char_context = char_context_parts.join("\n");
@@ -259,29 +311,51 @@ async fn run_character_cards(
             match serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
                 Ok(updates) => {
                     for update in updates {
-                        let name = update.get("character_name")
+                        let name = update
+                            .get("character_name")
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
-                        if name.is_empty() { continue; }
+                        if name.is_empty() {
+                            continue;
+                        }
 
                         if let Some(character) = all_chars.iter().find(|c| c.name == name) {
-                            let new_location = update.get("location").and_then(|v| v.as_str()).map(|s| s.to_string());
-                            let new_physical = update.get("physical_state").and_then(|v| v.as_str()).map(|s| s.to_string());
-                            let new_mental = update.get("mental_state").and_then(|v| v.as_str()).map(|s| s.to_string());
-                            let new_items = update.get("key_items").and_then(|v| v.as_str()).map(|s| s.to_string());
-                            let new_recent = update.get("recent_events").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let new_location = update
+                                .get("location")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let new_physical = update
+                                .get("physical_state")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let new_mental = update
+                                .get("mental_state")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let new_items = update
+                                .get("key_items")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let new_recent = update
+                                .get("recent_events")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
 
                             let state = CharacterState {
                                 location: new_location.or(character.cs_location.clone()),
                                 power_level: character.cs_power_level.clone(),
-                                physical_state: new_physical.or(character.cs_physical_state.clone()),
+                                physical_state: new_physical
+                                    .or(character.cs_physical_state.clone()),
                                 mental_state: new_mental.or(character.cs_mental_state.clone()),
                                 key_items: new_items.or(character.cs_key_items.clone()),
-                                recent_events: new_recent.or(Some(format!("[第{}章] 出场", chapter_number))),
+                                recent_events: new_recent
+                                    .or(Some(format!("[第{}章] 出场", chapter_number))),
                                 updated_at_chapter: Some(chapter_number),
                             };
 
-                            if let Ok(count) = char_repo.update_character_state(&character.id, &state) {
+                            if let Ok(count) =
+                                char_repo.update_character_state(&character.id, &state)
+                            {
                                 if count > 0 {
                                     updated_count += 1;
                                 }
@@ -290,7 +364,11 @@ async fn run_character_cards(
                     }
                 }
                 Err(e) => {
-                    log::warn!("[post_process] character_cards JSON 解析失败: {}. Raw: {}", e, json_str);
+                    log::warn!(
+                        "[post_process] character_cards JSON 解析失败: {}. Raw: {}",
+                        e,
+                        json_str
+                    );
                 }
             }
         }
@@ -303,14 +381,23 @@ async fn run_character_cards(
     for character in &all_chars {
         if content_preview.contains(&character.name) {
             // 检查该角色是否已被 LLM 更新
-            let already_updated = match llm_service.generate(
-                format!("does '{}' appear in this text? answer only yes or no", character.name),
-                Some(10), Some(0.0)
-            ).await {
+            let already_updated = match llm_service
+                .generate(
+                    format!(
+                        "does '{}' appear in this text? answer only yes or no",
+                        character.name
+                    ),
+                    Some(10),
+                    Some(0.0),
+                )
+                .await
+            {
                 Ok(_) => false, // 简化处理：LLM 已尝试更新所有角色，此处跳过
                 Err(_) => false,
             };
-            if already_updated { continue; }
+            if already_updated {
+                continue;
+            }
 
             // 如果角色没有被 LLM 更新过，至少标记出场
             let state = CharacterState {
@@ -330,7 +417,10 @@ async fn run_character_cards(
         }
     }
 
-    log::info!("[post_process] character_cards: 更新 {} 个角色状态", updated_count);
+    log::info!(
+        "[post_process] character_cards: 更新 {} 个角色状态",
+        updated_count
+    );
     Ok(())
 }
 
@@ -342,15 +432,19 @@ async fn run_style_analysis(
     pool: &DbPool,
     _llm_service: &LlmService,
 ) -> Result<(), PipelineError> {
-    use crate::pipeline::style_analysis;
-    use crate::db::repositories::{WritingStyleRepository, WritingStyleUpdate};
+    use crate::{
+        db::repositories::{WritingStyleRepository, WritingStyleUpdate},
+        pipeline::style_analysis,
+    };
 
     // 检查是否应触发
-    let should_trigger = style_analysis::should_trigger_style_analysis(story_id, pool)
-        .map_err(|e| PipelineError {
-            phase: "style_analysis".to_string(),
-            message: format!("风格分析触发检查失败: {}", e),
-            recoverable: true,
+    let should_trigger =
+        style_analysis::should_trigger_style_analysis(story_id, pool).map_err(|e| {
+            PipelineError {
+                phase: "style_analysis".to_string(),
+                message: format!("风格分析触发检查失败: {}", e),
+                recoverable: true,
+            }
         })?;
 
     if !should_trigger {
@@ -361,16 +455,18 @@ async fn run_style_analysis(
     log::info!("[post_process] style_analysis: story_id={}", story_id);
 
     // 执行风格分析
-    let result = style_analysis::analyze_style_for_story(story_id, pool)
-        .map_err(|e| PipelineError {
+    let result =
+        style_analysis::analyze_style_for_story(story_id, pool).map_err(|e| PipelineError {
             phase: "style_analysis".to_string(),
             message: format!("风格分析失败: {}", e),
             recoverable: true,
         })?;
 
     log::info!(
-        "[post_process] style_analysis: 第{}-{}章分析完成，句长={:.1}, 对话比={:.2}, 比喻密度={:.2}, 内心独白={:.2}, 情感密度={:.2}, 节奏={:.2}",
-        result.chapter_range.0, result.chapter_range.1,
+        "[post_process] style_analysis: 第{}-{}章分析完成，句长={:.1}, 对话比={:.2}, \
+         比喻密度={:.2}, 内心独白={:.2}, 情感密度={:.2}, 节奏={:.2}",
+        result.chapter_range.0,
+        result.chapter_range.1,
         result.metrics.sentence_length,
         result.metrics.dialogue_ratio,
         result.metrics.metaphor_density,
@@ -384,8 +480,10 @@ async fn run_style_analysis(
     if let Ok(Some(existing)) = style_repo.get_by_story(story_id) {
         let update = WritingStyleUpdate {
             description: Some(format!(
-                "自动分析（第{}-{}章）：句长{:.0}字，对话占比{:.0}%，比喻{:.1}个/千字，情感密度{:.3}",
-                result.chapter_range.0, result.chapter_range.1,
+                "自动分析（第{}-{}章）：句长{:.0}字，对话占比{:.0}%，比喻{:.1}个/千字，情感密度{:.\
+                 3}",
+                result.chapter_range.0,
+                result.chapter_range.1,
                 result.metrics.sentence_length,
                 result.metrics.dialogue_ratio * 100.0,
                 result.metrics.metaphor_density,
@@ -394,7 +492,10 @@ async fn run_style_analysis(
             ..Default::default()
         };
         if let Err(e) = style_repo.update(&existing.id, &update) {
-            log::warn!("[post_process] style_analysis: 更新 writing_style 失败: {}", e);
+            log::warn!(
+                "[post_process] style_analysis: 更新 writing_style 失败: {}",
+                e
+            );
         } else {
             log::info!("[post_process] style_analysis: writing_style 已更新");
         }

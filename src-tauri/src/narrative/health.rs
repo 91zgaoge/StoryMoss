@@ -7,14 +7,17 @@
 //! - 大纲覆盖率
 
 use serde::{Deserialize, Serialize};
-use crate::db::{DbPool, repositories_narrative as repo};
-use crate::narrative::elements::*;
+
+use crate::{
+    db::{repositories_narrative as repo, DbPool},
+    narrative::elements::*,
+};
 
 /// 单项健康检查结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthCheck {
     pub name: String,
-    pub score: f64,              // 0.0 - 100.0
+    pub score: f64, // 0.0 - 100.0
     pub max_score: f64,
     pub status: HealthStatus,
     pub description: String,
@@ -25,18 +28,23 @@ pub struct HealthCheck {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthStatus {
-    Excellent,   // >= 90
-    Good,        // >= 70
-    Fair,        // >= 50
-    Poor,        // < 50
+    Excellent, // >= 90
+    Good,      // >= 70
+    Fair,      // >= 50
+    Poor,      // < 50
 }
 
 impl HealthStatus {
     pub fn from_score(score: f64) -> Self {
-        if score >= 90.0 { HealthStatus::Excellent }
-        else if score >= 70.0 { HealthStatus::Good }
-        else if score >= 50.0 { HealthStatus::Fair }
-        else { HealthStatus::Poor }
+        if score >= 90.0 {
+            HealthStatus::Excellent
+        } else if score >= 70.0 {
+            HealthStatus::Good
+        } else if score >= 50.0 {
+            HealthStatus::Fair
+        } else {
+            HealthStatus::Poor
+        }
     }
 }
 
@@ -84,9 +92,18 @@ impl StoryHealthAnalyzer {
             description: "已回收伏笔占总伏笔的比例".to_string(),
             detail: Some(format!(
                 "已回收: {}, 待回收: {}, 已放弃: {}",
-                foreshadowings.iter().filter(|f| f.status == ForeshadowingStatus::Payoff).count(),
-                foreshadowings.iter().filter(|f| f.status == ForeshadowingStatus::Setup).count(),
-                foreshadowings.iter().filter(|f| f.status == ForeshadowingStatus::Abandoned).count(),
+                foreshadowings
+                    .iter()
+                    .filter(|f| f.status == ForeshadowingStatus::Payoff)
+                    .count(),
+                foreshadowings
+                    .iter()
+                    .filter(|f| f.status == ForeshadowingStatus::Setup)
+                    .count(),
+                foreshadowings
+                    .iter()
+                    .filter(|f| f.status == ForeshadowingStatus::Abandoned)
+                    .count(),
             )),
         });
 
@@ -120,7 +137,13 @@ impl StoryHealthAnalyzer {
             max_score: 100.0,
             status: HealthStatus::from_score(outline_coverage),
             description: "已有场景覆盖大纲估计场景数的比例".to_string(),
-            detail: outline.as_ref().map(|o| format!("估计场景数: {}, 实际场景数: {}", o.total_scenes_estimate, scenes.len())),
+            detail: outline.as_ref().map(|o| {
+                format!(
+                    "估计场景数: {}, 实际场景数: {}",
+                    o.total_scenes_estimate,
+                    scenes.len()
+                )
+            }),
         });
 
         // 5. 世界观完整度
@@ -131,7 +154,13 @@ impl StoryHealthAnalyzer {
             max_score: 100.0,
             status: HealthStatus::from_score(world_depth),
             description: "世界观规则、历史、地点的详细程度".to_string(),
-            detail: world_building.as_ref().map(|w| format!("规则数: {}, 关键地点数: {}", w.rules.len(), w.key_locations.len())),
+            detail: world_building.as_ref().map(|w| {
+                format!(
+                    "规则数: {}, 关键地点数: {}",
+                    w.rules.len(),
+                    w.key_locations.len()
+                )
+            }),
         });
 
         // 6. 角色关系网络密度
@@ -170,14 +199,19 @@ impl StoryHealthAnalyzer {
         repo.get_by_story(story_id)
     }
 
-    fn load_foreshadowings(&self, story_id: &str) -> Result<Vec<ForeshadowingElement>, rusqlite::Error> {
+    fn load_foreshadowings(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingElement>, rusqlite::Error> {
         // 统一存储层暂无专门的 foreshadowing repo，从 production 表读取
-        let conn = self.pool.get()
+        let conn = self
+            .pool
+            .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, content, importance, target_act, hint_style,
                     setup_scene_id, payoff_scene_id, status, source
-             FROM foreshadowings WHERE story_id = ?1"
+             FROM foreshadowings WHERE story_id = ?1",
         )?;
 
         let rows = stmt.query_map([story_id], |row| {
@@ -209,11 +243,13 @@ impl StoryHealthAnalyzer {
 
     fn load_outline(&self, story_id: &str) -> Result<Option<OutlineElement>, rusqlite::Error> {
         // P0-2 修复: narrative_outlines 表不存在，改为查询 story_outlines (v3 生产表)
-        let conn = self.pool.get()
+        let conn = self
+            .pool
+            .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, structure_json, total_scenes_estimate
-             FROM story_outlines WHERE story_id = ?1"
+             FROM story_outlines WHERE story_id = ?1",
         )?;
 
         let mut rows = stmt.query_map([story_id], |row| {
@@ -236,7 +272,10 @@ impl StoryHealthAnalyzer {
         rows.next().transpose()
     }
 
-    fn load_world_building(&self, story_id: &str) -> Result<Option<WorldBuildingElement>, rusqlite::Error> {
+    fn load_world_building(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<WorldBuildingElement>, rusqlite::Error> {
         let repo = repo::NarrativeWorldBuildingRepository::new(self.pool.clone());
         repo.get_by_story(story_id)
     }
@@ -248,23 +287,34 @@ impl StoryHealthAnalyzer {
         if foreshadowings.is_empty() {
             return 50.0; // 无伏笔时给中等分（不一定是坏事）
         }
-        let payoff_count = foreshadowings.iter()
+        let payoff_count = foreshadowings
+            .iter()
             .filter(|f| f.status == ForeshadowingStatus::Payoff)
             .count();
-        let active_count = foreshadowings.iter()
-            .filter(|f| f.status == ForeshadowingStatus::Setup || f.status == ForeshadowingStatus::Payoff)
+        let active_count = foreshadowings
+            .iter()
+            .filter(|f| {
+                f.status == ForeshadowingStatus::Setup || f.status == ForeshadowingStatus::Payoff
+            })
             .count();
-        if active_count == 0 { return 50.0; }
+        if active_count == 0 {
+            return 50.0;
+        }
         (payoff_count as f64 / active_count as f64) * 100.0
     }
 
     /// 角色弧光完整度：检查角色是否在不同场景中有行为/目标变化
-    fn check_character_arcs(&self, characters: &[CharacterElement], scenes: &[SceneElement]) -> f64 {
+    fn check_character_arcs(
+        &self,
+        characters: &[CharacterElement],
+        scenes: &[SceneElement],
+    ) -> f64 {
         if characters.is_empty() || scenes.is_empty() {
             return 0.0;
         }
 
-        let main_chars: Vec<_> = characters.iter()
+        let main_chars: Vec<_> = characters
+            .iter()
             .filter(|c| c.importance_score >= 7.0 || c.role_type == "protagonist")
             .collect();
 
@@ -274,7 +324,8 @@ impl StoryHealthAnalyzer {
 
         let mut total_arc_score = 0.0;
         for character in &main_chars {
-            let presence_count = scenes.iter()
+            let presence_count = scenes
+                .iter()
                 .filter(|s| s.characters_present.contains(&character.name))
                 .count();
             // 出现越多场景，弧光潜力越大
@@ -284,7 +335,8 @@ impl StoryHealthAnalyzer {
             // 有恐惧/弱点描述加分
             let has_fears = if character.fears.len() > 5 { 1.0 } else { 0.5 };
 
-            let arc_score = (presence_ratio * 40.0 + has_goals * 30.0 + has_fears * 30.0).min(100.0);
+            let arc_score =
+                (presence_ratio * 40.0 + has_goals * 30.0 + has_fears * 30.0).min(100.0);
             total_arc_score += arc_score;
         }
 
@@ -305,27 +357,44 @@ impl StoryHealthAnalyzer {
         }
 
         let type_count = conflict_types.len();
-        if type_count >= 4 { 100.0 }
-        else if type_count >= 3 { 85.0 }
-        else if type_count >= 2 { 70.0 }
-        else if type_count >= 1 { 50.0 }
-        else { 20.0 }
+        if type_count >= 4 {
+            100.0
+        } else if type_count >= 3 {
+            85.0
+        } else if type_count >= 2 {
+            70.0
+        } else if type_count >= 1 {
+            50.0
+        } else {
+            20.0
+        }
     }
 
     /// 大纲覆盖率：实际场景数 / 估计场景数
-    fn check_outline_coverage(&self, outline: &Option<OutlineElement>, scenes: &[SceneElement]) -> f64 {
+    fn check_outline_coverage(
+        &self,
+        outline: &Option<OutlineElement>,
+        scenes: &[SceneElement],
+    ) -> f64 {
         let estimated = match outline {
             Some(o) if o.total_scenes_estimate > 0 => o.total_scenes_estimate as f64,
             _ => return 50.0, // 无大纲时无法评估
         };
         let actual = scenes.len() as f64;
         let ratio = actual / estimated;
-        if ratio >= 1.0 { 100.0 }
-        else if ratio >= 0.8 { 90.0 }
-        else if ratio >= 0.6 { 75.0 }
-        else if ratio >= 0.4 { 60.0 }
-        else if ratio >= 0.2 { 40.0 }
-        else { 20.0 }
+        if ratio >= 1.0 {
+            100.0
+        } else if ratio >= 0.8 {
+            90.0
+        } else if ratio >= 0.6 {
+            75.0
+        } else if ratio >= 0.4 {
+            60.0
+        } else if ratio >= 0.2 {
+            40.0
+        } else {
+            20.0
+        }
     }
 
     /// 世界观完整度
@@ -337,21 +406,29 @@ impl StoryHealthAnalyzer {
 
         let mut score = 0.0;
         // 概念描述
-        if wb.concept.len() > 20 { score += 20.0; }
-        else if wb.concept.len() > 5 { score += 10.0; }
+        if wb.concept.len() > 20 {
+            score += 20.0;
+        } else if wb.concept.len() > 5 {
+            score += 10.0;
+        }
 
         // 规则数量
         score += (wb.rules.len() as f64 * 15.0).min(30.0);
 
         // 历史描述
-        if wb.history.len() > 30 { score += 20.0; }
-        else if wb.history.len() > 10 { score += 10.0; }
+        if wb.history.len() > 30 {
+            score += 20.0;
+        } else if wb.history.len() > 10 {
+            score += 10.0;
+        }
 
         // 关键地点
         score += (wb.key_locations.len() as f64 * 10.0).min(20.0);
 
         // 力量体系
-        if wb.power_system.len() > 10 { score += 10.0; }
+        if wb.power_system.len() > 10 {
+            score += 10.0;
+        }
 
         score
     }
@@ -363,9 +440,7 @@ impl StoryHealthAnalyzer {
         }
 
         let total_possible = characters.len() * (characters.len() - 1) / 2;
-        let total_actual: usize = characters.iter()
-            .map(|c| c.relationships.len())
-            .sum();
+        let total_actual: usize = characters.iter().map(|c| c.relationships.len()).sum();
 
         // 去重计数（双向关系只算一次）
         let density = if total_possible > 0 {
@@ -392,7 +467,8 @@ impl StoryHealthAnalyzer {
             if check.score < 70.0 {
                 match check.name.as_str() {
                     "伏笔回收率" => {
-                        let pending = foreshadowings.iter()
+                        let pending = foreshadowings
+                            .iter()
                             .filter(|f| f.status == ForeshadowingStatus::Setup)
                             .count();
                         suggestions.push(format!(
@@ -401,13 +477,20 @@ impl StoryHealthAnalyzer {
                         ));
                     }
                     "角色弧光完整度" => {
-                        suggestions.push("为主要角色设置更清晰的目标和内心冲突，让他们在故事中有所成长".to_string());
+                        suggestions.push(
+                            "为主要角色设置更清晰的目标和内心冲突，让他们在故事中有所成长"
+                                .to_string(),
+                        );
                         if characters.len() < 3 {
-                            suggestions.push("角色数量较少，考虑添加配角来丰富故事层次".to_string());
+                            suggestions
+                                .push("角色数量较少，考虑添加配角来丰富故事层次".to_string());
                         }
                     }
                     "冲突类型多样性" => {
-                        suggestions.push("场景冲突类型较为单一，尝试引入人与自我、人与环境等不同层面的冲突".to_string());
+                        suggestions.push(
+                            "场景冲突类型较为单一，尝试引入人与自我、人与环境等不同层面的冲突"
+                                .to_string(),
+                        );
                     }
                     "大纲覆盖率" => {
                         suggestions.push(format!(
@@ -416,10 +499,15 @@ impl StoryHealthAnalyzer {
                         ));
                     }
                     "世界观完整度" => {
-                        suggestions.push("世界观描述可以更加详细：添加具体规则、历史事件或关键地点".to_string());
+                        suggestions.push(
+                            "世界观描述可以更加详细：添加具体规则、历史事件或关键地点".to_string(),
+                        );
                     }
                     "角色关系网络密度" => {
-                        suggestions.push("角色之间的关系网较稀疏，建议为角色之间添加更复杂的情感联系".to_string());
+                        suggestions.push(
+                            "角色之间的关系网较稀疏，建议为角色之间添加更复杂的情感联系"
+                                .to_string(),
+                        );
                     }
                     _ => {}
                 }

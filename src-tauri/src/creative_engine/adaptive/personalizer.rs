@@ -3,10 +3,11 @@
 //! 根据用户偏好构建个性化 system prompt 扩展，
 //! 注入到 Writer 的提示词中，实现"越写越懂"。
 
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::db::repositories::UserPreferenceRepository;
 use super::generator::{AdaptiveGenerator, GenerationStrategy};
+use crate::{
+    db::{repositories::UserPreferenceRepository, DbPool},
+    error::AppError,
+};
 
 /// 个性化提示词构建器
 pub struct PromptPersonalizer {
@@ -27,9 +28,7 @@ impl PromptPersonalizer {
         let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         // 2. 过滤高置信度偏好
-        let high_confidence: Vec<_> = prefs.into_iter()
-            .filter(|p| p.confidence >= 0.6)
-            .collect();
+        let high_confidence: Vec<_> = prefs.into_iter().filter(|p| p.confidence >= 0.6).collect();
 
         if high_confidence.is_empty() {
             return Ok(String::new());
@@ -59,7 +58,11 @@ impl PromptPersonalizer {
             parts.push("\n对话偏好：".to_string());
             for pref in &dialogue_prefs {
                 let desc = self.describe_dialogue_preference(pref);
-                parts.push(format!("- {}（置信度: {:.0}%）", desc, pref.confidence * 100.0));
+                parts.push(format!(
+                    "- {}（置信度: {:.0}%）",
+                    desc,
+                    pref.confidence * 100.0
+                ));
             }
         }
 
@@ -67,7 +70,11 @@ impl PromptPersonalizer {
             parts.push("\n内容偏好：".to_string());
             for pref in &content_prefs {
                 let desc = self.describe_content_preference(pref);
-                parts.push(format!("- {}（置信度: {:.0}%）", desc, pref.confidence * 100.0));
+                parts.push(format!(
+                    "- {}（置信度: {:.0}%）",
+                    desc,
+                    pref.confidence * 100.0
+                ));
             }
         }
 
@@ -75,7 +82,11 @@ impl PromptPersonalizer {
             parts.push("\n节奏偏好：".to_string());
             for pref in &pacing_prefs {
                 let desc = self.describe_pacing_preference(pref);
-                parts.push(format!("- {}（置信度: {:.0}%）", desc, pref.confidence * 100.0));
+                parts.push(format!(
+                    "- {}（置信度: {:.0}%）",
+                    desc,
+                    pref.confidence * 100.0
+                ));
             }
         }
 
@@ -83,7 +94,11 @@ impl PromptPersonalizer {
             parts.push("\n整体风格：".to_string());
             for pref in &style_prefs {
                 let desc = self.describe_style_preference(pref);
-                parts.push(format!("- {}（置信度: {:.0}%）", desc, pref.confidence * 100.0));
+                parts.push(format!(
+                    "- {}（置信度: {:.0}%）",
+                    desc,
+                    pref.confidence * 100.0
+                ));
             }
         }
 
@@ -179,9 +194,9 @@ mod tests {
 
     #[test]
     fn test_describe_preferences() {
-        let p = PromptPersonalizer::new(crate::db::DbPool::new(
-            r2d2_sqlite::SqliteConnectionManager::memory()
-        ).unwrap());
+        let p = PromptPersonalizer::new(
+            crate::db::DbPool::new(r2d2_sqlite::SqliteConnectionManager::memory()).unwrap(),
+        );
 
         let pref = crate::db::models::UserPreference {
             id: "1".to_string(),

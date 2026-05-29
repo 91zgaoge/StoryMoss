@@ -4,21 +4,21 @@
 //! 替代旧的 IntentParser + IntentExecutor 分类标签方式。
 //! 核心设计：LLM 自由理解用户意图，自主选择能力组合，无预设分类。
 
-use crate::capabilities::get_capability_registry;
-use crate::error::AppError;
-use crate::llm::LlmService;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-pub mod executor;
+use crate::{capabilities::get_capability_registry, error::AppError, llm::LlmService};
+
 pub mod bootstrap;
-pub mod template_learning;
+pub mod executor;
 pub mod swarm;
-pub use template_learning::PlanTemplateLibrary;
+pub mod template_learning;
+pub use executor::{PlanExecutionResult, PlanExecutor};
 #[allow(unused_imports)]
 pub use template_learning::PlanTemplate;
-pub use executor::{PlanExecutor, PlanExecutionResult};
+pub use template_learning::PlanTemplateLibrary;
 
 /// 执行计划中的单个步骤
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,8 @@ pub struct PlanContext {
     pub current_scene_stage: Option<String>,
     pub total_word_count: usize,
     pub latest_chapter_word_count: usize,
-    pub story_progress: String, // "just_started" | "developing" | "midpoint" | "climax" | "resolution"
+    pub story_progress: String, /* "just_started" | "developing" | "midpoint" | "climax" |
+                                 * "resolution" */
     // Phase 4: 增强上下文 - 世界观、角色、伏笔、风格、MCP
     pub world_building_summary: Option<String>,
     pub character_list: Vec<String>,
@@ -94,7 +95,10 @@ pub struct PlanGenerator {
 
 impl PlanGenerator {
     pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service, app_handle: None }
+        Self {
+            llm_service,
+            app_handle: None,
+        }
     }
 
     pub fn with_app_handle(mut self, app_handle: AppHandle) -> Self {
@@ -104,10 +108,13 @@ impl PlanGenerator {
 
     fn emit_progress(&self, stage: &str, message: &str) {
         if let Some(ref app) = self.app_handle {
-            let _ = app.emit("plan-generator-progress", serde_json::json!({
-                "stage": stage,
-                "message": message,
-            }));
+            let _ = app.emit(
+                "plan-generator-progress",
+                serde_json::json!({
+                    "stage": stage,
+                    "message": message,
+                }),
+            );
         }
     }
 
@@ -130,21 +137,23 @@ impl PlanGenerator {
         let preview_clean = sanitize_for_prompt(preview);
         let registry_clean = sanitize_for_prompt(&registry_context);
 
-        // Build scene structure summary for prompt — 截断到最近10个场景，减少大故事的prompt长度
+        // Build scene structure summary for prompt —
+        // 截断到最近10个场景，减少大故事的prompt长度
         let scenes_summary = if context.scenes_summary.is_empty() {
             "No scenes yet".to_string()
         } else {
             let total = context.scenes_summary.len();
-            let truncated: Vec<_> = context.scenes_summary.iter()
-                .rev()
-                .take(10)
-                .collect();
-            let mut lines: Vec<String> = truncated.iter()
+            let truncated: Vec<_> = context.scenes_summary.iter().rev().take(10).collect();
+            let mut lines: Vec<String> = truncated
+                .iter()
                 .map(|s| {
                     let stage = s.execution_stage.as_deref().unwrap_or("unknown");
                     let title = s.title.as_deref().unwrap_or("Untitled");
                     let content_flag = if s.has_content { "✓" } else { "○" };
-                    format!("  #{} [{}] {} {} ({} words)", s.sequence_number, stage, title, content_flag, s.word_count)
+                    format!(
+                        "  #{} [{}] {} {} ({} words)",
+                        s.sequence_number, stage, title, content_flag, s.word_count
+                    )
                 })
                 .collect();
             if total > 10 {
@@ -155,13 +164,19 @@ impl PlanGenerator {
         };
 
         let current_scene_info = if let Some(ref id) = context.current_scene_id {
-            format!("Current scene ID: {} (stage: {})", id, context.current_scene_stage.as_deref().unwrap_or("unknown"))
+            format!(
+                "Current scene ID: {} (stage: {})",
+                id,
+                context.current_scene_stage.as_deref().unwrap_or("unknown")
+            )
         } else {
             "No current scene".to_string()
         };
 
         // 构建增强上下文信息 — 截断超长文本，减少token消耗
-        let world_building_text = context.world_building_summary.as_deref()
+        let world_building_text = context
+            .world_building_summary
+            .as_deref()
             .map(|s| {
                 if s.chars().count() > 200 {
                     format!("{}...(truncated)", s.chars().take(200).collect::<String>())
@@ -184,15 +199,34 @@ impl PlanGenerator {
         let foreshadowing_text = if context.foreshadowing_status.is_empty() {
             "No active foreshadowing".to_string()
         } else {
-            format!("Active foreshadowing:\n{}", context.foreshadowing_status.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
+            format!(
+                "Active foreshadowing:\n{}",
+                context
+                    .foreshadowing_status
+                    .iter()
+                    .map(|f| format!("  - {}", f))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
         };
-        let style_dna_text = context.style_dna_info.as_deref().unwrap_or("No style DNA configured");
+        let style_dna_text = context
+            .style_dna_info
+            .as_deref()
+            .unwrap_or("No style DNA configured");
         let mcp_tools_text = if context.mcp_tools_available.is_empty() {
             "No MCP tools available".to_string()
         } else {
             let total = context.mcp_tools_available.len();
-            let shown: Vec<_> = context.mcp_tools_available.iter().take(5).cloned().collect();
-            let mut lines = shown.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>();
+            let shown: Vec<_> = context
+                .mcp_tools_available
+                .iter()
+                .take(5)
+                .cloned()
+                .collect();
+            let mut lines = shown
+                .iter()
+                .map(|t| format!("  - {}", t))
+                .collect::<Vec<_>>();
             if total > 5 {
                 lines.push(format!("  ... ({} more tools)", total - 5));
             }
@@ -215,7 +249,10 @@ impl PlanGenerator {
                 "builtin.emotion_pacing: 情感节奏",
                 "mcp.*: 外部工具",
             ];
-            format!("Available capabilities (simplified):\n{}", core_caps.join("\n"))
+            format!(
+                "Available capabilities (simplified):\n{}",
+                core_caps.join("\n")
+            )
         } else {
             registry_clean
         };
@@ -320,7 +357,10 @@ Rules:
         );
 
         // 计划生成JSON通常只需要几百tokens，1024足够，减少等待时间
-        let response = self.llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(1024), Some(0.3))
+            .await?;
         self.emit_progress("parsing", "正在解析执行计划...");
 
         // Robust JSON extraction: find first '{' and last '}'
@@ -338,7 +378,10 @@ Rules:
 
         let mut plan: ExecutionPlan = serde_json::from_str(json_str).map_err(|e| {
             AppError::validation_failed(
-                format!("Failed to parse plan JSON: {}. Extracted JSON: {}", e, json_str),
+                format!(
+                    "Failed to parse plan JSON: {}. Extracted JSON: {}",
+                    e, json_str
+                ),
                 None::<String>,
             )
         })?;
@@ -361,23 +404,40 @@ Rules:
             });
         }
 
-        // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了 outline_planner，强制替换为 writer
+        // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了
+        // outline_planner，强制替换为 writer
         if !plan.steps.is_empty() && plan.steps[0].capability_id == "outline_planner" {
             let input_lower = context.user_input.to_lowercase();
             let prose_keywords = [
-                "写", "write", "创作", "开始写", "写小说", "写故事", "写一章", "写开篇", "写正文",
-                "start writing", "write a novel", "write a story", "write chapter", "begin writing",
+                "写",
+                "write",
+                "创作",
+                "开始写",
+                "写小说",
+                "写故事",
+                "写一章",
+                "写开篇",
+                "写正文",
+                "start writing",
+                "write a novel",
+                "write a story",
+                "write chapter",
+                "begin writing",
             ];
             let is_prose_request = prose_keywords.iter().any(|&kw| input_lower.contains(kw));
             if is_prose_request {
                 log::warn!(
-                    "[PlanGenerator] Force-correcting outline_planner → writer for prose request: {}",
+                    "[PlanGenerator] Force-correcting outline_planner → writer for prose request: \
+                     {}",
                     context.user_input
                 );
                 plan.steps[0].capability_id = "writer".to_string();
-                plan.steps[0].purpose = "Auto-corrected: user wants prose generation, not structural planning".to_string();
+                plan.steps[0].purpose = "Auto-corrected: user wants prose generation, not \
+                                         structural planning"
+                    .to_string();
                 plan.understanding = format!(
-                    "{} [auto-corrected: prose-generation keywords detected in user input, forcing writer instead of outline_planner]",
+                    "{} [auto-corrected: prose-generation keywords detected in user input, \
+                     forcing writer instead of outline_planner]",
                     plan.understanding
                 );
             }
@@ -475,4 +535,3 @@ mod tests {
         assert_eq!(ctx.story_progress, "just_started");
     }
 }
-

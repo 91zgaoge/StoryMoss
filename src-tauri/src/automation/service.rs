@@ -1,15 +1,24 @@
 //! 自动化服务核心实现
 
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
+
 use tauri::{AppHandle, Emitter, Wry};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
-use crate::db::{DbPool, SceneRepository, DraftRepository, ChapterReadingPowerRepository};
-use crate::reading_power::ReadingPowerEvaluator;
-use super::triggers::{AutomationTrigger, TriggerEvent, TriggerCondition};
-use super::handlers::AutomationHandler;
+use super::{
+    handlers::AutomationHandler,
+    triggers::{AutomationTrigger, TriggerCondition, TriggerEvent},
+};
+use crate::{
+    db::{ChapterReadingPowerRepository, DbPool, DraftRepository, SceneRepository},
+    reading_power::ReadingPowerEvaluator,
+};
 
 /// 排队的事件
 #[derive(Debug, Clone)]
@@ -71,7 +80,9 @@ impl AutomationService {
         let story_trigger = AutomationTrigger::new(
             "story_created".to_string(),
             "当创建新故事时触发".to_string(),
-            TriggerEvent::StoryCreated { story_id: String::new() },
+            TriggerEvent::StoryCreated {
+                story_id: String::new(),
+            },
             vec![],
             "init_story_structure".to_string(),
         );
@@ -81,7 +92,10 @@ impl AutomationService {
         let chapter_trigger = AutomationTrigger::new(
             "chapter_created".to_string(),
             "当创建新章节时触发".to_string(),
-            TriggerEvent::ChapterCreated { story_id: String::new(), chapter_id: String::new() },
+            TriggerEvent::ChapterCreated {
+                story_id: String::new(),
+                chapter_id: String::new(),
+            },
             vec![],
             "update_story_progress".to_string(),
         );
@@ -91,7 +105,10 @@ impl AutomationService {
         let character_trigger = AutomationTrigger::new(
             "character_created".to_string(),
             "当创建新角色时触发".to_string(),
-            TriggerEvent::CharacterCreated { story_id: String::new(), character_id: String::new() },
+            TriggerEvent::CharacterCreated {
+                story_id: String::new(),
+                character_id: String::new(),
+            },
             vec![],
             "analyze_character_relationships".to_string(),
         );
@@ -101,7 +118,11 @@ impl AutomationService {
         let content_trigger = AutomationTrigger::new(
             "chapter_content_updated".to_string(),
             "当章节内容更新时触发".to_string(),
-            TriggerEvent::ChapterContentUpdated { story_id: String::new(), chapter_id: String::new(), word_count: 0 },
+            TriggerEvent::ChapterContentUpdated {
+                story_id: String::new(),
+                chapter_id: String::new(),
+                word_count: 0,
+            },
             vec![TriggerCondition::WordCountThreshold { min_words: 100 }],
             "update_word_count".to_string(),
         );
@@ -111,21 +132,34 @@ impl AutomationService {
         let rp_update_trigger = AutomationTrigger::new(
             "evaluate_reading_power_on_update".to_string(),
             "场景内容更新时自动评估追读力".to_string(),
-            TriggerEvent::SceneContentUpdated { story_id: String::new(), scene_id: String::new(), word_count: 0 },
+            TriggerEvent::SceneContentUpdated {
+                story_id: String::new(),
+                scene_id: String::new(),
+                word_count: 0,
+            },
             vec![TriggerCondition::Always],
             "evaluate_reading_power".to_string(),
         );
-        triggers.insert("evaluate_reading_power_on_update".to_string(), rp_update_trigger);
+        triggers.insert(
+            "evaluate_reading_power_on_update".to_string(),
+            rp_update_trigger,
+        );
 
         // 章节定稿时评估追读力
         let rp_finalize_trigger = AutomationTrigger::new(
             "evaluate_reading_power_on_finalize".to_string(),
             "章节定稿时自动评估追读力".to_string(),
-            TriggerEvent::ChapterFinalized { story_id: String::new(), chapter_id: String::new() },
+            TriggerEvent::ChapterFinalized {
+                story_id: String::new(),
+                chapter_id: String::new(),
+            },
             vec![TriggerCondition::Always],
             "evaluate_reading_power".to_string(),
         );
-        triggers.insert("evaluate_reading_power_on_finalize".to_string(), rp_finalize_trigger);
+        triggers.insert(
+            "evaluate_reading_power_on_finalize".to_string(),
+            rp_finalize_trigger,
+        );
 
         log::info!("Registered {} default triggers", triggers.len());
         Ok(())
@@ -144,7 +178,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("init_story".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("init_story".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -160,7 +197,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("update_progress".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("update_progress".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -176,7 +216,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("analyze_relationships".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("analyze_relationships".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -192,7 +235,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("update_word_count".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("update_word_count".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -208,7 +254,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("analyze_content".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("analyze_content".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -224,7 +273,10 @@ impl AutomationService {
                 handler_type: "workflow".to_string(),
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert("workflow_id".to_string(), serde_json::Value::String("evaluate_reading_power".to_string()));
+                    params.insert(
+                        "workflow_id".to_string(),
+                        serde_json::Value::String("evaluate_reading_power".to_string()),
+                    );
                     params
                 },
                 enabled: true,
@@ -331,11 +383,20 @@ impl AutomationService {
     }
 
     /// 执行处理器
-    async fn execute_handler(&self, handler: &AutomationHandler, event: &TriggerEvent) -> Result<(), String> {
+    async fn execute_handler(
+        &self,
+        handler: &AutomationHandler,
+        event: &TriggerEvent,
+    ) -> Result<(), String> {
         match handler.handler_type.as_str() {
             "workflow" => {
-                if let Some(workflow_id) = handler.parameters.get("workflow_id").and_then(|v| v.as_str()) {
-                    self.execute_workflow(workflow_id, &handler.parameters, event).await?;
+                if let Some(workflow_id) = handler
+                    .parameters
+                    .get("workflow_id")
+                    .and_then(|v| v.as_str())
+                {
+                    self.execute_workflow(workflow_id, &handler.parameters, event)
+                        .await?;
                 }
             }
             _ => {
@@ -347,7 +408,12 @@ impl AutomationService {
     }
 
     /// 执行工作流
-    async fn execute_workflow(&self, workflow_id: &str, _parameters: &HashMap<String, serde_json::Value>, event: &TriggerEvent) -> Result<String, String> {
+    async fn execute_workflow(
+        &self,
+        workflow_id: &str,
+        _parameters: &HashMap<String, serde_json::Value>,
+        event: &TriggerEvent,
+    ) -> Result<String, String> {
         log::info!("Executing workflow: {}", workflow_id);
 
         match workflow_id {
@@ -359,28 +425,48 @@ impl AutomationService {
                 }
             }
             "update_progress" => {
-                if let TriggerEvent::ChapterCreated { story_id, chapter_id } = event {
+                if let TriggerEvent::ChapterCreated {
+                    story_id,
+                    chapter_id,
+                } = event
+                {
                     self.update_story_progress(story_id, Some(chapter_id)).await
                 } else {
                     Err("Invalid event type for update_progress workflow".to_string())
                 }
             }
             "analyze_relationships" => {
-                if let TriggerEvent::CharacterCreated { story_id, character_id } = event {
-                    self.analyze_character_relationships(story_id, Some(character_id)).await
+                if let TriggerEvent::CharacterCreated {
+                    story_id,
+                    character_id,
+                } = event
+                {
+                    self.analyze_character_relationships(story_id, Some(character_id))
+                        .await
                 } else {
                     Err("Invalid event type for analyze_relationships workflow".to_string())
                 }
             }
             "update_word_count" => {
-                if let TriggerEvent::ChapterContentUpdated { story_id, chapter_id, word_count } = event {
-                    self.update_word_count_stats(story_id, chapter_id, *word_count as i32).await
+                if let TriggerEvent::ChapterContentUpdated {
+                    story_id,
+                    chapter_id,
+                    word_count,
+                } = event
+                {
+                    self.update_word_count_stats(story_id, chapter_id, *word_count as i32)
+                        .await
                 } else {
                     Err("Invalid event type for update_word_count workflow".to_string())
                 }
             }
             "analyze_content" => {
-                if let TriggerEvent::ChapterContentUpdated { story_id, chapter_id, .. } = event {
+                if let TriggerEvent::ChapterContentUpdated {
+                    story_id,
+                    chapter_id,
+                    ..
+                } = event
+                {
                     self.analyze_chapter_content(story_id, chapter_id).await
                 } else {
                     Err("Invalid event type for analyze_content workflow".to_string())
@@ -390,7 +476,11 @@ impl AutomationService {
                 let story_id = match event {
                     TriggerEvent::SceneContentUpdated { story_id, .. } => story_id.clone(),
                     TriggerEvent::ChapterFinalized { story_id, .. } => story_id.clone(),
-                    _ => return Err("Invalid event type for evaluate_reading_power workflow".to_string()),
+                    _ => {
+                        return Err(
+                            "Invalid event type for evaluate_reading_power workflow".to_string()
+                        )
+                    }
                 };
                 self.evaluate_reading_power(event, &story_id).await
             }
@@ -436,8 +526,10 @@ impl AutomationService {
 
         // 保存结果到数据库
         let rp_repo = ChapterReadingPowerRepository::new(self.db_pool.clone());
-        let coolpoint_json = serde_json::to_string(&evaluation.coolpoint_patterns).unwrap_or_else(|_| "[]".to_string());
-        let micropayoffs_json = serde_json::to_string(&evaluation.micropayoffs).unwrap_or_else(|_| "[]".to_string());
+        let coolpoint_json = serde_json::to_string(&evaluation.coolpoint_patterns)
+            .unwrap_or_else(|_| "[]".to_string());
+        let micropayoffs_json =
+            serde_json::to_string(&evaluation.micropayoffs).unwrap_or_else(|_| "[]".to_string());
 
         match rp_repo.save(
             story_id,
@@ -451,10 +543,18 @@ impl AutomationService {
         ) {
             Ok(record) => {
                 // 补充更新 score 和 debt_balance（save 方法未覆盖的字段）
-                let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+                let conn = self
+                    .db_pool
+                    .get()
+                    .map_err(|e| format!("Database error: {}", e))?;
                 if let Err(e) = conn.execute(
-                    "UPDATE chapter_reading_power SET debt_balance = ?1, override_count = ?2 WHERE id = ?3",
-                    rusqlite::params![evaluation.debt_balance, evaluation.override_count, record.id],
+                    "UPDATE chapter_reading_power SET debt_balance = ?1, override_count = ?2 \
+                     WHERE id = ?3",
+                    rusqlite::params![
+                        evaluation.debt_balance,
+                        evaluation.override_count,
+                        record.id
+                    ],
                 ) {
                     log::warn!("Failed to update reading power details: {}", e);
                 }
@@ -465,22 +565,27 @@ impl AutomationService {
         }
 
         // 发送前端事件
-        if let Err(e) = self.app_handle.emit("reading_power_evaluated", serde_json::json!({
-            "story_id": story_id,
-            "chapter_number": chapter_number,
-            "scene_id": scene_id,
-            "score": evaluation.score,
-            "hook_strength": evaluation.hook_strength,
-            "debt_balance": evaluation.debt_balance,
-            "override_count": evaluation.override_count,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
+        if let Err(e) = self.app_handle.emit(
+            "reading_power_evaluated",
+            serde_json::json!({
+                "story_id": story_id,
+                "chapter_number": chapter_number,
+                "scene_id": scene_id,
+                "score": evaluation.score,
+                "hook_strength": evaluation.hook_strength,
+                "debt_balance": evaluation.debt_balance,
+                "override_count": evaluation.override_count,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
             log::warn!("Failed to emit reading_power_evaluated event: {}", e);
         }
 
         log::info!(
             "Reading power evaluated for chapter {}: score={}, hook_strength={}",
-            chapter_number, evaluation.score, evaluation.hook_strength
+            chapter_number,
+            evaluation.score,
+            evaluation.hook_strength
         );
 
         Ok(format!(
@@ -493,7 +598,10 @@ impl AutomationService {
     async fn init_story_structure(&self, story_id: &str) -> Result<String, String> {
         log::info!("Initializing story structure for story: {}", story_id);
 
-        let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let conn = self
+            .db_pool
+            .get()
+            .map_err(|e| format!("Database error: {}", e))?;
 
         // 创建默认的故事元数据
         conn.execute(
@@ -502,13 +610,17 @@ impl AutomationService {
              (?1, 'auto_sync_enabled', 'true'),
              (?1, 'last_analysis', ?2)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339()],
-        ).map_err(|e| format!("Failed to initialize story metadata: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to initialize story metadata: {}", e))?;
 
         // 发送前端同步事件
-        if let Err(e) = self.app_handle.emit("story_structure_initialized", serde_json::json!({
-            "story_id": story_id,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
+        if let Err(e) = self.app_handle.emit(
+            "story_structure_initialized",
+            serde_json::json!({
+                "story_id": story_id,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
             log::warn!("Failed to emit story_structure_initialized event: {}", e);
         }
 
@@ -516,19 +628,32 @@ impl AutomationService {
     }
 
     /// 更新故事进度
-    async fn update_story_progress(&self, story_id: &str, chapter_id: Option<&str>) -> Result<String, String> {
-        log::info!("Updating story progress for story: {}, chapter: {:?}", story_id, chapter_id);
+    async fn update_story_progress(
+        &self,
+        story_id: &str,
+        chapter_id: Option<&str>,
+    ) -> Result<String, String> {
+        log::info!(
+            "Updating story progress for story: {}, chapter: {:?}",
+            story_id,
+            chapter_id
+        );
 
-        let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let conn = self
+            .db_pool
+            .get()
+            .map_err(|e| format!("Database error: {}", e))?;
 
         // 计算总章节数和字数
-        let mut stmt = conn.prepare(
-            "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1"
-        ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-        let (chapter_count, total_words): (i64, i64) = stmt.query_row([story_id], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        }).map_err(|e| format!("Failed to query progress: {}", e))?;
+        let (chapter_count, total_words): (i64, i64) = stmt
+            .query_row([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| format!("Failed to query progress: {}", e))?;
 
         // 更新故事元数据
         conn.execute(
@@ -536,77 +661,134 @@ impl AutomationService {
              (?1, 'chapter_count', ?2),
              (?1, 'total_words', ?3),
              (?1, 'last_updated', ?4)",
-            rusqlite::params![story_id, chapter_count.to_string(), total_words.to_string(), chrono::Utc::now().to_rfc3339()],
-        ).map_err(|e| format!("Failed to update progress metadata: {}", e))?;
+            rusqlite::params![
+                story_id,
+                chapter_count.to_string(),
+                total_words.to_string(),
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )
+        .map_err(|e| format!("Failed to update progress metadata: {}", e))?;
 
         // 发送前端同步事件
-        if let Err(e) = self.app_handle.emit("story_progress_updated", serde_json::json!({
-            "story_id": story_id,
-            "chapter_count": chapter_count,
-            "total_words": total_words,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
+        if let Err(e) = self.app_handle.emit(
+            "story_progress_updated",
+            serde_json::json!({
+                "story_id": story_id,
+                "chapter_count": chapter_count,
+                "total_words": total_words,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
             log::warn!("Failed to emit story_progress_updated event: {}", e);
         }
 
-        Ok(format!("Progress updated: {} chapters, {} words", chapter_count, total_words))
+        Ok(format!(
+            "Progress updated: {} chapters, {} words",
+            chapter_count, total_words
+        ))
     }
 
     /// 分析角色关系
-    async fn analyze_character_relationships(&self, story_id: &str, character_id: Option<&str>) -> Result<String, String> {
-        log::info!("Analyzing character relationships for story: {}, character: {:?}", story_id, character_id);
+    async fn analyze_character_relationships(
+        &self,
+        story_id: &str,
+        character_id: Option<&str>,
+    ) -> Result<String, String> {
+        log::info!(
+            "Analyzing character relationships for story: {}, character: {:?}",
+            story_id,
+            character_id
+        );
 
-        let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let conn = self
+            .db_pool
+            .get()
+            .map_err(|e| format!("Database error: {}", e))?;
 
         // 获取所有角色
-        let mut stmt = conn.prepare(
-            "SELECT id, name FROM characters WHERE story_id = ?1"
-        ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT id, name FROM characters WHERE story_id = ?1")
+            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-        let characters: Vec<(String, String)> = stmt.query_map([story_id], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        }).map_err(|e| format!("Failed to query characters: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to collect characters: {}", e))?;
+        let characters: Vec<(String, String)> = stmt
+            .query_map([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| format!("Failed to query characters: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect characters: {}", e))?;
 
         // 更新角色关系分析时间戳
         conn.execute(
             "INSERT OR REPLACE INTO story_metadata (story_id, key, value) VALUES
              (?1, 'relationships_analyzed', ?2),
              (?1, 'character_count', ?3)",
-            rusqlite::params![story_id, chrono::Utc::now().to_rfc3339(), characters.len().to_string()],
-        ).map_err(|e| format!("Failed to update relationship metadata: {}", e))?;
+            rusqlite::params![
+                story_id,
+                chrono::Utc::now().to_rfc3339(),
+                characters.len().to_string()
+            ],
+        )
+        .map_err(|e| format!("Failed to update relationship metadata: {}", e))?;
 
         // 发送前端同步事件
-        if let Err(e) = self.app_handle.emit("character_relationships_updated", serde_json::json!({
-            "story_id": story_id,
-            "character_count": characters.len(),
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
-            log::warn!("Failed to emit character_relationships_updated event: {}", e);
+        if let Err(e) = self.app_handle.emit(
+            "character_relationships_updated",
+            serde_json::json!({
+                "story_id": story_id,
+                "character_count": characters.len(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
+            log::warn!(
+                "Failed to emit character_relationships_updated event: {}",
+                e
+            );
         }
 
-        Ok(format!("Analyzed relationships for {} characters", characters.len()))
+        Ok(format!(
+            "Analyzed relationships for {} characters",
+            characters.len()
+        ))
     }
 
     /// 更新字数统计
-    async fn update_word_count_stats(&self, story_id: &str, chapter_id: &str, word_count: i32) -> Result<String, String> {
-        log::info!("Updating word count stats for story: {}, chapter: {}, words: {}", story_id, chapter_id, word_count);
+    async fn update_word_count_stats(
+        &self,
+        story_id: &str,
+        chapter_id: &str,
+        word_count: i32,
+    ) -> Result<String, String> {
+        log::info!(
+            "Updating word count stats for story: {}, chapter: {}, words: {}",
+            story_id,
+            chapter_id,
+            word_count
+        );
 
-        let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let conn = self
+            .db_pool
+            .get()
+            .map_err(|e| format!("Database error: {}", e))?;
 
         // 更新章节字数
         conn.execute(
             "UPDATE chapters SET word_count = ?1, updated_at = ?2 WHERE id = ?3 AND story_id = ?4",
-            rusqlite::params![word_count, chrono::Utc::now().to_rfc3339(), chapter_id, story_id],
-        ).map_err(|e| format!("Failed to update chapter word count: {}", e))?;
+            rusqlite::params![
+                word_count,
+                chrono::Utc::now().to_rfc3339(),
+                chapter_id,
+                story_id
+            ],
+        )
+        .map_err(|e| format!("Failed to update chapter word count: {}", e))?;
 
         // 重新计算总字数
-        let mut stmt = conn.prepare(
-            "SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1"
-        ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1")
+            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-        let total_words: i64 = stmt.query_row([story_id], |row| row.get(0))
+        let total_words: i64 = stmt
+            .query_row([story_id], |row| row.get(0))
             .map_err(|e| format!("Failed to query total words: {}", e))?;
 
         // 更新故事元数据
@@ -614,35 +796,58 @@ impl AutomationService {
             "INSERT OR REPLACE INTO story_metadata (story_id, key, value) VALUES
              (?1, 'total_words', ?2),
              (?1, 'last_word_update', ?3)",
-            rusqlite::params![story_id, total_words.to_string(), chrono::Utc::now().to_rfc3339()],
-        ).map_err(|e| format!("Failed to update word count metadata: {}", e))?;
+            rusqlite::params![
+                story_id,
+                total_words.to_string(),
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )
+        .map_err(|e| format!("Failed to update word count metadata: {}", e))?;
 
         // 发送前端同步事件
-        if let Err(e) = self.app_handle.emit("word_count_updated", serde_json::json!({
-            "story_id": story_id,
-            "chapter_id": chapter_id,
-            "chapter_words": word_count,
-            "total_words": total_words,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
+        if let Err(e) = self.app_handle.emit(
+            "word_count_updated",
+            serde_json::json!({
+                "story_id": story_id,
+                "chapter_id": chapter_id,
+                "chapter_words": word_count,
+                "total_words": total_words,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
             log::warn!("Failed to emit word_count_updated event: {}", e);
         }
 
-        Ok(format!("Updated word count: chapter {} words, total {} words", word_count, total_words))
+        Ok(format!(
+            "Updated word count: chapter {} words, total {} words",
+            word_count, total_words
+        ))
     }
 
     /// 分析章节内容
-    async fn analyze_chapter_content(&self, story_id: &str, chapter_id: &str) -> Result<String, String> {
-        log::info!("Analyzing chapter content for story: {}, chapter: {}", story_id, chapter_id);
+    async fn analyze_chapter_content(
+        &self,
+        story_id: &str,
+        chapter_id: &str,
+    ) -> Result<String, String> {
+        log::info!(
+            "Analyzing chapter content for story: {}, chapter: {}",
+            story_id,
+            chapter_id
+        );
 
-        let conn = self.db_pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let conn = self
+            .db_pool
+            .get()
+            .map_err(|e| format!("Database error: {}", e))?;
 
         // 获取章节内容
-        let mut stmt = conn.prepare(
-            "SELECT content FROM chapters WHERE id = ?1 AND story_id = ?2"
-        ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT content FROM chapters WHERE id = ?1 AND story_id = ?2")
+            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-        let content: String = stmt.query_row([chapter_id, story_id], |row| row.get(0))
+        let content: String = stmt
+            .query_row([chapter_id, story_id], |row| row.get(0))
             .map_err(|e| format!("Failed to query chapter content: {}", e))?;
 
         // 简单的内容分析（实际应用中可以集成AI分析）
@@ -656,23 +861,30 @@ impl AutomationService {
              (?1, 'last_content_analysis', ?2),
              (?1, 'analyzed_chapter_id', ?3)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339(), chapter_id],
-        ).map_err(|e| format!("Failed to update content analysis metadata: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to update content analysis metadata: {}", e))?;
 
         // 发送前端同步事件
-        if let Err(e) = self.app_handle.emit("content_analyzed", serde_json::json!({
-            "story_id": story_id,
-            "chapter_id": chapter_id,
-            "analysis": {
-                "word_count": word_count,
-                "char_count": char_count,
-                "paragraph_count": paragraph_count
-            },
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })) {
+        if let Err(e) = self.app_handle.emit(
+            "content_analyzed",
+            serde_json::json!({
+                "story_id": story_id,
+                "chapter_id": chapter_id,
+                "analysis": {
+                    "word_count": word_count,
+                    "char_count": char_count,
+                    "paragraph_count": paragraph_count
+                },
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        ) {
             log::warn!("Failed to emit content_analyzed event: {}", e);
         }
 
-        Ok(format!("Analyzed content: {} words, {} chars, {} paragraphs", word_count, char_count, paragraph_count))
+        Ok(format!(
+            "Analyzed content: {} words, {} chars, {} paragraphs",
+            word_count, char_count, paragraph_count
+        ))
     }
 
     /// 触发事件

@@ -1,5 +1,4 @@
-pub mod triggers;
+pub mod commands;
 pub mod handlers;
 pub mod service;
-pub mod commands;
-
+pub mod triggers;

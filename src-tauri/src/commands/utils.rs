@@ -1,7 +1,8 @@
 //! Command utilities — shared helpers for Tauri command handlers.
 
-use crate::error::AppError;
 use tauri::{AppHandle, Runtime};
+
+use crate::error::AppError;
 
 /// Extension trait for `Result<T, AppError>` that emits a state-sync event
 /// after a successful mutation.

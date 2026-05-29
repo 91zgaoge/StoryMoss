@@ -3,11 +3,15 @@
 //! 基于 tokio::time 的任务调度器，参考 memoh-X CronPool 设计。
 //! 引入 cron crate 支持标准 Cron 表达式
 
-use super::models::*;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use tauri::async_runtime::JoinHandle;
 use tokio::time::{interval, sleep, Duration};
+
+use super::models::*;
 
 /// 共享任务调度器
 pub struct TaskScheduler {
@@ -26,14 +30,10 @@ impl TaskScheduler {
     }
 
     /// 注册一个定时任务
-    /// 
+    ///
     /// - once 任务：立即执行（不注册定时器，由调用方直接触发）
     /// - daily/weekly/cron 任务：注册 tokio 定时器
-    pub fn register<F>(
-        &self,
-        task: &Task,
-        callback: F,
-    ) -> Result<(), Box<dyn std::error::Error>>
+    pub fn register<F>(&self, task: &Task, callback: F) -> Result<(), Box<dyn std::error::Error>>
     where
         F: Fn() + Send + 'static,
     {
@@ -55,7 +55,12 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered once task: {}", task_id);
             }
             ScheduleType::Daily => {
-                let handle = self.spawn_interval(task_id.clone(), Duration::from_secs(86400), lock, callback);
+                let handle = self.spawn_interval(
+                    task_id.clone(),
+                    Duration::from_secs(86400),
+                    lock,
+                    callback,
+                );
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
@@ -63,7 +68,12 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered daily task: {}", task_id);
             }
             ScheduleType::Weekly => {
-                let handle = self.spawn_interval(task_id.clone(), Duration::from_secs(604800), lock, callback);
+                let handle = self.spawn_interval(
+                    task_id.clone(),
+                    Duration::from_secs(604800),
+                    lock,
+                    callback,
+                );
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
@@ -112,7 +122,8 @@ impl TaskScheduler {
     /// 创建或获取任务的执行锁
     pub fn ensure_lock(&self, task_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.locks.lock().unwrap();
-        locks.entry(task_id.to_string())
+        locks
+            .entry(task_id.to_string())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
     }
@@ -153,16 +164,22 @@ impl TaskScheduler {
                     log::info!("[TaskScheduler] Triggering scheduled task: {}", task_id);
                     callback();
                 } else {
-                    log::warn!("[TaskScheduler] Skipping overlapping trigger for task: {}", task_id);
+                    log::warn!(
+                        "[TaskScheduler] Skipping overlapping trigger for task: {}",
+                        task_id
+                    );
                 }
             }
         })
     }
 
     /// 使用 cron crate 解析标准 Cron 表达式
-    fn parse_cron_schedule(pattern: Option<&str>) -> Result<cron::Schedule, Box<dyn std::error::Error>> {
+    fn parse_cron_schedule(
+        pattern: Option<&str>,
+    ) -> Result<cron::Schedule, Box<dyn std::error::Error>> {
         let pattern = pattern.ok_or("Cron pattern is required for cron schedule type")?;
-        let schedule: cron::Schedule = pattern.parse()
+        let schedule: cron::Schedule = pattern
+            .parse()
             .map_err(|e| format!("Invalid cron pattern '{}': {:?}", pattern, e))?;
         Ok(schedule)
     }
@@ -192,7 +209,10 @@ impl TaskScheduler {
                         log::info!("[TaskScheduler] Triggering cron task: {}", task_id);
                         callback();
                     } else {
-                        log::warn!("[TaskScheduler] Skipping overlapping trigger for task: {}", task_id);
+                        log::warn!(
+                            "[TaskScheduler] Skipping overlapping trigger for task: {}",
+                            task_id
+                        );
                     }
                 }
             }

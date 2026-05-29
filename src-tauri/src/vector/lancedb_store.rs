@@ -3,17 +3,21 @@
 //! Real LanceDB-backed vector storage using ANN vector search.
 //! Replaces the previous SQLite-compatible layer with true vector indexing.
 
+use std::sync::Arc;
+
 use arrow_array::{
-    FixedSizeListArray, Float32Array, Int32Array, RecordBatch,
+    types::Float32Type, FixedSizeListArray, Float32Array, Int32Array, RecordBatch,
     RecordBatchIterator, StringArray,
 };
-use arrow_array::types::Float32Type;
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
-use lancedb::{connect, index::Index, Connection, DistanceType, Table};
-use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::{
+    connect,
+    index::Index,
+    query::{ExecutableQuery, QueryBase},
+    Connection, DistanceType, Table,
+};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 const EMBEDDING_DIM: i32 = 384;
 const TABLE_NAME: &str = "vector_records";
@@ -88,13 +92,12 @@ impl LanceVectorStore {
                 Arc::new(Int32Array::from(Vec::<i32>::new())),
                 Arc::new(StringArray::from(Vec::<&str>::new())),
                 Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(FixedSizeListArray::from_iter_primitive::<
-                    Float32Type,
-                    _,
-                    _,
-                >(
-                    std::iter::empty::<Option<Vec<Option<f32>>>>(), EMBEDDING_DIM,
-                )),
+                Arc::new(
+                    FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
+                        std::iter::empty::<Option<Vec<Option<f32>>>>(),
+                        EMBEDDING_DIM,
+                    ),
+                ),
             ],
         )?;
         Ok(batch)
@@ -124,11 +127,12 @@ impl LanceVectorStore {
                 Arc::new(Int32Array::from(chapter_numbers)),
                 Arc::new(StringArray::from(texts)),
                 Arc::new(StringArray::from(record_types)),
-                Arc::new(FixedSizeListArray::from_iter_primitive::<
-                    Float32Type,
-                    _,
-                    _,
-                >(vectors.into_iter(), EMBEDDING_DIM)),
+                Arc::new(
+                    FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
+                        vectors.into_iter(),
+                        EMBEDDING_DIM,
+                    ),
+                ),
             ],
         )?;
         Ok(batch)
@@ -141,9 +145,7 @@ impl LanceVectorStore {
             Ok(t) => t,
             Err(_) => {
                 let empty_batch = Self::empty_batch()?;
-                db.create_table(TABLE_NAME, empty_batch)
-                    .execute()
-                    .await?
+                db.create_table(TABLE_NAME, empty_batch).execute().await?
             }
         };
 
@@ -173,13 +175,13 @@ impl LanceVectorStore {
     }
 
     /// Upsert a record (update if exists, insert if not)
-    pub async fn upsert(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn upsert(
+        &self,
+        record: VectorRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let table = self.table()?;
         let batch = Self::records_to_batch(&[record])?;
-        let reader = Box::new(RecordBatchIterator::new(
-            vec![Ok(batch)],
-            Self::schema(),
-        ));
+        let reader = Box::new(RecordBatchIterator::new(vec![Ok(batch)], Self::schema()));
 
         let mut builder = table.merge_insert(&["id"]);
         builder.when_matched_update_all(None);
@@ -189,7 +191,10 @@ impl LanceVectorStore {
         Ok(())
     }
 
-    pub async fn add_record(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn add_record(
+        &self,
+        record: VectorRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.upsert(record).await
     }
 
@@ -243,8 +248,12 @@ impl LanceVectorStore {
                 let score = distances.map(|d| 1.0 - d.value(i)).unwrap_or(0.0);
                 results.push(SearchResult {
                     id: ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
-                    story_id: story_ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
-                    chapter_id: chapter_ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
+                    story_id: story_ids
+                        .map(|a| a.value(i).to_string())
+                        .unwrap_or_default(),
+                    chapter_id: chapter_ids
+                        .map(|a| a.value(i).to_string())
+                        .unwrap_or_default(),
                     chapter_number: chapter_numbers.map(|a| a.value(i)).unwrap_or(0),
                     text: texts.map(|a| a.value(i).to_string()).unwrap_or_default(),
                     score,
@@ -299,8 +308,12 @@ impl LanceVectorStore {
             for i in 0..num_rows {
                 results.push(SearchResult {
                     id: ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
-                    story_id: story_ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
-                    chapter_id: chapter_ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
+                    story_id: story_ids
+                        .map(|a| a.value(i).to_string())
+                        .unwrap_or_default(),
+                    chapter_id: chapter_ids
+                        .map(|a| a.value(i).to_string())
+                        .unwrap_or_default(),
                     chapter_number: chapter_numbers.map(|a| a.value(i)).unwrap_or(0),
                     text: texts.map(|a| a.value(i).to_string()).unwrap_or_default(),
                     score: 0.8, // 基础文本匹配分数
@@ -362,10 +375,15 @@ impl LanceVectorStore {
         Ok(())
     }
 
-    pub async fn delete_chapter(&self, chapter_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn delete_chapter(
+        &self,
+        chapter_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let table = self.table()?;
         let safe_chapter_id = chapter_id.replace("'", "''");
-        table.delete(&format!("chapter_id = '{}'", safe_chapter_id)).await?;
+        table
+            .delete(&format!("chapter_id = '{}'", safe_chapter_id))
+            .await?;
         Ok(())
     }
 
@@ -382,7 +400,8 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
         story_id: &str,
         token: &str,
         limit: usize,
-    ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let results = self.text_search(story_id, token, limit).await?;
         Ok(results
             .into_iter()
@@ -405,7 +424,8 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
         story_id: &str,
         embedding: Vec<f32>,
         limit: usize,
-    ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let results = self.search(story_id, embedding, limit).await?;
         Ok(results
             .into_iter()
@@ -471,14 +491,18 @@ mod tests {
 
             let query = {
                 let mut v = vec![0.0f32; EMBEDDING_DIM as usize];
-                v[0] = 0.1; v[1] = 0.2; v[2] = 0.3; v[3] = 0.4;
+                v[0] = 0.1;
+                v[1] = 0.2;
+                v[2] = 0.3;
+                v[3] = 0.4;
                 v
             };
             let results = store.search("story_1", query, 5).await.unwrap();
             assert_eq!(results.len(), 2);
         }
 
-        // Phase 2: Re-open with same URI (memory DB is fresh each time, so this just tests struct)
+        // Phase 2: Re-open with same URI (memory DB is fresh each time, so this just
+        // tests struct)
         {
             let mut store = LanceVectorStore::new(db_uri.clone());
             store.init().await.unwrap();
@@ -501,7 +525,10 @@ mod tests {
 
         let query_r2 = {
             let mut v = vec![0.0f32; EMBEDDING_DIM as usize];
-            v[0] = 0.9; v[1] = 0.8; v[2] = 0.7; v[3] = 0.6;
+            v[0] = 0.9;
+            v[1] = 0.8;
+            v[2] = 0.7;
+            v[3] = 0.6;
             v
         };
         let results = store.search("s1", query_r2.clone(), 5).await.unwrap();
@@ -514,7 +541,10 @@ mod tests {
 
         let query_r1 = {
             let mut v = vec![0.0f32; EMBEDDING_DIM as usize];
-            v[0] = 0.1; v[1] = 0.2; v[2] = 0.3; v[3] = 0.4;
+            v[0] = 0.1;
+            v[1] = 0.2;
+            v[2] = 0.3;
+            v[3] = 0.4;
             v
         };
         let results = store.search("s1", query_r1, 5).await.unwrap();

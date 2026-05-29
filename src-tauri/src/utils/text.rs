@@ -9,7 +9,10 @@ impl TextUtils {
     /// 中文-aware 字数统计：中文字符 + 英文单词
     /// 与前端 FrontstageApp.tsx 逻辑保持一致
     pub fn chinese_word_count(text: &str) -> usize {
-        let chinese_chars = text.chars().filter(|c| matches!(*c, '\u{4e00}'..='\u{9fff}')).count();
+        let chinese_chars = text
+            .chars()
+            .filter(|c| matches!(*c, '\u{4e00}'..='\u{9fff}'))
+            .count();
         let english_words: usize = text
             .split(|c: char| !c.is_ascii_alphabetic())
             .filter(|s| !s.is_empty())
@@ -18,7 +21,9 @@ impl TextUtils {
     }
 
     pub fn sentence_count(text: &str) -> usize {
-        text.split(['.', '!', '?']).filter(|s| !s.trim().is_empty()).count()
+        text.split(['.', '!', '?'])
+            .filter(|s| !s.trim().is_empty())
+            .count()
     }
 
     pub fn reading_time_minutes(text: &str, wpm: u32) -> f32 {
@@ -63,7 +68,11 @@ impl TextUtils {
         let b_words: std::collections::HashSet<&str> = b.split_whitespace().collect();
         let intersection = a_words.intersection(&b_words).count() as f32;
         let union = a_words.union(&b_words).count() as f32;
-        if union == 0.0 { 0.0 } else { intersection / union }
+        if union == 0.0 {
+            0.0
+        } else {
+            intersection / union
+        }
     }
 
     pub fn remove_markdown(text: &str) -> String {
@@ -77,7 +86,9 @@ impl TextUtils {
     }
 
     pub fn split_paragraphs(text: &str) -> Vec<&str> {
-        text.split("\n\n").filter(|p| !p.trim().is_empty()).collect()
+        text.split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .collect()
     }
 
     pub fn excerpt(text: &str, keyword: &str, context_words: usize) -> Option<String> {

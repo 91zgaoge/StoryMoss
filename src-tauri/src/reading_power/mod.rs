@@ -7,11 +7,12 @@
 //! - Debt（债务）：违背软建议时产生的追读力债务，含利息机制
 //! - Override Contract：违背约束时的偿还计划与截止章节
 
-use crate::db::{
-    DbPool, ChapterReadingPowerRepository, ChaseDebtRepository,
-    OverrideContractRepository, SceneCommitRepository,
-};
 use serde::{Deserialize, Serialize};
+
+use crate::db::{
+    ChapterReadingPowerRepository, ChaseDebtRepository, DbPool, OverrideContractRepository,
+    SceneCommitRepository,
+};
 
 pub mod evaluator;
 
@@ -49,11 +50,11 @@ impl ReadingPowerEvaluator {
     ) -> Result<ReadingPowerEvaluation, String> {
         // 从 commit 中提取数据
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
-        let commits = commit_repo.get_by_story(story_id)
+        let commits = commit_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取提交记录失败: {}", e))?;
 
-        let chapter_commit = commits.iter()
-            .find(|c| c.chapter_number == chapter_number);
+        let chapter_commit = commits.iter().find(|c| c.chapter_number == chapter_number);
 
         // 提取爽点模式
         let coolpoint_patterns = Vec::new();
@@ -61,16 +62,16 @@ impl ReadingPowerEvaluator {
 
         // 检查是否有债务
         let debt_repo = ChaseDebtRepository::new(self.pool.clone());
-        let active_debts = debt_repo.get_active_by_story(story_id)
+        let active_debts = debt_repo
+            .get_active_by_story(story_id)
             .map_err(|e| format!("获取债务失败: {}", e))?;
 
-        let debt_balance: f64 = active_debts.iter()
-            .map(|d| d.current_amount)
-            .sum();
+        let debt_balance: f64 = active_debts.iter().map(|d| d.current_amount).sum();
 
         // 检查 override contracts
         let override_repo = OverrideContractRepository::new(self.pool.clone());
-        let pending_overrides = override_repo.get_pending_by_story(story_id)
+        let pending_overrides = override_repo
+            .get_pending_by_story(story_id)
             .map_err(|e| format!("获取覆写合约失败: {}", e))?;
 
         let override_count = pending_overrides.len() as i32;
@@ -81,7 +82,11 @@ impl ReadingPowerEvaluator {
             _ => 0.5,
         };
 
-        let coolpoint_score: f64 = if coolpoint_patterns.is_empty() { 0.0 } else { 0.7 };
+        let coolpoint_score: f64 = if coolpoint_patterns.is_empty() {
+            0.0
+        } else {
+            0.7
+        };
         let debt_penalty = (debt_balance as f64 * 0.1_f64).min(0.5_f64);
 
         let score: f64 = (hook_score * 0.4_f64 + coolpoint_score * 0.3_f64 + 0.3_f64)
@@ -92,7 +97,13 @@ impl ReadingPowerEvaluator {
         Ok(ReadingPowerEvaluation {
             chapter_number,
             hook_type: None, // 从摘要中提取
-            hook_strength: if score > 0.7 { "strong".to_string() } else if score > 0.4 { "medium".to_string() } else { "weak".to_string() },
+            hook_strength: if score > 0.7 {
+                "strong".to_string()
+            } else if score > 0.4 {
+                "medium".to_string()
+            } else {
+                "weak".to_string()
+            },
             coolpoint_patterns,
             micropayoffs,
             hard_violations: Vec::new(),
@@ -111,34 +122,40 @@ impl ReadingPowerEvaluator {
         last_n: i64,
     ) -> Result<Vec<ReadingPowerEvaluation>, String> {
         let repo = ChapterReadingPowerRepository::new(self.pool.clone());
-        let items = repo.get_by_story(story_id, last_n)
+        let items = repo
+            .get_by_story(story_id, last_n)
             .map_err(|e| format!("获取追读力数据失败: {}", e))?;
 
-        let evaluations = items.iter().map(|item| {
-            let coolpoint_patterns: Vec<String> = item.coolpoint_patterns_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_default();
+        let evaluations = items
+            .iter()
+            .map(|item| {
+                let coolpoint_patterns: Vec<String> = item
+                    .coolpoint_patterns_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or_default();
 
-            let micropayoffs: Vec<String> = item.micropayoffs_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_default();
+                let micropayoffs: Vec<String> = item
+                    .micropayoffs_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or_default();
 
-            ReadingPowerEvaluation {
-                chapter_number: item.chapter_number,
-                hook_type: item.hook_type.clone(),
-                hook_strength: item.hook_strength.clone(),
-                coolpoint_patterns,
-                micropayoffs,
-                hard_violations: Vec::new(),
-                soft_suggestions: Vec::new(),
-                is_transition: item.is_transition,
-                override_count: item.override_count,
-                debt_balance: item.debt_balance,
-                score: 0.0, // 简化
-            }
-        }).collect();
+                ReadingPowerEvaluation {
+                    chapter_number: item.chapter_number,
+                    hook_type: item.hook_type.clone(),
+                    hook_strength: item.hook_strength.clone(),
+                    coolpoint_patterns,
+                    micropayoffs,
+                    hard_violations: Vec::new(),
+                    soft_suggestions: Vec::new(),
+                    is_transition: item.is_transition,
+                    override_count: item.override_count,
+                    debt_balance: item.debt_balance,
+                    score: 0.0, // 简化
+                }
+            })
+            .collect();
 
         Ok(evaluations)
     }
@@ -146,7 +163,8 @@ impl ReadingPowerEvaluator {
     /// 计算债务利息
     pub fn accrue_interest(&self, story_id: &str) -> Result<usize, String> {
         let debt_repo = ChaseDebtRepository::new(self.pool.clone());
-        debt_repo.apply_interest(story_id)
+        debt_repo
+            .apply_interest(story_id)
             .map_err(|e| format!("计算利息失败: {}", e))
     }
 
@@ -157,7 +175,8 @@ impl ReadingPowerEvaluator {
         current_chapter: i32,
     ) -> Result<Vec<crate::db::ChaseDebt>, String> {
         let debt_repo = ChaseDebtRepository::new(self.pool.clone());
-        debt_repo.get_overdue(story_id, current_chapter)
+        debt_repo
+            .get_overdue(story_id, current_chapter)
             .map_err(|e| format!("获取超期债务失败: {}", e))
     }
 }
@@ -183,8 +202,15 @@ impl DebtManager {
         due_chapter: i32,
     ) -> Result<crate::db::ChaseDebt, String> {
         let repo = ChaseDebtRepository::new(self.pool.clone());
-        repo.create(story_id, debt_type, original_amount, interest_rate, source_chapter, due_chapter)
-            .map_err(|e| format!("创建债务失败: {}", e))
+        repo.create(
+            story_id,
+            debt_type,
+            original_amount,
+            interest_rate,
+            source_chapter,
+            due_chapter,
+        )
+        .map_err(|e| format!("创建债务失败: {}", e))
     }
 
     /// 创建 Override Contract
@@ -200,8 +226,17 @@ impl DebtManager {
         due_chapter: i32,
     ) -> Result<crate::db::OverrideContract, String> {
         let repo = OverrideContractRepository::new(self.pool.clone());
-        repo.create(story_id, chapter_number, constraint_type, constraint_id, rationale_type, rationale_text, payback_plan, due_chapter)
-            .map_err(|e| format!("创建覆写合约失败: {}", e))
+        repo.create(
+            story_id,
+            chapter_number,
+            constraint_type,
+            constraint_id,
+            rationale_type,
+            rationale_text,
+            payback_plan,
+            due_chapter,
+        )
+        .map_err(|e| format!("创建覆写合约失败: {}", e))
     }
 
     /// 标记合约已履行

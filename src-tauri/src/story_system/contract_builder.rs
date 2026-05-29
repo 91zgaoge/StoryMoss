@@ -2,7 +2,6 @@
 //!
 //! 辅助构建各类合同的 JSON 内容
 
-
 /// 合同构建器
 pub struct ContractBuilder;
 

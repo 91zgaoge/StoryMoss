@@ -1,12 +1,13 @@
 //! 自动化相关的 IPC 命令
 
-use tauri::{AppHandle, State, Wry};
 use std::collections::HashMap;
 
+use tauri::{AppHandle, State, Wry};
+
 use crate::automation::{
+    handlers::AutomationHandler,
     service::AutomationService,
     triggers::{AutomationTrigger, TriggerEvent},
-    handlers::AutomationHandler,
 };
 
 /// 触发自动化事件
@@ -88,9 +89,16 @@ pub async fn trigger_chapter_created(
     story_id: String,
     chapter_id: String,
 ) -> Result<(), String> {
-    log::debug!("[IPC] trigger_chapter_created: {} -> {}", story_id, chapter_id);
+    log::debug!(
+        "[IPC] trigger_chapter_created: {} -> {}",
+        story_id,
+        chapter_id
+    );
 
-    let event = TriggerEvent::ChapterCreated { story_id, chapter_id };
+    let event = TriggerEvent::ChapterCreated {
+        story_id,
+        chapter_id,
+    };
     automation_service.trigger_event(event).await?;
     Ok(())
 }
@@ -102,9 +110,16 @@ pub async fn trigger_character_created(
     story_id: String,
     character_id: String,
 ) -> Result<(), String> {
-    log::debug!("[IPC] trigger_character_created: {} -> {}", story_id, character_id);
+    log::debug!(
+        "[IPC] trigger_character_created: {} -> {}",
+        story_id,
+        character_id
+    );
 
-    let event = TriggerEvent::CharacterCreated { story_id, character_id };
+    let event = TriggerEvent::CharacterCreated {
+        story_id,
+        character_id,
+    };
     automation_service.trigger_event(event).await?;
     Ok(())
 }
@@ -117,9 +132,18 @@ pub async fn trigger_chapter_content_updated(
     chapter_id: String,
     word_count: usize,
 ) -> Result<(), String> {
-    log::debug!("[IPC] trigger_chapter_content_updated: {} -> {} ({}字)", story_id, chapter_id, word_count);
+    log::debug!(
+        "[IPC] trigger_chapter_content_updated: {} -> {} ({}字)",
+        story_id,
+        chapter_id,
+        word_count
+    );
 
-    let event = TriggerEvent::ChapterContentUpdated { story_id, chapter_id, word_count };
+    let event = TriggerEvent::ChapterContentUpdated {
+        story_id,
+        chapter_id,
+        word_count,
+    };
     automation_service.trigger_event(event).await?;
     Ok(())
 }

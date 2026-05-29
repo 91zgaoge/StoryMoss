@@ -3,13 +3,13 @@
 //! 任务调度系统：支持一次性/定时任务，心跳检测，自动重试。
 //! 参考 memoh-X internal/schedule + internal/heartbeat 设计。
 
+pub mod commands;
+pub mod executor;
+pub mod heartbeat;
 pub mod models;
 pub mod repository;
 pub mod scheduler;
-pub mod heartbeat;
-pub mod executor;
 pub mod service;
-pub mod commands;
 
 #[cfg(test)]
 mod tests;

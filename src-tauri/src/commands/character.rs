@@ -1,9 +1,12 @@
 //! Character commands
 
-use crate::db::{CharacterRepository, CreateCharacterRequest, DbPool};
 use tauri::{AppHandle, Manager, State};
-use crate::error::AppError;
-use crate::SKILL_MANAGER;
+
+use crate::{
+    db::{CharacterRepository, CreateCharacterRequest, DbPool},
+    error::AppError,
+    SKILL_MANAGER,
+};
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_story_characters(
@@ -15,18 +18,31 @@ pub fn get_story_characters(
         .map_err(AppError::from)
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn create_character(
-    story_id: String, name: String, background: Option<String>,
-    personality: Option<String>, goals: Option<String>, appearance: Option<String>,
-    gender: Option<String>, age: Option<i32>,
+    story_id: String,
+    name: String,
+    background: Option<String>,
+    personality: Option<String>,
+    goals: Option<String>,
+    appearance: Option<String>,
+    gender: Option<String>,
+    age: Option<i32>,
     app: AppHandle,
     automation_service: tauri::State<crate::automation::service::AutomationService>,
     pool: State<'_, DbPool>,
 ) -> Result<crate::db::Character, AppError> {
     let character = CharacterRepository::new(pool.inner().clone())
-        .create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age })
+        .create(CreateCharacterRequest {
+            story_id: story_id.clone(),
+            name: name.clone(),
+            background,
+            personality,
+            goals,
+            appearance,
+            gender,
+            age,
+        })
         .map_err(AppError::from)?;
 
     // OnCharacterCreate hook
@@ -39,39 +55,62 @@ pub fn create_character(
             tauri::async_runtime::spawn(async move {
                 let context = crate::agents::AgentContext::minimal(story_id, String::new());
                 let data = serde_json::json!({ "character_id": character_id, "character_name": character_name });
-                let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data).await;
-                log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnCharacterCreate);
+                let _ = skill_manager
+                    .execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data)
+                    .await;
+                log::info!(
+                    "Hook executed: {:?}",
+                    crate::skills::HookEvent::OnCharacterCreate
+                );
             });
         }
     }
 
-    let _ = crate::state_sync::StateSync::emit_character_created(&app, &story_id, &character.id, &character.name);
+    let _ = crate::state_sync::StateSync::emit_character_created(
+        &app,
+        &story_id,
+        &character.id,
+        &character.name,
+    );
     let automation_service_clone = automation_service.inner().clone();
     let story_id_clone = story_id.clone();
     let character_id_clone = character.id.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = automation_service_clone.trigger_event(crate::automation::triggers::TriggerEvent::CharacterCreated {
-            story_id: story_id_clone,
-            character_id: character_id_clone,
-        }).await {
-            log::warn!("[create_character] Failed to trigger character created automation: {}", e);
+        if let Err(e) = automation_service_clone
+            .trigger_event(
+                crate::automation::triggers::TriggerEvent::CharacterCreated {
+                    story_id: story_id_clone,
+                    character_id: character_id_clone,
+                },
+            )
+            .await
+        {
+            log::warn!(
+                "[create_character] Failed to trigger character created automation: {}",
+                e
+            );
         }
     });
     Ok(character)
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_character(
-    id: String, name: Option<String>, background: Option<String>,
-    personality: Option<String>, goals: Option<String>,
-    appearance: Option<String>, gender: Option<String>, age: Option<i32>,
+    id: String,
+    name: Option<String>,
+    background: Option<String>,
+    personality: Option<String>,
+    goals: Option<String>,
+    appearance: Option<String>,
+    gender: Option<String>,
+    age: Option<i32>,
     app: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
     let pool = pool.inner().clone();
     let repo = CharacterRepository::new(pool.clone());
-    // 先查询旧角色数据，用于级联改写对比（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    // 先查询旧角色数据，用于级联改写对比（P0-3 修复: 避免 unwrap_or_default
+    // 导致空字符串）
     let old_character = repo.get_by_id(&id).ok().flatten();
     let story_id_opt = old_character.as_ref().map(|c| c.story_id.clone());
     // 保存字段副本用于 Ingest（repo.update 会 move 走 Option 值）
@@ -80,11 +119,27 @@ pub fn update_character(
     let personality_for_ingest = personality.clone();
     let goals_for_ingest = goals.clone();
     let appearance_for_ingest = appearance.clone();
-    repo.update(&id, name, background, personality, goals, appearance, gender, age).map_err(AppError::from)?;
+    repo.update(
+        &id,
+        name,
+        background,
+        personality,
+        goals,
+        appearance,
+        gender,
+        age,
+    )
+    .map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt.clone() {
-        let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name_for_ingest.as_deref(), &story_id);
+        let _ = crate::state_sync::StateSync::emit_character_updated(
+            &app,
+            &id,
+            name_for_ingest.as_deref(),
+            &story_id,
+        );
 
-        // D1 Phase 4: 角色敏感字段变更触发级联改写（在 Ingest spawn 之前执行，避免变量所有权冲突）
+        // D1 Phase 4: 角色敏感字段变更触发级联改写（在 Ingest spawn
+        // 之前执行，避免变量所有权冲突）
         if let Some(ref old) = old_character {
             let mut changed_fields = Vec::new();
             let mut before_map = serde_json::Map::new();
@@ -93,7 +148,10 @@ pub fn update_character(
             if let Some(ref new_val) = personality_for_ingest {
                 if old.personality.as_ref() != Some(new_val) {
                     changed_fields.push("personality".to_string());
-                    before_map.insert("personality".to_string(), serde_json::json!(old.personality));
+                    before_map.insert(
+                        "personality".to_string(),
+                        serde_json::json!(old.personality),
+                    );
                     after_map.insert("personality".to_string(), serde_json::json!(new_val));
                 }
             }
@@ -138,10 +196,11 @@ pub fn update_character(
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 };
 
-                let payload = crate::creative_engine::cascade_rewriter::models::CascadeTaskPayload {
-                    story_id: story_id.clone(),
-                    change_events: vec![change_event],
-                };
+                let payload =
+                    crate::creative_engine::cascade_rewriter::models::CascadeTaskPayload {
+                        story_id: story_id.clone(),
+                        change_events: vec![change_event],
+                    };
 
                 let payload_json = serde_json::to_string(&payload).unwrap_or_default();
 
@@ -157,10 +216,20 @@ pub fn update_character(
                     heartbeat_timeout_seconds: Some(300),
                 };
 
-                if let Some(task_service) = app.try_state::<crate::task_system::service::TaskService>() {
+                if let Some(task_service) =
+                    app.try_state::<crate::task_system::service::TaskService>()
+                {
                     match task_service.create_task(req) {
-                        Ok(task) => log::info!("[CascadeRewrite] Created task {} for character {}", task.id, id),
-                        Err(e) => log::warn!("[CascadeRewrite] Failed to create task for character {}: {}", id, e),
+                        Ok(task) => log::info!(
+                            "[CascadeRewrite] Created task {} for character {}",
+                            task.id,
+                            id
+                        ),
+                        Err(e) => log::warn!(
+                            "[CascadeRewrite] Failed to create task for character {}: {}",
+                            id,
+                            e
+                        ),
                     }
                 }
             }
@@ -198,7 +267,8 @@ pub fn update_character(
             };
             match pipeline.ingest(&content).await {
                 Ok(result) => {
-                    let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool_for_kg);
+                    let kg_repo =
+                        crate::db::repositories::KnowledgeGraphRepository::new(pool_for_kg);
                     for entity in &result.entities {
                         let _ = kg_repo.create_entity(
                             &story_id_for_ingest,
@@ -208,20 +278,29 @@ pub fn update_character(
                             entity.embedding.clone(),
                         );
                     }
-                    log::info!("[AutoIngest] Character {}: {} entities saved to KG", character_id, result.entities.len());
+                    log::info!(
+                        "[AutoIngest] Character {}: {} entities saved to KG",
+                        character_id,
+                        result.entities.len()
+                    );
                     let _ = crate::state_sync::StateSync::emit_data_refresh(
-                        &app_handle_clone, Some(&story_id_for_ingest), "knowledgeGraph"
+                        &app_handle_clone,
+                        Some(&story_id_for_ingest),
+                        "knowledgeGraph",
                     );
                 }
                 Err(e) => {
-                    log::warn!("[AutoIngest] Character {} ingest failed: {}", character_id, e);
+                    log::warn!(
+                        "[AutoIngest] Character {} ingest failed: {}",
+                        character_id,
+                        e
+                    );
                 }
             }
         });
     }
     Ok(())
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn delete_character(
@@ -230,7 +309,8 @@ pub fn delete_character(
     pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
     let repo = CharacterRepository::new(pool.inner().clone());
-    // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+    // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default
+    // 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.delete(&id).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt {
@@ -238,4 +318,3 @@ pub fn delete_character(
     }
     Ok(())
 }
-

@@ -2,11 +2,16 @@
 //!
 //! 提供 Diff 预览数据的查询，以及接受/拒绝改写片段的应用接口。
 
-use super::models::{CascadeTaskResult, RewriteSegment, UserDecision};
-use crate::db::repositories::{SceneRepository, SceneUpdate};
-use crate::db::DbPool;
-use crate::error::AppError;
 use tauri::{command, AppHandle, State};
+
+use super::models::{CascadeTaskResult, RewriteSegment, UserDecision};
+use crate::{
+    db::{
+        repositories::{SceneRepository, SceneUpdate},
+        DbPool,
+    },
+    error::AppError,
+};
 
 /// 获取级联改写任务的结果（用于 Diff 预览）
 #[command(rename_all = "snake_case")]

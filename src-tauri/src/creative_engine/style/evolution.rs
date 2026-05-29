@@ -6,9 +6,12 @@
 //! 核心逻辑：将 Review 发现的问题映射到 StyleDNA 六维度的调整建议。
 
 use serde::{Deserialize, Serialize};
+
 use super::dna::StyleDNA;
-use crate::anti_ai::{AntiAiReview, ReviewIssue};
-use crate::pipeline::types::{ReviewResult, ReviewDimensionResult};
+use crate::{
+    anti_ai::{AntiAiReview, ReviewIssue},
+    pipeline::types::{ReviewDimensionResult, ReviewResult},
+};
 
 /// StyleDNA 维度调整建议
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -37,9 +40,7 @@ pub struct StyleDnaDelta {
 
 impl StyleDnaDelta {
     /// 将 Delta 应用到现有 StyleDNA，返回新的 DNA
-    pub fn apply(&self,
-        base: &StyleDNA,
-    ) -> StyleDNA {
+    pub fn apply(&self, base: &StyleDNA) -> StyleDNA {
         let mut evolved = base.clone();
 
         // 数值型维度：应用增量并 clamp
@@ -53,8 +54,9 @@ impl StyleDnaDelta {
         evolved.rhetoric.metaphor_density =
             (base.rhetoric.metaphor_density + self.metaphor_density_delta).clamp(0.0, 50.0);
 
-        evolved.perspective.interior_monologue_ratio =
-            (base.perspective.interior_monologue_ratio + self.interior_monologue_delta).clamp(0.0, 1.0);
+        evolved.perspective.interior_monologue_ratio = (base.perspective.interior_monologue_ratio
+            + self.interior_monologue_delta)
+            .clamp(0.0, 1.0);
 
         evolved.emotion.emotion_word_density =
             (base.emotion.emotion_word_density + self.emotion_density_delta).clamp(0.0, 1.0);
@@ -147,42 +149,57 @@ impl StyleEvolutionEngine {
 
         match issue.dimension.as_str() {
             "词汇" => {
-                if issue.description.contains("cliché") || issue.description.contains("同质化") {
+                if issue.description.contains("cliché") || issue.description.contains("同质化")
+                {
                     delta.avoided_patterns_add.push(issue.example.clone());
                     delta.vocabulary_density_shift = Some("high".to_string());
-                    delta.reasons.push(format!("词汇 cliché: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("词汇 cliché: {}", issue.suggestion));
                 }
                 if issue.description.contains("重复用词") {
                     delta.vocabulary_density_shift = Some("high".to_string());
-                    delta.reasons.push(format!("重复用词: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("重复用词: {}", issue.suggestion));
                 }
             }
             "语法" => {
                 if issue.description.contains("短句过多") {
                     delta.sentence_length_delta += (5.0 * severity_multiplier) as i32;
                     delta.rhythm_score_delta += 0.05 * severity_multiplier;
-                    delta.reasons.push(format!("短句碎片化: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("短句碎片化: {}", issue.suggestion));
                 }
                 if issue.description.contains("长句过多") {
                     delta.sentence_length_delta -= (5.0 * severity_multiplier) as i32;
                     delta.rhythm_score_delta += 0.05 * severity_multiplier;
-                    delta.reasons.push(format!("长句负担: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("长句负担: {}", issue.suggestion));
                 }
                 if issue.description.contains("被动") {
                     delta.sentence_length_delta += (2.0 * severity_multiplier) as i32;
-                    delta.reasons.push(format!("被动句式: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("被动句式: {}", issue.suggestion));
                 }
             }
             "叙事" => {
                 if issue.description.contains("流水账") || issue.description.contains("均匀") {
                     delta.rhythm_score_delta += 0.1 * severity_multiplier;
                     delta.sentence_length_delta += (3.0 * severity_multiplier) as i32;
-                    delta.reasons.push(format!("叙事节奏: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("叙事节奏: {}", issue.suggestion));
                 }
                 if issue.description.contains("叙事密度过低") {
                     delta.metaphor_density_delta += 1.0 * severity_multiplier;
                     delta.emotion_density_delta += 0.01 * severity_multiplier;
-                    delta.reasons.push(format!("叙事密度: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("叙事密度: {}", issue.suggestion));
                 }
             }
             "情感" => {
@@ -190,21 +207,29 @@ impl StyleEvolutionEngine {
                     delta.emotion_density_delta -= 0.02 * severity_multiplier;
                     delta.expressiveness_shift = Some("restrained".to_string());
                     delta.interior_monologue_delta -= 0.05 * severity_multiplier;
-                    delta.reasons.push(format!("情感标签化: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("情感标签化: {}", issue.suggestion));
                 }
                 if issue.description.contains("内心独白占比偏高") {
                     delta.interior_monologue_delta -= 0.05 * severity_multiplier;
-                    delta.reasons.push(format!("内心独白过多: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("内心独白过多: {}", issue.suggestion));
                 }
             }
             "对话" => {
                 if issue.description.contains("说明性") {
                     delta.dialogue_ratio_delta -= 0.05 * severity_multiplier;
-                    delta.reasons.push(format!("对话说明性: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("对话说明性: {}", issue.suggestion));
                 }
                 if issue.description.contains("标签单调") {
                     delta.dialogue_ratio_delta += 0.02 * severity_multiplier;
-                    delta.reasons.push(format!("对话标签单调: {}", issue.suggestion));
+                    delta
+                        .reasons
+                        .push(format!("对话标签单调: {}", issue.suggestion));
                 }
             }
             _ => {}
@@ -241,12 +266,16 @@ impl StyleEvolutionEngine {
             "continuity" | "logic" | "foreshadow" => {
                 // 剧情类问题：增加内心独白以解释动机
                 delta.interior_monologue_delta += 0.03 * strength;
-                delta.reasons.push(format!("{}: 增加内心独白解释动机", dim.name));
+                delta
+                    .reasons
+                    .push(format!("{}: 增加内心独白解释动机", dim.name));
             }
             "character" => {
                 // 角色一致性：通过对话和动作强化人设
                 delta.dialogue_ratio_delta += 0.03 * strength;
-                delta.reasons.push(format!("{}: 调整对话比例强化人设", dim.name));
+                delta
+                    .reasons
+                    .push(format!("{}: 调整对话比例强化人设", dim.name));
             }
             "pacing" => {
                 // 节奏问题：调整句长和节奏起伏
@@ -296,10 +325,7 @@ mod tests {
 
         let base = StyleDNA::new("测试");
         let engine = StyleEvolutionEngine::new();
-        let delta = engine.evolve_from_reviews(&base,
-            Some(&review),
-            None,
-        );
+        let delta = engine.evolve_from_reviews(&base, Some(&review), None);
 
         // 情感标签化 + 词汇 cliché 应该会触发调整
         assert!(!delta.is_empty(), "应该有调整建议");

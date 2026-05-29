@@ -1,8 +1,8 @@
 //! Anti Ai commands
 
 use tauri::State;
-use crate::db::DbPool;
-use crate::error::AppError;
+
+use crate::{db::DbPool, error::AppError};
 
 // ==================== Anti-AI Review Command ====================
 
@@ -16,7 +16,6 @@ pub fn anti_ai_review(
     let reviewer = crate::anti_ai::AntiAiReviewer::new();
     Ok(reviewer.review(&text, genre.as_deref()))
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn evolve_style_from_anti_ai_review(
@@ -38,18 +37,25 @@ pub fn evolve_style_from_anti_ai_review(
     // 2. 获取或创建 StyleDNA
     let dna_repo = crate::db::repositories::StyleDnaRepository::new(pool.clone());
     let (dna_id, base_dna) = if let Some(id) = style_dna_id {
-        let dna = dna_repo.get_by_id(&id).map_err(AppError::from)?
+        let dna = dna_repo
+            .get_by_id(&id)
+            .map_err(AppError::from)?
             .ok_or("StyleDNA not found")?;
-        let base: crate::creative_engine::style::dna::StyleDNA = serde_json::from_str(&dna.dna_json)
-            .map_err(AppError::from)?;
+        let base: crate::creative_engine::style::dna::StyleDNA =
+            serde_json::from_str(&dna.dna_json).map_err(AppError::from)?;
         (id, base)
     } else {
         let base = crate::creative_engine::style::dna::StyleDNA::new("evolved");
         let json = serde_json::to_string(&base).map_err(AppError::from)?;
-        let dna = dna_repo.create("evolved", None, &json, false).map_err(AppError::from)?;
-        let conn = pool.get().map_err(AppError::from)?;
-        conn.execute("UPDATE stories SET style_dna_id = ?1 WHERE id = ?2", [&dna.id, &story_id])
+        let dna = dna_repo
+            .create("evolved", None, &json, false)
             .map_err(AppError::from)?;
+        let conn = pool.get().map_err(AppError::from)?;
+        conn.execute(
+            "UPDATE stories SET style_dna_id = ?1 WHERE id = ?2",
+            [&dna.id, &story_id],
+        )
+        .map_err(AppError::from)?;
         (dna.id, base)
     };
 
@@ -61,13 +67,14 @@ pub fn evolve_style_from_anti_ai_review(
     if !delta.is_empty() {
         let evolved = delta.apply(&base_dna);
         let json = serde_json::to_string(&evolved).map_err(AppError::from)?;
-        dna_repo.update_dna_json(&dna_id, &json).map_err(AppError::from)?;
+        dna_repo
+            .update_dna_json(&dna_id, &json)
+            .map_err(AppError::from)?;
         crate::state_sync::service::StateSync::emit_style_dna_updated(&app, &story_id, &dna_id);
     }
 
     Ok(delta)
 }
-
 
 // ==================== Telemetry Commands ====================
 

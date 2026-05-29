@@ -1,21 +1,24 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
-use crate::error::AppError;
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use chrono::{DateTime, Utc};
-use crate::agents::AgentContext;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::{agents::AgentContext, error::AppError};
+
+pub mod builtin;
+pub mod executor;
 pub mod loader;
 pub mod registry;
-pub mod executor;
-pub mod builtin;
 
+pub use executor::SkillExecutor;
 pub use loader::SkillLoader;
 pub use registry::SkillRegistry;
-pub use executor::SkillExecutor;
 
 /// Skill manifest - skill definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +129,8 @@ impl From<Skill> for SkillInfo {
             SkillRuntime::Prompt(_) => "prompt",
             SkillRuntime::Mcp(_) => "mcp",
             SkillRuntime::Native(_) => "native",
-        }.to_string();
+        }
+        .to_string();
 
         Self {
             manifest: skill.manifest,
@@ -216,36 +220,36 @@ impl SkillManager {
     pub fn new(llm_service: Option<crate::llm::LlmService>) -> Self {
         let skills_dir = Self::get_default_skills_dir();
         fs::create_dir_all(&skills_dir).ok();
-        
+
         let registry = Arc::new(Mutex::new(SkillRegistry::new()));
         let loader = SkillLoader::new(skills_dir.clone());
         let executor = SkillExecutor::new(registry.clone(), llm_service);
-        
+
         let mut manager = Self {
             registry,
             loader,
             executor,
             skills_dir,
         };
-        
+
         manager.load_builtin_skills();
         manager
     }
-    
+
     fn get_default_skills_dir() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("cinema-ai")
             .join("skills")
     }
-    
+
     fn load_builtin_skills(&mut self) {
         let builtins = builtin::get_builtin_skills();
         for skill in builtins {
             self.registry.lock().unwrap().register(skill);
         }
     }
-    
+
     pub fn import_skill(&mut self, skill_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_directory(skill_path)?;
         let dest_dir = self.skills_dir.join(&skill.manifest.id);
@@ -256,32 +260,39 @@ impl SkillManager {
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)
     }
-    
+
     pub fn import_skill_file(&mut self, file_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_file(file_path)?;
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)
     }
-    
+
     pub fn get_all_skills(&self) -> Vec<Skill> {
         self.registry.lock().unwrap().get_all()
     }
-    
+
     pub fn get_skills_by_category(&self, category: SkillCategory) -> Vec<Skill> {
         self.registry.lock().unwrap().get_by_category(category)
     }
-    
+
     pub fn get_skill(&self, skill_id: &str) -> Option<Skill> {
         self.registry.lock().unwrap().get(skill_id)
     }
-    
+
     pub fn update_skill(&self, skill_id: &str, manifest: SkillManifest) -> Result<(), AppError> {
-        let skill = self.registry.lock().unwrap().get(skill_id)
+        let skill = self
+            .registry
+            .lock()
+            .unwrap()
+            .get(skill_id)
             .ok_or_else(|| "Skill not found".to_string())?;
-        
+
         // Update manifest in registry
-        self.registry.lock().unwrap().update_manifest(skill_id, manifest.clone())?;
-        
+        self.registry
+            .lock()
+            .unwrap()
+            .update_manifest(skill_id, manifest.clone())?;
+
         // Save to file for non-builtin skills
         if skill.path.to_string_lossy() != "builtin" {
             let skill_dir = if skill.path.is_dir() {
@@ -298,18 +309,18 @@ impl SkillManager {
             };
             self.loader.save_to_directory(&updated_skill, &skill_dir)?;
         }
-        
+
         Ok(())
     }
-    
+
     pub fn enable_skill(&self, skill_id: &str) -> Result<(), AppError> {
         Ok(self.registry.lock().unwrap().enable(skill_id)?)
     }
-    
+
     pub fn disable_skill(&self, skill_id: &str) -> Result<(), AppError> {
         Ok(self.registry.lock().unwrap().disable(skill_id)?)
     }
-    
+
     pub fn uninstall_skill(&self, skill_id: &str) -> Result<(), AppError> {
         self.registry.lock().unwrap().unregister(skill_id)?;
         let skill_dir = self.skills_dir.join(skill_id);
@@ -318,7 +329,7 @@ impl SkillManager {
         }
         Ok(())
     }
-    
+
     pub async fn execute_skill(
         &self,
         skill_id: &str,
@@ -327,7 +338,7 @@ impl SkillManager {
     ) -> Result<SkillResult, AppError> {
         self.executor.execute(skill_id, context, params).await
     }
-    
+
     pub async fn execute_hooks(
         &self,
         event: HookEvent,
@@ -336,7 +347,7 @@ impl SkillManager {
     ) -> Vec<SkillResult> {
         self.executor.execute_hooks(event, context, data).await
     }
-    
+
     pub fn reload_skills(&mut self) {
         self.registry.lock().unwrap().clear();
         self.load_builtin_skills();
@@ -351,7 +362,7 @@ impl SkillManager {
             }
         }
     }
-    
+
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
         fs::create_dir_all(&dst)?;
         for entry in fs::read_dir(src)? {

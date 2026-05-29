@@ -1,7 +1,11 @@
-use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus, WorkflowEngine, NodeType};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, Mutex},
+};
+
 use tauri::{AppHandle, Emitter};
+
+use super::{NodeExecutionStatus, NodeType, WorkflowEngine, WorkflowInstance, WorkflowStatus};
 
 /// Workflow scheduler - manages task execution with an in-memory queue
 pub struct WorkflowScheduler {
@@ -28,30 +32,35 @@ impl WorkflowScheduler {
         {
             let queue = self.queue.lock().unwrap();
             if queue.contains(&instance_id) {
-                log::warn!("[WorkflowScheduler] Instance {} already in queue, skipping", instance_id);
+                log::warn!(
+                    "[WorkflowScheduler] Instance {} already in queue, skipping",
+                    instance_id
+                );
                 return Ok(());
             }
         }
         {
             let running = self.running_instances.lock().unwrap();
             if running.contains(&instance_id) {
-                log::warn!("[WorkflowScheduler] Instance {} already running, skipping", instance_id);
+                log::warn!(
+                    "[WorkflowScheduler] Instance {} already running, skipping",
+                    instance_id
+                );
                 return Ok(());
             }
         }
-        
-        log::info!("[WorkflowScheduler] Queuing workflow instance {} for execution", instance_id);
+
+        log::info!(
+            "[WorkflowScheduler] Queuing workflow instance {} for execution",
+            instance_id
+        );
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(instance_id);
         Ok(())
     }
 
     /// 应在应用初始化时调用一次，启动一个 tokio::spawn 循环
-    pub fn start_auto_drain(
-        &self,
-        engine: Arc<WorkflowEngine>,
-        app_handle: AppHandle,
-    ) {
+    pub fn start_auto_drain(&self, engine: Arc<WorkflowEngine>, app_handle: AppHandle) {
         let queue = self.queue.clone();
         let running = self.running_instances.clone();
         tauri::async_runtime::spawn(async move {
@@ -70,7 +79,11 @@ impl WorkflowScheduler {
                     {
                         let mut running_set = running.lock().unwrap();
                         if running_set.contains(&id) {
-                            log::warn!("[WorkflowScheduler] Instance {} is already running, skipping auto-drain", id);
+                            log::warn!(
+                                "[WorkflowScheduler] Instance {} is already running, skipping \
+                                 auto-drain",
+                                id
+                            );
                             continue;
                         }
                         running_set.insert(id.clone());
@@ -87,10 +100,13 @@ impl WorkflowScheduler {
                         }
                         Err(e) => {
                             log::error!("[WorkflowScheduler] Instance {} failed: {}", id, e);
-                            let _ = app_handle.emit("workflow-instance-failed", serde_json::json!({
-                                "instance_id": id,
-                                "error": e.to_string(),
-                            }));
+                            let _ = app_handle.emit(
+                                "workflow-instance-failed",
+                                serde_json::json!({
+                                    "instance_id": id,
+                                    "error": e.to_string(),
+                                }),
+                            );
                         }
                     }
 
@@ -108,7 +124,7 @@ impl WorkflowScheduler {
     }
 
     /// Process the next instance in the queue (serial execution)
-    /// 
+    ///
     /// This is a simple executor that runs one node at a time.
     /// In production, this could be replaced with a worker pool.
     pub async fn execute_next(
@@ -125,7 +141,10 @@ impl WorkflowScheduler {
         {
             let mut running = self.running_instances.lock().unwrap();
             if running.contains(&instance_id) {
-                log::warn!("[WorkflowScheduler] Instance {} is already running, skipping execute_next", instance_id);
+                log::warn!(
+                    "[WorkflowScheduler] Instance {} is already running, skipping execute_next",
+                    instance_id
+                );
                 return Some(Err(format!("Instance {} is already running", instance_id)));
             }
             running.insert(instance_id.clone());
@@ -150,23 +169,31 @@ impl WorkflowScheduler {
         app_handle: &AppHandle,
         instance_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[WorkflowScheduler] Starting workflow instance {}", instance_id);
+        log::info!(
+            "[WorkflowScheduler] Starting workflow instance {}",
+            instance_id
+        );
 
         // Get instance and workflow
         let (workflow, mut instance) = {
-            let instance = engine.get_instance(instance_id)
+            let instance = engine
+                .get_instance(instance_id)
                 .ok_or("Instance not found")?;
-            let workflow = engine.get_workflow(&instance.workflow_id)
+            let workflow = engine
+                .get_workflow(&instance.workflow_id)
                 .ok_or("Workflow not found")?;
             (workflow, instance)
         };
 
         // Emit start event
-        let _ = app_handle.emit("workflow-started", serde_json::json!({
-            "instance_id": instance_id,
-            "workflow_id": workflow.id,
-            "workflow_name": workflow.name,
-        }));
+        let _ = app_handle.emit(
+            "workflow-started",
+            serde_json::json!({
+                "instance_id": instance_id,
+                "workflow_id": workflow.id,
+                "workflow_name": workflow.name,
+            }),
+        );
 
         // Mark instance as Running
         instance.status = WorkflowStatus::Running;
@@ -191,19 +218,30 @@ impl WorkflowScheduler {
             // Phase 1: Mark all nodes as Running (mutable borrow)
             let mut node_clones = Vec::new();
             for node_id in &next_nodes {
-                let node = workflow.nodes.iter()
+                let node = workflow
+                    .nodes
+                    .iter()
                     .find(|n| n.id == *node_id)
                     .ok_or("Node not found")?;
 
-                self.update_node_status(&mut instance, node_id, NodeExecutionStatus::Running, None, None);
+                self.update_node_status(
+                    &mut instance,
+                    node_id,
+                    NodeExecutionStatus::Running,
+                    None,
+                    None,
+                );
                 engine.update_instance(&instance);
 
-                let _ = app_handle.emit("workflow-node-started", serde_json::json!({
-                    "instance_id": instance_id,
-                    "node_id": node_id,
-                    "node_name": node.name,
-                    "node_type": format!("{:?}", node.node_type),
-                }));
+                let _ = app_handle.emit(
+                    "workflow-node-started",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "node_id": node_id,
+                        "node_name": node.name,
+                        "node_type": format!("{:?}", node.node_type),
+                    }),
+                );
 
                 node_clones.push(node.clone());
             }
@@ -219,8 +257,10 @@ impl WorkflowScheduler {
                     // P1-10 修复: 节点执行包装 timeout
                     let result = match tokio::time::timeout(
                         std::time::Duration::from_secs(timeout_secs),
-                        scheduler_ref.execute_node(node, &instance_clone, &app_handle_clone)
-                    ).await {
+                        scheduler_ref.execute_node(node, &instance_clone, &app_handle_clone),
+                    )
+                    .await
+                    {
                         Ok(res) => res,
                         Err(_) => Err(format!("节点执行超时 ({} 秒)", timeout_secs)),
                     };
@@ -235,17 +275,32 @@ impl WorkflowScheduler {
             for (node_id, _node_name, result) in node_results {
                 match result {
                     Ok(output) => {
-                        self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Completed, Some(output.clone()), None);
+                        self.update_node_status(
+                            &mut instance,
+                            &node_id,
+                            NodeExecutionStatus::Completed,
+                            Some(output.clone()),
+                            None,
+                        );
                         instance.context.variables.insert(node_id.clone(), output);
                         engine.update_instance(&instance);
 
-                        let _ = app_handle.emit("workflow-node-completed", serde_json::json!({
-                            "instance_id": instance_id,
-                            "node_id": node_id,
-                        }));
+                        let _ = app_handle.emit(
+                            "workflow-node-completed",
+                            serde_json::json!({
+                                "instance_id": instance_id,
+                                "node_id": node_id,
+                            }),
+                        );
                     }
                     Err(e) => {
-                        self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Failed, None, Some(e.clone()));
+                        self.update_node_status(
+                            &mut instance,
+                            &node_id,
+                            NodeExecutionStatus::Failed,
+                            None,
+                            Some(e.clone()),
+                        );
                         // P1-11 修复: 失败时自动重试（最多 3 次）
                         // P2-18 修复: 重置失败节点状态为 Pending，以便重试时重新执行
                         const MAX_RETRIES: u32 = 3;
@@ -264,24 +319,41 @@ impl WorkflowScheduler {
                                 let mut q = self.queue.lock().unwrap();
                                 q.push_back(instance_id.to_string());
                             }
-                            let _ = app_handle.emit("workflow-instance-retried", serde_json::json!({
-                                "instance_id": instance_id,
-                                "node_id": node_id,
-                                "retry_count": current_retries + 1,
-                                "max_retries": MAX_RETRIES,
-                                "error": e,
-                            }));
-                            log::info!("[WorkflowScheduler] Instance {} queued for retry {}/{}", instance_id, current_retries + 1, MAX_RETRIES);
-                            return Err(format!("Node {} failed, retry {}/{} queued", node_id, current_retries + 1, MAX_RETRIES).into());
+                            let _ = app_handle.emit(
+                                "workflow-instance-retried",
+                                serde_json::json!({
+                                    "instance_id": instance_id,
+                                    "node_id": node_id,
+                                    "retry_count": current_retries + 1,
+                                    "max_retries": MAX_RETRIES,
+                                    "error": e,
+                                }),
+                            );
+                            log::info!(
+                                "[WorkflowScheduler] Instance {} queued for retry {}/{}",
+                                instance_id,
+                                current_retries + 1,
+                                MAX_RETRIES
+                            );
+                            return Err(format!(
+                                "Node {} failed, retry {}/{} queued",
+                                node_id,
+                                current_retries + 1,
+                                MAX_RETRIES
+                            )
+                            .into());
                         } else {
                             instance.status = WorkflowStatus::Failed;
                             engine.update_instance(&instance);
 
-                            let _ = app_handle.emit("workflow-node-failed", serde_json::json!({
-                                "instance_id": instance_id,
-                                "node_id": node_id,
-                                "error": e,
-                            }));
+                            let _ = app_handle.emit(
+                                "workflow-node-failed",
+                                serde_json::json!({
+                                    "instance_id": instance_id,
+                                    "node_id": node_id,
+                                    "error": e,
+                                }),
+                            );
                             return Err(format!("Node {} failed: {}", node_id, e).into());
                         }
                     }
@@ -297,12 +369,18 @@ impl WorkflowScheduler {
         instance.completed_at = Some(chrono::Utc::now());
         engine.update_instance(&instance);
 
-        let _ = app_handle.emit("workflow-completed", serde_json::json!({
-            "instance_id": instance_id,
-            "workflow_id": workflow.id,
-        }));
+        let _ = app_handle.emit(
+            "workflow-completed",
+            serde_json::json!({
+                "instance_id": instance_id,
+                "workflow_id": workflow.id,
+            }),
+        );
 
-        log::info!("[WorkflowScheduler] Workflow instance {} completed successfully", instance_id);
+        log::info!(
+            "[WorkflowScheduler] Workflow instance {} completed successfully",
+            instance_id
+        );
         Ok(())
     }
 
@@ -314,18 +392,22 @@ impl WorkflowScheduler {
         app_handle: &AppHandle,
     ) -> Result<serde_json::Value, String> {
         match node.node_type {
-            NodeType::Start => {
-                Ok(serde_json::json!({ "started": true }))
-            }
+            NodeType::Start => Ok(serde_json::json!({ "started": true })),
             NodeType::WriteChapter => {
                 let story_id = instance.story_id.clone();
-                let instruction = node.config.parameters.get("instruction")
+                let instruction = node
+                    .config
+                    .parameters
+                    .get("instruction")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Continue writing the story")
                     .to_string();
 
                 // Try to get previous content from upstream nodes
-                let previous_content = instance.context.variables.values()
+                let previous_content = instance
+                    .context
+                    .variables
+                    .values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
@@ -339,10 +421,11 @@ impl WorkflowScheduler {
 
                 // W2-B3: Workflow 节点嵌套 Orchestrator，禁止直接调用 Writer Agent
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-                    agent_service,
-                    app_handle.clone(),
-                );
+                let orchestrator =
+                    crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                        agent_service,
+                        app_handle.clone(),
+                    );
                 let context = crate::agents::AgentContext::minimal(story_id, String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -353,7 +436,10 @@ impl WorkflowScheduler {
                     tier: None,
                 };
 
-                match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+                match orchestrator
+                    .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+                    .await
+                {
                     Ok(workflow_result) => Ok(serde_json::json!({
                         "content": workflow_result.final_content,
                         "score": workflow_result.final_score,
@@ -365,18 +451,24 @@ impl WorkflowScheduler {
                 }
             }
             NodeType::Inspect => {
-                let content = instance.context.variables.values()
+                let content = instance
+                    .context
+                    .variables
+                    .values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
                     .to_string();
-                
+
                 if content.is_empty() {
-                    return Ok(serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to inspect" }));
+                    return Ok(
+                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to inspect" }),
+                    );
                 }
-                
+
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context = crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
+                let context =
+                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
                     agent_type: crate::agents::service::AgentType::Inspector,
@@ -385,7 +477,7 @@ impl WorkflowScheduler {
                     parameters: HashMap::new(),
                     tier: None,
                 };
-                
+
                 match agent_service.execute_task(task).await {
                     Ok(result) => Ok(serde_json::json!({
                         "content": result.content,
@@ -396,32 +488,39 @@ impl WorkflowScheduler {
             }
             NodeType::Revise => {
                 let variables = &instance.context.variables;
-                let content = variables.values()
+                let content = variables
+                    .values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
                     .to_string();
-                let inspect_result = variables.values()
+                let inspect_result = variables
+                    .values()
                     .filter_map(|v| v.get("score").and_then(|s| s.as_f64()))
                     .last()
                     .unwrap_or(0.0);
-                
+
                 if content.is_empty() {
-                    return Ok(serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to revise" }));
+                    return Ok(
+                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to revise" }),
+                    );
                 }
-                
+
                 let instruction = format!(
-                    "Please revise the following content based on the inspection score {:.0}%:\n\n{}",
+                    "Please revise the following content based on the inspection score \
+                     {:.0}%:\n\n{}",
                     inspect_result * 100.0,
                     content
                 );
-                
+
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-                    agent_service,
-                    app_handle.clone(),
-                );
-                let context = crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
+                let orchestrator =
+                    crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                        agent_service,
+                        app_handle.clone(),
+                    );
+                let context =
+                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
                     agent_type: crate::agents::service::AgentType::Writer,
@@ -431,7 +530,10 @@ impl WorkflowScheduler {
                     tier: None,
                 };
 
-                match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+                match orchestrator
+                    .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+                    .await
+                {
                     Ok(workflow_result) => Ok(serde_json::json!({
                         "content": workflow_result.final_content,
                         "score": Some(workflow_result.final_score as f64),
@@ -441,12 +543,15 @@ impl WorkflowScheduler {
                 }
             }
             NodeType::VectorIndex => {
-                let content = instance.context.variables.values()
+                let content = instance
+                    .context
+                    .variables
+                    .values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
                     .to_string();
-                
+
                 if content.len() > 50 {
                     let llm_service = crate::llm::LlmService::new(app_handle.clone());
                     let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
@@ -456,7 +561,7 @@ impl WorkflowScheduler {
                         story_id: instance.story_id.clone(),
                         scene_id: None,
                     };
-                    
+
                     match pipeline.ingest(&ingest_content).await {
                         Ok(result) => Ok(serde_json::json!({
                             "indexed": true,
@@ -473,18 +578,24 @@ impl WorkflowScheduler {
                 }
             }
             NodeType::AnalyzePlot => {
-                let content = instance.context.variables.values()
+                let content = instance
+                    .context
+                    .variables
+                    .values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
                     .to_string();
-                
+
                 if content.is_empty() {
-                    return Ok(serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to analyze" }));
+                    return Ok(
+                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to analyze" }),
+                    );
                 }
-                
+
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context = crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
+                let context =
+                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
                     agent_type: crate::agents::service::AgentType::PlotAnalyzer,
@@ -493,7 +604,7 @@ impl WorkflowScheduler {
                     parameters: HashMap::new(),
                     tier: None,
                 };
-                
+
                 match agent_service.execute_task(task).await {
                     Ok(result) => Ok(serde_json::json!({
                         "content": result.content,
@@ -503,7 +614,10 @@ impl WorkflowScheduler {
                 }
             }
             NodeType::Condition => {
-                let condition = node.config.parameters.get("condition")
+                let condition = node
+                    .config
+                    .parameters
+                    .get("condition")
                     .and_then(|v| v.as_str())
                     .unwrap_or("true");
                 // P1-10 修复: Condition 节点支持上下文变量和基本比较
@@ -514,9 +628,7 @@ impl WorkflowScheduler {
                 // Simplified: mark as completed, parallel branches are handled by DAG topology
                 Ok(serde_json::json!({ "parallel": true }))
             }
-            NodeType::End => {
-                Ok(serde_json::json!({ "completed": true }))
-            }
+            NodeType::End => Ok(serde_json::json!({ "completed": true })),
         }
     }
 
@@ -528,7 +640,8 @@ impl WorkflowScheduler {
         workflow_edges: &[super::WorkflowEdge],
     ) -> Vec<String> {
         let mut next_nodes = Vec::new();
-        let completed: std::collections::HashSet<String> = instance.context.completed_nodes.iter().cloned().collect();
+        let completed: std::collections::HashSet<String> =
+            instance.context.completed_nodes.iter().cloned().collect();
 
         for node in workflow_nodes {
             // Skip already processed nodes
@@ -585,7 +698,11 @@ impl WorkflowScheduler {
                 }
                 NodeExecutionStatus::Completed => {
                     state.completed_at = Some(chrono::Utc::now());
-                    if !instance.context.completed_nodes.contains(&node_id.to_string()) {
+                    if !instance
+                        .context
+                        .completed_nodes
+                        .contains(&node_id.to_string())
+                    {
                         instance.context.completed_nodes.push(node_id.to_string());
                     }
                 }
@@ -610,7 +727,9 @@ impl WorkflowScheduler {
             .collect();
 
         end_nodes.iter().all(|end_id| {
-            instance.node_states.get(end_id)
+            instance
+                .node_states
+                .get(end_id)
                 .map(|s| s.status == NodeExecutionStatus::Completed)
                 .unwrap_or(false)
         })
@@ -623,7 +742,10 @@ impl WorkflowScheduler {
 /// - 数值比较: "{{score}} > 0.7", "{{count}} >= 5"
 /// - 字符串相等: "{{status}} == \"approved\""
 /// - 变量存在性: "{{var}}"（非空即为 true）
-fn evaluate_condition(condition: &str, variables: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+fn evaluate_condition(
+    condition: &str,
+    variables: &std::collections::HashMap<String, serde_json::Value>,
+) -> bool {
     let trimmed = condition.trim();
     if trimmed == "true" || trimmed == "1" {
         return true;
@@ -646,11 +768,20 @@ fn evaluate_condition(condition: &str, variables: &std::collections::HashMap<Str
     }
 
     // 数值比较解析
-    let ops = [(">=", 2usize), ("<=", 2), ("==", 2), ("!=", 2), (">", 1), ("<", 1)];
+    let ops = [
+        (">=", 2usize),
+        ("<=", 2),
+        ("==", 2),
+        ("!=", 2),
+        (">", 1),
+        ("<", 1),
+    ];
     for (op, op_len) in ops {
         if let Some(pos) = expanded.find(op) {
             let left = expanded[..pos].trim();
-            let right = expanded[pos + op_len..].trim().trim_matches(|c| c == '\"' || c == '\'');
+            let right = expanded[pos + op_len..]
+                .trim()
+                .trim_matches(|c| c == '\"' || c == '\'');
             // 尝试数值比较
             if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
                 return match op {

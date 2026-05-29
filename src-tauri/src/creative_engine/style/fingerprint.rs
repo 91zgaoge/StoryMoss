@@ -9,8 +9,9 @@
 //! - StyleAnalyzer 的文本统计逻辑
 //! - AntiAiReviewer 的词频/句法分析
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// 风格指纹 — 统一描述任意文本的语言风格
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -121,7 +122,10 @@ impl StyleFingerprint {
             self.syntax.medium_ratio * 100.0,
             self.syntax.long_ratio * 100.0
         ));
-        lines.push(format!("- 逗号密度: 每百字 {:.1} 个", self.syntax.comma_density));
+        lines.push(format!(
+            "- 逗号密度: 每百字 {:.1} 个",
+            self.syntax.comma_density
+        ));
         lines.push(String::new());
 
         // 词汇偏好
@@ -136,7 +140,10 @@ impl StyleFingerprint {
                 .collect();
             lines.push(format!("- 高频虚词（优先使用）: {}", fw.join("、")));
         }
-        lines.push(format!("- 四字格密度: {:.1}%", self.vocabulary.four_char_density));
+        lines.push(format!(
+            "- 四字格密度: {:.1}%",
+            self.vocabulary.four_char_density
+        ));
         if !self.vocabulary.temporal_quality.is_empty() {
             let era_hint = match self.vocabulary.temporal_quality.as_str() {
                 "classical" => "古典白话（禁用'但是''所以''然后'等现代虚词，改用'只是''故''随后'）",
@@ -209,7 +216,11 @@ impl StyleFingerprint {
             lines.push(String::new());
         }
 
-        lines.push("重要：以上风格约束优先于叙事约束。如果情节推进需要使用现代词汇或长句，宁可放慢叙事节奏，也要保持语言风格一致。".to_string());
+        lines.push(
+            "重要：以上风格约束优先于叙事约束。如果情节推进需要使用现代词汇或长句，\
+             宁可放慢叙事节奏，也要保持语言风格一致。"
+                .to_string(),
+        );
 
         lines.join("\n")
     }
@@ -235,9 +246,9 @@ fn extract_vocabulary_fingerprint(
     let function_word_list = vec![
         "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
         "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "那",
-        "原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又", "一面", "连忙",
-        "但是", "所以", "然后", "接着", "于是", "不过", "只是", "然而", "因此", "因为",
-        "便", "且", "罢了", "而已", "呢", "罢", "么", "罢咧",
+        "原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又", "一面", "连忙", "但是",
+        "所以", "然后", "接着", "于是", "不过", "只是", "然而", "因此", "因为", "便", "且", "罢了",
+        "而已", "呢", "罢", "么", "罢咧",
     ];
     let mut fw_freq: HashMap<String, u32> = HashMap::new();
     for fw in &function_word_list {
@@ -281,10 +292,18 @@ fn extract_vocabulary_fingerprint(
     };
 
     // 时代感检测
-    let modern_markers = ["但是", "所以", "然后", "接着", "不过", "因为", "因此", "虽然"];
-    let classical_markers = ["原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又", "一面", "连忙", "便", "且", "罢了", "而已"];
+    let modern_markers = [
+        "但是", "所以", "然后", "接着", "不过", "因为", "因此", "虽然",
+    ];
+    let classical_markers = [
+        "原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又", "一面", "连忙", "便", "且",
+        "罢了", "而已",
+    ];
     let modern_count: usize = modern_markers.iter().map(|m| text.matches(m).count()).sum();
-    let classical_count: usize = classical_markers.iter().map(|m| text.matches(m).count()).sum();
+    let classical_count: usize = classical_markers
+        .iter()
+        .map(|m| text.matches(m).count())
+        .sum();
     let temporal_quality = if classical_count > modern_count * 2 {
         "classical"
     } else if modern_count > classical_count * 2 {
@@ -330,7 +349,10 @@ fn extract_syntax_fingerprint(
     let std = variance.sqrt();
 
     let short_count = sentence_lengths.iter().filter(|&&l| l < 10).count();
-    let medium_count = sentence_lengths.iter().filter(|&&l| l >= 10 && l <= 25).count();
+    let medium_count = sentence_lengths
+        .iter()
+        .filter(|&&l| l >= 10 && l <= 25)
+        .count();
     let long_count = sentence_lengths.iter().filter(|&&l| l > 25).count();
     let total = sentences.len().max(1) as f32;
 
@@ -374,7 +396,10 @@ fn extract_dialogue_fingerprint(text: &str, char_count: f32) -> DialogueFingerpr
 
     // 对话标签统计
     let tag_patterns = [
-        ("道", vec!["道", "说道", "问道", "答道", "笑道", "喝道", "叫道"]),
+        (
+            "道",
+            vec!["道", "说道", "问道", "答道", "笑道", "喝道", "叫道"],
+        ),
         ("说", vec!["说", "说道", "说说", "说过"]),
         ("问", vec!["问", "问道", "询问", "反问", "追问"]),
         ("答", vec!["答", "答道", "回答", "答应"]),
@@ -392,7 +417,16 @@ fn extract_dialogue_fingerprint(text: &str, char_count: f32) -> DialogueFingerpr
     let total_tags: u32 = tag_freq.values().sum();
     let mut tag_distribution: Vec<(String, f32)> = tag_freq
         .into_iter()
-        .map(|(k, v)| (k, if total_tags > 0 { v as f32 / total_tags as f32 } else { 0.0 }))
+        .map(|(k, v)| {
+            (
+                k,
+                if total_tags > 0 {
+                    v as f32 / total_tags as f32
+                } else {
+                    0.0
+                },
+            )
+        })
         .collect();
     tag_distribution.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -450,7 +484,10 @@ fn extract_ngrams(text: &str) -> NgramFingerprint {
     for window in chars.windows(2) {
         let bg: String = window.iter().collect();
         // 过滤掉包含标点的
-        if window.iter().all(|c| c.is_alphanumeric() || (*c as u32) > 0x4e00) {
+        if window
+            .iter()
+            .all(|c| c.is_alphanumeric() || (*c as u32) > 0x4e00)
+        {
             *bigram_freq.entry(bg).or_insert(0) += 1;
         }
     }
@@ -462,7 +499,10 @@ fn extract_ngrams(text: &str) -> NgramFingerprint {
     let mut four_char_freq: HashMap<String, u32> = HashMap::new();
     for window in chars.windows(4) {
         let fc: String = window.iter().collect();
-        if window.iter().all(|c| (*c as u32) >= 0x4e00 && (*c as u32) <= 0x9fff) {
+        if window
+            .iter()
+            .all(|c| (*c as u32) >= 0x4e00 && (*c as u32) <= 0x9fff)
+        {
             *four_char_freq.entry(fc).or_insert(0) += 1;
         }
     }
@@ -472,9 +512,8 @@ fn extract_ngrams(text: &str) -> NgramFingerprint {
 
     // 衔接模式
     let transition_patterns = [
-        "原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又",
-        "一面", "连忙", "于是", "接着", "随后", "然后", "忽然", "只见",
-        "当下", "此时", "那", "这", "可", "却", "便", "又",
+        "原来", "且说", "正是", "不想", "因问", "只得", "偏又", "况又", "一面", "连忙", "于是",
+        "接着", "随后", "然后", "忽然", "只见", "当下", "此时", "那", "这", "可", "却", "便", "又",
     ];
     let mut transitions: Vec<(String, u32)> = transition_patterns
         .iter()
@@ -496,7 +535,10 @@ fn count_four_char_phrases(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
     chars
         .windows(4)
-        .filter(|w| w.iter().all(|c| (*c as u32) >= 0x4e00 && (*c as u32) <= 0x9fff))
+        .filter(|w| {
+            w.iter()
+                .all(|c| (*c as u32) >= 0x4e00 && (*c as u32) <= 0x9fff)
+        })
         .count()
 }
 
@@ -506,7 +548,10 @@ mod tests {
 
     #[test]
     fn test_fingerprint_from_honglou() {
-        let text = "黛玉道：\"也要来一群，岂不热闹？\"宝玉道：\"什么大家，不过几个人罢了。\"\n\n原来这黛玉秉绝代姿容，具希世俊美，不期这一哭，那附近柳枝花朵上宿鸟栖鸦一闻此声，俱忒楞楞飞起远避，不忍再听。\n\n且说宝玉因见黛玉如此，心中十分不忍，只得连忙劝道：\"好妹妹，快别哭了。\"";
+        let text = "黛玉道：\"也要来一群，岂不热闹？\"宝玉道：\"什么大家，不过几个人罢了。\"\n\\
+                    n原来这黛玉秉绝代姿容，具希世俊美，不期这一哭，\
+                    那附近柳枝花朵上宿鸟栖鸦一闻此声，俱忒楞楞飞起远避，不忍再听。\n\\
+                    n且说宝玉因见黛玉如此，心中十分不忍，只得连忙劝道：\"好妹妹，快别哭了。\"";
 
         let fp = StyleFingerprint::from_text(text);
 

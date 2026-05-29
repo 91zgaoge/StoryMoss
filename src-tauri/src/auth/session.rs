@@ -1,9 +1,11 @@
 //! JWT Session 管理
 
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use crate::error::AppError;
-use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+
+use crate::error::AppError;
 
 const JWT_SECRET_ENV: &str = "STORYFORGE_JWT_SECRET";
 const DEFAULT_SECRET: &str = "storyforge-default-jwt-secret-change-in-production";
@@ -12,10 +14,10 @@ const TOKEN_EXPIRY_SECONDS: i64 = 7 * 24 * 3600; // 7天
 /// JWT Claims
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
-    sub: String,    // user_id
-    exp: usize,     // expiration time
-    iat: usize,     // issued at
-    jti: String,    // token id
+    sub: String, // user_id
+    exp: usize,  // expiration time
+    iat: usize,  // issued at
+    jti: String, // token id
 }
 
 /// 生成JWT token

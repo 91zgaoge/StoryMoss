@@ -1,10 +1,10 @@
 //! 数据模型
-//! 
+//!
 //! 包含场景化叙事、知识图谱、工作室配置等新模型
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 
 // ==================== 通用类型 ====================
 
@@ -23,48 +23,48 @@ pub struct Scene {
     pub story_id: String,
     pub sequence_number: i32,
     pub title: Option<String>,
-    
+
     // 戏剧结构
     pub dramatic_goal: Option<String>,
     pub external_pressure: Option<String>,
     pub conflict_type: Option<ConflictType>,
-    
+
     // 角色参与
     pub characters_present: Vec<String>,
     pub character_conflicts: Vec<CharacterConflict>,
-    
+
     // 内容
     pub content: Option<String>,
-    
+
     // 场景设置
     pub setting_location: Option<String>,
     pub setting_time: Option<String>,
     pub setting_atmosphere: Option<String>,
-    
+
     // 关联
     pub previous_scene_id: Option<String>,
     pub next_scene_id: Option<String>,
-    
+
     // 结构化大纲字段
     pub execution_stage: Option<String>, // planning | outline | drafting | review | final
     pub outline_content: Option<String>,
     pub draft_content: Option<String>,
-    
+
     // 元数据
     pub model_used: Option<String>,
     pub cost: Option<f64>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
-    
+
     // 置信度评分 (0-1)
     pub confidence_score: Option<f32>,
-    
+
     // 风格混合覆盖
     pub style_blend_override: Option<String>,
-    
+
     // 关联伏笔ID列表
     pub foreshadowing_ids: Option<Vec<String>>,
-    
+
     // 关联的章节ID
     pub chapter_id: Option<String>,
 }
@@ -72,7 +72,8 @@ pub struct Scene {
 /// 场景分隔节点
 ///
 /// 在 1:N 架构下，Chapter 的 content 是多个 Scene 的聚合视图。
-/// SceneDividerNode 标记 Scene 边界，支撑连续编辑表面上的 divider 插入/删除/重排。
+/// SceneDividerNode 标记 Scene 边界，支撑连续编辑表面上的 divider
+/// 插入/删除/重排。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDividerNode {
     pub id: String,
@@ -89,17 +90,17 @@ pub struct SceneDividerNode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConflictType {
-    ManVsMan,        // 人与人
-    ManVsSelf,       // 人与自我
-    ManVsSociety,    // 人与社会
-    ManVsNature,     // 人与自然
-    ManVsTechnology, // 人与科技
-    ManVsFate,       // 人与命运
+    ManVsMan,          // 人与人
+    ManVsSelf,         // 人与自我
+    ManVsSociety,      // 人与社会
+    ManVsNature,       // 人与自然
+    ManVsTechnology,   // 人与科技
+    ManVsFate,         // 人与命运
     ManVsSupernatural, // 人与超自然
-    ManVsTime,       // 人与时间
-    ManVsMorality,   // 人与道德
-    ManVsIdentity,   // 人与身份
-    FactionVsFaction, // 群体冲突
+    ManVsTime,         // 人与时间
+    ManVsMorality,     // 人与道德
+    ManVsIdentity,     // 人与身份
+    FactionVsFaction,  // 群体冲突
 }
 
 impl std::fmt::Display for ConflictType {
@@ -123,7 +124,7 @@ impl std::fmt::Display for ConflictType {
 
 impl std::str::FromStr for ConflictType {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "人与人" | "ManVsMan" => Ok(ConflictType::ManVsMan),
@@ -194,11 +195,11 @@ impl Default for RetentionConfig {
 /// 保留优先级
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RetentionPriority {
-    Critical,    // 关键记忆（世界观、主要角色）
-    High,        // 重要记忆（次要角色、关键事件）
-    Medium,      // 普通记忆
-    Low,         // 可压缩记忆
-    Forgotten,   // 已遗忘/可归档
+    Critical,  // 关键记忆（世界观、主要角色）
+    High,      // 重要记忆（次要角色、关键事件）
+    Medium,    // 普通记忆
+    Low,       // 可压缩记忆
+    Forgotten, // 已遗忘/可归档
 }
 
 // ==================== 场景版本模型 (新增) ====================
@@ -208,7 +209,7 @@ pub struct SceneVersion {
     pub id: String,
     pub scene_id: String,
     pub version_number: i32,
-    
+
     // 版本内容快照
     pub title: Option<String>,
     pub content: Option<String>,
@@ -220,18 +221,18 @@ pub struct SceneVersion {
     pub setting_location: Option<String>,
     pub setting_time: Option<String>,
     pub setting_atmosphere: Option<String>,
-    
+
     // 版本元数据
     pub word_count: i32,
     pub change_summary: String,
-    pub created_by: CreatorType,  // user/ai/system
-    pub model_used: Option<String>, // AI生成时使用的模型
+    pub created_by: CreatorType,       // user/ai/system
+    pub model_used: Option<String>,    // AI生成时使用的模型
     pub confidence_score: Option<f32>, // AI生成置信度
-    
+
     // 版本链 (Supersession)
     pub previous_version_id: Option<String>,
     pub superseded_by: Option<String>, // 被哪个版本取代
-    
+
     pub created_at: DateTime<Local>,
 }
 
@@ -255,7 +256,7 @@ impl std::fmt::Display for CreatorType {
 
 impl std::str::FromStr for CreatorType {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "user" => Ok(CreatorType::User),
@@ -303,7 +304,7 @@ impl std::fmt::Display for AnnotationType {
 
 impl std::str::FromStr for AnnotationType {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "note" => Ok(AnnotationType::Note),
@@ -407,14 +408,14 @@ pub struct WorldRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RuleType {
-    Magic,       // 魔法规则
-    Technology,  // 科技规则
-    Social,      // 社会规则
-    Physical,    // 物理规则
-    Biological,  // 生物规则
-    Historical,  // 历史规则
-    Cultural,    // 文化规则
-    Custom,      // 自定义
+    Magic,      // 魔法规则
+    Technology, // 科技规则
+    Social,     // 社会规则
+    Physical,   // 物理规则
+    Biological, // 生物规则
+    Historical, // 历史规则
+    Cultural,   // 文化规则
+    Custom,     // 自定义
 }
 
 impl std::fmt::Display for RuleType {
@@ -506,14 +507,14 @@ pub struct Entity {
     pub embedding: Option<Vec<f32>>,
     pub first_seen: DateTime<Local>,
     pub last_updated: DateTime<Local>,
-    
+
     // 置信度评分 (0-1)
     pub confidence_score: Option<f32>,
     // 访问计数（用于遗忘曲线）
     pub access_count: i32,
     // 最后访问时间
     pub last_accessed: Option<DateTime<Local>>,
-    
+
     // 归档状态
     pub is_archived: bool,
     pub archived_at: Option<DateTime<Local>>,
@@ -547,7 +548,7 @@ impl std::fmt::Display for EntityType {
 
 impl std::str::FromStr for EntityType {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Character" | "角色" => Ok(EntityType::Character),
@@ -572,7 +573,7 @@ pub struct Relation {
     pub strength: f32,
     pub evidence: Vec<String>,
     pub first_seen: DateTime<Local>,
-    
+
     // 置信度评分
     pub confidence_score: Option<f32>,
 }
@@ -587,7 +588,7 @@ pub enum RelationType {
     Mentor,
     Rival,
     Ally,
-    
+
     // 物品关系
     LocatedAt,
     BelongsTo,
@@ -595,29 +596,29 @@ pub enum RelationType {
     Owns,
     Created,
     Destroyed,
-    
+
     // 组织关系
     PartOf,
     Leads,
     MemberOf,
     FounderOf,
-    
+
     // 因果关系
     Causes,
     Enables,
     Prevents,
     ResultsIn,
-    
+
     // 语义关系
     SimilarTo,
     OppositeOf,
     RelatedTo,
     EvolvesInto,
-    
+
     // 动态关系
-    Supersedes,   // 取代
-    Contradicts,  // 矛盾
-    
+    Supersedes,  // 取代
+    Contradicts, // 矛盾
+
     // 创世引擎关系
     ParticipatesIn, // 角色参与场景
     SetUpIn,        // 伏笔在场景中埋设
@@ -662,7 +663,7 @@ impl std::fmt::Display for RelationType {
 
 impl std::str::FromStr for RelationType {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Friend" => Ok(RelationType::Friend),
@@ -760,12 +761,12 @@ pub struct AgentBotConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AgentBotType {
-    WorldBuilding,  // 世界观助手
-    Character,      // 人物助手
-    WritingStyle,   // 文风助手
-    Plot,           // 情节助手
-    Scene,          // 场景助手
-    Memory,         // 记忆助手
+    WorldBuilding, // 世界观助手
+    Character,     // 人物助手
+    WritingStyle,  // 文风助手
+    Plot,          // 情节助手
+    Scene,         // 场景助手
+    Memory,        // 记忆助手
 }
 
 // ==================== Request/Response 模型 ====================
@@ -939,7 +940,6 @@ impl ChangeTrack {
     }
 }
 
-
 // ==================== 评论线程模型 (修订模式) ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1011,7 +1011,6 @@ pub struct CommentThreadWithMessages {
     pub messages: Vec<CommentMessage>,
 }
 
-
 // ==================== StyleDNA 模型 (深度风格系统) ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1024,7 +1023,6 @@ pub struct StyleDNA {
     pub is_user_created: bool,
     pub created_at: DateTime<Local>,
 }
-
 
 // ==================== StyleDNA 六维向量快照 (W3-B7) ====================
 
@@ -1050,12 +1048,11 @@ pub struct StoryStyleConfig {
     pub id: String,
     pub story_id: String,
     pub name: String,
-    pub blend_json: String,  // JSON serialized Vec<BlendComponent>
+    pub blend_json: String, // JSON serialized Vec<BlendComponent>
     pub is_active: bool,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
-
 
 // ==================== 用户反馈与偏好模型 (自适应学习) ====================
 
@@ -1078,9 +1075,9 @@ pub struct UserFeedbackLog {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedbackType {
-    Accept,   // 用户直接接受 AI 建议
-    Reject,   // 用户拒绝 AI 建议
-    Modify,   // 用户修改后接受
+    Accept, // 用户直接接受 AI 建议
+    Reject, // 用户拒绝 AI 建议
+    Modify, // 用户修改后接受
 }
 
 impl std::fmt::Display for FeedbackType {
@@ -1120,11 +1117,11 @@ pub struct UserPreference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PreferenceType {
-    Style,      // 风格偏好
-    Content,    // 内容偏好
-    Structure,  // 结构偏好
-    Dialogue,   // 对话偏好
-    Pacing,     // 节奏偏好
+    Style,     // 风格偏好
+    Content,   // 内容偏好
+    Structure, // 结构偏好
+    Dialogue,  // 对话偏好
+    Pacing,    // 节奏偏好
 }
 
 impl std::fmt::Display for PreferenceType {
@@ -1402,7 +1399,8 @@ pub struct GenesisRun {
 pub struct MemoryItem {
     pub id: String,
     pub story_id: String,
-    pub category: String, // world_rule | character_state | relationship | story_fact | open_loop | reader_promise | timeline
+    pub category: String, /* world_rule | character_state | relationship | story_fact |
+                           * open_loop | reader_promise | timeline */
     pub subject: Option<String>,
     pub field: Option<String>,
     pub value: Option<String>,
@@ -1468,7 +1466,8 @@ pub struct ReviewIssue {
     pub scene_id: Option<String>,
     pub chapter_number: i32,
     pub severity: String, // critical | high | medium | low
-    pub category: String, // continuity | setting | character | timeline | ai_flavor | logic | pacing | other
+    pub category: String, /* continuity | setting | character | timeline | ai_flavor | logic |
+                           * pacing | other */
     pub location: Option<String>,
     pub description: String,
     pub evidence: Option<String>,

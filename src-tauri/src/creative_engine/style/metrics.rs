@@ -137,13 +137,10 @@ pub fn compute_emotion_density(text: &str) -> f32 {
     }
 
     let emotion_words = [
-        "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢",
-        "痛", "苦", "甜", "酸", "涩", "暖", "冷", "热", "凉", "湿",
+        "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢", "痛", "苦", "甜", "酸", "涩",
+        "暖", "冷", "热", "凉", "湿",
     ];
-    let emotion_count: usize = emotion_words
-        .iter()
-        .map(|&w| text.matches(w).count())
-        .sum();
+    let emotion_count: usize = emotion_words.iter().map(|&w| text.matches(w).count()).sum();
 
     emotion_count as f32 / char_count as f32
 }
@@ -158,20 +155,13 @@ pub fn compute_rhythm_score(text: &str) -> f32 {
         return 0.5;
     }
 
-    let lengths: Vec<f32> = sentences
-        .iter()
-        .map(|s| s.chars().count() as f32)
-        .collect();
+    let lengths: Vec<f32> = sentences.iter().map(|s| s.chars().count() as f32).collect();
     let avg = lengths.iter().sum::<f32>() / lengths.len() as f32;
     if avg == 0.0 {
         return 0.5;
     }
 
-    let variance = lengths
-        .iter()
-        .map(|&l| (l - avg).powi(2))
-        .sum::<f32>()
-        / lengths.len() as f32;
+    let variance = lengths.iter().map(|&l| (l - avg).powi(2)).sum::<f32>() / lengths.len() as f32;
     let std_dev = variance.sqrt();
     let cv = std_dev / avg;
 

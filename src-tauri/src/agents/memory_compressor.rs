@@ -4,9 +4,10 @@
 //! 用于上下文窗口优化和长期记忆保留
 #![allow(dead_code)]
 
+use async_trait::async_trait;
+
 use super::{Agent, AgentContext, AgentResult};
 use crate::llm::service::LlmService;
-use async_trait::async_trait;
 
 pub struct MemoryCompressorAgent {
     llm_service: LlmService,
@@ -60,7 +61,10 @@ impl Agent for MemoryCompressorAgent {
             input
         );
 
-        let response = self.llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(2048), Some(0.3))
+            .await?;
 
         // 估算压缩率
         let original_len = input.chars().count();
@@ -131,7 +135,9 @@ impl MemoryCompressorAgent {
             );
 
             async move {
-                self.llm_service.generate(prompt, Some(1024), Some(0.3)).await
+                self.llm_service
+                    .generate(prompt, Some(1024), Some(0.3))
+                    .await
             }
         });
 
@@ -139,6 +145,9 @@ impl MemoryCompressorAgent {
         let results: Result<Vec<_>, _> = responses.into_iter().collect();
         let results = results?;
 
-        Ok(results.into_iter().map(|r| AgentResult::simple(r.content)).collect())
+        Ok(results
+            .into_iter()
+            .map(|r| AgentResult::simple(r.content))
+            .collect())
     }
 }

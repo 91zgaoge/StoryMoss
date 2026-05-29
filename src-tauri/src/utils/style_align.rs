@@ -145,7 +145,7 @@ impl StyleAligner {
             ("当下", "此时此刻"),
             ("此时", "此时此刻"),
             ("立刻", "立刻之间"),
-            ("马上", "马到成功"), // 慎用，语义偏差
+            ("马上", "马到成功"),    // 慎用，语义偏差
             (" slowly", "缓缓而行"), // 不会匹配中文
         ];
 
@@ -163,9 +163,17 @@ impl StyleAligner {
                 let absolute_pos = search_start + pos;
                 // 检查前后边界（不是汉字的一部分）
                 let before_ok = absolute_pos == 0
-                    || !result.chars().nth(absolute_pos.saturating_sub(1)).unwrap_or(' ').is_alphabetic();
+                    || !result
+                        .chars()
+                        .nth(absolute_pos.saturating_sub(1))
+                        .unwrap_or(' ')
+                        .is_alphabetic();
                 let after_ok = absolute_pos + from.len() >= result.len()
-                    || !result.chars().nth(absolute_pos + from.len()).unwrap_or(' ').is_alphabetic();
+                    || !result
+                        .chars()
+                        .nth(absolute_pos + from.len())
+                        .unwrap_or(' ')
+                        .is_alphabetic();
 
                 if before_ok && after_ok {
                     result.replace_range(absolute_pos..absolute_pos + from.len(), to);
@@ -181,7 +189,10 @@ impl StyleAligner {
         }
 
         if replaced_count > 0 {
-            log::info!("[StyleAligner] Injected {} four-char phrases", replaced_count);
+            log::info!(
+                "[StyleAligner] Injected {} four-char phrases",
+                replaced_count
+            );
         }
         result
     }

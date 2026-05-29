@@ -1,13 +1,17 @@
 //! 混合搜索 - Phase 1.3
-//! 
+//!
 //! 结合 BM25 文本搜索和向量相似度搜索
 //! 使用 RRF (Reciprocal Rank Fusion) 融合排序
 
-use crate::db::models::Entity;
-use crate::embeddings::embedding::embed_text_async;
-use crate::vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    db::models::Entity,
+    embeddings::embedding::embed_text_async,
+    vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult},
+};
 
 /// 混合搜索结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,7 +86,7 @@ impl Bm25Search {
     pub fn add_document(&mut self, doc_id: &str, content: &str) {
         let tokens = self.tokenize(content);
         let doc_length = tokens.len();
-        
+
         // 统计词频
         let mut tf_map: HashMap<String, usize> = HashMap::new();
         for token in tokens {
@@ -165,8 +169,8 @@ impl Bm25Search {
         let k1 = 1.5; // 词频饱和参数
         let b = 0.75; // 长度归一化参数
 
-        let norm_tf = tf * (k1 + 1.0)
-            / (tf + k1 * (1.0 - b + b * doc_length / self.avg_doc_length.max(1.0)));
+        let norm_tf =
+            tf * (k1 + 1.0) / (tf + k1 * (1.0 - b + b * doc_length / self.avg_doc_length.max(1.0)));
 
         idf * norm_tf
     }
@@ -202,7 +206,8 @@ impl HybridSearch {
         let bm25_results = self.bm25.search(query, self.config.top_k_per_route);
 
         // 2. 向量搜索
-        let query_embedding = embed_text_async(query.to_string()).await
+        let query_embedding = embed_text_async(query.to_string())
+            .await
             .map_err(|e| format!("嵌入失败: {}", e))?;
         let vector_results = vector_store
             .search(story_id, query_embedding, self.config.top_k_per_route)
@@ -213,10 +218,12 @@ impl HybridSearch {
 
         // 4. 构建最终结果
         let mut results = vec![];
-        for (doc_id, hybrid_score, bm25_score, vector_score) in fused_results.iter().take(self.config.final_top_k) {
+        for (doc_id, hybrid_score, bm25_score, vector_score) in
+            fused_results.iter().take(self.config.final_top_k)
+        {
             // 从向量结果或 BM25 结果中获取内容
             let content = self.find_content(doc_id, &bm25_results, &vector_results);
-            
+
             results.push(HybridSearchResult {
                 id: doc_id.clone(),
                 content,
@@ -251,7 +258,9 @@ impl HybridSearch {
         // 处理向量结果
         for (rank, result) in vector_results.iter().enumerate() {
             let rrf_score = 1.0 / (k + rank as f32 + 1.0);
-            let entry = rrf_scores.entry(result.id.clone()).or_insert((0.0, 0.0, 0.0));
+            let entry = rrf_scores
+                .entry(result.id.clone())
+                .or_insert((0.0, 0.0, 0.0));
             entry.0 += rrf_score * self.config.vector_weight;
             entry.2 = result.score;
         }
@@ -276,7 +285,7 @@ impl HybridSearch {
         if let Some(result) = vector_results.iter().find(|r| r.id == doc_id) {
             return result.text.clone();
         }
-        
+
         // 否则返回 doc_id 作为占位符
         doc_id.to_string()
     }
@@ -312,7 +321,7 @@ impl EntityHybridSearch {
             .iter()
             .map(|e| {
                 let name_score = name_scores.get(&e.id).copied().unwrap_or(0.0);
-                
+
                 let vector_score = if let Some(ref query_emb) = query_embedding {
                     if let Some(ref entity_emb) = e.embedding {
                         Self::cosine_similarity(query_emb, entity_emb)
@@ -354,11 +363,10 @@ impl EntityHybridSearch {
         // 计算字符重叠度
         let query_chars: std::collections::HashSet<char> = query_lower.chars().collect();
         let name_chars: std::collections::HashSet<char> = name_lower.chars().collect();
-        
-        let intersection: std::collections::HashSet<_> = query_chars
-            .intersection(&name_chars)
-            .collect();
-        
+
+        let intersection: std::collections::HashSet<_> =
+            query_chars.intersection(&name_chars).collect();
+
         if !query_chars.is_empty() {
             intersection.len() as f32 / query_chars.len() as f32 * 0.5
         } else {
@@ -391,7 +399,7 @@ mod tests {
     #[test]
     fn test_bm25_search() {
         let mut bm25 = Bm25Search::new();
-        
+
         bm25.add_document("doc1", "这是一个测试文档");
         bm25.add_document("doc2", "这是另一个文档用于测试");
         bm25.add_document("doc3", "完全不同的内容");

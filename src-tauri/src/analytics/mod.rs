@@ -1,5 +1,5 @@
+use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use chrono::{Utc, NaiveDate};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WritingAnalytics {
@@ -34,15 +34,16 @@ impl AnalyticsEngine {
     ) -> WritingAnalytics {
         let total_words: i64 = scenes
             .iter()
-            .map(|s| crate::utils::text::TextUtils::chinese_word_count(s.content.as_deref().unwrap_or("")) as i64)
+            .map(|s| {
+                crate::utils::text::TextUtils::chinese_word_count(
+                    s.content.as_deref().unwrap_or(""),
+                ) as i64
+            })
             .sum();
         let total_scenes = scenes.len() as i32;
 
         // Calculate writing streak from scene updated_at dates
-        let mut dates: Vec<NaiveDate> = scenes
-            .iter()
-            .map(|s| s.updated_at.date_naive())
-            .collect();
+        let mut dates: Vec<NaiveDate> = scenes.iter().map(|s| s.updated_at.date_naive()).collect();
         dates.sort_unstable();
         dates.dedup();
         dates.reverse();

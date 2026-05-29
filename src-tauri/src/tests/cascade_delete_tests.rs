@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod cascade_delete_tests {
-    use crate::db::connection::create_test_pool;
-    use crate::db::repositories::{StoryRepository, CharacterRepository, ChapterRepository};
-    use crate::db::models::{CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
+    use crate::db::{
+        connection::create_test_pool,
+        models::{CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest},
+        repositories::{ChapterRepository, CharacterRepository, StoryRepository},
+    };
 
     #[test]
     fn test_story_cascade_delete() -> Result<(), Box<dyn std::error::Error>> {

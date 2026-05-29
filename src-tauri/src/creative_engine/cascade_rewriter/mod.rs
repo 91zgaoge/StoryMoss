@@ -4,11 +4,11 @@
 //! 自动识别受影响场景，生成增量改写预览，经用户确认后应用。
 
 mod change_detector;
+pub mod commands;
+pub mod executor;
 mod impact_analyzer;
-mod rewrite_engine;
 pub mod models;
 mod repository;
-pub mod executor;
-pub mod commands;
+mod rewrite_engine;
 
 pub use repository::EntityMentionRepository;

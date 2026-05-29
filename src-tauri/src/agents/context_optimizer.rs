@@ -7,12 +7,20 @@
 //!
 //! 目标：在有限的上下文窗口内，为 Agent 提供最相关、最紧凑的上下文。
 
-use super::{AgentContext, AgentMemoryContext, CharacterInfo, ChapterSummary, NarrativeContext, StoryContext, StyleContext, WorldContext};
-use crate::db::DbPool;
-use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
-use crate::db::repositories_pipeline::{BlueprintRepository, DraftRepository};
 use serde::{Deserialize, Serialize};
+
+use super::{
+    AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
+    StoryContext, StyleContext, WorldContext,
+};
+use crate::db::{
+    repositories::{
+        CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
+        WritingStyleRepository,
+    },
+    repositories_pipeline::{BlueprintRepository, DraftRepository},
+    DbPool,
+};
 
 // ==================== L0: 静态元数据 ====================
 
@@ -171,7 +179,8 @@ impl L1Context {
 
         // 角色卡片
         if !self.character_cards.is_empty() {
-            let cards_text = self.character_cards
+            let cards_text = self
+                .character_cards
                 .iter()
                 .map(|c| c.to_prompt_text())
                 .collect::<Vec<_>>()
@@ -195,7 +204,8 @@ impl L1Context {
 
         // 前文摘要
         if !self.recent_chapters.is_empty() {
-            let chapters_text = self.recent_chapters
+            let chapters_text = self
+                .recent_chapters
                 .iter()
                 .map(|c| format!("第{}章 {}: {}", c.number, c.title, c.summary))
                 .collect::<Vec<_>>()
@@ -209,10 +219,7 @@ impl L1Context {
                 "当前草稿".to_string(),
                 format!(
                     "版本{} ({}) | {}字 | {}",
-                    draft.version,
-                    draft.status,
-                    draft.word_count,
-                    draft.content_preview
+                    draft.version, draft.status, draft.word_count, draft.content_preview
                 ),
             ));
         }
@@ -235,22 +242,13 @@ pub enum L2Tool {
         chapter_range: Option<(i32, i32)>,
     },
     /// 获取特定角色详细状态
-    GetCharacterState {
-        character_name: String,
-    },
+    GetCharacterState { character_name: String },
     /// 读取特定章节蓝图
-    ReadBlueprint {
-        chapter_number: i32,
-    },
+    ReadBlueprint { chapter_number: i32 },
     /// 检查内容连续性
-    CheckContinuity {
-        content: String,
-    },
+    CheckContinuity { content: String },
     /// 搜索前文中的特定事件或设定
-    SearchPreviousEvents {
-        keyword: String,
-        max_results: usize,
-    },
+    SearchPreviousEvents { keyword: String, max_results: usize },
 }
 
 impl L2Tool {
@@ -267,7 +265,9 @@ impl L2Tool {
     pub fn description(&self) -> String {
         match self {
             L2Tool::SearchKnowledge { query, .. } => format!("知识库搜索: {}", query),
-            L2Tool::GetCharacterState { character_name } => format!("查询角色状态: {}", character_name),
+            L2Tool::GetCharacterState { character_name } => {
+                format!("查询角色状态: {}", character_name)
+            }
             L2Tool::ReadBlueprint { chapter_number } => format!("读取第{}章蓝图", chapter_number),
             L2Tool::CheckContinuity { .. } => "检查内容连续性".to_string(),
             L2Tool::SearchPreviousEvents { keyword, .. } => format!("搜索前文事件: {}", keyword),
@@ -308,10 +308,14 @@ impl ContextOptimizer {
         Ok(L0Context {
             story_title: story.title,
             genre: story.genre.unwrap_or_else(|| "小说".to_string()),
-            tone: style.as_ref().and_then(|s| s.tone.clone())
+            tone: style
+                .as_ref()
+                .and_then(|s| s.tone.clone())
                 .or(story.tone)
                 .unwrap_or_else(|| "中性".to_string()),
-            pacing: style.as_ref().and_then(|s| s.pacing.clone())
+            pacing: style
+                .as_ref()
+                .and_then(|s| s.pacing.clone())
                 .or(story.pacing)
                 .unwrap_or_else(|| "正常".to_string()),
             style_dna_id: story.style_dna_id,
@@ -324,11 +328,7 @@ impl ContextOptimizer {
     // ==================== L1 构建 ====================
 
     /// 构建 L1 结构化知识上下文
-    pub async fn build_l1(
-        &self,
-        story_id: &str,
-        chapter_number: u32,
-    ) -> Result<L1Context, String> {
+    pub async fn build_l1(&self, story_id: &str, chapter_number: u32) -> Result<L1Context, String> {
         let chapter_number_i32 = chapter_number as i32;
 
         // 并行获取数据
@@ -360,8 +360,13 @@ impl ContextOptimizer {
         tool: L2Tool,
     ) -> Result<L2ToolResult, String> {
         let content = match &tool {
-            L2Tool::SearchKnowledge { query, top_k, chapter_range } => {
-                self.tool_search_knowledge(story_id, query, *top_k, *chapter_range).await
+            L2Tool::SearchKnowledge {
+                query,
+                top_k,
+                chapter_range,
+            } => {
+                self.tool_search_knowledge(story_id, query, *top_k, *chapter_range)
+                    .await
             }
             L2Tool::GetCharacterState { character_name } => {
                 self.tool_get_character_state(story_id, character_name)
@@ -372,8 +377,12 @@ impl ContextOptimizer {
             L2Tool::CheckContinuity { content: text } => {
                 self.tool_check_continuity(story_id, text).await
             }
-            L2Tool::SearchPreviousEvents { keyword, max_results } => {
-                self.tool_search_previous_events(story_id, keyword, *max_results).await
+            L2Tool::SearchPreviousEvents {
+                keyword,
+                max_results,
+            } => {
+                self.tool_search_previous_events(story_id, keyword, *max_results)
+                    .await
             }
         }?;
 
@@ -415,25 +424,30 @@ impl ContextOptimizer {
 
         // 组装 MemoryPack（三层记忆）
         let memory_pack = {
-            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
+            let orchestrator =
+                crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
             match orchestrator.build_memory_pack(story_id, chapter_number as i32, "write", None) {
                 Ok(mut pack) => {
                     // 将前文摘要吸收进 working_memory
                     for chapter in &l1.recent_chapters {
-                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
-                            layer: "working".to_string(),
-                            source: "previous_chapter".to_string(),
-                            chapter: chapter.number as i32,
-                            content: serde_json::json!({
-                                "title": chapter.title,
-                                "summary": chapter.summary
-                            }),
-                        });
+                        pack.working_memory
+                            .push(crate::memory::orchestrator::MemoryEntry {
+                                layer: "working".to_string(),
+                                source: "previous_chapter".to_string(),
+                                chapter: chapter.number as i32,
+                                content: serde_json::json!({
+                                    "title": chapter.title,
+                                    "summary": chapter.summary
+                                }),
+                            });
                     }
                     Some(pack)
                 }
                 Err(e) => {
-                    log::warn!("[ContextOptimizer] MemoryPack build failed: {}, continuing without", e);
+                    log::warn!(
+                        "[ContextOptimizer] MemoryPack build failed: {}, continuing without",
+                        e
+                    );
                     None
                 }
             }
@@ -450,11 +464,15 @@ impl ContextOptimizer {
             },
             narrative: NarrativeContext {
                 chapter_number,
-                characters: l1.character_cards.iter().map(|c| CharacterInfo {
-                    name: c.name.clone(),
-                    personality: c.personality.clone(),
-                    role: c.role.clone(),
-                }).collect(),
+                characters: l1
+                    .character_cards
+                    .iter()
+                    .map(|c| CharacterInfo {
+                        name: c.name.clone(),
+                        personality: c.personality.clone(),
+                        role: c.role.clone(),
+                    })
+                    .collect(),
                 previous_chapters: l1.recent_chapters,
                 current_content: current_content.clone(),
                 selected_text: selected_text.clone(),
@@ -503,13 +521,20 @@ impl ContextOptimizer {
                 bp.role.as_deref().unwrap_or("待定"),
                 bp.purpose.as_deref().unwrap_or("待定"),
                 bp.key_events.join(", "),
-                bp.suspense_hook.as_ref().map(|h| format!("悬念: {}\n", h)).unwrap_or_default()
+                bp.suspense_hook
+                    .as_ref()
+                    .map(|h| format!("悬念: {}\n", h))
+                    .unwrap_or_default()
             );
-            agent_ctx.world.world_rules = Some(format!(
-                "{}\n\n{}",
-                agent_ctx.world.world_rules.unwrap_or_default(),
-                bp_text
-            ).trim().to_string());
+            agent_ctx.world.world_rules = Some(
+                format!(
+                    "{}\n\n{}",
+                    agent_ctx.world.world_rules.unwrap_or_default(),
+                    bp_text
+                )
+                .trim()
+                .to_string(),
+            );
         }
 
         Ok(agent_ctx)
@@ -521,7 +546,8 @@ impl ContextOptimizer {
         story_id: &str,
         chapter_number: u32,
     ) -> Result<AgentContext, String> {
-        self.build_full_context(story_id, chapter_number, None, None, vec![]).await
+        self.build_full_context(story_id, chapter_number, None, None, vec![])
+            .await
     }
 
     // ==================== 数据获取方法 ====================
@@ -533,7 +559,10 @@ impl ContextOptimizer {
             .ok_or_else(|| "故事不存在".to_string())
     }
 
-    fn fetch_writing_style(&self, story_id: &str) -> Result<Option<crate::db::models::WritingStyle>, String> {
+    fn fetch_writing_style(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<crate::db::models::WritingStyle>, String> {
         let repo = WritingStyleRepository::new(self.pool.clone());
         repo.get_by_story(story_id)
             .map_err(|e| format!("获取文风失败: {}", e))
@@ -543,8 +572,10 @@ impl ContextOptimizer {
         &self,
         story_id: &str,
     ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
-        use crate::db::repositories::StoryStyleConfigRepository;
-        use crate::creative_engine::style::blend::StyleBlendConfig;
+        use crate::{
+            creative_engine::style::blend::StyleBlendConfig,
+            db::repositories::StoryStyleConfigRepository,
+        };
 
         let repo = StoryStyleConfigRepository::new(self.pool.clone());
         if let Ok(Some(config)) = repo.get_active_by_story(story_id) {
@@ -555,14 +586,20 @@ impl ContextOptimizer {
         None
     }
 
-    fn fetch_blueprint_summary(&self, story_id: &str, chapter_number: i32) -> Option<BlueprintSummary> {
+    fn fetch_blueprint_summary(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Option<BlueprintSummary> {
         let repo = BlueprintRepository::new(self.pool.clone());
         match repo.get_by_chapter(story_id, chapter_number) {
             Ok(Some(bp)) => {
-                let key_events: Vec<String> = bp.key_events
+                let key_events: Vec<String> = bp
+                    .key_events
                     .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
                     .unwrap_or_default();
-                let characters: Vec<String> = bp.characters
+                let characters: Vec<String> = bp
+                    .characters
                     .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
                     .unwrap_or_default();
 
@@ -584,39 +621,52 @@ impl ContextOptimizer {
 
     fn fetch_character_cards(&self, story_id: &str) -> Result<Vec<CharacterCard>, String> {
         let repo = CharacterRepository::new(self.pool.clone());
-        let characters = repo.get_by_story(story_id)
+        let characters = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取角色失败: {}", e))?;
 
-        Ok(characters.into_iter().map(|c| {
-            let role = c.background.clone().unwrap_or_else(|| "主要角色".to_string());
-            let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
-                (Some(p), Some(g)) => format!("{}；目标：{}", p, g),
-                (Some(p), None) => p.clone(),
-                (None, Some(g)) => format!("目标：{}", g),
-                (None, None) => "性格未定".to_string(),
-            };
+        Ok(characters
+            .into_iter()
+            .map(|c| {
+                let role = c
+                    .background
+                    .clone()
+                    .unwrap_or_else(|| "主要角色".to_string());
+                let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
+                    (Some(p), Some(g)) => format!("{}；目标：{}", p, g),
+                    (Some(p), None) => p.clone(),
+                    (None, Some(g)) => format!("目标：{}", g),
+                    (None, None) => "性格未定".to_string(),
+                };
 
-            CharacterCard {
-                name: c.name,
-                personality,
-                role,
-                location: c.cs_location,
-                power_level: c.cs_power_level,
-                physical_state: c.cs_physical_state,
-                mental_state: c.cs_mental_state,
-                key_items: c.cs_key_items,
-                recent_events: c.cs_recent_events,
-                updated_at_chapter: c.cs_updated_at_chapter,
-            }
-        }).collect())
+                CharacterCard {
+                    name: c.name,
+                    personality,
+                    role,
+                    location: c.cs_location,
+                    power_level: c.cs_power_level,
+                    physical_state: c.cs_physical_state,
+                    mental_state: c.cs_mental_state,
+                    key_items: c.cs_key_items,
+                    recent_events: c.cs_recent_events,
+                    updated_at_chapter: c.cs_updated_at_chapter,
+                }
+            })
+            .collect())
     }
 
-    fn fetch_recent_chapters(&self, story_id: &str, current_chapter: u32) -> Result<Vec<ChapterSummary>, String> {
+    fn fetch_recent_chapters(
+        &self,
+        story_id: &str,
+        current_chapter: u32,
+    ) -> Result<Vec<ChapterSummary>, String> {
         let repo = SceneRepository::new(self.pool.clone());
-        let all_scenes = repo.get_by_story(story_id)
+        let all_scenes = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
 
-        let mut prev: Vec<_> = all_scenes.into_iter()
+        let mut prev: Vec<_> = all_scenes
+            .into_iter()
             .filter(|s| s.sequence_number < current_chapter as i32)
             .collect();
         prev.sort_by_key(|s| s.sequence_number);
@@ -626,21 +676,28 @@ impl ContextOptimizer {
             prev = prev.into_iter().rev().take(3).rev().collect();
         }
 
-        Ok(prev.into_iter().map(|s| {
-            let summary = s.content.clone()
-                .or(s.dramatic_goal.clone())
-                .unwrap_or_else(|| "无内容".to_string());
-            let preview = if summary.chars().count() > 150 {
-                format!("{}...", summary.chars().take(150).collect::<String>())
-            } else {
-                summary
-            };
-            ChapterSummary {
-                title: s.title.unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
-                number: s.sequence_number.max(0) as u32,
-                summary: preview,
-            }
-        }).collect())
+        Ok(prev
+            .into_iter()
+            .map(|s| {
+                let summary = s
+                    .content
+                    .clone()
+                    .or(s.dramatic_goal.clone())
+                    .unwrap_or_else(|| "无内容".to_string());
+                let preview = if summary.chars().count() > 150 {
+                    format!("{}...", summary.chars().take(150).collect::<String>())
+                } else {
+                    summary
+                };
+                ChapterSummary {
+                    title: s
+                        .title
+                        .unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
+                    number: s.sequence_number.max(0) as u32,
+                    summary: preview,
+                }
+            })
+            .collect())
     }
 
     fn fetch_world_rules_text(&self, story_id: &str) -> Option<String> {
@@ -650,9 +707,18 @@ impl ContextOptimizer {
             _ => return None,
         };
 
-        let rules: Vec<String> = world_building.rules.into_iter()
+        let rules: Vec<String> = world_building
+            .rules
+            .into_iter()
             .take(5)
-            .map(|r| format!("- {}（{}）: {}", r.name, r.rule_type, r.description.unwrap_or_default()))
+            .map(|r| {
+                format!(
+                    "- {}（{}）: {}",
+                    r.name,
+                    r.rule_type,
+                    r.description.unwrap_or_default()
+                )
+            })
             .collect();
 
         if rules.is_empty() {
@@ -662,18 +728,16 @@ impl ContextOptimizer {
         }
     }
 
-    fn fetch_scene_structure_text(
-        &self,
-        story_id: &str,
-        scene_number: i32,
-    ) -> Option<String> {
+    fn fetch_scene_structure_text(&self, story_id: &str, scene_number: i32) -> Option<String> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = match repo.get_by_story(story_id) {
             Ok(s) => s,
             Err(_) => return None,
         };
 
-        let scene = scenes.into_iter().find(|s| s.sequence_number == scene_number)?;
+        let scene = scenes
+            .into_iter()
+            .find(|s| s.sequence_number == scene_number)?;
 
         let mut parts = Vec::new();
         if let Some(ref goal) = scene.dramatic_goal {
@@ -705,18 +769,16 @@ impl ContextOptimizer {
     fn fetch_recent_draft(&self, story_id: &str, chapter_number: i32) -> Option<DraftSummary> {
         let repo = DraftRepository::new(self.pool.clone());
         match repo.get_by_story_chapter(story_id, chapter_number) {
-            Ok(drafts) => {
-                drafts.into_iter().max_by_key(|d| d.version).map(|d| {
-                    let preview = d.content.chars().take(100).collect::<String>();
-                    DraftSummary {
-                        draft_id: d.id,
-                        version: d.version,
-                        status: d.status.to_string(),
-                        word_count: d.word_count,
-                        content_preview: preview,
-                    }
-                })
-            }
+            Ok(drafts) => drafts.into_iter().max_by_key(|d| d.version).map(|d| {
+                let preview = d.content.chars().take(100).collect::<String>();
+                DraftSummary {
+                    draft_id: d.id,
+                    version: d.version,
+                    status: d.status.to_string(),
+                    word_count: d.word_count,
+                    content_preview: preview,
+                }
+            }),
             Err(_) => None,
         }
     }
@@ -738,14 +800,18 @@ impl ContextOptimizer {
                 top_k,
                 chapter_range,
                 "hybrid",
-            ).await {
+            )
+            .await
+            {
                 Ok(results) => {
                     if results.is_empty() {
                         return Ok("未找到相关知识".to_string());
                     }
                     let lines: Vec<String> = results
                         .iter()
-                        .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
+                        .map(|r| {
+                            format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text)
+                        })
                         .collect();
                     Ok(lines.join("\n"))
                 }
@@ -756,12 +822,18 @@ impl ContextOptimizer {
         }
     }
 
-    fn tool_get_character_state(&self, story_id: &str, character_name: &str) -> Result<String, String> {
+    fn tool_get_character_state(
+        &self,
+        story_id: &str,
+        character_name: &str,
+    ) -> Result<String, String> {
         let repo = CharacterRepository::new(self.pool.clone());
-        let characters = repo.get_by_story(story_id)
+        let characters = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取角色失败: {}", e))?;
 
-        let character = characters.into_iter()
+        let character = characters
+            .into_iter()
             .find(|c| c.name == character_name)
             .ok_or_else(|| format!("未找到角色: {}", character_name))?;
 
@@ -799,7 +871,11 @@ impl ContextOptimizer {
         match repo.get_by_chapter(story_id, chapter_number) {
             Ok(Some(bp)) => {
                 let mut parts = vec![
-                    format!("第{}章《{}》", bp.chapter_number, bp.title.as_deref().unwrap_or("未命名")),
+                    format!(
+                        "第{}章《{}》",
+                        bp.chapter_number,
+                        bp.title.as_deref().unwrap_or("未命名")
+                    ),
                     format!("角色: {}", bp.role.as_deref().unwrap_or("待定")),
                     format!("目的: {}", bp.purpose.as_deref().unwrap_or("待定")),
                 ];
@@ -807,7 +883,14 @@ impl ContextOptimizer {
                 if let Some(ref key_events_json) = bp.key_events {
                     if let Ok(events) = serde_json::from_str::<Vec<String>>(key_events_json) {
                         if !events.is_empty() {
-                            parts.push(format!("关键事件:\n{}", events.iter().map(|e| format!("- {}", e)).collect::<Vec<_>>().join("\n")));
+                            parts.push(format!(
+                                "关键事件:\n{}",
+                                events
+                                    .iter()
+                                    .map(|e| format!("- {}", e))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            ));
                         }
                     }
                 }
@@ -837,7 +920,8 @@ impl ContextOptimizer {
         };
 
         // 获取最近3个场景的内容进行连续性检查
-        let recent_contents: Vec<String> = scenes.into_iter()
+        let recent_contents: Vec<String> = scenes
+            .into_iter()
             .rev()
             .take(3)
             .rev()
@@ -859,7 +943,8 @@ impl ContextOptimizer {
                     // 角色出现，检查是否有明显状态矛盾
                     if let Some(ref phys) = char.cs_physical_state {
                         if phys.contains("受伤") || phys.contains("昏迷") {
-                            // 简单启发：如果前文说角色昏迷，新内容中角色行动正常
+                            // 简单启发：如果前文说角色昏迷，
+                            // 新内容中角色行动正常
                             // 这是一个简单检查，真正的连续性检查应使用 LLM
                         }
                     }
@@ -869,7 +954,9 @@ impl ContextOptimizer {
 
         // 2. 检查时间/地点一致性关键词
         let combined_recent = recent_contents.join("\n");
-        let time_keywords = vec!["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜", "凌晨"];
+        let time_keywords = vec![
+            "清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜", "凌晨",
+        ];
         for kw in time_keywords {
             if combined_recent.contains(kw) && content.contains(kw) {
                 // 时间关键词重复出现，可能是合理的
@@ -898,7 +985,9 @@ impl ContextOptimizer {
                 max_results,
                 None,
                 "hybrid",
-            ).await {
+            )
+            .await
+            {
                 Ok(results) => {
                     if !results.is_empty() {
                         let lines: Vec<String> = results
@@ -909,7 +998,10 @@ impl ContextOptimizer {
                     }
                 }
                 Err(e) => {
-                    log::warn!("[ContextOptimizer] KB search failed: {}, falling back to text search", e);
+                    log::warn!(
+                        "[ContextOptimizer] KB search failed: {}, falling back to text search",
+                        e
+                    );
                 }
             }
         }
@@ -962,11 +1054,9 @@ impl ContextOptimizer {
 
 /// 推荐的默认 L2 工具组合（写作时）
 pub fn default_writing_tools(chapter_number: u32) -> Vec<L2Tool> {
-    vec![
-        L2Tool::ReadBlueprint {
-            chapter_number: chapter_number as i32,
-        },
-    ]
+    vec![L2Tool::ReadBlueprint {
+        chapter_number: chapter_number as i32,
+    }]
 }
 
 /// 推荐的 L2 工具组合（改写时）

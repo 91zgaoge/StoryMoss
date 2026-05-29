@@ -5,10 +5,12 @@
 //! - 自动归档遗忘实体
 //! - 发射 health report 事件到前端
 
-use crate::db::DbPool;
 use std::sync::Arc;
-use tokio::time::{interval, Duration};
+
 use tauri::Emitter;
+use tokio::time::{interval, Duration};
+
+use crate::db::DbPool;
 
 pub struct MemoryHealthDaemon {
     pool: DbPool,
@@ -33,12 +35,11 @@ impl MemoryHealthDaemon {
     }
 
     /// 单次运行
-    async fn run_once(
-        &self,
-        app_handle: &tauri::AppHandle,
-    ) -> Result<(), String> {
-        use crate::db::repositories::{KnowledgeGraphRepository, StoryRepository};
-        use crate::memory::retention::RetentionManager;
+    async fn run_once(&self, app_handle: &tauri::AppHandle) -> Result<(), String> {
+        use crate::{
+            db::repositories::{KnowledgeGraphRepository, StoryRepository},
+            memory::retention::RetentionManager,
+        };
 
         log::info!("[MemoryHealthDaemon] Running health check...");
 
@@ -73,11 +74,23 @@ impl MemoryHealthDaemon {
             }
 
             // 统计各优先级数量
-            let critical = report.level_distribution.get("critical").copied().unwrap_or(0);
+            let critical = report
+                .level_distribution
+                .get("critical")
+                .copied()
+                .unwrap_or(0);
             let high = report.level_distribution.get("high").copied().unwrap_or(0);
-            let medium = report.level_distribution.get("medium").copied().unwrap_or(0);
+            let medium = report
+                .level_distribution
+                .get("medium")
+                .copied()
+                .unwrap_or(0);
             let low = report.level_distribution.get("low").copied().unwrap_or(0);
-            let forgotten_count = report.level_distribution.get("forgotten").copied().unwrap_or(0);
+            let forgotten_count = report
+                .level_distribution
+                .get("forgotten")
+                .copied()
+                .unwrap_or(0);
 
             // 发射 health report 事件
             let _ = app_handle.emit(

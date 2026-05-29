@@ -3,11 +3,13 @@
 //! 追踪角色状态、检测一致性冲突、管理时间线。
 //! 在幕后运行，为 Agent 提供连续性保障。
 
-use crate::db::DbPool;
-use crate::db::repositories::{CharacterRepository};
-use crate::db::repositories::{SceneRepository, KnowledgeGraphRepository};
-use crate::db::models::{EntityType, RelationType};
 use std::collections::HashMap;
+
+use crate::db::{
+    models::{EntityType, RelationType},
+    repositories::{CharacterRepository, KnowledgeGraphRepository, SceneRepository},
+    DbPool,
+};
 
 /// 角色当前状态
 #[derive(Debug, Clone)]
@@ -74,7 +76,9 @@ impl ContinuityEngine {
         let mut issues = Vec::new();
 
         // 1. 检查角色位置一致性
-        if let Ok(scene_issues) = self.check_character_locations(story_id, scene_id, proposed_content) {
+        if let Ok(scene_issues) =
+            self.check_character_locations(story_id, scene_id, proposed_content)
+        {
             issues.extend(scene_issues);
         }
 
@@ -89,7 +93,9 @@ impl ContinuityEngine {
         }
 
         // 4. 检查角色情绪连续性
-        if let Ok(emotion_issues) = self.check_character_emotions(story_id, scene_id, proposed_content) {
+        if let Ok(emotion_issues) =
+            self.check_character_emotions(story_id, scene_id, proposed_content)
+        {
             issues.extend(emotion_issues);
         }
 
@@ -106,15 +112,18 @@ impl ContinuityEngine {
     /// 获取角色的当前状态
     pub fn get_character_states(&self, story_id: &str) -> Result<Vec<CharacterState>, String> {
         let char_repo = CharacterRepository::new(self.pool.clone());
-        let characters = char_repo.get_by_story(story_id)
+        let characters = char_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取角色失败: {}", e))?;
 
         // 一次性查询知识图谱，构建 name -> entity 映射，避免循环内重复查询
         let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
-        let entities = kg_repo.get_entities_by_story(story_id)
+        let entities = kg_repo
+            .get_entities_by_story(story_id)
             .map_err(|e| format!("获取实体失败: {}", e))?;
 
-        let entity_map: HashMap<String, crate::db::models::Entity> = entities.into_iter()
+        let entity_map: HashMap<String, crate::db::models::Entity> = entities
+            .into_iter()
             .filter(|e| matches!(e.entity_type, EntityType::Character))
             .map(|e| (e.name.clone(), e))
             .collect();
@@ -126,9 +135,15 @@ impl ContinuityEngine {
             let (location, emotion, goal) = if let Some(entity) = character_entity {
                 let attrs = &entity.attributes;
                 (
-                    attrs.get("current_location").and_then(|v| v.as_str().map(|s| s.to_string())),
-                    attrs.get("current_emotion").and_then(|v| v.as_str().map(|s| s.to_string())),
-                    attrs.get("active_goal").and_then(|v| v.as_str().map(|s| s.to_string())),
+                    attrs
+                        .get("current_location")
+                        .and_then(|v| v.as_str().map(|s| s.to_string())),
+                    attrs
+                        .get("current_emotion")
+                        .and_then(|v| v.as_str().map(|s| s.to_string())),
+                    attrs
+                        .get("active_goal")
+                        .and_then(|v| v.as_str().map(|s| s.to_string())),
                 )
             } else {
                 (None, None, None)
@@ -160,7 +175,8 @@ impl ContinuityEngine {
         let mut issues = Vec::new();
 
         let scene_repo = SceneRepository::new(self.pool.clone());
-        let current_scene = scene_repo.get_by_id(scene_id)
+        let current_scene = scene_repo
+            .get_by_id(scene_id)
             .map_err(|e| format!("获取场景失败: {}", e))?
             .ok_or("场景不存在")?;
 
@@ -182,7 +198,10 @@ impl ContinuityEngine {
                                 "{} 从 '{}' 移动到了 '{}'。请确保移动过程合理。",
                                 state.name, last_location, scene_location
                             ),
-                            suggestion: Some(format!("考虑在场景中描述 {} 如何到达 {}", state.name, scene_location)),
+                            suggestion: Some(format!(
+                                "考虑在场景中描述 {} 如何到达 {}",
+                                state.name, scene_location
+                            )),
                         });
                     }
                 }
@@ -192,10 +211,12 @@ impl ContinuityEngine {
         // 增强：检测生成内容中是否提到了角色在 setting_location 以外的位置
         if !scene_location.is_empty() && !content.is_empty() {
             let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
-            let entities = kg_repo.get_entities_by_story(story_id)
+            let entities = kg_repo
+                .get_entities_by_story(story_id)
                 .map_err(|e| format!("获取实体失败: {}", e))?;
 
-            let location_names: Vec<&str> = entities.iter()
+            let location_names: Vec<&str> = entities
+                .iter()
                 .filter(|e| matches!(e.entity_type, EntityType::Location))
                 .map(|e| e.name.as_str())
                 .filter(|name| !name.is_empty() && *name != scene_location)
@@ -215,7 +236,8 @@ impl ContinuityEngine {
                             issue_type: IssueType::CharacterLocation,
                             severity: Severity::Info,
                             message: format!(
-                                "内容中提到了 {} 在 '{}'，但当前场景设定为 '{}'。请确认位置是否合理。",
+                                "内容中提到了 {} 在 '{}'，但当前场景设定为 \
+                                 '{}'。请确认位置是否合理。",
                                 state.name, loc, scene_location
                             ),
                             suggestion: Some(format!(
@@ -249,7 +271,9 @@ impl ContinuityEngine {
 
         for rule in world_building.rules {
             if let Some(ref desc) = rule.description {
-                let clauses: Vec<&str> = desc.split(|c| c == '，' || c == '。' || c == ';' || c == '、').collect();
+                let clauses: Vec<&str> = desc
+                    .split(|c| c == '，' || c == '。' || c == ';' || c == '、')
+                    .collect();
                 for clause in clauses {
                     let trimmed = clause.trim();
                     if trimmed.is_empty() {
@@ -261,7 +285,9 @@ impl ContinuityEngine {
                         // 提取禁止行为：否定词之后的文本
                         let forbidden = if let Some(pos) = trimmed.find(neg_word) {
                             let after = &trimmed[pos + neg_word.len()..];
-                            after.trim().trim_start_matches(|c: char| c == '了' || c == '的' || c == '地' || c == '着')
+                            after.trim().trim_start_matches(|c: char| {
+                                c == '了' || c == '的' || c == '地' || c == '着'
+                            })
                         } else {
                             trimmed
                         };
@@ -272,7 +298,8 @@ impl ContinuityEngine {
                                 issue_type: IssueType::WorldRuleViolation,
                                 severity: Severity::Warning,
                                 message: format!(
-                                    "可能违反世界观规则「{}」: 内容中出现了禁止行为 '{}'（规则: {}）",
+                                    "可能违反世界观规则「{}」: 内容中出现了禁止行为 '{}'（规则: \
+                                     {}）",
                                     rule.name, forbidden, desc
                                 ),
                                 suggestion: Some(format!(
@@ -297,7 +324,8 @@ impl ContinuityEngine {
         let mut issues = Vec::new();
 
         let scene_repo = SceneRepository::new(self.pool.clone());
-        let mut scenes = scene_repo.get_by_story(story_id)
+        let mut scenes = scene_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
         scenes.sort_by_key(|s| s.sequence_number);
 
@@ -308,9 +336,8 @@ impl ContinuityEngine {
         };
 
         // 查找前一场景
-        let previous_scene = current_idx.and_then(|idx| {
-            if idx > 0 { scenes.get(idx - 1) } else { None }
-        });
+        let previous_scene =
+            current_idx.and_then(|idx| if idx > 0 { scenes.get(idx - 1) } else { None });
 
         if let Some(prev) = previous_scene {
             // 检查 sequence_number 顺序
@@ -319,7 +346,8 @@ impl ContinuityEngine {
                     issue_type: IssueType::TimelineConflict,
                     severity: Severity::Critical,
                     message: format!(
-                        "时间线倒错：场景 '{}' (序号 {}) 排在 '{}' (序号 {}) 之后，但序号更小或相等",
+                        "时间线倒错：场景 '{}' (序号 {}) 排在 '{}' (序号 {}) \
+                         之后，但序号更小或相等",
                         current_scene.title.as_deref().unwrap_or("未命名"),
                         current_scene.sequence_number,
                         prev.title.as_deref().unwrap_or("未命名"),
@@ -341,7 +369,8 @@ impl ContinuityEngine {
                                 issue_type: IssueType::TimelineConflict,
                                 severity: Severity::Warning,
                                 message: format!(
-                                    "时间可能倒错：当前场景设定为 '{}'，但前一场景为 '{}'，数字线索暗示时间倒退",
+                                    "时间可能倒错：当前场景设定为 '{}'，但前一场景为 \
+                                     '{}'，数字线索暗示时间倒退",
                                     curr_time, prev_time
                                 ),
                                 suggestion: Some("如非闪回/回忆场景，请检查时间设定".to_string()),
@@ -377,7 +406,9 @@ impl ContinuityEngine {
             }
 
             // 检测剧烈情绪突变（无过渡）
-            if is_drastic_emotion_change(last_emotion, &content_lower) && !has_transition_words(content) {
+            if is_drastic_emotion_change(last_emotion, &content_lower)
+                && !has_transition_words(content)
+            {
                 issues.push(ConsistencyIssue {
                     issue_type: IssueType::CharacterEmotion,
                     severity: Severity::Warning,
@@ -401,18 +432,22 @@ impl ContinuityEngine {
         let mut issues = Vec::new();
 
         let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
-        let relations = kg_repo.get_relations_by_story(story_id)
+        let relations = kg_repo
+            .get_relations_by_story(story_id)
             .map_err(|e| format!("获取关系失败: {}", e))?;
 
-        let entities = kg_repo.get_entities_by_story(story_id)
+        let entities = kg_repo
+            .get_entities_by_story(story_id)
             .map_err(|e| format!("获取实体失败: {}", e))?;
 
         for relation in &relations {
-            let source_name = entities.iter()
+            let source_name = entities
+                .iter()
                 .find(|e| e.id == relation.source_id)
                 .map(|e| e.name.as_str())
                 .unwrap_or("");
-            let target_name = entities.iter()
+            let target_name = entities
+                .iter()
                 .find(|e| e.id == relation.target_id)
                 .map(|e| e.name.as_str())
                 .unwrap_or("");
@@ -431,7 +466,8 @@ impl ContinuityEngine {
             match relation.relation_type {
                 // 敌对关系但内容出现亲密/合作描写
                 RelationType::Enemy | RelationType::Rival => {
-                    let cooperation_keywords = ["合作", "亲密", "拥抱", "信任", "携手", "友爱", "友好"];
+                    let cooperation_keywords =
+                        ["合作", "亲密", "拥抱", "信任", "携手", "友爱", "友好"];
                     if cooperation_keywords.iter().any(|&k| content.contains(k)) {
                         issues.push(ConsistencyIssue {
                             issue_type: IssueType::RelationshipInconsistency,
@@ -449,7 +485,8 @@ impl ContinuityEngine {
                 }
                 // 友好/亲密关系但内容出现敌对/冲突描写
                 RelationType::Friend | RelationType::Ally | RelationType::Lover => {
-                    let hostility_keywords = ["敌对", "仇恨", "厮杀", "背叛", "攻击", "杀害", "决斗"];
+                    let hostility_keywords =
+                        ["敌对", "仇恨", "厮杀", "背叛", "攻击", "杀害", "决斗"];
                     if hostility_keywords.iter().any(|&k| content.contains(k)) {
                         issues.push(ConsistencyIssue {
                             issue_type: IssueType::RelationshipInconsistency,
@@ -488,8 +525,12 @@ fn extract_time_number(time_str: &str) -> Option<i32> {
 fn is_drastic_emotion_change(last_emotion: &str, content: &str) -> bool {
     let last_lower = last_emotion.to_lowercase();
 
-    let positive = ["喜悦", "高兴", "开心", "兴奋", "快乐", "幸福", "满足", "欣喜", "愉悦"];
-    let negative = ["悲伤", "痛苦", "绝望", "哀痛", "伤心", "难过", "忧郁", "沮丧"];
+    let positive = [
+        "喜悦", "高兴", "开心", "兴奋", "快乐", "幸福", "满足", "欣喜", "愉悦",
+    ];
+    let negative = [
+        "悲伤", "痛苦", "绝望", "哀痛", "伤心", "难过", "忧郁", "沮丧",
+    ];
     let angry = ["愤怒", "暴怒", "恼火", "气愤", "憎恨"];
     let calm = ["平静", "冷静", "沉着", "淡然", "安宁", "安详"];
     let fearful = ["恐惧", "害怕", "惊恐", "畏惧", "胆寒"];

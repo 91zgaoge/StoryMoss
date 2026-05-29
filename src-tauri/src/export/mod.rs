@@ -1,7 +1,7 @@
 #![allow(dead_code)]
+use std::{fs, path::Path};
+
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 pub mod builtin_templates;
 pub mod templates;
@@ -56,10 +56,12 @@ impl StoryExporter {
         if let Some(template) = template_content {
             match config.format {
                 ExportFormat::Pdf | ExportFormat::Epub | ExportFormat::Json => {
-                    // Binary formats don't support custom templates; fall through to default
+                    // Binary formats don't support custom templates; fall
+                    // through to default
                 }
                 _ => {
-                    let content = templates::render_template(template, story, chapters, characters, config)?;
+                    let content =
+                        templates::render_template(template, story, chapters, characters, config)?;
                     fs::write(output_path, content)?;
                     return Ok(());
                 }
@@ -110,7 +112,8 @@ impl StoryImporter {
         &self,
         content: &str,
         story_title: &str,
-    ) -> Result<(crate::db::CreateStoryRequest, Vec<ImportChapter>), Box<dyn std::error::Error>> {
+    ) -> Result<(crate::db::CreateStoryRequest, Vec<ImportChapter>), Box<dyn std::error::Error>>
+    {
         let story_req = crate::db::CreateStoryRequest {
             title: story_title.to_string(),
             description: None,
@@ -125,29 +128,29 @@ impl StoryImporter {
     fn parse_chapters_from_text(content: &str) -> Vec<ImportChapter> {
         let mut chapters = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
-        
+
         // Try to detect chapter boundaries by common patterns
         let chapter_patterns = [
             regex::Regex::new(r"^第[一二三四五六七八九十百千零\d]+章[\s:：]").ok(),
             regex::Regex::new(r"^Chapter\s+\d+[\s:：]").ok(),
             regex::Regex::new(r"^\d+[\.、\s]+[^\n]{1,50}$").ok(),
         ];
-        
+
         let mut current_title: Option<String> = None;
         let mut current_content = String::new();
         let mut chapter_number = 0;
-        
+
         for line in lines {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 current_content.push('\n');
                 continue;
             }
-            
-            let is_chapter_header = chapter_patterns.iter().any(|p| {
-                p.as_ref().map(|re| re.is_match(trimmed)).unwrap_or(false)
-            });
-            
+
+            let is_chapter_header = chapter_patterns
+                .iter()
+                .any(|p| p.as_ref().map(|re| re.is_match(trimmed)).unwrap_or(false));
+
             if is_chapter_header {
                 if !current_content.trim().is_empty() {
                     chapter_number += 1;
@@ -166,7 +169,7 @@ impl StoryImporter {
                 current_content.push_str(trimmed);
             }
         }
-        
+
         // Add the last chapter
         if !current_content.trim().is_empty() {
             chapter_number += 1;
@@ -176,7 +179,7 @@ impl StoryImporter {
                 content: current_content.trim().to_string(),
             });
         }
-        
+
         // Fallback: if no chapters detected, treat the whole text as one chapter
         if chapters.is_empty() && !content.trim().is_empty() {
             chapters.push(ImportChapter {
@@ -185,7 +188,7 @@ impl StoryImporter {
                 content: content.trim().to_string(),
             });
         }
-        
+
         chapters
     }
 }
@@ -204,8 +207,8 @@ pub struct ExportResult {
     pub format: String,
 }
 
-pub mod pdf;
 pub mod epub;
+pub mod pdf;
 
 // Generate Markdown export
 fn generate_markdown(
@@ -266,7 +269,9 @@ fn generate_markdown(
     content.push_str("# 正文\n\n");
 
     for chapter in chapters {
-        let title = chapter.title.as_ref()
+        let title = chapter
+            .title
+            .as_ref()
             .map(|t| t.as_str())
             .unwrap_or("未命名章节");
 
@@ -304,14 +309,30 @@ fn generate_html(
     html.push_str(&format!("<title>{}</title>\n", story.title));
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<style>\n");
-    html.push_str("body { font-family: Georgia, serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 2em; background: #fafafa; color: #333; }\n");
-    html.push_str("h1 { text-align: center; font-size: 2.5em; margin-bottom: 0.5em; color: #222; }\n");
-    html.push_str("h2 { font-size: 1.8em; margin-top: 2em; color: #444; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }\n");
+    html.push_str(
+        "body { font-family: Georgia, serif; line-height: 1.8; max-width: 800px; margin: 0 auto; \
+         padding: 2em; background: #fafafa; color: #333; }\n",
+    );
+    html.push_str(
+        "h1 { text-align: center; font-size: 2.5em; margin-bottom: 0.5em; color: #222; }\n",
+    );
+    html.push_str(
+        "h2 { font-size: 1.8em; margin-top: 2em; color: #444; border-bottom: 1px solid #ddd; \
+         padding-bottom: 0.3em; }\n",
+    );
     html.push_str("h3 { font-size: 1.3em; color: #555; }\n");
     html.push_str("p { text-indent: 2em; margin: 1em 0; }\n");
-    html.push_str(".metadata { background: #f0f0f0; padding: 1em; border-radius: 8px; margin: 1em 0; }\n");
-    html.push_str(".outline { font-style: italic; color: #666; background: #f9f9f9; padding: 1em; border-left: 3px solid #999; }\n");
-    html.push_str(".character { margin: 1em 0; padding: 1em; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; }\n");
+    html.push_str(
+        ".metadata { background: #f0f0f0; padding: 1em; border-radius: 8px; margin: 1em 0; }\n",
+    );
+    html.push_str(
+        ".outline { font-style: italic; color: #666; background: #f9f9f9; padding: 1em; \
+         border-left: 3px solid #999; }\n",
+    );
+    html.push_str(
+        ".character { margin: 1em 0; padding: 1em; background: #fff; border: 1px solid #e0e0e0; \
+         border-radius: 8px; }\n",
+    );
     html.push_str("hr { border: none; border-top: 1px solid #ddd; margin: 2em 0; }\n");
     html.push_str("</style>\n");
     html.push_str("</head>\n");
@@ -324,12 +345,21 @@ fn generate_html(
     if config.include_metadata {
         html.push_str("<div class=\"metadata\">\n");
         if let Some(ref genre) = story.genre {
-            html.push_str(&format!("<p><strong>类型</strong>: {}</p>\n", html_escape(genre)));
+            html.push_str(&format!(
+                "<p><strong>类型</strong>: {}</p>\n",
+                html_escape(genre)
+            ));
         }
         if let Some(ref tone) = story.tone {
-            html.push_str(&format!("<p><strong>基调</strong>: {}</p>\n", html_escape(tone)));
+            html.push_str(&format!(
+                "<p><strong>基调</strong>: {}</p>\n",
+                html_escape(tone)
+            ));
         }
-        html.push_str(&format!("<p><strong>章节数</strong>: {}</p>\n", chapters.len()));
+        html.push_str(&format!(
+            "<p><strong>章节数</strong>: {}</p>\n",
+            chapters.len()
+        ));
         html.push_str("</div>\n");
 
         if let Some(ref desc) = story.description {
@@ -355,7 +385,9 @@ fn generate_html(
     html.push_str("<h2>正文</h2>\n");
 
     for chapter in chapters {
-        let title = chapter.title.as_ref()
+        let title = chapter
+            .title
+            .as_ref()
             .map(|t| t.as_str())
             .unwrap_or("未命名章节");
 
@@ -363,7 +395,10 @@ fn generate_html(
 
         if config.include_outline {
             if let Some(ref outline) = chapter.outline {
-                html.push_str(&format!("<div class=\"outline\">大纲: {}</div>\n", html_escape(outline)));
+                html.push_str(&format!(
+                    "<div class=\"outline\">大纲: {}</div>\n",
+                    html_escape(outline)
+                ));
             }
         }
 
@@ -438,7 +473,9 @@ fn generate_plaintext(
     text.push('\n');
 
     for chapter in chapters {
-        let title = chapter.title.as_ref()
+        let title = chapter
+            .title
+            .as_ref()
             .map(|t| t.as_str())
             .unwrap_or("未命名章节");
 

@@ -1,17 +1,17 @@
 //! Tauri IPC Commands — 认证相关
 
-use super::{oauth, session, AuthConfig, OAuthProvider};
-use crate::db::{DbPool, UserRepository};
-use crate::error::AppError;
 use tauri::{AppHandle, Manager, State};
+
+use super::{oauth, session, AuthConfig, OAuthProvider};
+use crate::{
+    db::{DbPool, UserRepository},
+    error::AppError,
+};
 
 /// 获取当前认证配置（前端用，不含密钥）
 #[tauri::command]
 pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, AppError> {
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
 
     let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
@@ -54,18 +54,10 @@ pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, AppError> {
 
 /// 开始OAuth登录流程
 #[tauri::command]
-pub fn oauth_start(
-    provider: String,
-    app_handle: AppHandle,
-) -> Result<serde_json::Value, AppError> {
-    let provider = provider
-        .parse::<OAuthProvider>()
-        .map_err(AppError::from)?;
+pub fn oauth_start(provider: String, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
+    let provider = provider.parse::<OAuthProvider>().map_err(AppError::from)?;
 
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
 
     let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
@@ -96,14 +88,9 @@ pub async fn oauth_callback(
     state: String,
     app_handle: AppHandle,
 ) -> Result<crate::db::UserInfo, AppError> {
-    let provider = provider
-        .parse::<OAuthProvider>()
-        .map_err(AppError::from)?;
+    let provider = provider.parse::<OAuthProvider>().map_err(AppError::from)?;
 
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
 
     let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
@@ -123,10 +110,7 @@ pub async fn oauth_callback(
     .await?;
 
     // 获取数据库连接池
-    let pool = app_handle
-        .state::<DbPool>()
-        .inner()
-        .clone();
+    let pool = app_handle.state::<DbPool>().inner().clone();
 
     let user_repo = UserRepository::new(pool);
 

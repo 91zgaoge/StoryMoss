@@ -3,16 +3,17 @@
 //! 业务服务层：整合 Repository + Scheduler + Heartbeat + ExecutorRegistry
 //! 参考 memoh-X internal/schedule/service.go 设计。
 
-use super::executor::{ExecutorRegistry, TaskExecutionContext};
-use super::heartbeat::HeartbeatMonitor;
-use super::models::*;
-use super::repository::TaskRepository;
-
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::state_sync::service::StateSync;
 use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, Runtime};
+
+use super::{
+    executor::{ExecutorRegistry, TaskExecutionContext},
+    heartbeat::HeartbeatMonitor,
+    models::*,
+    repository::TaskRepository,
+};
+use crate::{db::DbPool, error::AppError, state_sync::service::StateSync};
 
 pub struct TaskService<R: Runtime = tauri::Wry> {
     pool: DbPool,
@@ -63,7 +64,11 @@ impl<R: Runtime> TaskService<R> {
         let mut registered = 0;
         for task in tasks {
             if let Err(e) = self.register_scheduled_task(&task) {
-                log::error!("[TaskService] Failed to register scheduled task {}: {}", task.id, e);
+                log::error!(
+                    "[TaskService] Failed to register scheduled task {}: {}",
+                    task.id,
+                    e
+                );
             } else {
                 registered += 1;
             }
@@ -107,23 +112,30 @@ impl<R: Runtime> TaskService<R> {
         }
 
         // 如果是一次性任务且启用，立即触发
-        if task.enabled && task.schedule_type == ScheduleType::Once && task.status == TaskStatus::Pending {
+        if task.enabled
+            && task.schedule_type == ScheduleType::Once
+            && task.status == TaskStatus::Pending
+        {
             let task_id = task.id.clone();
             let pool = self.pool.clone();
             let app_handle = self.app_handle.clone();
             let executors = self.executors.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
+                if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await
+                {
                     log::error!("[TaskService] Failed to run once task {}: {}", task_id, e);
                 }
             });
         }
 
         // 发送事件
-        let _ = self.app_handle.emit("task-created", &serde_json::json!({
-            "task_id": &task.id,
-            "name": &task.name,
-        }));
+        let _ = self.app_handle.emit(
+            "task-created",
+            &serde_json::json!({
+                "task_id": &task.id,
+                "name": &task.name,
+            }),
+        );
         StateSync::emit_task_created(&self.app_handle, &task.id, &task.name);
 
         Ok(task)
@@ -131,7 +143,9 @@ impl<R: Runtime> TaskService<R> {
 
     pub fn update_task(&self, id: &str, req: UpdateTaskRequest) -> Result<Task, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let old_task = repo.get_by_id(id).map_err(AppError::from)?
+        let old_task = repo
+            .get_by_id(id)
+            .map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         let was_scheduled = old_task.enabled && old_task.schedule_type != ScheduleType::Once;
@@ -183,7 +197,9 @@ impl<R: Runtime> TaskService<R> {
     /// 手动触发任务执行
     pub fn trigger_task(&self, id: &str) -> Result<(), AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo.get_by_id(id).map_err(AppError::from)?
+        let task = repo
+            .get_by_id(id)
+            .map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         if task.status == TaskStatus::Running {
@@ -207,17 +223,26 @@ impl<R: Runtime> TaskService<R> {
     /// 取消任务
     pub fn cancel_task(&self, id: &str) -> Result<(), AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo.get_by_id(id).map_err(AppError::from)?
+        let task = repo
+            .get_by_id(id)
+            .map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         if task.status != TaskStatus::Running {
             return Err(AppError::internal("Task is not running"));
         }
 
-        repo.update_status(id, &TaskStatus::Cancelled, None, None, Some("用户手动取消".to_string()))
-            .map_err(AppError::from)?;
+        repo.update_status(
+            id,
+            &TaskStatus::Cancelled,
+            None,
+            None,
+            Some("用户手动取消".to_string()),
+        )
+        .map_err(AppError::from)?;
 
-        repo.create_log(id, "warn", "任务被用户手动取消").map_err(AppError::from)?;
+        repo.create_log(id, "warn", "任务被用户手动取消")
+            .map_err(AppError::from)?;
 
         let event = TaskStatusChangedEvent {
             task_id: id.to_string(),
@@ -247,7 +272,11 @@ impl<R: Runtime> TaskService<R> {
             let ex = executors.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = Self::run_task_internal(&tid, p, ah, ex).await {
-                    log::error!("[TaskService] Scheduled task execution failed for {}: {}", tid, e);
+                    log::error!(
+                        "[TaskService] Scheduled task execution failed for {}: {}",
+                        tid,
+                        e
+                    );
                 }
             });
         })?;
@@ -264,7 +293,8 @@ impl<R: Runtime> TaskService<R> {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(pool.clone());
 
-        let task = repo.get_by_id(task_id)?
+        let task = repo
+            .get_by_id(task_id)?
             .ok_or_else(|| format!("Task {} not found", task_id))?;
 
         // 获取执行器
@@ -276,8 +306,17 @@ impl<R: Runtime> TaskService<R> {
         let executor = match executor {
             Some(e) => e,
             None => {
-                let err_msg = format!("No executor found for task type: {}", task.task_type.to_string());
-                repo.update_status(task_id, &TaskStatus::Failed, None, None, Some(err_msg.clone()))?;
+                let err_msg = format!(
+                    "No executor found for task type: {}",
+                    task.task_type.to_string()
+                );
+                repo.update_status(
+                    task_id,
+                    &TaskStatus::Failed,
+                    None,
+                    None,
+                    Some(err_msg.clone()),
+                )?;
                 repo.create_log(task_id, "error", &err_msg)?;
                 return Err(err_msg.into());
             }
@@ -301,14 +340,20 @@ impl<R: Runtime> TaskService<R> {
         let timeout_secs = task.heartbeat_timeout_seconds.max(60) as u64;
         let result = match tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
-            executor.execute(&task)
-        ).await {
+            executor.execute(&task),
+        )
+        .await
+        {
             Ok(res) => res,
             Err(_) => {
                 let err_msg = format!("任务执行超时 ({} 秒)", timeout_secs);
                 log::error!("[TaskService] {}", err_msg);
                 if let Err(e2) = ctx.fail(&err_msg) {
-                    log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e2);
+                    log::error!(
+                        "[TaskService] Failed to mark task {} as failed: {}",
+                        task_id,
+                        e2
+                    );
                 }
                 return Err(err_msg.into());
             }
@@ -322,9 +367,15 @@ impl<R: Runtime> TaskService<R> {
                     }
                     StateSync::emit_task_completed(&app_handle, task_id, true);
                 } else {
-                    let err = task_result.error_message.unwrap_or_else(|| "Unknown error".to_string());
+                    let err = task_result
+                        .error_message
+                        .unwrap_or_else(|| "Unknown error".to_string());
                     if let Err(e) = ctx.fail(&err) {
-                        log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e);
+                        log::error!(
+                            "[TaskService] Failed to mark task {} as failed: {}",
+                            task_id,
+                            e
+                        );
                     }
                     StateSync::emit_task_completed(&app_handle, task_id, false);
                 }
@@ -332,7 +383,11 @@ impl<R: Runtime> TaskService<R> {
             Err(e) => {
                 let err_msg = format!("Execution error: {}", e);
                 if let Err(e2) = ctx.fail(&err_msg) {
-                    log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e2);
+                    log::error!(
+                        "[TaskService] Failed to mark task {} as failed: {}",
+                        task_id,
+                        e2
+                    );
                 }
                 StateSync::emit_task_completed(&app_handle, task_id, false);
             }

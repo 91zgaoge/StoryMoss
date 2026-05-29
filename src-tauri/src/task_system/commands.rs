@@ -1,8 +1,7 @@
 //! Task System Tauri IPC Commands
 
+use super::{models::*, service::TaskService};
 use crate::error::AppError;
-use super::models::*;
-use super::service::TaskService;
 
 #[tauri::command]
 pub async fn create_task(

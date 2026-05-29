@@ -3,9 +3,9 @@
 //! 扩展 ForeshadowingTracker，提供时间窗口追踪、逾期检测、风险信号、
 //! 回收时机推荐等高级功能。
 
-use crate::db::DbPool;
-use crate::error::AppError;
 use serde::{Deserialize, Serialize};
+
+use crate::{db::DbPool, error::AppError};
 
 /// 伏笔作用域类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,12 +43,12 @@ impl std::str::FromStr for ScopeType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PayoffStatus {
-    Setup,        // 已设置，尚未有进一步暗示
-    Hinted,       // 已有暗示/呼应
+    Setup,         // 已设置，尚未有进一步暗示
+    Hinted,        // 已有暗示/呼应
     PendingPayoff, // 临近回收窗口
-    PaidOff,      // 已回收
-    Failed,       // 已放弃/失效
-    Overdue,      // 已逾期
+    PaidOff,       // 已回收
+    Failed,        // 已放弃/失效
+    Overdue,       // 已逾期
 }
 
 impl std::fmt::Display for PayoffStatus {
@@ -199,8 +199,10 @@ impl PayoffLedger {
                 placeholders
             );
             let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
-            let params: Vec<&dyn rusqlite::ToSql> =
-                scene_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            let params: Vec<&dyn rusqlite::ToSql> = scene_ids
+                .iter()
+                .map(|id| id as &dyn rusqlite::ToSql)
+                .collect();
             let sequences = stmt
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     let sid: String = row.get(0)?;
@@ -233,8 +235,9 @@ impl PayoffLedger {
                     scope_type_str,
                     ledger_key_opt,
                 )| {
-                    let first_seen_scene =
-                        setup_scene_id.as_ref().and_then(|sid| scene_sequence_map.get(sid).copied());
+                    let first_seen_scene = setup_scene_id
+                        .as_ref()
+                        .and_then(|sid| scene_sequence_map.get(sid).copied());
                     let last_touched_scene = payoff_scene_id
                         .as_ref()
                         .and_then(|sid| scene_sequence_map.get(sid).copied())
@@ -473,32 +476,37 @@ impl PayoffLedger {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET target_start_scene = ?1 WHERE id = ?2",
                 rusqlite::params![ts, foreshadowing_id],
-            ).map_err(|e| format!("更新账本字段失败: {}", e))?;
+            )
+            .map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
         if let Some(te) = target_end_scene {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET target_end_scene = ?1 WHERE id = ?2",
                 rusqlite::params![te, foreshadowing_id],
-            ).map_err(|e| format!("更新账本字段失败: {}", e))?;
+            )
+            .map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
         if let Some(ref rs) = risk_signals {
             let json = serde_json::to_string(rs).map_err(AppError::from)?;
             conn.execute(
                 "UPDATE foreshadowing_tracker SET risk_signals = ?1 WHERE id = ?2",
                 rusqlite::params![json, foreshadowing_id],
-            ).map_err(|e| format!("更新账本字段失败: {}", e))?;
+            )
+            .map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
         if let Some(ref st) = scope_type {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET scope_type = ?1 WHERE id = ?2",
                 rusqlite::params![st.to_string(), foreshadowing_id],
-            ).map_err(|e| format!("更新账本字段失败: {}", e))?;
+            )
+            .map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
         if let Some(ref lk) = ledger_key {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET ledger_key = ?1 WHERE id = ?2",
                 rusqlite::params![lk, foreshadowing_id],
-            ).map_err(|e| format!("更新账本字段失败: {}", e))?;
+            )
+            .map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
 
         Ok(())

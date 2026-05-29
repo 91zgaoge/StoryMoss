@@ -3,10 +3,10 @@
 //! 商业模式重构完成。软件订阅制，模型使用完全由用户决定，软件不介入模型计费。
 //! 订阅层级仅用于功能开关控制（Free/Pro/Enterprise），不再计量模型消费配额。
 
-use crate::db::DbPool;
-use crate::error::AppError;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
+
+use crate::{db::DbPool, error::AppError};
 
 pub mod commands;
 
@@ -61,12 +61,16 @@ impl SubscriptionService {
     }
 
     /// 获取或创建默认订阅状态
-    pub fn get_or_create_subscription(&self, user_id: &str) -> Result<SubscriptionStatus, AppError> {
+    pub fn get_or_create_subscription(
+        &self,
+        user_id: &str,
+    ) -> Result<SubscriptionStatus, AppError> {
         let conn = self.pool.get()?;
 
         let existing: Option<(String, String, Option<String>)> = conn
             .query_row(
-                "SELECT tier, status, expires_at FROM subscriptions WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1",
+                "SELECT tier, status, expires_at FROM subscriptions WHERE user_id = ?1 ORDER BY \
+                 created_at DESC LIMIT 1",
                 params![user_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -78,7 +82,8 @@ impl SubscriptionService {
             let now = chrono::Local::now().to_rfc3339();
             let id = uuid::Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO subscriptions (id, user_id, tier, status, started_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5)",
+                "INSERT INTO subscriptions (id, user_id, tier, status, started_at, created_at, \
+                 updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5)",
                 params![id, user_id, "free", "active", now],
             )?;
             ("free".to_string(), "active".to_string(), None)
@@ -96,7 +101,8 @@ impl SubscriptionService {
     ///
     /// 细粒度功能权限映射：
     /// - Free 用户可用：基础写作、场景管理、角色管理、知识图谱查询
-    /// - Pro 用户解锁：Bootstrap / Pipeline（Refine/Review/Finalize）/ 拆书 / 自动续写 / 自动修改
+    /// - Pro 用户解锁：Bootstrap / Pipeline（Refine/Review/Finalize）/ 拆书 /
+    ///   自动续写 / 自动修改
     pub fn has_feature_access(&self, user_id: &str, feature_id: &str) -> Result<bool, AppError> {
         let status = self.get_or_create_subscription(user_id)?;
         let is_pro = status.tier == "pro" || status.tier == "enterprise";
@@ -137,7 +143,10 @@ impl SubscriptionService {
         let id = uuid::Uuid::new_v4().to_string();
 
         conn.execute(
-            "INSERT INTO ai_usage_logs (id, user_id, story_id, chapter_id, agent_type, instruction, prompt_tokens, completion_tokens, model_used, cost, duration_ms, tier_at_time, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO ai_usage_logs (id, user_id, story_id, chapter_id, agent_type, \
+             instruction, prompt_tokens, completion_tokens, model_used, cost, duration_ms, \
+             tier_at_time, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, \
+             ?13)",
             params![
                 id,
                 user_id,
@@ -159,14 +168,21 @@ impl SubscriptionService {
     }
 
     /// 升级订阅（模拟，实际应对接支付系统）
-    pub fn upgrade_subscription(&self, user_id: &str, tier: &str, expires_days: Option<i32>) -> Result<SubscriptionStatus, AppError> {
+    pub fn upgrade_subscription(
+        &self,
+        user_id: &str,
+        tier: &str,
+        expires_days: Option<i32>,
+    ) -> Result<SubscriptionStatus, AppError> {
         let conn = self.pool.get()?;
         let now = chrono::Local::now();
         let id = uuid::Uuid::new_v4().to_string();
-        let expires_at = expires_days.map(|d| (now + chrono::Duration::days(d as i64)).to_rfc3339());
+        let expires_at =
+            expires_days.map(|d| (now + chrono::Duration::days(d as i64)).to_rfc3339());
 
         conn.execute(
-            "INSERT INTO subscriptions (id, user_id, tier, status, started_at, expires_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?5)",
+            "INSERT INTO subscriptions (id, user_id, tier, status, started_at, expires_at, \
+             created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?5)",
             params![id, user_id, tier, "active", now.to_rfc3339(), expires_at],
         )?;
 

@@ -3,22 +3,23 @@
 //! 由 Randy Ingermanson 提出，从一句话逐步扩展为完整小说的十步创作法。
 //! 在幕后向导中引导用户完成，幕前 Writer 自动应用当前步骤的约束。
 
-use super::Methodology;
 use std::str::FromStr;
+
+use super::Methodology;
 
 /// 雪花写作法的十个步骤
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnowflakeStep {
-    OneSentence = 1,      // 1. 一句话故事
-    OneParagraph = 2,     // 2. 一段扩展（5句：设定+3灾难+结局）
+    OneSentence = 1,        // 1. 一句话故事
+    OneParagraph = 2,       // 2. 一段扩展（5句：设定+3灾难+结局）
     CharacterSummaries = 3, // 3. 角色概要（名字+目标+动机+冲突+顿悟）
     ParagraphExpansion = 4, // 4. 每句话扩为一段（5段故事摘要）
-    CharacterCharts = 5,  // 5. 角色详细表（完整小传）
-    PlotSummary = 6,      // 6. 完整故事梗概（4-5页）
-    SceneList = 7,        // 7. 场景表（每个场景：POV+目标+冲突+挫折）
-    SceneExpansion = 8,   // 8. 每个场景扩为段落（形成章节大纲）
-    FirstDraft = 9,       // 9. 初稿（切换到幕前逐场景写作）
-    Revision = 10,        // 10. 修改润色
+    CharacterCharts = 5,    // 5. 角色详细表（完整小传）
+    PlotSummary = 6,        // 6. 完整故事梗概（4-5页）
+    SceneList = 7,          // 7. 场景表（每个场景：POV+目标+冲突+挫折）
+    SceneExpansion = 8,     // 8. 每个场景扩为段落（形成章节大纲）
+    FirstDraft = 9,         // 9. 初稿（切换到幕前逐场景写作）
+    Revision = 10,          // 10. 修改润色
 }
 
 impl SnowflakeStep {
@@ -30,7 +31,9 @@ impl SnowflakeStep {
         match self {
             SnowflakeStep::OneSentence => "用一句话概括整个故事",
             SnowflakeStep::OneParagraph => "将一句话扩展为五句话：设定+3个灾难+结局",
-            SnowflakeStep::CharacterSummaries => "为每个主要角色写一页概要：名字+目标+动机+冲突+顿悟",
+            SnowflakeStep::CharacterSummaries => {
+                "为每个主要角色写一页概要：名字+目标+动机+冲突+顿悟"
+            }
             SnowflakeStep::ParagraphExpansion => "将五句话中的每一句扩展为一段",
             SnowflakeStep::CharacterCharts => "为每个角色写完整小传（出生、经历、性格形成）",
             SnowflakeStep::PlotSummary => "将四页故事摘要扩展为完整梗概",
@@ -187,7 +190,10 @@ impl SnowflakeMethodology {
     /// 获取当前步骤及之前所有步骤的累积上下文
     pub fn cumulative_context(&self) -> String {
         let step_num = self.step.number();
-        let mut context = format!("你正在使用雪花写作法进行创作，当前处于第 {} 步（共10步）。\n\n", step_num);
+        let mut context = format!(
+            "你正在使用雪花写作法进行创作，当前处于第 {} 步（共10步）。\n\n",
+            step_num
+        );
 
         context.push_str("雪花写作法核心原则：\n");
         context.push_str("1. 从简单到复杂，逐步扩展\n");

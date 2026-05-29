@@ -2,33 +2,38 @@
 
 #![allow(unused_imports)]
 
-use crate::db::{
-    DbPool,
-    Scene, Story, Character, Chapter, WorldBuilding, WritingStyle, StudioConfig,
-    SceneUpdate, WritingStyleUpdate, WorldRule, Culture,
-    SceneVersion, CreatorType, SceneAnnotation, TextAnnotation,
-    ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage,
-    CommentThreadWithMessages, AnchorType, ThreadStatus, ConflictType, CharacterConflict,
-    CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest, UpdateStoryRequest,
-    LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation, StorySummary,
-    CharacterState, StudioExportRequest,
-    SceneRepository, StoryRepository, CharacterRepository, ChapterRepository,
-    WorldBuildingRepository, WritingStyleRepository, StudioConfigRepository,
-    KnowledgeGraphRepository, SceneAnnotationRepository, TextAnnotationRepository,
-    StorySummaryRepository, SceneVersionRepository, ChangeTrackRepository,
-    CommentThreadRepository, StyleDnaRepository, StoryStyleConfigRepository,
-    StoryOutlineRepository, CharacterRelationshipRepository,
-    SceneRepo, StoryRepo, CharacterRepo, ChapterRepo, WorldBuildingRepo, WritingStyleRepo,
-};
-use crate::error::AppError;
-use crate::config::StudioManager;
-use crate::memory::retention::RetentionManager;
-use crate::memory::ingest::{IngestPipeline, IngestContent};
-use crate::agents::novel_creation::{NovelCreationAgent, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, GenerationOptions};
-use crate::llm::LlmService;
-use crate::revision_commands::CharacterQuickView;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Manager, State};
+
+use crate::{
+    agents::novel_creation::{
+        CharacterProfileOption, GenerationOptions, NovelCreationAgent, SceneProposal,
+        WorldBuildingOption, WritingStyleOption,
+    },
+    config::StudioManager,
+    db::{
+        AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeTrackRepository, ChangeType,
+        Chapter, ChapterRepo, ChapterRepository, Character, CharacterConflict,
+        CharacterRelationshipRepository, CharacterRepo, CharacterRepository, CharacterState,
+        CommentMessage, CommentThread, CommentThreadRepository, CommentThreadWithMessages,
+        ConflictType, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest,
+        CreatorType, Culture, DbPool, Entity, KnowledgeGraphRepository, LlmStudioConfig, Relation,
+        Scene, SceneAnnotation, SceneAnnotationRepository, SceneRepo, SceneRepository, SceneUpdate,
+        SceneVersion, SceneVersionRepository, Story, StoryOutlineRepository, StoryRepo,
+        StoryRepository, StoryStyleConfigRepository, StorySummary, StorySummaryRepository,
+        StudioConfig, StudioConfigRepository, StudioExportRequest, StyleDnaRepository,
+        TextAnnotation, TextAnnotationRepository, ThreadStatus, UiStudioConfig, UpdateStoryRequest,
+        WorldBuilding, WorldBuildingRepo, WorldBuildingRepository, WorldRule, WritingStyle,
+        WritingStyleRepo, WritingStyleRepository, WritingStyleUpdate,
+    },
+    error::AppError,
+    llm::LlmService,
+    memory::{
+        ingest::{IngestContent, IngestPipeline},
+        retention::RetentionManager,
+    },
+    revision_commands::CharacterQuickView,
+};
 
 #[command(rename_all = "snake_case")]
 pub async fn create_world_building(
@@ -37,15 +42,18 @@ pub async fn create_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<WorldBuilding, AppError> {
-    log::info!("[story_commands] {} called: story_id={}", "create_world_building", story_id);
+    log::info!(
+        "[story_commands] {} called: story_id={}",
+        "create_world_building",
+        story_id
+    );
     let repo = WorldBuildingRepository::new(pool.inner().clone());
-    let wb = repo.create(&story_id, &concept)
-        .map_err(|e| {
-            log::error!("[story_commands] {} failed: {}", "create_world_building", e);
-            AppError::from(e)
-
-        })?;
-    let _ = crate::state_sync::StateSync::emit_world_building_created(&app_handle, &story_id, &wb.id);
+    let wb = repo.create(&story_id, &concept).map_err(|e| {
+        log::error!("[story_commands] {} failed: {}", "create_world_building", e);
+        AppError::from(e)
+    })?;
+    let _ =
+        crate::state_sync::StateSync::emit_world_building_created(&app_handle, &story_id, &wb.id);
     let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
     Ok(wb)
 }
@@ -56,8 +64,7 @@ pub async fn get_world_building(
     pool: State<'_, DbPool>,
 ) -> Result<Option<WorldBuilding>, AppError> {
     let repo = WorldBuildingRepository::new(pool.inner().clone());
-    repo.get_by_story(&story_id)
-        .map_err(AppError::from)
+    repo.get_by_story(&story_id).map_err(AppError::from)
 }
 
 #[command(rename_all = "snake_case")]
@@ -70,23 +77,37 @@ pub async fn update_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
-    log::info!("[story_commands] {} called: id={}", "update_world_building", id);
+    log::info!(
+        "[story_commands] {} called: id={}",
+        "update_world_building",
+        id
+    );
     let repo = WorldBuildingRepository::new(pool.inner().clone());
     let old_wb = repo.get_by_id(&id).ok().flatten();
-    let result = repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
+    let result = repo
+        .update(
+            &id,
+            concept.as_deref(),
+            rules.as_deref(),
+            history.as_deref(),
+            cultures.as_deref(),
+        )
         .map_err(|e| {
             log::error!("[story_commands] {} failed: {}", "update_world_building", e);
             AppError::from(e)
-
         })?;
 
     // OnWorldBuildingUpdate hook
-    let story_id_for_sync = old_wb.as_ref().map(|wb| wb.story_id.clone())
-        .or_else(|| pool.inner().get().ok().and_then(|c| {
-            c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
-                row.get::<_, String>(0)
-            }).ok()
-        }));
+    let story_id_for_sync = old_wb.as_ref().map(|wb| wb.story_id.clone()).or_else(|| {
+        pool.inner().get().ok().and_then(|c| {
+            c.query_row(
+                "SELECT story_id FROM world_buildings WHERE id = ?",
+                [&id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+        })
+    });
     if let Some(ref story_id) = story_id_for_sync {
         let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
@@ -97,10 +118,20 @@ pub async fn update_world_building(
                 let skill_manager = skill_manager.clone();
                 let story_id_for_hook = story_id.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id_for_hook, String::new());
+                    let context =
+                        crate::agents::AgentContext::minimal(story_id_for_hook, String::new());
                     let data = serde_json::json!({ "world_building_id": world_building_id });
-                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnWorldBuildingUpdate, &context, data).await;
-                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnWorldBuildingUpdate);
+                    let _ = skill_manager
+                        .execute_hooks(
+                            crate::skills::HookEvent::OnWorldBuildingUpdate,
+                            &context,
+                            data,
+                        )
+                        .await;
+                    log::info!(
+                        "Hook executed: {:?}",
+                        crate::skills::HookEvent::OnWorldBuildingUpdate
+                    );
                 });
             }
         }
@@ -163,16 +194,20 @@ pub async fn update_world_building(
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 };
 
-                let payload = crate::creative_engine::cascade_rewriter::models::CascadeTaskPayload {
-                    story_id: story_id.clone(),
-                    change_events: vec![change_event],
-                };
+                let payload =
+                    crate::creative_engine::cascade_rewriter::models::CascadeTaskPayload {
+                        story_id: story_id.clone(),
+                        change_events: vec![change_event],
+                    };
 
                 let payload_json = serde_json::to_string(&payload).unwrap_or_default();
 
                 let req = crate::task_system::models::CreateTaskRequest {
                     name: format!("级联改写: {}", old.concept),
-                    description: Some(format!("因世界观 {} 的设定变更触发的场景级联改写", old.concept)),
+                    description: Some(format!(
+                        "因世界观 {} 的设定变更触发的场景级联改写",
+                        old.concept
+                    )),
                     task_type: "cascade_rewrite".to_string(),
                     schedule_type: "once".to_string(),
                     cron_pattern: None,
@@ -182,10 +217,20 @@ pub async fn update_world_building(
                     heartbeat_timeout_seconds: Some(300),
                 };
 
-                if let Some(task_service) = app_handle.try_state::<crate::task_system::service::TaskService>() {
+                if let Some(task_service) =
+                    app_handle.try_state::<crate::task_system::service::TaskService>()
+                {
                     match task_service.create_task(req) {
-                        Ok(task) => log::info!("[CascadeRewrite] Created task {} for world_building {}", task.id, id),
-                        Err(e) => log::warn!("[CascadeRewrite] Failed to create task for world_building {}: {}", id, e),
+                        Ok(task) => log::info!(
+                            "[CascadeRewrite] Created task {} for world_building {}",
+                            task.id,
+                            id
+                        ),
+                        Err(e) => log::warn!(
+                            "[CascadeRewrite] Failed to create task for world_building {}: {}",
+                            id,
+                            e
+                        ),
                     }
                 }
             }
@@ -201,20 +246,28 @@ pub async fn delete_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
-    log::info!("[story_commands] {} called: id={}", "delete_world_building", id);
+    log::info!(
+        "[story_commands] {} called: id={}",
+        "delete_world_building",
+        id
+    );
     let repo = WorldBuildingRepository::new(pool.inner().clone());
     // 先查询 story_id 用于同步事件（删除后无法获取）
     let story_id_opt = pool.inner().get().ok().and_then(|c| {
-        c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
-            row.get::<_, String>(0)
-        }).ok()
+        c.query_row(
+            "SELECT story_id FROM world_buildings WHERE id = ?",
+            [&id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
     });
     let result = repo.delete(&id).map_err(|e| {
         log::error!("[story_commands] {} failed: {}", "delete_world_building", e);
         e.to_string()
     })?;
     if let Some(ref story_id) = story_id_opt {
-        let _ = crate::state_sync::StateSync::emit_world_building_deleted(&app_handle, story_id, &id);
+        let _ =
+            crate::state_sync::StateSync::emit_world_building_deleted(&app_handle, story_id, &id);
         let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     Ok(result)
@@ -230,9 +283,14 @@ pub async fn create_writing_style(
     app_handle: AppHandle,
 ) -> Result<WritingStyle, AppError> {
     let repo = WritingStyleRepository::new(pool.inner().clone());
-    let result = repo.create(&story_id, name.as_deref())
+    let result = repo
+        .create(&story_id, name.as_deref())
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "writingStyles");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "writingStyles",
+    );
     Ok(result)
 }
 
@@ -242,8 +300,7 @@ pub async fn get_writing_style(
     pool: State<'_, DbPool>,
 ) -> Result<Option<WritingStyle>, AppError> {
     let repo = WritingStyleRepository::new(pool.inner().clone());
-    repo.get_by_story(&story_id)
-        .map_err(AppError::from)
+    repo.get_by_story(&story_id).map_err(AppError::from)
 }
 
 #[command(rename_all = "snake_case")]
@@ -254,18 +311,21 @@ pub async fn update_writing_style(
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
     let repo = WritingStyleRepository::new(pool.inner().clone());
-    let count = repo.update(&id, &updates)
-        .map_err(AppError::from)?;
-    
+    let count = repo.update(&id, &updates).map_err(AppError::from)?;
+
     // P2-15 修复: 查询 story_id 并发射同步事件
     let conn = pool.inner().get().map_err(AppError::from)?;
     let story_id: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT story_id FROM writing_styles WHERE id = ?1",
         [&id],
-        |row| row.get(0)
+        |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "writingStyle");
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "writingStyle",
+        );
     }
     Ok(count)
 }
@@ -278,12 +338,16 @@ pub async fn create_studio_config(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<StudioConfig, AppError> {
-    let app_dir = app_handle.path().app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
     let manager = StudioManager::new(pool.inner().clone(), &app_dir);
-    let result = manager.create_default_studio(&story_id, "")
+    let result = manager
+        .create_default_studio(&story_id, "")
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "studioConfig");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "studioConfig",
+    );
     Ok(result)
 }
 
@@ -293,8 +357,7 @@ pub async fn get_studio_config(
     pool: State<'_, DbPool>,
 ) -> Result<Option<StudioConfig>, AppError> {
     let repo = StudioConfigRepository::new(pool.inner().clone());
-    repo.get_by_story(&story_id)
-        .map_err(AppError::from)
+    repo.get_by_story(&story_id).map_err(AppError::from)
 }
 
 #[command(rename_all = "snake_case")]
@@ -308,16 +371,27 @@ pub async fn update_studio_config(
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
     let repo = StudioConfigRepository::new(pool.inner().clone());
-    let result = repo.update(&id, pen_name.as_deref(), llm_config.as_ref(), ui_config.as_ref(), agent_bots.as_deref())
+    let result = repo
+        .update(
+            &id,
+            pen_name.as_deref(),
+            llm_config.as_ref(),
+            ui_config.as_ref(),
+            agent_bots.as_deref(),
+        )
         .map_err(AppError::from)?;
     let conn = pool.inner().get().map_err(AppError::from)?;
     let story_id: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT story_id FROM studio_configs WHERE id = ?1",
         [&id],
-        |row| row.get(0)
+        |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "studioConfig");
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "studioConfig",
+        );
     }
     Ok(result)
 }
@@ -330,11 +404,9 @@ pub async fn export_studio(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<Vec<u8>, AppError> {
-    let app_dir = app_handle.path().app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
     let manager = StudioManager::new(pool.inner().clone(), &app_dir);
-    manager.export_studio(&request)
-        .map_err(AppError::from)
+    manager.export_studio(&request).map_err(AppError::from)
 }
 
 #[command(rename_all = "snake_case")]
@@ -344,10 +416,10 @@ pub async fn import_studio(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<Story, AppError> {
-    let app_dir = app_handle.path().app_data_dir()
-        .map_err(AppError::from)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
     let manager = StudioManager::new(pool.inner().clone(), &app_dir);
-    manager.import_studio(&data, &options)
+    manager
+        .import_studio(&data, &options)
         .map_err(AppError::from)
 }
 
@@ -364,16 +436,26 @@ pub async fn create_entity(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<Entity, AppError> {
-    log::info!("[story_commands] {} called: story_id={}, name={}, entity_type={}", "create_entity", story_id, name, entity_type);
+    log::info!(
+        "[story_commands] {} called: story_id={}, name={}, entity_type={}",
+        "create_entity",
+        story_id,
+        name,
+        entity_type
+    );
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     // EVENT_REQUIRED
-    let result = repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
+    let result = repo
+        .create_entity(&story_id, &name, &entity_type, &attributes, None)
         .map_err(|e| {
             log::error!("[story_commands] {} failed: {}", "create_entity", e);
             AppError::from(e)
-
         })?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -385,16 +467,21 @@ pub async fn update_entity(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<Entity, AppError> {
-    use crate::embeddings::{embed_entity_async, EntityEmbeddingRequest};
     use std::collections::HashMap;
 
-    log::info!("[story_commands] {} called: entity_id={}", "update_entity", entity_id);
+    use crate::embeddings::{embed_entity_async, EntityEmbeddingRequest};
+
+    log::info!(
+        "[story_commands] {} called: entity_id={}",
+        "update_entity",
+        entity_id
+    );
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let existing = repo.get_entity_by_id(&entity_id)
+    let existing = repo
+        .get_entity_by_id(&entity_id)
         .map_err(|e| {
             log::error!("[story_commands] {} failed: {}", "update_entity", e);
             AppError::from(e)
-
         })?
         .ok_or("Entity not found")?;
 
@@ -404,13 +491,18 @@ pub async fn update_entity(
     // Auto-regenerate embedding when attributes or name changes
     let embedding = if name.is_some() || attributes.is_some() {
         let attrs_map: HashMap<String, serde_json::Value> = match new_attrs {
-            serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            serde_json::Value::Object(map) => {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            }
             _ => HashMap::new(),
         };
         let request = EntityEmbeddingRequest {
             entity_id: entity_id.clone(),
             name: new_name.to_string(),
-            description: new_attrs.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            description: new_attrs
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             entity_type: existing.entity_type.to_string(),
             attributes: attrs_map,
         };
@@ -420,16 +512,24 @@ pub async fn update_entity(
     };
 
     // EVENT_REQUIRED
-    let result = repo.update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
+    let result = repo
+        .update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
         .map_err(AppError::from)?;
 
     let story_id_for_sync = pool.inner().get().ok().and_then(|c| {
-        c.query_row("SELECT story_id FROM entities WHERE id = ?", [&entity_id], |row| {
-            row.get::<_, String>(0)
-        }).ok()
+        c.query_row(
+            "SELECT story_id FROM entities WHERE id = ?",
+            [&entity_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
     });
     if let Some(ref story_id) = story_id_for_sync {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(story_id), "knowledgeGraph");
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(story_id),
+            "knowledgeGraph",
+        );
     }
 
     Ok(result)
@@ -457,9 +557,14 @@ pub async fn create_relation(
 ) -> Result<Relation, AppError> {
     // EVENT_REQUIRED
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let result = repo.create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
+    let result = repo
+        .create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -492,11 +597,18 @@ pub async fn compress_content(
     target_ratio: Option<f32>,
     app_handle: AppHandle,
 ) -> Result<crate::agents::AgentResult, AppError> {
-    use crate::agents::service::{AgentService, AgentTask, AgentType};
-    use crate::agents::commands::ExecuteAgentRequest;
     use std::collections::HashMap;
 
-    log::info!("[story_commands] {} called: story_id={}", "compress_content", story_id);
+    use crate::agents::{
+        commands::ExecuteAgentRequest,
+        service::{AgentService, AgentTask, AgentType},
+    };
+
+    log::info!(
+        "[story_commands] {} called: story_id={}",
+        "compress_content",
+        story_id
+    );
     let parameters = target_ratio.map(|r| {
         let mut map = HashMap::new();
         map.insert("target_ratio".to_string(), serde_json::json!(r));
@@ -535,17 +647,28 @@ pub async fn compress_scene(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::agents::AgentResult, AppError> {
-    use crate::agents::service::{AgentService, AgentTask, AgentType};
-    use crate::agents::commands::ExecuteAgentRequest;
     use std::collections::HashMap;
 
-    log::info!("[story_commands] {} called: scene_id={}", "compress_scene", scene_id);
-    let scene_repo = SceneRepository::new(pool.inner().clone());
-    let scene = scene_repo.get_by_id(&scene_id)
-        .map_err(|e| {
-            log::error!("[story_commands] {} scene lookup failed: {}", "compress_scene", e);
-            AppError::from(e)
+    use crate::agents::{
+        commands::ExecuteAgentRequest,
+        service::{AgentService, AgentTask, AgentType},
+    };
 
+    log::info!(
+        "[story_commands] {} called: scene_id={}",
+        "compress_scene",
+        scene_id
+    );
+    let scene_repo = SceneRepository::new(pool.inner().clone());
+    let scene = scene_repo
+        .get_by_id(&scene_id)
+        .map_err(|e| {
+            log::error!(
+                "[story_commands] {} scene lookup failed: {}",
+                "compress_scene",
+                e
+            );
+            AppError::from(e)
         })?
         .ok_or("Scene not found")?;
 
@@ -593,26 +716,37 @@ pub async fn distill_story_knowledge(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<StorySummary, AppError> {
-    use crate::agents::service::{AgentService, AgentTask, AgentType};
-    use crate::agents::commands::ExecuteAgentRequest;
+    use crate::agents::{
+        commands::ExecuteAgentRequest,
+        service::{AgentService, AgentTask, AgentType},
+    };
 
-    log::info!("[story_commands] {} called: story_id={}", "distill_story_knowledge", story_id);
+    log::info!(
+        "[story_commands] {} called: story_id={}",
+        "distill_story_knowledge",
+        story_id
+    );
     let kg_repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let entities = kg_repo.get_entities_by_story(&story_id)
-        .map_err(|e| {
-            log::error!("[story_commands] {} entity query failed: {}", "distill_story_knowledge", e);
-            AppError::from(e)
-
-        })?;
-    let relations = kg_repo.get_relations_by_story(&story_id)
-        .map_err(|e| {
-            log::error!("[story_commands] {} relation query failed: {}", "distill_story_knowledge", e);
-            AppError::from(e)
-
-        })?;
+    let entities = kg_repo.get_entities_by_story(&story_id).map_err(|e| {
+        log::error!(
+            "[story_commands] {} entity query failed: {}",
+            "distill_story_knowledge",
+            e
+        );
+        AppError::from(e)
+    })?;
+    let relations = kg_repo.get_relations_by_story(&story_id).map_err(|e| {
+        log::error!(
+            "[story_commands] {} relation query failed: {}",
+            "distill_story_knowledge",
+            e
+        );
+        AppError::from(e)
+    })?;
 
     use std::collections::HashMap;
-    let entity_names: HashMap<&str, &str> = entities.iter()
+    let entity_names: HashMap<&str, &str> = entities
+        .iter()
         .map(|e| (e.id.as_str(), e.name.as_str()))
         .collect();
 
@@ -654,16 +788,24 @@ pub async fn distill_story_knowledge(
 
     let service = AgentService::new(app_handle);
     let result = service.execute_task(task).await.map_err(|e| {
-        log::error!("[story_commands] {} LLM task failed: {}", "distill_story_knowledge", e);
+        log::error!(
+            "[story_commands] {} LLM task failed: {}",
+            "distill_story_knowledge",
+            e
+        );
         e
     })?;
-    log::info!("[story_commands] {} LLM task completed", "distill_story_knowledge");
+    log::info!(
+        "[story_commands] {} LLM task completed",
+        "distill_story_knowledge"
+    );
 
     let summary_repo = StorySummaryRepository::new(pool.inner().clone());
     // 如果已存在同类型摘要，则更新；否则创建
     let summary = match summary_repo.get_summary_by_type(&story_id, "knowledge_distillation") {
         Ok(Some(existing)) => {
-            summary_repo.update_summary(&existing.id, &result.content)
+            summary_repo
+                .update_summary(&existing.id, &result.content)
                 .map_err(AppError::from)?;
             StorySummary {
                 content: result.content,
@@ -671,10 +813,9 @@ pub async fn distill_story_knowledge(
                 ..existing
             }
         }
-        _ => {
-            summary_repo.create_summary(&story_id, "knowledge_distillation", &result.content)
-                .map_err(AppError::from)?
-        }
+        _ => summary_repo
+            .create_summary(&story_id, "knowledge_distillation", &result.content)
+            .map_err(AppError::from)?,
     };
 
     Ok(summary)
@@ -698,16 +839,21 @@ pub async fn update_story_summary(
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
     let repo = StorySummaryRepository::new(pool.inner().clone());
-    let result = repo.update_summary(&summary_id, &content)
+    let result = repo
+        .update_summary(&summary_id, &content)
         .map_err(AppError::from)?;
     let conn = pool.inner().get().map_err(AppError::from)?;
     let story_id: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT story_id FROM story_summaries WHERE id = ?1",
         [&summary_id],
-        |row| row.get(0)
+        |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "storySummaries");
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "storySummaries",
+        );
     }
     Ok(result)
 }
@@ -724,12 +870,15 @@ pub async fn delete_story_summary(
     let story_id: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT story_id FROM story_summaries WHERE id = ?1",
         [&summary_id],
-        |row| row.get(0)
+        |row| row.get(0),
     );
-    let result = repo.delete_summary(&summary_id)
-        .map_err(AppError::from)?;
+    let result = repo.delete_summary(&summary_id).map_err(AppError::from)?;
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "storySummaries");
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "storySummaries",
+        );
     }
     Ok(result)
 }
@@ -746,11 +895,16 @@ pub async fn get_story_graph(
     pool: State<'_, DbPool>,
 ) -> Result<StoryGraph, AppError> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let entities = repo.get_entities_by_story(&story_id)
+    let entities = repo
+        .get_entities_by_story(&story_id)
         .map_err(AppError::from)?;
-    let relations = repo.get_relations_by_story(&story_id)
+    let relations = repo
+        .get_relations_by_story(&story_id)
         .map_err(AppError::from)?;
-    Ok(StoryGraph { entities, relations })
+    Ok(StoryGraph {
+        entities,
+        relations,
+    })
 }
 
 #[command(rename_all = "snake_case")]
@@ -759,9 +913,10 @@ pub async fn get_retention_report(
     pool: State<'_, DbPool>,
 ) -> Result<crate::memory::retention::RetentionReport, AppError> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let entities = repo.get_entities_by_story(&story_id)
+    let entities = repo
+        .get_entities_by_story(&story_id)
         .map_err(AppError::from)?;
-    
+
     let manager = RetentionManager::new();
     Ok(manager.generate_retention_report(&entities))
 }
@@ -773,25 +928,29 @@ pub async fn archive_forgotten_entities(
     app_handle: AppHandle,
 ) -> Result<crate::memory::retention::ArchiveResult, AppError> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    let entities = repo.get_entities_by_story(&story_id)
+    let entities = repo
+        .get_entities_by_story(&story_id)
         .map_err(AppError::from)?;
-    
+
     let manager = RetentionManager::new();
     let forgotten = manager.get_forgotten_entities(&entities);
-    
+
     let mut archived = Vec::new();
     for (entity, _) in &forgotten {
-        repo.archive_entity(&entity.id)
-            .map_err(AppError::from)?;
+        repo.archive_entity(&entity.id).map_err(AppError::from)?;
         archived.push(entity.name.clone());
     }
-    
+
     let result = crate::memory::retention::ArchiveResult {
         archived_count: archived.len(),
         archived_entities: archived,
         story_id: story_id.clone(),
     };
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -802,13 +961,17 @@ pub async fn restore_archived_entity(
     app_handle: AppHandle,
 ) -> Result<Entity, AppError> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    repo.restore_entity(&entity_id)
-        .map_err(AppError::from)?;
+    repo.restore_entity(&entity_id).map_err(AppError::from)?;
 
-    let entity = repo.get_entity_by_id(&entity_id)
+    let entity = repo
+        .get_entity_by_id(&entity_id)
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("Entity", &entity_id))?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&entity.story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&entity.story_id),
+        "knowledgeGraph",
+    );
     Ok(entity)
 }
 
@@ -833,11 +996,21 @@ pub fn get_character_by_name(
     let conn = pool.get().map_err(AppError::from)?;
 
     // 1. Find character by name in story
-    let character: Option<(String, String, Option<String>, Option<String>)> = conn.query_row(
-        "SELECT id, name, appearance, personality FROM characters WHERE story_id = ?1 AND name = ?2",
-        [&story_id, &name],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?))
-    ).ok();
+    let character: Option<(String, String, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT id, name, appearance, personality FROM characters WHERE story_id = ?1 AND \
+             name = ?2",
+            [&story_id, &name],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .ok();
 
     let (char_id, char_name, appearance, personality) = match character {
         Some(c) => c,
@@ -847,16 +1020,16 @@ pub fn get_character_by_name(
     // 2. Truncate appearance to 60 chars
     let appearance_text = appearance.unwrap_or_default();
     let has_more = appearance_text.chars().count() > 60;
-    let appearance_summary = appearance_text
-        .chars()
-        .take(60)
-        .collect::<String>()
-        + if has_more { "..." } else { "" };
+    let appearance_summary =
+        appearance_text.chars().take(60).collect::<String>() + if has_more { "..." } else { "" };
 
     // 3. Build status tags from personality keywords
     let mut status_tags = Vec::new();
     if let Some(ref p) = personality {
-        let keywords = ["冷静", "冲动", "善良", "邪恶", "勇敢", "懦弱", "聪明", "愚蠢", "忠诚", "背叛", "温柔", "残暴", "乐观", "悲观"];
+        let keywords = [
+            "冷静", "冲动", "善良", "邪恶", "勇敢", "懦弱", "聪明", "愚蠢", "忠诚", "背叛", "温柔",
+            "残暴", "乐观", "悲观",
+        ];
         for kw in &keywords {
             if p.contains(kw) {
                 status_tags.push(kw.to_string());
@@ -865,13 +1038,15 @@ pub fn get_character_by_name(
     }
 
     // 4. Find last seen scene (using sequence_number as proxy for chapter)
-    let last_seen_chapter: i32 = conn.query_row(
-        "SELECT MAX(s.sequence_number) FROM scene_characters sc
+    let last_seen_chapter: i32 = conn
+        .query_row(
+            "SELECT MAX(s.sequence_number) FROM scene_characters sc
          JOIN scenes s ON sc.scene_id = s.id
          WHERE sc.character_id = ?1",
-        [&char_id],
-        |row| row.get(0)
-    ).unwrap_or(1);
+            [&char_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(1);
 
     Ok(Some(CharacterQuickView {
         id: char_id,
@@ -882,7 +1057,8 @@ pub fn get_character_by_name(
     }))
 }
 
-// ==================== Story System: Projection Health Check ====================
+// ==================== Story System: Projection Health Check
+// ====================
 
 #[command(rename_all = "snake_case")]
 pub fn check_projection_health(
@@ -891,7 +1067,8 @@ pub fn check_projection_health(
     pool: State<'_, DbPool>,
 ) -> Result<crate::story_system::ProjectionHealthReport, AppError> {
     let engine = crate::story_system::StorySystemEngine::new(pool.inner().clone());
-    engine.check_projection_health(&story_id, chapter_number)
+    engine
+        .check_projection_health(&story_id, chapter_number)
         .map_err(AppError::internal)
 }
 
@@ -903,8 +1080,7 @@ pub fn get_writing_analytics(
     pool: State<'_, DbPool>,
 ) -> Result<crate::analytics::WritingAnalytics, AppError> {
     let repo = SceneRepository::new(pool.inner().clone());
-    let scenes = repo.get_by_story(&story_id)
-        .map_err(AppError::from)?;
+    let scenes = repo.get_by_story(&story_id).map_err(AppError::from)?;
     let engine = crate::analytics::AnalyticsEngine::new();
     Ok(engine.analyze_writing_data(&story_id, &scenes))
 }

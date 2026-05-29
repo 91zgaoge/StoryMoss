@@ -18,14 +18,9 @@ pub enum AppError {
         current_tier: Option<String>,
     },
     /// LLM 调用超时
-    LlmTimeout {
-        message: String,
-        elapsed_ms: u64,
-    },
+    LlmTimeout { message: String, elapsed_ms: u64 },
     /// 数据库锁定（并发写入冲突）
-    DbLocked {
-        message: String,
-    },
+    DbLocked { message: String },
     /// 上下文不可用（StoryContextBuilder 空返回等）
     ContextUnavailable {
         message: String,
@@ -38,27 +33,18 @@ pub enum AppError {
         field: Option<String>,
     },
     /// 网络离线（平台模型不可用时）
-    NetworkOffline {
-        message: String,
-    },
+    NetworkOffline { message: String },
     /// 操作被取消
-    Cancellation {
-        message: String,
-    },
+    Cancellation { message: String },
     /// 资源未找到
-    NotFound {
-        resource: String,
-        id: String,
-    },
+    NotFound { resource: String, id: String },
     /// 预检失败（写作前阻塞性问题）
     PreflightFailed {
         message: String,
         issues: Vec<String>,
     },
     /// 内部错误（兜底）
-    Internal {
-        message: String,
-    },
+    Internal { message: String },
 }
 
 impl AppError {
@@ -89,7 +75,9 @@ impl AppError {
             AppError::NetworkOffline { message } => message.clone(),
             AppError::Cancellation { message } => message.clone(),
             AppError::NotFound { resource, id } => format!("{} '{}' not found", resource, id),
-            AppError::PreflightFailed { message, issues } => format!("{}: {}", message, issues.join("; ")),
+            AppError::PreflightFailed { message, issues } => {
+                format!("{}: {}", message, issues.join("; "))
+            }
             AppError::Internal { message } => message.clone(),
         }
     }
@@ -130,7 +118,9 @@ impl From<String> for AppError {
 
 impl From<&str> for AppError {
     fn from(msg: &str) -> Self {
-        AppError::Internal { message: msg.to_string() }
+        AppError::Internal {
+            message: msg.to_string(),
+        }
     }
 }
 
@@ -256,7 +246,10 @@ pub struct ErrorResponse {
 
 /// 便捷构造函数
 impl AppError {
-    pub fn subscription_required(feature_id: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn subscription_required(
+        feature_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         AppError::SubscriptionRequired {
             feature_id: feature_id.into(),
             message: message.into(),
@@ -277,7 +270,10 @@ impl AppError {
         }
     }
 
-    pub fn context_unavailable(context_type: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn context_unavailable(
+        context_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         AppError::ContextUnavailable {
             context_type: context_type.into(),
             message: message.into(),
@@ -324,7 +320,8 @@ impl AppError {
     }
 }
 
-// ==================== 手动 Serialize（统一 IPC 格式 { code, message, data }） ====================
+// ==================== 手动 Serialize（统一 IPC 格式 { code, message, data }）
+// ====================
 
 impl Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -338,7 +335,11 @@ impl Serialize for AppError {
         map.serialize_entry("message", &self.message())?;
 
         let data: Option<serde_json::Value> = match self {
-            AppError::SubscriptionRequired { feature_id, current_tier, .. } => {
+            AppError::SubscriptionRequired {
+                feature_id,
+                current_tier,
+                ..
+            } => {
                 Some(serde_json::json!({ "feature_id": feature_id, "current_tier": current_tier }))
             }
             AppError::LlmTimeout { elapsed_ms, .. } => {
@@ -347,9 +348,7 @@ impl Serialize for AppError {
             AppError::ContextUnavailable { context_type, .. } => {
                 Some(serde_json::json!({ "context_type": context_type }))
             }
-            AppError::ValidationFailed { field, .. } => {
-                Some(serde_json::json!({ "field": field }))
-            }
+            AppError::ValidationFailed { field, .. } => Some(serde_json::json!({ "field": field })),
             AppError::NotFound { resource, id } => {
                 Some(serde_json::json!({ "resource": resource, "id": id }))
             }

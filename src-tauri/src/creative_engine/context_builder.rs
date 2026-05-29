@@ -3,11 +3,20 @@
 //! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。
 //! 解决 intent.rs 中硬编码 "未命名作品"/"小说"/"中性" 的问题。
 
-use crate::agents::{AgentContext, AgentMemoryContext, CharacterInfo, ChapterSummary, NarrativeContext, StoryContext, StyleContext, WorldContext};
-use crate::db::{DbPool, Story, Character};
-use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
-use crate::error::AppError;
+use crate::{
+    agents::{
+        AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
+        StoryContext, StyleContext, WorldContext,
+    },
+    db::{
+        repositories::{
+            CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
+            WritingStyleRepository,
+        },
+        Character, DbPool, Story,
+    },
+    error::AppError,
+};
 
 /// 知识图谱实体摘要（用于注入提示词）
 #[derive(Debug, Clone)]
@@ -84,7 +93,7 @@ impl StoryContextBuilder {
                 if scene.conflict_type.is_some() {
                     return Err(AppError::context_unavailable(
                         "characters",
-                        "当前场景存在冲突类型，但故事中无角色，无法生成场景内容"
+                        "当前场景存在冲突类型，但故事中无角色，无法生成场景内容",
                     ));
                 }
             }
@@ -97,7 +106,9 @@ impl StoryContextBuilder {
                 let role = if let Some(first_trait) = c.dynamic_traits.first() {
                     first_trait.trait_name.clone()
                 } else {
-                    c.background.clone().unwrap_or_else(|| "主要角色".to_string())
+                    c.background
+                        .clone()
+                        .unwrap_or_else(|| "主要角色".to_string())
                 };
                 // 合并 personality + goals 作为更丰富的描述
                 let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
@@ -118,7 +129,9 @@ impl StoryContextBuilder {
         let previous_chapters: Vec<ChapterSummary> = previous_scenes
             .into_iter()
             .map(|s| {
-                let summary = s.content.clone()
+                let summary = s
+                    .content
+                    .clone()
                     .or(s.dramatic_goal.clone())
                     .unwrap_or_else(|| "无内容".to_string());
                 let preview = if summary.chars().count() > 200 {
@@ -127,7 +140,9 @@ impl StoryContextBuilder {
                     summary
                 };
                 ChapterSummary {
-                    title: s.title.unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
+                    title: s
+                        .title
+                        .unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
                     number: s.sequence_number.max(0) as u32,
                     summary: preview,
                 }
@@ -136,33 +151,35 @@ impl StoryContextBuilder {
 
         // 构建独立的上下文组件（分别注入系统提示词的不同部分）
         let world_rules_text = Self::format_world_rules(&world_rules);
-        let scene_structure_text = Self::format_scene_structure(
-            current_scene.as_ref(),
-            &relevant_entities,
-        );
+        let scene_structure_text =
+            Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
         let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
         // W3-B1: 构建 MemoryPack，将 previous_chapters 吸收进 working_memory
         let memory_pack = {
-            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
+            let orchestrator =
+                crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
             match orchestrator.build_memory_pack(
                 story_id,
                 scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
                 "write",
-                current_scene.as_ref().and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
+                current_scene
+                    .as_ref()
+                    .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
             ) {
                 Ok(mut pack) => {
                     // 将 previous_chapters 吸收进 working_memory
                     for chapter in &previous_chapters {
-                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
-                            layer: "working".to_string(),
-                            source: "previous_chapter".to_string(),
-                            chapter: chapter.number as i32,
-                            content: serde_json::json!({
-                                "title": chapter.title,
-                                "summary": chapter.summary
-                            }),
-                        });
+                        pack.working_memory
+                            .push(crate::memory::orchestrator::MemoryEntry {
+                                layer: "working".to_string(),
+                                source: "previous_chapter".to_string(),
+                                chapter: chapter.number as i32,
+                                content: serde_json::json!({
+                                    "title": chapter.title,
+                                    "summary": chapter.summary
+                                }),
+                            });
                     }
                     Some(pack)
                 }
@@ -178,10 +195,14 @@ impl StoryContextBuilder {
                 story_id: story_id.to_string(),
                 story_title: story.title,
                 genre: story.genre.unwrap_or_else(|| "小说".to_string()),
-                tone: style.as_ref().and_then(|s| s.tone.clone())
+                tone: style
+                    .as_ref()
+                    .and_then(|s| s.tone.clone())
                     .or(story.tone)
                     .unwrap_or_else(|| "中性".to_string()),
-                pacing: style.as_ref().and_then(|s| s.pacing.clone())
+                pacing: style
+                    .as_ref()
+                    .and_then(|s| s.pacing.clone())
                     .or(story.pacing)
                     .unwrap_or_else(|| "正常".to_string()),
             },
@@ -246,11 +267,13 @@ impl StoryContextBuilder {
         scene_number: Option<i32>,
     ) -> Result<Vec<crate::db::models::Scene>, String> {
         let repo = SceneRepository::new(self.pool.clone());
-        let all_scenes = repo.get_by_story(story_id)
+        let all_scenes = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
 
         let cutoff = scene_number.unwrap_or(i32::MAX);
-        let mut prev: Vec<_> = all_scenes.into_iter()
+        let mut prev: Vec<_> = all_scenes
+            .into_iter()
             .filter(|s| s.sequence_number < cutoff)
             .collect();
         prev.sort_by_key(|s| s.sequence_number);
@@ -269,10 +292,12 @@ impl StoryContextBuilder {
         scene_number: i32,
     ) -> Result<crate::db::models::Scene, String> {
         let repo = SceneRepository::new(self.pool.clone());
-        let scenes = repo.get_by_story(story_id)
+        let scenes = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
 
-        scenes.into_iter()
+        scenes
+            .into_iter()
             .find(|s| s.sequence_number == scene_number)
             .ok_or_else(|| "当前场景不存在".to_string())
     }
@@ -285,12 +310,16 @@ impl StoryContextBuilder {
             Err(e) => return Err(format!("获取世界观失败: {}", e)),
         };
 
-        Ok(world_building.rules.into_iter().map(|r| WorldRuleSummary {
-            name: r.name,
-            description: r.description.unwrap_or_default(),
-            rule_type: r.rule_type.to_string(),
-            importance: r.importance,
-        }).collect())
+        Ok(world_building
+            .rules
+            .into_iter()
+            .map(|r| WorldRuleSummary {
+                name: r.name,
+                description: r.description.unwrap_or_default(),
+                rule_type: r.rule_type.to_string(),
+                importance: r.importance,
+            })
+            .collect())
     }
 
     fn fetch_writing_style(
@@ -302,17 +331,25 @@ impl StoryContextBuilder {
             .map_err(|e| format!("获取文风失败: {}", e))
     }
 
-    fn fetch_relevant_entities(&self, story_id: &str, limit: usize) -> Result<Vec<RelevantEntity>, String> {
+    fn fetch_relevant_entities(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<RelevantEntity>, String> {
         use crate::db::repositories::KnowledgeGraphRepository;
 
         let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
-        let entities = kg_repo.get_entities_by_story(story_id)
+        let entities = kg_repo
+            .get_entities_by_story(story_id)
             .map_err(|e| format!("获取知识图谱实体失败: {}", e))?;
 
-        let mut results: Vec<RelevantEntity> = entities.into_iter()
+        let mut results: Vec<RelevantEntity> = entities
+            .into_iter()
             .filter(|e| !e.is_archived)
             .map(|e| {
-                let description = e.attributes.get("description")
+                let description = e
+                    .attributes
+                    .get("description")
                     .and_then(|v| v.as_str())
                     .unwrap_or("无描述")
                     .to_string();
@@ -333,7 +370,7 @@ impl StoryContextBuilder {
     }
 
     /// 获取风格混合配置
-    /// 
+    ///
     /// 优先检查 scene 级别的 override，否则回退到 story 级别的 active 配置
     fn fetch_style_blend(
         &self,
@@ -341,8 +378,10 @@ impl StoryContextBuilder {
         _scene_number: Option<i32>,
         current_scene: Option<&crate::db::models::Scene>,
     ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
-        use crate::db::repositories::StoryStyleConfigRepository;
-        use crate::creative_engine::style::blend::StyleBlendConfig;
+        use crate::{
+            creative_engine::style::blend::StyleBlendConfig,
+            db::repositories::StoryStyleConfigRepository,
+        };
 
         // 1. 检查 scene 级别的 override
         if let Some(scene) = current_scene {
@@ -373,7 +412,10 @@ impl StoryContextBuilder {
         }
         let mut parts = Vec::new();
         for rule in world_rules.iter().take(5) {
-            parts.push(format!("- {}（{}）: {}", rule.name, rule.rule_type, rule.description));
+            parts.push(format!(
+                "- {}（{}）: {}",
+                rule.name, rule.rule_type, rule.description
+            ));
         }
         Some(parts.join("\n"))
     }
@@ -414,7 +456,10 @@ impl StoryContextBuilder {
             }
             parts.push("【相关设定】".to_string());
             for entity in relevant_entities.iter().take(10) {
-                parts.push(format!("- {}（{}）: {}", entity.name, entity.entity_type, entity.description));
+                parts.push(format!(
+                    "- {}（{}）: {}",
+                    entity.name, entity.entity_type, entity.description
+                ));
             }
         }
 
@@ -432,14 +477,12 @@ mod tests {
 
     #[test]
     fn test_format_world_rules() {
-        let rules = vec![
-            WorldRuleSummary {
-                name: "灵力体系".to_string(),
-                description: "炼气→筑基→金丹".to_string(),
-                rule_type: "Magic".to_string(),
-                importance: 10,
-            },
-        ];
+        let rules = vec![WorldRuleSummary {
+            name: "灵力体系".to_string(),
+            description: "炼气→筑基→金丹".to_string(),
+            rule_type: "Magic".to_string(),
+            importance: 10,
+        }];
 
         let text = StoryContextBuilder::format_world_rules(&rules).unwrap();
         assert!(text.contains("灵力体系"));
@@ -499,10 +542,16 @@ mod tests {
         let builder = StoryContextBuilder::new(pool);
         let result = builder.build("any-id", None, None, None);
 
-        assert!(result.is_err(), "当 stories 表不存在时，build 应返回致命错误");
+        assert!(
+            result.is_err(),
+            "当 stories 表不存在时，build 应返回致命错误"
+        );
         let err_msg = result.unwrap_err().message();
-        assert!(err_msg.contains("获取故事失败") || err_msg.contains("no such table"),
-            "错误信息应指示 DB 查询失败: {}", err_msg);
+        assert!(
+            err_msg.contains("获取故事失败") || err_msg.contains("no such table"),
+            "错误信息应指示 DB 查询失败: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -522,20 +571,44 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             conn.execute(
-                "INSERT INTO stories (id, title, genre, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params!["story-1", "测试故事", "奇幻", chrono::Local::now().to_rfc3339(), chrono::Local::now().to_rfc3339()],
-            ).unwrap();
+                "INSERT INTO stories (id, title, genre, created_at, updated_at) VALUES (?1, ?2, \
+                 ?3, ?4, ?5)",
+                rusqlite::params![
+                    "story-1",
+                    "测试故事",
+                    "奇幻",
+                    chrono::Local::now().to_rfc3339(),
+                    chrono::Local::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
             conn.execute(
-                "INSERT INTO scenes (id, story_id, sequence_number, title, conflict_type, characters_present, character_conflicts, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                rusqlite::params!["scene-1", "story-1", 1, "测试场景", "ManVsMan", "[]", "[]", chrono::Local::now().to_rfc3339(), chrono::Local::now().to_rfc3339()],
-            ).unwrap();
+                "INSERT INTO scenes (id, story_id, sequence_number, title, conflict_type, \
+                 characters_present, character_conflicts, created_at, updated_at) VALUES (?1, ?2, \
+                 ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![
+                    "scene-1",
+                    "story-1",
+                    1,
+                    "测试场景",
+                    "ManVsMan",
+                    "[]",
+                    "[]",
+                    chrono::Local::now().to_rfc3339(),
+                    chrono::Local::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
         }
 
         let builder = StoryContextBuilder::new(pool);
         // 没有插入角色，且场景有冲突类型 — 应为 fatal
         let result = builder.build("story-1", Some(1), None, None);
 
-        assert!(result.is_err(), "有冲突类型的场景但无角色时，build 应返回 fatal 错误");
+        assert!(
+            result.is_err(),
+            "有冲突类型的场景但无角色时，build 应返回 fatal 错误"
+        );
         assert_eq!(result.unwrap_err().code(), "CONTEXT_UNAVAILABLE");
     }
 
@@ -546,19 +619,43 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             conn.execute(
-                "INSERT INTO stories (id, title, genre, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params!["story-1", "测试故事", "奇幻", chrono::Local::now().to_rfc3339(), chrono::Local::now().to_rfc3339()],
-            ).unwrap();
+                "INSERT INTO stories (id, title, genre, created_at, updated_at) VALUES (?1, ?2, \
+                 ?3, ?4, ?5)",
+                rusqlite::params![
+                    "story-1",
+                    "测试故事",
+                    "奇幻",
+                    chrono::Local::now().to_rfc3339(),
+                    chrono::Local::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
             conn.execute(
-                "INSERT INTO scenes (id, story_id, sequence_number, title, conflict_type, characters_present, character_conflicts, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                rusqlite::params!["scene-1", "story-1", 1, "测试场景", rusqlite::types::Null, "[]", "[]", chrono::Local::now().to_rfc3339(), chrono::Local::now().to_rfc3339()],
-            ).unwrap();
+                "INSERT INTO scenes (id, story_id, sequence_number, title, conflict_type, \
+                 characters_present, character_conflicts, created_at, updated_at) VALUES (?1, ?2, \
+                 ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![
+                    "scene-1",
+                    "story-1",
+                    1,
+                    "测试场景",
+                    rusqlite::types::Null,
+                    "[]",
+                    "[]",
+                    chrono::Local::now().to_rfc3339(),
+                    chrono::Local::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
         }
 
         let builder = StoryContextBuilder::new(pool);
         // 没有插入角色，但场景无冲突类型 — 应为 ok
         let result = builder.build("story-1", Some(1), None, None);
 
-        assert!(result.is_ok(), "无冲突类型的场景且无角色时，build 应返回 Ok");
+        assert!(
+            result.is_ok(),
+            "无冲突类型的场景且无角色时，build 应返回 Ok"
+        );
     }
 }

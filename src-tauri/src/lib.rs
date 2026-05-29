@@ -1,52 +1,52 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod error;
-mod db;
-mod config;
-mod llm;
 mod agents;
-mod memory;
-mod vector;
-mod workflow;
-mod export;
-mod prompts;
-mod versions;
-mod chat;           // RESERVED: story-associated chat sessions (Phase 4)
 mod analytics;
-mod skills;
-mod mcp;
-mod collab;         // RESERVED: collaborative editing WebSocket server (Phase 4)
-mod state;          // RESERVED: runtime story state manager (Phase 4)
-mod router;
-mod evolution;
-pub(crate) mod embeddings;
-mod utils;
-mod window;
-mod updater;
-mod scene_commands;
-mod creation_commands;
-mod studio_commands;
-mod revision_commands;
-mod pipeline;
-mod knowledge_base;
-mod intent;
-mod creative_engine;
-mod subscription;
-mod book_deconstruction;
-mod task_system;
-mod canonical_state;
-mod capabilities;
-mod planner;
-mod narrative;
+mod anti_ai;
 mod audit;
 mod auth;
-mod state_sync;
-mod logging;
 mod automation;
-mod story_system;
+mod book_deconstruction;
+mod canonical_state;
+mod capabilities;
+mod chat; // RESERVED: story-associated chat sessions (Phase 4)
+mod collab; // RESERVED: collaborative editing WebSocket server (Phase 4)
+mod config;
+mod creation_commands;
+mod creative_engine;
+mod db;
+pub(crate) mod embeddings;
+mod error;
+mod evolution;
+mod export;
+mod intent;
+mod knowledge_base;
+mod llm;
+mod logging;
+mod mcp;
+mod memory;
+mod narrative;
+mod pipeline;
+mod planner;
+mod prompts;
 mod reading_power;
-mod anti_ai;
+mod revision_commands;
+mod router;
+mod scene_commands;
+mod skills;
+mod state; // RESERVED: runtime story state manager (Phase 4)
+mod state_sync;
+mod story_system;
+mod studio_commands;
+mod subscription;
+mod task_system;
 mod telemetry;
+mod updater;
+mod utils;
+mod vector;
+mod versions;
+mod window;
+mod workflow;
 
 #[cfg(test)]
 mod test_utils;
@@ -56,17 +56,14 @@ mod tests;
 #[macro_use]
 mod commands;
 
-use tauri::{Manager, Emitter};
+use std::{collections::HashMap, sync::Mutex, time::Instant};
 
-use db::{DbPool, init_db};
 use config::AppConfig;
-use skills::SkillManager;
-use once_cell::sync::OnceCell;
-use once_cell::sync::Lazy;
+use db::{init_db, DbPool};
+use once_cell::sync::{Lazy, OnceCell};
 use serde::Deserialize;
-use std::sync::Mutex;
-use std::collections::HashMap;
-use std::time::Instant;
+use skills::SkillManager;
+use tauri::{Emitter, Manager};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -77,7 +74,8 @@ pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
 
 /// Chapter commit debounce: chapter_id -> last_scheduled_time
 /// W4-B9: 防止频繁保存导致重复 commit
-pub(crate) static CHAPTER_COMMIT_DEBOUNCE: Lazy<Mutex<HashMap<String, Instant>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static CHAPTER_COMMIT_DEBOUNCE: Lazy<Mutex<HashMap<String, Instant>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 pub(crate) const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
 
 /// 记录 AI 操作历史
@@ -90,8 +88,12 @@ pub(crate) fn record_ai_operation(req: db::CreateAiOperationRequest) {
     }
 }
 
-pub(crate) fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
-fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
+pub(crate) fn get_pool() -> Option<DbPool> {
+    DB_POOL.lock().unwrap().clone()
+}
+fn get_config() -> Option<AppConfig> {
+    APP_CONFIG.lock().unwrap().clone()
+}
 
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
@@ -151,20 +153,24 @@ pub fn run() {
                     }
                     _ => {
                         // 其他窗口默认退出
-                        log::info!("Window {} close requested, exiting application", window.label());
+                        log::info!(
+                            "Window {} close requested, exiting application",
+                            window.label()
+                        );
                         graceful_shutdown(&window.app_handle());
                     }
                 }
             }
         })
         .setup(|app| {
-            let app_dir = app.path().app_data_dir()
-                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+            let app_dir = app.path().app_data_dir().unwrap_or_else(|_| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            });
             std::fs::create_dir_all(&app_dir).ok();
-            
+
             // 初始化结构化日志系统（必须在其他操作之前）
             let _log_guard = logging::init_logger(&app_dir);
-            
+
             log::info!("App directory: {:?}", app_dir);
 
             // 设置 panic hook 以便记录崩溃信息，辅助诊断窗口最大化等异常退出
@@ -176,7 +182,8 @@ pub fn run() {
                 } else {
                     "unknown panic"
                 };
-                let location = info.location()
+                let location = info
+                    .location()
                     .map(|l| format!("{}:{}", l.file(), l.line()))
                     .unwrap_or_else(|| "unknown location".to_string());
                 log::error!("APPLICATION PANIC: {} at {}", payload, location);
@@ -188,7 +195,10 @@ pub fn run() {
             let _ = PENDING_VECTOR_INDEXES_PATH.set(pending_path.clone());
             let loaded_pending = load_pending_vector_indexes();
             if !loaded_pending.is_empty() {
-                log::info!("Loaded {} pending vector indexes from previous session", loaded_pending.len());
+                log::info!(
+                    "Loaded {} pending vector indexes from previous session",
+                    loaded_pending.len()
+                );
                 if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
                     *pending = loaded_pending;
                 }
@@ -204,7 +214,9 @@ pub fn run() {
                     log::error!("Failed to initialize database: {}", e);
                 }
             }
-            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(crate::llm::LlmService::new(app.handle().clone())))));
+            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(
+                crate::llm::LlmService::new(app.handle().clone()),
+            ))));
 
             // 设置能力进化描述持久化路径
             let evolved_desc_path = app_dir.join("evolved_descriptions.json");
@@ -238,7 +250,9 @@ pub fn run() {
                 let template_repo = db::ExportTemplateRepository::new(pool);
                 match template_repo.seed_builtin_templates() {
                     Ok(_) => log::info!("[ExportTemplates] Built-in templates seeded successfully"),
-                    Err(e) => log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e),
+                    Err(e) => {
+                        log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e)
+                    }
                 }
             }
             {
@@ -249,31 +263,54 @@ pub fn run() {
                 if !user_genres_path.exists() {
                     let _ = std::fs::create_dir_all(&templates_dir);
                     if let Err(e) = std::fs::write(&user_genres_path, default_genres_json) {
-                        log::warn!("[GenreProfiles] Failed to copy default genres.json to app dir: {}", e);
+                        log::warn!(
+                            "[GenreProfiles] Failed to copy default genres.json to app dir: {}",
+                            e
+                        );
                     } else {
-                        log::info!("[GenreProfiles] Copied default genres.json to {:?}", user_genres_path);
+                        log::info!(
+                            "[GenreProfiles] Copied default genres.json to {:?}",
+                            user_genres_path
+                        );
                     }
                 }
 
-                if let (Some(pool), Ok(json_str)) = (get_pool(), std::fs::read_to_string(&user_genres_path)) {
+                if let (Some(pool), Ok(json_str)) =
+                    (get_pool(), std::fs::read_to_string(&user_genres_path))
+                {
                     match serde_json::from_str::<serde_json::Value>(&json_str) {
                         Ok(genres_data) => {
-                            if let Some(profiles) = genres_data.get("profiles").and_then(|p| p.as_array()) {
+                            if let Some(profiles) =
+                                genres_data.get("profiles").and_then(|p| p.as_array())
+                            {
                                 let repo = db::GenreProfileRepository::new(pool);
                                 for profile in profiles {
-                                    let genre_name = profile.get("genre_name").and_then(|v| v.as_str()).unwrap_or("");
-                                    let canonical_name = profile.get("canonical_name").and_then(|v| v.as_str()).unwrap_or("");
+                                    let genre_name = profile
+                                        .get("genre_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let canonical_name = profile
+                                        .get("canonical_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
                                     if genre_name.is_empty() || canonical_name.is_empty() {
                                         continue;
                                     }
                                     // 仅当不存在时才插入，避免覆盖用户自定义修改
                                     match repo.get_by_name(genre_name) {
                                         Ok(None) => {
-                                            let aliases_json = profile.get("aliases").map(|v| v.to_string());
-                                            let core_tone = profile.get("core_tone").and_then(|v| v.as_str());
-                                            let pacing_strategy = profile.get("pacing_strategy").and_then(|v| v.as_str());
-                                            let anti_patterns_json = profile.get("anti_patterns").map(|v| v.to_string());
-                                            let reference_tables_json = profile.get("reference_tables").and_then(|v| v.as_str());
+                                            let aliases_json =
+                                                profile.get("aliases").map(|v| v.to_string());
+                                            let core_tone =
+                                                profile.get("core_tone").and_then(|v| v.as_str());
+                                            let pacing_strategy = profile
+                                                .get("pacing_strategy")
+                                                .and_then(|v| v.as_str());
+                                            let anti_patterns_json =
+                                                profile.get("anti_patterns").map(|v| v.to_string());
+                                            let reference_tables_json = profile
+                                                .get("reference_tables")
+                                                .and_then(|v| v.as_str());
                                             let _ = repo.create(
                                                 genre_name,
                                                 canonical_name,
@@ -288,11 +325,19 @@ pub fn run() {
                                             // 已存在，跳过
                                         }
                                         Err(e) => {
-                                            log::warn!("[GenreProfiles] Failed to check existing genre '{}': {}", genre_name, e);
+                                            log::warn!(
+                                                "[GenreProfiles] Failed to check existing genre \
+                                                 '{}': {}",
+                                                genre_name,
+                                                e
+                                            );
                                         }
                                     }
                                 }
-                                log::info!("[GenreProfiles] Seeded {} built-in genre profiles", profiles.len());
+                                log::info!(
+                                    "[GenreProfiles] Seeded {} built-in genre profiles",
+                                    profiles.len()
+                                );
                             }
                         }
                         Err(e) => {
@@ -318,19 +363,33 @@ pub fn run() {
             // Bootstrap task system
             if let Some(pool) = get_pool() {
                 let app_handle = app.handle().clone();
-                let task_service = task_system::service::TaskService::new(pool.clone(), app_handle.clone());
+                let task_service =
+                    task_system::service::TaskService::new(pool.clone(), app_handle.clone());
                 let llm_service = llm::LlmService::new(app_handle.clone());
-                let executor = std::sync::Arc::new(book_deconstruction::executor::BookDeconstructionExecutor::new(
-                    pool.clone(),
-                    llm_service,
-                    app_handle.clone(),
-                ));
+                let executor = std::sync::Arc::new(
+                    book_deconstruction::executor::BookDeconstructionExecutor::new(
+                        pool.clone(),
+                        llm_service,
+                        app_handle.clone(),
+                    ),
+                );
                 task_service.register_executor(executor);
-                let cascade_executor = std::sync::Arc::new(creative_engine::cascade_rewriter::executor::CascadeRewriteExecutor::new(pool.clone(), app_handle.clone()));
+                let cascade_executor = std::sync::Arc::new(
+                    creative_engine::cascade_rewriter::executor::CascadeRewriteExecutor::new(
+                        pool.clone(),
+                        app_handle.clone(),
+                    ),
+                );
                 task_service.register_executor(cascade_executor);
-                let ai_gen_executor = std::sync::Arc::new(agents::executor::AiGenerationExecutor::new(pool.clone(), app_handle.clone()));
+                let ai_gen_executor = std::sync::Arc::new(
+                    agents::executor::AiGenerationExecutor::new(pool.clone(), app_handle.clone()),
+                );
                 task_service.register_executor(ai_gen_executor);
-                let pipeline_executor = std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(pool.clone(), app_handle.clone()));
+                let pipeline_executor =
+                    std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
+                        pool.clone(),
+                        app_handle.clone(),
+                    ));
                 task_service.register_executor(pipeline_executor);
                 if let Err(e) = task_service.bootstrap() {
                     log::error!("Failed to bootstrap task system: {}", e);
@@ -340,7 +399,8 @@ pub fn run() {
                 app.manage(task_service);
 
                 // Initialize automation service
-                let automation_service = automation::service::AutomationService::new(app_handle.clone(), pool.clone());
+                let automation_service =
+                    automation::service::AutomationService::new(app_handle.clone(), pool.clone());
                 let automation_service_clone = automation_service.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = automation_service_clone.initialize().await {
@@ -374,7 +434,10 @@ pub fn run() {
                         }
                     };
                     if !pending_ids.is_empty() {
-                        log::info!("[PENDING_VECTOR] Processing {} queued chapter indexes", pending_ids.len());
+                        log::info!(
+                            "[PENDING_VECTOR] Processing {} queued chapter indexes",
+                            pending_ids.len()
+                        );
                         for chapter_id in pending_ids {
                             if let Some(pool) = get_pool() {
                                 let repo = db::ChapterRepository::new(pool);
@@ -382,7 +445,9 @@ pub fn run() {
                                     let story_id = chapter.story_id.clone();
                                     let content_text = chapter.content.clone().unwrap_or_default();
                                     if content_text.len() >= 20 {
-                                        match embeddings::embed_text_async(content_text.clone()).await {
+                                        match embeddings::embed_text_async(content_text.clone())
+                                            .await
+                                        {
                                             Ok(embedding) => {
                                                 let record = vector::VectorRecord {
                                                     id: format!("chapter:{}", chapter_id),
@@ -395,13 +460,27 @@ pub fn run() {
                                                 };
                                                 if let Some(store) = VECTOR_STORE.get() {
                                                     match store.add_record(record).await {
-                                                        Ok(_) => log::info!("[PENDING_VECTOR] Indexed queued chapter {}", chapter_id),
-                                                        Err(e) => log::warn!("[PENDING_VECTOR] Failed to index queued chapter {}: {}", chapter_id, e),
+                                                        Ok(_) => log::info!(
+                                                            "[PENDING_VECTOR] Indexed queued \
+                                                             chapter {}",
+                                                            chapter_id
+                                                        ),
+                                                        Err(e) => log::warn!(
+                                                            "[PENDING_VECTOR] Failed to index \
+                                                             queued chapter {}: {}",
+                                                            chapter_id,
+                                                            e
+                                                        ),
                                                     }
                                                 }
                                             }
                                             Err(e) => {
-                                                log::warn!("[PENDING_VECTOR] Failed to generate embedding for queued chapter {}: {}", chapter_id, e);
+                                                log::warn!(
+                                                    "[PENDING_VECTOR] Failed to generate \
+                                                     embedding for queued chapter {}: {}",
+                                                    chapter_id,
+                                                    e
+                                                );
                                             }
                                         }
                                     }
@@ -420,8 +499,8 @@ pub fn run() {
                 }
             });
 
-            // NOTE: WebSocket server for collaborative editing is reserved for future use (Phase 4)
-            // See docs/plans/ for collaboration feature roadmap.
+            // NOTE: WebSocket server for collaborative editing is reserved for future use
+            // (Phase 4) See docs/plans/ for collaboration feature roadmap.
             // if let Some(pool) = get_pool() {
             //     tauri::async_runtime::spawn(async move {
             //         let ports = [8765, 8766, 8767, 8768, 8769];
@@ -433,8 +512,8 @@ pub fn run() {
             //                     break;
             //                 }
             //                 Err(e) => {
-            //                     log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
-            //                 }
+            //                     log::warn!("Failed to start WebSocket server on port {}:
+            // {}", port, e);                 }
             //             }
             //         }
             //     });
@@ -449,18 +528,26 @@ pub fn run() {
                 };
                 let scheduler = std::sync::Arc::new(workflow::WorkflowScheduler::new());
                 // Register the standard writing workflow template
-                if let Err(e) = engine.register_workflow(workflow::templates::standard_writing_workflow()) {
+                if let Err(e) =
+                    engine.register_workflow(workflow::templates::standard_writing_workflow())
+                {
                     log::warn!("Failed to register standard workflow: {}", e);
                 }
                 let engine_arc = std::sync::Arc::new(engine);
                 scheduler.start_auto_drain(engine_arc.clone(), app.handle().clone());
                 if !restored_instance_ids.is_empty() {
-                    log::info!("[WorkflowEngine] Restoring {} pending/running instances to scheduler", restored_instance_ids.len());
+                    log::info!(
+                        "[WorkflowEngine] Restoring {} pending/running instances to scheduler",
+                        restored_instance_ids.len()
+                    );
                     let scheduler_clone = scheduler.clone();
                     tauri::async_runtime::spawn(async move {
                         for instance_id in restored_instance_ids {
                             if let Err(e) = scheduler_clone.schedule_execution(instance_id).await {
-                                log::warn!("[WorkflowEngine] Failed to restore instance to scheduler: {}", e);
+                                log::warn!(
+                                    "[WorkflowEngine] Failed to restore instance to scheduler: {}",
+                                    e
+                                );
                             }
                         }
                     });
@@ -478,7 +565,8 @@ pub fn run() {
                 let builtin_dir = std::env::current_exe()
                     .ok()
                     .and_then(|p| p.parent().map(|d| d.join("workflows")));
-                let user_dir = app.path()
+                let user_dir = app
+                    .path()
                     .app_data_dir()
                     .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
                     .join("workflows");
@@ -524,24 +612,43 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     let llm = llm::LlmService::new(app_handle_evolve.clone());
-                    let engine = capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle_evolve);
+                    let engine = capabilities::evolution::CapabilityEvolutionEngine::new(
+                        llm,
+                        &app_handle_evolve,
+                    );
                     let stats = engine.get_statistics();
                     let total_records: usize = stats.values().map(|(t, _)| t).sum();
                     if total_records >= 5 {
-                        log::info!("[CapabilityEvolution] Auto-triggering evolution with {} total records", total_records);
+                        log::info!(
+                            "[CapabilityEvolution] Auto-triggering evolution with {} total records",
+                            total_records
+                        );
                         match engine.evolve_capability_descriptions().await {
                             Ok(improvements) => {
-                                log::info!("[CapabilityEvolution] Auto-evolution completed with {} improvements", improvements.len());
-                                let _ = app_handle_evolve.emit("capabilities-evolved", serde_json::json!({
-                                    "improvements": improvements,
-                                    "auto_triggered": true,
-                                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                                }));
+                                log::info!(
+                                    "[CapabilityEvolution] Auto-evolution completed with {} \
+                                     improvements",
+                                    improvements.len()
+                                );
+                                let _ = app_handle_evolve.emit(
+                                    "capabilities-evolved",
+                                    serde_json::json!({
+                                        "improvements": improvements,
+                                        "auto_triggered": true,
+                                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                                    }),
+                                );
                             }
-                            Err(e) => log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e),
+                            Err(e) => {
+                                log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e)
+                            }
                         }
                     } else {
-                        log::info!("[CapabilityEvolution] Not enough records ({}) to trigger auto-evolution", total_records);
+                        log::info!(
+                            "[CapabilityEvolution] Not enough records ({}) to trigger \
+                             auto-evolution",
+                            total_records
+                        );
                     }
                 });
             }
@@ -604,7 +711,8 @@ fn save_pending_vector_indexes() {
                         .unwrap_or_default()
                         .as_secs() as i64;
                     let _ = conn.execute(
-                        "INSERT OR IGNORE INTO pending_vector_indexes (chapter_id, created_at) VALUES (?1, ?2)",
+                        "INSERT OR IGNORE INTO pending_vector_indexes (chapter_id, created_at) \
+                         VALUES (?1, ?2)",
                         rusqlite::params![chapter_id, now],
                     );
                 }
@@ -615,11 +723,13 @@ fn save_pending_vector_indexes() {
 
 fn load_pending_vector_indexes() -> Vec<String> {
     let mut result = Vec::new();
-    
+
     // 优先从 SQLite 加载
     if let Some(pool) = get_pool() {
         if let Ok(conn) = pool.get() {
-            if let Ok(mut stmt) = conn.prepare("SELECT chapter_id FROM pending_vector_indexes ORDER BY created_at") {
+            if let Ok(mut stmt) =
+                conn.prepare("SELECT chapter_id FROM pending_vector_indexes ORDER BY created_at")
+            {
                 if let Ok(rows) = stmt.query_map([], |row| {
                     let id: Option<String> = row.get(0)?;
                     Ok(id)
@@ -633,7 +743,7 @@ fn load_pending_vector_indexes() -> Vec<String> {
             }
         }
     }
-    
+
     // Fallback: 从旧 JSON 文件加载（迁移用）
     if result.is_empty() {
         if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
@@ -644,7 +754,7 @@ fn load_pending_vector_indexes() -> Vec<String> {
             }
         }
     }
-    
+
     result
 }
 
@@ -652,12 +762,29 @@ fn load_pending_vector_indexes() -> Vec<String> {
 pub(crate) fn is_novel_creation_intent(user_input: &str) -> bool {
     let input = user_input.to_lowercase();
     let creation_signals = [
-        "写一部", "写一本", "写一篇", "写个",
-        "创作一部", "创作一本", "创作一篇", "创作个",
-        "生成一部", "生成一本", "生成一篇",
-        "新建", "创建", "新开",
-        "write a", "write an", "create a", "create an", "start a", "start an",
-        "novel", "story", "book",
+        "写一部",
+        "写一本",
+        "写一篇",
+        "写个",
+        "创作一部",
+        "创作一本",
+        "创作一篇",
+        "创作个",
+        "生成一部",
+        "生成一本",
+        "生成一篇",
+        "新建",
+        "创建",
+        "新开",
+        "write a",
+        "write an",
+        "create a",
+        "create an",
+        "start a",
+        "start an",
+        "novel",
+        "story",
+        "book",
     ];
     let has_creation_signal = creation_signals.iter().any(|&kw| input.contains(kw));
     if !has_creation_signal {

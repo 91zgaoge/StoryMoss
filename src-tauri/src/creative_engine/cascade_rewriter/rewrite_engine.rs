@@ -2,14 +2,21 @@
 //!
 //! 基于 LLM 的增量改写，包含 Prompt 构建、调用、验证。
 
-use super::impact_analyzer::ImpactAnalyzer;
-use super::models::{CascadeTaskPayload, CascadeTaskResult, EntityChangeEvent, RewriteSegment, RewriteStatus, SceneImpact, UserDecision};
-use super::repository::EntityMentionRepository;
-use crate::db::repositories::SceneRepository;
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::llm::LlmService;
 use tauri::AppHandle;
+
+use super::{
+    impact_analyzer::ImpactAnalyzer,
+    models::{
+        CascadeTaskPayload, CascadeTaskResult, EntityChangeEvent, RewriteSegment, RewriteStatus,
+        SceneImpact, UserDecision,
+    },
+    repository::EntityMentionRepository,
+};
+use crate::{
+    db::{repositories::SceneRepository, DbPool},
+    error::AppError,
+    llm::LlmService,
+};
 
 pub struct RewriteEngine {
     pool: DbPool,
@@ -35,7 +42,10 @@ impl RewriteEngine {
         for change in &payload.change_events {
             let impacts = analyzer.analyze(change)?;
             for impact in impacts {
-                match self.rewrite_scene(&impact, change, &mention_repo, &llm).await {
+                match self
+                    .rewrite_scene(&impact, change, &mention_repo, &llm)
+                    .await
+                {
                     Ok(mut segs) => segments.append(&mut segs),
                     Err(e) => {
                         warnings.push(format!("Scene {} rewrite failed: {}", impact.scene_id, e));
@@ -121,11 +131,14 @@ impl RewriteEngine {
                     let rewritten_text = response.content.trim().to_string();
 
                     // 长度检查
-                    let len_ratio = rewritten_text.len() as f64 / paragraph_text.len().max(1) as f64;
+                    let len_ratio =
+                        rewritten_text.len() as f64 / paragraph_text.len().max(1) as f64;
                     if len_ratio < 0.5 || len_ratio > 1.5 {
                         log::warn!(
                             "[CascadeRewriter] Length ratio {:.2} for scene {}, paragraph {}",
-                            len_ratio, impact.scene_id, para_index
+                            len_ratio,
+                            impact.scene_id,
+                            para_index
                         );
                     }
 
@@ -133,7 +146,8 @@ impl RewriteEngine {
                     if !rewritten_text.contains(&change.entity_name) {
                         log::warn!(
                             "[CascadeRewriter] Entity '{}' missing in rewritten text for scene {}",
-                            change.entity_name, impact.scene_id
+                            change.entity_name,
+                            impact.scene_id
                         );
                     }
 
@@ -142,7 +156,10 @@ impl RewriteEngine {
                         paragraph_index: para_index as i32,
                         original_text: paragraph_text,
                         rewritten_text,
-                        change_reason: format!("{}: {:?}", change.entity_name, change.changed_fields),
+                        change_reason: format!(
+                            "{}: {:?}",
+                            change.entity_name, change.changed_fields
+                        ),
                         user_decision: UserDecision::Pending,
                     });
                 }
@@ -205,7 +222,15 @@ fn build_rewrite_prompt(
         changed_summary,
         after_summary,
         paragraph_text,
-        if prev_paragraph.is_empty() { "（无前文）" } else { prev_paragraph },
-        if next_paragraph.is_empty() { "（无后文）" } else { next_paragraph },
+        if prev_paragraph.is_empty() {
+            "（无前文）"
+        } else {
+            prev_paragraph
+        },
+        if next_paragraph.is_empty() {
+            "（无后文）"
+        } else {
+            next_paragraph
+        },
     )
 }

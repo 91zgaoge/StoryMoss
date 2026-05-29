@@ -1,8 +1,10 @@
-use super::models::{EntityChangeEvent, SceneImpact};
-use super::repository::EntityMentionRepository;
-use crate::db::DbPool;
-use crate::error::AppError;
 use std::collections::HashMap;
+
+use super::{
+    models::{EntityChangeEvent, SceneImpact},
+    repository::EntityMentionRepository,
+};
+use crate::{db::DbPool, error::AppError};
 
 pub struct ImpactAnalyzer {
     mention_repo: EntityMentionRepository,

@@ -10,16 +10,19 @@
 //! 2. 设定即物理 — 不违反已有规则
 //! 3. 发明需识别 — 新实体必须入库
 
-use crate::db::{DbPool, StoryContractRepository, SceneCommitRepository};
-use crate::vector::lancedb_store::{LanceVectorStore, VectorRecord};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    db::{DbPool, SceneCommitRepository, StoryContractRepository},
+    vector::lancedb_store::{LanceVectorStore, VectorRecord},
+};
+
+pub mod auto_contract;
 pub mod contract_builder;
 pub mod preflight;
 pub mod projection_writers;
-pub mod auto_contract;
 
 /// 合同类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,8 +76,8 @@ impl StorySystemEngine {
             world_rules: world_rules.to_vec(),
         };
 
-        let json = serde_json::to_string(&contract)
-            .map_err(|e| format!("序列化合同失败: {}", e))?;
+        let json =
+            serde_json::to_string(&contract).map_err(|e| format!("序列化合同失败: {}", e))?;
 
         let repo = StoryContractRepository::new(self.pool.clone());
         repo.create(story_id, "MASTER_SETTING", &json)
@@ -106,8 +109,8 @@ impl StorySystemEngine {
             },
         };
 
-        let json = serde_json::to_string(&contract)
-            .map_err(|e| format!("序列化合同失败: {}", e))?;
+        let json =
+            serde_json::to_string(&contract).map_err(|e| format!("序列化合同失败: {}", e))?;
 
         let repo = StoryContractRepository::new(self.pool.clone());
         repo.create(story_id, "CHAPTER", &json)
@@ -117,7 +120,8 @@ impl StorySystemEngine {
     /// 获取故事的合同树
     pub fn get_contract_tree(&self, story_id: &str) -> Result<ContractTree, String> {
         let repo = StoryContractRepository::new(self.pool.clone());
-        let contracts = repo.get_by_story(story_id)
+        let contracts = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("查询合同失败: {}", e))?;
 
         let mut tree = ContractTree {
@@ -156,11 +160,14 @@ impl StorySystemEngine {
     ) -> Result<RuntimeContract, String> {
         let tree = self.get_contract_tree(story_id)?;
 
-        let master = tree.master_setting
+        let master = tree
+            .master_setting
             .ok_or_else(|| "缺少 MASTER_SETTING 合同".to_string())?;
 
         // 查找章节合同
-        let chapter_contract = tree.chapters.values()
+        let chapter_contract = tree
+            .chapters
+            .values()
             .find(|c| {
                 if let Ok(cc) = serde_json::from_str::<ChapterContract>(&c.contract_json) {
                     cc.chapter_number == chapter_number
@@ -294,7 +301,8 @@ impl SceneCommitService {
             content,
             app_handle,
             vector_store,
-        ).await
+        )
+        .await
     }
 
     /// 提交 accepted commit（异步，含投影写入）
@@ -331,10 +339,12 @@ impl SceneCommitService {
             Some(summary_text),
             Some(dominant_strand),
             None,
-        ).map_err(|e| format!("更新 commit 失败: {}", e))?;
+        )
+        .map_err(|e| format!("更新 commit 失败: {}", e))?;
 
         // 获取 commit 所属 story_id 和 chapter_number
-        let commit = repo.get_by_id(commit_id)
+        let commit = repo
+            .get_by_id(commit_id)
             .map_err(|e| format!("查询 commit 失败: {}", e))?
             .ok_or_else(|| "Commit 不存在".to_string())?;
 
@@ -347,7 +357,8 @@ impl SceneCommitService {
             "entity_deltas_json": entity_deltas_json,
             "accepted_events_json": accepted_events_json,
             "summary_text": summary_text,
-        }).to_string();
+        })
+        .to_string();
 
         // W2-B7: 执行同步 projection writers（带性能测量）
         let writers = projection_writers::get_projection_writers(self.pool.clone());
@@ -375,10 +386,17 @@ impl SceneCommitService {
                     projection_status[name] = serde_json::json!(format!("error: {}", e));
                 }
             }
-            log::info!("[ProjectionWriter] {} sync completed in {}ms", name, w_start.elapsed().as_millis());
+            log::info!(
+                "[ProjectionWriter] {} sync completed in {}ms",
+                name,
+                w_start.elapsed().as_millis()
+            );
         }
         let sync_elapsed = sync_start.elapsed().as_millis();
-        log::info!("[ProjectionWriter] All sync writers completed in {}ms", sync_elapsed);
+        log::info!(
+            "[ProjectionWriter] All sync writers completed in {}ms",
+            sync_elapsed
+        );
 
         // W2-B7: 向量投影 + 知识图谱提取并行执行（两者都是异步且独立）
         let async_start = Instant::now();
@@ -388,7 +406,11 @@ impl SceneCommitService {
                 let vector_text = if text.is_empty() {
                     format!("第{}章", chapter_number)
                 } else {
-                    format!("第{}章: {}", chapter_number, text.chars().take(500).collect::<String>())
+                    format!(
+                        "第{}章: {}",
+                        chapter_number,
+                        text.chars().take(500).collect::<String>()
+                    )
                 };
                 match crate::embeddings::embedding::embed_text_async(vector_text.clone()).await {
                     Ok(embedding) => {
@@ -416,11 +438,16 @@ impl SceneCommitService {
         let kg_future = async {
             if let (Some(content), Some(app)) = (chapter_content, app_handle) {
                 if content.len() >= 20 {
-                    match self.run_kg_ingest(&story_id, chapter_number, content, &app).await {
+                    match self
+                        .run_kg_ingest(&story_id, chapter_number, content, &app)
+                        .await
+                    {
                         Ok(true) => {
                             // P0 修复: KG 提取成功后发射同步事件，确保幕后知识图谱自动刷新
                             let _ = crate::state_sync::StateSync::emit_data_refresh(
-                                &app, Some(&story_id), "knowledgeGraph"
+                                &app,
+                                Some(&story_id),
+                                "knowledgeGraph",
                             );
                             "success".to_string()
                         }
@@ -440,12 +467,22 @@ impl SceneCommitService {
         projection_status["kg"] = serde_json::json!(kg_status);
 
         let async_elapsed = async_start.elapsed().as_millis();
-        log::info!("[ProjectionWriter] Async projections (vector + kg) completed in {}ms", async_elapsed);
+        log::info!(
+            "[ProjectionWriter] Async projections (vector + kg) completed in {}ms",
+            async_elapsed
+        );
 
         let total_elapsed = sync_start.elapsed().as_millis();
-        log::info!("[ProjectionWriter] Total apply_commit completed in {}ms", total_elapsed);
+        log::info!(
+            "[ProjectionWriter] Total apply_commit completed in {}ms",
+            total_elapsed
+        );
         if total_elapsed > 2000 {
-            log::warn!("[ProjectionWriter] Total time {}ms exceeds 2s threshold. Consider further parallelizing sync writers.", total_elapsed);
+            log::warn!(
+                "[ProjectionWriter] Total time {}ms exceeds 2s threshold. Consider further \
+                 parallelizing sync writers.",
+                total_elapsed
+            );
         }
 
         // 更新投影状态
@@ -476,21 +513,36 @@ impl SceneCommitService {
 
         match pipeline.ingest(&ingest_content).await {
             Ok(result) => {
-                let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(self.pool.clone());
+                let kg_repo =
+                    crate::db::repositories::KnowledgeGraphRepository::new(self.pool.clone());
                 let entity_count = result.entities.len();
                 let relation_count = result.relations.len();
                 match kg_repo.save_entities_batch(&result.entities) {
-                    Ok(saved) => log::info!("[SceneCommitService] Saved {}/{} entities for story {}", saved, entity_count, story_id),
+                    Ok(saved) => log::info!(
+                        "[SceneCommitService] Saved {}/{} entities for story {}",
+                        saved,
+                        entity_count,
+                        story_id
+                    ),
                     Err(e) => log::warn!("[SceneCommitService] Failed to save entities: {}", e),
                 }
                 match kg_repo.save_relations_batch(&result.relations) {
-                    Ok(saved) => log::info!("[SceneCommitService] Saved {}/{} relations for story {}", saved, relation_count, story_id),
+                    Ok(saved) => log::info!(
+                        "[SceneCommitService] Saved {}/{} relations for story {}",
+                        saved,
+                        relation_count,
+                        story_id
+                    ),
                     Err(e) => log::warn!("[SceneCommitService] Failed to save relations: {}", e),
                 }
                 Ok(true)
             }
             Err(e) => {
-                log::warn!("[SceneCommitService] IngestPipeline failed for story {}: {}", story_id, e);
+                log::warn!(
+                    "[SceneCommitService] IngestPipeline failed for story {}: {}",
+                    story_id,
+                    e
+                );
                 Err(e.to_string())
             }
         }
@@ -526,10 +578,12 @@ impl StorySystemEngine {
         let repo = SceneCommitRepository::new(self.pool.clone());
 
         // 查询该 story 的所有 commits，找到匹配 chapter_number 的最新一条
-        let commits = repo.get_by_story(story_id)
+        let commits = repo
+            .get_by_story(story_id)
             .map_err(|e| format!("查询 commit 失败: {}", e))?;
 
-        let commit = commits.into_iter()
+        let commit = commits
+            .into_iter()
             .find(|c| c.chapter_number == chapter_number)
             .ok_or_else(|| format!("章节 {} 无提交记录", chapter_number))?;
 
@@ -537,23 +591,28 @@ impl StorySystemEngine {
             .unwrap_or_else(|| r#"{"state":"unknown","index":"unknown","summary":"unknown","memory":"unknown","vector":"unknown"}"#.to_string());
 
         let status: serde_json::Value = serde_json::from_str(&projection_status_json)
-            .unwrap_or_else(|_| serde_json::json!({
-                "state": "unknown",
-                "index": "unknown",
-                "summary": "unknown",
-                "memory": "unknown",
-                "vector": "unknown",
-            }));
+            .unwrap_or_else(|_| {
+                serde_json::json!({
+                    "state": "unknown",
+                    "index": "unknown",
+                    "summary": "unknown",
+                    "memory": "unknown",
+                    "vector": "unknown",
+                })
+            });
 
         let writer_names = ["state", "index", "summary", "memory", "vector"];
         let mut writers = Vec::new();
         let mut overall_healthy = true;
 
         for name in &writer_names {
-            let status_str = status.get(*name)
+            let status_str = status
+                .get(*name)
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let is_ok = status_str == "success" || status_str == "skipped" || status_str == "skipped: no_store";
+            let is_ok = status_str == "success"
+                || status_str == "skipped"
+                || status_str == "skipped: no_store";
             if !is_ok {
                 overall_healthy = false;
             }

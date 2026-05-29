@@ -2,8 +2,9 @@
 //!
 //! 支持 txt/pdf/epub 格式，提取纯文本和章节结构。
 
-use super::models::{ParseError, ParsedBook, ParsedChapter};
 use std::path::Path;
+
+use super::models::{ParseError, ParsedBook, ParsedChapter};
 
 // 章节标题正则表达式（中文 + 英文）
 const CHAPTER_PATTERNS: &[&str] = &[
@@ -15,7 +16,7 @@ const CHAPTER_PATTERNS: &[&str] = &[
 ];
 
 /// 解析小说文件（自动检测格式）
-/// 
+///
 /// `progress_callback`: 可选的进度回调，参数为 (已处理字数, 估计总字数)
 pub fn parse_book(
     file_path: &Path,
@@ -117,7 +118,12 @@ fn count_chinese_words(text: &str) -> usize {
     let chinese_chars = text.chars().filter(|c| !c.is_ascii()).count();
     let english_words = text
         .split_whitespace()
-        .filter(|w| w.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false))
+        .filter(|w| {
+            w.chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic())
+                .unwrap_or(false)
+        })
         .count();
     chinese_chars + english_words
 }
@@ -127,14 +133,19 @@ fn count_chinese_words(text: &str) -> usize {
 pub struct TxtParser;
 
 impl TxtParser {
-    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
-        use encoding::all::{GBK, UTF_8};
-        use encoding::{DecoderTrap, Encoding};
+    pub fn parse(
+        file_path: &Path,
+        progress_callback: Option<&dyn Fn(usize, usize)>,
+    ) -> Result<ParsedBook, ParseError> {
         use std::fs;
 
-        let bytes = fs::read(file_path).map_err(|e| {
-            ParseError::IoError(format!("Failed to read txt file: {}", e))
-        })?;
+        use encoding::{
+            all::{GBK, UTF_8},
+            DecoderTrap, Encoding,
+        };
+
+        let bytes = fs::read(file_path)
+            .map_err(|e| ParseError::IoError(format!("Failed to read txt file: {}", e)))?;
 
         // 尝试 UTF-8
         let text = if let Ok(s) = String::from_utf8(bytes.clone()) {
@@ -168,14 +179,18 @@ impl TxtParser {
 pub struct PdfParser;
 
 impl PdfParser {
-    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
+    pub fn parse(
+        file_path: &Path,
+        progress_callback: Option<&dyn Fn(usize, usize)>,
+    ) -> Result<ParsedBook, ParseError> {
         use pdf_extract::extract_text;
 
-        if let Some(cb) = progress_callback { cb(0, 0); }
-        
-        let text = extract_text(file_path).map_err(|e| {
-            ParseError::NoTextExtracted(format!("PDF extraction failed: {}", e))
-        })?;
+        if let Some(cb) = progress_callback {
+            cb(0, 0);
+        }
+
+        let text = extract_text(file_path)
+            .map_err(|e| ParseError::NoTextExtracted(format!("PDF extraction failed: {}", e)))?;
 
         if text.trim().is_empty() {
             return Err(ParseError::NoTextExtracted(
@@ -202,19 +217,27 @@ impl PdfParser {
 pub struct EpubParser;
 
 impl EpubParser {
-    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
+    pub fn parse(
+        file_path: &Path,
+        progress_callback: Option<&dyn Fn(usize, usize)>,
+    ) -> Result<ParsedBook, ParseError> {
         use epub::doc::EpubDoc;
-        let mut doc = EpubDoc::new(file_path).map_err(|e| {
-            ParseError::InvalidFormat(format!("Failed to open EPUB: {:?}", e))
-        })?;
+        let mut doc = EpubDoc::new(file_path)
+            .map_err(|e| ParseError::InvalidFormat(format!("Failed to open EPUB: {:?}", e)))?;
 
         let mut chapters: Vec<ParsedChapter> = Vec::new();
         let mut full_text = String::new();
         let mut processed_words = 0usize;
 
         // 获取元数据
-        let title = doc.mdata("title").map(|item| item.value.clone()).filter(|v| !v.is_empty());
-        let author = doc.mdata("creator").map(|item| item.value.clone()).filter(|v| !v.is_empty());
+        let title = doc
+            .mdata("title")
+            .map(|item| item.value.clone())
+            .filter(|v| !v.is_empty());
+        let author = doc
+            .mdata("creator")
+            .map(|item| item.value.clone())
+            .filter(|v| !v.is_empty());
 
         // 遍历 spine（阅读顺序）
         let spine = doc.spine.clone();
@@ -225,16 +248,16 @@ impl EpubParser {
                 // 简单 HTML 标签清理
                 let clean_text = strip_html_tags(&text);
                 let word_count = count_chinese_words(&clean_text);
-                
+
                 chapters.push(ParsedChapter {
                     title: Some(format!("第{}章", i + 1)),
                     content: clean_text.clone(),
                     word_count,
                 });
-                
+
                 full_text.push_str(&clean_text);
                 full_text.push('\n');
-                
+
                 processed_words += word_count;
                 if let Some(cb) = progress_callback {
                     cb(processed_words, total_chapters * 3000);

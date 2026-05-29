@@ -1,7 +1,9 @@
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use std::time::Duration;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+
+use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 
 pub struct OllamaAdapter {
     client: Client,
@@ -74,7 +76,8 @@ impl LlmAdapter for OllamaAdapter {
             }),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/api/generate", self.api_base))
             .header("Content-Type", "application/json")
             .json(&ollama_req)
@@ -99,7 +102,10 @@ impl LlmAdapter for OllamaAdapter {
     async fn generate_stream(
         &self,
         request: GenerateRequest,
-    ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
             prompt: request.prompt,
@@ -110,7 +116,8 @@ impl LlmAdapter for OllamaAdapter {
             }),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/api/generate", self.api_base))
             .header("Content-Type", "application/json")
             .json(&ollama_req)
@@ -122,7 +129,9 @@ impl LlmAdapter for OllamaAdapter {
             return Err(format!("Ollama API error: {}", error_text).into());
         }
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, Box<dyn std::error::Error + Send + Sync>>>(128);
+        let (tx, rx) = tokio::sync::mpsc::channel::<
+            Result<String, Box<dyn std::error::Error + Send + Sync>>,
+        >(128);
 
         tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -150,7 +159,9 @@ impl LlmAdapter for OllamaAdapter {
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(Err(format!("NDJSON parse error: {}", e).into())).await;
+                        let _ = tx
+                            .send(Err(format!("NDJSON parse error: {}", e).into()))
+                            .await;
                         break;
                     }
                 }

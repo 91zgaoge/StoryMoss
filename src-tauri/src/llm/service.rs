@@ -1,20 +1,28 @@
 //! LLM Service - 统一的大语言模型服务
-//! 
+//!
 //! 提供同步生成和流式生成两种模式
 //! 支持多提供商配置管理和自动切换
 #![allow(dead_code)]
 
-use super::adapter::{GenerateRequest, GenerateResponse};
-use super::anthropic::AnthropicAdapter;
-use super::ollama::OllamaAdapter;
-use super::openai::OpenAiAdapter;
-use crate::config::settings::{AppConfig, LlmProfile, LlmProvider};
-use crate::error::AppError;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::{timeout, Duration};
+
+use super::{
+    adapter::{GenerateRequest, GenerateResponse},
+    anthropic::AnthropicAdapter,
+    ollama::OllamaAdapter,
+    openai::OpenAiAdapter,
+};
+use crate::{
+    config::settings::{AppConfig, LlmProfile, LlmProvider},
+    error::AppError,
+};
 
 /// 流式生成事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,9 +83,9 @@ impl LlmService {
             .path()
             .app_data_dir()
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-        
+
         let config = AppConfig::load(&app_dir).unwrap_or_default();
-        
+
         Self {
             app_handle,
             config: Arc::new(Mutex::new(config)),
@@ -87,11 +95,12 @@ impl LlmService {
 
     /// 重新加载配置
     pub fn reload_config(&self) {
-        let app_dir = self.app_handle
+        let app_dir = self
+            .app_handle
             .path()
             .app_data_dir()
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-        
+
         match AppConfig::load(&app_dir) {
             Ok(config) => {
                 if let Ok(mut guard) = self.config.lock() {
@@ -119,33 +128,30 @@ impl LlmService {
     /// 创建适配器
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
         match profile.provider {
-            LlmProvider::OpenAI | LlmProvider::Custom | LlmProvider::DeepSeek | LlmProvider::Qwen => {
-                Ok(Box::new(OpenAiAdapter::new(
-                    profile.api_key.clone(),
-                    profile.model.clone(),
-                    profile.api_base.clone(),
-                    profile.max_tokens,
-                    profile.temperature,
-                )))
-            }
-            LlmProvider::Anthropic => {
-                Ok(Box::new(AnthropicAdapter::new(
-                    profile.api_key.clone(),
-                    profile.model.clone(),
-                    profile.api_base.clone(),
-                    profile.max_tokens,
-                    profile.temperature,
-                )))
-            }
-            LlmProvider::Ollama => {
-                Ok(Box::new(OllamaAdapter::new(
-                    profile.api_key.clone(),
-                    profile.model.clone(),
-                    profile.api_base.clone(),
-                    profile.max_tokens,
-                    profile.temperature,
-                )))
-            }
+            LlmProvider::OpenAI
+            | LlmProvider::Custom
+            | LlmProvider::DeepSeek
+            | LlmProvider::Qwen => Ok(Box::new(OpenAiAdapter::new(
+                profile.api_key.clone(),
+                profile.model.clone(),
+                profile.api_base.clone(),
+                profile.max_tokens,
+                profile.temperature,
+            ))),
+            LlmProvider::Anthropic => Ok(Box::new(AnthropicAdapter::new(
+                profile.api_key.clone(),
+                profile.model.clone(),
+                profile.api_base.clone(),
+                profile.max_tokens,
+                profile.temperature,
+            ))),
+            LlmProvider::Ollama => Ok(Box::new(OllamaAdapter::new(
+                profile.api_key.clone(),
+                profile.model.clone(),
+                profile.api_base.clone(),
+                profile.max_tokens,
+                profile.temperature,
+            ))),
             _ => {
                 log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
                 Err(AppError::validation_failed(
@@ -157,14 +163,24 @@ impl LlmService {
     }
 
     /// 发送 LLM 生成进度事件
-    fn emit_llm_progress(&self, stage: &str, message: &str, elapsed_seconds: u64, model: &str, pipeline_ctx: Option<&PipelineContext>) {
-        let _ = self.app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
-            stage: stage.to_string(),
-            message: message.to_string(),
-            elapsed_seconds,
-            model: model.to_string(),
-            pipeline_context: pipeline_ctx.cloned(),
-        });
+    fn emit_llm_progress(
+        &self,
+        stage: &str,
+        message: &str,
+        elapsed_seconds: u64,
+        model: &str,
+        pipeline_ctx: Option<&PipelineContext>,
+    ) {
+        let _ = self.app_handle.emit(
+            "llm-generating-progress",
+            LlmGeneratingProgress {
+                stage: stage.to_string(),
+                message: message.to_string(),
+                elapsed_seconds,
+                model: model.to_string(),
+                pipeline_context: pipeline_ctx.cloned(),
+            },
+        );
     }
 
     /// 同步生成文本（带上下文描述 + 600秒整体超时 + 心跳进度）
@@ -175,7 +191,9 @@ impl LlmService {
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, AppError> {
         log::info!("[LLM] generate() called");
-        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, None, None, None).await;
+        let (_, result) = self
+            .generate_with_request_id(prompt, max_tokens, temperature, None, None, None)
+            .await;
         result
     }
 
@@ -187,7 +205,9 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, None, None).await;
+        let (_, result) = self
+            .generate_with_request_id(prompt, max_tokens, temperature, context_label, None, None)
+            .await;
         result
     }
 
@@ -200,7 +220,16 @@ impl LlmService {
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
     ) -> Result<GenerateResponse, AppError> {
-        let (_, result) = self.generate_with_request_id(prompt, max_tokens, temperature, context_label, pipeline_ctx, None).await;
+        let (_, result) = self
+            .generate_with_request_id(
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                pipeline_ctx,
+                None,
+            )
+            .await;
         result
     }
 
@@ -220,7 +249,10 @@ impl LlmService {
             Some(p) => p,
             None => {
                 log::error!("[LLM] Active profile not found");
-                return (request_id.unwrap_or_default(), Err(AppError::internal("No active LLM profile configured")));
+                return (
+                    request_id.unwrap_or_default(),
+                    Err(AppError::internal("No active LLM profile configured")),
+                );
             }
         };
 
@@ -228,11 +260,19 @@ impl LlmService {
         let provider = profile.provider.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
 
-        log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
+        log::debug!(
+            "[LLM] Adapter selected: {:?} model={}",
+            provider,
+            model_name
+        );
         let adapter = match self.create_adapter(&profile) {
             Ok(a) => a,
             Err(e) => {
-                log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+                log::error!(
+                    "[LLM] Failed to create adapter for provider {:?}: {}",
+                    provider,
+                    e
+                );
                 return (request_id.unwrap_or_default(), Err(e));
             }
         };
@@ -244,7 +284,9 @@ impl LlmService {
         };
 
         let label = context_label.unwrap_or("");
-        let step_prefix = pipeline_ref.map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)).unwrap_or_default();
+        let step_prefix = pipeline_ref
+            .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
+            .unwrap_or_default();
 
         let connecting_msg = if label.is_empty() {
             format!("{}正在连接模型...", step_prefix)
@@ -277,21 +319,31 @@ impl LlmService {
                 interval.tick().await;
                 tick_count += 1;
                 let elapsed = start.elapsed().as_secs();
-                let step_prefix_hb = pipeline_ctx_for_heartbeat.as_ref().map(|p| {
-                    format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)
-                }).unwrap_or_default();
+                let step_prefix_hb = pipeline_ctx_for_heartbeat
+                    .as_ref()
+                    .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
+                    .unwrap_or_default();
                 let message = if label_owned.is_empty() {
-                    format!("{}AI 正在深度思考中...（已等待 {} 秒）", step_prefix_hb, elapsed)
+                    format!(
+                        "{}AI 正在深度思考中...（已等待 {} 秒）",
+                        step_prefix_hb, elapsed
+                    )
                 } else {
-                    format!("{}正在{}...（已等待 {} 秒）", step_prefix_hb, label_owned, elapsed)
+                    format!(
+                        "{}正在{}...（已等待 {} 秒）",
+                        step_prefix_hb, label_owned, elapsed
+                    )
                 };
-                let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
-                    stage: "generating".to_string(),
-                    message,
-                    elapsed_seconds: elapsed,
-                    model: model.clone(),
-                    pipeline_context: pipeline_ctx_for_heartbeat.clone(),
-                });
+                let _ = app_handle.emit(
+                    "llm-generating-progress",
+                    LlmGeneratingProgress {
+                        stage: "generating".to_string(),
+                        message,
+                        elapsed_seconds: elapsed,
+                        model: model.clone(),
+                        pipeline_context: pipeline_ctx_for_heartbeat.clone(),
+                    },
+                );
                 if tick_count >= 60 {
                     break;
                 }
@@ -327,7 +379,12 @@ impl LlmService {
             }
         };
 
-        let _ = self.cancel_senders.lock().unwrap().remove(&request_id).flatten();
+        let _ = self
+            .cancel_senders
+            .lock()
+            .unwrap()
+            .remove(&request_id)
+            .flatten();
 
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -335,13 +392,23 @@ impl LlmService {
         match result {
             Ok(response) => {
                 let duration = start_time.elapsed().as_millis() as u64;
-                log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
+                log::info!(
+                    "[LLM] Sync generation completed in {}ms response_len={}",
+                    duration,
+                    response.content.len()
+                );
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = matches!(e, AppError::LlmTimeout { .. });
-                self.emit_llm_progress("error", &e.to_string(), if is_timeout { 600 } else { 0 }, &model_name, pipeline_ref);
+                self.emit_llm_progress(
+                    "error",
+                    &e.to_string(),
+                    if is_timeout { 600 } else { 0 },
+                    &model_name,
+                    pipeline_ref,
+                );
                 (request_id.clone(), Err(e))
             }
         }
@@ -355,7 +422,16 @@ impl LlmService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, AppError> {
-        let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, None, None).await;
+        let (_, result) = self
+            .generate_with_profile_and_request_id(
+                profile_id,
+                prompt,
+                max_tokens,
+                temperature,
+                None,
+                None,
+            )
+            .await;
         result
     }
 
@@ -368,7 +444,16 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        let (_, result) = self.generate_with_profile_and_request_id(profile_id, prompt, max_tokens, temperature, context_label, None).await;
+        let (_, result) = self
+            .generate_with_profile_and_request_id(
+                profile_id,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+            )
+            .await;
         result
     }
 
@@ -382,24 +467,39 @@ impl LlmService {
         context_label: Option<&str>,
         request_id: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
-        log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile_id, prompt.len());
+        log::info!(
+            "[LLM] Starting sync generation with profile={} prompt_len={}",
+            profile_id,
+            prompt.len()
+        );
 
         let profile = match self.get_profile_by_id(profile_id) {
             Some(p) => p,
             None => {
                 log::error!("[LLM] Active profile not found: {}", profile_id);
-                return (request_id.unwrap_or_default(), Err(AppError::not_found("llm_profile", profile_id)));
+                return (
+                    request_id.unwrap_or_default(),
+                    Err(AppError::not_found("llm_profile", profile_id)),
+                );
             }
         };
 
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
 
-        log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
+        log::debug!(
+            "[LLM] Adapter selected: {:?} model={}",
+            provider,
+            model_name
+        );
         let adapter = match self.create_adapter(&profile) {
             Ok(a) => a,
             Err(e) => {
-                log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+                log::error!(
+                    "[LLM] Failed to create adapter for provider {:?}: {}",
+                    provider,
+                    e
+                );
                 return (request_id.unwrap_or_default(), Err(e));
             }
         };
@@ -411,9 +511,21 @@ impl LlmService {
         };
 
         let label = context_label.unwrap_or("");
-        let connecting_msg = if label.is_empty() { "正在连接模型...".to_string() } else { format!("正在连接模型 [{}]...", label) };
-        let sent_msg = if label.is_empty() { "已发送请求，等待响应...".to_string() } else { format!("已发送请求 [{}]，等待响应...", label) };
-        let completed_msg = if label.is_empty() { "AI 响应完成".to_string() } else { format!("{} 完成", label) };
+        let connecting_msg = if label.is_empty() {
+            "正在连接模型...".to_string()
+        } else {
+            format!("正在连接模型 [{}]...", label)
+        };
+        let sent_msg = if label.is_empty() {
+            "已发送请求，等待响应...".to_string()
+        } else {
+            format!("已发送请求 [{}]，等待响应...", label)
+        };
+        let completed_msg = if label.is_empty() {
+            "AI 响应完成".to_string()
+        } else {
+            format!("{} 完成", label)
+        };
 
         self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, None);
 
@@ -434,13 +546,16 @@ impl LlmService {
                 } else {
                     format!("正在{}...（已等待 {} 秒）", label_owned, elapsed)
                 };
-                let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
-                    stage: "generating".to_string(),
-                    message,
-                    elapsed_seconds: elapsed,
-                    model: model.clone(),
-                    pipeline_context: None,
-                });
+                let _ = app_handle.emit(
+                    "llm-generating-progress",
+                    LlmGeneratingProgress {
+                        stage: "generating".to_string(),
+                        message,
+                        elapsed_seconds: elapsed,
+                        model: model.clone(),
+                        pipeline_context: None,
+                    },
+                );
                 if tick_count >= 60 {
                     break;
                 }
@@ -476,7 +591,12 @@ impl LlmService {
             }
         };
 
-        let _ = self.cancel_senders.lock().unwrap().remove(&request_id).flatten();
+        let _ = self
+            .cancel_senders
+            .lock()
+            .unwrap()
+            .remove(&request_id)
+            .flatten();
 
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -484,13 +604,23 @@ impl LlmService {
         match result {
             Ok(response) => {
                 let duration = start_time.elapsed().as_millis() as u64;
-                log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
+                log::info!(
+                    "[LLM] Sync generation completed in {}ms response_len={}",
+                    duration,
+                    response.content.len()
+                );
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = matches!(e, AppError::LlmTimeout { .. });
-                self.emit_llm_progress("error", &e.to_string(), if is_timeout { 600 } else { 0 }, &model_name, None);
+                self.emit_llm_progress(
+                    "error",
+                    &e.to_string(),
+                    if is_timeout { 600 } else { 0 },
+                    &model_name,
+                    None,
+                );
                 (request_id.clone(), Err(e))
             }
         }
@@ -510,14 +640,21 @@ impl LlmService {
     ) -> Result<(), AppError> {
         let start_time = std::time::Instant::now();
 
-        let profile = self.get_active_profile()
+        let profile = self
+            .get_active_profile()
             .ok_or_else(|| AppError::internal("No active LLM profile configured"))?;
 
         // 构建增强提示词
         let enhanced_prompt = self.build_writing_prompt(&prompt, context.as_deref());
 
-        log::info!("[LLM] Starting stream generation with request_id: {}", request_id);
-        log::debug!("[LLM] Prompt: {}...", &enhanced_prompt[..enhanced_prompt.len().min(100)]);
+        log::info!(
+            "[LLM] Starting stream generation with request_id: {}",
+            request_id
+        );
+        log::debug!(
+            "[LLM] Prompt: {}...",
+            &enhanced_prompt[..enhanced_prompt.len().min(100)]
+        );
 
         let adapter = self.create_adapter(&profile)?;
 
@@ -598,57 +735,62 @@ impl LlmService {
             full_text: full_text.clone(),
             model: profile.model.clone(),
             tokens_used: full_text.len() as i32 / 2, // 粗略估计
-            cost: 0.001, // 粗略估计
+            cost: 0.001,                             // 粗略估计
             duration_ms: duration,
         };
 
-        let _ = self.app_handle.emit(&format!("llm-stream-complete-{}", request_id), complete);
-        
+        let _ = self
+            .app_handle
+            .emit(&format!("llm-stream-complete-{}", request_id), complete);
+
         log::info!("[LLM] Stream generation completed in {}ms", duration);
-        
+
         Ok(())
     }
 
     /// 构建写作专用提示词
     fn build_writing_prompt(&self, user_input: &str, context: Option<&str>) -> String {
         let mut prompt = String::new();
-        
+
         // 系统提示
         prompt.push_str("你是一位专业的小说创作助手，擅长中文写作。\n\n");
-        
+
         // 上下文
         if let Some(ctx) = context {
             prompt.push_str("【前文上下文】\n");
             prompt.push_str(ctx);
             prompt.push_str("\n\n");
         }
-        
+
         // 用户输入
         prompt.push_str("【续写要求】\n");
         prompt.push_str(user_input);
         prompt.push_str("\n\n");
-        
+
         // 输出要求
         prompt.push_str("请直接输出续写内容，不要添加解释。保持文风一致，情节连贯。");
-        
+
         prompt
     }
 
-
     /// 测试连接
     pub async fn test_connection(&self) -> Result<(bool, u64), AppError> {
-        let profile = self.get_active_profile()
+        let profile = self
+            .get_active_profile()
             .ok_or_else(|| AppError::internal("No active LLM profile configured"))?;
-        
+
         let base_url = profile.api_base.as_deref().unwrap_or("default");
         log::debug!("[LLM] Testing connection to {}", base_url);
-        
+
         let start = std::time::Instant::now();
-        
+
         // 发送一个简单的测试请求
         let test_prompt = "Hello, respond with 'OK' only.";
-        
-        match self.generate(test_prompt.to_string(), Some(10), Some(0.0)).await {
+
+        match self
+            .generate(test_prompt.to_string(), Some(10), Some(0.0))
+            .await
+        {
             Ok(_) => {
                 let latency = start.elapsed().as_millis() as u64;
                 log::info!("[LLM] Connection test passed for {}", base_url);
@@ -669,10 +811,16 @@ impl LlmService {
                 let _ = sender.try_send(());
                 log::info!("[LLM] Cancel signal sent for request_id: {}", request_id);
             } else {
-                log::info!("[LLM] Cancel already requested for request_id: {}", request_id);
+                log::info!(
+                    "[LLM] Cancel already requested for request_id: {}",
+                    request_id
+                );
             }
         } else {
-            log::info!("[LLM] No active generation found for request_id: {}", request_id);
+            log::info!(
+                "[LLM] No active generation found for request_id: {}",
+                request_id
+            );
         }
     }
 
@@ -681,16 +829,18 @@ impl LlmService {
         let app_dir = self.app_handle.path().app_data_dir().ok()?;
         let machine_id_path = app_dir.join(".machine_id");
         if machine_id_path.exists() {
-            std::fs::read_to_string(&machine_id_path).ok().map(|s| s.trim().to_string())
+            std::fs::read_to_string(&machine_id_path)
+                .ok()
+                .map(|s| s.trim().to_string())
         } else {
             None
         }
     }
-
 }
 
 /// 全局LLM服务实例
-static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Mutex<Option<LlmService>>> = once_cell::sync::OnceCell::new();
+static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Mutex<Option<LlmService>>> =
+    once_cell::sync::OnceCell::new();
 
 /// 初始化LLM服务
 pub fn init_llm_service(app_handle: AppHandle) {
@@ -700,7 +850,8 @@ pub fn init_llm_service(app_handle: AppHandle) {
 
 /// 获取LLM服务
 pub fn get_llm_service() -> Option<LlmService> {
-    LLM_SERVICE.get()
+    LLM_SERVICE
+        .get()
         .and_then(|s| s.lock().ok())
         .and_then(|s| s.as_ref().cloned())
 }

@@ -1,10 +1,13 @@
 //! Export commands
 
-use crate::commands::EmitSync;
-use crate::db::{StoryRepository, CharacterRepository, ChapterRepository, SceneRepository, DbPool};
-use crate::export::{StoryExporter, ExportConfig, ExportFormat, ExportResult};
-use tauri::{Manager, State, AppHandle};
-use crate::error::AppError;
+use tauri::{AppHandle, Manager, State};
+
+use crate::{
+    commands::EmitSync,
+    db::{ChapterRepository, CharacterRepository, DbPool, SceneRepository, StoryRepository},
+    error::AppError,
+    export::{ExportConfig, ExportFormat, ExportResult, StoryExporter},
+};
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn export_story(
@@ -31,14 +34,22 @@ pub async fn export_story(
         .get_by_story(&options.story_id)
         .map_err(AppError::from)?;
 
-    // W4-B10: 导出聚合完整性修复 - 对 content 为空的 chapter，自动从关联 scenes 聚合内容
+    // W4-B10: 导出聚合完整性修复 - 对 content 为空的 chapter，自动从关联 scenes
+    // 聚合内容
     for chapter in &mut chapters {
-        if chapter.content.as_ref().map(|c| c.trim().is_empty()).unwrap_or(true) {
-            let mut chapter_scenes: Vec<&crate::db::Scene> = scenes.iter()
+        if chapter
+            .content
+            .as_ref()
+            .map(|c| c.trim().is_empty())
+            .unwrap_or(true)
+        {
+            let mut chapter_scenes: Vec<&crate::db::Scene> = scenes
+                .iter()
                 .filter(|s| s.chapter_id.as_deref() == Some(&chapter.id))
                 .collect();
             chapter_scenes.sort_by_key(|s| s.sequence_number);
-            let aggregated = chapter_scenes.iter()
+            let aggregated = chapter_scenes
+                .iter()
                 .filter_map(|s| s.content.as_deref())
                 .filter(|c| !c.trim().is_empty())
                 .collect::<Vec<_>>()
@@ -69,9 +80,15 @@ pub async fn export_story(
     };
 
     let safe_title = story.title.replace(|c: char| !c.is_alphanumeric(), "_");
-    let filename = format!("{}_{}.{}", safe_title, chrono::Local::now().format("%Y%m%d"), extension);
+    let filename = format!(
+        "{}_{}.{}",
+        safe_title,
+        chrono::Local::now().format("%Y%m%d"),
+        extension
+    );
 
-    let export_dir = app_handle.path()
+    let export_dir = app_handle
+        .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
         .join("exports");
@@ -89,7 +106,8 @@ pub async fn export_story(
     // Load template if specified
     let template_content = if let Some(ref template_id) = options.template_id {
         let template_repo = crate::db::ExportTemplateRepository::new(pool.clone());
-        template_repo.get_by_id(template_id)
+        template_repo
+            .get_by_id(template_id)
             .map_err(AppError::from)?
             .map(|t| t.template_content)
     } else {
@@ -97,7 +115,16 @@ pub async fn export_story(
     };
 
     let exporter = StoryExporter::new();
-    exporter.export_to_file(&story, &chapters, &characters, &scenes, &config, &output_path, template_content.as_deref())
+    exporter
+        .export_to_file(
+            &story,
+            &chapters,
+            &characters,
+            &scenes,
+            &config,
+            &output_path,
+            template_content.as_deref(),
+        )
         .map_err(AppError::from)?;
 
     Ok(ExportResult {
@@ -106,7 +133,6 @@ pub async fn export_story(
         format: options.format,
     })
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn list_export_templates(
@@ -117,7 +143,8 @@ pub async fn list_export_templates(
     let templates = repo.get_all().map_err(AppError::from)?;
 
     if let Some(filter) = format_filter {
-        let filtered: Vec<_> = templates.into_iter()
+        let filtered: Vec<_> = templates
+            .into_iter()
             .filter(|t| t.format == filter)
             .collect();
         Ok(filtered)
@@ -125,7 +152,6 @@ pub async fn list_export_templates(
         Ok(templates)
     }
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn save_export_template(
@@ -148,7 +174,6 @@ pub async fn save_export_template(
         .emit_sync(&app, None, "exportTemplates")
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub async fn delete_export_template(
     id: String,
@@ -156,7 +181,6 @@ pub async fn delete_export_template(
     app: AppHandle,
 ) -> Result<(), AppError> {
     let repo = crate::db::ExportTemplateRepository::new(pool.inner().clone());
-    repo.delete(&id)
-        .map_err(AppError::from)?;
+    repo.delete(&id).map_err(AppError::from)?;
     Ok(())
 }

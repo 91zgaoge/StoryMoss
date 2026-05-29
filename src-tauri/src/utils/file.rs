@@ -1,7 +1,8 @@
 #![allow(dead_code)]
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 pub struct FileUtils;
 
@@ -48,7 +49,12 @@ impl FileUtils {
         let parent = path.parent().unwrap_or(Path::new("."));
         let mut counter = 1;
         loop {
-            let new_name = format!("{}_{}.{}", stem.to_string_lossy(), counter, ext.to_string_lossy());
+            let new_name = format!(
+                "{}_{}.{}",
+                stem.to_string_lossy(),
+                counter,
+                ext.to_string_lossy()
+            );
             let new_path = parent.join(new_name);
             if !new_path.exists() {
                 return new_path;

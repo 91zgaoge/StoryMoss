@@ -9,19 +9,26 @@
 //! - 知识图谱构建（KnowledgeGraphExtractionStep）
 //! - 结构化世界观（WorldBuildingExtractionStep 输出 JSON 而非纯文本）
 
-use crate::llm::LlmService;
-use crate::llm::service::PipelineContext as LlmPipelineContext;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc,
+    },
+};
+
 use serde::Deserialize;
-use super::elements::*;
-use super::pipeline::*;
-use super::progress::*;
-use super::prompts::{PromptMode, *};
+use tokio::sync::Semaphore;
 // use tauri::AppHandle;
 use uuid::Uuid;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use tokio::sync::Semaphore;
+
+use super::{
+    elements::*,
+    pipeline::*,
+    progress::*,
+    prompts::{PromptMode, *},
+};
+use crate::llm::{service::PipelineContext as LlmPipelineContext, LlmService};
 
 // ==================== 文本分块 ====================
 
@@ -64,7 +71,13 @@ impl StepContext for AnalysisContext {
 }
 
 impl AnalysisContext {
-    pub fn new(book_id: String, story_id: String, chunks: Vec<TextChunk>, total_word_count: usize, pool: crate::db::DbPool) -> Self {
+    pub fn new(
+        book_id: String,
+        story_id: String,
+        chunks: Vec<TextChunk>,
+        total_word_count: usize,
+        pool: crate::db::DbPool,
+    ) -> Self {
         let concurrency = 3; // 默认并发数
         Self {
             book_id,
@@ -80,7 +93,13 @@ impl AnalysisContext {
         }
     }
 
-    fn llm_pipeline_ctx(&self, step_name: &str, step_number: usize, total_steps: usize, action: &str) -> LlmPipelineContext {
+    fn llm_pipeline_ctx(
+        &self,
+        step_name: &str,
+        step_number: usize,
+        total_steps: usize,
+        action: &str,
+    ) -> LlmPipelineContext {
         LlmPipelineContext {
             step_name: step_name.to_string(),
             step_number,
@@ -90,7 +109,9 @@ impl AnalysisContext {
     }
 
     fn sample_text(&self, max_chars: usize) -> String {
-        let combined: String = self.chunks.iter()
+        let combined: String = self
+            .chunks
+            .iter()
             .map(|c| c.content.clone())
             .collect::<Vec<_>>()
             .join("\n\n");
@@ -125,16 +146,23 @@ impl AnalysisPipeline {
 struct MetadataExtractionStep;
 
 impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
-    fn name(&self) -> &'static str { "提取元信息" }
-    fn description(&self) -> &'static str { "从文本中提取标题、作者、题材等元信息" }
-    fn step_number(&self) -> usize { 1 }
+    fn name(&self) -> &'static str {
+        "提取元信息"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取标题、作者、题材等元信息"
+    }
+    fn step_number(&self) -> usize {
+        1
+    }
 
     fn execute<'a>(
         &'a self,
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let sample = ctx.sample_text(3000);
 
@@ -152,10 +180,18 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
             });
 
             let prompt = story_concept_prompt(PromptMode::Extract, &sample);
-            let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取元信息");
-            let response = llm.generate_with_context_and_pipeline(
-                prompt, Some(512), Some(0.3), Some("提取元信息"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            let pipeline_ctx =
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取元信息");
+            let response = llm
+                .generate_with_context_and_pipeline(
+                    prompt,
+                    Some(512),
+                    Some(0.3),
+                    Some("提取元信息"),
+                    Some(pipeline_ctx),
+                )
+                .await
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -176,7 +212,10 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
                 step_number: self.step_number(),
                 total_steps: 7,
                 status: StepStatus::Completed,
-                message: format!("元信息提取完成：《{}", ctx.bundle.story_meta.as_ref().unwrap().title),
+                message: format!(
+                    "元信息提取完成：《{}",
+                    ctx.bundle.story_meta.as_ref().unwrap().title
+                ),
                 progress_percent: 10,
                 elapsed_seconds: 0,
                 metadata: None,
@@ -192,16 +231,23 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
 struct WorldBuildingExtractionStep;
 
 impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
-    fn name(&self) -> &'static str { "提取世界观" }
-    fn description(&self) -> &'static str { "从文本中提取世界观设定（结构化）" }
-    fn step_number(&self) -> usize { 2 }
+    fn name(&self) -> &'static str {
+        "提取世界观"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取世界观设定（结构化）"
+    }
+    fn step_number(&self) -> usize {
+        2
+    }
 
     fn execute<'a>(
         &'a self,
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let sample = if ctx.total_word_count <= 100_000 {
                 ctx.sample_text(15000)
@@ -213,7 +259,13 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
                 for i in 0..sample_size {
                     let idx = i * step;
                     if idx < ctx.chunks.len() {
-                        samples.push(ctx.chunks[idx].content.chars().take(1500).collect::<String>());
+                        samples.push(
+                            ctx.chunks[idx]
+                                .content
+                                .chars()
+                                .take(1500)
+                                .collect::<String>(),
+                        );
                     }
                 }
                 samples.join("\n\n---\n\n")
@@ -237,23 +289,34 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
             });
 
             let prompt = world_building_prompt(PromptMode::Extract, title, genre, &sample);
-            let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取世界观");
-            let response = llm.generate_with_context_and_pipeline(
-                prompt, Some(2048), Some(0.5), Some("提取世界观"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            let pipeline_ctx =
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取世界观");
+            let response = llm
+                .generate_with_context_and_pipeline(
+                    prompt,
+                    Some(2048),
+                    Some(0.5),
+                    Some("提取世界观"),
+                    Some(pipeline_ctx),
+                )
+                .await
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
             let wb: WorldBuildingElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
-            ctx.bundle = ctx.bundle.clone().with_world_building(WorldBuildingElement {
-                id: Uuid::new_v4().to_string(),
-                story_id: ctx.story_id.clone(),
-                source: ElementSource::Extracted,
-                source_ref_id: Some(ctx.book_id.clone()),
-                ..wb
-            });
+            ctx.bundle = ctx
+                .bundle
+                .clone()
+                .with_world_building(WorldBuildingElement {
+                    id: Uuid::new_v4().to_string(),
+                    story_id: ctx.story_id.clone(),
+                    source: ElementSource::Extracted,
+                    source_ref_id: Some(ctx.book_id.clone()),
+                    ..wb
+                });
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.book_id.clone(),
@@ -278,9 +341,15 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
 struct CharacterExtractionStep;
 
 impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
-    fn name(&self) -> &'static str { "提取角色" }
-    fn description(&self) -> &'static str { "从文本中提取所有人物角色" }
-    fn step_number(&self) -> usize { 3 }
+    fn name(&self) -> &'static str {
+        "提取角色"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取所有人物角色"
+    }
+    fn step_number(&self) -> usize {
+        3
+    }
     fn estimated_llm_calls(&self) -> usize {
         3 // 逐块并行，可能有多次调用
     }
@@ -290,7 +359,8 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let meta = ctx.bundle.story_meta.as_ref();
             let title = meta.map(|m| m.title.as_str()).unwrap_or("未知");
@@ -320,15 +390,29 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                 };
 
                 let prompt = character_prompt(PromptMode::Extract, title, genre, "", &sample);
-                let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, &format!("提取角色 ({}/{})", i + 1, total));
+                let pipeline_ctx = ctx.llm_pipeline_ctx(
+                    self.name(),
+                    self.step_number(),
+                    7,
+                    &format!("提取角色 ({}/{})", i + 1, total),
+                );
 
-                let _permit = ctx.semaphore.acquire().await
+                let _permit = ctx
+                    .semaphore
+                    .acquire()
+                    .await
                     .map_err(|e| PipelineError::LlmError(format!("并发控制错误: {}", e)))?;
                 ctx.active_requests.fetch_add(1, Ordering::Relaxed);
 
-                let response = llm.generate_with_context_and_pipeline(
-                    prompt, Some(1000), Some(0.3), Some(&format!("提取角色 {}/{}", i + 1, total)), Some(pipeline_ctx)
-                ).await;
+                let response = llm
+                    .generate_with_context_and_pipeline(
+                        prompt,
+                        Some(1000),
+                        Some(0.3),
+                        Some(&format!("提取角色 {}/{}", i + 1, total)),
+                        Some(pipeline_ctx),
+                    )
+                    .await;
 
                 ctx.active_requests.fetch_sub(1, Ordering::Relaxed);
                 drop(_permit);
@@ -338,8 +422,11 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                         let content = resp.content.trim();
                         if let Ok(json_str) = extract_json(content) {
                             #[derive(Debug, Deserialize)]
-                            struct CharacterResponse { characters: Vec<CharacterElement> }
-                            if let Ok(result) = serde_json::from_str::<CharacterResponse>(&json_str) {
+                            struct CharacterResponse {
+                                characters: Vec<CharacterElement>,
+                            }
+                            if let Ok(result) = serde_json::from_str::<CharacterResponse>(&json_str)
+                            {
                                 character_results.push(result.characters);
                             } else {
                                 character_results.push(Vec::new());
@@ -362,7 +449,13 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                     step_number: self.step_number(),
                     total_steps: 7,
                     status: StepStatus::Running,
-                    message: format!("正在提取角色 ({}/{}) — 活跃线程 {}/{}", i + 1, total, ctx.active_requests.load(Ordering::Relaxed), ctx.concurrency),
+                    message: format!(
+                        "正在提取角色 ({}/{}) — 活跃线程 {}/{}",
+                        i + 1,
+                        total,
+                        ctx.active_requests.load(Ordering::Relaxed),
+                        ctx.concurrency
+                    ),
                     progress_percent: progress_pct,
                     elapsed_seconds: 0,
                     metadata: None,
@@ -388,7 +481,10 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                 step_number: self.step_number(),
                 total_steps: 7,
                 status: StepStatus::Completed,
-                message: format!("角色提取完成，共识别 {} 个角色", ctx.bundle.characters.len()),
+                message: format!(
+                    "角色提取完成，共识别 {} 个角色",
+                    ctx.bundle.characters.len()
+                ),
                 progress_percent: 45,
                 elapsed_seconds: 0,
                 metadata: None,
@@ -404,9 +500,15 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
 struct SceneExtractionStep;
 
 impl PipelineStep<AnalysisContext> for SceneExtractionStep {
-    fn name(&self) -> &'static str { "提取场景" }
-    fn description(&self) -> &'static str { "从文本中提取所有场景/章节" }
-    fn step_number(&self) -> usize { 4 }
+    fn name(&self) -> &'static str {
+        "提取场景"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取所有场景/章节"
+    }
+    fn step_number(&self) -> usize {
+        4
+    }
     fn estimated_llm_calls(&self) -> usize {
         3
     }
@@ -416,7 +518,8 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let meta = ctx.bundle.story_meta.as_ref();
             let title = meta.map(|m| m.title.as_str()).unwrap_or("未知");
@@ -446,15 +549,29 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                 };
 
                 let prompt = scene_prompt(PromptMode::Extract, title, genre, "", &sample);
-                let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, &format!("提取场景 ({}/{})", i + 1, total));
+                let pipeline_ctx = ctx.llm_pipeline_ctx(
+                    self.name(),
+                    self.step_number(),
+                    7,
+                    &format!("提取场景 ({}/{})", i + 1, total),
+                );
 
-                let _permit = ctx.semaphore.acquire().await
+                let _permit = ctx
+                    .semaphore
+                    .acquire()
+                    .await
                     .map_err(|e| PipelineError::LlmError(format!("并发控制错误: {}", e)))?;
                 ctx.active_requests.fetch_add(1, Ordering::Relaxed);
 
-                let response = llm.generate_with_context_and_pipeline(
-                    prompt, Some(1000), Some(0.3), Some(&format!("提取场景 {}/{}", i + 1, total)), Some(pipeline_ctx)
-                ).await;
+                let response = llm
+                    .generate_with_context_and_pipeline(
+                        prompt,
+                        Some(1000),
+                        Some(0.3),
+                        Some(&format!("提取场景 {}/{}", i + 1, total)),
+                        Some(pipeline_ctx),
+                    )
+                    .await;
 
                 ctx.active_requests.fetch_sub(1, Ordering::Relaxed);
                 drop(_permit);
@@ -464,7 +581,9 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                         let content = resp.content.trim();
                         if let Ok(json_str) = extract_json(content) {
                             #[derive(Debug, Deserialize)]
-                            struct SceneResponse { scenes: Vec<SceneElement> }
+                            struct SceneResponse {
+                                scenes: Vec<SceneElement>,
+                            }
                             if let Ok(result) = serde_json::from_str::<SceneResponse>(&json_str) {
                                 for s in result.scenes {
                                     scenes.push(SceneElement {
@@ -491,7 +610,12 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                     step_number: self.step_number(),
                     total_steps: 7,
                     status: StepStatus::Running,
-                    message: format!("正在提取场景 ({}/{}) — 已处理 {} 章", i + 1, total, scenes.len()),
+                    message: format!(
+                        "正在提取场景 ({}/{}) — 已处理 {} 章",
+                        i + 1,
+                        total,
+                        scenes.len()
+                    ),
                     progress_percent: progress_pct,
                     elapsed_seconds: 0,
                     metadata: None,
@@ -525,21 +649,31 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
 struct StoryArcExtractionStep;
 
 impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
-    fn name(&self) -> &'static str { "提取故事线" }
-    fn description(&self) -> &'static str { "从场景概要中提取故事线结构" }
-    fn step_number(&self) -> usize { 5 }
+    fn name(&self) -> &'static str {
+        "提取故事线"
+    }
+    fn description(&self) -> &'static str {
+        "从场景概要中提取故事线结构"
+    }
+    fn step_number(&self) -> usize {
+        5
+    }
 
     fn execute<'a>(
         &'a self,
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let meta = ctx.bundle.story_meta.as_ref();
             let title = meta.map(|m| m.title.as_str()).unwrap_or("未知");
 
-            let summaries: Vec<String> = ctx.bundle.scenes.iter()
+            let summaries: Vec<String> = ctx
+                .bundle
+                .scenes
+                .iter()
                 .map(|s| format!("第{} {}: {}", s.sequence_number, s.title, s.summary))
                 .collect();
             let combined = summaries.join("\n");
@@ -563,10 +697,18 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
             });
 
             let prompt = story_arc_prompt(PromptMode::Extract, title, &sample);
-            let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取故事线");
-            let response = llm.generate_with_context_and_pipeline(
-                prompt, Some(1000), Some(0.5), Some("提取故事线"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            let pipeline_ctx =
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取故事线");
+            let response = llm
+                .generate_with_context_and_pipeline(
+                    prompt,
+                    Some(1000),
+                    Some(0.5),
+                    Some("提取故事线"),
+                    Some(pipeline_ctx),
+                )
+                .await
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
@@ -605,16 +747,23 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
 struct ForeshadowingExtractionStep;
 
 impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
-    fn name(&self) -> &'static str { "提取伏笔" }
-    fn description(&self) -> &'static str { "从文本中提取伏笔线索" }
-    fn step_number(&self) -> usize { 6 }
+    fn name(&self) -> &'static str {
+        "提取伏笔"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取伏笔线索"
+    }
+    fn step_number(&self) -> usize {
+        6
+    }
 
     fn execute<'a>(
         &'a self,
         ctx: &'a mut AnalysisContext,
         llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let meta = ctx.bundle.story_meta.as_ref();
             let title = meta.map(|m| m.title.as_str()).unwrap_or("未知");
@@ -636,15 +785,24 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
 
             let prompt = foreshadowing_prompt(PromptMode::Extract, title, genre, "", &sample);
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取伏笔");
-            let response = llm.generate_with_context_and_pipeline(
-                prompt, Some(1024), Some(0.7), Some("提取伏笔"), Some(pipeline_ctx)
-            ).await.map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            let response = llm
+                .generate_with_context_and_pipeline(
+                    prompt,
+                    Some(1024),
+                    Some(0.7),
+                    Some("提取伏笔"),
+                    Some(pipeline_ctx),
+                )
+                .await
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
-            struct ForeshadowingResponse { foreshadowings: Vec<ForeshadowingElement> }
+            struct ForeshadowingResponse {
+                foreshadowings: Vec<ForeshadowingElement>,
+            }
             let fw_data: ForeshadowingResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析伏笔失败: {}", e)))?;
 
@@ -666,7 +824,10 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
                 step_number: self.step_number(),
                 total_steps: 7,
                 status: StepStatus::Completed,
-                message: format!("伏笔提取完成，共识别 {} 处伏笔", ctx.bundle.foreshadowings.len()),
+                message: format!(
+                    "伏笔提取完成，共识别 {} 处伏笔",
+                    ctx.bundle.foreshadowings.len()
+                ),
                 progress_percent: 90,
                 elapsed_seconds: 0,
                 metadata: None,
@@ -682,16 +843,23 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
 struct KnowledgeGraphExtractionStep;
 
 impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
-    fn name(&self) -> &'static str { "构建知识图谱" }
-    fn description(&self) -> &'static str { "从文本中提取实体和关系，构建知识图谱" }
-    fn step_number(&self) -> usize { 7 }
+    fn name(&self) -> &'static str {
+        "构建知识图谱"
+    }
+    fn description(&self) -> &'static str {
+        "从文本中提取实体和关系，构建知识图谱"
+    }
+    fn step_number(&self) -> usize {
+        7
+    }
 
     fn execute<'a>(
         &'a self,
         ctx: &'a mut AnalysisContext,
         _llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
         Box::pin(async move {
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.book_id.clone(),
@@ -716,18 +884,17 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                     "personality": c.personality,
                     "background": c.background,
                 });
-                match kg_repo.create_entity(
-                    &story_id,
-                    &c.name,
-                    "Character",
-                    &attrs,
-                    None,
-                ) {
+                match kg_repo.create_entity(&story_id, &c.name, "Character", &attrs, None) {
                     Ok(entity) => {
                         entity_id_map.insert(format!("char:{}", c.id), entity.id);
                     }
                     Err(e) => {
-                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create character entity for {}: {}", c.name, e);
+                        log::warn!(
+                            "[KnowledgeGraphExtractionStep] Failed to create character entity for \
+                             {}: {}",
+                            c.name,
+                            e
+                        );
                     }
                 }
             }
@@ -738,18 +905,17 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                     "sequence_number": s.sequence_number,
                     "summary": s.summary,
                 });
-                match kg_repo.create_entity(
-                    &story_id,
-                    &s.title,
-                    "Event",
-                    &attrs,
-                    None,
-                ) {
+                match kg_repo.create_entity(&story_id, &s.title, "Event", &attrs, None) {
                     Ok(entity) => {
                         entity_id_map.insert(format!("scene:{}", s.id), entity.id);
                     }
                     Err(e) => {
-                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create scene entity for {}: {}", s.title, e);
+                        log::warn!(
+                            "[KnowledgeGraphExtractionStep] Failed to create scene entity for {}: \
+                             {}",
+                            s.title,
+                            e
+                        );
                     }
                 }
             }
@@ -771,7 +937,11 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                         entity_id_map.insert(format!("fw:{}", idx), entity.id);
                     }
                     Err(e) => {
-                        log::warn!("[KnowledgeGraphExtractionStep] Failed to create foreshadowing entity: {}", e);
+                        log::warn!(
+                            "[KnowledgeGraphExtractionStep] Failed to create foreshadowing \
+                             entity: {}",
+                            e
+                        );
                     }
                 }
             }

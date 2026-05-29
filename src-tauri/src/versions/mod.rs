@@ -1,11 +1,12 @@
 //! 版本管理模块
-//! 
+//!
 //! 提供场景版本历史、比较和恢复功能
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 pub mod service;
 
@@ -59,8 +60,7 @@ impl VersionManager {
         version
     }
 
-    pub fn get_versions(&self, chapter_id: &str
-    ) -> Vec<&ChapterVersion> {
+    pub fn get_versions(&self, chapter_id: &str) -> Vec<&ChapterVersion> {
         self.versions
             .get(chapter_id)
             .map(|v| v.iter().collect())
@@ -72,7 +72,8 @@ impl VersionManager {
         chapter_id: &str,
         version_id: &str,
     ) -> Result<ChapterVersion, String> {
-        let target = self.get_version(chapter_id, version_id)
+        let target = self
+            .get_version(chapter_id, version_id)
             .cloned()
             .ok_or("Version not found")?;
 
@@ -87,9 +88,7 @@ impl VersionManager {
         Ok(rollback)
     }
 
-    fn get_version(
-        &self, chapter_id: &str, version_id: &str
-    ) -> Option<&ChapterVersion> {
+    fn get_version(&self, chapter_id: &str, version_id: &str) -> Option<&ChapterVersion> {
         self.versions
             .get(chapter_id)
             .and_then(|v| v.iter().find(|x| x.id == version_id))

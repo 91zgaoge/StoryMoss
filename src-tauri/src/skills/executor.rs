@@ -1,8 +1,11 @@
 #![allow(dead_code)]
-use crate::error::AppError;
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
 use super::*;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use crate::error::AppError;
 
 #[derive(Clone)]
 pub struct SkillExecutor {
@@ -11,10 +14,16 @@ pub struct SkillExecutor {
 }
 
 impl SkillExecutor {
-    pub fn new(registry: Arc<Mutex<SkillRegistry>>, llm_service: Option<crate::llm::LlmService>) -> Self {
-        Self { registry, llm_service }
+    pub fn new(
+        registry: Arc<Mutex<SkillRegistry>>,
+        llm_service: Option<crate::llm::LlmService>,
+    ) -> Self {
+        Self {
+            registry,
+            llm_service,
+        }
     }
-    
+
     /// Execute a skill
     pub async fn execute(
         &self,
@@ -23,35 +32,33 @@ impl SkillExecutor {
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, AppError> {
         let start = Instant::now();
-        
-        let skill = self.registry.lock()
+
+        let skill = self
+            .registry
+            .lock()
             .unwrap()
             .get(skill_id)
             .ok_or_else(|| "Skill not found".to_string())?;
-        
+
         if !skill.is_enabled {
             return Err(AppError::internal("Skill is disabled"));
         }
-        
+
         // Validate parameters
         self.validate_params(&skill.manifest, &params)?;
-        
+
         // Execute based on runtime
         let result = match &skill.runtime {
-            SkillRuntime::Prompt(runtime) => {
-                self.execute_prompt(runtime, context, params).await
-            }
-            SkillRuntime::Mcp(runtime) => {
-                self.execute_mcp(runtime, context, params).await
-            }
-            SkillRuntime::Native(runtime) => {
-                runtime.handler.execute(context, params)
-                    .map_err(AppError::from)
-            }
+            SkillRuntime::Prompt(runtime) => self.execute_prompt(runtime, context, params).await,
+            SkillRuntime::Mcp(runtime) => self.execute_mcp(runtime, context, params).await,
+            SkillRuntime::Native(runtime) => runtime
+                .handler
+                .execute(context, params)
+                .map_err(AppError::from),
         };
-        
+
         let execution_time_ms = start.elapsed().as_millis() as u64;
-        
+
         match result {
             Ok(mut r) => {
                 r.execution_time_ms = execution_time_ms;
@@ -65,7 +72,7 @@ impl SkillExecutor {
             }),
         }
     }
-    
+
     /// Execute hooks for an event
     pub async fn execute_hooks(
         &self,
@@ -73,21 +80,14 @@ impl SkillExecutor {
         context: &AgentContext,
         data: serde_json::Value,
     ) -> Vec<SkillResult> {
-        let skills = self.registry.lock()
-            .unwrap()
-            .get_hook_handlers(&event);
-        
+        let skills = self.registry.lock().unwrap().get_hook_handlers(&event);
+
         let mut results = Vec::new();
-        
+
         for skill in skills {
-            let params = HashMap::from([
-                ("event_data".to_string(), data.clone()),
-            ]);
-            
-            match self.execute(&skill.manifest.id,
-                context,
-                params,
-            ).await {
+            let params = HashMap::from([("event_data".to_string(), data.clone())]);
+
+            match self.execute(&skill.manifest.id, context, params).await {
                 Ok(result) => results.push(result),
                 Err(e) => results.push(SkillResult {
                     success: false,
@@ -97,10 +97,10 @@ impl SkillExecutor {
                 }),
             }
         }
-        
+
         results
     }
-    
+
     fn validate_params(
         &self,
         manifest: &SkillManifest,
@@ -118,7 +118,7 @@ impl SkillExecutor {
         }
         Ok(())
     }
-    
+
     async fn execute_prompt(
         &self,
         runtime: &PromptRuntime,
@@ -127,7 +127,7 @@ impl SkillExecutor {
     ) -> Result<SkillResult, AppError> {
         // Build user prompt from template
         let mut user_prompt = runtime.user_prompt_template.clone();
-        
+
         // Simple template substitution
         for (key, value) in &params {
             let placeholder = format!("{{{}}}", key);
@@ -137,7 +137,7 @@ impl SkillExecutor {
             };
             user_prompt = user_prompt.replace(&placeholder, &value_str);
         }
-        
+
         // Add context info
         let context_info = format!(
             "Story: {}\nGenre: {}\nTone: {}\nChapter: {}\n",
@@ -146,19 +146,22 @@ impl SkillExecutor {
             context.story.tone,
             context.narrative.chapter_number
         );
-        
+
         user_prompt = format!("{}\n\n{}", context_info, user_prompt);
-        
+
         // Call LLM if service is available
         if let Some(ref llm) = self.llm_service {
             let full_prompt = if runtime.system_prompt.is_empty() {
                 user_prompt
             } else {
-                format!("[系统指令]\n{}\n\n[用户请求]\n{}", runtime.system_prompt, user_prompt)
+                format!(
+                    "[系统指令]\n{}\n\n[用户请求]\n{}",
+                    runtime.system_prompt, user_prompt
+                )
             };
-            
+
             let response = llm.generate(full_prompt, Some(2000), Some(0.7)).await?;
-            
+
             Ok(SkillResult {
                 success: true,
                 data: serde_json::json!({
@@ -182,7 +185,7 @@ impl SkillExecutor {
             })
         }
     }
-    
+
     async fn execute_mcp(
         &self,
         runtime: &McpRuntime,
@@ -198,16 +201,18 @@ impl SkillExecutor {
             timeout_seconds: 30,
         };
         let mut client = crate::mcp::McpClient::new(mcp_config);
-        
+
         match client.connect().await {
             Ok(_) => {
-                let tool_name = params.get("tool_name")
+                let tool_name = params
+                    .get("tool_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let arguments = params.get("arguments")
+                let arguments = params
+                    .get("arguments")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
-                
+
                 if tool_name.is_empty() {
                     let tools = client.get_tools();
                     return Ok(SkillResult {
@@ -220,7 +225,7 @@ impl SkillExecutor {
                         execution_time_ms: 0,
                     });
                 }
-                
+
                 match client.call_tool(tool_name, arguments.clone()).await {
                     Ok(result) => {
                         let _ = client.disconnect().await;
@@ -237,9 +242,7 @@ impl SkillExecutor {
                     }
                 }
             }
-            Err(e) => {
-                Err(AppError::internal(format!("MCP connection failed: {}", e)))
-            }
+            Err(e) => Err(AppError::internal(format!("MCP connection failed: {}", e))),
         }
     }
 }

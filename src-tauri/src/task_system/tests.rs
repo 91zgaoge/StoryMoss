@@ -2,8 +2,7 @@
 //!
 //! 覆盖模型状态机、Repository CRUD、心跳超时检测。
 
-use super::models::*;
-use super::repository::TaskRepository;
+use super::{models::*, repository::TaskRepository};
 use crate::db::connection::create_test_pool;
 
 // ==================== Models ====================
@@ -36,7 +35,10 @@ fn test_schedule_type_from_str() {
 
 #[test]
 fn test_task_type_from_str() {
-    assert_eq!(TaskType::from_str("book_deconstruction"), TaskType::BookDeconstruction);
+    assert_eq!(
+        TaskType::from_str("book_deconstruction"),
+        TaskType::BookDeconstruction
+    );
     assert_eq!(TaskType::from_str("custom"), TaskType::Custom);
     assert_eq!(TaskType::from_str("unknown"), TaskType::Custom); // 默认值
 }
@@ -111,13 +113,21 @@ fn test_repository_update_status() {
     let task = repo.create(&req).unwrap();
 
     // 更新状态为 running
-    repo.update_status(&task.id, &TaskStatus::Running, Some(50), None, None).unwrap();
+    repo.update_status(&task.id, &TaskStatus::Running, Some(50), None, None)
+        .unwrap();
     let updated = repo.get_by_id(&task.id).unwrap().unwrap();
     assert_eq!(updated.status, TaskStatus::Running);
     assert_eq!(updated.progress, 50);
 
     // 更新状态为 completed
-    repo.update_status(&task.id, &TaskStatus::Completed, Some(100), Some("完成".to_string()), None).unwrap();
+    repo.update_status(
+        &task.id,
+        &TaskStatus::Completed,
+        Some(100),
+        Some("完成".to_string()),
+        None,
+    )
+    .unwrap();
     let completed = repo.get_by_id(&task.id).unwrap().unwrap();
     assert_eq!(completed.status, TaskStatus::Completed);
     assert_eq!(completed.progress, 100);
@@ -202,7 +212,8 @@ fn test_repository_list_running() {
     let _task2 = repo.create(&req2).unwrap();
 
     // 将 task1 设为 running
-    repo.update_status(&task1.id, &TaskStatus::Running, None, None, None).unwrap();
+    repo.update_status(&task1.id, &TaskStatus::Running, None, None, None)
+        .unwrap();
 
     let running = repo.list_running().unwrap();
     assert_eq!(running.len(), 1);
@@ -220,7 +231,8 @@ fn test_heartbeat_timeout_detection() {
     let task = repo.create(&req).unwrap();
 
     // 手动设为 running，并设置过期的心跳
-    repo.update_status(&task.id, &TaskStatus::Running, None, None, None).unwrap();
+    repo.update_status(&task.id, &TaskStatus::Running, None, None, None)
+        .unwrap();
 
     // 直接更新数据库设置过期心跳（绕过正常的 update_heartbeat）
     {
@@ -229,7 +241,8 @@ fn test_heartbeat_timeout_detection() {
         conn.execute(
             "UPDATE tasks SET last_heartbeat_at = ?1, last_run_at = ?1 WHERE id = ?2",
             rusqlite::params![expired.to_rfc3339(), task.id],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // 运行心跳检测

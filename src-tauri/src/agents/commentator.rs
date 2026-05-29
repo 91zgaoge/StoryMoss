@@ -3,10 +3,11 @@
 //! 以金圣叹风格的古典评点家视角，对小说段落进行实时点评
 //! 评点内容简洁犀利，富有文学洞见
 
-use super::{Agent, AgentContext, AgentResult};
-use crate::llm::service::LlmService;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
+use super::{Agent, AgentContext, AgentResult};
+use crate::llm::service::LlmService;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParagraphCommentary {
@@ -17,10 +18,10 @@ pub struct ParagraphCommentary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CommentaryTone {
-    Insightful,   // 洞见型：揭示写作技巧和深层含义
-    Witty,        // 机智型：幽默讽刺，类似金圣叹
-    Emotional,    // 情感型：共鸣人物情绪
-    Critical,     // 批判型：指出不足和改进空间
+    Insightful, // 洞见型：揭示写作技巧和深层含义
+    Witty,      // 机智型：幽默讽刺，类似金圣叹
+    Emotional,  // 情感型：共鸣人物情绪
+    Critical,   // 批判型：指出不足和改进空间
 }
 
 pub struct CommentatorAgent {
@@ -49,8 +50,7 @@ impl CommentatorAgent {
         }
 
         let prev_text = if previous_paragraphs.len() >= 2 {
-            previous_paragraphs[previous_paragraphs.len() - 2..]
-                .join("\n")
+            previous_paragraphs[previous_paragraphs.len() - 2..].join("\n")
         } else if !previous_paragraphs.is_empty() {
             previous_paragraphs.join("\n")
         } else {
@@ -78,20 +78,26 @@ impl CommentatorAgent {
 5. 直接输出点评内容，不要加引号或解释
 
 点评："#,
-            context.story.story_title,
-            context.story.genre,
-            prev_text,
-            paragraph_text
+            context.story.story_title, context.story.genre, prev_text, paragraph_text
         );
 
-        let response = self.llm_service.generate(prompt, Some(128), Some(0.85)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(128), Some(0.85))
+            .await?;
         let commentary = response.content.trim().to_string();
 
         let tone = if commentary.contains("妙") || commentary.contains("绝") {
             CommentaryTone::Witty
-        } else if commentary.contains("惜") || commentary.contains("可惜") || commentary.contains("欠") {
+        } else if commentary.contains("惜")
+            || commentary.contains("可惜")
+            || commentary.contains("欠")
+        {
             CommentaryTone::Critical
-        } else if commentary.contains("情") || commentary.contains("悲") || commentary.contains("叹") {
+        } else if commentary.contains("情")
+            || commentary.contains("悲")
+            || commentary.contains("叹")
+        {
             CommentaryTone::Emotional
         } else {
             CommentaryTone::Insightful

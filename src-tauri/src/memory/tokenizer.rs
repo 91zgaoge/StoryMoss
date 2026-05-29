@@ -1,5 +1,5 @@
 //! CJK分词器
-//! 
+//!
 //! 基于二元组分词（bigram）的简单高效分词实现
 //! 适合中文、日文、韩文等CJK字符
 
@@ -16,7 +16,7 @@ impl CJKTokenizer {
     pub fn tokenize(&self, text: &str) -> Vec<String> {
         let mut tokens = Vec::new();
         let chars: Vec<char> = text.chars().collect();
-        
+
         // 使用滑动窗口生成二元组
         for window in chars.windows(2) {
             // 只保留CJK字符的二元组
@@ -25,14 +25,14 @@ impl CJKTokenizer {
                 tokens.push(token);
             }
         }
-        
+
         // 同时添加单字token用于精确匹配
         for c in &chars {
             if self.is_cjk(*c) {
                 tokens.push(c.to_string());
             }
         }
-        
+
         tokens
     }
 
@@ -40,17 +40,17 @@ impl CJKTokenizer {
     pub fn tokenize_query(&self, text: &str) -> Vec<String> {
         let mut tokens = Vec::new();
         let chars: Vec<char> = text.chars().collect();
-        
+
         // 生成所有可能的子序列（用于模糊匹配）
         for i in 0..chars.len() {
-            for j in i+1..=std::cmp::min(i+4, chars.len()) {
+            for j in i + 1..=std::cmp::min(i + 4, chars.len()) {
                 let token: String = chars[i..j].iter().collect();
                 if token.chars().any(|c| self.is_cjk(c)) {
                     tokens.push(token);
                 }
             }
         }
-        
+
         tokens
     }
 
@@ -80,9 +80,7 @@ impl CJKTokenizer {
 
     /// 清洗文本（去除标点、空格等）
     pub fn clean_text(&self, text: &str) -> String {
-        text.chars()
-            .filter(|c| !self.is_punctuation(*c))
-            .collect()
+        text.chars().filter(|c| !self.is_punctuation(*c)).collect()
     }
 
     /// 判断是否为标点符号
@@ -114,7 +112,7 @@ mod tests {
     fn test_tokenize_chinese() {
         let tokenizer = CJKTokenizer::new();
         let tokens = tokenizer.tokenize("这是一个测试");
-        
+
         // 应该包含二元组和单字
         assert!(tokens.contains(&"这是".to_string()));
         assert!(tokens.contains(&"是一".to_string()));
@@ -128,7 +126,7 @@ mod tests {
     #[test]
     fn test_is_cjk() {
         let tokenizer = CJKTokenizer::new();
-        
+
         assert!(tokenizer.is_cjk('中'));
         assert!(tokenizer.is_cjk('日'));
         assert!(tokenizer.is_cjk('한')); // 韩文
@@ -140,7 +138,7 @@ mod tests {
     fn test_clean_text() {
         let tokenizer = CJKTokenizer::new();
         let cleaned = tokenizer.clean_text("你好，世界！Hello, World!");
-        
+
         assert_eq!(cleaned, "你好世界Hello World");
     }
 }

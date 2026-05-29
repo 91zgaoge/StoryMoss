@@ -3,10 +3,11 @@
 //! 提供给前端调用的LLM相关命令
 #![allow(dead_code)]
 
-use super::service::{init_llm_service, LlmService};
-use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, State};
+
+use super::service::{init_llm_service, LlmService};
+use crate::error::AppError;
 
 /// 生成请求
 #[derive(Debug, Deserialize)]
@@ -35,11 +36,9 @@ pub async fn llm_generate(
 ) -> Result<super::adapter::GenerateResponse, AppError> {
     let service = LlmService::new(app_handle);
 
-    service.generate(
-        request.prompt,
-        request.max_tokens,
-        request.temperature,
-    ).await
+    service
+        .generate(request.prompt, request.max_tokens, request.temperature)
+        .await
 }
 
 /// 开始流式生成
@@ -50,13 +49,15 @@ pub async fn llm_generate_stream(
 ) -> Result<(), AppError> {
     let service = LlmService::new(app_handle);
 
-    service.generate_stream(
-        request.request_id,
-        request.prompt,
-        request.context,
-        request.max_tokens,
-        request.temperature,
-    ).await
+    service
+        .generate_stream(
+            request.request_id,
+            request.prompt,
+            request.context,
+            request.max_tokens,
+            request.temperature,
+        )
+        .await
 }
 
 /// 测试LLM连接
@@ -149,7 +150,11 @@ pub async fn get_llm_call_stats(
     pool: State<'_, DbPool>,
 ) -> Result<LlmCallStats, AppError> {
     let repo = LlmCallRepository::new(pool.inner().clone());
-    let (count, total_tokens, total_cost) = repo.get_stats_by_story(&story_id).map_err(AppError::from)?;
-    Ok(LlmCallStats { count, total_tokens, total_cost })
+    let (count, total_tokens, total_cost) =
+        repo.get_stats_by_story(&story_id).map_err(AppError::from)?;
+    Ok(LlmCallStats {
+        count,
+        total_tokens,
+        total_cost,
+    })
 }
-

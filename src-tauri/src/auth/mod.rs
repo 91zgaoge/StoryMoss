@@ -5,9 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod commands;
 pub mod oauth;
 pub mod session;
-pub mod commands;
 
 /// OAuth提供商
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,11 +1,12 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 pub mod engine;
 pub mod evolver;
 pub mod methodologies;
-pub use engine::{TemplateEngine, PromptLibrary};
+pub use engine::{PromptLibrary, TemplateEngine};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptTemplateDef {
@@ -41,7 +42,18 @@ impl PromptManager {
                 category: "writing".to_string(),
                 system_prompt: PromptLibrary::writer_system_template().to_string(),
                 user_prompt_template: PromptLibrary::writer_continue_template().to_string(),
-                variables: vec!["story_title".to_string(), "genre".to_string(), "tone".to_string(), "pacing".to_string(), "world_rules".to_string(), "characters".to_string(), "previous_chapters".to_string(), "scene_structure".to_string(), "instruction".to_string(), "current_content".to_string()],
+                variables: vec![
+                    "story_title".to_string(),
+                    "genre".to_string(),
+                    "tone".to_string(),
+                    "pacing".to_string(),
+                    "world_rules".to_string(),
+                    "characters".to_string(),
+                    "previous_chapters".to_string(),
+                    "scene_structure".to_string(),
+                    "instruction".to_string(),
+                    "current_content".to_string(),
+                ],
                 is_builtin: true,
             },
             PromptTemplateDef {
@@ -51,7 +63,12 @@ impl PromptManager {
                 category: "analysis".to_string(),
                 system_prompt: PromptLibrary::inspector_system_template().to_string(),
                 user_prompt_template: "请分析以下内容：\n\n{{content}}".to_string(),
-                variables: vec!["story_title".to_string(), "genre".to_string(), "characters".to_string(), "content".to_string()],
+                variables: vec![
+                    "story_title".to_string(),
+                    "genre".to_string(),
+                    "characters".to_string(),
+                    "content".to_string(),
+                ],
                 is_builtin: true,
             },
         ];
@@ -69,9 +86,7 @@ impl PromptManager {
         self.templates.get(id)
     }
 
-    pub fn create_template(&mut self,
-        mut template: PromptTemplateDef
-    ) -> Result<(), String> {
+    pub fn create_template(&mut self, mut template: PromptTemplateDef) -> Result<(), String> {
         if template.id.is_empty() {
             template.id = format!("custom_{}", uuid::Uuid::new_v4());
         }

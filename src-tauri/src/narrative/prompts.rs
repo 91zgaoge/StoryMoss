@@ -1,14 +1,15 @@
 //! 统一 Prompt 模板系统
 //!
-//! 核心理念：每个叙事元素的 Prompt 都有两种模式 —— Generate（生成）和 Extract（提取）。
-//! 生成模式用于 Bootstrap（从零创造），提取模式用于拆书（从文本分析）。
-//! 两种模式共享相同的输出结构（JSON Schema），确保结果可以直接写入统一的数据模型。
+//! 核心理念：每个叙事元素的 Prompt 都有两种模式 —— Generate（生成）和
+//! Extract（提取）。 生成模式用于 Bootstrap（从零创造），
+//! 提取模式用于拆书（从文本分析）。 两种模式共享相同的输出结构（JSON
+//! Schema），确保结果可以直接写入统一的数据模型。
 
 /// Prompt 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptMode {
-    Generate,   // 正向：从零生成
-    Extract,    // 逆向：从文本提取
+    Generate, // 正向：从零生成
+    Extract,  // 逆向：从文本提取
 }
 
 impl PromptMode {
@@ -46,7 +47,8 @@ pub fn story_concept_prompt(mode: PromptMode, context: &str) -> String {
 3. 题材必须严格遵循用户输入中的要求。如果用户明确提到了具体题材（如"都市玄幻"、"科幻"、"古言"等），则必须使用，不得擅自更改或替换为其他题材
 4. 题材要具体，不要笼统"小说"
 5. 只输出 JSON，不要其他内容"#,
-            mode.verb(), context.replace('"', "'")
+            mode.verb(),
+            context.replace('"', "'")
         ),
         PromptMode::Extract => format!(
             r#"你是一位资深小说编辑。请从以下小说文本中，{}故事的基本信息。
@@ -69,14 +71,20 @@ pub fn story_concept_prompt(mode: PromptMode, context: &str) -> String {
 1. 基于文本内容推断，不要虚构
 2. 如某信息文本中未体现，标记为null
 3. 只输出 JSON，不要其他内容"#,
-            mode.verb(), context
+            mode.verb(),
+            context
         ),
     }
 }
 
 // ==================== 世界观 Prompt ====================
 
-pub fn world_building_prompt(mode: PromptMode, story_title: &str, genre: &str, context: &str) -> String {
+pub fn world_building_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    genre: &str,
+    context: &str,
+) -> String {
     match mode {
         PromptMode::Generate => format!(
             r#"你是一位世界观架构师。请为以下故事{}完整的世界观设定。
@@ -101,7 +109,10 @@ pub fn world_building_prompt(mode: PromptMode, story_title: &str, genre: &str, c
 2. 规则之间要有逻辑一致性
 3. 重要规则（importance >= 8）不超过5条
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
         PromptMode::Extract => format!(
             r#"你是一位世界观分析专家。请从以下小说文本中，{}世界观设定。
@@ -127,14 +138,23 @@ pub fn world_building_prompt(mode: PromptMode, story_title: &str, genre: &str, c
 1. 基于文本内容推断，不要虚构文本中不存在的信息
 2. 规则从文本中的描写归纳总结
 3. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
     }
 }
 
 // ==================== 角色 Prompt ====================
 
-pub fn character_prompt(mode: PromptMode, story_title: &str, genre: &str, world_concept: &str, context: &str) -> String {
+pub fn character_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    genre: &str,
+    world_concept: &str,
+    context: &str,
+) -> String {
     match mode {
         PromptMode::Generate => format!(
             r#"你是一位角色设计师。请为以下故事{} 3-5 个主要角色。
@@ -168,7 +188,11 @@ pub fn character_prompt(mode: PromptMode, story_title: &str, genre: &str, world_
 2. 角色之间要有冲突和张力
 3. 避免刻板印象
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, world_concept, context
+            mode.verb(),
+            story_title,
+            genre,
+            world_concept,
+            context
         ),
         PromptMode::Extract => format!(
             r#"你是一位角色分析专家。请从以下小说文本中，{}所有出现的人物角色。
@@ -203,14 +227,23 @@ pub fn character_prompt(mode: PromptMode, story_title: &str, genre: &str, world_
 2. 如某人仅被提及但未出场，role_type 标记为"提及"
 3. importance_score 根据人物在文本中的重要性打分（1-10）
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
     }
 }
 
 // ==================== 场景 Prompt ====================
 
-pub fn scene_prompt(mode: PromptMode, story_title: &str, genre: &str, character_names: &str, context: &str) -> String {
+pub fn scene_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    genre: &str,
+    character_names: &str,
+    context: &str,
+) -> String {
     match mode {
         PromptMode::Generate => format!(
             r#"你是一位大纲规划师。请为以下故事{} 8-12 个核心场景。
@@ -242,7 +275,11 @@ pub fn scene_prompt(mode: PromptMode, story_title: &str, genre: &str, character_
 2. 每个场景都要推动情节或揭示人物
 3. 冲突类型要多样
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, character_names, context
+            mode.verb(),
+            story_title,
+            genre,
+            character_names,
+            context
         ),
         PromptMode::Extract => format!(
             r#"你是一位场景分析专家。请从以下小说文本中，{}所有场景/章节。
@@ -277,7 +314,10 @@ pub fn scene_prompt(mode: PromptMode, story_title: &str, genre: &str, character_
 2. 提取每个场景的核心冲突和情感基调
 3. 列出场景中出场的所有人物
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
     }
 }
@@ -312,7 +352,10 @@ pub fn outline_prompt(mode: PromptMode, story_title: &str, genre: &str, context:
 2. 每幕包含3-5个关键情节点
 3. 场景数量要合理（第一幕3-5场，第二幕6-10场，第三幕3-5场）
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
         PromptMode::Extract => format!(
             r#"你是一位故事结构分析专家。请从以下小说文本（或章节概要）中，{}故事的三幕式大纲结构。
@@ -341,14 +384,23 @@ pub fn outline_prompt(mode: PromptMode, story_title: &str, genre: &str, context:
 1. 基于文本内容推断故事结构
 2. 如果文本不完整（只有部分章节），只推断已读部分的结构
 3. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
     }
 }
 
 // ==================== 伏笔 Prompt ====================
 
-pub fn foreshadowing_prompt(mode: PromptMode, story_title: &str, genre: &str, outline_summary: &str, context: &str) -> String {
+pub fn foreshadowing_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    genre: &str,
+    outline_summary: &str,
+    context: &str,
+) -> String {
     match mode {
         PromptMode::Generate => format!(
             r#"你是一位资深编剧。请根据以下故事概念和大纲，{} 3-5 个核心伏笔。
@@ -377,7 +429,10 @@ pub fn foreshadowing_prompt(mode: PromptMode, story_title: &str, genre: &str, ou
 3. hint_style 要多样化
 4. 第一个伏笔建议在第一章（第一幕）就埋下
 5. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, outline_summary
+            mode.verb(),
+            story_title,
+            genre,
+            outline_summary
         ),
         PromptMode::Extract => format!(
             r#"你是一位伏笔分析专家。请从以下小说文本中，{}所有伏笔（已埋设的暗示和线索）。
@@ -406,7 +461,10 @@ pub fn foreshadowing_prompt(mode: PromptMode, story_title: &str, genre: &str, ou
 2. 区分"已明确回收的伏笔"和"尚未回收的伏笔"
 3. importance 根据伏笔对整体故事的重要性打分
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, genre, context
+            mode.verb(),
+            story_title,
+            genre,
+            context
         ),
     }
 }
@@ -434,7 +492,9 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 2. 支线要与主线有机联系
 3. 高潮点要分布在不同幕次
 4. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, context
+            mode.verb(),
+            story_title,
+            context
         ),
         PromptMode::Extract => format!(
             r#"你是一位故事线分析专家。请从以下小说章节概要中，{}故事线结构。
@@ -456,7 +516,9 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 1. 基于章节概要推断故事结构
 2. 如果文本不完整，标注"待补充"
 3. 只输出 JSON，不要其他内容"#,
-            mode.verb(), story_title, context
+            mode.verb(),
+            story_title,
+            context
         ),
     }
 }

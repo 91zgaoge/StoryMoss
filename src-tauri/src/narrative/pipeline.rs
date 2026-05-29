@@ -3,14 +3,18 @@
 //! 核心设计：提取 Bootstrap 和拆书的共同流程模式，形成可复用的 Pipeline。
 //! 正向（Genesis）和逆向（Analysis）都是 NarrativePipeline 的实现。
 
-use crate::llm::LlmService;
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
+
 use super::progress::PipelineProgressEvent;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::collections::HashMap;
-use std::sync::Mutex;
+use crate::llm::LlmService;
 
 /// 全局 Pipeline 取消标志注册表
 /// key: session_id, value: 取消标志
@@ -23,7 +27,10 @@ pub fn register_pipeline_cancel(session_id: &str) -> Arc<AtomicBool> {
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
-    guard.as_mut().unwrap().insert(session_id.to_string(), flag.clone());
+    guard
+        .as_mut()
+        .unwrap()
+        .insert(session_id.to_string(), flag.clone());
     flag
 }
 
@@ -118,7 +125,11 @@ pub struct NarrativePipelineExecutor<Context: StepContext + Send> {
 impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
     pub fn new(steps: Vec<Box<dyn PipelineStep<Context>>>) -> Self {
         let total = steps.len();
-        Self { steps, total_steps: total, cancel_flag: None }
+        Self {
+            steps,
+            total_steps: total,
+            cancel_flag: None,
+        }
     }
 
     /// 设置取消标志
@@ -201,7 +212,11 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
 
             match result {
                 Ok(()) => {
-                    log::info!("[NarrativePipeline] 步骤 '{}' 完成，耗时 {}s", step.name(), elapsed);
+                    log::info!(
+                        "[NarrativePipeline] 步骤 '{}' 完成，耗时 {}s",
+                        step.name(),
+                        elapsed
+                    );
                     progress_callback(PipelineProgressEvent {
                         pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
                         pipeline_type: super::progress::PipelineType::Genesis,
@@ -312,7 +327,8 @@ mod tests {
     #[test]
     fn test_narrative_pipeline_executor_new() {
         // 使用空步骤列表构建 executor
-        let executor: NarrativePipelineExecutor<MockContext> = NarrativePipelineExecutor::new(vec![]);
+        let executor: NarrativePipelineExecutor<MockContext> =
+            NarrativePipelineExecutor::new(vec![]);
         // 设置取消标志不应 panic
         let flag = Arc::new(AtomicBool::new(false));
         let _ = executor.with_cancel_flag(flag);

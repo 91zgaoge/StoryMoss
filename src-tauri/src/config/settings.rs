@@ -1,12 +1,10 @@
 #![allow(dead_code)]
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
+use std::{collections::HashMap, fs, path::Path};
 
 // W4-B3: SQLite-backed config storage
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use serde::{Deserialize, Serialize};
 
 /// 启动级配置 —— 保留在 config.json 中
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +37,10 @@ impl BootstrapConfig {
             match serde_json::from_str::<BootstrapConfig>(&content) {
                 Ok(cfg) => Ok(cfg),
                 Err(e) => {
-                    log::info!("[BootstrapConfig] config.json is in legacy format ({}), using defaults", e);
+                    log::info!(
+                        "[BootstrapConfig] config.json is in legacy format ({}), using defaults",
+                        e
+                    );
                     Ok(BootstrapConfig::default())
                 }
             }
@@ -78,7 +79,8 @@ pub mod secure_storage {
         }
         let entry = Entry::new(SERVICE_NAME, profile_id)
             .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
-        entry.set_password(api_key)
+        entry
+            .set_password(api_key)
             .map_err(|e| format!("Failed to store API key: {}", e))?;
         Ok(())
     }
@@ -98,7 +100,8 @@ pub mod secure_storage {
     pub fn delete_api_key(profile_id: &str) -> Result<(), String> {
         let entry = Entry::new(SERVICE_NAME, profile_id)
             .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
-        entry.delete_credential()
+        entry
+            .delete_credential()
             .map_err(|e| format!("Failed to delete API key: {}", e))?;
         Ok(())
     }
@@ -322,7 +325,7 @@ pub enum EmbeddingProvider {
     OpenAI,
     Azure,
     Ollama,
-    Local,  // 本地TF-IDF
+    Local, // 本地TF-IDF
     Custom,
 }
 
@@ -352,7 +355,10 @@ impl Default for AppConfig {
             model_source: ModelSource::Local,
             model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
             api_key: "".to_string(),
-            api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
+            api_base: Some(env_or_default(
+                "STORYFORGE_LLM_API_BASE",
+                "http://localhost:11434/v1",
+            )),
             max_tokens: 8192,
             temperature: 0.8,
             timeout_seconds: 120,
@@ -374,7 +380,10 @@ impl Default for AppConfig {
             model_source: ModelSource::Local,
             model: "Gemma-4-31B-it-Q6_K".to_string(),
             api_key: "".to_string(),
-            api_base: Some(env_or_default("STORYFORGE_VISION_API_BASE", "http://localhost:11435/v1")),
+            api_base: Some(env_or_default(
+                "STORYFORGE_VISION_API_BASE",
+                "http://localhost:11435/v1",
+            )),
             max_tokens: 8192,
             temperature: 0.7,
             timeout_seconds: 120,
@@ -395,7 +404,10 @@ impl Default for AppConfig {
             provider: EmbeddingProvider::Custom,
             model: "bge-m3".to_string(),
             api_key: std::env::var("STORYFORGE_EMBEDDING_API_KEY").unwrap_or_default(),
-            api_base: Some(env_or_default("STORYFORGE_EMBEDDING_API_BASE", "http://localhost:11436/v1")),
+            api_base: Some(env_or_default(
+                "STORYFORGE_EMBEDDING_API_BASE",
+                "http://localhost:11436/v1",
+            )),
             dimensions: 1024,
             max_input_tokens: 8192,
             is_default: true,
@@ -403,53 +415,71 @@ impl Default for AppConfig {
         embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
 
         let mut agent_mappings = HashMap::new();
-        agent_mappings.insert("writer".to_string(), AgentMapping {
-            agent_id: "writer".to_string(),
-            agent_name: "写作助手".to_string(),
-            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责章节生成、改写".to_string()),
-        });
-        agent_mappings.insert("inspector".to_string(), AgentMapping {
-            agent_id: "inspector".to_string(),
-            agent_name: "质检员".to_string(),
-            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责内容质量检查".to_string()),
-        });
-        agent_mappings.insert("outline_planner".to_string(), AgentMapping {
-            agent_id: "outline_planner".to_string(),
-            agent_name: "大纲规划师".to_string(),
-            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责故事大纲设计".to_string()),
-        });
-        agent_mappings.insert("style_mimic".to_string(), AgentMapping {
-            agent_id: "style_mimic".to_string(),
-            agent_name: "风格模仿师".to_string(),
-            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责文风分析与模仿".to_string()),
-        });
-        agent_mappings.insert("plot_analyzer".to_string(), AgentMapping {
-            agent_id: "plot_analyzer".to_string(),
-            agent_name: "情节分析师".to_string(),
-            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责情节复杂度分析".to_string()),
-        });
+        agent_mappings.insert(
+            "writer".to_string(),
+            AgentMapping {
+                agent_id: "writer".to_string(),
+                agent_name: "写作助手".to_string(),
+                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+                embedding_model_id: None,
+                multimodal_model_id: None,
+                description: Some("负责章节生成、改写".to_string()),
+            },
+        );
+        agent_mappings.insert(
+            "inspector".to_string(),
+            AgentMapping {
+                agent_id: "inspector".to_string(),
+                agent_name: "质检员".to_string(),
+                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+                embedding_model_id: None,
+                multimodal_model_id: None,
+                description: Some("负责内容质量检查".to_string()),
+            },
+        );
+        agent_mappings.insert(
+            "outline_planner".to_string(),
+            AgentMapping {
+                agent_id: "outline_planner".to_string(),
+                agent_name: "大纲规划师".to_string(),
+                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+                embedding_model_id: None,
+                multimodal_model_id: None,
+                description: Some("负责故事大纲设计".to_string()),
+            },
+        );
+        agent_mappings.insert(
+            "style_mimic".to_string(),
+            AgentMapping {
+                agent_id: "style_mimic".to_string(),
+                agent_name: "风格模仿师".to_string(),
+                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+                embedding_model_id: None,
+                multimodal_model_id: None,
+                description: Some("负责文风分析与模仿".to_string()),
+            },
+        );
+        agent_mappings.insert(
+            "plot_analyzer".to_string(),
+            AgentMapping {
+                agent_id: "plot_analyzer".to_string(),
+                agent_name: "情节分析师".to_string(),
+                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+                embedding_model_id: None,
+                multimodal_model_id: None,
+                description: Some("负责情节复杂度分析".to_string()),
+            },
+        );
 
         Self {
             llm: LlmConfig {
                 provider: "custom".to_string(),
                 api_key: "".to_string(),
                 model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-                api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
+                api_base: Some(env_or_default(
+                    "STORYFORGE_LLM_API_BASE",
+                    "http://localhost:11434/v1",
+                )),
                 max_tokens: 8192,
                 temperature: 0.8,
             },
@@ -469,7 +499,9 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// 打开配置数据库（内部 helper）
-    fn open_config_db(config_dir: &Path) -> Result<Pool<SqliteConnectionManager>, Box<dyn std::error::Error>> {
+    fn open_config_db(
+        config_dir: &Path,
+    ) -> Result<Pool<SqliteConnectionManager>, Box<dyn std::error::Error>> {
         let db_path = config_dir.join("cinema_ai.db");
         let manager = SqliteConnectionManager::file(&db_path)
             .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
@@ -495,7 +527,10 @@ impl AppConfig {
         let pool = match Self::open_config_db(config_dir) {
             Ok(p) => p,
             Err(e) => {
-                log::warn!("[AppConfig] Cannot open DB: {}, falling back to config.json", e);
+                log::warn!(
+                    "[AppConfig] Cannot open DB: {}, falling back to config.json",
+                    e
+                );
                 return Ok(None);
             }
         };
@@ -563,7 +598,11 @@ impl AppConfig {
                             cfg
                         }
                         Err(e) => {
-                            log::info!("[AppConfig] config.json is not legacy AppConfig ({}), using defaults", e);
+                            log::info!(
+                                "[AppConfig] config.json is not legacy AppConfig ({}), using \
+                                 defaults",
+                                e
+                            );
                             AppConfig::default()
                         }
                     }
@@ -588,12 +627,19 @@ impl AppConfig {
             if !profile.api_key.is_empty() {
                 match secure_storage::store_api_key(id, &profile.api_key) {
                     Ok(()) => {
-                        log::info!("[SecureStorage] Migrated API key for profile '{}' to OS keychain", id);
+                        log::info!(
+                            "[SecureStorage] Migrated API key for profile '{}' to OS keychain",
+                            id
+                        );
                         profile.api_key.clear();
                         keys_migrated = true;
                     }
                     Err(e) => {
-                        log::warn!("[SecureStorage] Failed to migrate API key for profile '{}': {}", id, e);
+                        log::warn!(
+                            "[SecureStorage] Failed to migrate API key for profile '{}': {}",
+                            id,
+                            e
+                        );
                     }
                 }
             }
@@ -604,12 +650,21 @@ impl AppConfig {
             if !profile.api_key.is_empty() {
                 match secure_storage::store_api_key(id, &profile.api_key) {
                     Ok(()) => {
-                        log::info!("[SecureStorage] Migrated API key for embedding profile '{}' to OS keychain", id);
+                        log::info!(
+                            "[SecureStorage] Migrated API key for embedding profile '{}' to OS \
+                             keychain",
+                            id
+                        );
                         profile.api_key.clear();
                         keys_migrated = true;
                     }
                     Err(e) => {
-                        log::warn!("[SecureStorage] Failed to migrate API key for embedding profile '{}': {}", id, e);
+                        log::warn!(
+                            "[SecureStorage] Failed to migrate API key for embedding profile \
+                             '{}': {}",
+                            id,
+                            e
+                        );
                     }
                 }
             }
@@ -624,7 +679,10 @@ impl AppConfig {
                     keys_migrated = true;
                 }
                 Err(e) => {
-                    log::warn!("[SecureStorage] Failed to migrate legacy LLM API key: {}", e);
+                    log::warn!(
+                        "[SecureStorage] Failed to migrate legacy LLM API key: {}",
+                        e
+                    );
                 }
             }
         }
@@ -634,14 +692,22 @@ impl AppConfig {
             match secure_storage::get_api_key(id) {
                 Ok(Some(key)) => profile.api_key = key,
                 Ok(None) => {}
-                Err(e) => log::warn!("[SecureStorage] Failed to load API key for profile '{}': {}", id, e),
+                Err(e) => log::warn!(
+                    "[SecureStorage] Failed to load API key for profile '{}': {}",
+                    id,
+                    e
+                ),
             }
         }
         for (id, profile) in config.embedding_profiles.iter_mut() {
             match secure_storage::get_api_key(id) {
                 Ok(Some(key)) => profile.api_key = key,
                 Ok(None) => {}
-                Err(e) => log::warn!("[SecureStorage] Failed to load API key for embedding profile '{}': {}", id, e),
+                Err(e) => log::warn!(
+                    "[SecureStorage] Failed to load API key for embedding profile '{}': {}",
+                    id,
+                    e
+                ),
             }
         }
         match secure_storage::get_api_key("legacy_llm") {
@@ -658,7 +724,10 @@ impl AppConfig {
         let mut needs_save = false;
 
         // 补充 Qwen3.5 语言模型
-        if !config.llm_profiles.contains_key("Qwen3.5-27B-Uncensored-Q4_K_M") {
+        if !config
+            .llm_profiles
+            .contains_key("Qwen3.5-27B-Uncensored-Q4_K_M")
+        {
             let qwen35 = LlmProfile {
                 id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
                 name: "Qwen 3.5 语言模型".to_string(),
@@ -667,7 +736,10 @@ impl AppConfig {
                 model_source: ModelSource::Local,
                 model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
                 api_key: "".to_string(),
-                api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
+                api_base: Some(env_or_default(
+                    "STORYFORGE_LLM_API_BASE",
+                    "http://localhost:11434/v1",
+                )),
                 max_tokens: 8192,
                 temperature: 0.8,
                 timeout_seconds: 120,
@@ -695,7 +767,10 @@ impl AppConfig {
                 model_source: ModelSource::Local,
                 model: "Gemma-4-31B-it-Q6_K".to_string(),
                 api_key: "".to_string(),
-                api_base: Some(env_or_default("STORYFORGE_VISION_API_BASE", "http://localhost:11435/v1")),
+                api_base: Some(env_or_default(
+                    "STORYFORGE_VISION_API_BASE",
+                    "http://localhost:11435/v1",
+                )),
                 max_tokens: 8192,
                 temperature: 0.7,
                 timeout_seconds: 120,
@@ -719,7 +794,10 @@ impl AppConfig {
                 provider: EmbeddingProvider::Custom,
                 model: "bge-m3".to_string(),
                 api_key: std::env::var("STORYFORGE_EMBEDDING_API_KEY").unwrap_or_default(),
-                api_base: Some(env_or_default("STORYFORGE_EMBEDDING_API_BASE", "http://localhost:11436/v1")),
+                api_base: Some(env_or_default(
+                    "STORYFORGE_EMBEDDING_API_BASE",
+                    "http://localhost:11436/v1",
+                )),
                 dimensions: 1024,
                 max_input_tokens: 8192,
                 is_default: config.embedding_profiles.values().all(|p| !p.is_default),
@@ -743,14 +821,22 @@ impl AppConfig {
         for (id, profile) in &self.llm_profiles {
             if !profile.api_key.is_empty() {
                 if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
-                    log::warn!("[SecureStorage] Failed to store API key for profile '{}': {}", id, e);
+                    log::warn!(
+                        "[SecureStorage] Failed to store API key for profile '{}': {}",
+                        id,
+                        e
+                    );
                 }
             }
         }
         for (id, profile) in &self.embedding_profiles {
             if !profile.api_key.is_empty() {
                 if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
-                    log::warn!("[SecureStorage] Failed to store API key for embedding profile '{}': {}", id, e);
+                    log::warn!(
+                        "[SecureStorage] Failed to store API key for embedding profile '{}': {}",
+                        id,
+                        e
+                    );
                 }
             }
         }
@@ -850,7 +936,9 @@ impl AppConfig {
 
             // 如果删除的是当前活跃配置，重置
             if self.active_llm_profile.as_deref() == Some(profile_id) {
-                self.active_llm_profile = self.llm_profiles.values()
+                self.active_llm_profile = self
+                    .llm_profiles
+                    .values()
                     .find(|p| p.is_default)
                     .map(|p| p.id.clone());
             }
@@ -869,7 +957,9 @@ impl AppConfig {
             self.embedding_profiles.remove(profile_id);
 
             if self.active_embedding_profile.as_deref() == Some(profile_id) {
-                self.active_embedding_profile = self.embedding_profiles.values()
+                self.active_embedding_profile = self
+                    .embedding_profiles
+                    .values()
                     .find(|p| p.is_default)
                     .map(|p| p.id.clone());
             }
@@ -907,7 +997,8 @@ impl AppConfig {
             capabilities: vec![ModelCapability::Chat, ModelCapability::Completion],
         };
 
-        self.llm_profiles.insert(legacy_profile.id.clone(), legacy_profile);
+        self.llm_profiles
+            .insert(legacy_profile.id.clone(), legacy_profile);
         self.active_llm_profile = Some("legacy".to_string());
     }
 }

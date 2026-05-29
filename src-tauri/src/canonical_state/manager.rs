@@ -2,12 +2,19 @@
 //!
 //! 从数据库实时聚合故事的完整状态快照。
 
-use super::*;
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories::{SceneRepository, WorldBuildingRepository, KnowledgeGraphRepository};
 use rusqlite::params;
+
+use super::*;
+use crate::{
+    db::{
+        repositories::{
+            CharacterRepository, KnowledgeGraphRepository, SceneRepository, StoryRepository,
+            WorldBuildingRepository,
+        },
+        DbPool,
+    },
+    error::AppError,
+};
 
 pub struct CanonicalStateManager {
     pool: DbPool,
@@ -24,7 +31,10 @@ impl CanonicalStateManager {
     }
 
     /// 创建故事的规范状态快照（实时聚合）
-    pub async fn create_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
+    pub async fn create_snapshot(
+        &self,
+        story_id: &str,
+    ) -> Result<CanonicalStateSnapshot, AppError> {
         // 1. 验证故事存在
         let story_repo = StoryRepository::new(self.pool.clone());
         let _story = story_repo
@@ -34,14 +44,15 @@ impl CanonicalStateManager {
 
         // 2. 读取场景列表
         let scene_repo = SceneRepository::new(self.pool.clone());
-        let scenes = scene_repo
-            .get_by_story(story_id)
-            .map_err(AppError::from)?;
+        let scenes = scene_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         // 找出当前场景（sequence_number 最大的）
         let current_scene = scenes.iter().max_by_key(|s| s.sequence_number).cloned();
         let current_scene_id = current_scene.as_ref().map(|s| s.id.clone());
-        let current_sequence = current_scene.as_ref().map(|s| s.sequence_number).unwrap_or(0);
+        let current_sequence = current_scene
+            .as_ref()
+            .map(|s| s.sequence_number)
+            .unwrap_or(0);
         let total_scenes = scenes.len() as i32;
 
         // 3. 读取角色列表和角色状态
@@ -61,7 +72,8 @@ impl CanonicalStateManager {
 
         // 8. 计算叙事阶段
         let has_overdue = !overdue_payoffs.is_empty();
-        let narrative_phase = Self::calculate_narrative_phase(total_scenes, &scenes, has_overdue, &pending_payoffs);
+        let narrative_phase =
+            Self::calculate_narrative_phase(total_scenes, &scenes, has_overdue, &pending_payoffs);
 
         let story_context = StoryContext {
             current_scene_id,
@@ -94,8 +106,10 @@ impl CanonicalStateManager {
             .map_err(|e| format!("获取连接失败: {}", e))?;
 
         let now = chrono::Local::now().to_rfc3339();
-        let secrets_known = serde_json::to_string(&state.secrets_known).unwrap_or_else(|_| "[]".to_string());
-        let secrets_unknown = serde_json::to_string(&state.secrets_unknown).unwrap_or_else(|_| "[]".to_string());
+        let secrets_known =
+            serde_json::to_string(&state.secrets_known).unwrap_or_else(|_| "[]".to_string());
+        let secrets_unknown =
+            serde_json::to_string(&state.secrets_unknown).unwrap_or_else(|_| "[]".to_string());
 
         // 使用 INSERT OR REPLACE 更新角色状态
         conn.execute(
@@ -132,17 +146,21 @@ impl CanonicalStateManager {
     ) -> Result<(), AppError> {
         // 目前 story_context 通过实时聚合获取，不需要独立持久化
         // 如需持久化可在后续版本添加 canonical_states 缓存表
-        log::info!("[CanonicalState] update_story_context called (no-op, context is aggregated in real-time)");
+        log::info!(
+            "[CanonicalState] update_story_context called (no-op, context is aggregated in \
+             real-time)"
+        );
         Ok(())
     }
 
     // ==================== 内部数据获取 ====================
 
-    fn fetch_character_states(&self, story_id: &str) -> Result<Vec<CharacterStateSnapshot>, AppError> {
+    fn fetch_character_states(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<CharacterStateSnapshot>, AppError> {
         let char_repo = CharacterRepository::new(self.pool.clone());
-        let characters = char_repo
-            .get_by_story(story_id)
-            .map_err(AppError::from)?;
+        let characters = char_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         let conn = self
             .pool
@@ -157,7 +175,17 @@ impl CanonicalStateManager {
             )
             .map_err(AppError::from)?;
 
-        let state_rows: std::collections::HashMap<String, (Option<String>, Option<String>, Option<String>, Vec<String>, Vec<String>, f32)> = stmt
+        let state_rows: std::collections::HashMap<
+            String,
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Vec<String>,
+                Vec<String>,
+                f32,
+            ),
+        > = stmt
             .query_map([story_id], |row| {
                 let cid: String = row.get(0)?;
                 let loc: Option<String> = row.get(1)?;
@@ -210,7 +238,12 @@ impl CanonicalStateManager {
         for rule in world_building.rules {
             facts.push(WorldFact {
                 fact_type: "rule".to_string(),
-                content: format!("{}（{}）: {}", rule.name, rule.rule_type, rule.description.unwrap_or_default()),
+                content: format!(
+                    "{}（{}）: {}",
+                    rule.name,
+                    rule.rule_type,
+                    rule.description.unwrap_or_default()
+                ),
                 importance: rule.importance,
             });
         }
@@ -377,7 +410,10 @@ impl CanonicalStateManager {
             let recent_scenes: Vec<_> = scenes.iter().rev().take(3).collect();
             let all_high_confidence = recent_scenes.iter().all(|s| {
                 s.confidence_score.map(|c| c > 0.8).unwrap_or(false)
-                    && s.content.as_ref().map(|c| c.chars().count() > 1000).unwrap_or(false)
+                    && s.content
+                        .as_ref()
+                        .map(|c| c.chars().count() > 1000)
+                        .unwrap_or(false)
             });
             if all_high_confidence {
                 return NarrativePhase::Climax;
@@ -401,5 +437,3 @@ impl CanonicalStateManager {
         }
     }
 }
-
-

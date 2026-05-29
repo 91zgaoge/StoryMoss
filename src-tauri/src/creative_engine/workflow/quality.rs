@@ -7,6 +7,7 @@
 //! - 情节连贯性
 
 use serde::{Deserialize, Serialize};
+
 use crate::llm::service::LlmService;
 
 /// 质量报告
@@ -135,7 +136,10 @@ impl QualityChecker {
         let pronouns = ["他", "她", "它"];
         let pronoun_count: usize = pronouns.iter().map(|&p| text.matches(p).count()).sum();
         let name_indicators = ["说道", "说", "想", "觉得"];
-        let name_count: usize = name_indicators.iter().map(|&p| text.matches(p).count()).sum();
+        let name_count: usize = name_indicators
+            .iter()
+            .map(|&p| text.matches(p).count())
+            .sum();
 
         if name_count == 0 && pronoun_count > 10 {
             score -= 0.15;
@@ -160,12 +164,14 @@ impl QualityChecker {
             .collect();
 
         if sentences.len() >= 3 {
-            let first_words: Vec<String> = sentences.iter()
+            let first_words: Vec<String> = sentences
+                .iter()
                 .filter_map(|s| s.trim().chars().next())
                 .map(|c| c.to_string())
                 .collect();
 
-            let unique_starts: std::collections::HashSet<String> = first_words.iter().cloned().collect();
+            let unique_starts: std::collections::HashSet<String> =
+                first_words.iter().cloned().collect();
             let variety_ratio = if !first_words.is_empty() {
                 unique_starts.len() as f32 / first_words.len() as f32
             } else {
@@ -251,8 +257,14 @@ impl QualityChecker {
             "较差"
         };
 
-        let critical_count = issues.iter().filter(|i| i.severity == Severity::Critical).count();
-        let major_count = issues.iter().filter(|i| i.severity == Severity::Major).count();
+        let critical_count = issues
+            .iter()
+            .filter(|i| i.severity == Severity::Critical)
+            .count();
+        let major_count = issues
+            .iter()
+            .filter(|i| i.severity == Severity::Major)
+            .count();
 
         let mut summary = format!("总体评分: {:.0}%（{}）", overall * 100.0, level);
 
@@ -272,50 +284,96 @@ impl QualityChecker {
     /// 使用 LLM 进行深度质量评估
     ///
     /// 优先使用 LLM 评估，当 LLM 不可用时回退到规则评估。
-    pub async fn check_with_llm(&self, text: &str, llm: &LlmService) -> Result<QualityReport, String> {
+    pub async fn check_with_llm(
+        &self,
+        text: &str,
+        llm: &LlmService,
+    ) -> Result<QualityReport, String> {
         let prompt = Self::build_llm_evaluation_prompt(text);
-        let response = llm.generate(prompt, Some(2000), Some(0.3)).await
+        let response = llm
+            .generate(prompt, Some(2000), Some(0.3))
+            .await
             .map_err(|e| format!("LLM 评估失败: {}", e))?;
-        
+
         let json_str = Self::extract_json(&response.content);
         let raw: serde_json::Value = serde_json::from_str(&json_str)
             .map_err(|e| format!("评估 JSON 解析失败: {}\n原始内容: {}", e, &response.content))?;
-        
+
         // 解析 JSON 为 QualityReport（LLM 返回 0-100，转换为 0.0-1.0）
-        let overall_score = raw.get("overall_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
-        let structure_score = raw.get("structure_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
-        let character_score = raw.get("character_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
-        let style_score = raw.get("style_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
-        let plot_score = raw.get("plot_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
-        
+        let overall_score = raw
+            .get("overall_score")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(70) as f32
+            / 100.0;
+        let structure_score = raw
+            .get("structure_score")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(70) as f32
+            / 100.0;
+        let character_score = raw
+            .get("character_score")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(70) as f32
+            / 100.0;
+        let style_score = raw
+            .get("style_score")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(70) as f32
+            / 100.0;
+        let plot_score =
+            raw.get("plot_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+
         let mut issues = Vec::new();
         if let Some(issue_array) = raw.get("issues").and_then(|v| v.as_array()) {
             for item in issue_array {
-                let category = match item.get("category").and_then(|v| v.as_str()).unwrap_or("structure") {
+                let category = match item
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("structure")
+                {
                     "character" => IssueCategory::Character,
                     "style" => IssueCategory::Style,
                     "plot" => IssueCategory::Plot,
                     "grammar" => IssueCategory::Grammar,
                     _ => IssueCategory::Structure,
                 };
-                let severity = match item.get("severity").and_then(|v| v.as_str()).unwrap_or("minor") {
+                let severity = match item
+                    .get("severity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("minor")
+                {
                     "moderate" => Severity::Moderate,
                     "major" => Severity::Major,
                     "critical" => Severity::Critical,
                     _ => Severity::Minor,
                 };
-                let description = item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let suggestion = item.get("suggestion").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let description = item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let suggestion = item
+                    .get("suggestion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if !description.is_empty() {
-                    issues.push(QualityIssue { category, severity, description, suggestion });
+                    issues.push(QualityIssue {
+                        category,
+                        severity,
+                        description,
+                        suggestion,
+                    });
                 }
             }
         }
-        
-        let summary = raw.get("summary").and_then(|v| v.as_str())
+
+        let summary = raw
+            .get("summary")
+            .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| Self::generate_summary(overall_score, &issues));
-        
+
         Ok(QualityReport {
             overall_score,
             structure_score,

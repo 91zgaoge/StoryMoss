@@ -10,20 +10,20 @@
 //! - StyleChecker: 验证生成内容是否符合目标 StyleDNA
 //! - ClassicStyles: 内置经典作家风格库
 
-pub mod dna;
 pub mod blend;
-pub mod drift_checker;
 pub mod classic_styles;
 pub mod classic_styles_extended;
-pub mod metrics;
+pub mod dna;
+pub mod drift_checker;
 pub mod evolution;
 pub mod fingerprint;
+pub mod metrics;
 
-pub use dna::StyleDNA;
 pub use blend::StyleBlendConfig;
+pub use dna::StyleDNA;
 pub use drift_checker::StyleDriftChecker;
-
 use serde::{Deserialize, Serialize};
+
 use crate::llm::service::LlmService;
 
 /// 风格分析器 - 从文本样例解析风格特征
@@ -105,8 +105,8 @@ impl StyleAnalyzer {
 
         // 6. 情感外露程度分析（情感词汇计数）
         let emotion_words = [
-            "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢",
-            "痛", "苦", "甜", "酸", "涩", "暖", "冷", "热", "凉", "湿",
+            "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢", "痛", "苦", "甜", "酸",
+            "涩", "暖", "冷", "热", "凉", "湿",
         ];
         let emotion_count = emotion_words
             .iter()
@@ -155,18 +155,24 @@ impl StyleAnalyzer {
     /// 使用 LLM 深度分析文本样例，生成 StyleDNA
     ///
     /// 调用 LLM 进行专业文学风格分析，精度远高于规则分析。
-    pub async fn analyze_with_llm(text: &str, name: &str, llm: &LlmService) -> Result<StyleDNA, String> {
+    pub async fn analyze_with_llm(
+        text: &str,
+        name: &str,
+        llm: &LlmService,
+    ) -> Result<StyleDNA, String> {
         let prompt = Self::build_llm_analysis_prompt(text);
-        let response = llm.generate(prompt, Some(2000), Some(0.3)).await
+        let response = llm
+            .generate(prompt, Some(2000), Some(0.3))
+            .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
-        
+
         let json_str = Self::extract_json(&response.content);
         let mut dna: StyleDNA = serde_json::from_str(&json_str)
             .map_err(|e| format!("JSON 解析失败: {}\n原始内容: {}", e, &response.content))?;
-        
+
         // 确保名称使用用户指定的名称
         dna.meta.name = name.to_string();
-        
+
         Ok(dna)
     }
 
@@ -198,7 +204,8 @@ impl StyleAnalyzer {
 
     /// 生成 LLM 用的分析提示词
     ///
-    /// 当基于规则的分析不够精确时，可调用 LLM 使用此提示词生成更准确的 StyleDNA。
+    /// 当基于规则的分析不够精确时，可调用 LLM 使用此提示词生成更准确的
+    /// StyleDNA。
     pub fn build_llm_analysis_prompt(text: &str) -> String {
         format!(
             r#"你是一位专业的文学风格分析师。请分析以下文本的风格特征，并以 JSON 格式输出 StyleDNA。
@@ -268,7 +275,8 @@ impl StyleChecker {
             .filter(|s| !s.trim().is_empty())
             .collect();
         if !sentences.is_empty() && target.syntax.avg_sentence_length > 0 {
-            let avg_len = sentences.iter().map(|s| s.chars().count()).sum::<usize>() / sentences.len();
+            let avg_len =
+                sentences.iter().map(|s| s.chars().count()).sum::<usize>() / sentences.len();
             let target_len = target.syntax.avg_sentence_length as usize;
             let diff = (avg_len as i32 - target_len as i32).abs();
             let tolerance = (target_len as f32 * 0.3) as i32; // 30% 容差
@@ -276,7 +284,11 @@ impl StyleChecker {
             if diff <= tolerance {
                 score += 1.0;
             } else {
-                let pct = if target_len > 0 { diff as f32 / target_len as f32 * 100.0 } else { 0.0 };
+                let pct = if target_len > 0 {
+                    diff as f32 / target_len as f32 * 100.0
+                } else {
+                    0.0
+                };
                 issues.push(format!(
                     "句长不符：实际平均 {} 字，目标 {} 字（偏差 {:.0}%）",
                     avg_len, target_len, pct
@@ -288,8 +300,16 @@ impl StyleChecker {
         // 2. 对话比例检查
         let char_count = text.chars().count();
         let dialogue_markers = ['"', '「', '『'];
-        let dialogue_count = text.chars().filter(|&c| dialogue_markers.contains(&c)).count() / 2; // 粗略估算
-        let dialogue_ratio = if char_count > 0 { dialogue_count as f32 / char_count as f32 } else { 0.0 };
+        let dialogue_count = text
+            .chars()
+            .filter(|&c| dialogue_markers.contains(&c))
+            .count()
+            / 2; // 粗略估算
+        let dialogue_ratio = if char_count > 0 {
+            dialogue_count as f32 / char_count as f32
+        } else {
+            0.0
+        };
         let target_ratio = target.dialogue.dialogue_ratio;
         let ratio_diff = (dialogue_ratio - target_ratio).abs();
 
@@ -311,7 +331,11 @@ impl StyleChecker {
             .map(|&m| text.matches(m).count())
             .sum::<usize>();
         let thousand_chars = char_count as f32 / 1000.0;
-        let actual_density = if thousand_chars > 0.0 { metaphor_count as f32 / thousand_chars } else { 0.0 };
+        let actual_density = if thousand_chars > 0.0 {
+            metaphor_count as f32 / thousand_chars
+        } else {
+            0.0
+        };
         let target_density = target.rhetoric.metaphor_density;
         let density_diff = (actual_density - target_density).abs();
 
@@ -327,14 +351,18 @@ impl StyleChecker {
 
         // 4. 情感词汇密度检查
         let emotion_words = [
-            "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢",
-            "痛", "苦", "甜", "酸", "涩", "暖", "冷", "热", "凉", "湿",
+            "爱", "恨", "悲", "喜", "怒", "哀", "乐", "忧", "愁", "欢", "痛", "苦", "甜", "酸",
+            "涩", "暖", "冷", "热", "凉", "湿",
         ];
         let emotion_count = emotion_words
             .iter()
             .map(|&w| text.matches(w).count())
             .sum::<usize>();
-        let actual_emotion_density = if char_count > 0 { emotion_count as f32 / char_count as f32 } else { 0.0 };
+        let actual_emotion_density = if char_count > 0 {
+            emotion_count as f32 / char_count as f32
+        } else {
+            0.0
+        };
         let target_emotion_density = target.emotion.emotion_word_density;
         let emotion_diff = (actual_emotion_density - target_emotion_density).abs();
 
@@ -349,7 +377,11 @@ impl StyleChecker {
         }
         checks += 1;
 
-        let final_score = if checks > 0 { score / checks as f32 } else { 1.0 };
+        let final_score = if checks > 0 {
+            score / checks as f32
+        } else {
+            1.0
+        };
 
         StyleCheckResult {
             score: final_score,
@@ -359,15 +391,26 @@ impl StyleChecker {
     }
 
     /// 检查文本与混合风格的匹配度
-    pub fn check_blend(text: &str, blend: &StyleBlendConfig, dnas: &[StyleDNA]) -> StyleCheckResult {
+    pub fn check_blend(
+        text: &str,
+        blend: &StyleBlendConfig,
+        dnas: &[StyleDNA],
+    ) -> StyleCheckResult {
         let drift_result = StyleDriftChecker::check(text, blend, dnas);
         StyleCheckResult {
             score: drift_result.overall_score,
             passed: drift_result.passed,
-            issues: drift_result.checks.iter().filter(|c| !c.passed).map(|c| {
-                format!("{}: {} (实际 {:.2}, 目标 {:.2}-{:.2})", 
-                    c.dimension, c.suggestion, c.actual_value, c.target_min, c.target_max)
-            }).collect(),
+            issues: drift_result
+                .checks
+                .iter()
+                .filter(|c| !c.passed)
+                .map(|c| {
+                    format!(
+                        "{}: {} (实际 {:.2}, 目标 {:.2}-{:.2})",
+                        c.dimension, c.suggestion, c.actual_value, c.target_min, c.target_max
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -417,12 +460,12 @@ pub struct StyleCheckResult {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::classic_styles::jin_yong;
+    use super::{classic_styles::jin_yong, *};
 
     #[test]
     fn test_analyze_sample() {
-        let sample = "江湖风云变幻。他拔剑出鞘，剑光如虹，一招天外飞仙直取对手咽喉。那人身形一闪，掌风呼啸而至。两人你来我往，斗了三百回合不分胜负。";
+        let sample = "江湖风云变幻。他拔剑出鞘，剑光如虹，一招天外飞仙直取对手咽喉。那人身形一闪，\
+                      掌风呼啸而至。两人你来我往，斗了三百回合不分胜负。";
         let dna = StyleAnalyzer::analyze_sample(sample, "测试风格");
         assert_eq!(dna.meta.name, "测试风格");
         assert!(dna.syntax.avg_sentence_length > 0);

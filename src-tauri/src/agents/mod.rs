@@ -12,17 +12,18 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
 use crate::memory::orchestrator::MemoryPack;
 
 pub mod commands;
-pub mod executor;
-pub mod service;
-pub mod novel_creation;
-pub mod memory_compressor;
 pub mod commentator;
-pub mod distiller;
-pub mod orchestrator;
 pub mod context_optimizer;
+pub mod distiller;
+pub mod executor;
+pub mod memory_compressor;
+pub mod novel_creation;
+pub mod orchestrator;
+pub mod service;
 
 // ==================== 核心Trait ====================
 
@@ -53,11 +54,11 @@ pub struct StoryContext {
     #[serde(default)]
     pub story_title: String,
     #[serde(default)]
-    pub genre: String,       // 题材
+    pub genre: String, // 题材
     #[serde(default)]
-    pub tone: String,        // 文风
+    pub tone: String, // 文风
     #[serde(default)]
-    pub pacing: String,      // 节奏
+    pub pacing: String, // 节奏
 }
 
 /// 叙事内容上下文
@@ -72,16 +73,16 @@ pub struct NarrativeContext {
     #[serde(default)]
     pub current_content: Option<String>, // 当前章节全文（已过滤元信息，保留纯内容）
     #[serde(default)]
-    pub selected_text: Option<String>,   // 用户选中的文本
+    pub selected_text: Option<String>, // 用户选中的文本
 }
 
 /// 风格配置上下文
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StyleContext {
     #[serde(default)]
-    pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
+    pub style_dna_id: Option<String>, // 风格DNA ID（向后兼容）
     #[serde(default)]
-    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置
+    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, /* 风格混合配置 */
     /// 风格指纹（v0.7.8: 续写加固 — 从参考文本提取的量化风格约束）
     #[serde(default)]
     pub style_fingerprint: Option<crate::creative_engine::style::fingerprint::StyleFingerprint>,
@@ -91,11 +92,11 @@ pub struct StyleContext {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorldContext {
     #[serde(default)]
-    pub world_rules: Option<String>,     // 世界观规则（注入系统提示词）
+    pub world_rules: Option<String>, // 世界观规则（注入系统提示词）
     #[serde(default)]
     pub scene_structure: Option<String>, // 场景结构（注入系统提示词）
     #[serde(default)]
-    pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
+    pub methodology_id: Option<String>, // 创作方法论ID（如 snowflake, scene_structure）
     #[serde(default)]
     pub methodology_step: Option<String>, // 方法论当前步骤
 }
@@ -148,7 +149,7 @@ pub struct ChapterSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResult {
     pub content: String,
-    pub score: Option<f32>,  // 0.0 - 1.0
+    pub score: Option<f32>, // 0.0 - 1.0
     pub suggestions: Vec<String>,
     /// 关联的 LLM request_id，供上层取消使用
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,15 +175,15 @@ pub struct MemoryContext {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoredMemoryEntry {
     pub entry: crate::memory::orchestrator::MemoryEntry,
-    pub relevance_score: f32,     // 0-100
-    pub reason: String,           // 注入理由
+    pub relevance_score: f32, // 0-100
+    pub reason: String,       // 注入理由
 }
 
 /// 记忆一致性报告
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConsistencyReport {
-    pub memory_score: f32,        // 0-1
-    pub conflicts: Vec<String>,   // 冲突描述列表
+    pub memory_score: f32,      // 0-1
+    pub conflicts: Vec<String>, // 冲突描述列表
 }
 
 /// 待写入记忆系统的更新
@@ -254,7 +255,8 @@ impl AgentContext {
         if self.narrative.characters.is_empty() {
             "暂无角色信息".to_string()
         } else {
-            self.narrative.characters
+            self.narrative
+                .characters
                 .iter()
                 .map(|c| format!("{}（{}）: {}", c.name, c.role, c.personality))
                 .collect::<Vec<_>>()
@@ -267,7 +269,8 @@ impl AgentContext {
         if self.narrative.previous_chapters.is_empty() {
             "这是第一章".to_string()
         } else {
-            self.narrative.previous_chapters
+            self.narrative
+                .previous_chapters
                 .iter()
                 .map(|c| format!("第{}章 {}: {}", c.number, c.title, c.summary))
                 .collect::<Vec<_>>()

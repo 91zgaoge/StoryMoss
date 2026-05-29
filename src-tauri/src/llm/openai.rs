@@ -1,7 +1,9 @@
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use std::time::Duration;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+
+use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 
 pub struct OpenAiAdapter {
     client: Client,
@@ -121,7 +123,6 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
             messages: self.build_messages(request.prompt),
@@ -129,7 +130,8 @@ impl LlmAdapter for OpenAiAdapter {
             temperature: request.temperature.unwrap_or(self.default_temperature),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -143,11 +145,12 @@ impl LlmAdapter for OpenAiAdapter {
         }
 
         let openai_resp: OpenAiResponse = response.json().await?;
-        let content = openai_resp.choices
+        let content = openai_resp
+            .choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
-        
+
         let cost = self.calculate_cost(&openai_resp.model, openai_resp.usage.total_tokens);
 
         Ok(GenerateResponse {
@@ -161,7 +164,10 @@ impl LlmAdapter for OpenAiAdapter {
     async fn generate_stream(
         &self,
         request: GenerateRequest,
-    ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let openai_req = OpenAiStreamRequest {
             model: self.model.clone(),
             messages: self.build_messages(request.prompt),
@@ -170,7 +176,8 @@ impl LlmAdapter for OpenAiAdapter {
             stream: true,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -183,7 +190,9 @@ impl LlmAdapter for OpenAiAdapter {
             return Err(format!("OpenAI API error: {}", error_text).into());
         }
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, Box<dyn std::error::Error + Send + Sync>>>(128);
+        let (tx, rx) = tokio::sync::mpsc::channel::<
+            Result<String, Box<dyn std::error::Error + Send + Sync>>,
+        >(128);
 
         tokio::spawn(async move {
             use futures_util::StreamExt;

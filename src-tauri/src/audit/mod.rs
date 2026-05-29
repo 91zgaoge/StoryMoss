@@ -3,17 +3,23 @@
 //! 整合 ContinuityEngine、StyleChecker、QualityChecker，
 //! 为场景生成五维审计报告。
 
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::db::repositories::{SceneRepository, StyleDnaRepository};
-use crate::db::repositories::StoryRepository;
-use crate::creative_engine::continuity::{ContinuityEngine, Severity as ContinuitySeverity};
-use crate::creative_engine::style::{StyleChecker, StyleAnalyzer, dna::StyleDNA};
-use crate::creative_engine::workflow::quality::{QualityChecker, Severity as QualitySeverity};
-use crate::creative_engine::payoff_ledger::PayoffLedger;
-use crate::llm::service::LlmService;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
+
+use crate::{
+    creative_engine::{
+        continuity::{ContinuityEngine, Severity as ContinuitySeverity},
+        payoff_ledger::PayoffLedger,
+        style::{dna::StyleDNA, StyleAnalyzer, StyleChecker},
+        workflow::quality::{QualityChecker, Severity as QualitySeverity},
+    },
+    db::{
+        repositories::{SceneRepository, StoryRepository, StyleDnaRepository},
+        DbPool,
+    },
+    error::AppError,
+    llm::service::LlmService,
+};
 
 pub mod commands;
 
@@ -63,7 +69,8 @@ impl AuditService {
     ) -> Result<AuditReport, AppError> {
         // 1. 获取场景信息
         let scene_repo = SceneRepository::new(self.pool.clone());
-        let scene = scene_repo.get_by_id(scene_id)
+        let scene = scene_repo
+            .get_by_id(scene_id)
             .map_err(|e| format!("获取场景失败: {}", e))?
             .ok_or("场景不存在")?;
 
@@ -79,7 +86,8 @@ impl AuditService {
 
         // 2. 获取故事信息（用于风格 DNA）
         let story_repo = StoryRepository::new(self.pool.clone());
-        let story = story_repo.get_by_id(&scene.story_id)
+        let story = story_repo
+            .get_by_id(&scene.story_id)
             .map_err(|e| format!("获取故事失败: {}", e))?
             .ok_or("故事不存在")?;
 
@@ -114,7 +122,8 @@ impl AuditService {
             dimensions.iter().map(|d| d.score).sum::<f32>() / dimensions.len() as f32
         };
 
-        let has_blocking_issues = dimensions.iter()
+        let has_blocking_issues = dimensions
+            .iter()
             .any(|d| d.issues.iter().any(|i| i.severity == "blocking"));
 
         Ok(AuditReport {
@@ -178,7 +187,10 @@ impl AuditService {
 
         // 从 QualityChecker 中提取 character 相关问题
         for qi in &report.issues {
-            if matches!(qi.category, crate::creative_engine::workflow::quality::IssueCategory::Character) {
+            if matches!(
+                qi.category,
+                crate::creative_engine::workflow::quality::IssueCategory::Character
+            ) {
                 let severity_str = match qi.severity {
                     QualitySeverity::Critical => "blocking",
                     QualitySeverity::Major => "warning",
@@ -211,9 +223,7 @@ impl AuditService {
         let target_dna = if let Some(id) = style_dna_id {
             let repo = StyleDnaRepository::new(self.pool.clone());
             match repo.get_by_id(id) {
-                Ok(Some(db_dna)) => {
-                    serde_json::from_str::<StyleDNA>(&db_dna.dna_json).ok()
-                }
+                Ok(Some(db_dna)) => serde_json::from_str::<StyleDNA>(&db_dna.dna_json).ok(),
                 _ => None,
             }
         } else {
@@ -261,7 +271,10 @@ impl AuditService {
         let mut score = report.structure_score;
 
         // 段落长度检查
-        let paragraphs: Vec<&str> = content.split('\n').filter(|p| !p.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = content
+            .split('\n')
+            .filter(|p| !p.trim().is_empty())
+            .collect();
         let avg_para_len = if !paragraphs.is_empty() {
             content.chars().count() as f32 / paragraphs.len() as f32
         } else {
@@ -278,9 +291,17 @@ impl AuditService {
 
         // 对话比例检查（过于密集或稀疏）
         let dialogue_markers = ['"', '「', '『'];
-        let dialogue_count = content.chars().filter(|&c| dialogue_markers.contains(&c)).count() / 2;
+        let dialogue_count = content
+            .chars()
+            .filter(|&c| dialogue_markers.contains(&c))
+            .count()
+            / 2;
         let char_count = content.chars().count();
-        let dialogue_ratio = if char_count > 0 { dialogue_count as f32 / char_count as f32 } else { 0.0 };
+        let dialogue_ratio = if char_count > 0 {
+            dialogue_count as f32 / char_count as f32
+        } else {
+            0.0
+        };
         if dialogue_ratio > 0.5 {
             score -= 0.08;
             issues.push(AuditIssue {
@@ -339,14 +360,23 @@ impl AuditService {
                 ),
                 suggestion: Some(format!(
                     "建议在场景 {} 之前回收此伏笔",
-                    item.target_end_scene.map(|n| n.to_string()).unwrap_or_else(|| "后续".to_string())
+                    item.target_end_scene
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "后续".to_string())
                 )),
             });
         }
 
         // 检查当前场景是否有新伏笔被设置
-        let setups_in_scene: Vec<_> = items.iter()
-            .filter(|i| i.first_seen_scene == Some(scene_number) && matches!(i.current_status, crate::creative_engine::payoff_ledger::PayoffStatus::Setup))
+        let setups_in_scene: Vec<_> = items
+            .iter()
+            .filter(|i| {
+                i.first_seen_scene == Some(scene_number)
+                    && matches!(
+                        i.current_status,
+                        crate::creative_engine::payoff_ledger::PayoffStatus::Setup
+                    )
+            })
             .collect();
 
         if !setups_in_scene.is_empty() {
@@ -363,32 +393,47 @@ impl AuditService {
         }
 
         // 检查当前场景是否回收了伏笔
-        let payoffs_in_scene: Vec<_> = items.iter()
-            .filter(|i| i.last_touched_scene == Some(scene_number) && matches!(i.current_status, crate::creative_engine::payoff_ledger::PayoffStatus::PaidOff))
+        let payoffs_in_scene: Vec<_> = items
+            .iter()
+            .filter(|i| {
+                i.last_touched_scene == Some(scene_number)
+                    && matches!(
+                        i.current_status,
+                        crate::creative_engine::payoff_ledger::PayoffStatus::PaidOff
+                    )
+            })
             .collect();
 
         if !payoffs_in_scene.is_empty() {
             for item in &payoffs_in_scene {
                 issues.push(AuditIssue {
                     severity: "info".to_string(),
-                    message: format!(
-                        "本场景回收了伏笔：{}",
-                        item.title
-                    ),
+                    message: format!("本场景回收了伏笔：{}", item.title),
                     suggestion: None,
                 });
             }
         }
 
         // 如果有大量未回收伏笔，扣分
-        let unresolved_count = items.iter()
-            .filter(|i| matches!(i.current_status, crate::creative_engine::payoff_ledger::PayoffStatus::Setup | crate::creative_engine::payoff_ledger::PayoffStatus::Hinted | crate::creative_engine::payoff_ledger::PayoffStatus::PendingPayoff))
+        let unresolved_count = items
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i.current_status,
+                    crate::creative_engine::payoff_ledger::PayoffStatus::Setup
+                        | crate::creative_engine::payoff_ledger::PayoffStatus::Hinted
+                        | crate::creative_engine::payoff_ledger::PayoffStatus::PendingPayoff
+                )
+            })
             .count();
         if unresolved_count > 10 {
             score -= 0.1;
             issues.push(AuditIssue {
                 severity: "warning".to_string(),
-                message: format!("故事中积累了 {} 个未回收伏笔，可能导致读者困惑", unresolved_count),
+                message: format!(
+                    "故事中积累了 {} 个未回收伏笔，可能导致读者困惑",
+                    unresolved_count
+                ),
                 suggestion: Some("建议整理伏笔回收计划，避免悬念过度堆积".to_string()),
             });
         }
@@ -410,19 +455,23 @@ impl AuditService {
         let checker = QualityChecker::new();
         let report = checker.check_with_llm(content, &llm).await?;
 
-        let issues: Vec<AuditIssue> = report.issues.iter().map(|qi| {
-            let severity_str = match qi.severity {
-                QualitySeverity::Critical => "blocking",
-                QualitySeverity::Major => "warning",
-                QualitySeverity::Moderate => "warning",
-                QualitySeverity::Minor => "info",
-            };
-            AuditIssue {
-                severity: severity_str.to_string(),
-                message: qi.description.clone(),
-                suggestion: Some(qi.suggestion.clone()),
-            }
-        }).collect();
+        let issues: Vec<AuditIssue> = report
+            .issues
+            .iter()
+            .map(|qi| {
+                let severity_str = match qi.severity {
+                    QualitySeverity::Critical => "blocking",
+                    QualitySeverity::Major => "warning",
+                    QualitySeverity::Moderate => "warning",
+                    QualitySeverity::Minor => "info",
+                };
+                AuditIssue {
+                    severity: severity_str.to_string(),
+                    message: qi.description.clone(),
+                    suggestion: Some(qi.suggestion.clone()),
+                }
+            })
+            .collect();
 
         Ok(AuditDimension {
             name: "llm_deep".to_string(),
@@ -449,7 +498,10 @@ impl AuditService {
                 dimensions.iter_mut().find(|d| d.name == "character")
             } else if issue.message.contains("风格") || issue.message.contains("文笔") {
                 dimensions.iter_mut().find(|d| d.name == "style")
-            } else if issue.message.contains("连贯") || issue.message.contains("逻辑") || issue.message.contains("一致") {
+            } else if issue.message.contains("连贯")
+                || issue.message.contains("逻辑")
+                || issue.message.contains("一致")
+            {
                 dimensions.iter_mut().find(|d| d.name == "continuity")
             } else if issue.message.contains("伏笔") || issue.message.contains("回收") {
                 dimensions.iter_mut().find(|d| d.name == "payoff")

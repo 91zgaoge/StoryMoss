@@ -1,36 +1,48 @@
 //! 创作工作流引擎核心
 //!
 //! 串联所有创作阶段和 Agent，形成完整闭环：
-//! Conception → Outlining → SceneDesign → Writing → Review → Iteration → Ingestion
+//! Conception → Outlining → SceneDesign → Writing → Review → Iteration →
+//! Ingestion
 
-use crate::agents::service::{AgentService, AgentTask, AgentType};
-use crate::agents::{AgentContext, AgentResult};
-use crate::db::DbPool;
-use crate::db::repositories::ChapterRepository;
-use crate::db::CreateChapterRequest;
-use crate::db::repositories::{KnowledgeGraphRepository, SceneRepository, WorldBuildingRepository, CharacterRepository, WritingStyleRepository};
-use crate::db::{SceneUpdate, CreateCharacterRequest, WritingStyleUpdate, WorldRule, Culture};
-use crate::agents::novel_creation::{WorldBuildingOption, CharacterProfileOption, WritingStyleOption};
-use crate::creative_engine::methodology::MethodologyConfig;
-use super::{WorkflowExecutionResult, WorkflowProgressEvent, WorkflowStage, CreationMode};
-use super::quality::QualityChecker;
-use crate::error::AppError;
-use crate::llm::service::LlmService;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use tauri::Emitter;
+
+use super::{
+    quality::QualityChecker, CreationMode, WorkflowExecutionResult, WorkflowProgressEvent,
+    WorkflowStage,
+};
+use crate::{
+    agents::{
+        novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
+        service::{AgentService, AgentTask, AgentType},
+        AgentContext, AgentResult,
+    },
+    creative_engine::methodology::MethodologyConfig,
+    db::{
+        repositories::{
+            ChapterRepository, CharacterRepository, KnowledgeGraphRepository, SceneRepository,
+            WorldBuildingRepository, WritingStyleRepository,
+        },
+        CreateChapterRequest, CreateCharacterRequest, Culture, DbPool, SceneUpdate, WorldRule,
+        WritingStyleUpdate,
+    },
+    error::AppError,
+    llm::service::LlmService,
+};
 
 /// 创作阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CreationPhase {
-    Conception,    // 构思：用户灵感 → OutlinePlanner → 故事种子
-    Outlining,     // 大纲：故事种子 → 方法论 → 完整大纲
-    SceneDesign,   // 场景设计：大纲章节 → 场景结构
-    Writing,       // 写作：场景结构 + 记忆查询 → Writer → 初稿
-    Review,        // 审校：初稿 → Inspector + ContinuityEngine → 问题列表
-    Iteration,     // 迭代：问题列表 → Writer(改写) → 终稿
-    Ingestion,     // 记忆：终稿 → IngestPipeline → 知识图谱更新
+    Conception,  // 构思：用户灵感 → OutlinePlanner → 故事种子
+    Outlining,   // 大纲：故事种子 → 方法论 → 完整大纲
+    SceneDesign, // 场景设计：大纲章节 → 场景结构
+    Writing,     // 写作：场景结构 + 记忆查询 → Writer → 初稿
+    Review,      // 审校：初稿 → Inspector + ContinuityEngine → 问题列表
+    Iteration,   // 迭代：问题列表 → Writer(改写) → 终稿
+    Ingestion,   // 记忆：终稿 → IngestPipeline → 知识图谱更新
 }
 
 impl CreationPhase {
@@ -231,22 +243,19 @@ fn phase_progress(phase: CreationPhase) -> f32 {
 /// 将各阶段的 AgentType、methodology、prompt_extension 从硬编码迁移到配置。
 fn standard_phase_workflow(phase: CreationPhase, ctx: &AgentContext) -> PhaseWorkflow {
     let mut pw = match phase {
-        CreationPhase::Conception => PhaseWorkflow::new(phase)
-            .with_agents(vec![AgentType::OutlinePlanner]),
+        CreationPhase::Conception => {
+            PhaseWorkflow::new(phase).with_agents(vec![AgentType::OutlinePlanner])
+        }
         CreationPhase::Outlining => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::OutlinePlanner])
             .with_prompt_extension("请根据以下大纲设计场景结构："),
         CreationPhase::SceneDesign => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::Writer])
             .with_prompt_extension("请根据以下大纲设计场景结构："),
-        CreationPhase::Writing => PhaseWorkflow::new(phase)
-            .with_agents(vec![AgentType::Writer]),
-        CreationPhase::Review => PhaseWorkflow::new(phase)
-            .with_agents(vec![AgentType::Inspector]),
-        CreationPhase::Iteration => PhaseWorkflow::new(phase)
-            .with_agents(vec![AgentType::Writer]),
-        CreationPhase::Ingestion => PhaseWorkflow::new(phase)
-            .with_agents(vec![]),
+        CreationPhase::Writing => PhaseWorkflow::new(phase).with_agents(vec![AgentType::Writer]),
+        CreationPhase::Review => PhaseWorkflow::new(phase).with_agents(vec![AgentType::Inspector]),
+        CreationPhase::Iteration => PhaseWorkflow::new(phase).with_agents(vec![AgentType::Writer]),
+        CreationPhase::Ingestion => PhaseWorkflow::new(phase).with_agents(vec![]),
     };
     // 如果故事配置了创作方法论，覆盖默认硬编码
     if let Some(ref method_id) = ctx.world.methodology_id {
@@ -268,7 +277,10 @@ pub struct CreationWorkflowEngine {
 
 impl CreationWorkflowEngine {
     pub fn new(agent_service: AgentService, pool: DbPool) -> Self {
-        Self { agent_service, pool }
+        Self {
+            agent_service,
+            pool,
+        }
     }
 
     /// 创建标准工作流配置
@@ -370,7 +382,9 @@ impl CreationWorkflowEngine {
                         "description": format!("从创作内容中提取的{}", entity_type),
                         "auto_extracted": true
                     });
-                    if let Ok(_) = kg_repo.create_entity(&story_id, &name, &entity_type, &attrs, None) {
+                    if let Ok(_) =
+                        kg_repo.create_entity(&story_id, &name, &entity_type, &attrs, None)
+                    {
                         entity_count += 1;
                     }
                 }
@@ -428,7 +442,10 @@ impl CreationWorkflowEngine {
                 }
 
                 Ok(AgentResult {
-                    content: format!("{}。知识图谱更新：提取 {} 个实体。", saved_info, entity_count),
+                    content: format!(
+                        "{}。知识图谱更新：提取 {} 个实体。",
+                        saved_info, entity_count
+                    ),
                     score: Some(1.0),
                     suggestions: vec![],
                     request_id: None,
@@ -436,9 +453,8 @@ impl CreationWorkflowEngine {
             }
             _ => {
                 // 通用阶段：使用 PhaseWorkflow 配置动态构建 AgentTask
-                let agent_type = agent_type.ok_or_else(||
-                    format!("阶段 {:?} 未配置 Agent", phase)
-                )?;
+                let agent_type =
+                    agent_type.ok_or_else(|| format!("阶段 {:?} 未配置 Agent", phase))?;
 
                 let task_input = if let Some(ref ext) = config.prompt_extension {
                     format!("{}\n\n{}", ext, input)
@@ -482,12 +498,18 @@ impl CreationWorkflowEngine {
         let mut current_input = initial_input.to_string();
         let mut context = self.build_context(&config.story_id)?;
 
-        self.emit_progress(&state, WorkflowStage::Started, &format!("开始{}模式创作", config.mode.name()), 0.0);
+        self.emit_progress(
+            &state,
+            WorkflowStage::Started,
+            &format!("开始{}模式创作", config.mode.name()),
+            0.0,
+        );
 
         match config.mode {
             CreationMode::AiOnly => {
                 // 全自动模式：执行所有阶段
-                self.run_all_phases(config, &mut state, &mut context, &mut current_input).await?;
+                self.run_all_phases(config, &mut state, &mut context, &mut current_input)
+                    .await?;
             }
             CreationMode::AiDraftHumanEdit => {
                 // AI 初稿 + 人精修：执行到 Writing 后暂停
@@ -504,9 +526,16 @@ impl CreationWorkflowEngine {
                         break;
                     }
                     state.current_phase = phase;
-                    self.emit_progress(&state, WorkflowStage::InProgress, &format!("进入{}阶段", phase.name()), phase_progress(phase));
+                    self.emit_progress(
+                        &state,
+                        WorkflowStage::InProgress,
+                        &format!("进入{}阶段", phase.name()),
+                        phase_progress(phase),
+                    );
                     let result = self.execute_phase(phase, &context, &current_input).await?;
-                    state.phase_outputs.insert(phase.name().to_string(), result.content.clone());
+                    state
+                        .phase_outputs
+                        .insert(phase.name().to_string(), result.content.clone());
 
                     // 回注上下文（P2-4）
                     Self::update_context_after_phase(&mut context, phase, &result.content);
@@ -514,13 +543,23 @@ impl CreationWorkflowEngine {
                     current_input = result.content;
                     state.completed_phases.push(phase);
                     let next_phase = phase.next().unwrap_or(CreationPhase::Ingestion);
-                    self.emit_progress(&state, WorkflowStage::Completed, &format!("{}阶段完成", phase.name()), phase_progress(next_phase));
+                    self.emit_progress(
+                        &state,
+                        WorkflowStage::Completed,
+                        &format!("{}阶段完成", phase.name()),
+                        phase_progress(next_phase),
+                    );
                 }
 
                 // Writing 完成后暂停，等待用户确认
                 if !state.is_paused {
                     state.is_paused = true;
-                    self.emit_progress(&state, WorkflowStage::WaitingForUser, "AI 初稿已完成，请在幕前编辑后继续", phase_progress(CreationPhase::Writing));
+                    self.emit_progress(
+                        &state,
+                        WorkflowStage::WaitingForUser,
+                        "AI 初稿已完成，请在幕前编辑后继续",
+                        phase_progress(CreationPhase::Writing),
+                    );
                 }
             }
             CreationMode::HumanDraftAiPolish => {
@@ -531,42 +570,81 @@ impl CreationWorkflowEngine {
 
                 // initial_input 就是用户的草稿，直接进入 Review
                 state.current_phase = CreationPhase::Review;
-                self.emit_progress(&state, WorkflowStage::InProgress, "进入审校阶段", phase_progress(CreationPhase::Review));
-                let review_result = self.execute_phase(CreationPhase::Review, &context, &current_input).await?;
-                state.phase_outputs.insert("审校".to_string(), review_result.content.clone());
+                self.emit_progress(
+                    &state,
+                    WorkflowStage::InProgress,
+                    "进入审校阶段",
+                    phase_progress(CreationPhase::Review),
+                );
+                let review_result = self
+                    .execute_phase(CreationPhase::Review, &context, &current_input)
+                    .await?;
+                state
+                    .phase_outputs
+                    .insert("审校".to_string(), review_result.content.clone());
                 state.review_score = review_result.score;
                 state.completed_phases.push(CreationPhase::Review);
-                self.emit_progress(&state, WorkflowStage::Completed, "审校阶段完成", phase_progress(CreationPhase::Iteration));
+                self.emit_progress(
+                    &state,
+                    WorkflowStage::Completed,
+                    "审校阶段完成",
+                    phase_progress(CreationPhase::Iteration),
+                );
 
                 // 根据审校结果决定是否迭代
                 let score = review_result.score.unwrap_or(0.0);
-                if score < config.review_threshold && state.iteration_count < config.max_iterations {
+                if score < config.review_threshold && state.iteration_count < config.max_iterations
+                {
                     let feedback = if review_result.suggestions.is_empty() {
                         "请改进内容质量".to_string()
                     } else {
                         review_result.suggestions.join("\n")
                     };
-                    let iteration_input = format!("【质检反馈】\n{}\n\n【原文】\n{}", feedback, current_input);
+                    let iteration_input =
+                        format!("【质检反馈】\n{}\n\n【原文】\n{}", feedback, current_input);
                     state.iteration_count += 1;
                     state.current_phase = CreationPhase::Iteration;
-                    self.emit_progress(&state, WorkflowStage::InProgress, "进入迭代润色阶段", phase_progress(CreationPhase::Iteration));
-                    let iteration_result = self.execute_phase(CreationPhase::Iteration, &context, &iteration_input).await?;
-                    state.phase_outputs.insert("迭代".to_string(), iteration_result.content.clone());
+                    self.emit_progress(
+                        &state,
+                        WorkflowStage::InProgress,
+                        "进入迭代润色阶段",
+                        phase_progress(CreationPhase::Iteration),
+                    );
+                    let iteration_result = self
+                        .execute_phase(CreationPhase::Iteration, &context, &iteration_input)
+                        .await?;
+                    state
+                        .phase_outputs
+                        .insert("迭代".to_string(), iteration_result.content.clone());
                     current_input = iteration_result.content;
-                    self.emit_progress(&state, WorkflowStage::Completed, "迭代润色阶段完成", phase_progress(CreationPhase::Ingestion));
+                    self.emit_progress(
+                        &state,
+                        WorkflowStage::Completed,
+                        "迭代润色阶段完成",
+                        phase_progress(CreationPhase::Ingestion),
+                    );
                 }
 
                 // 最终 Ingestion
                 state.current_phase = CreationPhase::Ingestion;
-                self.emit_progress(&state, WorkflowStage::InProgress, "进入记忆阶段", phase_progress(CreationPhase::Ingestion));
-                let _ = self.execute_phase(CreationPhase::Ingestion, &context, &current_input).await;
+                self.emit_progress(
+                    &state,
+                    WorkflowStage::InProgress,
+                    "进入记忆阶段",
+                    phase_progress(CreationPhase::Ingestion),
+                );
+                let _ = self
+                    .execute_phase(CreationPhase::Ingestion, &context, &current_input)
+                    .await;
                 state.completed_phases.push(CreationPhase::Ingestion);
                 self.emit_progress(&state, WorkflowStage::Completed, "润色创作完成", 1.0);
             }
         }
 
         // 构建结果
-        let final_output = state.phase_outputs.get("写作")
+        let final_output = state
+            .phase_outputs
+            .get("写作")
             .or(state.phase_outputs.get("迭代"))
             .or(state.phase_outputs.get("审校"))
             .cloned();
@@ -588,14 +666,22 @@ impl CreationWorkflowEngine {
 
         let success = match config.mode {
             CreationMode::AiOnly => !state.is_paused,
-            CreationMode::AiDraftHumanEdit => state.completed_phases.contains(&CreationPhase::Writing),
-            CreationMode::HumanDraftAiPolish => state.completed_phases.contains(&CreationPhase::Ingestion),
+            CreationMode::AiDraftHumanEdit => {
+                state.completed_phases.contains(&CreationPhase::Writing)
+            }
+            CreationMode::HumanDraftAiPolish => {
+                state.completed_phases.contains(&CreationPhase::Ingestion)
+            }
         };
 
         Ok(WorkflowExecutionResult {
             success,
             current_phase: state.current_phase.name().to_string(),
-            completed_phases: state.completed_phases.iter().map(|p| p.name().to_string()).collect(),
+            completed_phases: state
+                .completed_phases
+                .iter()
+                .map(|p| p.name().to_string())
+                .collect(),
             output: final_output,
             quality_report,
             error: None,
@@ -627,13 +713,20 @@ impl CreationWorkflowEngine {
             }
 
             state.current_phase = phase;
-            self.emit_progress(&state, WorkflowStage::InProgress, &format!("进入{}阶段", phase.name()), phase_progress(phase));
+            self.emit_progress(
+                &state,
+                WorkflowStage::InProgress,
+                &format!("进入{}阶段", phase.name()),
+                phase_progress(phase),
+            );
 
             // 执行阶段
             let result = self.execute_phase(phase, context, current_input).await?;
 
             // 缓存输出
-            state.phase_outputs.insert(phase.name().to_string(), result.content.clone());
+            state
+                .phase_outputs
+                .insert(phase.name().to_string(), result.content.clone());
 
             // 将关键产出回注 AgentContext（P2-4）
             Self::update_context_after_phase(context, phase, &result.content);
@@ -644,28 +737,45 @@ impl CreationWorkflowEngine {
                     state.review_score = result.score;
                     let score = result.score.unwrap_or(0.0);
 
-                    if score < config.review_threshold && state.iteration_count < config.max_iterations {
+                    if score < config.review_threshold
+                        && state.iteration_count < config.max_iterations
+                    {
                         // 进入迭代阶段
                         let feedback = if result.suggestions.is_empty() {
                             "请改进内容质量".to_string()
                         } else {
                             result.suggestions.join("\n")
                         };
-                        *current_input = format!("【质检反馈】\n{}\n\n【原文】\n{}",
+                        *current_input = format!(
+                            "【质检反馈】\n{}\n\n【原文】\n{}",
                             feedback,
                             state.phase_outputs.get("写作").unwrap_or(&"".to_string())
                         );
                         state.iteration_count += 1;
 
                         state.current_phase = CreationPhase::Iteration;
-                        self.emit_progress(&state, WorkflowStage::InProgress, "进入迭代阶段", phase_progress(CreationPhase::Iteration));
+                        self.emit_progress(
+                            &state,
+                            WorkflowStage::InProgress,
+                            "进入迭代阶段",
+                            phase_progress(CreationPhase::Iteration),
+                        );
 
                         // 继续迭代
-                        let iteration_result = self.execute_phase(CreationPhase::Iteration, context, current_input).await?;
-                        state.phase_outputs.insert("迭代".to_string(), iteration_result.content.clone());
+                        let iteration_result = self
+                            .execute_phase(CreationPhase::Iteration, context, current_input)
+                            .await?;
+                        state
+                            .phase_outputs
+                            .insert("迭代".to_string(), iteration_result.content.clone());
                         *current_input = iteration_result.content;
 
-                        self.emit_progress(&state, WorkflowStage::Completed, "迭代阶段完成", phase_progress(CreationPhase::Ingestion));
+                        self.emit_progress(
+                            &state,
+                            WorkflowStage::Completed,
+                            "迭代阶段完成",
+                            phase_progress(CreationPhase::Ingestion),
+                        );
                     } else {
                         *current_input = result.content;
                     }
@@ -680,20 +790,34 @@ impl CreationWorkflowEngine {
 
             state.completed_phases.push(phase);
             let next_phase = phase.next().unwrap_or(CreationPhase::Ingestion);
-            self.emit_progress(&state, WorkflowStage::Completed, &format!("{}阶段完成", phase.name()), phase_progress(next_phase));
+            self.emit_progress(
+                &state,
+                WorkflowStage::Completed,
+                &format!("{}阶段完成", phase.name()),
+                phase_progress(next_phase),
+            );
         }
 
         // 最终 Ingestion
         if !state.is_paused {
-            let final_content = state.phase_outputs.get("写作")
+            let final_content = state
+                .phase_outputs
+                .get("写作")
                 .or(state.phase_outputs.get("迭代"))
                 .unwrap_or(current_input)
                 .clone();
 
             state.current_phase = CreationPhase::Ingestion;
-            self.emit_progress(&state, WorkflowStage::InProgress, "进入记忆阶段", phase_progress(CreationPhase::Ingestion));
+            self.emit_progress(
+                &state,
+                WorkflowStage::InProgress,
+                "进入记忆阶段",
+                phase_progress(CreationPhase::Ingestion),
+            );
 
-            let _ = self.execute_phase(CreationPhase::Ingestion, context, &final_content).await;
+            let _ = self
+                .execute_phase(CreationPhase::Ingestion, context, &final_content)
+                .await;
             state.completed_phases.push(CreationPhase::Ingestion);
             self.emit_progress(&state, WorkflowStage::Completed, "一键创作完成", 1.0);
         }
@@ -712,13 +836,11 @@ impl CreationWorkflowEngine {
             }
             CreationPhase::SceneDesign => {
                 let existing = context.world.world_rules.take().unwrap_or_default();
-                context.world.world_rules = Some(
-                    if existing.is_empty() {
-                        format!("【场景结构】\n{}", content)
-                    } else {
-                        format!("{}\n\n【场景结构】\n{}", existing, content)
-                    }
-                );
+                context.world.world_rules = Some(if existing.is_empty() {
+                    format!("【场景结构】\n{}", content)
+                } else {
+                    format!("{}\n\n【场景结构】\n{}", existing, content)
+                });
             }
             CreationPhase::Writing => {
                 context.narrative.current_content = Some(content.to_string());
@@ -741,7 +863,13 @@ impl CreationWorkflowEngine {
     }
 
     /// 生成工作流进度事件
-    pub fn emit_progress(&self, state: &WorkflowState, stage: WorkflowStage, message: &str, progress: f32) {
+    pub fn emit_progress(
+        &self,
+        state: &WorkflowState,
+        stage: WorkflowStage,
+        message: &str,
+        progress: f32,
+    ) {
         let _ = self.agent_service.app_handle().emit(
             "workflow-progress",
             WorkflowProgressEvent {
@@ -792,17 +920,19 @@ impl CreationWorkflowEngine {
     ///
     /// 当快速创作只创建了占位 WorldBuilding/Character/WritingStyle 时，
     /// 调用此方法通过 LLM 分析正文，生成真实要素并更新数据库。
-    pub async fn enrich_story_elements(
-        &self,
-        story_id: &str,
-    ) -> Result<(), AppError> {
+    pub async fn enrich_story_elements(&self, story_id: &str) -> Result<(), AppError> {
         let scene_repo = SceneRepository::new(self.pool.clone());
         let scenes = scene_repo.get_by_story(story_id).map_err(AppError::from)?;
-        let scene = scenes.into_iter().last()
+        let scene = scenes
+            .into_iter()
+            .last()
             .ok_or_else(|| AppError::from("No scene found for enrichment".to_string()))?;
         let content = scene.content.unwrap_or_default();
         if content.len() < 50 {
-            log::warn!("[enrich] Scene content too short, skipping enrichment for story_id={}", story_id);
+            log::warn!(
+                "[enrich] Scene content too short, skipping enrichment for story_id={}",
+                story_id
+            );
             return Ok(());
         }
 
@@ -870,10 +1000,13 @@ impl CreationWorkflowEngine {
 
         // 更新 Characters
         if let Some(chars_val) = parsed.get("characters") {
-            if let Ok(char_options) = serde_json::from_value::<Vec<CharacterProfileOption>>(chars_val.clone()) {
+            if let Ok(char_options) =
+                serde_json::from_value::<Vec<CharacterProfileOption>>(chars_val.clone())
+            {
                 let char_repo = CharacterRepository::new(self.pool.clone());
                 let existing_chars = char_repo.get_by_story(story_id).unwrap_or_default();
-                let is_placeholder_only = existing_chars.len() == 1 && existing_chars[0].name == "主角";
+                let is_placeholder_only =
+                    existing_chars.len() == 1 && existing_chars[0].name == "主角";
 
                 if is_placeholder_only {
                     for c in &existing_chars {
@@ -891,14 +1024,19 @@ impl CreationWorkflowEngine {
                             age: None,
                         });
                     }
-                    log::info!("[enrich] Replaced placeholder characters for story_id={}", story_id);
+                    log::info!(
+                        "[enrich] Replaced placeholder characters for story_id={}",
+                        story_id
+                    );
                 }
             }
         }
 
         // 更新 WritingStyle
         if let Some(style_val) = parsed.get("writing_style") {
-            if let Ok(style_option) = serde_json::from_value::<WritingStyleOption>(style_val.clone()) {
+            if let Ok(style_option) =
+                serde_json::from_value::<WritingStyleOption>(style_val.clone())
+            {
                 let ws_repo = WritingStyleRepository::new(self.pool.clone());
                 if let Ok(Some(existing)) = ws_repo.get_by_story(story_id) {
                     if existing.name.as_deref() == Some("默认风格") {
@@ -927,27 +1065,56 @@ impl CreationWorkflowEngine {
         let wb_opt = wb_repo.get_by_story(story_id).ok().flatten();
         let chars = char_repo.get_by_story(story_id).unwrap_or_default();
         let ws_opt = ws_repo.get_by_story(story_id).ok().flatten();
-        let scene_opt = scene_repo.get_by_story(story_id).ok().and_then(|s| s.into_iter().last());
+        let scene_opt = scene_repo
+            .get_by_story(story_id)
+            .ok()
+            .and_then(|s| s.into_iter().last());
 
         if let Some(ref scene) = scene_opt {
             if let Some(ref scene_content) = scene.content {
-                let world_info = wb_opt.as_ref().map(|w| {
-                    format!("世界观：{}\n规则：{}\n", w.concept,
-                        w.rules.iter().map(|r| format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))).collect::<Vec<_>>().join("\n"))
-                }).unwrap_or_default();
+                let world_info = wb_opt
+                    .as_ref()
+                    .map(|w| {
+                        format!(
+                            "世界观：{}\n规则：{}\n",
+                            w.concept,
+                            w.rules
+                                .iter()
+                                .map(|r| format!(
+                                    "- {}：{}",
+                                    r.name,
+                                    r.description.as_deref().unwrap_or("")
+                                ))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        )
+                    })
+                    .unwrap_or_default();
 
-                let char_info = chars.iter().map(|c| {
-                    format!("角色：{}，性格：{}，目标：{}", c.name,
-                        c.personality.as_deref().unwrap_or(""),
-                        c.goals.as_deref().unwrap_or(""))
-                }).collect::<Vec<_>>().join("\n");
+                let char_info = chars
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "角色：{}，性格：{}，目标：{}",
+                            c.name,
+                            c.personality.as_deref().unwrap_or(""),
+                            c.goals.as_deref().unwrap_or("")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
 
-                let style_info = ws_opt.as_ref().map(|s| {
-                    format!("文字风格：{}，语调：{}，节奏：{}",
-                        s.name.as_deref().unwrap_or(""),
-                        s.tone.as_deref().unwrap_or(""),
-                        s.pacing.as_deref().unwrap_or(""))
-                }).unwrap_or_default();
+                let style_info = ws_opt
+                    .as_ref()
+                    .map(|s| {
+                        format!(
+                            "文字风格：{}，语调：{}，节奏：{}",
+                            s.name.as_deref().unwrap_or(""),
+                            s.tone.as_deref().unwrap_or(""),
+                            s.pacing.as_deref().unwrap_or("")
+                        )
+                    })
+                    .unwrap_or_default();
 
                 let check_prompt = format!(
                     r#"请检查以下场景正文是否与设定一致。如有冲突，只输出修正后的正文；如无冲突，只回复"无需修正"。
@@ -968,7 +1135,10 @@ impl CreationWorkflowEngine {
                     world_info, char_info, style_info, scene_content
                 );
 
-                match llm_service.generate(check_prompt, Some(2048), Some(0.5)).await {
+                match llm_service
+                    .generate(check_prompt, Some(2048), Some(0.5))
+                    .await
+                {
                     Ok(check_response) => {
                         let trimmed = check_response.content.trim();
                         if trimmed != "无需修正" && trimmed.len() > scene_content.len() / 2 {
@@ -979,10 +1149,18 @@ impl CreationWorkflowEngine {
                             if let Err(e) = scene_repo.update(&scene.id, &update) {
                                 log::warn!("[enrich] Auto-correct update failed: {}", e);
                             } else {
-                                log::info!("[enrich] Auto-corrected scene {} for story_id={}", scene.id, story_id);
+                                log::info!(
+                                    "[enrich] Auto-corrected scene {} for story_id={}",
+                                    scene.id,
+                                    story_id
+                                );
                             }
                         } else {
-                            log::info!("[enrich] No correction needed for scene {} story_id={}", scene.id, story_id);
+                            log::info!(
+                                "[enrich] No correction needed for scene {} story_id={}",
+                                scene.id,
+                                story_id
+                            );
                         }
                     }
                     Err(e) => {
@@ -1009,7 +1187,10 @@ mod tests {
 
     #[test]
     fn test_creation_phase_next() {
-        assert_eq!(CreationPhase::Conception.next(), Some(CreationPhase::Outlining));
+        assert_eq!(
+            CreationPhase::Conception.next(),
+            Some(CreationPhase::Outlining)
+        );
         assert_eq!(CreationPhase::Ingestion.next(), None);
     }
 

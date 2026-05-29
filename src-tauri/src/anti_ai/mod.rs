@@ -7,8 +7,9 @@
 //! - 情感维度 (Emotion)
 //! - 对话维度 (Dialogue)
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// 五维审查结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,10 +58,7 @@ impl AntiAiReviewer {
     }
 
     /// 执行五维审查
-    pub fn review(&self,
-        text: &str,
-        genre: Option<&str>,
-    ) -> AntiAiReview {
+    pub fn review(&self, text: &str, genre: Option<&str>) -> AntiAiReview {
         let mut issues = Vec::new();
         let mut flagged = Vec::new();
         let mut suggestions = Vec::new();
@@ -133,9 +131,7 @@ impl AntiAiReviewer {
             },
         ];
 
-        let overall_score: f64 = dimensions.iter()
-            .map(|d| d.score * d.weight)
-            .sum();
+        let overall_score: f64 = dimensions.iter().map(|d| d.score * d.weight).sum();
 
         AntiAiReview {
             overall_score: overall_score.max(0.0).min(1.0),
@@ -148,19 +144,28 @@ impl AntiAiReviewer {
 
     // ==================== 词汇维度 ====================
 
-    fn check_vocabulary(&self,
-        text: &str,
-    ) -> DimensionResult {
+    fn check_vocabulary(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let flagged = Vec::new();
         let mut suggestions = Vec::new();
 
         let ai_cliches = vec![
-            "不言而喻", "显而易见", "毫无疑问", "众所周知",
-            "不可否认", "值得一提的是", "从某种意义上说",
-            "总的来说", "归根结底", "总而言之",
-            "突然之间", "刹那间", "说时迟那时快",
-            "嘴角微微上扬", "眼中闪过一丝", "心中涌起一股",
+            "不言而喻",
+            "显而易见",
+            "毫无疑问",
+            "众所周知",
+            "不可否认",
+            "值得一提的是",
+            "从某种意义上说",
+            "总的来说",
+            "归根结底",
+            "总而言之",
+            "突然之间",
+            "刹那间",
+            "说时迟那时快",
+            "嘴角微微上扬",
+            "眼中闪过一丝",
+            "心中涌起一股",
         ];
 
         let text_lower = text.to_lowercase();
@@ -219,33 +224,48 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if cliche_count > 5 { 0.3 }
-            else if cliche_count > 2 { 0.5 }
-            else if cliche_count > 0 { 0.7 }
-            else if !repeated_words.is_empty() { 0.8 }
-            else { 0.95 };
+        let score = if cliche_count > 5 {
+            0.3
+        } else if cliche_count > 2 {
+            0.5
+        } else if cliche_count > 0 {
+            0.7
+        } else if !repeated_words.is_empty() {
+            0.8
+        } else {
+            0.95
+        };
 
-        DimensionResult { score, issues, flagged, suggestions }
+        DimensionResult {
+            score,
+            issues,
+            flagged,
+            suggestions,
+        }
     }
 
     // ==================== 语法维度 ====================
 
-    fn check_syntax(&self,
-        text: &str,
-    ) -> DimensionResult {
+    fn check_syntax(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let flagged = Vec::new();
         let suggestions = Vec::new();
 
-        let sentences: Vec<&str> = text.split(|c| c == '。' || c == '！' || c == '？').collect();
+        let sentences: Vec<&str> = text
+            .split(|c| c == '。' || c == '！' || c == '？')
+            .collect();
 
         // 检查句式多样性
         let mut short_sentences = 0;
         let mut long_sentences = 0;
         for s in &sentences {
             let len = s.chars().count();
-            if len > 0 && len < 10 { short_sentences += 1; }
-            if len > 50 { long_sentences += 1; }
+            if len > 0 && len < 10 {
+                short_sentences += 1;
+            }
+            if len > 50 {
+                long_sentences += 1;
+            }
         }
 
         let short_ratio = short_sentences as f64 / sentences.len().max(1) as f64;
@@ -256,7 +276,11 @@ impl AntiAiReviewer {
                 dimension: "语法".to_string(),
                 severity: "medium".to_string(),
                 description: "短句过多，节奏过于碎片化".to_string(),
-                example: sentences.iter().find(|s| s.chars().count() < 10).unwrap_or(&"").to_string(),
+                example: sentences
+                    .iter()
+                    .find(|s| s.chars().count() < 10)
+                    .unwrap_or(&"")
+                    .to_string(),
                 suggestion: "适当使用复合句，增强句子间的逻辑关联".to_string(),
             });
         }
@@ -266,7 +290,11 @@ impl AntiAiReviewer {
                 dimension: "语法".to_string(),
                 severity: "medium".to_string(),
                 description: "长句过多，阅读负担重".to_string(),
-                example: sentences.iter().find(|s| s.chars().count() > 50).unwrap_or(&"").to_string(),
+                example: sentences
+                    .iter()
+                    .find(|s| s.chars().count() > 50)
+                    .unwrap_or(&"")
+                    .to_string(),
                 suggestion: "拆分超长句，用节奏变化调节阅读体验".to_string(),
             });
         }
@@ -285,20 +313,25 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if short_ratio > 0.5 || long_ratio > 0.3 { 0.6 }
-            else if passive_ratio > 0.15 { 0.75 }
-            else { 0.9 };
+        let score = if short_ratio > 0.5 || long_ratio > 0.3 {
+            0.6
+        } else if passive_ratio > 0.15 {
+            0.75
+        } else {
+            0.9
+        };
 
-        DimensionResult { score, issues, flagged, suggestions }
+        DimensionResult {
+            score,
+            issues,
+            flagged,
+            suggestions,
+        }
     }
 
     // ==================== 叙事维度 ====================
 
-    fn check_narrative(
-        &self,
-        text: &str,
-        _genre: Option<&str>,
-    ) -> DimensionResult {
+    fn check_narrative(&self, text: &str, _genre: Option<&str>) -> DimensionResult {
         let mut issues = Vec::new();
         let flagged = Vec::new();
         let mut suggestions = Vec::new();
@@ -310,10 +343,17 @@ impl AntiAiReviewer {
         let uniform_ratio = if lengths.len() >= 3 {
             lengths.sort();
             let median = lengths[lengths.len() / 2];
-            let uniform_count = lengths.iter().filter(|l| {
-                let diff = if **l > median { **l - median } else { median - **l };
-                diff < median / 5
-            }).count();
+            let uniform_count = lengths
+                .iter()
+                .filter(|l| {
+                    let diff = if **l > median {
+                        **l - median
+                    } else {
+                        median - **l
+                    };
+                    diff < median / 5
+                })
+                .count();
             uniform_count as f64 / lengths.len() as f64
         } else {
             0.0
@@ -324,7 +364,10 @@ impl AntiAiReviewer {
                 dimension: "叙事".to_string(),
                 severity: "medium".to_string(),
                 description: "段落长度过于均匀，有流水账倾向".to_string(),
-                example: paragraphs.first().map(|s| s.to_string()).unwrap_or_default(),
+                example: paragraphs
+                    .first()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 suggestion: "打破均匀节奏，用长短段落制造呼吸感".to_string(),
             });
         }
@@ -333,12 +376,8 @@ impl AntiAiReviewer {
         let sensory_words = vec!["看", "听", "闻", "摸", "感", "视", "见", "触", "嗅", "尝"];
         let action_words = vec!["走", "跑", "跳", "打", "抓", "挥", "冲", "退", "闪", "跃"];
 
-        let sensory_count: usize = sensory_words.iter()
-            .map(|w| text.matches(w).count())
-            .sum();
-        let action_count: usize = action_words.iter()
-            .map(|w| text.matches(w).count())
-            .sum();
+        let sensory_count: usize = sensory_words.iter().map(|w| text.matches(w).count()).sum();
+        let action_count: usize = action_words.iter().map(|w| text.matches(w).count()).sum();
 
         let text_len = text.chars().count().max(1);
         let sensory_density = sensory_count as f64 * 100.0 / text_len as f64;
@@ -355,27 +394,42 @@ impl AntiAiReviewer {
             suggestions.push("每段至少包含一个感官细节或具体动作".to_string());
         }
 
-        let score = if sensory_density < 1.0 && action_density < 1.0 { 0.4 }
-            else if uniform_ratio > 0.7 { 0.6 }
-            else { 0.85 };
+        let score = if sensory_density < 1.0 && action_density < 1.0 {
+            0.4
+        } else if uniform_ratio > 0.7 {
+            0.6
+        } else {
+            0.85
+        };
 
-        DimensionResult { score, issues, flagged, suggestions }
+        DimensionResult {
+            score,
+            issues,
+            flagged,
+            suggestions,
+        }
     }
 
     // ==================== 情感维度 ====================
 
-    fn check_emotion(&self,
-        text: &str,
-    ) -> DimensionResult {
+    fn check_emotion(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let mut flagged = Vec::new();
         let mut suggestions = Vec::new();
 
         // 情感标签词检测
         let emotion_labels = vec![
-            "他很生气", "她很高兴", "非常愤怒", "极其开心",
-            "感到悲伤", "十分恐惧", "无比激动", "深感欣慰",
-            "由衷地", "发自内心地", "情不自禁地",
+            "他很生气",
+            "她很高兴",
+            "非常愤怒",
+            "极其开心",
+            "感到悲伤",
+            "十分恐惧",
+            "无比激动",
+            "深感欣慰",
+            "由衷地",
+            "发自内心地",
+            "情不自禁地",
         ];
 
         let mut label_count = 0;
@@ -398,7 +452,10 @@ impl AntiAiReviewer {
                 dimension: "情感".to_string(),
                 severity: if label_count > 3 { "high" } else { "medium" }.to_string(),
                 description: format!("检测到 {} 处情感标签化表达", label_count),
-                example: emotion_labels.first().map(|s| s.to_string()).unwrap_or_default(),
+                example: emotion_labels
+                    .first()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 suggestion: "用动作、神态、环境反应来暗示情绪，而非直接标签".to_string(),
             });
             suggestions.push("遵循'展示而非告知'原则描写情感".to_string());
@@ -406,7 +463,8 @@ impl AntiAiReviewer {
 
         // 检查情感细腻度（内心独白 vs 外部描写）
         let inner_monologue_markers = vec!["想", "觉得", "认为", "感到", "感觉"];
-        let inner_count: usize = inner_monologue_markers.iter()
+        let inner_count: usize = inner_monologue_markers
+            .iter()
             .map(|w| text.matches(w).count())
             .sum();
 
@@ -423,20 +481,27 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if label_count > 3 { 0.3 }
-            else if label_count > 0 { 0.6 }
-            else if inner_ratio > 3.0 { 0.75 }
-            else { 0.9 };
+        let score = if label_count > 3 {
+            0.3
+        } else if label_count > 0 {
+            0.6
+        } else if inner_ratio > 3.0 {
+            0.75
+        } else {
+            0.9
+        };
 
-        DimensionResult { score, issues, flagged, suggestions }
+        DimensionResult {
+            score,
+            issues,
+            flagged,
+            suggestions,
+        }
     }
 
     // ==================== 对话维度 ====================
 
-    fn check_dialogue(
-    &self,
-        text: &str,
-    ) -> DimensionResult {
+    fn check_dialogue(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let flagged = Vec::new();
         let suggestions = Vec::new();
@@ -511,12 +576,22 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if exposition_ratio > 0.5 { 0.4 }
-            else if exposition_ratio > 0.3 { 0.6 }
-            else if tag_ratio > 0.8 { 0.75 }
-            else { 0.9 };
+        let score = if exposition_ratio > 0.5 {
+            0.4
+        } else if exposition_ratio > 0.3 {
+            0.6
+        } else if tag_ratio > 0.8 {
+            0.75
+        } else {
+            0.9
+        };
 
-        DimensionResult { score, issues, flagged, suggestions }
+        DimensionResult {
+            score,
+            issues,
+            flagged,
+            suggestions,
+        }
     }
 }
 

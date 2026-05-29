@@ -26,7 +26,10 @@ pub trait LlmAdapter: Send + Sync {
     async fn generate_stream(
         &self,
         request: GenerateRequest,
-    ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<
+        tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    >;
 
     fn model_name(&self) -> String;
 }

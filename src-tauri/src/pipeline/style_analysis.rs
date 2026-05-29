@@ -4,15 +4,14 @@
 //!
 //! 触发条件：故事章节数为 5 的倍数时，取最近 5 章的最新草稿拼接后分析。
 
-use crate::db::{
-    DbPool, ChapterRepository, DraftRepository,
+use crate::{
+    creative_engine::style::{
+        dna::StyleDNA,
+        evolution::{StyleDnaDelta, StyleEvolutionEngine},
+        metrics::StyleMetrics,
+    },
+    db::{repositories::StyleSnapshotRepository, ChapterRepository, DbPool, DraftRepository},
 };
-use crate::db::repositories::StyleSnapshotRepository;
-use crate::creative_engine::style::metrics::StyleMetrics;
-use crate::creative_engine::style::evolution::{
-    StyleEvolutionEngine, StyleDnaDelta,
-};
-use crate::creative_engine::style::dna::StyleDNA;
 
 /// 风格分析结果
 #[derive(Debug, Clone)]
@@ -26,22 +25,17 @@ pub struct StyleAnalysisResult {
 /// 检查是否应触发风格分析
 ///
 /// 当故事拥有 >= 5 个章节，且最近 5 章尚未被分析时返回 true。
-pub fn should_trigger_style_analysis(
-    story_id: &str,
-    pool: &DbPool,
-) -> Result<bool, String> {
+pub fn should_trigger_style_analysis(story_id: &str, pool: &DbPool) -> Result<bool, String> {
     let chapter_repo = ChapterRepository::new(pool.clone());
-    let chapters = chapter_repo.get_by_story(story_id)
+    let chapters = chapter_repo
+        .get_by_story(story_id)
         .map_err(|e| format!("获取章节失败: {}", e))?;
 
     if chapters.len() < 5 {
         return Ok(false);
     }
 
-    let max_chapter = chapters.iter()
-        .map(|c| c.chapter_number)
-        .max()
-        .unwrap_or(0);
+    let max_chapter = chapters.iter().map(|c| c.chapter_number).max().unwrap_or(0);
 
     // 只在 5 的倍数章节触发（如第 5、10、15 章完成后）
     if max_chapter % 5 != 0 {
@@ -49,7 +43,8 @@ pub fn should_trigger_style_analysis(
     }
 
     let snapshot_repo = StyleSnapshotRepository::new(pool.clone());
-    let latest = snapshot_repo.get_latest_by_story(story_id)
+    let latest = snapshot_repo
+        .get_latest_by_story(story_id)
         .map_err(|e| format!("获取快照失败: {}", e))?;
 
     // 如果最新快照的 chapter_number >= max_chapter，说明已分析过
@@ -75,7 +70,8 @@ pub fn analyze_style_for_story(
     let chapter_repo = ChapterRepository::new(pool.clone());
     let draft_repo = DraftRepository::new(pool.clone());
 
-    let chapters = chapter_repo.get_by_story(story_id)
+    let chapters = chapter_repo
+        .get_by_story(story_id)
         .map_err(|e| format!("获取章节失败: {}", e))?;
 
     if chapters.is_empty() {
@@ -85,7 +81,8 @@ pub fn analyze_style_for_story(
     // 取最近 5 章
     let mut recent_chapters = chapters;
     recent_chapters.sort_by_key(|c| c.chapter_number);
-    let recent = recent_chapters.into_iter()
+    let recent = recent_chapters
+        .into_iter()
         .rev()
         .take(5)
         .collect::<Vec<_>>();
@@ -96,8 +93,10 @@ pub fn analyze_style_for_story(
     // 收集每章最新草稿的内容
     let mut combined_text = String::new();
     for chapter in &recent {
-        if let Some(draft) = draft_repo.get_latest_by_chapter(story_id, chapter.chapter_number)
-            .map_err(|e| format!("获取草稿失败: {}", e))? {
+        if let Some(draft) = draft_repo
+            .get_latest_by_chapter(story_id, chapter.chapter_number)
+            .map_err(|e| format!("获取草稿失败: {}", e))?
+        {
             if !draft.content.is_empty() {
                 combined_text.push_str(&draft.content);
                 combined_text.push('\n');
@@ -120,15 +119,13 @@ pub fn analyze_style_for_story(
 
     // 保存 snapshot
     let snapshot_repo = StyleSnapshotRepository::new(pool.clone());
-    let snapshot = snapshot_repo.create(
-        story_id,
-        Some(max_ch),
-        None,
-        &metrics,
-    ).map_err(|e| format!("保存风格快照失败: {}", e))?;
+    let snapshot = snapshot_repo
+        .create(story_id, Some(max_ch), None, &metrics)
+        .map_err(|e| format!("保存风格快照失败: {}", e))?;
 
     // 计算与上一次 snapshot 的 delta
-    let previous_delta = snapshot_repo.get_latest_by_story(story_id)
+    let previous_delta = snapshot_repo
+        .get_latest_by_story(story_id)
         .ok()
         .flatten()
         .and_then(|prev| {
@@ -147,10 +144,13 @@ pub fn analyze_style_for_story(
                 };
                 // 简单 delta：直接相减
                 Some(StyleDnaDelta {
-                    sentence_length_delta: (metrics.sentence_length - prev_metrics.sentence_length) as i32,
+                    sentence_length_delta: (metrics.sentence_length - prev_metrics.sentence_length)
+                        as i32,
                     dialogue_ratio_delta: metrics.dialogue_ratio - prev_metrics.dialogue_ratio,
-                    metaphor_density_delta: metrics.metaphor_density - prev_metrics.metaphor_density,
-                    interior_monologue_delta: metrics.inner_monologue_ratio - prev_metrics.inner_monologue_ratio,
+                    metaphor_density_delta: metrics.metaphor_density
+                        - prev_metrics.metaphor_density,
+                    interior_monologue_delta: metrics.inner_monologue_ratio
+                        - prev_metrics.inner_monologue_ratio,
                     emotion_density_delta: metrics.emotion_density - prev_metrics.emotion_density,
                     rhythm_score_delta: metrics.rhythm_score - prev_metrics.rhythm_score,
                     ..Default::default()

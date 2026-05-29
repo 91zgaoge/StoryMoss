@@ -40,12 +40,18 @@ pub struct ModelCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum QualityTier {
-    Low, Medium, High, Ultra,
+    Low,
+    Medium,
+    High,
+    Ultra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SpeedTier {
-    Fast, Normal, Slow, VerySlow,
+    Fast,
+    Normal,
+    Slow,
+    VerySlow,
 }
 
 impl ModelConfig {

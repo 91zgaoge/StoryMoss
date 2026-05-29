@@ -1,7 +1,8 @@
 //! 统一叙事元素模型
 //!
-//! 生产表（stories/characters/scenes）和参考表（reference_books/reference_characters/reference_scenes）
-//! 共享同一套数据结构，通过 ElementSource 区分数据来源。
+//! 生产表（stories/characters/scenes）和参考表（reference_books/
+//! reference_characters/reference_scenes） 共享同一套数据结构，通过
+//! ElementSource 区分数据来源。
 
 use serde::{Deserialize, Serialize};
 // use chrono::{DateTime, Local};
@@ -10,14 +11,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ElementType {
-    StoryMeta,      // 故事元信息
-    WorldBuilding,  // 世界观
-    Character,      // 角色
-    Scene,          // 场景
-    Outline,        // 大纲
-    Relationship,   // 角色关系
-    Foreshadowing,  // 伏笔
-    PlotPoint,      // 情节点
+    StoryMeta,     // 故事元信息
+    WorldBuilding, // 世界观
+    Character,     // 角色
+    Scene,         // 场景
+    Outline,       // 大纲
+    Relationship,  // 角色关系
+    Foreshadowing, // 伏笔
+    PlotPoint,     // 情节点
 }
 
 impl std::fmt::Display for ElementType {
@@ -41,10 +42,10 @@ impl std::fmt::Display for ElementType {
 #[serde(rename_all = "snake_case")]
 pub enum ElementSource {
     #[default]
-    Generated,      // AI生成（Bootstrap/创世）
-    Extracted,      // 从文本提取（拆书）
-    UserCreated,    // 用户手动创建
-    Imported,       // 从外部导入
+    Generated, // AI生成（Bootstrap/创世）
+    Extracted,   // 从文本提取（拆书）
+    UserCreated, // 用户手动创建
+    Imported,    // 从外部导入
 }
 
 /// 元素状态 — 区分活跃创作元素与参考材料 (W3-B3)
@@ -52,9 +53,9 @@ pub enum ElementSource {
 #[serde(rename_all = "snake_case")]
 pub enum ElementStatus {
     #[default]
-    Active,         // 当前故事正在使用的活跃元素
-    Reference,      // 从拆书/参考材料导入，尚未激活
-    Archived,       // 已归档，不再使用
+    Active, // 当前故事正在使用的活跃元素
+    Reference, // 从拆书/参考材料导入，尚未激活
+    Archived,  // 已归档，不再使用
 }
 
 impl std::fmt::Display for ElementStatus {
@@ -89,7 +90,7 @@ pub struct CharacterElement {
     #[serde(default)]
     pub story_id: String,
     pub name: String,
-    pub role_type: String,           // 主角/反派/导师/盟友/爱情线...
+    pub role_type: String, // 主角/反派/导师/盟友/爱情线...
     pub personality: String,
     pub background: String,
     pub goals: String,
@@ -101,19 +102,19 @@ pub struct CharacterElement {
     #[serde(default)]
     pub relationships: Vec<CharacterRelationship>,
     #[serde(default)]
-    pub importance_score: f32,       // 1-10
+    pub importance_score: f32, // 1-10
     #[serde(default)]
     pub source: ElementSource,
     #[serde(default)]
     pub source_ref_id: Option<String>, // 关联外部ID（如拆书的book_id）
     #[serde(default)]
-    pub status: ElementStatus,         // active / reference / archived (W3-B3)
+    pub status: ElementStatus, // active / reference / archived (W3-B3)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterRelationship {
     pub target_name: String,
-    pub relation_type: String,       // 朋友/敌人/恋人/师徒...
+    pub relation_type: String, // 朋友/敌人/恋人/师徒...
     pub description: Option<String>,
 }
 
@@ -136,14 +137,14 @@ pub struct SceneElement {
     #[serde(default)]
     pub external_pressure: String,
     #[serde(default)]
-    pub conflict_type: String,       // man_vs_man | man_vs_self | ...
+    pub conflict_type: String, // man_vs_man | man_vs_self | ...
     #[serde(default)]
     pub characters_present: Vec<String>,
     #[serde(default)]
     pub setting_location: String,
     #[serde(default)]
     pub setting_time: String,
-    pub content: Option<String>,     // 正文内容（可选）
+    pub content: Option<String>, // 正文内容（可选）
     #[serde(default)]
     pub source: ElementSource,
     #[serde(default)]
@@ -182,8 +183,8 @@ pub struct WorldBuildingElement {
 pub struct WorldRule {
     pub name: String,
     pub description: String,
-    pub rule_type: String,           // physical | magic | social | historical...
-    pub importance: i32,             // 1-10
+    pub rule_type: String, // physical | magic | social | historical...
+    pub importance: i32,   // 1-10
 }
 
 // ==================== 统一大纲模型 ====================
@@ -223,9 +224,9 @@ pub struct ForeshadowingElement {
     #[serde(default)]
     pub story_id: String,
     pub content: String,
-    pub importance: i32,             // 1-10
+    pub importance: i32, // 1-10
     pub target_act: i32,
-    pub hint_style: String,          // 环境隐喻/对话暗示/物品象征...
+    pub hint_style: String, // 环境隐喻/对话暗示/物品象征...
     pub setup_scene_id: Option<String>,
     pub payoff_scene_id: Option<String>,
     #[serde(default)]
@@ -240,10 +241,10 @@ pub struct ForeshadowingElement {
 #[serde(rename_all = "snake_case")]
 pub enum ForeshadowingStatus {
     #[default]
-    Setup,      // 已埋设
-    Payoff,     // 已回收
-    Abandoned,  // 已放弃
-    Pending,    // 待处理
+    Setup, // 已埋设
+    Payoff,    // 已回收
+    Abandoned, // 已放弃
+    Pending,   // 待处理
 }
 
 // ==================== 故事元信息模型 ====================
@@ -368,15 +369,13 @@ mod tests {
         let outline = OutlineElement {
             id: "ol_1".to_string(),
             story_id: "s1".to_string(),
-            acts: vec![
-                OutlineAct {
-                    act_number: 1,
-                    title: "第一幕".to_string(),
-                    summary: "引入".to_string(),
-                    key_plot_points: vec!["事件A".to_string()],
-                    estimated_scenes: 5,
-                },
-            ],
+            acts: vec![OutlineAct {
+                act_number: 1,
+                title: "第一幕".to_string(),
+                summary: "引入".to_string(),
+                key_plot_points: vec!["事件A".to_string()],
+                estimated_scenes: 5,
+            }],
             total_scenes_estimate: 15,
             source: ElementSource::Generated,
             source_ref_id: None,

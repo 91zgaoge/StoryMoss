@@ -1,8 +1,8 @@
 //! Audit commands
 
 use tauri::State;
-use crate::db::DbPool;
-use crate::error::AppError;
+
+use crate::{db::DbPool, error::AppError};
 
 // ==================== Story Structure Audit Commands ====================
 
@@ -15,5 +15,8 @@ pub async fn audit_story(
     let pool = pool.inner().clone();
     let llm_service = crate::llm::LlmService::new(app_handle);
     let auditor = crate::narrative::audit::StoryStructureAuditor::new(pool, llm_service);
-    auditor.analyze(&story_id).await.map_err(|e| AppError::internal(e.to_string()))
+    auditor
+        .analyze(&story_id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))
 }

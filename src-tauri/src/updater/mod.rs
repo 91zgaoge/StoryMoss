@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 /// 更新信息
@@ -64,7 +64,10 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
             })
         }
         Ok(None) => {
-            log::info!("[Updater] No updates available, current version: {}", current_version);
+            log::info!(
+                "[Updater] No updates available, current version: {}",
+                current_version
+            );
             Ok(CheckUpdateResult {
                 has_update: false,
                 current_version,

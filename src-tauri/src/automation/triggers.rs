@@ -2,8 +2,9 @@
 //!
 //! 定义各种事件触发条件和规则
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// 触发事件类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -11,29 +12,52 @@ pub enum TriggerEvent {
     /// 故事创建
     StoryCreated { story_id: String },
     /// 章节创建
-    ChapterCreated { story_id: String, chapter_id: String },
+    ChapterCreated {
+        story_id: String,
+        chapter_id: String,
+    },
     /// 角色创建
-    CharacterCreated { story_id: String, character_id: String },
+    CharacterCreated {
+        story_id: String,
+        character_id: String,
+    },
     /// 章节内容更新
-    ChapterContentUpdated { story_id: String, chapter_id: String, word_count: usize },
+    ChapterContentUpdated {
+        story_id: String,
+        chapter_id: String,
+        word_count: usize,
+    },
     /// 角色关系更新
-    CharacterRelationshipUpdated { story_id: String, character_id: String },
+    CharacterRelationshipUpdated {
+        story_id: String,
+        character_id: String,
+    },
     /// 故事设定更新
     StorySettingUpdated { story_id: String },
     /// 工作流完成
-    WorkflowCompleted { workflow_id: String, instance_id: String },
+    WorkflowCompleted {
+        workflow_id: String,
+        instance_id: String,
+    },
     /// 任务完成
     TaskCompleted { task_id: String, task_type: String },
     /// 场景创建
     SceneCreated { story_id: String, scene_id: String },
     /// 场景内容更新
-    SceneContentUpdated { story_id: String, scene_id: String, word_count: usize },
+    SceneContentUpdated {
+        story_id: String,
+        scene_id: String,
+        word_count: usize,
+    },
     /// 场景生成请求（AI写作前）
     SceneGenerationRequested { story_id: String, scene_id: String },
     /// 场景生成完成（AI写作后）
     SceneGenerated { story_id: String, scene_id: String },
     /// 章节定稿
-    ChapterFinalized { story_id: String, chapter_id: String },
+    ChapterFinalized {
+        story_id: String,
+        chapter_id: String,
+    },
 }
 
 /// 触发条件
@@ -114,7 +138,10 @@ impl AutomationTrigger {
         context: &T,
     ) -> Result<bool, String> {
         for condition in &self.conditions {
-            if !self.evaluate_single_condition(condition, event, context).await? {
+            if !self
+                .evaluate_single_condition(condition, event, context)
+                .await?
+            {
                 return Ok(false);
             }
         }
@@ -213,7 +240,10 @@ pub trait TriggerContext {
     async fn get_story_word_count(&self, story_id: &str) -> Result<usize, String>;
     async fn get_character_count(&self, story_id: &str) -> Result<usize, String>;
     async fn get_chapter_count(&self, story_id: &str) -> Result<usize, String>;
-    async fn get_last_trigger_time(&self, trigger_id: &str) -> Result<Option<chrono::DateTime<chrono::Utc>>, String>;
+    async fn get_last_trigger_time(
+        &self,
+        trigger_id: &str,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, String>;
 }
 
 /// 预定义触发器模板
@@ -225,7 +255,9 @@ impl TriggerTemplates {
         AutomationTrigger::new(
             "自动生成角色".to_string(),
             "故事创建后自动生成初始角色".to_string(),
-            TriggerEvent::StoryCreated { story_id: String::new() },
+            TriggerEvent::StoryCreated {
+                story_id: String::new(),
+            },
             vec![TriggerCondition::Always],
             "generate_characters".to_string(),
         )
@@ -236,7 +268,10 @@ impl TriggerTemplates {
         AutomationTrigger::new(
             "自动分析情节".to_string(),
             "章节创建后自动分析情节发展".to_string(),
-            TriggerEvent::ChapterCreated { story_id: String::new(), chapter_id: String::new() },
+            TriggerEvent::ChapterCreated {
+                story_id: String::new(),
+                chapter_id: String::new(),
+            },
             vec![TriggerCondition::Always],
             "analyze_plot".to_string(),
         )
@@ -250,7 +285,7 @@ impl TriggerTemplates {
             TriggerEvent::ChapterContentUpdated {
                 story_id: String::new(),
                 chapter_id: String::new(),
-                word_count: 0
+                word_count: 0,
             },
             vec![TriggerCondition::WordCountThreshold { min_words: 100 }],
             "vector_index".to_string(),
@@ -264,7 +299,7 @@ impl TriggerTemplates {
             "每小时自动备份故事数据".to_string(),
             TriggerEvent::TaskCompleted {
                 task_id: String::new(),
-                task_type: "backup_trigger".to_string()
+                task_type: "backup_trigger".to_string(),
             },
             vec![TriggerCondition::TimeInterval { seconds: 3600 }],
             "backup_story".to_string(),

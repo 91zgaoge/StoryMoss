@@ -1,29 +1,55 @@
 //! WebSocket Server for Collaborative Editing
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, RwLock};
-use tokio_tungstenite::accept_async;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::Utf8Bytes;
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use crate::collab::ot::{TextOperation, OTTransformer};
-use crate::db::DbPool;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::{mpsc, RwLock},
+};
+use tokio_tungstenite::{
+    accept_async,
+    tungstenite::{Message, Utf8Bytes},
+};
+
+use crate::{
+    collab::ot::{OTTransformer, TextOperation},
+    db::DbPool,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum CollabMessage {
-    Join { session_id: String, user_id: String, user_name: String },
-    Leave { user_id: String },
-    Operation { operation: TextOperation, client_version: u64 },
-    Cursor { user_id: String, position: CursorPosition },
-    Ack { version: u64 },
-    Sync { content: String, version: u64 },
-    Participants { participants: Vec<ParticipantInfo> },
-    Error { message: String },
+    Join {
+        session_id: String,
+        user_id: String,
+        user_name: String,
+    },
+    Leave {
+        user_id: String,
+    },
+    Operation {
+        operation: TextOperation,
+        client_version: u64,
+    },
+    Cursor {
+        user_id: String,
+        position: CursorPosition,
+    },
+    Ack {
+        version: u64,
+    },
+    Sync {
+        content: String,
+        version: u64,
+    },
+    Participants {
+        participants: Vec<ParticipantInfo>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,10 +126,10 @@ impl CollabSession {
     pub async fn apply_operation(&self, operation: TextOperation) -> Result<u64, String> {
         let mut operations = self.operations.write().await;
         let mut version = self.version.write().await;
-        
+
         operations.push(operation);
         *version += 1;
-        
+
         Ok(*version)
     }
 
@@ -158,7 +184,8 @@ impl WebSocketServer {
         Ok(())
     }
 
-    pub async fn create_session(&self,
+    pub async fn create_session(
+        &self,
         session_id: String,
         document_id: String,
     ) -> Arc<CollabSession> {
@@ -177,14 +204,18 @@ async fn handle_connection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-    
+
     let (tx, mut rx) = mpsc::unbounded_channel::<CollabMessage>();
 
     // Spawn task to send messages to WebSocket
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if let Ok(json) = serde_json::to_string(&msg) {
-                if ws_sender.send(Message::Text(Utf8Bytes::from(json))).await.is_err() {
+                if ws_sender
+                    .send(Message::Text(Utf8Bytes::from(json)))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -208,7 +239,7 @@ async fn handle_connection(
                         if let CollabMessage::Join { ref session_id, .. } = collab_msg {
                             current_session_id = Some(session_id.clone());
                         }
-                        
+
                         let user_id = current_user_id.as_deref().unwrap_or("unknown");
                         handle_collab_message(
                             collab_msg,
@@ -216,7 +247,8 @@ async fn handle_connection(
                             &sessions,
                             &tx,
                             &mut current_session_id,
-                        ).await;
+                        )
+                        .await;
                     }
                     Err(e) => {
                         log::error!("Failed to parse message: {}", e);
@@ -249,7 +281,11 @@ async fn handle_collab_message(
     current_session_id: &mut Option<String>,
 ) {
     match msg {
-        CollabMessage::Join { session_id, user_id: join_user_id, user_name } => {
+        CollabMessage::Join {
+            session_id,
+            user_id: join_user_id,
+            user_name,
+        } => {
             let sessions = sessions.read().await;
             if let Some(session) = sessions.get(&session_id) {
                 let client = CollabClient {
@@ -258,12 +294,12 @@ async fn handle_collab_message(
                     sender: sender.clone(),
                 };
                 session.add_client(client).await;
-                
+
                 // Send current document state
                 let version = *session.version.read().await;
                 let ack = CollabMessage::Ack { version };
                 let _ = sender.send(ack);
-                
+
                 // Broadcast updated participants list
                 session.broadcast_participants().await;
             } else {
@@ -272,7 +308,9 @@ async fn handle_collab_message(
                 });
             }
         }
-        CollabMessage::Leave { user_id: leave_user_id } => {
+        CollabMessage::Leave {
+            user_id: leave_user_id,
+        } => {
             if let Some(ref session_id) = *current_session_id {
                 let sessions = sessions.read().await;
                 if let Some(session) = sessions.get(session_id) {
@@ -281,7 +319,10 @@ async fn handle_collab_message(
                 }
             }
         }
-        CollabMessage::Operation { operation, client_version: _ } => {
+        CollabMessage::Operation {
+            operation,
+            client_version: _,
+        } => {
             if let Some(ref session_id) = *current_session_id {
                 let sessions = sessions.read().await;
                 if let Some(session) = sessions.get(session_id) {
@@ -293,7 +334,7 @@ async fn handle_collab_message(
                                 client_version: version,
                             };
                             session.broadcast(op_msg, Some(user_id)).await;
-                            
+
                             // Send ack to sender
                             let _ = sender.send(CollabMessage::Ack { version });
                         }
@@ -306,7 +347,10 @@ async fn handle_collab_message(
                 }
             }
         }
-        CollabMessage::Cursor { user_id: cursor_user_id, position } => {
+        CollabMessage::Cursor {
+            user_id: cursor_user_id,
+            position,
+        } => {
             if let Some(ref session_id) = *current_session_id {
                 let sessions = sessions.read().await;
                 if let Some(session) = sessions.get(session_id) {

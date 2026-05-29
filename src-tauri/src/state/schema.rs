@@ -57,7 +57,12 @@ impl Default for StorySchema {
 }
 
 impl StorySchema {
-    pub fn validate_story(&self, title: &str, description: Option<&str>, genre: Option<&str>) -> ValidationResult {
+    pub fn validate_story(
+        &self,
+        title: &str,
+        description: Option<&str>,
+        genre: Option<&str>,
+    ) -> ValidationResult {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
 
@@ -65,7 +70,10 @@ impl StorySchema {
         if title.len() < self.title_min_length {
             errors.push(ValidationError {
                 field: "title".to_string(),
-                message: format!("Title must be at least {} characters", self.title_min_length),
+                message: format!(
+                    "Title must be at least {} characters",
+                    self.title_min_length
+                ),
                 code: "TITLE_TOO_SHORT".to_string(),
             });
         }
@@ -82,7 +90,10 @@ impl StorySchema {
             if desc.len() > self.description_max_length {
                 errors.push(ValidationError {
                     field: "description".to_string(),
-                    message: format!("Description must not exceed {} characters", self.description_max_length),
+                    message: format!(
+                        "Description must not exceed {} characters",
+                        self.description_max_length
+                    ),
                     code: "DESCRIPTION_TOO_LONG".to_string(),
                 });
             }
@@ -125,7 +136,8 @@ impl StorySchema {
                 warnings.push(ValidationWarning {
                     field: "content".to_string(),
                     message: "Chapter content seems short".to_string(),
-                    suggestion: "Consider expanding the chapter for better reader engagement".to_string(),
+                    suggestion: "Consider expanding the chapter for better reader engagement"
+                        .to_string(),
                 });
             }
         }

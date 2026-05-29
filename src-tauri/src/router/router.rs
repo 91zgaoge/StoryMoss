@@ -1,6 +1,7 @@
 #![allow(dead_code)]
-use super::model::*;
 use std::collections::HashMap;
+
+use super::model::*;
 
 /// Dynamic model router for selecting optimal LLM based on task
 pub struct ModelRouter {
@@ -10,14 +11,14 @@ pub struct ModelRouter {
 
 #[derive(Debug, Clone)]
 pub enum TaskType {
-    CreativeWriting,    // Needs high quality
-    Editing,           // Needs precision
-    Analysis,          // Needs reasoning
-    Dialogue,          // Needs character voice
-    Summarization,     // Can use faster model
-    Brainstorming,     // Can use cheaper model
-    Proofreading,      // Needs accuracy
-    WorldBuilding,     // Needs creativity + consistency
+    CreativeWriting, // Needs high quality
+    Editing,         // Needs precision
+    Analysis,        // Needs reasoning
+    Dialogue,        // Needs character voice
+    Summarization,   // Can use faster model
+    Brainstorming,   // Can use cheaper model
+    Proofreading,    // Needs accuracy
+    WorldBuilding,   // Needs creativity + consistency
 }
 
 #[derive(Debug, Clone)]
@@ -49,8 +50,16 @@ impl ModelRouter {
         self.configs.insert(config.id.clone(), config);
     }
 
-    pub fn route(&self, task: TaskType, complexity: Complexity, budget_priority: Priority, speed_priority: Priority) -> RoutingDecision {
-        let suitable_models: Vec<&ModelConfig> = self.configs.values()
+    pub fn route(
+        &self,
+        task: TaskType,
+        complexity: Complexity,
+        budget_priority: Priority,
+        speed_priority: Priority,
+    ) -> RoutingDecision {
+        let suitable_models: Vec<&ModelConfig> = self
+            .configs
+            .values()
             .filter(|m| self.is_suitable_for_task(m, &task))
             .collect();
 
@@ -121,7 +130,10 @@ impl ModelRouter {
 
         RoutingDecision {
             model_id: best_model.id.clone(),
-            reason: format!("Selected based on {:?} task with {:?} complexity", task, complexity),
+            reason: format!(
+                "Selected based on {:?} task with {:?} complexity",
+                task, complexity
+            ),
             estimated_cost: best_model.cost_per_1k_output,
             estimated_time_ms: match best_model.capabilities.speed_tier {
                 SpeedTier::Fast => 1000,
@@ -135,11 +147,12 @@ impl ModelRouter {
     fn is_suitable_for_task(&self, model: &ModelConfig, task: &TaskType) -> bool {
         match task {
             TaskType::CreativeWriting => {
-                matches!(model.capabilities.quality_tier, QualityTier::High | QualityTier::Ultra)
+                matches!(
+                    model.capabilities.quality_tier,
+                    QualityTier::High | QualityTier::Ultra
+                )
             }
-            TaskType::Analysis => {
-                model.capabilities.max_context_length >= 8000
-            }
+            TaskType::Analysis => model.capabilities.max_context_length >= 8000,
             _ => true, // Most models can handle other tasks
         }
     }

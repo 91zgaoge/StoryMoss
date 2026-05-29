@@ -25,7 +25,7 @@ impl TemplateEngine {
 
         // 简单变量替换: {{key}}
         for (key, value) in variables {
-            let placeholder = format!("{{{{{}}}}}" , key);
+            let placeholder = format!("{{{{{}}}}}", key);
             result = result.replace(&placeholder, value);
         }
 
@@ -52,7 +52,8 @@ impl TemplateEngine {
             let end_tag = result[cond_end..].find("{{/if}}").unwrap() + cond_end;
             let block_content = result[cond_end + 2..end_tag].to_string();
 
-            let has_value = variables.get(condition_key)
+            let has_value = variables
+                .get(condition_key)
                 .map(|v| !v.is_empty() && v != "无" && v != "暂无" && v != "暂无角色信息")
                 .unwrap_or(false);
 
@@ -317,7 +318,10 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("has_data".to_string(), "yes".to_string());
         vars.insert("data".to_string(), "123".to_string());
-        assert_eq!(TemplateEngine::render_with_conditions(template, &vars), "Data: 123End");
+        assert_eq!(
+            TemplateEngine::render_with_conditions(template, &vars),
+            "Data: 123End"
+        );
     }
 
     #[test]
@@ -325,6 +329,9 @@ mod tests {
         let template = "{{#if missing}}Data: {{data}}{{/if}}End";
         let mut vars = HashMap::new();
         vars.insert("missing".to_string(), "".to_string());
-        assert_eq!(TemplateEngine::render_with_conditions(template, &vars), "End");
+        assert_eq!(
+            TemplateEngine::render_with_conditions(template, &vars),
+            "End"
+        );
     }
 }

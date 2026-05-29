@@ -1,33 +1,46 @@
 //! Sync commands
 
-use tauri::{Manager, AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+
 use crate::error::AppError;
 
 // ===== 幕前/幕后通信命令 =====
 
 /// 通知 backstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), AppError> {
+pub fn notify_backstage_content_changed(
+    text: String,
+    chapter_id: String,
+    app: AppHandle,
+) -> Result<(), AppError> {
     let event = crate::window::BackstageEvent::ContentChanged { text, chapter_id };
     crate::window::WindowManager::send_to_backstage(&app, event)
 }
 
-
 /// 通知 backstage 请求生成内容
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), AppError> {
-    let event = crate::window::BackstageEvent::GenerationRequested { chapter_id, context };
+pub fn notify_backstage_generation_requested(
+    chapter_id: String,
+    context: String,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    let event = crate::window::BackstageEvent::GenerationRequested {
+        chapter_id,
+        context,
+    };
     crate::window::WindowManager::send_to_backstage(&app, event)
 }
 
-
 /// 通知 frontstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), AppError> {
+pub fn notify_frontstage_content_changed(
+    text: String,
+    chapter_id: String,
+    app: AppHandle,
+) -> Result<(), AppError> {
     let event = crate::window::FrontstageEvent::ContentUpdate { text, chapter_id };
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
-
 
 /// 通知 frontstage 数据已刷新（幕后创建/修改了故事、章节等）
 #[tauri::command(rename_all = "snake_case")]
@@ -35,7 +48,6 @@ pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<
     let event = crate::window::FrontstageEvent::DataRefresh { entity };
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
-
 
 /// 显示 backstage 窗口
 #[tauri::command(rename_all = "snake_case")]
@@ -49,7 +61,7 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), Ap
         let window = tauri::WebviewWindowBuilder::new(
             &app,
             "backstage",
-            tauri::WebviewUrl::App("index.html".into())
+            tauri::WebviewUrl::App("index.html".into()),
         )
         .title("草苔 - 幕后工作室")
         .inner_size(1200.0, 800.0)
@@ -128,13 +140,16 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), Ap
                 }
             }
             // 发射事件通知前端窗口已恢复
-            let _ = window.emit("backstage-shown", serde_json::json!({
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis(),
-                "story_id": story_id_clone
-            }));
+            let _ = window.emit(
+                "backstage-shown",
+                serde_json::json!({
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis(),
+                    "story_id": story_id_clone
+                }),
+            );
         }
     });
     if let Some(sid) = story_id {
@@ -144,23 +159,27 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), Ap
                 view: "stories".to_string(),
                 highlight_story_id: Some(sid),
                 open_panel: Some("overview".to_string()),
-            }
+            },
         );
     }
 
     Ok(())
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn cancel_genesis_pipeline(session_id: String) -> Result<bool, AppError> {
     let cancelled = crate::narrative::pipeline::cancel_pipeline(&session_id);
     if cancelled {
-        log::info!("[cancel_genesis_pipeline] Pipeline {} 已标记为取消", session_id);
+        log::info!(
+            "[cancel_genesis_pipeline] Pipeline {} 已标记为取消",
+            session_id
+        );
         Ok(true)
     } else {
-        log::warn!("[cancel_genesis_pipeline] Pipeline {} 未找到或已完成", session_id);
+        log::warn!(
+            "[cancel_genesis_pipeline] Pipeline {} 未找到或已完成",
+            session_id
+        );
         Ok(false)
     }
 }
-

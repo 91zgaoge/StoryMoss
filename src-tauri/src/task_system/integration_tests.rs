@@ -5,13 +5,18 @@
 
 #[cfg(test)]
 mod tests {
-    use super::super::models::*;
-    use super::super::repository;
-    use super::super::executor::{ExecutorRegistry, TaskExecutor};
-    use super::super::scheduler::TaskScheduler;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use super::super::{
+        executor::{ExecutorRegistry, TaskExecutor},
+        models::*,
+        repository,
+        scheduler::TaskScheduler,
+    };
     use crate::db::connection::create_test_pool;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// 模拟执行器：记录调用次数，不依赖外部服务
     struct MockExecutor {
@@ -25,10 +30,7 @@ mod tests {
             *task_type == TaskType::BookDeconstruction
         }
 
-        async fn execute(
-            &self,
-            _task: &Task,
-        ) -> Result<TaskResult, Box<dyn std::error::Error>> {
+        async fn execute(&self, _task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             if self.should_succeed {
                 Ok(TaskResult {
@@ -48,8 +50,9 @@ mod tests {
 
     // ==================== 核心 Bug 修复验证 ====================
 
-    /// 验证：ExecutorRegistry 通过 Arc<Mutex<_>> 共享后，clone 的 service 仍能 find executor
-    /// 这是 TaskService 全局共享的关键：#[derive(Clone)] + Arc 保证 registry 不被复制
+    /// 验证：ExecutorRegistry 通过 Arc<Mutex<_>> 共享后，clone 的 service 仍能
+    /// find executor 这是 TaskService 全局共享的关键：#[derive(Clone)] +
+    /// Arc 保证 registry 不被复制
     #[test]
     fn test_executor_registry_shared_via_arc() {
         let registry1 = Arc::new(std::sync::Mutex::new(ExecutorRegistry::new()));
@@ -64,7 +67,10 @@ mod tests {
         registry1.lock().unwrap().register(executor);
 
         // 通过 registry2 查找（模拟 clone 后的 service 使用）
-        let found = registry2.lock().unwrap().find_executor(&TaskType::BookDeconstruction);
+        let found = registry2
+            .lock()
+            .unwrap()
+            .find_executor(&TaskType::BookDeconstruction);
         assert!(found.is_some(), "clone 后的 registry 应能找到 executor");
 
         // 验证找到的 executor 确实能工作
@@ -102,8 +108,9 @@ mod tests {
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
 
-    /// 验证：没有注册 executor 时，run_task_internal 会通过 TaskExecutionContext 标记失败
-    /// 这个测试不依赖 tauri::async_runtime，而是直接用 tokio runtime 执行
+    /// 验证：没有注册 executor 时，run_task_internal 会通过
+    /// TaskExecutionContext 标记失败 这个测试不依赖 tauri::async_runtime，
+    /// 而是直接用 tokio runtime 执行
     #[test]
     fn test_task_fails_when_no_executor_found() {
         let pool = create_test_pool().unwrap();
@@ -127,12 +134,23 @@ mod tests {
         assert!(found.is_none(), "未注册的 task_type 不应找到 executor");
 
         // 手动标记失败（模拟 TaskExecutionContext::fail 的行为）
-        repo.update_status(&task.id, &TaskStatus::Failed, None, None, Some("未找到执行器".to_string())).unwrap();
+        repo.update_status(
+            &task.id,
+            &TaskStatus::Failed,
+            None,
+            None,
+            Some("未找到执行器".to_string()),
+        )
+        .unwrap();
         repo.create_log(&task.id, "error", "未找到执行器").unwrap();
 
         let updated = repo.get_by_id(&task.id).unwrap().unwrap();
         assert_eq!(updated.status, TaskStatus::Failed);
-        assert!(updated.error_message.as_ref().unwrap().contains("未找到执行器"));
+        assert!(updated
+            .error_message
+            .as_ref()
+            .unwrap()
+            .contains("未找到执行器"));
 
         let logs = repo.list_logs(&task.id).unwrap();
         assert!(logs.iter().any(|l| l.message.contains("未找到执行器")));
@@ -167,7 +185,8 @@ mod tests {
         assert_eq!(found.id, task.id);
 
         // update status
-        repo.update_status(&task.id, &TaskStatus::Running, Some(50), None, None).unwrap();
+        repo.update_status(&task.id, &TaskStatus::Running, Some(50), None, None)
+            .unwrap();
         let updated = repo.get_by_id(&task.id).unwrap().unwrap();
         assert_eq!(updated.status, TaskStatus::Running);
         assert_eq!(updated.progress, 50);
@@ -181,7 +200,8 @@ mod tests {
         let after_reset = repo.get_by_id(&task.id).unwrap().unwrap();
         assert_eq!(after_reset.retry_count, 0);
 
-        // update last_run (skip if fails in test env — not critical for bug verification)
+        // update last_run (skip if fails in test env — not critical for bug
+        // verification)
         if let Err(e) = repo.update_last_run(&task.id) {
             eprintln!("update_last_run failed (non-critical): {}", e);
         }
@@ -250,9 +270,9 @@ mod tests {
     /// 验证重复任务检测（同一文件哈希不重复创建）
     #[test]
     fn test_book_deconstruction_duplicate_detection() {
-        use crate::book_deconstruction::repository::ReferenceBookRepository;
-        use crate::book_deconstruction::models::*;
         use chrono::Local;
+
+        use crate::book_deconstruction::{models::*, repository::ReferenceBookRepository};
 
         let pool = create_test_pool().unwrap();
         let repo = ReferenceBookRepository::new(pool.clone());

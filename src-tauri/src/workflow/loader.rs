@@ -2,12 +2,16 @@
 //!
 //! 监视应用数据目录下的 workflows/ 文件夹，自动加载、热重载工作流模板。
 
-use crate::error::AppError;
-use super::{Workflow, WorkflowEngine};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+
+use super::{Workflow, WorkflowEngine};
+use crate::error::AppError;
 
 /// 已加载工作流的元数据
 #[derive(Debug, Clone, serde::Serialize)]
@@ -76,31 +80,34 @@ impl WorkflowLoader {
                 if matches!(ext, "json" | "yaml" | "yml") {
                     match self.load_file(&path, is_builtin) {
                         Ok(_) => count += 1,
-                        Err(e) => log::warn!("[WorkflowLoader] Failed to load {}: {}", path.display(), e),
+                        Err(e) => {
+                            log::warn!("[WorkflowLoader] Failed to load {}: {}", path.display(), e)
+                        }
                     }
                 }
             }
         }
-        log::info!("[WorkflowLoader] Loaded {} workflows from {}", count, dir.display());
+        log::info!(
+            "[WorkflowLoader] Loaded {} workflows from {}",
+            count,
+            dir.display()
+        );
         Ok(count)
     }
 
     /// 加载单个文件
-    fn load_file(
-        &self,
-        path: &Path,
-        is_builtin: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn load_file(&self, path: &Path, is_builtin: bool) -> Result<(), Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        let workflow: Workflow = match ext {
-            "json" => serde_json::from_str(&content)
-                .map_err(|e| format!("JSON parse error: {}", e))?,
-            "yaml" | "yml" => serde_yaml::from_str(&content)
-                .map_err(|e| format!("YAML parse error: {}", e))?,
-            _ => return Err("Unsupported file format".into()),
-        };
+        let workflow: Workflow =
+            match ext {
+                "json" => serde_json::from_str(&content)
+                    .map_err(|e| format!("JSON parse error: {}", e))?,
+                "yaml" | "yml" => serde_yaml::from_str(&content)
+                    .map_err(|e| format!("YAML parse error: {}", e))?,
+                _ => return Err("Unsupported file format".into()),
+            };
 
         // 验证工作流无环
         self.engine.register_workflow(workflow.clone())?;
@@ -114,7 +121,11 @@ impl WorkflowLoader {
         let mut loaded_map = self.loaded.lock().unwrap();
         loaded_map.insert(workflow.id.clone(), loaded);
 
-        log::info!("[WorkflowLoader] Registered workflow '{}' from {}", workflow.id, path.display());
+        log::info!(
+            "[WorkflowLoader] Registered workflow '{}' from {}",
+            workflow.id,
+            path.display()
+        );
         Ok(())
     }
 
@@ -160,13 +171,18 @@ impl WorkflowLoader {
                                 continue;
                             }
 
-                            let is_builtin = paths.first().map(|p| path.starts_with(p)).unwrap_or(false);
-                            log::info!("[WorkflowLoader] Reloading workflow from {}", path.display());
+                            let is_builtin =
+                                paths.first().map(|p| path.starts_with(p)).unwrap_or(false);
+                            log::info!(
+                                "[WorkflowLoader] Reloading workflow from {}",
+                                path.display()
+                            );
 
                             // 先尝试移除旧的工作流
                             let old_id = {
                                 let loaded_map = loaded.lock().unwrap();
-                                loaded_map.values()
+                                loaded_map
+                                    .values()
                                     .find(|l| l.source_path == *path)
                                     .map(|l| l.workflow.id.clone())
                             };
@@ -175,36 +191,56 @@ impl WorkflowLoader {
                             let content = match std::fs::read_to_string(path) {
                                 Ok(c) => c,
                                 Err(e) => {
-                                    log::warn!("[WorkflowLoader] Failed to read {}: {}", path.display(), e);
+                                    log::warn!(
+                                        "[WorkflowLoader] Failed to read {}: {}",
+                                        path.display(),
+                                        e
+                                    );
                                     continue;
                                 }
                             };
 
                             let workflow: Result<Workflow, _> = match ext {
                                 "json" => serde_json::from_str(&content).map_err(AppError::from),
-                                "yaml" | "yml" => serde_yaml::from_str(&content).map_err(AppError::from),
+                                "yaml" | "yml" => {
+                                    serde_yaml::from_str(&content).map_err(AppError::from)
+                                }
                                 _ => continue,
                             };
 
                             match workflow {
                                 Ok(w) => {
                                     if let Err(e) = engine.register_workflow(w.clone()) {
-                                        log::warn!("[WorkflowLoader] Failed to register {}: {}", path.display(), e);
+                                        log::warn!(
+                                            "[WorkflowLoader] Failed to register {}: {}",
+                                            path.display(),
+                                            e
+                                        );
                                         continue;
                                     }
                                     let mut loaded_map = loaded.lock().unwrap();
                                     if let Some(old) = old_id {
                                         loaded_map.remove(&old);
                                     }
-                                    loaded_map.insert(w.id.clone(), LoadedWorkflow {
-                                        workflow: w,
-                                        source_path: path.clone(),
-                                        is_builtin,
-                                    });
-                                    log::info!("[WorkflowLoader] Hot-reloaded '{}'", path.display());
+                                    loaded_map.insert(
+                                        w.id.clone(),
+                                        LoadedWorkflow {
+                                            workflow: w,
+                                            source_path: path.clone(),
+                                            is_builtin,
+                                        },
+                                    );
+                                    log::info!(
+                                        "[WorkflowLoader] Hot-reloaded '{}'",
+                                        path.display()
+                                    );
                                 }
                                 Err(e) => {
-                                    log::warn!("[WorkflowLoader] Parse error in {}: {}", path.display(), e);
+                                    log::warn!(
+                                        "[WorkflowLoader] Parse error in {}: {}",
+                                        path.display(),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -212,7 +248,8 @@ impl WorkflowLoader {
                     notify::EventKind::Remove(_) => {
                         for path in &event.paths {
                             let mut loaded_map = loaded.lock().unwrap();
-                            let to_remove = loaded_map.values()
+                            let to_remove = loaded_map
+                                .values()
                                 .find(|l| l.source_path == *path)
                                 .map(|l| l.workflow.id.clone());
                             if let Some(id) = to_remove {

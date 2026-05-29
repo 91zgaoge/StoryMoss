@@ -5,16 +5,22 @@
 //! 确保零成本迁移。
 
 use rusqlite;
+
 use crate::db::{
-    Scene, Story, Character, Chapter, WorldBuilding, WritingStyle,
-    CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest, UpdateStoryRequest,
-    SceneUpdate, WritingStyleUpdate, WorldRule, Culture,
+    Chapter, Character, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest, Culture,
+    Scene, SceneUpdate, Story, UpdateStoryRequest, WorldBuilding, WorldRule, WritingStyle,
+    WritingStyleUpdate,
 };
 
 // ==================== Scene Repository Trait ====================
 
 pub trait SceneRepo {
-    fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error>;
+    fn create(
+        &self,
+        story_id: &str,
+        sequence_number: i32,
+        title: Option<&str>,
+    ) -> Result<Scene, rusqlite::Error>;
     fn get_by_id(&self, id: &str) -> Result<Option<Scene>, rusqlite::Error>;
     fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error>;
     fn get_by_chapter(&self, chapter_id: &str) -> Result<Vec<Scene>, rusqlite::Error>;
@@ -94,4 +100,3 @@ pub trait WritingStyleRepo {
     fn get_by_story(&self, story_id: &str) -> Result<Option<WritingStyle>, rusqlite::Error>;
     fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error>;
 }
-

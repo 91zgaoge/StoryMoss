@@ -2,18 +2,19 @@
 //!
 //! 参考 memoh-X internal/schedule/types.go + internal/heartbeat/types.go 设计
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 /// 任务状态
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
-    Pending,    // 等待执行
-    Running,    // 执行中
-    Completed,  // 已完成
-    Failed,     // 失败
-    Cancelled,  // 已取消
+    Pending,   // 等待执行
+    Running,   // 执行中
+    Completed, // 已完成
+    Failed,    // 失败
+    Cancelled, // 已取消
 }
 
 impl fmt::Display for TaskStatus {
@@ -44,10 +45,10 @@ impl TaskStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScheduleType {
-    Once,    // 一次性
-    Daily,   // 每天
-    Weekly,  // 每周
-    Cron,    // Cron表达式
+    Once,   // 一次性
+    Daily,  // 每天
+    Weekly, // 每周
+    Cron,   // Cron表达式
 }
 
 impl fmt::Display for ScheduleType {
@@ -121,7 +122,7 @@ pub struct Task {
     pub cron_pattern: Option<String>,
     pub payload: Option<String>, // JSON
     pub status: TaskStatus,
-    pub progress: i32, // 0-100
+    pub progress: i32,          // 0-100
     pub result: Option<String>, // JSON
     pub error_message: Option<String>,
     pub max_retries: i32,

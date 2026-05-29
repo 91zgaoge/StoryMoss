@@ -1,13 +1,16 @@
 //! 小说创建 Agent
-//! 
+//!
 //! 负责引导式生成小说核心要素：世界观、角色谱、文字风格
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-use crate::llm::{LlmAdapter, LlmService};
-use crate::db::models::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
+
+use crate::{
+    db::models::*,
+    llm::{LlmAdapter, LlmService},
+};
 
 /// 小说创建 Agent
 pub struct NovelCreationAgent {
@@ -120,13 +123,12 @@ impl NovelCreationAgent {
 - 规则类型包括：Magic（魔法）、Technology（科技）、Social（社会）、Physical（物理）
 - importance 范围 1-10
 - 确保JSON格式正确"#,
-            options.count,
-            user_input
+            options.count, user_input
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-        
+
         let options: Vec<WorldBuildingOption> = parsed["world_buildings"]
             .as_array()
             .ok_or("Invalid response format")?
@@ -147,7 +149,9 @@ impl NovelCreationAgent {
             "世界观概念：{}\n历史背景：{}\n文化设定：{}",
             world_building.concept,
             world_building.history,
-            world_building.cultures.iter()
+            world_building
+                .cultures
+                .iter()
                 .map(|c| format!("{} - {}", c.name, c.description))
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -184,13 +188,12 @@ impl NovelCreationAgent {
 - 姓名应符合世界观文化背景
 - 每组角色之间应有内在联系和冲突
 - 确保JSON格式正确"#,
-            options.count,
-            world_info
+            options.count, world_info
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-        
+
         let sets: Vec<Vec<CharacterProfileOption>> = parsed["character_sets"]
             .as_array()
             .ok_or("Invalid response format")?
@@ -246,14 +249,12 @@ impl NovelCreationAgent {
 - 风格应该适合所选小说类型
 - 示例文本应该能体现该风格特点
 - 确保JSON格式正确"#,
-            options.count,
-            genre,
-            world_building.concept
+            options.count, genre, world_building.concept
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-        
+
         let options: Vec<WritingStyleOption> = parsed["writing_styles"]
             .as_array()
             .ok_or("Invalid response format")?
@@ -271,7 +272,8 @@ impl NovelCreationAgent {
         characters: &[CharacterProfileOption],
         writing_style: &WritingStyleOption,
     ) -> Result<SceneProposal, Box<dyn std::error::Error>> {
-        let char_info = characters.iter()
+        let char_info = characters
+            .iter()
             .map(|c| format!("{}：{}，{}", c.name, c.personality, c.goals))
             .collect::<Vec<_>>()
             .join("\n");
@@ -307,14 +309,12 @@ impl NovelCreationAgent {
 注意：
 - 场景应该能吸引读者继续阅读
 - 确保JSON格式正确"#,
-            world_building.concept,
-            char_info,
-            writing_style.name
+            world_building.concept, char_info, writing_style.name
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-        
+
         let scene: SceneProposal = serde_json::from_value(parsed["scene"].clone())?;
         Ok(scene)
     }

@@ -1,6 +1,11 @@
 use super::types::*;
-use crate::db::{DbPool, DraftRepository, DraftStatus, PipelineReviewRepository, BlueprintRepository, CharacterRepository};
-use crate::llm::LlmService;
+use crate::{
+    db::{
+        BlueprintRepository, CharacterRepository, DbPool, DraftRepository, DraftStatus,
+        PipelineReviewRepository,
+    },
+    llm::LlmService,
+};
 
 /// 执行 AI 审稿
 ///
@@ -22,9 +27,18 @@ pub async fn review_draft(
 
     // 1. 读取草稿
     let draft_repo = DraftRepository::new(pool.clone());
-    let draft = draft_repo.get_by_id(draft_id)
-        .map_err(|e| PipelineError { phase: "review".to_string(), message: format!("读取草稿失败: {}", e), recoverable: true })?
-        .ok_or_else(|| PipelineError { phase: "review".to_string(), message: "草稿不存在".to_string(), recoverable: true })?;
+    let draft = draft_repo
+        .get_by_id(draft_id)
+        .map_err(|e| PipelineError {
+            phase: "review".to_string(),
+            message: format!("读取草稿失败: {}", e),
+            recoverable: true,
+        })?
+        .ok_or_else(|| PipelineError {
+            phase: "review".to_string(),
+            message: "草稿不存在".to_string(),
+            recoverable: true,
+        })?;
 
     // 验证草稿状态
     if draft.status != DraftStatus::Refined && draft.status != DraftStatus::Draft {
@@ -39,12 +53,22 @@ pub async fn review_draft(
 
     // 2. 读取蓝图和角色
     let blueprint_repo = BlueprintRepository::new(pool.clone());
-    let blueprint = blueprint_repo.get_by_chapter(story_id, draft.chapter_number)
-        .map_err(|e| PipelineError { phase: "review".to_string(), message: format!("读取蓝图失败: {}", e), recoverable: true })?;
+    let blueprint = blueprint_repo
+        .get_by_chapter(story_id, draft.chapter_number)
+        .map_err(|e| PipelineError {
+            phase: "review".to_string(),
+            message: format!("读取蓝图失败: {}", e),
+            recoverable: true,
+        })?;
 
     let character_repo = CharacterRepository::new(pool.clone());
-    let characters = character_repo.get_by_story(story_id)
-        .map_err(|e| PipelineError { phase: "review".to_string(), message: format!("读取角色失败: {}", e), recoverable: true })?;
+    let characters = character_repo
+        .get_by_story(story_id)
+        .map_err(|e| PipelineError {
+            phase: "review".to_string(),
+            message: format!("读取角色失败: {}", e),
+            recoverable: true,
+        })?;
 
     callbacks.progress("review", 0.3);
 
@@ -70,7 +94,10 @@ pub async fn review_draft(
                     result
                 }
                 Err(parse_err) => {
-                    callbacks.log(&format!("[审稿] JSON 解析失败，回退到占位: {}", parse_err.message));
+                    callbacks.log(&format!(
+                        "[审稿] JSON 解析失败，回退到占位: {}",
+                        parse_err.message
+                    ));
                     // 回退：生成一个基于文本分析的简化审稿结果
                     generate_fallback_review(&draft.content, &config.review_dimensions, &text)
                 }
@@ -91,33 +118,47 @@ pub async fn review_draft(
 
     // 5. 创建 review 记录
     let review_repo = PipelineReviewRepository::new(pool.clone());
-    let review_index = review_repo.get_by_draft(draft_id)
+    let review_index = review_repo
+        .get_by_draft(draft_id)
         .map(|revs| revs.len() as i32 + 1)
         .unwrap_or(1);
 
     let dimensions_str = serde_json::to_string(&review_result.dimensions).unwrap_or_default();
     let issues_str = serde_json::to_string(&review_result.issues).unwrap_or_default();
 
-    let db_dimensions: Vec<crate::db::ReviewDimension> = serde_json::from_str(&dimensions_str).unwrap_or_default();
-    let db_issues: Vec<crate::db::ReviewIssueItem> = serde_json::from_str(&issues_str).unwrap_or_default();
+    let db_dimensions: Vec<crate::db::ReviewDimension> =
+        serde_json::from_str(&dimensions_str).unwrap_or_default();
+    let db_issues: Vec<crate::db::ReviewIssueItem> =
+        serde_json::from_str(&issues_str).unwrap_or_default();
 
-    let review = review_repo.create(
-        story_id,
-        draft_id,
-        review_index,
-        &review_result.summary,
-        Some(&db_dimensions),
-        Some(&db_issues),
-        Some(review_result.overall_score),
-        review_focus,
-        None,
-        None,
-        None,
-    ).map_err(|e| PipelineError { phase: "review".to_string(), message: format!("保存审稿报告失败: {}", e), recoverable: false })?;
+    let review = review_repo
+        .create(
+            story_id,
+            draft_id,
+            review_index,
+            &review_result.summary,
+            Some(&db_dimensions),
+            Some(&db_issues),
+            Some(review_result.overall_score),
+            review_focus,
+            None,
+            None,
+            None,
+        )
+        .map_err(|e| PipelineError {
+            phase: "review".to_string(),
+            message: format!("保存审稿报告失败: {}", e),
+            recoverable: false,
+        })?;
 
     // 6. 更新 draft 状态
-    draft_repo.update_status(draft_id, DraftStatus::Reviewed)
-        .map_err(|e| PipelineError { phase: "review".to_string(), message: format!("更新草稿状态失败: {}", e), recoverable: false })?;
+    draft_repo
+        .update_status(draft_id, DraftStatus::Reviewed)
+        .map_err(|e| PipelineError {
+            phase: "review".to_string(),
+            message: format!("更新草稿状态失败: {}", e),
+            recoverable: false,
+        })?;
 
     callbacks.progress("review", 1.0);
 
@@ -135,7 +176,10 @@ fn build_review_prompt(
     review_focus: Option<&str>,
     config: &PipelineConfig,
 ) -> String {
-    let mut prompt = "# 审稿专家\n\n你是一位挑剔的读者、资深编辑和小说评论家。请对以下章节进行全方位的质量评审。\n\n## 评审维度\n请对以下每个维度给出 0-100 的评分和具体评价：\n".to_string();
+    let mut prompt = "# 审稿专家\n\n你是一位挑剔的读者、资深编辑和小说评论家。\
+                      请对以下章节进行全方位的质量评审。\n\n## 评审维度\n请对以下每个维度给出 \
+                      0-100 的评分和具体评价：\n"
+        .to_string();
 
     for (i, dim) in config.review_dimensions.iter().enumerate() {
         let desc = match dim.as_str() {
@@ -173,7 +217,14 @@ fn build_review_prompt(
 
     prompt.push_str("\n## 待审稿内容\n```\n");
     prompt.push_str(draft_content);
-    prompt.push_str("\n```\n\n## 输出格式（严格 JSON）\n```json\n{\n  \"overall_score\": 85,\n  \"dimensions\": [\n    {\"name\": \"剧情连贯性\", \"score\": 90, \"comment\": \"...\"}\n  ],\n  \"issues\": [\n    {\"severity\": \"high\", \"dimension\": \"角色一致性\", \"description\": \"...\", \"suggestion\": \"...\"}\n  ],\n  \"summary\": \"总体评价...\"\n}\n```\n\n注意：overall_score 是综合评分（0-100）；issues 数组可以为空；severity 只能是 critical / high / medium / low。");
+    prompt.push_str(
+        "\n```\n\n## 输出格式（严格 JSON）\n```json\n{\n  \"overall_score\": 85,\n  \
+         \"dimensions\": [\n    {\"name\": \"剧情连贯性\", \"score\": 90, \"comment\": \"...\"}\n  \
+         ],\n  \"issues\": [\n    {\"severity\": \"high\", \"dimension\": \"角色一致性\", \
+         \"description\": \"...\", \"suggestion\": \"...\"}\n  ],\n  \"summary\": \
+         \"总体评价...\"\n}\n```\n\n注意：overall_score 是综合评分（0-100）；issues \
+         数组可以为空；severity 只能是 critical / high / medium / low。",
+    );
 
     prompt
 }
@@ -227,10 +278,7 @@ fn generate_fallback_review(
             ReviewDimensionResult {
                 name: dim.clone(),
                 score,
-                comment: format!(
-                    "[自动评估] {} 维度基于文本特征评估得分 {:.1}",
-                    dim, score
-                ),
+                comment: format!("[自动评估] {} 维度基于文本特征评估得分 {:.1}", dim, score),
             }
         })
         .collect();
@@ -268,7 +316,8 @@ fn generate_fallback_review(
         dimensions: dimension_results,
         issues,
         summary: format!(
-            "[回退评估] 原始响应未能解析为标准 JSON，已基于文本特征生成简化审稿报告。原始响应前 200 字: {}",
+            "[回退评估] 原始响应未能解析为标准 JSON，已基于文本特征生成简化审稿报告。原始响应前 \
+             200 字: {}",
             raw_response.chars().take(200).collect::<String>()
         ),
     }

@@ -6,7 +6,6 @@
 pub mod manager;
 
 pub use manager::CanonicalStateManager;
-
 use serde::{Deserialize, Serialize};
 
 /// 规范状态快照 - 故事的完整当前状态
@@ -106,12 +105,29 @@ impl NarrativePhase {
     /// 返回该叙事阶段对 Writer Agent 的指导语
     pub fn writer_guidance(&self) -> &'static str {
         match self {
-            NarrativePhase::Setup => "当前叙事阶段：铺垫期。请专注于建立世界观、介绍角色、埋下伏笔，保持节奏舒缓，为后续冲突做铺垫。",
-            NarrativePhase::Rising => "当前叙事阶段：上升期。请逐步升级冲突，增加紧张感，推动角色面对更大的挑战，保持情节推进动力。",
-            NarrativePhase::ConflictActive => "当前叙事阶段：冲突激化期。冲突已达到临界点，请加快节奏，让矛盾集中爆发，优先处理逾期伏笔的回收。",
-            NarrativePhase::Climax => "当前叙事阶段：高潮期。请保持紧张节奏，加快冲突升级，将所有线索汇聚到关键时刻，制造强烈的情感冲击。",
-            NarrativePhase::Falling => "当前叙事阶段：回落期。高潮已过，请开始平息冲突，展示事件后果，为最终收尾做铺垫。",
-            NarrativePhase::Resolution => "当前叙事阶段：收尾期。请解决剩余悬念，回收所有伏笔，给读者一个满意的结局，保持情感余韵。",
+            NarrativePhase::Setup => {
+                "当前叙事阶段：铺垫期。请专注于建立世界观、介绍角色、埋下伏笔，保持节奏舒缓，\
+                 为后续冲突做铺垫。"
+            }
+            NarrativePhase::Rising => {
+                "当前叙事阶段：上升期。请逐步升级冲突，增加紧张感，推动角色面对更大的挑战，\
+                 保持情节推进动力。"
+            }
+            NarrativePhase::ConflictActive => {
+                "当前叙事阶段：冲突激化期。冲突已达到临界点，请加快节奏，让矛盾集中爆发，\
+                 优先处理逾期伏笔的回收。"
+            }
+            NarrativePhase::Climax => {
+                "当前叙事阶段：高潮期。请保持紧张节奏，加快冲突升级，将所有线索汇聚到关键时刻，\
+                 制造强烈的情感冲击。"
+            }
+            NarrativePhase::Falling => {
+                "当前叙事阶段：回落期。高潮已过，请开始平息冲突，展示事件后果，为最终收尾做铺垫。"
+            }
+            NarrativePhase::Resolution => {
+                "当前叙事阶段：收尾期。请解决剩余悬念，回收所有伏笔，给读者一个满意的结局，\
+                 保持情感余韵。"
+            }
         }
     }
 }

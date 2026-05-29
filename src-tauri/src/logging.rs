@@ -6,16 +6,17 @@
 //! - 开发环境同时输出到 stderr（带颜色）
 //! - 自动清理超过 7 天的日志文件
 
-use std::fs;
-use crate::error::AppError;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use tauri::Manager;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+use crate::error::AppError;
 
 /// 日志文件保留天数
 const LOG_RETENTION_DAYS: u64 = 7;
@@ -53,15 +54,12 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     } else {
         "info"
     };
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            EnvFilter::new(format!(
-                "{}={},storyforge_lib={}",
-                default_level,
-                default_level,
-                default_level,
-            ))
-        });
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(format!(
+            "{}={},storyforge_lib={}",
+            default_level, default_level, default_level,
+        ))
+    });
 
     // 文件日志层：JSON 结构化格式（生产）或紧凑格式（开发）
     let file_layer = fmt::layer()
@@ -96,7 +94,9 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     };
 
     // 初始化 subscriber
-    let registry = tracing_subscriber::registry().with(env_filter).with(file_layer);
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(file_layer);
 
     if let Some(stderr) = stderr_layer {
         registry.with(stderr).init();
@@ -106,7 +106,10 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
 
     // 将 log crate 的日志桥接到 tracing
     if let Err(e) = tracing_log::LogTracer::init() {
-        tracing::warn!("[logging] LogTracer::init() failed (log crate logger may already be set): {}", e);
+        tracing::warn!(
+            "[logging] LogTracer::init() failed (log crate logger may already be set): {}",
+            e
+        );
     }
 
     tracing::info!(

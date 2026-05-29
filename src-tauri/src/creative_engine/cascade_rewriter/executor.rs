@@ -1,11 +1,18 @@
 //! Cascade Rewrite 任务执行器
 
-use super::models::{CascadeTaskPayload, RewriteStatus};
-use super::rewrite_engine::RewriteEngine;
-use crate::db::DbPool;
-use crate::task_system::executor::TaskExecutor;
-use crate::task_system::models::{Task, TaskResult};
 use tauri::AppHandle;
+
+use super::{
+    models::{CascadeTaskPayload, RewriteStatus},
+    rewrite_engine::RewriteEngine,
+};
+use crate::{
+    db::DbPool,
+    task_system::{
+        executor::TaskExecutor,
+        models::{Task, TaskResult},
+    },
+};
 
 pub struct CascadeRewriteExecutor {
     pool: DbPool,
@@ -20,10 +27,7 @@ impl CascadeRewriteExecutor {
 
 #[async_trait::async_trait]
 impl TaskExecutor for CascadeRewriteExecutor {
-    async fn execute(
-        &self,
-        task: &Task,
-    ) -> Result<TaskResult, Box<dyn std::error::Error>> {
+    async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
         log::info!("[CascadeRewriteExecutor] Task {} started", task.id);
 
         let payload: CascadeTaskPayload = match task.payload.as_ref() {
@@ -45,7 +49,8 @@ impl TaskExecutor for CascadeRewriteExecutor {
 
         log::info!(
             "[CascadeRewriteExecutor] Task {} completed with status: {:?}",
-            task.id, result.status
+            task.id,
+            result.status
         );
 
         Ok(TaskResult {

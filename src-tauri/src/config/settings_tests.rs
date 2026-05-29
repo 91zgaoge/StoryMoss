@@ -12,8 +12,13 @@ mod tests {
     #[test]
     fn test_set_active_llm_profile_success() {
         let mut config = AppConfig::default();
-        assert!(config.set_active_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M").is_ok());
-        assert_eq!(config.active_llm_profile, Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()));
+        assert!(config
+            .set_active_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M")
+            .is_ok());
+        assert_eq!(
+            config.active_llm_profile,
+            Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string())
+        );
     }
 
     #[test]
@@ -29,7 +34,10 @@ mod tests {
         // multimodal 模型也是 llm_profile，共享 active_llm_profile
         let mut config = AppConfig::default();
         assert!(config.set_active_llm_profile("Gemma-4-31B-it-Q6_K").is_ok());
-        assert_eq!(config.active_llm_profile, Some("Gemma-4-31B-it-Q6_K".to_string()));
+        assert_eq!(
+            config.active_llm_profile,
+            Some("Gemma-4-31B-it-Q6_K".to_string())
+        );
     }
 
     // ==================== set_active_embedding_profile ====================
@@ -73,7 +81,13 @@ mod tests {
         config.add_llm_profile(new_profile).unwrap();
 
         // 新设为默认后，旧默认应该被取消
-        assert!(!config.llm_profiles.get("Qwen3.5-27B-Uncensored-Q4_K_M").unwrap().is_default);
+        assert!(
+            !config
+                .llm_profiles
+                .get("Qwen3.5-27B-Uncensored-Q4_K_M")
+                .unwrap()
+                .is_default
+        );
         assert!(config.llm_profiles.get("test-llm").unwrap().is_default);
     }
 
@@ -97,7 +111,11 @@ mod tests {
         };
 
         config.add_llm_profile(profile).unwrap();
-        let added = config.llm_profiles.values().find(|p| p.name == "Auto ID").unwrap();
+        let added = config
+            .llm_profiles
+            .values()
+            .find(|p| p.name == "Auto ID")
+            .unwrap();
         assert!(!added.id.is_empty());
         assert!(added.id.starts_with("llm-"));
     }
@@ -123,7 +141,13 @@ mod tests {
         config.add_embedding_profile(new_emb).unwrap();
 
         assert!(!config.embedding_profiles.get("bge-m3").unwrap().is_default);
-        assert!(config.embedding_profiles.get("test-emb").unwrap().is_default);
+        assert!(
+            config
+                .embedding_profiles
+                .get("test-emb")
+                .unwrap()
+                .is_default
+        );
     }
 
     // ==================== remove_llm_profile ====================
@@ -154,7 +178,10 @@ mod tests {
         // 删除非默认的活跃配置
         config.remove_llm_profile("second").unwrap();
         // 应回退到默认配置
-        assert_eq!(config.active_llm_profile, Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()));
+        assert_eq!(
+            config.active_llm_profile,
+            Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string())
+        );
     }
 
     #[test]
@@ -231,7 +258,9 @@ mod tests {
         let mut config = AppConfig::default();
 
         // 修改配置
-        config.set_active_llm_profile("Gemma-4-31B-it-Q6_K").unwrap();
+        config
+            .set_active_llm_profile("Gemma-4-31B-it-Q6_K")
+            .unwrap();
         config.set_active_embedding_profile("bge-m3").unwrap();
 
         // 保存
@@ -239,9 +268,14 @@ mod tests {
 
         // 重新加载
         let loaded = AppConfig::load(&app_dir).unwrap();
-        assert_eq!(loaded.active_llm_profile, Some("Gemma-4-31B-it-Q6_K".to_string()));
+        assert_eq!(
+            loaded.active_llm_profile,
+            Some("Gemma-4-31B-it-Q6_K".to_string())
+        );
         assert_eq!(loaded.active_embedding_profile, Some("bge-m3".to_string()));
-        assert!(loaded.llm_profiles.contains_key("Qwen3.5-27B-Uncensored-Q4_K_M"));
+        assert!(loaded
+            .llm_profiles
+            .contains_key("Qwen3.5-27B-Uncensored-Q4_K_M"));
         assert!(loaded.embedding_profiles.contains_key("bge-m3"));
     }
 
@@ -250,7 +284,9 @@ mod tests {
         let (_tmp, app_dir) = temp_app_dir();
         // 目录存在但无 config.json
         let config = AppConfig::load(&app_dir).unwrap();
-        assert!(config.llm_profiles.contains_key("Qwen3.5-27B-Uncensored-Q4_K_M"));
+        assert!(config
+            .llm_profiles
+            .contains_key("Qwen3.5-27B-Uncensored-Q4_K_M"));
         assert!(config.embedding_profiles.contains_key("bge-m3"));
     }
 }

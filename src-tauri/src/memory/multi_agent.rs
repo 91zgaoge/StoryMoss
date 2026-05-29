@@ -1,14 +1,15 @@
 //! 多助手独立会话管理
-//! 
+//!
 //! 世界观助手、人物助手、文风助手独立会话
 //! 支持Wiki引用跟踪和保存到Wiki
 
-use crate::llm::LlmService;
-use crate::db::models::AgentBotType;
-use super::ingest::{IngestPipeline, IngestContent};
-use chrono::Local;
-use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+
+use chrono::Local;
+use serde::{Deserialize, Serialize};
+
+use super::ingest::{IngestContent, IngestPipeline};
+use crate::{db::models::AgentBotType, llm::LlmService};
 
 /// 多助手会话管理器
 pub struct MultiAgentSessionManager {
@@ -62,13 +63,9 @@ pub struct AgentResponse {
 }
 
 impl MultiAgentSessionManager {
-    pub fn new(
-        story_id: String,
-        llm_service: LlmService,
-        ingest_pipeline: IngestPipeline,
-    ) -> Self {
+    pub fn new(story_id: String, llm_service: LlmService, ingest_pipeline: IngestPipeline) -> Self {
         let mut sessions = HashMap::new();
-        
+
         // 初始化所有助手类型的会话
         for agent_type in [
             AgentBotType::WorldBuilding,
@@ -77,15 +74,18 @@ impl MultiAgentSessionManager {
             AgentBotType::Scene,
             AgentBotType::Plot,
         ] {
-            sessions.insert(agent_type.clone(), AgentSession {
-                agent_type,
-                messages: vec![],
-                used_wiki_pages: vec![],
-                created_at: Local::now(),
-                updated_at: Local::now(),
-            });
+            sessions.insert(
+                agent_type.clone(),
+                AgentSession {
+                    agent_type,
+                    messages: vec![],
+                    used_wiki_pages: vec![],
+                    created_at: Local::now(),
+                    updated_at: Local::now(),
+                },
+            );
         }
-        
+
         Self {
             sessions,
             llm_service,
@@ -103,23 +103,25 @@ impl MultiAgentSessionManager {
     ) -> Result<AgentResponse, Box<dyn std::error::Error>> {
         // 先获取所有需要的数据，避免借用冲突
         let system_prompt = self.get_system_prompt(&agent_type);
-        
+
         let context = if let Some(ctx) = query_context {
             format!("相关背景知识：\n{}\n\n", ctx)
         } else {
             String::new()
         };
-        
+
         // 获取对话历史
         let history = if let Some(session) = self.sessions.get(&agent_type) {
-            session.messages.iter()
+            session
+                .messages
+                .iter()
                 .map(|m| format!("{}: {}", m.role, m.content))
                 .collect::<Vec<_>>()
                 .join("\n")
         } else {
             String::new()
         };
-        
+
         // 构建完整提示
         let full_prompt = format!(
             "{system_prompt}\n\n{history}\n\n{context}User: {message}\n\nAssistant:",
@@ -128,18 +130,20 @@ impl MultiAgentSessionManager {
             context = context,
             message = message
         );
-        
+
         // 调用LLM
         let response = self.llm_service.generate(full_prompt, None, None).await?;
         let response_content = response.content;
-        
+
         // 提取Wiki引用
         let used_pages = self.extract_wiki_references(&response_content);
-        
+
         // 现在获取可变引用来修改session
-        let session = self.sessions.get_mut(&agent_type)
+        let session = self
+            .sessions
+            .get_mut(&agent_type)
             .ok_or("Session not found")?;
-        
+
         // 记录用户消息
         session.messages.push(Message {
             role: MessageRole::User,
@@ -147,7 +151,7 @@ impl MultiAgentSessionManager {
             timestamp: Local::now(),
             used_wiki_pages: vec![],
         });
-        
+
         // 记录助手响应
         session.messages.push(Message {
             role: MessageRole::Assistant,
@@ -155,19 +159,20 @@ impl MultiAgentSessionManager {
             timestamp: Local::now(),
             used_wiki_pages: used_pages.clone(),
         });
-        
+
         // 更新使用的Wiki页面
         session.used_wiki_pages.extend(used_pages.clone());
         session.used_wiki_pages.sort();
         session.used_wiki_pages.dedup();
         session.updated_at = Local::now();
-        
+
         // 生成引用标记
-        let citations: Vec<String> = used_pages.iter()
+        let citations: Vec<String> = used_pages
+            .iter()
             .enumerate()
             .map(|(i, page)| format!("[{}] {}", i + 1, page))
             .collect();
-        
+
         Ok(AgentResponse {
             content: response_content,
             used_wiki_pages: used_pages,
@@ -181,25 +186,28 @@ impl MultiAgentSessionManager {
         agent_type: AgentBotType,
         title: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let session = self.sessions.get(&agent_type)
-            .ok_or("Session not found")?;
-        
+        let session = self.sessions.get(&agent_type).ok_or("Session not found")?;
+
         // 构建对话内容
-        let conversation_text = session.messages.iter()
+        let conversation_text = session
+            .messages
+            .iter()
             .map(|m| format!("{}: {}", m.role, m.content))
             .collect::<Vec<_>>()
             .join("\n\n");
-        
+
         let content = format!(
             "# {}\n\n## 对话记录\n\n{}\n\n## 使用的参考资料\n\n{}",
             title,
             conversation_text,
-            session.used_wiki_pages.iter()
+            session
+                .used_wiki_pages
+                .iter()
                 .map(|p| format!("- {}", p))
                 .collect::<Vec<_>>()
                 .join("\n")
         );
-        
+
         // 使用Ingest流程处理对话内容
         let ingest_content = IngestContent {
             text: content,
@@ -207,17 +215,16 @@ impl MultiAgentSessionManager {
             story_id: self.story_id.clone(),
             scene_id: None,
         };
-        
+
         self.ingest_pipeline.ingest(&ingest_content).await?;
-        
+
         Ok(())
     }
 
     /// 获取系统提示词
     fn get_system_prompt(&self, agent_type: &AgentBotType) -> String {
         match agent_type {
-            AgentBotType::WorldBuilding => {
-                r#"你是世界观助手，专门帮助构建和完善小说的世界观设定。
+            AgentBotType::WorldBuilding => r#"你是世界观助手，专门帮助构建和完善小说的世界观设定。
 
 你的职责：
 1. 帮助设计和完善世界规则、历史背景、文化设定
@@ -228,10 +235,9 @@ impl MultiAgentSessionManager {
 回答时请：
 - 引用相关的Wiki页面
 - 保持与已有设定的一致性
-- 提供具体可行的建议"#.to_string()
-            }
-            AgentBotType::Character => {
-                r#"你是人物助手，专门帮助塑造角色形象和性格发展。
+- 提供具体可行的建议"#
+                .to_string(),
+            AgentBotType::Character => r#"你是人物助手，专门帮助塑造角色形象和性格发展。
 
 你的职责：
 1. 帮助设计角色的性格、背景、动机
@@ -242,10 +248,9 @@ impl MultiAgentSessionManager {
 回答时请：
 - 引用角色相关的Wiki页面
 - 考虑角色的成长弧线
-- 提供具体的对话或行为示例"#.to_string()
-            }
-            AgentBotType::WritingStyle => {
-                r#"你是文风助手，专门帮助优化写作风格和语言表达。
+- 提供具体的对话或行为示例"#
+                .to_string(),
+            AgentBotType::WritingStyle => r#"你是文风助手，专门帮助优化写作风格和语言表达。
 
 你的职责：
 1. 提供文风改进建议
@@ -256,10 +261,9 @@ impl MultiAgentSessionManager {
 回答时请：
 - 引用文风相关的Wiki页面
 - 给出修改前后的对比
-- 解释修改的原因"#.to_string()
-            }
-            AgentBotType::Scene => {
-                r#"你是场景助手，专门帮助设计戏剧性的场景和情节发展。
+- 解释修改的原因"#
+                .to_string(),
+            AgentBotType::Scene => r#"你是场景助手，专门帮助设计戏剧性的场景和情节发展。
 
 你的职责：
 1. 帮助设计场景的戏剧冲突
@@ -270,10 +274,9 @@ impl MultiAgentSessionManager {
 回答时请：
 - 引用场景相关的Wiki页面
 - 关注戏剧目标、外部压迫、冲突类型
-- 提供具体的场景设计建议"#.to_string()
-            }
-            AgentBotType::Plot => {
-                r#"你是情节助手，专门帮助规划和优化故事线。
+- 提供具体的场景设计建议"#
+                .to_string(),
+            AgentBotType::Plot => r#"你是情节助手，专门帮助规划和优化故事线。
 
 你的职责：
 1. 帮助设计情节转折和高潮
@@ -284,8 +287,8 @@ impl MultiAgentSessionManager {
 回答时请：
 - 引用情节相关的Wiki页面
 - 考虑前后文的连贯性
-- 提供多种可能的发展方向"#.to_string()
-            }
+- 提供多种可能的发展方向"#
+                .to_string(),
             _ => "你是一个专业的写作助手。".to_string(),
         }
     }
@@ -293,12 +296,12 @@ impl MultiAgentSessionManager {
     /// 提取Wiki引用
     fn extract_wiki_references(&self, text: &str) -> Vec<String> {
         let mut references = vec![];
-        
+
         // 简单的引用提取：查找 [[...]] 格式
         let mut chars = text.chars().peekable();
         let mut current = String::new();
         let mut in_brackets = false;
-        
+
         while let Some(c) = chars.next() {
             if c == '[' && chars.peek() == Some(&'[') {
                 chars.next(); // 跳过第二个[
@@ -314,7 +317,7 @@ impl MultiAgentSessionManager {
                 current.push(c);
             }
         }
-        
+
         references
     }
 
@@ -334,7 +337,8 @@ impl MultiAgentSessionManager {
 
     /// 获取所有会话的统计信息
     pub fn get_stats(&self) -> HashMap<AgentBotType, SessionStats> {
-        self.sessions.iter()
+        self.sessions
+            .iter()
             .map(|(agent_type, session)| {
                 let stats = SessionStats {
                     message_count: session.messages.len(),

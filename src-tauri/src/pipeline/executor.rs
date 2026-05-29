@@ -2,12 +2,17 @@
 //!
 //! 将 Pipeline 修稿/审稿/定稿任务接入 Task System，支持后台执行和进度追踪。
 
-use super::types::*;
-use crate::db::DbPool;
-use crate::llm::LlmService;
-use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
-use crate::task_system::models::*;
 use tauri::AppHandle;
+
+use super::types::*;
+use crate::{
+    db::DbPool,
+    llm::LlmService,
+    task_system::{
+        executor::{TaskExecutionContext, TaskExecutor},
+        models::*,
+    },
+};
 
 pub struct PipelineReviewExecutor {
     pool: DbPool,
@@ -56,15 +61,9 @@ impl TaskExecutor for PipelineReviewExecutor {
         *task_type == TaskType::PipelineReview
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-    ) -> Result<TaskResult, Box<dyn std::error::Error>> {
-        let ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
+    async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
+        let ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
 
         let payload: serde_json::Value = match task.payload.as_deref() {
             Some(p) => serde_json::from_str(p).unwrap_or_else(|_| serde_json::json!({})),

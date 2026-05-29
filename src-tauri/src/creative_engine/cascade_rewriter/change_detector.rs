@@ -6,8 +6,20 @@ use super::models::EntityChangeEvent;
 
 /// 正文敏感字段白名单
 const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
-    ("character", &["personality", "motivation", "goal", "appearance", "relationships"]),
-    ("world_building", &["rules", "history", "geography", "magic_system"]),
+    (
+        "character",
+        &[
+            "personality",
+            "motivation",
+            "goal",
+            "appearance",
+            "relationships",
+        ],
+    ),
+    (
+        "world_building",
+        &["rules", "history", "geography", "magic_system"],
+    ),
     ("foreshadowing", &["status", "payoff_plan"]),
 ];
 
@@ -26,6 +38,9 @@ impl ChangeDetector {
             return false;
         }
 
-        change.changed_fields.iter().any(|f| sensitive_fields.contains(&f.as_str()))
+        change
+            .changed_fields
+            .iter()
+            .any(|f| sensitive_fields.contains(&f.as_str()))
     }
 }

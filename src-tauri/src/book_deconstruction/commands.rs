@@ -2,19 +2,22 @@
 //!
 //! IPC 命令层，暴露给前端调用。
 
-use super::models::*;
-use super::service::{AnalysisStatusResponse, BookDeconstructionService};
-use crate::error::AppError;
-use crate::db::DbPool;
-use crate::llm::LlmService;
-use crate::subscription::SubscriptionService;
 use tauri::{command, AppHandle, Manager};
+
+use super::{
+    models::*,
+    service::{AnalysisStatusResponse, BookDeconstructionService},
+};
+use crate::{db::DbPool, error::AppError, llm::LlmService, subscription::SubscriptionService};
 
 fn get_user_id(app_handle: &AppHandle) -> String {
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let machine_id_path = app_dir.join(".machine_id");
     if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+        std::fs::read_to_string(&machine_id_path)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     } else {
         "local".to_string()
     }
@@ -70,7 +73,9 @@ pub async fn get_book_analysis(
 
 /// 获取已拆书籍列表
 #[command]
-pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<ReferenceBookSummary>, AppError> {
+pub async fn list_reference_books(
+    app_handle: AppHandle,
+) -> Result<Vec<ReferenceBookSummary>, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -80,10 +85,7 @@ pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<Reference
 
 /// 删除参考书籍
 #[command]
-pub async fn delete_reference_book(
-    book_id: String,
-    app_handle: AppHandle,
-) -> Result<(), AppError> {
+pub async fn delete_reference_book(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -106,10 +108,7 @@ pub async fn convert_book_to_story(
 
 /// 取消拆书分析
 #[command]
-pub async fn cancel_book_analysis(
-    book_id: String,
-    app_handle: AppHandle,
-) -> Result<(), AppError> {
+pub async fn cancel_book_analysis(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);

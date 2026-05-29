@@ -1,6 +1,8 @@
-use super::ExportConfig;
-use serde::Serialize;
 use std::collections::HashMap;
+
+use serde::Serialize;
+
+use super::ExportConfig;
 
 /// Render a story using a Tera template string.
 pub fn render_template(
@@ -41,16 +43,19 @@ pub fn render_template(
     Ok(rendered)
 }
 
-fn repeat_filter(value: &tera::Value, args: &HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
+fn repeat_filter(
+    value: &tera::Value,
+    args: &HashMap<String, tera::Value>,
+) -> tera::Result<tera::Value> {
     let text = tera::try_get_value!("repeat", "value", String, value);
-    let n = args
-        .get("n")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(1) as usize;
+    let n = args.get("n").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
     Ok(tera::Value::String(text.repeat(n)))
 }
 
-fn html_escape_filter(value: &tera::Value, _args: &HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
+fn html_escape_filter(
+    value: &tera::Value,
+    _args: &HashMap<String, tera::Value>,
+) -> tera::Result<tera::Value> {
     let text = tera::try_get_value!("escape", "value", String, value);
     let escaped = text
         .replace('&', "&amp;")

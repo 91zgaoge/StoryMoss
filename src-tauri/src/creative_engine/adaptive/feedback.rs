@@ -3,9 +3,10 @@
 //! 记录每次用户对 AI 建议的反馈：接受/拒绝/修改。
 //! 这是自适应学习的数据来源。
 
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::db::repositories::UserFeedbackRepository;
+use crate::{
+    db::{repositories::UserFeedbackRepository, DbPool},
+    error::AppError,
+};
 
 /// 反馈事件
 #[derive(Debug, Clone)]
@@ -83,7 +84,8 @@ impl FeedbackRecorder {
             event.ai_score,
             event.user_satisfaction,
             event.metadata.as_ref(),
-        ).map_err(|e| format!("记录反馈失败: {}", e))?;
+        )
+        .map_err(|e| format!("记录反馈失败: {}", e))?;
 
         Ok(())
     }
@@ -167,18 +169,21 @@ impl FeedbackRecorder {
     pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<FeedbackEvent>, AppError> {
         let repo = UserFeedbackRepository::new(self.pool.clone());
         let logs = repo.get_recent(story_id, days).map_err(AppError::from)?;
-        Ok(logs.into_iter().map(|l| FeedbackEvent {
-            story_id: l.story_id,
-            scene_id: l.scene_id,
-            chapter_id: l.chapter_id,
-            feedback_type: l.feedback_type.into(),
-            agent_type: l.agent_type,
-            original_ai_text: l.original_ai_text,
-            final_text: l.final_text,
-            ai_score: l.ai_score,
-            user_satisfaction: l.user_satisfaction,
-            metadata: l.metadata,
-        }).collect())
+        Ok(logs
+            .into_iter()
+            .map(|l| FeedbackEvent {
+                story_id: l.story_id,
+                scene_id: l.scene_id,
+                chapter_id: l.chapter_id,
+                feedback_type: l.feedback_type.into(),
+                agent_type: l.agent_type,
+                original_ai_text: l.original_ai_text,
+                final_text: l.final_text,
+                ai_score: l.ai_score,
+                user_satisfaction: l.user_satisfaction,
+                metadata: l.metadata,
+            })
+            .collect())
     }
 }
 

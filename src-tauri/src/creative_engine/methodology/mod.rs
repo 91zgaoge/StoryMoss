@@ -5,23 +5,23 @@
 //!
 //! 支持的方法论：
 //! - 雪花写作法 (Snowflake)
-//! - 场景结构规范 (Scene Structure: Goal-Conflict-Disaster-Reaction-Dilemma-Decision)
+//! - 场景结构规范 (Scene Structure:
+//!   Goal-Conflict-Disaster-Reaction-Dilemma-Decision)
 //! - 英雄之旅 (Hero's Journey)
 //! - 人物深度模型 (Character Depth)
 
-pub mod snowflake;
-pub mod scene_structure;
-pub mod hero_journey;
 pub mod character_depth;
+pub mod hero_journey;
 pub mod high_density_world_building;
+pub mod scene_structure;
+pub mod snowflake;
 
-pub use snowflake::{SnowflakeMethodology, SnowflakeStep};
-pub use scene_structure::SceneStructureMethodology;
-pub use hero_journey::{HeroJourneyMethodology, HeroJourneyStage};
 pub use character_depth::CharacterDepthModel;
+pub use hero_journey::{HeroJourneyMethodology, HeroJourneyStage};
 pub use high_density_world_building::{HighDensityWorldBuildingMethodology, WorldBuildingPhase};
-
+pub use scene_structure::SceneStructureMethodology;
 use serde::{Deserialize, Serialize};
+pub use snowflake::{SnowflakeMethodology, SnowflakeStep};
 
 /// 方法论类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +51,9 @@ impl MethodologyType {
             MethodologyType::SceneStructure => "目标-冲突-灾难-反应-困境-决定六节拍场景结构",
             MethodologyType::HeroJourney => "约瑟夫·坎普贝尔的12阶段英雄之旅结构",
             MethodologyType::CharacterDepth => "目标-动机-冲突-秘密-弧光-顿悟六维人物模型",
-            MethodologyType::HighDensityWorldBuilding => "用极少元素通过状态驱动、桥节点连接、事件回流构建活的世界",
+            MethodologyType::HighDensityWorldBuilding => {
+                "用极少元素通过状态驱动、桥节点连接、事件回流构建活的世界"
+            }
         }
     }
 }
@@ -102,25 +104,27 @@ impl MethodologyEngine {
 
         let methodology: Box<dyn Methodology> = match config.methodology_type {
             MethodologyType::Snowflake => {
-                let step = config.current_step.as_ref()
+                let step = config
+                    .current_step
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(SnowflakeStep::OneSentence);
                 Box::new(SnowflakeMethodology::new(step))
             }
-            MethodologyType::SceneStructure => {
-                Box::new(SceneStructureMethodology::default())
-            }
+            MethodologyType::SceneStructure => Box::new(SceneStructureMethodology::default()),
             MethodologyType::HeroJourney => {
-                let stage = config.current_step.as_ref()
+                let stage = config
+                    .current_step
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(HeroJourneyStage::OrdinaryWorld);
                 Box::new(HeroJourneyMethodology::new(stage))
             }
-            MethodologyType::CharacterDepth => {
-                Box::new(CharacterDepthModel::default())
-            }
+            MethodologyType::CharacterDepth => Box::new(CharacterDepthModel::default()),
             MethodologyType::HighDensityWorldBuilding => {
-                let phase = config.current_step.as_ref()
+                let phase = config
+                    .current_step
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(WorldBuildingPhase::Seed);
                 Box::new(HighDensityWorldBuildingMethodology::new(phase))
@@ -152,7 +156,10 @@ mod tests {
         assert_eq!(MethodologyType::SceneStructure.name(), "场景结构规范");
         assert_eq!(MethodologyType::HeroJourney.name(), "英雄之旅");
         assert_eq!(MethodologyType::CharacterDepth.name(), "人物深度模型");
-        assert_eq!(MethodologyType::HighDensityWorldBuilding.name(), "高密度世界构建法");
+        assert_eq!(
+            MethodologyType::HighDensityWorldBuilding.name(),
+            "高密度世界构建法"
+        );
     }
 
     #[test]

@@ -11,16 +11,17 @@
 //! - analysis: AnalysisPipeline — 逆向/分析流程
 //! - progress: 统一进度事件系统
 
-pub mod elements;
-pub mod pipeline;
-pub mod prompts;
-pub mod genesis;
 pub mod analysis;
-pub mod progress;
 pub mod audit;
+pub mod elements;
+pub mod genesis;
 pub mod health;
+pub mod pipeline;
+pub mod progress;
+pub mod prompts;
 
-/// 从 LLM 响应中提取 JSON 对象，并修复常见语法错误（尾随逗号、空值、markdown 围栏等）
+/// 从 LLM 响应中提取 JSON 对象，并修复常见语法错误（尾随逗号、空值、markdown
+/// 围栏等）
 pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     // 1. 基础提取：找第一个 { 和最后一个 }
     let raw = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {

@@ -7,12 +7,14 @@
 //! - 多模型支持（预留接口）
 #![allow(dead_code)]
 
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    sync::{Mutex, Once},
+};
+
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Mutex, Once};
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 static EMBEDDING_INITIALIZED: OnceCell<bool> = OnceCell::new();
 static mut VOCAB: Option<HashMap<String, usize>> = None;
@@ -81,12 +83,17 @@ impl EmbeddingCache {
     pub fn set(&mut self, text: &str, embedding: Vec<f32>) {
         // 如果缓存已满，清除最旧的 10%
         if self.cache.len() >= self.max_size {
-            let to_remove: Vec<u64> = self.cache.keys().take(self.max_size / 10).cloned().collect();
+            let to_remove: Vec<u64> = self
+                .cache
+                .keys()
+                .take(self.max_size / 10)
+                .cloned()
+                .collect();
             for key in to_remove {
                 self.cache.remove(&key);
             }
         }
-        
+
         let hash = Self::hash_text(text);
         self.cache.insert(hash, embedding);
     }
@@ -158,9 +165,16 @@ fn tokenize(text: &str) -> Vec<String> {
     }
 
     // 提取单词 (英文)
-    let word_chars: String = text.to_lowercase()
+    let word_chars: String = text
+        .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '\'' { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '\'' {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
 
     for word in word_chars.split_whitespace() {
@@ -250,7 +264,9 @@ pub fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::err
 }
 
 /// 异步版本：优先使用语义嵌入提供者，回退到 FNV-1a
-pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn embed_text_async(
+    text: String,
+) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(provider_arc) = super::provider::global_provider() {
         let provider = provider_arc.lock().await;
         match provider.embed(vec![text.clone()]).await {
@@ -274,7 +290,8 @@ pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::err
     tokio::task::spawn_blocking(move || {
         embed_text(&text).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg))
+                as Box<dyn std::error::Error + Send + Sync>
         })
     })
     .await
@@ -282,11 +299,14 @@ pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::err
 }
 
 /// 异步版本：在 spawn_blocking 中执行 embed_entity
-pub async fn embed_entity_async(request: EntityEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn embed_entity_async(
+    request: EntityEmbeddingRequest,
+) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
     tokio::task::spawn_blocking(move || {
         embed_entity(&request).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg))
+                as Box<dyn std::error::Error + Send + Sync>
         })
     })
     .await
@@ -295,35 +315,40 @@ pub async fn embed_entity_async(request: EntityEmbeddingRequest) -> Result<Vec<f
 
 /// 生成实体嵌入
 /// 将实体名称、描述、类型、属性拼接成文本后生成嵌入
-pub fn embed_entity(request: &EntityEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+pub fn embed_entity(
+    request: &EntityEmbeddingRequest,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     // 构建实体文本表示
     let mut text_parts = vec![format!("Name: {}", request.name)];
-    
+
     // 添加类型信息
     text_parts.push(format!("Type: {}", request.entity_type));
-    
+
     // 添加描述
     if let Some(desc) = &request.description {
         if !desc.is_empty() {
             text_parts.push(format!("Description: {}", desc));
         }
     }
-    
+
     // 添加属性
     if !request.attributes.is_empty() {
-        let attrs_text: Vec<String> = request.attributes
+        let attrs_text: Vec<String> = request
+            .attributes
             .iter()
             .map(|(k, v)| format!("{}: {}", k, v))
             .collect();
         text_parts.push(format!("Attributes: {}", attrs_text.join(", ")));
     }
-    
+
     let full_text = text_parts.join(". ");
     embed_text(&full_text)
 }
 
 /// 批量生成实体嵌入
-pub fn embed_entities(requests: Vec<EntityEmbeddingRequest>) -> Result<HashMap<String, Vec<f32>>, Box<dyn std::error::Error>> {
+pub fn embed_entities(
+    requests: Vec<EntityEmbeddingRequest>,
+) -> Result<HashMap<String, Vec<f32>>, Box<dyn std::error::Error>> {
     let mut results = HashMap::new();
     for request in requests {
         let embedding = embed_entity(&request)?;
@@ -332,12 +357,14 @@ pub fn embed_entities(requests: Vec<EntityEmbeddingRequest>) -> Result<HashMap<S
     Ok(results)
 }
 
-
-
 /// 计算余弦相似度
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let min_len = a.len().min(b.len());
-    let dot_product: f32 = a[..min_len].iter().zip(&b[..min_len]).map(|(x, y)| x * y).sum();
+    let dot_product: f32 = a[..min_len]
+        .iter()
+        .zip(&b[..min_len])
+        .map(|(x, y)| x * y)
+        .sum();
     dot_product // 向量已归一化
 }
 
@@ -348,7 +375,8 @@ pub fn embedding_dim() -> usize {
 
 /// 获取缓存统计
 pub fn get_cache_stats() -> Option<CacheStats> {
-    EMBEDDING_CACHE.get()
+    EMBEDDING_CACHE
+        .get()
         .and_then(|cache| cache.lock().ok())
         .map(|c| c.stats())
 }
@@ -375,33 +403,38 @@ pub struct SceneEmbeddingRequest {
 }
 
 /// 生成场景嵌入
-pub fn embed_scene(request: &SceneEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+pub fn embed_scene(
+    request: &SceneEmbeddingRequest,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let mut text_parts = Vec::new();
-    
+
     // 标题
     if let Some(title) = &request.title {
         text_parts.push(format!("Scene: {}", title));
     }
-    
+
     // 戏剧目标
     if let Some(goal) = &request.dramatic_goal {
         text_parts.push(format!("Goal: {}", goal));
     }
-    
+
     // 在场角色
     if !request.characters_present.is_empty() {
-        text_parts.push(format!("Characters: {}", request.characters_present.join(", ")));
+        text_parts.push(format!(
+            "Characters: {}",
+            request.characters_present.join(", ")
+        ));
     }
-    
+
     // 场景设置
     if let Some(setting) = &request.setting {
         text_parts.push(format!("Setting: {}", setting));
     }
-    
+
     // 内容摘要（取前500字符）
     let content_preview: String = request.content.chars().take(500).collect();
     text_parts.push(format!("Content: {}", content_preview));
-    
+
     let full_text = text_parts.join(". ");
     embed_text(&full_text)
 }
@@ -413,7 +446,7 @@ mod tests {
     #[test]
     fn test_embed_text() {
         init_embedding_model().ok();
-        
+
         let vec1 = embed_text("Hello world").unwrap();
         let vec2 = embed_text("Hello world").unwrap();
         let vec3 = embed_text("Goodbye world").unwrap();
@@ -431,11 +464,11 @@ mod tests {
     #[test]
     fn test_embed_entity() {
         init_embedding_model().ok();
-        
+
         let mut attrs = HashMap::new();
         attrs.insert("age".to_string(), serde_json::json!(25));
         attrs.insert("profession".to_string(), serde_json::json!("wizard"));
-        
+
         let request = EntityEmbeddingRequest {
             entity_id: "char_001".to_string(),
             name: "Gandalf".to_string(),
@@ -443,7 +476,7 @@ mod tests {
             entity_type: "Character".to_string(),
             attributes: attrs,
         };
-        
+
         let embedding = embed_entity(&request).unwrap();
         assert_eq!(embedding.len(), 384);
     }
@@ -451,13 +484,13 @@ mod tests {
     #[test]
     fn test_cache() {
         init_embedding_model().ok();
-        
+
         // 第一次嵌入（缓存未命中）
         let _ = embed_text("Cache test text");
-        
+
         // 第二次嵌入（缓存命中）
         let _ = embed_text("Cache test text");
-        
+
         let stats = get_cache_stats().unwrap();
         assert!(stats.hits >= 1);
         assert!(stats.misses >= 1);

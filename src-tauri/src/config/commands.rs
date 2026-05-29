@@ -1,11 +1,13 @@
 //! Settings management commands for Tauri
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+use tauri::{command, AppHandle, Manager};
+
 use super::settings::*;
 use crate::error::AppError;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tauri::{command, AppHandle, Manager};
 
 /// 模型类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,17 +192,19 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    
+
     let mut models: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
-    
+
     // 转换LLM配置：含 Vision 能力的放入 multimodal，其余放入 chat
     let mut chat_models: Vec<serde_json::Value> = vec![];
     let mut multimodal_models: Vec<serde_json::Value> = vec![];
-    
+
     for p in config.llm_profiles.values() {
-        let is_multimodal = p.capabilities.contains(&super::settings::ModelCapability::Vision);
+        let is_multimodal = p
+            .capabilities
+            .contains(&super::settings::ModelCapability::Vision);
         let model_json = serde_json::json!({
             "id": p.id,
             "name": p.name,
@@ -226,7 +230,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
     }
     models.insert("chat".to_string(), chat_models);
     models.insert("multimodal".to_string(), multimodal_models);
-    
+
     // 转换Embedding配置
     let embedding_models: Vec<serde_json::Value> = config
         .embedding_profiles
@@ -250,19 +254,25 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         })
         .collect();
     models.insert("embedding".to_string(), embedding_models);
-    
+
     // 图像模型暂空
     models.insert("image".to_string(), vec![]);
-    
+
     let active_models = vec![
-        ("chat".to_string(), config.active_llm_profile.unwrap_or_default()),
-        ("embedding".to_string(), config.active_embedding_profile.unwrap_or_default()),
+        (
+            "chat".to_string(),
+            config.active_llm_profile.unwrap_or_default(),
+        ),
+        (
+            "embedding".to_string(),
+            config.active_embedding_profile.unwrap_or_default(),
+        ),
         ("multimodal".to_string(), String::new()),
         ("image".to_string(), String::new()),
     ]
     .into_iter()
     .collect();
-    
+
     let agent_mappings: Vec<AgentMapping> = config.agent_mappings.values().cloned().collect();
 
     Ok(AppSettingsData {
@@ -295,9 +305,9 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    
+
     // 保存活跃配置
     if let Some(chat_id) = settings.active_models.get("chat") {
         if !chat_id.is_empty() {
@@ -312,17 +322,20 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
 
     // 保存 Agent 映射
     for mapping in settings.agent_mappings {
-        config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
+        config
+            .agent_mappings
+            .insert(mapping.agent_id.clone(), mapping);
     }
 
     // 保存拆书并发数
-    config.book_deconstruction_concurrency = settings.book_deconstruction_concurrency.max(1).min(100);
+    config.book_deconstruction_concurrency =
+        settings.book_deconstruction_concurrency.max(1).min(100);
     // 保存 AgentOrchestrator 配置
     config.rewrite_threshold = settings.rewrite_threshold.clamp(0.0, 1.0);
     config.max_feedback_loops = settings.max_feedback_loops.max(1).min(10);
     // 保存写作策略
     config.writing_strategy = settings.writing_strategy;
-    
+
     config.save(&app_dir).map_err(AppError::from)
 }
 
@@ -333,9 +346,9 @@ pub fn export_settings(app_handle: AppHandle) -> Result<AppSettingsExport, AppEr
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let settings = get_settings(app_handle)?;
-    
+
     Ok(AppSettingsExport {
         version: env!("CARGO_PKG_VERSION").to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
@@ -349,18 +362,18 @@ pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result
     // 验证版本兼容性
     let current_version = env!("CARGO_PKG_VERSION");
     let import_version = &data.version;
-    
+
     // 简单版本检查（主版本号必须相同）
     let current_major = current_version.split('.').next().unwrap_or("0");
     let import_major = import_version.split('.').next().unwrap_or("0");
-    
+
     if current_major != import_major {
         return Err(AppError::internal(format!(
             "版本不兼容: 当前版本 {}，导入版本 {}",
             current_version, import_version
         )));
     }
-    
+
     save_settings(data.settings, app_handle)?;
     Ok(())
 }
@@ -370,7 +383,7 @@ pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result
 pub fn get_models(app_handle: AppHandle) -> Result<Vec<serde_json::Value>, AppError> {
     let settings = get_settings(app_handle)?;
     let mut all_models: Vec<serde_json::Value> = vec![];
-    
+
     for (model_type, models) in settings.models {
         for mut model in models {
             if let Some(obj) = model.as_object_mut() {
@@ -379,28 +392,36 @@ pub fn get_models(app_handle: AppHandle) -> Result<Vec<serde_json::Value>, AppEr
             all_models.push(model);
         }
     }
-    
+
     Ok(all_models)
 }
 
 /// 创建模型配置
 #[command]
-pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
+pub fn create_model(
+    config: ModelConfigInput,
+    app_handle: AppHandle,
+) -> Result<serde_json::Value, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let mut app_config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    
-    let model_id = config.id.clone().unwrap_or_else(|| format!("model-{}", uuid::Uuid::new_v4()));
+
+    let model_id = config
+        .id
+        .clone()
+        .unwrap_or_else(|| format!("model-{}", uuid::Uuid::new_v4()));
     let model_name = config.name.clone();
     let model_type_str = format!("{:?}", config.model_type);
-    
+
     match config.model_type {
         ModelType::Chat => {
             let profile = build_llm_profile(model_id.clone(), &config, false);
-            app_config.add_llm_profile(profile).map_err(AppError::from)?;
+            app_config
+                .add_llm_profile(profile)
+                .map_err(AppError::from)?;
         }
         ModelType::Embedding => {
             let provider = match config.provider.as_str() {
@@ -424,20 +445,24 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 is_default: config.is_default.unwrap_or(false),
             };
 
-            app_config.add_embedding_profile(profile).map_err(AppError::from)?;
+            app_config
+                .add_embedding_profile(profile)
+                .map_err(AppError::from)?;
         }
         ModelType::Multimodal => {
             let profile = build_llm_profile(model_id.clone(), &config, true);
-            app_config.add_llm_profile(profile).map_err(AppError::from)?;
+            app_config
+                .add_llm_profile(profile)
+                .map_err(AppError::from)?;
         }
         ModelType::Image => {
             // TODO: 实现图像生成模型
             return Err(AppError::internal("图像生成模型暂未实现"));
         }
     }
-    
+
     app_config.save(&app_dir).map_err(AppError::from)?;
-    
+
     Ok(serde_json::json!({
         "id": model_id,
         "name": model_name,
@@ -447,7 +472,11 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
 
 /// 更新模型配置（直接修改，避免 delete+create 导致数据丢失）
 #[command]
-pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle) -> Result<(), AppError> {
+pub fn update_model(
+    id: String,
+    config: ModelConfigInput,
+    app_handle: AppHandle,
+) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -473,7 +502,9 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
                 }
             }
 
-            let profile = app_config.llm_profiles.get_mut(&id)
+            let profile = app_config
+                .llm_profiles
+                .get_mut(&id)
                 .ok_or_else(|| format!("Chat/Multimodal model '{}' not found", id))?;
 
             profile.name = config.name;
@@ -514,7 +545,9 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
                 }
             }
 
-            let profile = app_config.embedding_profiles.get_mut(&id)
+            let profile = app_config
+                .embedding_profiles
+                .get_mut(&id)
                 .ok_or_else(|| format!("Embedding model '{}' not found", id))?;
 
             profile.name = config.name;
@@ -556,7 +589,10 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
 
 /// 获取模型真实 API Key（编辑时明文显示用，不随列表批量暴露）
 #[command]
-pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Option<String>, AppError> {
+pub fn get_model_api_key(
+    model_id: String,
+    app_handle: AppHandle,
+) -> Result<Option<String>, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -564,13 +600,24 @@ pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Opti
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     if let Some(p) = config.llm_profiles.get(&model_id) {
-        return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
+        return Ok(if p.api_key.is_empty() {
+            None
+        } else {
+            Some(p.api_key.clone())
+        });
     }
     if let Some(p) = config.embedding_profiles.get(&model_id) {
-        return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
+        return Ok(if p.api_key.is_empty() {
+            None
+        } else {
+            Some(p.api_key.clone())
+        });
     }
 
-    Err(AppError::internal(format!("Model '{}' not found", model_id)))
+    Err(AppError::internal(format!(
+        "Model '{}' not found",
+        model_id
+    )))
 }
 
 /// 删除模型配置
@@ -580,49 +627,67 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    
+
     // 尝试删除LLM配置
     if config.llm_profiles.contains_key(&id) {
         config.remove_llm_profile(&id).map_err(AppError::from)?;
     }
     // 尝试删除Embedding配置
     else if config.embedding_profiles.contains_key(&id) {
-        config.remove_embedding_profile(&id).map_err(AppError::from)?;
-    }
-    else {
+        config
+            .remove_embedding_profile(&id)
+            .map_err(AppError::from)?;
+    } else {
         return Err(AppError::internal(format!("Model '{}' not found", id)));
     }
-    
+
     config.save(&app_dir).map_err(AppError::from)
 }
 
 /// 设置活跃模型
 #[command]
-pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHandle) -> Result<(), AppError> {
+pub fn set_active_model(
+    model_type: String,
+    model_id: String,
+    app_handle: AppHandle,
+) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    
+
     match model_type.as_str() {
-        "chat" => config.set_active_llm_profile(&model_id).map_err(AppError::from)?,
-        "multimodal" => config.set_active_llm_profile(&model_id).map_err(AppError::from)?,
-        "embedding" => config.set_active_embedding_profile(&model_id).map_err(AppError::from)?,
-        _ => return Err(AppError::internal(format!("Unknown model type: {}", model_type))),
+        "chat" => config
+            .set_active_llm_profile(&model_id)
+            .map_err(AppError::from)?,
+        "multimodal" => config
+            .set_active_llm_profile(&model_id)
+            .map_err(AppError::from)?,
+        "embedding" => config
+            .set_active_embedding_profile(&model_id)
+            .map_err(AppError::from)?,
+        _ => {
+            return Err(AppError::internal(format!(
+                "Unknown model type: {}",
+                model_type
+            )))
+        }
     }
-    
+
     config.save(&app_dir).map_err(AppError::from)?;
-    
+
     // 通知幕前窗口刷新模型状态
     let _ = crate::window::WindowManager::send_to_frontstage(
         &app_handle,
-        crate::window::FrontstageEvent::DataRefresh { entity: "model_config".to_string() }
+        crate::window::FrontstageEvent::DataRefresh {
+            entity: "model_config".to_string(),
+        },
     );
-    
+
     Ok(())
 }
 
@@ -633,7 +698,7 @@ pub fn get_agent_mappings(app_handle: AppHandle) -> Result<Vec<AgentMapping>, Ap
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     Ok(config.agent_mappings.values().cloned().collect())
 }
@@ -645,9 +710,11 @@ pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Res
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    
+
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
-    config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
+    config
+        .agent_mappings
+        .insert(mapping.agent_id.clone(), mapping);
     config.save(&app_dir).map_err(AppError::from)?;
     Ok(())
 }
@@ -663,7 +730,10 @@ struct ConnectionStep {
 
 /// 测试模型连接，返回带 `steps` 字段的详细探测结果
 #[command]
-pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
+pub async fn test_model_connection(
+    model_id: String,
+    app_handle: AppHandle,
+) -> Result<serde_json::Value, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -674,20 +744,27 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
     let mut found_profile: Option<(String, Option<String>)> = None;
     for p in config.llm_profiles.values() {
         if p.id == model_id {
-            found_profile = Some((p.api_base.clone().unwrap_or_default(), Some(p.api_key.clone())));
+            found_profile = Some((
+                p.api_base.clone().unwrap_or_default(),
+                Some(p.api_key.clone()),
+            ));
             break;
         }
     }
     if found_profile.is_none() {
         for p in config.embedding_profiles.values() {
             if p.id == model_id {
-                found_profile = Some((p.api_base.clone().unwrap_or_default(), Some(p.api_key.clone())));
+                found_profile = Some((
+                    p.api_base.clone().unwrap_or_default(),
+                    Some(p.api_key.clone()),
+                ));
                 break;
             }
         }
     }
 
-    let (api_base, api_key) = found_profile.ok_or_else(|| format!("Model '{}' not found", model_id))?;
+    let (api_base, api_key) =
+        found_profile.ok_or_else(|| format!("Model '{}' not found", model_id))?;
     if api_base.is_empty() {
         return Ok(serde_json::json!({
             "success": false,
@@ -711,9 +788,17 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
     let step1 = match client.get(&api_base).send().await {
         Ok(_) => {
             connected = true;
-            ConnectionStep { name: "GET root".to_string(), success: true, error: None }
+            ConnectionStep {
+                name: "GET root".to_string(),
+                success: true,
+                error: None,
+            }
         }
-        Err(e) => ConnectionStep { name: "GET root".to_string(), success: false, error: Some(e.to_string()) },
+        Err(e) => ConnectionStep {
+            name: "GET root".to_string(),
+            success: false,
+            error: Some(e.to_string()),
+        },
     };
     steps.push(step1);
 
@@ -728,9 +813,17 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
         let step2 = match req.send().await {
             Ok(_) => {
                 connected = true;
-                ConnectionStep { name: "GET /models".to_string(), success: true, error: None }
+                ConnectionStep {
+                    name: "GET /models".to_string(),
+                    success: true,
+                    error: None,
+                }
             }
-            Err(e) => ConnectionStep { name: "GET /models".to_string(), success: false, error: Some(e.to_string()) },
+            Err(e) => ConnectionStep {
+                name: "GET /models".to_string(),
+                success: false,
+                error: Some(e.to_string()),
+            },
         };
         steps.push(step2);
     }
@@ -744,12 +837,24 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
             }
         }
         req = req.header("Content-Type", "application/json");
-        let step3 = match req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await {
+        let step3 = match req
+            .body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#)
+            .send()
+            .await
+        {
             Ok(_) => {
                 connected = true;
-                ConnectionStep { name: "POST /chat/completions".to_string(), success: true, error: None }
+                ConnectionStep {
+                    name: "POST /chat/completions".to_string(),
+                    success: true,
+                    error: None,
+                }
             }
-            Err(e) => ConnectionStep { name: "POST /chat/completions".to_string(), success: false, error: Some(e.to_string()) },
+            Err(e) => ConnectionStep {
+                name: "POST /chat/completions".to_string(),
+                success: false,
+                error: Some(e.to_string()),
+            },
         };
         steps.push(step3);
     }
@@ -763,12 +868,24 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
             }
         }
         req = req.header("Content-Type", "application/json");
-        let step4 = match req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await {
+        let step4 = match req
+            .body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#)
+            .send()
+            .await
+        {
             Ok(_) => {
                 connected = true;
-                ConnectionStep { name: "POST /v1/chat/completions".to_string(), success: true, error: None }
+                ConnectionStep {
+                    name: "POST /v1/chat/completions".to_string(),
+                    success: true,
+                    error: None,
+                }
             }
-            Err(e) => ConnectionStep { name: "POST /v1/chat/completions".to_string(), success: false, error: Some(e.to_string()) },
+            Err(e) => ConnectionStep {
+                name: "POST /v1/chat/completions".to_string(),
+                success: false,
+                error: Some(e.to_string()),
+            },
         };
         steps.push(step4);
     }
@@ -792,7 +909,10 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
 
 /// 从 API 地址获取可用模型列表
 #[command]
-pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<Vec<String>, AppError> {
+pub async fn fetch_models(
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<Vec<String>, AppError> {
     if base_url.is_empty() {
         return Err(AppError::internal("API Base 地址不能为空"));
     }
@@ -805,7 +925,10 @@ pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<V
     let urls = if base_url.ends_with("/v1") {
         vec![format!("{}/models", base_url)]
     } else {
-        vec![format!("{}/v1/models", base_url), format!("{}/models", base_url)]
+        vec![
+            format!("{}/v1/models", base_url),
+            format!("{}/models", base_url),
+        ]
     };
 
     for url in urls {
@@ -820,11 +943,18 @@ pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<V
             Ok(resp) if resp.status().is_success() => {
                 match resp.json::<serde_json::Value>().await {
                     Ok(data) => {
-                        let ids: Vec<String> = data.get("data")
+                        let ids: Vec<String> = data
+                            .get("data")
                             .and_then(|d| d.as_array())
-                            .map(|arr| arr.iter()
-                                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
-                                .collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|m| {
+                                        m.get("id")
+                                            .and_then(|id| id.as_str())
+                                            .map(|s| s.to_string())
+                                    })
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         if !ids.is_empty() {
                             return Ok(ids);
@@ -837,5 +967,7 @@ pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<V
         }
     }
 
-    Err(AppError::internal("无法从该 API 地址获取模型列表，请检查地址和密钥是否正确"))
+    Err(AppError::internal(
+        "无法从该 API 地址获取模型列表，请检查地址和密钥是否正确",
+    ))
 }

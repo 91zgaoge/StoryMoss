@@ -1,8 +1,11 @@
+use std::{
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Result;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -10,14 +13,13 @@ pub type DbPool = Pool<SqliteConnectionManager>;
 pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     let manager = SqliteConnectionManager::memory()
         .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
-    let pool = Pool::builder()
-        .max_size(5)
-        .build(manager)?;
+    let pool = Pool::builder().max_size(5).build(manager)?;
 
     let mut conn = pool.get()?;
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY KEY,\n            applied_at INTEGER NOT NULL\n        )",
+        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY \
+         KEY,\n            applied_at INTEGER NOT NULL\n        )",
         [],
     )?;
 
@@ -38,7 +40,7 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
         )",
         [],
     )?;
-    
+
     Ok(pool)
 }
 
@@ -67,15 +69,14 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let db_path = app_dir.join("cinema_ai.db");
     let manager = SqliteConnectionManager::file(&db_path)
         .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
-    let pool = Pool::builder()
-        .max_size(5)
-        .build(manager)?;
+    let pool = Pool::builder().max_size(5).build(manager)?;
 
     // Initialize tables
     let mut conn = pool.get()?;
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY KEY,\n            applied_at INTEGER NOT NULL\n        )",
+        "CREATE TABLE IF NOT EXISTS schema_migrations (\n            version INTEGER PRIMARY \
+         KEY,\n            applied_at INTEGER NOT NULL\n        )",
         [],
     )?;
 
@@ -138,16 +139,17 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         CREATE INDEX IF NOT EXISTS idx_characters_story ON characters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_story ON chapters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_number ON chapters(story_id, chapter_number);
-        "#
+        "#,
     )?;
     // Migration 17: 创建任务表和任务日志表
     if current_version < 1 {
-        let task_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let task_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if task_tables.is_empty() {
             conn.execute(
@@ -175,22 +177,10 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                 )",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX idx_tasks_status ON tasks(status)",
-                [],
-            )?;
-            conn.execute(
-                "CREATE INDEX idx_tasks_type ON tasks(task_type)",
-                [],
-            )?;
-            conn.execute(
-                "CREATE INDEX idx_tasks_enabled ON tasks(enabled)",
-                [],
-            )?;
-            conn.execute(
-                "CREATE INDEX idx_tasks_next_run ON tasks(next_run_at)",
-                [],
-            )?;
+            conn.execute("CREATE INDEX idx_tasks_status ON tasks(status)", [])?;
+            conn.execute("CREATE INDEX idx_tasks_type ON tasks(task_type)", [])?;
+            conn.execute("CREATE INDEX idx_tasks_enabled ON tasks(enabled)", [])?;
+            conn.execute("CREATE INDEX idx_tasks_next_run ON tasks(next_run_at)", [])?;
             conn.execute(
                 "CREATE TABLE task_logs (
                     id TEXT PRIMARY KEY,
@@ -202,22 +192,22 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                 )",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX idx_task_logs_task ON task_logs(task_id)",
-                [],
-            )?;
+            conn.execute("CREATE INDEX idx_task_logs_task ON task_logs(task_id)", [])?;
         }
         record_migration(conn, 1)?;
     }
 
     // Migration 28: 创建协作会话表（协同编辑持久化)
     if current_version < 2 {
-        let collab_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let collab_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if collab_tables.is_empty() {
             conn.execute(
@@ -258,12 +248,16 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
 
     // Migration 29: 创建小说初始化会话追踪表
     if current_version < 3 {
-        let bootstrap_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='novel_bootstrap_sessions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let bootstrap_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='novel_bootstrap_sessions'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if bootstrap_tables.is_empty() {
             conn.execute(
@@ -290,12 +284,15 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
 
     // Migration 39: 创建导出模板表
     if current_version < 5 {
-        let export_template_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let export_template_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if export_template_tables.is_empty() {
             conn.execute(
@@ -325,12 +322,13 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
 
     // Migration 40: 创建 AI 操作历史表
     if current_version < 6 {
-        let ai_op_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let ai_op_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if ai_op_tables.is_empty() {
             conn.execute(
@@ -378,12 +376,15 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
 
     // Migration 38: 统一叙事元素表
     if current_version < 4 {
-        let narrative_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let narrative_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if narrative_tables.is_empty() {
             conn.execute(
@@ -408,11 +409,13 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_story ON narrative_characters(story_id)",
+                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_story ON \
+                 narrative_characters(story_id)",
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_source ON narrative_characters(source)",
+                "CREATE INDEX IF NOT EXISTS idx_narrative_chars_source ON \
+                 narrative_characters(source)",
                 [],
             )?;
 
@@ -439,11 +442,13 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_story ON narrative_scenes(story_id)",
+                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_story ON \
+                 narrative_scenes(story_id)",
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_source ON narrative_scenes(source)",
+                "CREATE INDEX IF NOT EXISTS idx_narrative_scenes_source ON \
+                 narrative_scenes(source)",
                 [],
             )?;
 
@@ -465,7 +470,8 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_wb_story ON narrative_world_buildings(story_id)",
+                "CREATE INDEX IF NOT EXISTS idx_narrative_wb_story ON \
+                 narrative_world_buildings(story_id)",
                 [],
             )?;
         }
@@ -829,12 +835,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 1: 添加实体归档字段
     if current_version < 7 {
-        let columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(kg_entities)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(kg_entities)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !columns.iter().any(|c| c == "is_archived") {
             conn.execute(
@@ -843,10 +850,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
         if !columns.iter().any(|c| c == "archived_at") {
-            conn.execute(
-                "ALTER TABLE kg_entities ADD COLUMN archived_at TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE kg_entities ADD COLUMN archived_at TEXT", [])?;
         }
 
         // 创建归档索引（仅在 kg_entities 表已存在时）
@@ -859,12 +863,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 2: 添加实体保留字段
     if current_version < 8 {
-        let columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(kg_entities)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(kg_entities)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !columns.iter().any(|c| c == "confidence_score") {
             conn.execute(
@@ -879,26 +884,26 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
         if !columns.iter().any(|c| c == "last_accessed") {
-            conn.execute(
-                "ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT", [])?;
         }
         record_migration(conn, 8)?;
     }
 
     // Migration 3: 创建场景批注表
     if current_version < 9 {
-            let annotation_tables: Vec<String> = conn.prepare(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'"
-            )?.query_map([], |row| {
+        let annotation_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'",
+            )?
+            .query_map([], |row| {
                 let name: String = row.get(0)?;
                 Ok(name)
-            })?.collect::<Result<Vec<_>, _>>()?;
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
-            if annotation_tables.is_empty() {
-                conn.execute(
-                    "CREATE TABLE scene_annotations (
+        if annotation_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE scene_annotations (
                         id TEXT PRIMARY KEY,
                         scene_id TEXT NOT NULL,
                         story_id TEXT NOT NULL,
@@ -910,28 +915,31 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                         FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
                         FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
                     )",
-                    [],
-                )?;
-                conn.execute(
-                    "CREATE INDEX idx_scene_annotations_scene ON scene_annotations(scene_id)",
-                    [],
-                )?;
-                conn.execute(
-                    "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
-                    [],
-                )?;
-            }
-            record_migration(conn, 9)?;
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_annotations_scene ON scene_annotations(scene_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 9)?;
     }
 
     // Migration 4: 创建文本内联批注表
     if current_version < 10 {
-        let text_annotation_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let text_annotation_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if text_annotation_tables.is_empty() {
             conn.execute(
@@ -965,12 +973,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 5: 创建变更追踪表
     if current_version < 11 {
-        let change_track_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let change_track_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if change_track_tables.is_empty() {
             conn.execute(
@@ -1012,16 +1021,18 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 5.1: 为旧版 change_tracks 添加 chapter_id
     if current_version < 12 {
-        let change_track_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(change_tracks)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let change_track_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(change_tracks)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !change_track_columns.iter().any(|c| c == "chapter_id") {
             conn.execute(
-                "ALTER TABLE change_tracks ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE",
+                "ALTER TABLE change_tracks ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON \
+                 DELETE CASCADE",
                 [],
             )?;
             conn.execute(
@@ -1034,12 +1045,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 6: 创建评论线程表
     if current_version < 13 {
-        let comment_thread_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let comment_thread_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if comment_thread_tables.is_empty() {
             conn.execute(
@@ -1091,12 +1105,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 7: 创建角色状态追踪表（智能化创作)
     if current_version < 14 {
-        let character_state_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let character_state_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if character_state_tables.is_empty() {
             conn.execute(
@@ -1129,12 +1146,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 8: 创建伏笔追踪表（智能化创作)
     if current_version < 15 {
-        let foreshadowing_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='foreshadowing_tracker'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let foreshadowing_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='foreshadowing_tracker'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if foreshadowing_tables.is_empty() {
             conn.execute(
@@ -1165,12 +1186,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 9: 创建用户偏好表（自适应学习)
     if current_version < 16 {
-        let preference_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let preference_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if preference_tables.is_empty() {
             conn.execute(
@@ -1196,12 +1220,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 10: 创建风格 DNA 表（深度风格系统)
     if current_version < 17 {
-        let style_dna_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let style_dna_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if style_dna_tables.is_empty() {
             conn.execute(
@@ -1226,12 +1251,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 11: 创建用户反馈日志表（自适应学习)
     if current_version < 18 {
-        let feedback_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let feedback_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if feedback_tables.is_empty() {
             conn.execute(
@@ -1269,12 +1297,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 12: 创建订阅表
     if current_version < 19 {
-        let subscription_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let subscription_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if subscription_tables.is_empty() {
             conn.execute(
@@ -1306,12 +1335,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 14: 创建 AI 调用日志表
     if current_version < 20 {
-        let usage_log_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let usage_log_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if usage_log_tables.is_empty() {
             conn.execute(
@@ -1346,12 +1376,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 16: 创建拆书功能参考表
     if current_version < 21 {
-        let ref_book_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let ref_book_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if ref_book_tables.is_empty() {
             conn.execute(
@@ -1429,18 +1462,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 18: reference_books 增加 task_id 字段，支持取消拆书任务
     if current_version < 22 {
-        let ref_book_cols: Vec<String> = conn.prepare(
-            "SELECT name FROM pragma_table_info('reference_books')"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let ref_book_cols: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('reference_books')")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !ref_book_cols.iter().any(|c| c == "task_id") {
-            conn.execute(
-                "ALTER TABLE reference_books ADD COLUMN task_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE reference_books ADD COLUMN task_id TEXT", [])?;
             conn.execute(
                 "CREATE INDEX idx_ref_books_task ON reference_books(task_id)",
                 [],
@@ -1451,12 +1482,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 19: 创建 scene_versions 表（生产环境缺失修复）
     if current_version < 23 {
-        let sv_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_versions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let sv_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scene_versions'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if sv_tables.is_empty() {
             conn.execute(
@@ -1498,44 +1530,41 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 20: 为 stories 表添加 style_dna_id 字段
     if current_version < 24 {
-        let story_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(stories)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(stories)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !story_columns.iter().any(|c| c == "style_dna_id") {
-            conn.execute(
-                "ALTER TABLE stories ADD COLUMN style_dna_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE stories ADD COLUMN style_dna_id TEXT", [])?;
         }
         record_migration(conn, 24)?;
     }
 
     // Migration 21: 为 scenes 和 kg_relations 表添加 confidence_score 字段
     if current_version < 25 {
-        let scene_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(scenes)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !scene_columns.iter().any(|c| c == "confidence_score") {
-            conn.execute(
-                "ALTER TABLE scenes ADD COLUMN confidence_score REAL",
-                [],
-            )?;
+            conn.execute("ALTER TABLE scenes ADD COLUMN confidence_score REAL", [])?;
         }
 
-        let relation_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(kg_relations)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let relation_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(kg_relations)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !relation_columns.iter().any(|c| c == "confidence_score") {
             conn.execute(
@@ -1548,18 +1577,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 22: 为 stories 表添加 methodology_id 和 methodology_step 字段
     if current_version < 26 {
-        let story_columns_m22: Vec<String> = conn.prepare(
-            "PRAGMA table_info(stories)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_columns_m22: Vec<String> = conn
+            .prepare("PRAGMA table_info(stories)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !story_columns_m22.iter().any(|c| c == "methodology_id") {
-            conn.execute(
-                "ALTER TABLE stories ADD COLUMN methodology_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE stories ADD COLUMN methodology_id TEXT", [])?;
         }
         if !story_columns_m22.iter().any(|c| c == "methodology_step") {
             conn.execute(
@@ -1570,28 +1597,39 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 26)?;
     }
 
-    // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger 时间窗口与风险信号
+    // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger
+    // 时间窗口与风险信号
     if current_version < 27 {
-        let foreshadowing_columns_m24: Vec<String> = conn.prepare(
-            "PRAGMA table_info(foreshadowing_tracker)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let foreshadowing_columns_m24: Vec<String> = conn
+            .prepare("PRAGMA table_info(foreshadowing_tracker)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        if !foreshadowing_columns_m24.iter().any(|c| c == "target_start_scene") {
+        if !foreshadowing_columns_m24
+            .iter()
+            .any(|c| c == "target_start_scene")
+        {
             conn.execute(
                 "ALTER TABLE foreshadowing_tracker ADD COLUMN target_start_scene INTEGER",
                 [],
             )?;
         }
-        if !foreshadowing_columns_m24.iter().any(|c| c == "target_end_scene") {
+        if !foreshadowing_columns_m24
+            .iter()
+            .any(|c| c == "target_end_scene")
+        {
             conn.execute(
                 "ALTER TABLE foreshadowing_tracker ADD COLUMN target_end_scene INTEGER",
                 [],
             )?;
         }
-        if !foreshadowing_columns_m24.iter().any(|c| c == "risk_signals") {
+        if !foreshadowing_columns_m24
+            .iter()
+            .any(|c| c == "risk_signals")
+        {
             conn.execute(
                 "ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals TEXT",
                 [],
@@ -1609,7 +1647,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_foreshadowing_ledger_key ON foreshadowing_tracker(ledger_key)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_foreshadowing_ledger_key ON \
+                 foreshadowing_tracker(ledger_key)",
                 [],
             )?;
         }
@@ -1618,12 +1657,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 25: 为 scenes 表添加结构化大纲字段
     if current_version < 28 {
-        let scene_columns_m25: Vec<String> = conn.prepare(
-            "PRAGMA table_info(scenes)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns_m25: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !scene_columns_m25.iter().any(|c| c == "execution_stage") {
             conn.execute(
@@ -1632,28 +1672,23 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
         if !scene_columns_m25.iter().any(|c| c == "outline_content") {
-            conn.execute(
-                "ALTER TABLE scenes ADD COLUMN outline_content TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE scenes ADD COLUMN outline_content TEXT", [])?;
         }
         if !scene_columns_m25.iter().any(|c| c == "draft_content") {
-            conn.execute(
-                "ALTER TABLE scenes ADD COLUMN draft_content TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE scenes ADD COLUMN draft_content TEXT", [])?;
         }
         record_migration(conn, 28)?;
     }
 
     // Migration 26: 创建聊天会话和消息表（持久化聊天)
     if current_version < 29 {
-        let chat_session_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chat_session_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if chat_session_tables.is_empty() {
             conn.execute(
@@ -1693,12 +1728,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 27: 创建故事运行状态表（持久化状态)
     if current_version < 30 {
-        let story_state_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_state_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if story_state_tables.is_empty() {
             conn.execute(
@@ -1721,12 +1759,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 30: 创建故事风格混合配置表
     if current_version < 31 {
-        let story_style_config_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_style_config_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if story_style_config_tables.is_empty() {
             conn.execute(
@@ -1746,7 +1787,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_story_style_configs_active ON story_style_configs(story_id, is_active)",
+                "CREATE INDEX idx_story_style_configs_active ON story_style_configs(story_id, \
+                 is_active)",
                 [],
             )?;
         }
@@ -1755,14 +1797,18 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 31: 为 scenes 表添加风格混合覆盖字段
     if current_version < 32 {
-        let scene_columns_m31: Vec<String> = conn.prepare(
-            "PRAGMA table_info(scenes)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns_m31: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        if !scene_columns_m31.iter().any(|c| c == "style_blend_override") {
+        if !scene_columns_m31
+            .iter()
+            .any(|c| c == "style_blend_override")
+        {
             conn.execute(
                 "ALTER TABLE scenes ADD COLUMN style_blend_override TEXT",
                 [],
@@ -1773,12 +1819,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 32: 用户认证系统
     if current_version < 33 {
-        let auth_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let auth_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if auth_tables.is_empty() {
             conn.execute(
@@ -1813,7 +1860,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_oauth_accounts_provider ON oauth_accounts(provider, provider_account_id)",
+                "CREATE INDEX idx_oauth_accounts_provider ON oauth_accounts(provider, \
+                 provider_account_id)",
                 [],
             )?;
             conn.execute(
@@ -1826,26 +1874,21 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 )",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX idx_sessions_token ON sessions(token)",
-                [],
-            )?;
-            conn.execute(
-                "CREATE INDEX idx_sessions_user ON sessions(user_id)",
-                [],
-            )?;
+            conn.execute("CREATE INDEX idx_sessions_token ON sessions(token)", [])?;
+            conn.execute("CREATE INDEX idx_sessions_user ON sessions(user_id)", [])?;
         }
         record_migration(conn, 33)?;
     }
 
     // Migration 33: subscriptions 表添加 real_user_id
     if current_version < 34 {
-        let sub_columns: Vec<String> = conn.prepare(
-            "PRAGMA table_info(subscriptions)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let sub_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(subscriptions)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !sub_columns.iter().any(|c| c == "real_user_id") {
             conn.execute(
@@ -1858,12 +1901,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 34: 创建故事大纲表
     if current_version < 35 {
-        let outline_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let outline_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if outline_tables.is_empty() {
             conn.execute(
@@ -1890,38 +1934,34 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 35: characters 表增强 + character_relationships 表
     if current_version < 36 {
-        let char_columns_m35: Vec<String> = conn.prepare(
-            "PRAGMA table_info(characters)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let char_columns_m35: Vec<String> = conn
+            .prepare("PRAGMA table_info(characters)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !char_columns_m35.iter().any(|c| c == "appearance") {
-            conn.execute(
-                "ALTER TABLE characters ADD COLUMN appearance TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE characters ADD COLUMN appearance TEXT", [])?;
         }
         if !char_columns_m35.iter().any(|c| c == "gender") {
-            conn.execute(
-                "ALTER TABLE characters ADD COLUMN gender TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE characters ADD COLUMN gender TEXT", [])?;
         }
         if !char_columns_m35.iter().any(|c| c == "age") {
-            conn.execute(
-                "ALTER TABLE characters ADD COLUMN age INTEGER",
-                [],
-            )?;
+            conn.execute("ALTER TABLE characters ADD COLUMN age INTEGER", [])?;
         }
 
-        let rel_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_relationships'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let rel_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='character_relationships'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if rel_tables.is_empty() {
             conn.execute(
@@ -1953,34 +1993,34 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 36: scenes 表新增 foreshadowing_ids
     if current_version < 37 {
-        let scene_columns_m36: Vec<String> = conn.prepare(
-            "PRAGMA table_info(scenes)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns_m36: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !scene_columns_m36.iter().any(|c| c == "foreshadowing_ids") {
-            conn.execute(
-                "ALTER TABLE scenes ADD COLUMN foreshadowing_ids TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE scenes ADD COLUMN foreshadowing_ids TEXT", [])?;
         }
         record_migration(conn, 37)?;
     }
 
     // Migration 37: Chapter↔Scene 双轨映射
     if current_version < 38 {
-        let chapter_columns_m37: Vec<String> = conn.prepare(
-            "PRAGMA table_info(chapters)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chapter_columns_m37: Vec<String> = conn
+            .prepare("PRAGMA table_info(chapters)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !chapter_columns_m37.iter().any(|c| c == "scene_id") {
             conn.execute(
-                "ALTER TABLE chapters ADD COLUMN scene_id TEXT REFERENCES scenes(id) ON DELETE SET NULL",
+                "ALTER TABLE chapters ADD COLUMN scene_id TEXT REFERENCES scenes(id) ON DELETE \
+                 SET NULL",
                 [],
             )?;
             conn.execute(
@@ -1989,16 +2029,18 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
 
-        let scene_columns_m37: Vec<String> = conn.prepare(
-            "PRAGMA table_info(scenes)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_columns_m37: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !scene_columns_m37.iter().any(|c| c == "chapter_id") {
             conn.execute(
-                "ALTER TABLE scenes ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL",
+                "ALTER TABLE scenes ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE \
+                 SET NULL",
                 [],
             )?;
             conn.execute(
@@ -2011,12 +2053,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 41: 创建 Workflow 实例持久化表
     if current_version < 39 {
-        let workflow_instance_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let workflow_instance_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if workflow_instance_tables.is_empty() {
             conn.execute(
@@ -2048,12 +2093,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 42: 创建 Pending Vector Indexes 表
     if current_version < 40 {
-        let pending_vector_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_vector_indexes'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let pending_vector_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='pending_vector_indexes'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if pending_vector_tables.is_empty() {
             conn.execute(
@@ -2074,12 +2123,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 43: 创建 story_metadata 表
     if current_version < 41 {
-        let story_metadata_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_metadata_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if story_metadata_tables.is_empty() {
             conn.execute(
@@ -2103,12 +2153,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 44: 创建 scene_characters 表
     if current_version < 42 {
-        let scene_characters_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_characters_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if scene_characters_tables.is_empty() {
             conn.execute(
@@ -2137,12 +2190,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 45: 创建 scene_character_actions 表
     if current_version < 43 {
-        let scene_character_actions_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_character_actions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_character_actions_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='scene_character_actions'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if scene_character_actions_tables.is_empty() {
             conn.execute(
@@ -2159,11 +2216,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_scene_character_actions_scene ON scene_character_actions(scene_id)",
+                "CREATE INDEX idx_scene_character_actions_scene ON \
+                 scene_character_actions(scene_id)",
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_scene_character_actions_character ON scene_character_actions(character_id)",
+                "CREATE INDEX idx_scene_character_actions_character ON \
+                 scene_character_actions(character_id)",
                 [],
             )?;
         }
@@ -2172,12 +2231,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 46: 创建 plan_templates 表
     if current_version < 44 {
-        let plan_templates_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let plan_templates_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if plan_templates_tables.is_empty() {
             conn.execute(
@@ -2203,12 +2263,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 47: 创建 story_contracts 表 — 合同真源
     if current_version < 45 {
-        let story_contract_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='story_contracts'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let story_contract_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='story_contracts'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if story_contract_tables.is_empty() {
             conn.execute(
@@ -2238,12 +2301,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 48: 创建 scene_commits 表 — Scene 提交链
     if current_version < 46 {
-        let scene_commit_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_commit_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if scene_commit_tables.is_empty() {
             conn.execute(
@@ -2278,7 +2342,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE UNIQUE INDEX idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
+                "CREATE UNIQUE INDEX idx_scene_commits_number ON scene_commits(story_id, \
+                 chapter_number)",
                 [],
             )?;
         }
@@ -2287,12 +2352,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 49: 创建 memory_items 表 — 长期记忆
     if current_version < 47 {
-        let memory_item_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let memory_item_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if memory_item_tables.is_empty() {
             conn.execute(
@@ -2329,12 +2395,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 50: 创建 chapter_reading_power 表 — 追读力
     if current_version < 48 {
-        let reading_power_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_reading_power'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let reading_power_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND \
+                 name='chapter_reading_power'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if reading_power_tables.is_empty() {
             conn.execute(
@@ -2363,7 +2433,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE UNIQUE INDEX idx_reading_power_chapter ON chapter_reading_power(story_id, chapter_number)",
+                "CREATE UNIQUE INDEX idx_reading_power_chapter ON chapter_reading_power(story_id, \
+                 chapter_number)",
                 [],
             )?;
         }
@@ -2372,12 +2443,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 51: 创建 chase_debt 表 — 追读力债务
     if current_version < 49 {
-        let chase_debt_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='chase_debt'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chase_debt_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chase_debt'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if chase_debt_tables.is_empty() {
             conn.execute(
@@ -2411,12 +2483,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 52: 创建 override_contracts 表 — 违背约束合约
     if current_version < 50 {
-        let override_contract_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='override_contracts'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let override_contract_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='override_contracts'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if override_contract_tables.is_empty() {
             conn.execute(
@@ -2442,7 +2517,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_override_contracts_status ON override_contracts(story_id, status)",
+                "CREATE INDEX idx_override_contracts_status ON override_contracts(story_id, \
+                 status)",
                 [],
             )?;
         }
@@ -2451,12 +2527,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 53: 创建 review_issues 表 — 结构化审查问题
     if current_version < 51 {
-        let review_issue_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='review_issues'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let review_issue_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='review_issues'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if review_issue_tables.is_empty() {
             conn.execute(
@@ -2497,12 +2574,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 54: 创建 genre_profiles 表 — 体裁画像
     if current_version < 52 {
-        let genre_profile_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='genre_profiles'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let genre_profile_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='genre_profiles'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if genre_profile_tables.is_empty() {
             conn.execute(
@@ -2530,12 +2608,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 55: 为 chapters 表添加 writing_phase 字段 — 写作流程状态机
     if current_version < 53 {
-        let chapter_columns_m55: Vec<String> = conn.prepare(
-            "PRAGMA table_info(chapters)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chapter_columns_m55: Vec<String> = conn
+            .prepare("PRAGMA table_info(chapters)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !chapter_columns_m55.iter().any(|c| c == "writing_phase") {
             conn.execute(
@@ -2548,12 +2627,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 56: 创建 ingest_jobs 表 — Ingest 作业追踪
     if current_version < 54 {
-        let ingest_jobs_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let ingest_jobs_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if ingest_jobs_tables.is_empty() {
             conn.execute(
@@ -2583,12 +2663,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 57: 创建 feature_usage_logs 表 — 功能使用度量
     if current_version < 55 {
-        let feature_usage_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let feature_usage_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if feature_usage_tables.is_empty() {
             conn.execute(
@@ -2603,7 +2686,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_feature_usage_feature ON feature_usage_logs(feature_id, created_at)",
+                "CREATE INDEX idx_feature_usage_feature ON feature_usage_logs(feature_id, \
+                 created_at)",
                 [],
             )?;
             conn.execute(
@@ -2612,18 +2696,20 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
 
-        // ==================== Pipeline 管线体系（基于 Vela 学习借鉴）====================
+        // ==================== Pipeline 管线体系（基于 Vela
+        // 学习借鉴）====================
         record_migration(conn, 55)?;
     }
 
     // Migration 58: 创建 blueprints 表 — 章节蓝图/细纲
     if current_version < 56 {
-        let blueprint_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let blueprint_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if blueprint_tables.is_empty() {
             conn.execute(
@@ -2662,12 +2748,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 59: 创建 drafts 表 — 草稿版本管理
     if current_version < 57 {
-        let draft_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='drafts'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let draft_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='drafts'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if draft_tables.is_empty() {
             conn.execute(
@@ -2694,10 +2781,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 "CREATE INDEX idx_drafts_story_chapter ON drafts(story_id, chapter_number)",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX idx_drafts_status ON drafts(status)",
-                [],
-            )?;
+            conn.execute("CREATE INDEX idx_drafts_status ON drafts(status)", [])?;
             conn.execute(
                 "CREATE INDEX idx_drafts_finalized ON drafts(story_id, chapter_number, status)",
                 [],
@@ -2708,12 +2792,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 60: 创建 revisions 表 — 修稿记录
     if current_version < 58 {
-        let revision_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='revisions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let revision_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='revisions'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if revision_tables.is_empty() {
             conn.execute(
@@ -2751,14 +2836,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 58)?;
     }
 
-    // Migration 61: 创建 reviews 表 — 审稿报告（与 review_issues 不同，review_issues 是 Anti-AI 审查问题）
+    // Migration 61: 创建 reviews 表 — 审稿报告（与 review_issues
+    // 不同，review_issues 是 Anti-AI 审查问题）
     if current_version < 59 {
-        let review_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let review_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if review_tables.is_empty() {
             conn.execute(
@@ -2781,26 +2868,24 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 )",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX idx_reviews_draft ON reviews(draft_id)",
-                [],
-            )?;
-            conn.execute(
-                "CREATE INDEX idx_reviews_story ON reviews(story_id)",
-                [],
-            )?;
+            conn.execute("CREATE INDEX idx_reviews_draft ON reviews(draft_id)", [])?;
+            conn.execute("CREATE INDEX idx_reviews_story ON reviews(story_id)", [])?;
         }
         record_migration(conn, 59)?;
     }
 
-    // Migration 62: 创建 post_process_runs 和 post_process_steps 表 — 后处理管线持久化
+    // Migration 62: 创建 post_process_runs 和 post_process_steps 表 —
+    // 后处理管线持久化
     if current_version < 60 {
-        let post_process_run_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_runs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let post_process_run_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_runs'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if post_process_run_tables.is_empty() {
             conn.execute(
@@ -2823,17 +2908,21 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_post_process_runs_chapter ON post_process_runs(story_id, chapter_number)",
+                "CREATE INDEX idx_post_process_runs_chapter ON post_process_runs(story_id, \
+                 chapter_number)",
                 [],
             )?;
         }
 
-        let post_process_step_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_steps'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let post_process_step_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='post_process_steps'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if post_process_step_tables.is_empty() {
             conn.execute(
@@ -2862,12 +2951,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 63: 扩展 characters 表 — 添加 cs_* 动态状态字段
     if current_version < 61 {
-        let character_columns_m63: Vec<String> = conn.prepare(
-            "PRAGMA table_info(characters)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let character_columns_m63: Vec<String> = conn
+            .prepare("PRAGMA table_info(characters)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !character_columns_m63.iter().any(|c| c == "cs_location") {
             conn.execute("ALTER TABLE characters ADD COLUMN cs_location TEXT", [])?;
@@ -2875,8 +2965,14 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         if !character_columns_m63.iter().any(|c| c == "cs_power_level") {
             conn.execute("ALTER TABLE characters ADD COLUMN cs_power_level TEXT", [])?;
         }
-        if !character_columns_m63.iter().any(|c| c == "cs_physical_state") {
-            conn.execute("ALTER TABLE characters ADD COLUMN cs_physical_state TEXT", [])?;
+        if !character_columns_m63
+            .iter()
+            .any(|c| c == "cs_physical_state")
+        {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN cs_physical_state TEXT",
+                [],
+            )?;
         }
         if !character_columns_m63.iter().any(|c| c == "cs_mental_state") {
             conn.execute("ALTER TABLE characters ADD COLUMN cs_mental_state TEXT", [])?;
@@ -2884,11 +2980,23 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         if !character_columns_m63.iter().any(|c| c == "cs_key_items") {
             conn.execute("ALTER TABLE characters ADD COLUMN cs_key_items TEXT", [])?;
         }
-        if !character_columns_m63.iter().any(|c| c == "cs_recent_events") {
-            conn.execute("ALTER TABLE characters ADD COLUMN cs_recent_events TEXT", [])?;
+        if !character_columns_m63
+            .iter()
+            .any(|c| c == "cs_recent_events")
+        {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN cs_recent_events TEXT",
+                [],
+            )?;
         }
-        if !character_columns_m63.iter().any(|c| c == "cs_updated_at_chapter") {
-            conn.execute("ALTER TABLE characters ADD COLUMN cs_updated_at_chapter INTEGER", [])?;
+        if !character_columns_m63
+            .iter()
+            .any(|c| c == "cs_updated_at_chapter")
+        {
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN cs_updated_at_chapter INTEGER",
+                [],
+            )?;
         }
         if !character_columns_m63.iter().any(|c| c == "cs_json") {
             conn.execute("ALTER TABLE characters ADD COLUMN cs_json TEXT", [])?;
@@ -2898,12 +3006,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 64: 创建 llm_calls 表 — LLM 用量统计与审计
     if current_version < 62 {
-        let llm_call_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_calls'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let llm_call_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='llm_calls'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if llm_call_tables.is_empty() {
             conn.execute(
@@ -2950,24 +3059,27 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     // Migration 65: AI 使用配额表添加 offline_grace_used 字段 (W1-B6: 离线配额快照)
     if current_version < 63 {
         // 注：配额系统已移除 (A1)，此迁移保留以兼容旧数据库，但跳过无表的情况
-        let quota_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let quota_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !quota_tables.is_empty() {
-            let quota_v3_columns: Vec<String> = conn.prepare(
-                "PRAGMA table_info(ai_usage_quota)"
-            )?.query_map([], |row| {
-                let name: String = row.get(1)?;
-                Ok(name)
-            })?.collect::<Result<Vec<_>, _>>()?;
+            let quota_v3_columns: Vec<String> = conn
+                .prepare("PRAGMA table_info(ai_usage_quota)")?
+                .query_map([], |row| {
+                    let name: String = row.get(1)?;
+                    Ok(name)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
             if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
                 conn.execute(
-                    "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL \
+                     DEFAULT 0",
                     [],
                 )?;
             }
@@ -2977,12 +3089,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 66: 创建 style_snapshots 表 — StyleDNA 六维向量存储 (W3-B7)
     if current_version < 64 {
-        let snapshot_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='style_snapshots'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let snapshot_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='style_snapshots'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if snapshot_tables.is_empty() {
             conn.execute(
@@ -3006,26 +3121,36 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX idx_style_snapshots_story_chapter ON style_snapshots(story_id, chapter_number)",
+                "CREATE INDEX idx_style_snapshots_story_chapter ON style_snapshots(story_id, \
+                 chapter_number)",
                 [],
             )?;
         }
         record_migration(conn, 64)?;
     }
 
-    // Migration 67: narrative_* 表添加 status 字段 — Deconstruction 存储统一 (W3-B2/W3-B3)
+    // Migration 67: narrative_* 表添加 status 字段 — Deconstruction 存储统一
+    // (W3-B2/W3-B3)
     if current_version < 65 {
-        for table in ["narrative_characters", "narrative_scenes", "narrative_world_buildings"] {
-            let columns: Vec<String> = conn.prepare(
-                &format!("PRAGMA table_info({})", table)
-            )?.query_map([], |row| {
-                let name: String = row.get(1)?;
-                Ok(name)
-            })?.collect::<Result<Vec<_>, _>>()?;
+        for table in [
+            "narrative_characters",
+            "narrative_scenes",
+            "narrative_world_buildings",
+        ] {
+            let columns: Vec<String> = conn
+                .prepare(&format!("PRAGMA table_info({})", table))?
+                .query_map([], |row| {
+                    let name: String = row.get(1)?;
+                    Ok(name)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
             if !columns.iter().any(|c| c == "status") {
                 conn.execute(
-                    &format!("ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'", table),
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+                        table
+                    ),
                     [],
                 )?;
             }
@@ -3035,12 +3160,13 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // W2-B9: genesis_runs 表 — GenesisRun 状态机持久化
     if current_version < 66 {
-        let genesis_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='genesis_runs'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let genesis_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='genesis_runs'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if genesis_tables.is_empty() {
             conn.execute(
@@ -3076,52 +3202,77 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 66)?;
     }
 
-    // Migration 68: scene_commits (原 chapter_commits) 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
+    // Migration 68: scene_commits (原 chapter_commits) 添加 chapter_id 字段 — 支持
+    // 1:N Chapter↔Scene 聚合提交 (W2-B8)
     if current_version < 67 {
-        let scene_commit_exists: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0) > 0;
-        let table_name = if scene_commit_exists { "scene_commits" } else { "chapter_commits" };
+        let scene_commit_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        let table_name = if scene_commit_exists {
+            "scene_commits"
+        } else {
+            "chapter_commits"
+        };
 
-        let cc_columns_m68: Vec<String> = conn.prepare(
-            &format!("PRAGMA table_info({})", table_name)
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let cc_columns_m68: Vec<String> = conn
+            .prepare(&format!("PRAGMA table_info({})", table_name))?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !cc_columns_m68.iter().any(|c| c == "chapter_id") {
             conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE SET NULL", table_name),
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE \
+                     SET NULL",
+                    table_name
+                ),
                 [],
             )?;
             conn.execute(
-                &format!("CREATE INDEX IF NOT EXISTS idx_{}_chapter ON {}(chapter_id)", table_name.replace("_commits", "_commits"), table_name),
+                &format!(
+                    "CREATE INDEX IF NOT EXISTS idx_{}_chapter ON {}(chapter_id)",
+                    table_name.replace("_commits", "_commits"),
+                    table_name
+                ),
                 [],
             )?;
         }
         record_migration(conn, 67)?;
     }
 
-    // Migration 69: 将 reference_characters / reference_scenes 历史数据迁移到 narrative_* 统一表 (W3-B3)
+    // Migration 69: 将 reference_characters / reference_scenes 历史数据迁移到
+    // narrative_* 统一表 (W3-B3)
     if current_version < 68 {
-        let has_reference_characters: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_characters'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0) > 0;
+        let has_reference_characters: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND \
+                 name='reference_characters'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
 
         if has_reference_characters {
             conn.execute(
                 "INSERT OR IGNORE INTO narrative_characters (
                     id, story_id, name, role_type, personality, background, goals, appearance,
-                    gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
+                    gender, age, importance_score, source, source_ref_id, status, created_at, \
+                 updated_at
                 )
                 SELECT
-                    rc.id, rc.book_id, rc.name, rc.role_type, rc.personality, '', '', rc.appearance,
-                    '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, 'reference', rc.created_at, rc.created_at
+                    rc.id, rc.book_id, rc.name, rc.role_type, rc.personality, '', '', \
+                 rc.appearance,
+                    '', 0, COALESCE(rc.importance_score, 0.0), 'extracted', rc.book_id, \
+                 'reference', rc.created_at, rc.created_at
                 FROM reference_characters rc
                 LEFT JOIN narrative_characters nc ON nc.id = rc.id
                 WHERE nc.id IS NULL
@@ -3130,16 +3281,20 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             )?;
         }
 
-        let has_reference_scenes: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_scenes'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0) > 0;
+        let has_reference_scenes: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reference_scenes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
 
         if has_reference_scenes {
             conn.execute(
                 "INSERT OR IGNORE INTO narrative_scenes (
-                    id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
+                    id, story_id, sequence_number, title, summary, dramatic_goal, \
+                 external_pressure,
                     conflict_type, characters_present, setting_location, setting_time, content,
                     source, source_ref_id, status, created_at, updated_at
                 )
@@ -3159,44 +3314,36 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 70: chapter_commits 重命名为 scene_commits
     if current_version < 69 {
-        let has_old_table: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0) > 0;
+        let has_old_table: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
 
         if has_old_table {
             // 如果 Migration 48 已经创建了空的 scene_commits（旧数据库升级场景），先删除它
-            let has_new_table: bool = conn.query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
-                [],
-                |row| row.get(0),
-            ).unwrap_or(0) > 0;
+            let has_new_table: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND \
+                     name='scene_commits'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0)
+                > 0;
             if has_new_table {
                 conn.execute("DROP TABLE scene_commits", [])?;
             }
-            conn.execute(
-                "ALTER TABLE chapter_commits RENAME TO scene_commits",
-                [],
-            )?;
+            conn.execute("ALTER TABLE chapter_commits RENAME TO scene_commits", [])?;
             // SQLite RENAME TABLE 会自动更新大部分索引引用，
             // 但含有旧表名的索引名需要删除后重建
-            conn.execute(
-                "DROP INDEX IF EXISTS idx_chapter_commits_story",
-                [],
-            )?;
-            conn.execute(
-                "DROP INDEX IF EXISTS idx_chapter_commits_scene",
-                [],
-            )?;
-            conn.execute(
-                "DROP INDEX IF EXISTS idx_chapter_commits_number",
-                [],
-            )?;
-            conn.execute(
-                "DROP INDEX IF EXISTS idx_chapter_commits_chapter",
-                [],
-            )?;
+            conn.execute("DROP INDEX IF EXISTS idx_chapter_commits_story", [])?;
+            conn.execute("DROP INDEX IF EXISTS idx_chapter_commits_scene", [])?;
+            conn.execute("DROP INDEX IF EXISTS idx_chapter_commits_number", [])?;
+            conn.execute("DROP INDEX IF EXISTS idx_chapter_commits_chapter", [])?;
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_scene_commits_story ON scene_commits(story_id)",
                 [],
@@ -3206,7 +3353,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 [],
             )?;
             conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_commits_number ON scene_commits(story_id, chapter_number)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_commits_number ON \
+                 scene_commits(story_id, chapter_number)",
                 [],
             )?;
             conn.execute(
@@ -3219,25 +3367,21 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 71: 废弃 chapters.scene_id，完成 1:N 架构语义对齐
     if current_version < 70 {
-        let chapter_columns_m71: Vec<String> = conn.prepare(
-            "PRAGMA table_info(chapters)"
-        )?.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chapter_columns_m71: Vec<String> = conn
+            .prepare("PRAGMA table_info(chapters)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if chapter_columns_m71.iter().any(|c| c == "scene_id") {
             // 必须先删除索引，再删除列（SQLite DROP COLUMN 不能删除有索引的列）
-            // 使用显式事务包裹，避免 SQLite schema 缓存导致 drop column 时仍能看到已删除的索引
+            // 使用显式事务包裹，避免 SQLite schema 缓存导致 drop column
+            // 时仍能看到已删除的索引
             let tx = conn.transaction()?;
-            tx.execute(
-                "DROP INDEX IF EXISTS idx_chapters_scene",
-                [],
-            )?;
-            tx.execute(
-                "ALTER TABLE chapters DROP COLUMN scene_id",
-                [],
-            )?;
+            tx.execute("DROP INDEX IF EXISTS idx_chapters_scene", [])?;
+            tx.execute("ALTER TABLE chapters DROP COLUMN scene_id", [])?;
             tx.commit()?;
         }
         record_migration(conn, 70)?;
@@ -3245,12 +3389,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 72: 创建 scene_divider_nodes 表
     if current_version < 71 {
-        let divider_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let divider_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if divider_tables.is_empty() {
             conn.execute(
@@ -3278,12 +3425,15 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
     // Migration 73: 创建 entity_mentions 表 — Cascade Rewriter 实体引用索引 (D1)
     if current_version < 72 {
-        let mention_tables: Vec<String> = conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_mentions'"
-        )?.query_map([], |row| {
-            let name: String = row.get(0)?;
-            Ok(name)
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let mention_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_mentions'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         if mention_tables.is_empty() {
             conn.execute(
@@ -3325,8 +3475,9 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rusqlite::Error as SqliteError;
+
+    use super::*;
 
     #[test]
     fn test_foreign_key_constraints_enabled() {
@@ -3340,7 +3491,10 @@ mod tests {
             .query_row([], |row| row.get(0))
             .expect("Failed to query foreign_keys pragma");
 
-        assert_eq!(foreign_keys_enabled, 1, "Foreign key constraints should be enabled");
+        assert_eq!(
+            foreign_keys_enabled, 1,
+            "Foreign key constraints should be enabled"
+        );
     }
 
     #[test]
@@ -3364,7 +3518,10 @@ mod tests {
                 // SQLITE_CONSTRAINT_FOREIGNKEY = 787
                 assert_eq!(err.code, rusqlite::ErrorCode::ConstraintViolation);
             }
-            _ => panic!("Expected foreign key constraint violation, but operation succeeded or failed with different error"),
+            _ => panic!(
+                "Expected foreign key constraint violation, but operation succeeded or failed \
+                 with different error"
+            ),
         }
     }
 
@@ -3380,15 +3537,18 @@ mod tests {
         conn.execute(
             "INSERT INTO stories (id, title, description, created_at, updated_at)
              VALUES ('test-story', 'Test Story', 'A test story', 0, 0)",
-            []
-        ).expect("Failed to insert test story");
+            [],
+        )
+        .expect("Failed to insert test story");
 
         // 创建一个测试章节
         conn.execute(
-            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, updated_at)
+            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, \
+             updated_at)
              VALUES ('test-chapter', 'test-story', 'Test Chapter', 'Test content', 1, 0, 0)",
-            []
-        ).expect("Failed to insert test chapter");
+            [],
+        )
+        .expect("Failed to insert test chapter");
 
         // 验证章节存在
         let chapter_count: i32 = conn
@@ -3396,7 +3556,10 @@ mod tests {
             .expect("Failed to prepare count statement")
             .query_row([], |row| row.get(0))
             .expect("Failed to count chapters");
-        assert_eq!(chapter_count, 1, "Chapter should exist before story deletion");
+        assert_eq!(
+            chapter_count, 1,
+            "Chapter should exist before story deletion"
+        );
 
         // 删除故事
         conn.execute("DELETE FROM stories WHERE id = 'test-story'", [])
@@ -3408,7 +3571,10 @@ mod tests {
             .expect("Failed to prepare count statement")
             .query_row([], |row| row.get(0))
             .expect("Failed to count chapters after deletion");
-        assert_eq!(chapter_count_after, 0, "Chapter should be cascade deleted when story is deleted");
+        assert_eq!(
+            chapter_count_after, 0,
+            "Chapter should be cascade deleted when story is deleted"
+        );
     }
 
     #[test]
@@ -3422,78 +3588,133 @@ mod tests {
         // 创建测试故事
         conn.execute(
             "INSERT INTO stories (id, title, description, created_at, updated_at)
-             VALUES ('cascade-story', 'Cascade Test Story', 'Testing cascade deletes', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test story");
+             VALUES ('cascade-story', 'Cascade Test Story', 'Testing cascade deletes', \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test story");
 
         // 创建测试角色
         conn.execute(
             "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
-             VALUES ('cascade-char1', 'cascade-story', 'Test Character 1', 'First test character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test character 1");
+             VALUES ('cascade-char1', 'cascade-story', 'Test Character 1', 'First test character', \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test character 1");
 
         conn.execute(
             "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
-             VALUES ('cascade-char2', 'cascade-story', 'Test Character 2', 'Second test character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test character 2");
+             VALUES ('cascade-char2', 'cascade-story', 'Test Character 2', 'Second test \
+             character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test character 2");
 
         // 创建测试场景
         conn.execute(
-            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, updated_at)
-             VALUES ('cascade-scene', 'cascade-story', 'Test Scene', 'Test scene content', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test scene");
+            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, \
+             updated_at)
+             VALUES ('cascade-scene', 'cascade-story', 'Test Scene', 'Test scene content', 1, \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test scene");
 
         // 创建角色关系
         conn.execute(
-            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, created_at)
-             VALUES ('cascade-rel', 'cascade-story', 'cascade-char1', 'cascade-char2', 'friend', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert character relationship");
+            "INSERT INTO character_relationships (id, story_id, source_character_id, \
+             target_character_id, relationship_type, created_at)
+             VALUES ('cascade-rel', 'cascade-story', 'cascade-char1', 'cascade-char2', 'friend', \
+             '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert character relationship");
 
         // 创建场景角色关联
         conn.execute(
             "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
              VALUES ('cascade-sc1', 'cascade-scene', 'cascade-char1', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert scene character 1");
+            [],
+        )
+        .expect("Failed to insert scene character 1");
 
         conn.execute(
             "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
              VALUES ('cascade-sc2', 'cascade-scene', 'cascade-char2', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert scene character 2");
+            [],
+        )
+        .expect("Failed to insert scene character 2");
 
         // 创建场景角色动作
         conn.execute(
-            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, content, created_at)
-             VALUES ('cascade-action', 'cascade-scene', 'cascade-char1', 'dialogue', 'Hello world!', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert scene character action");
+            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, \
+             content, created_at)
+             VALUES ('cascade-action', 'cascade-scene', 'cascade-char1', 'dialogue', 'Hello \
+             world!', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert scene character action");
 
         // 创建叙事角色（如果表存在）
         let _ = conn.execute(
             "INSERT INTO narrative_characters (id, story_id, name, description, created_at)
-             VALUES ('cascade-nchar', 'cascade-story', 'Narrative Character', 'Test narrative character', '2024-01-01T00:00:00Z')",
-            []
+             VALUES ('cascade-nchar', 'cascade-story', 'Narrative Character', 'Test narrative \
+             character', '2024-01-01T00:00:00Z')",
+            [],
         );
 
         // 创建叙事场景（如果表存在）
         let _ = conn.execute(
             "INSERT INTO narrative_scenes (id, story_id, title, content, created_at)
-             VALUES ('cascade-nscene', 'cascade-story', 'Narrative Scene', 'Test narrative scene', '2024-01-01T00:00:00Z')",
-            []
+             VALUES ('cascade-nscene', 'cascade-story', 'Narrative Scene', 'Test narrative scene', \
+             '2024-01-01T00:00:00Z')",
+            [],
         );
 
         // 验证所有数据都存在
-        let story_count: i32 = conn.query_row("SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let char_count: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let scene_count: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let rel_count: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let sc_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
-        let action_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+        let story_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let char_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let scene_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let rel_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sc_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let action_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         assert_eq!(story_count, 1, "Story should exist");
         assert_eq!(char_count, 2, "Characters should exist");
@@ -3507,23 +3728,76 @@ mod tests {
             .expect("Failed to delete story");
 
         // 验证所有相关数据都被级联删除
-        let story_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let char_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let scene_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let rel_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'", [], |row| row.get(0)).unwrap();
-        let sc_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
-        let action_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'", [], |row| row.get(0)).unwrap();
+        let story_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM stories WHERE id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let char_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM characters WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let scene_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scenes WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let rel_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE story_id = 'cascade-story'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sc_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_characters WHERE scene_id = 'cascade-scene'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let action_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_character_actions WHERE scene_id = 'cascade-scene'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         assert_eq!(story_count_after, 0, "Story should be deleted");
         assert_eq!(char_count_after, 0, "Characters should be cascade deleted");
         assert_eq!(scene_count_after, 0, "Scenes should be cascade deleted");
-        assert_eq!(rel_count_after, 0, "Character relationships should be cascade deleted");
-        assert_eq!(sc_count_after, 0, "Scene characters should be cascade deleted");
-        assert_eq!(action_count_after, 0, "Scene character actions should be cascade deleted");
+        assert_eq!(
+            rel_count_after, 0,
+            "Character relationships should be cascade deleted"
+        );
+        assert_eq!(
+            sc_count_after, 0,
+            "Scene characters should be cascade deleted"
+        );
+        assert_eq!(
+            action_count_after, 0,
+            "Scene character actions should be cascade deleted"
+        );
 
         // 验证叙事表也被级联删除（如果存在）
-        let nchar_count_after: Result<i32, _> = conn.query_row("SELECT COUNT(*) FROM narrative_characters WHERE story_id = 'cascade-story'", [], |row| row.get(0));
-        let nscene_count_after: Result<i32, _> = conn.query_row("SELECT COUNT(*) FROM narrative_scenes WHERE story_id = 'cascade-story'", [], |row| row.get(0));
+        let nchar_count_after: Result<i32, _> = conn.query_row(
+            "SELECT COUNT(*) FROM narrative_characters WHERE story_id = 'cascade-story'",
+            [],
+            |row| row.get(0),
+        );
+        let nscene_count_after: Result<i32, _> = conn.query_row(
+            "SELECT COUNT(*) FROM narrative_scenes WHERE story_id = 'cascade-story'",
+            [],
+            |row| row.get(0),
+        );
 
         if let Ok(count) = nchar_count_after {
             assert_eq!(count, 0, "Narrative characters should be cascade deleted");
@@ -3544,55 +3818,92 @@ mod tests {
         // 创建测试故事
         conn.execute(
             "INSERT INTO stories (id, title, description, created_at, updated_at)
-             VALUES ('char-cascade-story', 'Character Cascade Test', 'Testing character cascade deletes', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test story");
+             VALUES ('char-cascade-story', 'Character Cascade Test', 'Testing character cascade \
+             deletes', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test story");
 
         // 创建测试角色
         conn.execute(
             "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
-             VALUES ('char-cascade-1', 'char-cascade-story', 'Character 1', 'First character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert character 1");
+             VALUES ('char-cascade-1', 'char-cascade-story', 'Character 1', 'First character', \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert character 1");
 
         conn.execute(
             "INSERT INTO characters (id, story_id, name, background, created_at, updated_at)
-             VALUES ('char-cascade-2', 'char-cascade-story', 'Character 2', 'Second character', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert character 2");
+             VALUES ('char-cascade-2', 'char-cascade-story', 'Character 2', 'Second character', \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert character 2");
 
         // 创建测试场景
         conn.execute(
-            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, updated_at)
-             VALUES ('char-cascade-scene', 'char-cascade-story', 'Test Scene', 'Test scene', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert test scene");
+            "INSERT INTO scenes (id, story_id, title, content, sequence_number, created_at, \
+             updated_at)
+             VALUES ('char-cascade-scene', 'char-cascade-story', 'Test Scene', 'Test scene', 1, \
+             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert test scene");
 
         // 创建角色关系
         conn.execute(
-            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, created_at)
-             VALUES ('char-cascade-rel', 'char-cascade-story', 'char-cascade-1', 'char-cascade-2', 'friend', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert character relationship");
+            "INSERT INTO character_relationships (id, story_id, source_character_id, \
+             target_character_id, relationship_type, created_at)
+             VALUES ('char-cascade-rel', 'char-cascade-story', 'char-cascade-1', 'char-cascade-2', \
+             'friend', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert character relationship");
 
         // 创建场景角色关联
         conn.execute(
             "INSERT INTO scene_characters (id, scene_id, character_id, created_at)
-             VALUES ('char-cascade-sc', 'char-cascade-scene', 'char-cascade-1', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert scene character");
+             VALUES ('char-cascade-sc', 'char-cascade-scene', 'char-cascade-1', \
+             '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert scene character");
 
         // 创建场景角色动作
         conn.execute(
-            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, content, created_at)
-             VALUES ('char-cascade-action', 'char-cascade-scene', 'char-cascade-1', 'dialogue', 'Test dialogue', '2024-01-01T00:00:00Z')",
-            []
-        ).expect("Failed to insert scene character action");
+            "INSERT INTO scene_character_actions (id, scene_id, character_id, action_type, \
+             content, created_at)
+             VALUES ('char-cascade-action', 'char-cascade-scene', 'char-cascade-1', 'dialogue', \
+             'Test dialogue', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("Failed to insert scene character action");
 
         // 验证数据存在
-        let rel_count: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE source_character_id = 'char-cascade-1' OR target_character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
-        let sc_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
-        let action_count: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let rel_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE source_character_id = \
+                 'char-cascade-1' OR target_character_id = 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sc_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let action_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_character_actions WHERE character_id = \
+                 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         assert_eq!(rel_count, 1, "Character relationship should exist");
         assert_eq!(sc_count, 1, "Scene character should exist");
@@ -3603,17 +3914,58 @@ mod tests {
             .expect("Failed to delete character");
 
         // 验证相关数据被级联删除
-        let rel_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM character_relationships WHERE source_character_id = 'char-cascade-1' OR target_character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
-        let sc_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
-        let action_count_after: i32 = conn.query_row("SELECT COUNT(*) FROM scene_character_actions WHERE character_id = 'char-cascade-1'", [], |row| row.get(0)).unwrap();
+        let rel_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE source_character_id = \
+                 'char-cascade-1' OR target_character_id = 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sc_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_characters WHERE character_id = 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let action_count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scene_character_actions WHERE character_id = \
+                 'char-cascade-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
 
-        assert_eq!(rel_count_after, 0, "Character relationships should be cascade deleted");
-        assert_eq!(sc_count_after, 0, "Scene characters should be cascade deleted");
-        assert_eq!(action_count_after, 0, "Scene character actions should be cascade deleted");
+        assert_eq!(
+            rel_count_after, 0,
+            "Character relationships should be cascade deleted"
+        );
+        assert_eq!(
+            sc_count_after, 0,
+            "Scene characters should be cascade deleted"
+        );
+        assert_eq!(
+            action_count_after, 0,
+            "Scene character actions should be cascade deleted"
+        );
 
         // 验证其他角色和数据仍然存在
-        let char2_count: i32 = conn.query_row("SELECT COUNT(*) FROM characters WHERE id = 'char-cascade-2'", [], |row| row.get(0)).unwrap();
-        let scene_count: i32 = conn.query_row("SELECT COUNT(*) FROM scenes WHERE id = 'char-cascade-scene'", [], |row| row.get(0)).unwrap();
+        let char2_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM characters WHERE id = 'char-cascade-2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let scene_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scenes WHERE id = 'char-cascade-scene'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         assert_eq!(char2_count, 1, "Other characters should remain");
         assert_eq!(scene_count, 1, "Scenes should remain");

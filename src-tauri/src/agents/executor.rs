@@ -2,13 +2,21 @@
 //!
 //! 将 Agent 生成任务接入 Task System，支持后台执行和进度追踪。
 
-use super::orchestrator::{AgentOrchestrator, GenerationMode, WorkflowConfig};
-use super::service::{AgentService, AgentTask, AgentType};
-use crate::db::DbPool;
-use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
-use crate::task_system::models::*;
 use std::collections::HashMap;
+
 use tauri::AppHandle;
+
+use super::{
+    orchestrator::{AgentOrchestrator, GenerationMode, WorkflowConfig},
+    service::{AgentService, AgentTask, AgentType},
+};
+use crate::{
+    db::DbPool,
+    task_system::{
+        executor::{TaskExecutionContext, TaskExecutor},
+        models::*,
+    },
+};
 
 pub struct AiGenerationExecutor {
     pool: DbPool,
@@ -27,15 +35,9 @@ impl TaskExecutor for AiGenerationExecutor {
         *task_type == TaskType::AiGeneration
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-    ) -> Result<TaskResult, Box<dyn std::error::Error>> {
-        let ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
+    async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
+        let ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
 
         let payload: serde_json::Value = match task.payload.as_deref() {
             Some(p) => serde_json::from_str(p).unwrap_or_else(|_| serde_json::json!({})),

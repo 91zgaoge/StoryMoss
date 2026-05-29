@@ -1,18 +1,21 @@
 //! Repository 层
 #![allow(dead_code)]
 
-use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture, RuleType};
-use super::{WritingStyle, StudioConfig};
-use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
-use super::{SceneVersion, CreatorType, SceneAnnotation, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
-use super::StoryStyleConfig;
-use super::{Story, Character, Chapter, CreateStoryRequest, UpdateStoryRequest, CreateCharacterRequest, CreateChapterRequest, DynamicTrait, CharacterState};
-use super::{User, GenesisRun, OAuthAccount, Session, UserInfo};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use uuid::Uuid;
+
+use super::{
+    AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeType, Chapter, Character,
+    CharacterConflict, CharacterState, CommentMessage, CommentThread, CommentThreadWithMessages,
+    ConflictType, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest, CreatorType,
+    Culture, DbPool, DynamicTrait, Entity, GenesisRun, LlmStudioConfig, OAuthAccount, Relation,
+    RuleType, Scene, SceneAnnotation, SceneVersion, Session, Story, StoryStyleConfig, StorySummary,
+    StudioConfig, TextAnnotation, ThreadStatus, UiStudioConfig, UpdateStoryRequest, User, UserInfo,
+    WorldBuilding, WorldRule, WritingStyle,
+};
 
 // ==================== Scene Repository ====================
 
@@ -25,30 +28,60 @@ impl SceneRepository {
         Self { pool }
     }
 
-    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
+    pub fn create_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        sequence_number: i32,
+        title: Option<&str>,
+    ) -> Result<Scene, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
         tx.execute(
-            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at)
+            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, \
+             character_conflicts, execution_stage, chapter_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9)",
-            params![&id, story_id, sequence_number, title, "[]", "[]", "drafting", now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                sequence_number,
+                title,
+                "[]",
+                "[]",
+                "drafting",
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
-        let existing_chapter: Option<String> = tx.query_row(
-            "SELECT id FROM chapters WHERE story_id = ?1 AND chapter_number = ?2",
-            params![story_id, sequence_number],
-            |row| row.get(0)
-        ).optional()?;
+        let existing_chapter: Option<String> = tx
+            .query_row(
+                "SELECT id FROM chapters WHERE story_id = ?1 AND chapter_number = ?2",
+                params![story_id, sequence_number],
+                |row| row.get(0),
+            )
+            .optional()?;
 
         let chapter_id = if let Some(chapter_id) = existing_chapter {
             Some(chapter_id)
         } else {
             let chapter_id = Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO chapters (id, story_id, chapter_number, title, word_count, model_used, cost, created_at, updated_at)
+                "INSERT INTO chapters (id, story_id, chapter_number, title, word_count, \
+                 model_used, cost, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![&chapter_id, story_id, sequence_number, title, 0, "", 0.0, now.to_rfc3339(), now.to_rfc3339()],
+                params![
+                    &chapter_id,
+                    story_id,
+                    sequence_number,
+                    title,
+                    0,
+                    "",
+                    0.0,
+                    now.to_rfc3339(),
+                    now.to_rfc3339()
+                ],
             )?;
             Some(chapter_id)
         };
@@ -90,8 +123,16 @@ impl SceneRepository {
         })
     }
 
-    pub fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn create(
+        &self,
+        story_id: &str,
+        sequence_number: i32,
+        title: Option<&str>,
+    ) -> Result<Scene, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let scene = self.create_in_tx(&tx, story_id, sequence_number, title)?;
         tx.commit()?;
@@ -99,7 +140,10 @@ impl SceneRepository {
     }
 
     pub fn update(&self, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let count = self.update_in_tx(&tx, id, updates)?;
         tx.commit()?;
@@ -107,189 +151,233 @@ impl SceneRepository {
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
-                    characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
-             FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
+            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, \
+             conflict_type,
+                    characters_present, character_conflicts, setting_location, setting_time, \
+             setting_atmosphere,
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
+             updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content, style_blend_override, \
+             foreshadowing_ids, chapter_id
+             FROM scenes WHERE story_id = ?1 ORDER BY sequence_number",
         )?;
 
-        let scenes = stmt.query_map([story_id], |row| {
-            let conflict_type_str: Option<String> = row.get(6)?;
-            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
-            
-            let chars_json: String = row.get(7)?;
-            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
-            
-            let conflicts_json: String = row.get(8)?;
-            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
-            
-            let created_str: String = row.get(17)?;
-            let updated_str: String = row.get(18)?;
-            let confidence_score: Option<f32> = row.get(19)?;
-            let execution_stage: Option<String> = row.get(20)?;
-            let outline_content: Option<String> = row.get(21)?;
-            let draft_content: Option<String> = row.get(22)?;
-            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
-            
-            Ok(Scene {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                sequence_number: row.get(2)?,
-                title: row.get(3)?,
-                dramatic_goal: row.get(4)?,
-                external_pressure: row.get(5)?,
-                conflict_type,
-                characters_present,
-                character_conflicts,
-                setting_location: row.get(9)?,
-                setting_time: row.get(10)?,
-                setting_atmosphere: row.get(11)?,
-                content: row.get(12)?,
-                previous_scene_id: row.get(13)?,
-                next_scene_id: row.get(14)?,
-                model_used: row.get(15)?,
-                cost: row.get(16)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score,
-                execution_stage,
-                outline_content,
-                draft_content,
-                style_blend_override: row.get(23)?,
-                foreshadowing_ids,
-                chapter_id: row.get::<_, Option<String>>(25)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scenes = stmt
+            .query_map([story_id], |row| {
+                let conflict_type_str: Option<String> = row.get(6)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+                let chars_json: String = row.get(7)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
+
+                let conflicts_json: String = row.get(8)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+                let created_str: String = row.get(17)?;
+                let updated_str: String = row.get(18)?;
+                let confidence_score: Option<f32> = row.get(19)?;
+                let execution_stage: Option<String> = row.get(20)?;
+                let outline_content: Option<String> = row.get(21)?;
+                let draft_content: Option<String> = row.get(22)?;
+                let foreshadowing_ids: Option<Vec<String>> = row
+                    .get::<_, Option<String>>(24)?
+                    .and_then(|s: String| serde_json::from_str(&s).ok());
+
+                Ok(Scene {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    sequence_number: row.get(2)?,
+                    title: row.get(3)?,
+                    dramatic_goal: row.get(4)?,
+                    external_pressure: row.get(5)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(9)?,
+                    setting_time: row.get(10)?,
+                    setting_atmosphere: row.get(11)?,
+                    content: row.get(12)?,
+                    previous_scene_id: row.get(13)?,
+                    next_scene_id: row.get(14)?,
+                    model_used: row.get(15)?,
+                    cost: row.get(16)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score,
+                    execution_stage,
+                    outline_content,
+                    draft_content,
+                    style_blend_override: row.get(23)?,
+                    foreshadowing_ids,
+                    chapter_id: row.get::<_, Option<String>>(25)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(scenes)
     }
 
     pub fn get_by_chapter(&self, chapter_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
-                    characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
-             FROM scenes WHERE chapter_id = ?1 ORDER BY sequence_number"
+            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, \
+             conflict_type,
+                    characters_present, character_conflicts, setting_location, setting_time, \
+             setting_atmosphere,
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
+             updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content, style_blend_override, \
+             foreshadowing_ids, chapter_id
+             FROM scenes WHERE chapter_id = ?1 ORDER BY sequence_number",
         )?;
 
-        let scenes = stmt.query_map([chapter_id], |row| {
-            let conflict_type_str: Option<String> = row.get(6)?;
-            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+        let scenes = stmt
+            .query_map([chapter_id], |row| {
+                let conflict_type_str: Option<String> = row.get(6)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
 
-            let chars_json: String = row.get(7)?;
-            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
+                let chars_json: String = row.get(7)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
 
-            let conflicts_json: String = row.get(8)?;
-            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
+                let conflicts_json: String = row.get(8)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
 
-            let created_str: String = row.get(17)?;
-            let updated_str: String = row.get(18)?;
-            let confidence_score: Option<f32> = row.get(19)?;
-            let execution_stage: Option<String> = row.get(20)?;
-            let outline_content: Option<String> = row.get(21)?;
-            let draft_content: Option<String> = row.get(22)?;
-            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
+                let created_str: String = row.get(17)?;
+                let updated_str: String = row.get(18)?;
+                let confidence_score: Option<f32> = row.get(19)?;
+                let execution_stage: Option<String> = row.get(20)?;
+                let outline_content: Option<String> = row.get(21)?;
+                let draft_content: Option<String> = row.get(22)?;
+                let foreshadowing_ids: Option<Vec<String>> = row
+                    .get::<_, Option<String>>(24)?
+                    .and_then(|s: String| serde_json::from_str(&s).ok());
 
-            Ok(Scene {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                sequence_number: row.get(2)?,
-                title: row.get(3)?,
-                dramatic_goal: row.get(4)?,
-                external_pressure: row.get(5)?,
-                conflict_type,
-                characters_present,
-                character_conflicts,
-                setting_location: row.get(9)?,
-                setting_time: row.get(10)?,
-                setting_atmosphere: row.get(11)?,
-                content: row.get(12)?,
-                previous_scene_id: row.get(13)?,
-                next_scene_id: row.get(14)?,
-                model_used: row.get(15)?,
-                cost: row.get(16)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score,
-                execution_stage,
-                outline_content,
-                draft_content,
-                style_blend_override: row.get(23)?,
-                foreshadowing_ids,
-                chapter_id: row.get::<_, Option<String>>(25)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(Scene {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    sequence_number: row.get(2)?,
+                    title: row.get(3)?,
+                    dramatic_goal: row.get(4)?,
+                    external_pressure: row.get(5)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(9)?,
+                    setting_time: row.get(10)?,
+                    setting_atmosphere: row.get(11)?,
+                    content: row.get(12)?,
+                    previous_scene_id: row.get(13)?,
+                    next_scene_id: row.get(14)?,
+                    model_used: row.get(15)?,
+                    cost: row.get(16)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score,
+                    execution_stage,
+                    outline_content,
+                    draft_content,
+                    style_blend_override: row.get(23)?,
+                    foreshadowing_ids,
+                    chapter_id: row.get::<_, Option<String>>(25)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(scenes)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<Scene>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
-                    characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
-             FROM scenes WHERE id = ?1"
+            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, \
+             conflict_type,
+                    characters_present, character_conflicts, setting_location, setting_time, \
+             setting_atmosphere,
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
+             updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content, style_blend_override, \
+             foreshadowing_ids, chapter_id
+             FROM scenes WHERE id = ?1",
         )?;
 
-        let scene = stmt.query_row([id], |row| {
-            let conflict_type_str: Option<String> = row.get(6)?;
-            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
-            
-            let chars_json: String = row.get(7)?;
-            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
-            
-            let conflicts_json: String = row.get(8)?;
-            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
-            
-            let created_str: String = row.get(17)?;
-            let updated_str: String = row.get(18)?;
-            let confidence_score: Option<f32> = row.get(19)?;
-            let execution_stage: Option<String> = row.get(20)?;
-            let outline_content: Option<String> = row.get(21)?;
-            let draft_content: Option<String> = row.get(22)?;
-            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
-            
-            Ok(Scene {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                sequence_number: row.get(2)?,
-                title: row.get(3)?,
-                dramatic_goal: row.get(4)?,
-                external_pressure: row.get(5)?,
-                conflict_type,
-                characters_present,
-                character_conflicts,
-                setting_location: row.get(9)?,
-                setting_time: row.get(10)?,
-                setting_atmosphere: row.get(11)?,
-                content: row.get(12)?,
-                previous_scene_id: row.get(13)?,
-                next_scene_id: row.get(14)?,
-                model_used: row.get(15)?,
-                cost: row.get(16)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score,
-                execution_stage,
-                outline_content,
-                draft_content,
-                style_blend_override: row.get(23)?,
-                foreshadowing_ids,
-                chapter_id: row.get::<_, Option<String>>(25)?,
+        let scene = stmt
+            .query_row([id], |row| {
+                let conflict_type_str: Option<String> = row.get(6)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+                let chars_json: String = row.get(7)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
+
+                let conflicts_json: String = row.get(8)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+                let created_str: String = row.get(17)?;
+                let updated_str: String = row.get(18)?;
+                let confidence_score: Option<f32> = row.get(19)?;
+                let execution_stage: Option<String> = row.get(20)?;
+                let outline_content: Option<String> = row.get(21)?;
+                let draft_content: Option<String> = row.get(22)?;
+                let foreshadowing_ids: Option<Vec<String>> = row
+                    .get::<_, Option<String>>(24)?
+                    .and_then(|s: String| serde_json::from_str(&s).ok());
+
+                Ok(Scene {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    sequence_number: row.get(2)?,
+                    title: row.get(3)?,
+                    dramatic_goal: row.get(4)?,
+                    external_pressure: row.get(5)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(9)?,
+                    setting_time: row.get(10)?,
+                    setting_atmosphere: row.get(11)?,
+                    content: row.get(12)?,
+                    previous_scene_id: row.get(13)?,
+                    next_scene_id: row.get(14)?,
+                    model_used: row.get(15)?,
+                    cost: row.get(16)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score,
+                    execution_stage,
+                    outline_content,
+                    draft_content,
+                    style_blend_override: row.get(23)?,
+                    foreshadowing_ids,
+                    chapter_id: row.get::<_, Option<String>>(25)?,
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(scene)
     }
 
-    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
+    pub fn update_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        updates: &SceneUpdate,
+    ) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
 
         let count = tx.execute(
@@ -320,8 +408,14 @@ impl SceneRepository {
                 updates.dramatic_goal,
                 updates.external_pressure,
                 updates.conflict_type.as_ref().map(|c| c.to_string()),
-                updates.characters_present.as_ref().map(|c| serde_json::to_string(c).unwrap()),
-                updates.character_conflicts.as_ref().map(|c| serde_json::to_string(c).unwrap()),
+                updates
+                    .characters_present
+                    .as_ref()
+                    .map(|c| serde_json::to_string(c).unwrap()),
+                updates
+                    .character_conflicts
+                    .as_ref()
+                    .map(|c| serde_json::to_string(c).unwrap()),
                 updates.content,
                 updates.setting_location,
                 updates.setting_time,
@@ -333,33 +427,39 @@ impl SceneRepository {
                 updates.outline_content,
                 updates.draft_content,
                 updates.style_blend_override,
-                updates.foreshadowing_ids.as_ref().map(|c| serde_json::to_string(c).unwrap()),
+                updates
+                    .foreshadowing_ids
+                    .as_ref()
+                    .map(|c| serde_json::to_string(c).unwrap()),
                 &now
             ],
         )?;
 
         // Sync associated chapter if title or content changed
         if updates.title.is_some() || updates.content.is_some() {
-            let chapter_id: Option<String> = tx.query_row(
-                "SELECT chapter_id FROM scenes WHERE id = ?1",
-                [id],
-                |row| row.get(0)
-            ).optional()?;
+            let chapter_id: Option<String> = tx
+                .query_row("SELECT chapter_id FROM scenes WHERE id = ?1", [id], |row| {
+                    row.get(0)
+                })
+                .optional()?;
             if let Some(cid) = chapter_id {
                 tx.execute(
-                    "UPDATE chapters SET title = COALESCE(?2, title), content = COALESCE(?3, content), updated_at = ?4 WHERE id = ?1",
+                    "UPDATE chapters SET title = COALESCE(?2, title), content = COALESCE(?3, \
+                     content), updated_at = ?4 WHERE id = ?1",
                     params![cid, &updates.title, &updates.content, &now],
                 )?;
             }
         }
 
         // W2-F3: 世界-场景自动关联 — 场景 setting 变更同步到 world_building
-        if updates.setting_location.is_some() || updates.setting_time.is_some() || updates.setting_atmosphere.is_some() {
-            let story_id: String = tx.query_row(
-                "SELECT story_id FROM scenes WHERE id = ?1",
-                [id],
-                |row| row.get(0)
-            )?;
+        if updates.setting_location.is_some()
+            || updates.setting_time.is_some()
+            || updates.setting_atmosphere.is_some()
+        {
+            let story_id: String =
+                tx.query_row("SELECT story_id FROM scenes WHERE id = ?1", [id], |row| {
+                    row.get(0)
+                })?;
             self.sync_scene_settings_to_world_building(
                 &tx,
                 &story_id,
@@ -373,16 +473,19 @@ impl SceneRepository {
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         // 删除 scene 时无需清理 chapter 表（chapter 不持有 scene_id 外键）。
 
         // W2-F3: 获取 setting 信息用于世界构建清理
-        let (story_id, old_location, old_atmosphere): (String, Option<String>, Option<String>) =
-            tx.query_row(
+        let (story_id, old_location, old_atmosphere): (String, Option<String>, Option<String>) = tx
+            .query_row(
                 "SELECT story_id, setting_location, setting_atmosphere FROM scenes WHERE id = ?1",
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )?;
 
         let count = tx.execute("DELETE FROM scenes WHERE id = ?1", [id])?;
@@ -400,7 +503,10 @@ impl SceneRepository {
     }
 
     pub fn update_sequence(&self, id: &str, new_sequence: i32) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         let count = conn.execute(
             "UPDATE scenes SET sequence_number = ?2, updated_at = ?3 WHERE id = ?1",
@@ -426,32 +532,54 @@ impl SceneRepository {
 
         // 1. 获取或创建 world_building
         let (wb_id, current_rules_json, current_history): (String, String, Option<String>) =
-            match tx.query_row(
-                "SELECT id, rules, history FROM world_buildings WHERE story_id = ?1",
-                [story_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
-            ).optional()? {
+            match tx
+                .query_row(
+                    "SELECT id, rules, history FROM world_buildings WHERE story_id = ?1",
+                    [story_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()?
+            {
                 Some(row) => row,
                 None => {
                     let id = Uuid::new_v4().to_string();
                     let now = Local::now().to_rfc3339();
                     tx.execute(
-                        "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at)
+                        "INSERT INTO world_buildings (id, story_id, concept, rules, history, \
+                         cultures, created_at, updated_at)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        params![&id, story_id, "Auto-generated world building", "[]", "", "[]", &now, &now],
+                        params![
+                            &id,
+                            story_id,
+                            "Auto-generated world building",
+                            "[]",
+                            "",
+                            "[]",
+                            &now,
+                            &now
+                        ],
                     )?;
                     (id, "[]".to_string(), None)
                 }
             };
 
-        let mut rules: Vec<WorldRule> = serde_json::from_str(&current_rules_json).unwrap_or_default();
+        let mut rules: Vec<WorldRule> =
+            serde_json::from_str(&current_rules_json).unwrap_or_default();
         let mut rules_changed = false;
 
         // 2. setting_location -> Physical 规则
         if let Some(loc) = setting_location {
             let loc = loc.trim();
             if !loc.is_empty() {
-                let exists = rules.iter().any(|r| r.name == loc && r.rule_type == RuleType::Physical);
+                let exists = rules
+                    .iter()
+                    .any(|r| r.name == loc && r.rule_type == RuleType::Physical);
                 if !exists {
                     rules.push(WorldRule {
                         id: Uuid::new_v4().to_string(),
@@ -469,7 +597,9 @@ impl SceneRepository {
         if let Some(atm) = setting_atmosphere {
             let atm = atm.trim();
             if !atm.is_empty() {
-                let exists = rules.iter().any(|r| r.name == atm && r.rule_type == RuleType::Cultural);
+                let exists = rules
+                    .iter()
+                    .any(|r| r.name == atm && r.rule_type == RuleType::Cultural);
                 if !exists {
                     rules.push(WorldRule {
                         id: Uuid::new_v4().to_string(),
@@ -524,11 +654,14 @@ impl SceneRepository {
             return Ok(());
         }
 
-        let (wb_id_opt, rules_json): (Option<String>, String) = match tx.query_row(
-            "SELECT id, rules FROM world_buildings WHERE story_id = ?1",
-            [story_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
-        ).optional()? {
+        let (wb_id_opt, rules_json): (Option<String>, String) = match tx
+            .query_row(
+                "SELECT id, rules FROM world_buildings WHERE story_id = ?1",
+                [story_id],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+        {
             Some(row) => row,
             None => return Ok(()),
         };
@@ -543,7 +676,11 @@ impl SceneRepository {
 
         rules.retain(|r| {
             // 只处理自动生成的规则
-            let is_auto = r.description.as_deref().unwrap_or("").contains("auto-generated");
+            let is_auto = r
+                .description
+                .as_deref()
+                .unwrap_or("")
+                .contains("auto-generated");
             if !is_auto {
                 return true;
             }
@@ -565,11 +702,18 @@ impl SceneRepository {
                 _ => return true,
             };
 
-            let still_used = tx.query_row(
-                &format!("SELECT 1 FROM scenes WHERE story_id = ?1 AND {} = ?2 LIMIT 1", column),
-                params![story_id, &r.name],
-                |_| Ok(true)
-            ).optional().unwrap_or(None).is_some();
+            let still_used = tx
+                .query_row(
+                    &format!(
+                        "SELECT 1 FROM scenes WHERE story_id = ?1 AND {} = ?2 LIMIT 1",
+                        column
+                    ),
+                    params![story_id, &r.name],
+                    |_| Ok(true),
+                )
+                .optional()
+                .unwrap_or(None)
+                .is_some();
 
             // 如果仍被使用则保留，否则删除（retain 中 false 表示删除）
             still_used
@@ -621,45 +765,72 @@ impl SceneVersionRepository {
     }
 
     /// 创建场景版本快照
-    pub fn create_version(&self, scene: &Scene, change_summary: &str, created_by: CreatorType,
-                          model_used: Option<&str>, confidence_score: Option<f32>) -> Result<SceneVersion, rusqlite::Error> {
+    pub fn create_version(
+        &self,
+        scene: &Scene,
+        change_summary: &str,
+        created_by: CreatorType,
+        model_used: Option<&str>,
+        confidence_score: Option<f32>,
+    ) -> Result<SceneVersion, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
+
         // 获取当前版本号
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let version_number: i32 = conn.query_row(
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM scene_versions WHERE scene_id = ?1",
             [&scene.id],
-            |row| row.get(0)
+            |row| row.get(0),
         )?;
-        
+
         // 获取上一个版本ID
-        let previous_version_id: Option<String> = conn.query_row(
-            "SELECT id FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC LIMIT 1",
-            [&scene.id],
-            |row| row.get(0)
-        ).ok();
-        
+        let previous_version_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC \
+                 LIMIT 1",
+                [&scene.id],
+                |row| row.get(0),
+            )
+            .ok();
+
         let word_count = scene.content.as_ref().map(|c| c.len() as i32).unwrap_or(0);
-        
+
         conn.execute(
-            "INSERT INTO scene_versions (id, scene_id, version_number, title, content, dramatic_goal, 
+            "INSERT INTO scene_versions (id, scene_id, version_number, title, content, \
+             dramatic_goal, 
              external_pressure, conflict_type, characters_present, character_conflicts,
              setting_location, setting_time, setting_atmosphere, word_count, change_summary,
              created_by, model_used, confidence_score, previous_version_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+             ?18, ?19, ?20)",
             params![
-                &id, &scene.id, version_number, scene.title, scene.content, scene.dramatic_goal,
-                scene.external_pressure, scene.conflict_type.as_ref().map(|c| c.to_string()),
+                &id,
+                &scene.id,
+                version_number,
+                scene.title,
+                scene.content,
+                scene.dramatic_goal,
+                scene.external_pressure,
+                scene.conflict_type.as_ref().map(|c| c.to_string()),
                 serde_json::to_string(&scene.characters_present).unwrap(),
                 serde_json::to_string(&scene.character_conflicts).unwrap(),
-                scene.setting_location, scene.setting_time, scene.setting_atmosphere,
-                word_count, change_summary, created_by.to_string(), model_used, confidence_score,
-                previous_version_id, now.to_rfc3339()
+                scene.setting_location,
+                scene.setting_time,
+                scene.setting_atmosphere,
+                word_count,
+                change_summary,
+                created_by.to_string(),
+                model_used,
+                confidence_score,
+                previous_version_id,
+                now.to_rfc3339()
             ],
         )?;
-        
+
         // 标记上一个版本为被取代
         if let Some(prev_id) = &previous_version_id {
             conn.execute(
@@ -667,7 +838,7 @@ impl SceneVersionRepository {
                 params![&id, prev_id],
             )?;
         }
-        
+
         let version = SceneVersion {
             id,
             scene_id: scene.id.clone(),
@@ -691,132 +862,158 @@ impl SceneVersionRepository {
             superseded_by: None,
             created_at: now,
         };
-        
+
         Ok(version)
     }
 
     /// 获取场景的所有版本
     pub fn get_versions(&self, scene_id: &str) -> Result<Vec<SceneVersion>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, version_number, title, content, dramatic_goal, external_pressure,
-                    conflict_type, characters_present, character_conflicts, setting_location, setting_time,
-                    setting_atmosphere, word_count, change_summary, created_by, model_used, confidence_score,
+            "SELECT id, scene_id, version_number, title, content, dramatic_goal, \
+             external_pressure,
+                    conflict_type, characters_present, character_conflicts, setting_location, \
+             setting_time,
+                    setting_atmosphere, word_count, change_summary, created_by, model_used, \
+             confidence_score,
                     previous_version_id, superseded_by, created_at
-             FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC"
+             FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC",
         )?;
-        
-        let versions = stmt.query_map([scene_id], |row| {
-            let conflict_type_str: Option<String> = row.get(7)?;
-            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
-            
-            let chars_json: String = row.get(8)?;
-            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
-            
-            let conflicts_json: String = row.get(9)?;
-            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
-            
-            let created_by_str: String = row.get(15)?;
-            let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
-            
-            let created_str: String = row.get(20)?;
-            
-            Ok(SceneVersion {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                version_number: row.get(2)?,
-                title: row.get(3)?,
-                content: row.get(4)?,
-                dramatic_goal: row.get(5)?,
-                external_pressure: row.get(6)?,
-                conflict_type,
-                characters_present,
-                character_conflicts,
-                setting_location: row.get(10)?,
-                setting_time: row.get(11)?,
-                setting_atmosphere: row.get(12)?,
-                word_count: row.get(13)?,
-                change_summary: row.get(14)?,
-                created_by,
-                model_used: row.get(16)?,
-                confidence_score: row.get(17)?,
-                previous_version_id: row.get(18)?,
-                superseded_by: row.get(19)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-        
+
+        let versions = stmt
+            .query_map([scene_id], |row| {
+                let conflict_type_str: Option<String> = row.get(7)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+                let chars_json: String = row.get(8)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
+
+                let conflicts_json: String = row.get(9)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+                let created_by_str: String = row.get(15)?;
+                let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
+
+                let created_str: String = row.get(20)?;
+
+                Ok(SceneVersion {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    version_number: row.get(2)?,
+                    title: row.get(3)?,
+                    content: row.get(4)?,
+                    dramatic_goal: row.get(5)?,
+                    external_pressure: row.get(6)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(10)?,
+                    setting_time: row.get(11)?,
+                    setting_atmosphere: row.get(12)?,
+                    word_count: row.get(13)?,
+                    change_summary: row.get(14)?,
+                    created_by,
+                    model_used: row.get(16)?,
+                    confidence_score: row.get(17)?,
+                    previous_version_id: row.get(18)?,
+                    superseded_by: row.get(19)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(versions)
     }
 
     /// 获取特定版本
     pub fn get_version(&self, version_id: &str) -> Result<Option<SceneVersion>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, version_number, title, content, dramatic_goal, external_pressure,
-                    conflict_type, characters_present, character_conflicts, setting_location, setting_time,
-                    setting_atmosphere, word_count, change_summary, created_by, model_used, confidence_score,
+            "SELECT id, scene_id, version_number, title, content, dramatic_goal, \
+             external_pressure,
+                    conflict_type, characters_present, character_conflicts, setting_location, \
+             setting_time,
+                    setting_atmosphere, word_count, change_summary, created_by, model_used, \
+             confidence_score,
                     previous_version_id, superseded_by, created_at
-             FROM scene_versions WHERE id = ?1"
+             FROM scene_versions WHERE id = ?1",
         )?;
-        
-        let version = stmt.query_row([version_id], |row| {
-            let conflict_type_str: Option<String> = row.get(7)?;
-            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
-            
-            let chars_json: String = row.get(8)?;
-            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
-            
-            let conflicts_json: String = row.get(9)?;
-            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
-            
-            let created_by_str: String = row.get(15)?;
-            let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
-            
-            let created_str: String = row.get(20)?;
-            
-            Ok(SceneVersion {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                version_number: row.get(2)?,
-                title: row.get(3)?,
-                content: row.get(4)?,
-                dramatic_goal: row.get(5)?,
-                external_pressure: row.get(6)?,
-                conflict_type,
-                characters_present,
-                character_conflicts,
-                setting_location: row.get(10)?,
-                setting_time: row.get(11)?,
-                setting_atmosphere: row.get(12)?,
-                word_count: row.get(13)?,
-                change_summary: row.get(14)?,
-                created_by,
-                model_used: row.get(16)?,
-                confidence_score: row.get(17)?,
-                previous_version_id: row.get(18)?,
-                superseded_by: row.get(19)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+
+        let version = stmt
+            .query_row([version_id], |row| {
+                let conflict_type_str: Option<String> = row.get(7)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+                let chars_json: String = row.get(8)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
+
+                let conflicts_json: String = row.get(9)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+                let created_by_str: String = row.get(15)?;
+                let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
+
+                let created_str: String = row.get(20)?;
+
+                Ok(SceneVersion {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    version_number: row.get(2)?,
+                    title: row.get(3)?,
+                    content: row.get(4)?,
+                    dramatic_goal: row.get(5)?,
+                    external_pressure: row.get(6)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(10)?,
+                    setting_time: row.get(11)?,
+                    setting_atmosphere: row.get(12)?,
+                    word_count: row.get(13)?,
+                    change_summary: row.get(14)?,
+                    created_by,
+                    model_used: row.get(16)?,
+                    confidence_score: row.get(17)?,
+                    previous_version_id: row.get(18)?,
+                    superseded_by: row.get(19)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
-        
+            .optional()?;
+
         Ok(version)
     }
 
     /// 删除版本
     pub fn delete_version(&self, version_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let count = conn.execute("DELETE FROM scene_versions WHERE id = ?1", [version_id])?;
         Ok(count)
     }
 
     /// 获取场景版本数量
     pub fn get_version_count(&self, scene_id: &str) -> Result<i32, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM scene_versions WHERE scene_id = ?1",
             [scene_id],
-            |row| row.get(0)
+            |row| row.get(0),
         )?;
         Ok(count)
     }
@@ -833,14 +1030,29 @@ impl WorldBuildingRepository {
         Self { pool }
     }
 
-    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
+    pub fn create_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        concept: &str,
+    ) -> Result<WorldBuilding, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
         tx.execute(
-            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at)
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, \
+             created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, story_id, concept, "[]", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                concept,
+                "[]",
+                "",
+                "[]",
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(WorldBuilding {
@@ -856,7 +1068,10 @@ impl WorldBuildingRepository {
     }
 
     pub fn create(&self, story_id: &str, concept: &str) -> Result<WorldBuilding, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let wb = self.create_in_tx(&tx, story_id, concept)?;
         tx.commit()?;
@@ -864,76 +1079,98 @@ impl WorldBuildingRepository {
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, concept, rules, history, cultures, created_at, updated_at
-             FROM world_buildings WHERE id = ?1"
+             FROM world_buildings WHERE id = ?1",
         )?;
 
-        let wb = stmt.query_row([id], |row| {
-            let rules_json: String = row.get(3)?;
-            let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
+        let wb = stmt
+            .query_row([id], |row| {
+                let rules_json: String = row.get(3)?;
+                let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
 
-            let cultures_json: String = row.get(5)?;
-            let cultures: Vec<Culture> = serde_json::from_str(&cultures_json).unwrap_or_default();
+                let cultures_json: String = row.get(5)?;
+                let cultures: Vec<Culture> =
+                    serde_json::from_str(&cultures_json).unwrap_or_default();
 
-            let created_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
+                let created_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
 
-            Ok(WorldBuilding {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                concept: row.get(2)?,
-                rules,
-                history: row.get(4)?,
-                cultures,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                Ok(WorldBuilding {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    concept: row.get(2)?,
+                    rules,
+                    history: row.get(4)?,
+                    cultures,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(wb)
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, concept, rules, history, cultures, created_at, updated_at
-             FROM world_buildings WHERE story_id = ?1"
+             FROM world_buildings WHERE story_id = ?1",
         )?;
 
-        let wb = stmt.query_row([story_id], |row| {
-            let rules_json: String = row.get(3)?;
-            let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
+        let wb = stmt
+            .query_row([story_id], |row| {
+                let rules_json: String = row.get(3)?;
+                let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
 
-            let cultures_json: String = row.get(5)?;
-            let cultures: Vec<Culture> = serde_json::from_str(&cultures_json).unwrap_or_default();
+                let cultures_json: String = row.get(5)?;
+                let cultures: Vec<Culture> =
+                    serde_json::from_str(&cultures_json).unwrap_or_default();
 
-            let created_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
+                let created_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
 
-            Ok(WorldBuilding {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                concept: row.get(2)?,
-                rules,
-                history: row.get(4)?,
-                cultures,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                Ok(WorldBuilding {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    concept: row.get(2)?,
+                    rules,
+                    history: row.get(4)?,
+                    cultures,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(wb)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute("DELETE FROM world_buildings WHERE id = ?1", params![id])
     }
 
-    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>,
-                  history: Option<&str>, cultures: Option<&[Culture]>) -> Result<usize, rusqlite::Error> {
+    pub fn update_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        concept: Option<&str>,
+        rules: Option<&[WorldRule]>,
+        history: Option<&str>,
+        cultures: Option<&[Culture]>,
+    ) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
 
         let count = tx.execute(
@@ -956,9 +1193,18 @@ impl WorldBuildingRepository {
         Ok(count)
     }
 
-    pub fn update(&self, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>,
-                  history: Option<&str>, cultures: Option<&[Culture]>) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        concept: Option<&str>,
+        rules: Option<&[WorldRule]>,
+        history: Option<&str>,
+        cultures: Option<&[Culture]>,
+    ) -> Result<usize, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let count = self.update_in_tx(&tx, id, concept, rules, history, cultures)?;
         tx.commit()?;
@@ -977,7 +1223,12 @@ impl WritingStyleRepository {
         Self { pool }
     }
 
-    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
+    pub fn create_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        name: Option<&str>,
+    ) -> Result<WritingStyle, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
@@ -985,7 +1236,19 @@ impl WritingStyleRepository {
             "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing,
              vocabulary_level, sentence_structure, custom_rules, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![&id, story_id, name, "", "", "", "", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                name,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "[]",
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(WritingStyle {
@@ -1003,8 +1266,15 @@ impl WritingStyleRepository {
         })
     }
 
-    pub fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn create(
+        &self,
+        story_id: &str,
+        name: Option<&str>,
+    ) -> Result<WritingStyle, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let ws = self.create_in_tx(&tx, story_id, name)?;
         tx.commit()?;
@@ -1012,39 +1282,50 @@ impl WritingStyleRepository {
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Option<WritingStyle>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, description, tone, pacing, vocabulary_level, 
                     sentence_structure, custom_rules, created_at, updated_at 
-             FROM writing_styles WHERE story_id = ?1"
+             FROM writing_styles WHERE story_id = ?1",
         )?;
 
-        let style = stmt.query_row([story_id], |row| {
-            let rules_json: String = row.get(8)?;
-            let custom_rules: Vec<String> = serde_json::from_str(&rules_json).unwrap_or_default();
-            
-            let created_str: String = row.get(9)?;
-            let updated_str: String = row.get(10)?;
-            
-            Ok(WritingStyle {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                description: row.get(3)?,
-                tone: row.get(4)?,
-                pacing: row.get(5)?,
-                vocabulary_level: row.get(6)?,
-                sentence_structure: row.get(7)?,
-                custom_rules,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let style = stmt
+            .query_row([story_id], |row| {
+                let rules_json: String = row.get(8)?;
+                let custom_rules: Vec<String> =
+                    serde_json::from_str(&rules_json).unwrap_or_default();
+
+                let created_str: String = row.get(9)?;
+                let updated_str: String = row.get(10)?;
+
+                Ok(WritingStyle {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    tone: row.get(4)?,
+                    pacing: row.get(5)?,
+                    vocabulary_level: row.get(6)?,
+                    sentence_structure: row.get(7)?,
+                    custom_rules,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(style)
     }
 
-    pub fn update_in_tx(&self, tx: &rusqlite::Transaction, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
+    pub fn update_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        updates: &WritingStyleUpdate,
+    ) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
 
         let count = tx.execute(
@@ -1066,7 +1347,10 @@ impl WritingStyleRepository {
                 updates.pacing,
                 updates.vocabulary_level,
                 updates.sentence_structure,
-                updates.custom_rules.as_ref().map(|r| serde_json::to_string(r).unwrap()),
+                updates
+                    .custom_rules
+                    .as_ref()
+                    .map(|r| serde_json::to_string(r).unwrap()),
                 now
             ],
         )?;
@@ -1074,7 +1358,10 @@ impl WritingStyleRepository {
     }
 
     pub fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let count = self.update_in_tx(&tx, id, updates)?;
         tx.commit()?;
@@ -1109,10 +1396,14 @@ impl StudioConfigRepository {
         self.create_default(story_id, "新建工作室")
     }
 
-    pub fn create_default(&self, story_id: &str, title: &str) -> Result<StudioConfig, rusqlite::Error> {
+    pub fn create_default(
+        &self,
+        story_id: &str,
+        title: &str,
+    ) -> Result<StudioConfig, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        
+
         let llm_config = LlmStudioConfig {
             default_provider: "openai".to_string(),
             default_model: "gpt-4".to_string(),
@@ -1120,7 +1411,7 @@ impl StudioConfigRepository {
             max_tokens: 4096,
             profiles: vec![],
         };
-        
+
         let ui_config = UiStudioConfig {
             frontstage_font_size: 18,
             frontstage_font_family: "Noto Serif SC".to_string(),
@@ -1130,22 +1421,29 @@ impl StudioConfigRepository {
             backstage_theme: "dark".to_string(),
             backstage_accent_color: "#6366f1".to_string(),
         };
-        
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "INSERT INTO studio_configs (id, story_id, pen_name, llm_config, ui_config, 
              agent_bots, frontstage_theme, backstage_theme, created_at, updated_at) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                &id, story_id, title,
+                &id,
+                story_id,
+                title,
                 serde_json::to_string(&llm_config).unwrap(),
                 serde_json::to_string(&ui_config).unwrap(),
                 "[]",
-                "paper", "dark",
-                now.to_rfc3339(), now.to_rfc3339()
+                "paper",
+                "dark",
+                now.to_rfc3339(),
+                now.to_rfc3339()
             ],
         )?;
-        
+
         Ok(StudioConfig {
             id,
             story_id: story_id.to_string(),
@@ -1161,51 +1459,65 @@ impl StudioConfigRepository {
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Option<StudioConfig>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, pen_name, llm_config, ui_config, agent_bots, 
                     frontstage_theme, backstage_theme, created_at, updated_at 
-             FROM studio_configs WHERE story_id = ?1"
+             FROM studio_configs WHERE story_id = ?1",
         )?;
 
-        let config = stmt.query_row([story_id], |row| {
-            let llm_json: String = row.get(3)?;
-            let llm_config: LlmStudioConfig = serde_json::from_str(&llm_json).unwrap_or_default();
-            
-            let ui_json: String = row.get(4)?;
-            let ui_config: UiStudioConfig = serde_json::from_str(&ui_json).unwrap_or_default();
-            
-            let bots_json: String = row.get(5)?;
-            let agent_bots: Vec<AgentBotConfig> = serde_json::from_str(&bots_json).unwrap_or_default();
-            
-            let created_str: String = row.get(8)?;
-            let updated_str: String = row.get(9)?;
-            
-            Ok(StudioConfig {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                pen_name: row.get(2)?,
-                llm_config,
-                ui_config,
-                agent_bots,
-                frontstage_theme: row.get(6)?,
-                backstage_theme: row.get(7)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let config = stmt
+            .query_row([story_id], |row| {
+                let llm_json: String = row.get(3)?;
+                let llm_config: LlmStudioConfig =
+                    serde_json::from_str(&llm_json).unwrap_or_default();
+
+                let ui_json: String = row.get(4)?;
+                let ui_config: UiStudioConfig = serde_json::from_str(&ui_json).unwrap_or_default();
+
+                let bots_json: String = row.get(5)?;
+                let agent_bots: Vec<AgentBotConfig> =
+                    serde_json::from_str(&bots_json).unwrap_or_default();
+
+                let created_str: String = row.get(8)?;
+                let updated_str: String = row.get(9)?;
+
+                Ok(StudioConfig {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    pen_name: row.get(2)?,
+                    llm_config,
+                    ui_config,
+                    agent_bots,
+                    frontstage_theme: row.get(6)?,
+                    backstage_theme: row.get(7)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(config)
     }
 
     /// 更新配置 (兼容旧接口)
-    pub fn update(&self, id: &str, _pen_name: Option<&str>, 
-                  llm_config: Option<&LlmStudioConfig>,
-                  ui_config: Option<&UiStudioConfig>,
-                  agent_bots: Option<&[AgentBotConfig]>) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        _pen_name: Option<&str>,
+        llm_config: Option<&LlmStudioConfig>,
+        ui_config: Option<&UiStudioConfig>,
+        agent_bots: Option<&[AgentBotConfig]>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
-        
+
         let count = conn.execute(
             "UPDATE studio_configs SET 
                 llm_config = COALESCE(?2, llm_config),
@@ -1225,11 +1537,18 @@ impl StudioConfigRepository {
     }
 
     /// 更新主题
-    pub fn update_themes(&self, id: &str, frontstage_theme: Option<&str>, 
-                         backstage_theme: Option<&str>) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_themes(
+        &self,
+        id: &str,
+        frontstage_theme: Option<&str>,
+        backstage_theme: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
-        
+
         let count = conn.execute(
             "UPDATE studio_configs SET 
                 frontstage_theme = COALESCE(?2, frontstage_theme),
@@ -1263,25 +1582,46 @@ impl KnowledgeGraphRepository {
         Self { pool }
     }
 
-    pub fn create_entity_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>)
-        -> Result<Entity, rusqlite::Error> {
+    pub fn create_entity_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        name: &str,
+        entity_type: &str,
+        attributes: &serde_json::Value,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<Entity, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         let embedding_blob = embedding.as_ref().map(|vec| {
-            vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+            vec.iter()
+                .flat_map(|&f| f.to_le_bytes().to_vec())
+                .collect::<Vec<u8>>()
         });
 
         tx.execute(
-            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, is_archived)
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, \
+             first_seen, last_updated, is_archived)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)",
-            params![&id, story_id, name, entity_type, attributes.to_string(), embedding_blob, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                name,
+                entity_type,
+                attributes.to_string(),
+                embedding_blob,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(Entity {
             id,
             story_id: story_id.to_string(),
             name: name.to_string(),
-            entity_type: entity_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?,
+            entity_type: entity_type.parse().map_err(|_| {
+                rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
+            })?,
             attributes: attributes.clone(),
             embedding,
             first_seen: now,
@@ -1294,138 +1634,193 @@ impl KnowledgeGraphRepository {
         })
     }
 
-    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>)
-        -> Result<Entity, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn create_entity(
+        &self,
+        story_id: &str,
+        name: &str,
+        entity_type: &str,
+        attributes: &serde_json::Value,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<Entity, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
-        let entity = self.create_entity_in_tx(&tx, story_id, name, entity_type, attributes, embedding)?;
+        let entity =
+            self.create_entity_in_tx(&tx, story_id, name, entity_type, attributes, embedding)?;
         tx.commit()?;
         Ok(entity)
     }
 
     pub fn get_entities_by_story(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, \
+             last_updated,
                     confidence_score, access_count, last_accessed, is_archived, archived_at
-             FROM kg_entities WHERE story_id = ?1 AND is_archived = 0"
+             FROM kg_entities WHERE story_id = ?1 AND is_archived = 0",
         )?;
 
-        let entities = stmt.query_map([story_id], |row| {
-            let type_str: String = row.get(3)?;
-            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
-            
-            let attrs_json: String = row.get(4)?;
-            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
-            
-            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
-            let embedding = embedding_blob.map(|bytes| {
-                bytes.chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
-                    .collect()
-            });
-            
-            let first_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
-            let last_accessed: Option<String> = row.get(10)?;
-            let is_archived: i32 = row.get(11)?;
-            let archived_at: Option<String> = row.get(12)?;
-            
-            Ok(Entity {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                entity_type,
-                attributes,
-                embedding,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-                access_count: row.get(9)?,
-                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
-                is_archived: is_archived != 0,
-                archived_at: archived_at.and_then(|s| s.parse().ok()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let entities = stmt
+            .query_map([story_id], |row| {
+                let type_str: String = row.get(3)?;
+                let entity_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
+                })?;
+
+                let attrs_json: String = row.get(4)?;
+                let attributes: serde_json::Value =
+                    serde_json::from_str(&attrs_json).unwrap_or_default();
+
+                let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+                let embedding = embedding_blob.map(|bytes| {
+                    bytes
+                        .chunks_exact(4)
+                        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0; 4])))
+                        .collect()
+                });
+
+                let first_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
+                let last_accessed: Option<String> = row.get(10)?;
+                let is_archived: i32 = row.get(11)?;
+                let archived_at: Option<String> = row.get(12)?;
+
+                Ok(Entity {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    entity_type,
+                    attributes,
+                    embedding,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                    access_count: row.get(9)?,
+                    last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                    is_archived: is_archived != 0,
+                    archived_at: archived_at.and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(entities)
     }
-    
+
     pub fn get_archived_entities(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, \
+             last_updated,
                     confidence_score, access_count, last_accessed, is_archived, archived_at
-             FROM kg_entities WHERE story_id = ?1 AND is_archived = 1"
+             FROM kg_entities WHERE story_id = ?1 AND is_archived = 1",
         )?;
 
-        let entities = stmt.query_map([story_id], |row| {
-            let type_str: String = row.get(3)?;
-            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
-            
-            let attrs_json: String = row.get(4)?;
-            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
-            
-            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
-            let embedding = embedding_blob.map(|bytes| {
-                bytes.chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
-                    .collect()
-            });
-            
-            let first_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
-            let last_accessed: Option<String> = row.get(10)?;
-            let is_archived: i32 = row.get(11)?;
-            let archived_at: Option<String> = row.get(12)?;
-            
-            Ok(Entity {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                entity_type,
-                attributes,
-                embedding,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-                access_count: row.get(9)?,
-                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
-                is_archived: is_archived != 0,
-                archived_at: archived_at.and_then(|s| s.parse().ok()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let entities = stmt
+            .query_map([story_id], |row| {
+                let type_str: String = row.get(3)?;
+                let entity_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
+                })?;
+
+                let attrs_json: String = row.get(4)?;
+                let attributes: serde_json::Value =
+                    serde_json::from_str(&attrs_json).unwrap_or_default();
+
+                let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+                let embedding = embedding_blob.map(|bytes| {
+                    bytes
+                        .chunks_exact(4)
+                        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0; 4])))
+                        .collect()
+                });
+
+                let first_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
+                let last_accessed: Option<String> = row.get(10)?;
+                let is_archived: i32 = row.get(11)?;
+                let archived_at: Option<String> = row.get(12)?;
+
+                Ok(Entity {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    entity_type,
+                    attributes,
+                    embedding,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                    access_count: row.get(9)?,
+                    last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                    is_archived: is_archived != 0,
+                    archived_at: archived_at.and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(entities)
     }
-    
+
     pub fn archive_entity(&self, entity_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE kg_entities SET is_archived = 1, archived_at = ?2, last_updated = ?2 WHERE id = ?1",
-            params![entity_id, now],
-        )
-    }
-    
-    pub fn restore_entity(&self, entity_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let now = Local::now().to_rfc3339();
-        conn.execute(
-            "UPDATE kg_entities SET is_archived = 0, archived_at = NULL, last_updated = ?2 WHERE id = ?1",
+            "UPDATE kg_entities SET is_archived = 1, archived_at = ?2, last_updated = ?2 WHERE id \
+             = ?1",
             params![entity_id, now],
         )
     }
 
-    pub fn create_relation_in_tx(&self, tx: &rusqlite::Transaction, story_id: &str, source_id: &str, target_id: &str,
-                           relation_type: &str, strength: f32) -> Result<Relation, rusqlite::Error> {
+    pub fn restore_entity(&self, entity_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE kg_entities SET is_archived = 0, archived_at = NULL, last_updated = ?2 WHERE \
+             id = ?1",
+            params![entity_id, now],
+        )
+    }
+
+    pub fn create_relation_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        source_id: &str,
+        target_id: &str,
+        relation_type: &str,
+        strength: f32,
+    ) -> Result<Relation, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
         tx.execute(
-            "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen)
+            "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, \
+             strength, evidence, first_seen)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, story_id, source_id, target_id, relation_type, strength, "[]", now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                source_id,
+                target_id,
+                relation_type,
+                strength,
+                "[]",
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(Relation {
@@ -1433,7 +1828,9 @@ impl KnowledgeGraphRepository {
             story_id: story_id.to_string(),
             source_id: source_id.to_string(),
             target_id: target_id.to_string(),
-            relation_type: relation_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid relation type".to_string()))?,
+            relation_type: relation_type.parse().map_err(|_| {
+                rusqlite::Error::InvalidParameterName("Invalid relation type".to_string())
+            })?,
             strength,
             evidence: vec![],
             first_seen: now,
@@ -1441,26 +1838,49 @@ impl KnowledgeGraphRepository {
         })
     }
 
-    pub fn create_relation(&self, story_id: &str, source_id: &str, target_id: &str,
-                           relation_type: &str, strength: f32) -> Result<Relation, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn create_relation(
+        &self,
+        story_id: &str,
+        source_id: &str,
+        target_id: &str,
+        relation_type: &str,
+        strength: f32,
+    ) -> Result<Relation, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
-        let relation = self.create_relation_in_tx(&tx, story_id, source_id, target_id, relation_type, strength)?;
+        let relation = self.create_relation_in_tx(
+            &tx,
+            story_id,
+            source_id,
+            target_id,
+            relation_type,
+            strength,
+        )?;
         tx.commit()?;
         Ok(relation)
     }
 
     /// 批量保存 Ingest 生成的实体（已包含完整字段，直接 INSERT）
     pub fn save_entities_batch(&self, entities: &[Entity]) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let mut count = 0;
         for entity in entities {
             let embedding_blob = entity.embedding.as_ref().map(|vec| {
-                vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+                vec.iter()
+                    .flat_map(|&f| f.to_le_bytes().to_vec())
+                    .collect::<Vec<u8>>()
             });
             tx.execute(
-                "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, confidence_score, access_count, last_accessed, is_archived, archived_at)
+                "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, \
+                 first_seen, last_updated, confidence_score, access_count, last_accessed, \
+                 is_archived, archived_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(id) DO UPDATE SET
                      name=excluded.name,
@@ -1469,10 +1889,16 @@ impl KnowledgeGraphRepository {
                      last_updated=excluded.last_updated,
                      confidence_score=excluded.confidence_score",
                 params![
-                    &entity.id, &entity.story_id, &entity.name,
-                    entity.entity_type.to_string(), entity.attributes.to_string(),
-                    embedding_blob, entity.first_seen.to_rfc3339(), entity.last_updated.to_rfc3339(),
-                    entity.confidence_score, entity.access_count,
+                    &entity.id,
+                    &entity.story_id,
+                    &entity.name,
+                    entity.entity_type.to_string(),
+                    entity.attributes.to_string(),
+                    embedding_blob,
+                    entity.first_seen.to_rfc3339(),
+                    entity.last_updated.to_rfc3339(),
+                    entity.confidence_score,
+                    entity.access_count,
                     entity.last_accessed.map(|d| d.to_rfc3339()),
                     entity.is_archived as i32,
                     entity.archived_at.map(|d| d.to_rfc3339())
@@ -1486,22 +1912,33 @@ impl KnowledgeGraphRepository {
 
     /// 批量保存 Ingest 生成的关系（已包含完整字段，直接 INSERT）
     pub fn save_relations_batch(&self, relations: &[Relation]) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let mut count = 0;
         for relation in relations {
-            let evidence_json = serde_json::to_string(&relation.evidence).unwrap_or_else(|_| "[]".to_string());
+            let evidence_json =
+                serde_json::to_string(&relation.evidence).unwrap_or_else(|_| "[]".to_string());
             tx.execute(
-                "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score)
+                "INSERT INTO kg_relations (id, story_id, source_id, target_id, relation_type, \
+                 strength, evidence, first_seen, confidence_score)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET
                      strength=excluded.strength,
                      evidence=excluded.evidence,
                      confidence_score=excluded.confidence_score",
                 params![
-                    &relation.id, &relation.story_id, &relation.source_id, &relation.target_id,
-                    relation.relation_type.to_string(), relation.strength, evidence_json,
-                    relation.first_seen.to_rfc3339(), relation.confidence_score
+                    &relation.id,
+                    &relation.story_id,
+                    &relation.source_id,
+                    &relation.target_id,
+                    relation.relation_type.to_string(),
+                    relation.strength,
+                    evidence_json,
+                    relation.first_seen.to_rfc3339(),
+                    relation.confidence_score
                 ],
             )?;
             count += 1;
@@ -1510,132 +1947,182 @@ impl KnowledgeGraphRepository {
         Ok(count)
     }
 
-    pub fn get_relations_by_entity(&self, entity_id: &str) -> Result<Vec<Relation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_relations_by_entity(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<Relation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score
-             FROM kg_relations WHERE source_id = ?1 OR target_id = ?1"
+            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, \
+             first_seen, confidence_score
+             FROM kg_relations WHERE source_id = ?1 OR target_id = ?1",
         )?;
 
-        let relations = stmt.query_map([entity_id], |row| {
-            let type_str: String = row.get(4)?;
-            let relation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid relation type".to_string()))?;
-            
-            let evidence_json: String = row.get(6)?;
-            let evidence: Vec<String> = serde_json::from_str(&evidence_json).unwrap_or_default();
-            
-            let first_str: String = row.get(7)?;
-            
-            Ok(Relation {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                source_id: row.get(2)?,
-                target_id: row.get(3)?,
-                relation_type,
-                strength: row.get(5)?,
-                evidence,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let relations = stmt
+            .query_map([entity_id], |row| {
+                let type_str: String = row.get(4)?;
+                let relation_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid relation type".to_string())
+                })?;
+
+                let evidence_json: String = row.get(6)?;
+                let evidence: Vec<String> =
+                    serde_json::from_str(&evidence_json).unwrap_or_default();
+
+                let first_str: String = row.get(7)?;
+
+                Ok(Relation {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    source_id: row.get(2)?,
+                    target_id: row.get(3)?,
+                    relation_type,
+                    strength: row.get(5)?,
+                    evidence,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(relations)
     }
 
     pub fn get_relations_by_story(&self, story_id: &str) -> Result<Vec<Relation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score
-             FROM kg_relations WHERE story_id = ?1"
+            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, \
+             first_seen, confidence_score
+             FROM kg_relations WHERE story_id = ?1",
         )?;
 
-        let relations = stmt.query_map([story_id], |row| {
-            let type_str: String = row.get(4)?;
-            let relation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid relation type".to_string()))?;
-            
-            let evidence_json: String = row.get(6)?;
-            let evidence: Vec<String> = serde_json::from_str(&evidence_json).unwrap_or_default();
-            
-            let first_str: String = row.get(7)?;
-            
-            Ok(Relation {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                source_id: row.get(2)?,
-                target_id: row.get(3)?,
-                relation_type,
-                strength: row.get(5)?,
-                evidence,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let relations = stmt
+            .query_map([story_id], |row| {
+                let type_str: String = row.get(4)?;
+                let relation_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid relation type".to_string())
+                })?;
+
+                let evidence_json: String = row.get(6)?;
+                let evidence: Vec<String> =
+                    serde_json::from_str(&evidence_json).unwrap_or_default();
+
+                let first_str: String = row.get(7)?;
+
+                Ok(Relation {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    source_id: row.get(2)?,
+                    target_id: row.get(3)?,
+                    relation_type,
+                    strength: row.get(5)?,
+                    evidence,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(relations)
     }
-    
+
     pub fn get_entity_by_id(&self, entity_id: &str) -> Result<Option<Entity>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, \
+             last_updated,
                     confidence_score, access_count, last_accessed, is_archived, archived_at
-             FROM kg_entities WHERE id = ?1"
+             FROM kg_entities WHERE id = ?1",
         )?;
 
-        let entity = stmt.query_row([entity_id], |row| {
-            let type_str: String = row.get(3)?;
-            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
-            let attrs_json: String = row.get(4)?;
-            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
-            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
-            let embedding = embedding_blob.map(|bytes| {
-                bytes.chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
-                    .collect()
-            });
-            
-            let first_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
-            let last_accessed: Option<String> = row.get(10)?;
-            let is_archived: i32 = row.get(11)?;
-            let archived_at: Option<String> = row.get(12)?;
-            
-            Ok(Entity {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                entity_type,
-                attributes,
-                embedding,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-                access_count: row.get(9)?,
-                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
-                is_archived: is_archived != 0,
-                archived_at: archived_at.and_then(|s| s.parse().ok()),
+        let entity = stmt
+            .query_row([entity_id], |row| {
+                let type_str: String = row.get(3)?;
+                let entity_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
+                })?;
+                let attrs_json: String = row.get(4)?;
+                let attributes: serde_json::Value =
+                    serde_json::from_str(&attrs_json).unwrap_or_default();
+                let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+                let embedding = embedding_blob.map(|bytes| {
+                    bytes
+                        .chunks_exact(4)
+                        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0; 4])))
+                        .collect()
+                });
+
+                let first_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
+                let last_accessed: Option<String> = row.get(10)?;
+                let is_archived: i32 = row.get(11)?;
+                let archived_at: Option<String> = row.get(12)?;
+
+                Ok(Entity {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    entity_type,
+                    attributes,
+                    embedding,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                    access_count: row.get(9)?,
+                    last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                    is_archived: is_archived != 0,
+                    archived_at: archived_at.and_then(|s| s.parse().ok()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(entity)
     }
 
-    pub fn update_entity(&self, entity_id: &str, name: Option<&str>, attributes: Option<&serde_json::Value>, embedding: Option<Vec<f32>>) -> Result<Entity, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_entity(
+        &self,
+        entity_id: &str,
+        name: Option<&str>,
+        attributes: Option<&serde_json::Value>,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<Entity, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
-        let entity = self.get_entity_by_id(entity_id)?
+        let entity = self
+            .get_entity_by_id(entity_id)?
             .ok_or_else(|| rusqlite::Error::InvalidParameterName("Entity not found".to_string()))?;
 
         let new_name = name.unwrap_or(&entity.name);
         let new_attributes = attributes.unwrap_or(&entity.attributes);
         let embedding_blob = embedding.as_ref().map(|vec| {
-            vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+            vec.iter()
+                .flat_map(|&f| f.to_le_bytes().to_vec())
+                .collect::<Vec<u8>>()
         });
 
         conn.execute(
-            "UPDATE kg_entities SET name = ?2, attributes = ?3, embedding = ?4, last_updated = ?5 WHERE id = ?1",
-            params![entity_id, new_name, new_attributes.to_string(), embedding_blob, now],
+            "UPDATE kg_entities SET name = ?2, attributes = ?3, embedding = ?4, last_updated = ?5 \
+             WHERE id = ?1",
+            params![
+                entity_id,
+                new_name,
+                new_attributes.to_string(),
+                embedding_blob,
+                now
+            ],
         )?;
 
         Ok(Entity {
@@ -1657,65 +2144,88 @@ impl KnowledgeGraphRepository {
 
     /// 根据名称查找实体（用于 QueryPipeline 图谱扩展）
     pub fn find_entity_by_name(&self, name: &str) -> Result<Option<Entity>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, \
+             last_updated,
                     confidence_score, access_count, last_accessed, is_archived, archived_at
-             FROM kg_entities WHERE name = ?1 AND is_archived = 0 LIMIT 1"
+             FROM kg_entities WHERE name = ?1 AND is_archived = 0 LIMIT 1",
         )?;
 
-        let entity = stmt.query_row([name], |row| {
-            let type_str: String = row.get(3)?;
-            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
-            let attrs_json: String = row.get(4)?;
-            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
-            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
-            let embedding = embedding_blob.map(|bytes| {
-                bytes.chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
-                    .collect()
-            });
-            let first_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
-            let last_accessed: Option<String> = row.get(10)?;
-            let is_archived: i32 = row.get(11)?;
-            let archived_at: Option<String> = row.get(12)?;
+        let entity = stmt
+            .query_row([name], |row| {
+                let type_str: String = row.get(3)?;
+                let entity_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
+                })?;
+                let attrs_json: String = row.get(4)?;
+                let attributes: serde_json::Value =
+                    serde_json::from_str(&attrs_json).unwrap_or_default();
+                let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+                let embedding = embedding_blob.map(|bytes| {
+                    bytes
+                        .chunks_exact(4)
+                        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0; 4])))
+                        .collect()
+                });
+                let first_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
+                let last_accessed: Option<String> = row.get(10)?;
+                let is_archived: i32 = row.get(11)?;
+                let archived_at: Option<String> = row.get(12)?;
 
-            Ok(Entity {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                entity_type,
-                attributes,
-                embedding,
-                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
-                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                confidence_score: row.get(8)?,
-                access_count: row.get(9)?,
-                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
-                is_archived: is_archived != 0,
-                archived_at: archived_at.and_then(|s| s.parse().ok()),
+                Ok(Entity {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    entity_type,
+                    attributes,
+                    embedding,
+                    first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                    last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score: row.get(8)?,
+                    access_count: row.get(9)?,
+                    last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                    is_archived: is_archived != 0,
+                    archived_at: archived_at.and_then(|s| s.parse().ok()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(entity)
     }
 
     /// 获取与指定实体相关的实体及其关系强度
-    pub fn get_related_entities(&self, entity_id: &str, min_strength: f32) -> Result<Vec<(Entity, f32)>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_related_entities(
+        &self,
+        entity_id: &str,
+        min_strength: f32,
+    ) -> Result<Vec<(Entity, f32)>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT source_id, target_id, strength FROM kg_relations 
-             WHERE (source_id = ?1 OR target_id = ?1) AND strength >= ?2"
+             WHERE (source_id = ?1 OR target_id = ?1) AND strength >= ?2",
         )?;
 
-        let rows = stmt.query_map(params![entity_id, min_strength], |row| {
-            let source_id: String = row.get(0)?;
-            let target_id: String = row.get(1)?;
-            let strength: f32 = row.get(2)?;
-            let other_id = if source_id == entity_id { target_id } else { source_id };
-            Ok((other_id, strength))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map(params![entity_id, min_strength], |row| {
+                let source_id: String = row.get(0)?;
+                let target_id: String = row.get(1)?;
+                let strength: f32 = row.get(2)?;
+                let other_id = if source_id == entity_id {
+                    target_id
+                } else {
+                    source_id
+                };
+                Ok((other_id, strength))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut results = Vec::new();
         for (other_id, strength) in rows {
@@ -1737,14 +2247,17 @@ impl crate::memory::query::KnowledgeGraph for KnowledgeGraphRepository {
     ) -> Result<crate::db::models::Entity, Box<dyn std::error::Error + Send + Sync>> {
         self.find_entity_by_name(name)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
-            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> { "Entity not found".into() })
+            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                "Entity not found".into()
+            })
     }
 
     async fn get_related_entities(
         &self,
         entity_id: &str,
         min_strength: f32,
-    ) -> Result<Vec<(crate::db::models::Entity, f32)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<(crate::db::models::Entity, f32)>, Box<dyn std::error::Error + Send + Sync>>
+    {
         self.get_related_entities(entity_id, min_strength)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
@@ -1771,11 +2284,23 @@ impl SceneAnnotationRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO scene_annotations (id, scene_id, story_id, content, annotation_type, created_at, updated_at)
+            "INSERT INTO scene_annotations (id, scene_id, story_id, content, annotation_type, \
+             created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![&id, scene_id, story_id, content, annotation_type, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                scene_id,
+                story_id,
+                content,
+                annotation_type,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(SceneAnnotation {
@@ -1783,73 +2308,105 @@ impl SceneAnnotationRepository {
             scene_id: scene_id.to_string(),
             story_id: story_id.to_string(),
             content: content.to_string(),
-            annotation_type: annotation_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?,
+            annotation_type: annotation_type.parse().map_err(|_| {
+                rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string())
+            })?,
             created_at: now,
             updated_at: now,
             resolved_at: None,
         })
     }
 
-    pub fn get_annotations_by_scene(&self, scene_id: &str) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_annotations_by_scene(
+        &self,
+        scene_id: &str,
+    ) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, resolved_at
-             FROM scene_annotations WHERE scene_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, \
+             resolved_at
+             FROM scene_annotations WHERE scene_id = ?1 ORDER BY created_at DESC",
         )?;
 
-        let annotations = stmt.query_map([scene_id], |row| {
-            let type_str: String = row.get(4)?;
-            let annotation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?;
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            let resolved_str: Option<String> = row.get(7)?;
+        let annotations = stmt
+            .query_map([scene_id], |row| {
+                let type_str: String = row.get(4)?;
+                let annotation_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string())
+                })?;
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                let resolved_str: Option<String> = row.get(7)?;
 
-            Ok(SceneAnnotation {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                story_id: row.get(2)?,
-                content: row.get(3)?,
-                annotation_type,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                resolved_at: resolved_str.and_then(|s| s.parse().ok()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(SceneAnnotation {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    story_id: row.get(2)?,
+                    content: row.get(3)?,
+                    annotation_type,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(annotations)
     }
 
-    pub fn get_unresolved_annotations_by_story(&self, story_id: &str) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_unresolved_annotations_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, resolved_at
-             FROM scene_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY created_at DESC"
+            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, \
+             resolved_at
+             FROM scene_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY \
+             created_at DESC",
         )?;
 
-        let annotations = stmt.query_map([story_id], |row| {
-            let type_str: String = row.get(4)?;
-            let annotation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?;
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            let resolved_str: Option<String> = row.get(7)?;
+        let annotations = stmt
+            .query_map([story_id], |row| {
+                let type_str: String = row.get(4)?;
+                let annotation_type = type_str.parse().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string())
+                })?;
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                let resolved_str: Option<String> = row.get(7)?;
 
-            Ok(SceneAnnotation {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                story_id: row.get(2)?,
-                content: row.get(3)?,
-                annotation_type,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                resolved_at: resolved_str.and_then(|s| s.parse().ok()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(SceneAnnotation {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    story_id: row.get(2)?,
+                    content: row.get(3)?,
+                    annotation_type,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(annotations)
     }
 
-    pub fn update_annotation(&self, annotation_id: &str, content: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_annotation(
+        &self,
+        annotation_id: &str,
+        content: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE scene_annotations SET content = ?2, updated_at = ?3 WHERE id = ?1",
@@ -1858,7 +2415,10 @@ impl SceneAnnotationRepository {
     }
 
     pub fn resolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE scene_annotations SET resolved_at = ?2, updated_at = ?3 WHERE id = ?1",
@@ -1867,7 +2427,10 @@ impl SceneAnnotationRepository {
     }
 
     pub fn unresolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE scene_annotations SET resolved_at = NULL, updated_at = ?2 WHERE id = ?1",
@@ -1876,7 +2439,10 @@ impl SceneAnnotationRepository {
     }
 
     pub fn delete_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM scene_annotations WHERE id = ?1",
             params![annotation_id],
@@ -1908,11 +2474,26 @@ impl TextAnnotationRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO text_annotations (id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, to_pos, created_at, updated_at)
+            "INSERT INTO text_annotations (id, story_id, scene_id, chapter_id, content, \
+             annotation_type, from_pos, to_pos, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![&id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, to_pos, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                scene_id,
+                chapter_id,
+                content,
+                annotation_type,
+                from_pos,
+                to_pos,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(TextAnnotation {
@@ -1921,7 +2502,9 @@ impl TextAnnotationRepository {
             scene_id: scene_id.map(|s| s.to_string()),
             chapter_id: chapter_id.map(|s| s.to_string()),
             content: content.to_string(),
-            annotation_type: annotation_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?,
+            annotation_type: annotation_type.parse().map_err(|_| {
+                rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string())
+            })?,
             from_pos,
             to_pos,
             created_at: now,
@@ -1930,41 +2513,69 @@ impl TextAnnotationRepository {
         })
     }
 
-    pub fn get_annotations_by_chapter(&self, chapter_id: &str) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_annotations_by_chapter(
+        &self,
+        chapter_id: &str,
+    ) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, to_pos, created_at, updated_at, resolved_at
-             FROM text_annotations WHERE chapter_id = ?1 AND resolved_at IS NULL ORDER BY from_pos ASC"
+            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
+             to_pos, created_at, updated_at, resolved_at
+             FROM text_annotations WHERE chapter_id = ?1 AND resolved_at IS NULL ORDER BY from_pos \
+             ASC",
         )?;
         let rows = stmt.query([chapter_id])?;
         Self::map_annotations(rows)
     }
 
-    pub fn get_annotations_by_scene(&self, scene_id: &str) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_annotations_by_scene(
+        &self,
+        scene_id: &str,
+    ) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, to_pos, created_at, updated_at, resolved_at
-             FROM text_annotations WHERE scene_id = ?1 AND resolved_at IS NULL ORDER BY from_pos ASC"
+            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
+             to_pos, created_at, updated_at, resolved_at
+             FROM text_annotations WHERE scene_id = ?1 AND resolved_at IS NULL ORDER BY from_pos \
+             ASC",
         )?;
         let rows = stmt.query([scene_id])?;
         Self::map_annotations(rows)
     }
 
-    pub fn get_annotations_by_story(&self, story_id: &str) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_annotations_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, to_pos, created_at, updated_at, resolved_at
-             FROM text_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY created_at DESC"
+            "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
+             to_pos, created_at, updated_at, resolved_at
+             FROM text_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY created_at \
+             DESC",
         )?;
         let rows = stmt.query([story_id])?;
         Self::map_annotations(rows)
     }
 
-    fn map_annotations(mut rows: rusqlite::Rows<'_>) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
+    fn map_annotations(
+        mut rows: rusqlite::Rows<'_>,
+    ) -> Result<Vec<TextAnnotation>, rusqlite::Error> {
         let mut annotations = Vec::new();
         while let Some(row) = rows.next()? {
             let type_str: String = row.get(5)?;
-            let annotation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?;
+            let annotation_type = type_str.parse().map_err(|_| {
+                rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string())
+            })?;
             let created_str: String = row.get(8)?;
             let updated_str: String = row.get(9)?;
             let resolved_str: Option<String> = row.get(10)?;
@@ -1986,8 +2597,15 @@ impl TextAnnotationRepository {
         Ok(annotations)
     }
 
-    pub fn update_annotation(&self, annotation_id: &str, content: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update_annotation(
+        &self,
+        annotation_id: &str,
+        content: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE text_annotations SET content = ?2, updated_at = ?3 WHERE id = ?1",
@@ -1996,7 +2614,10 @@ impl TextAnnotationRepository {
     }
 
     pub fn resolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE text_annotations SET resolved_at = ?2, updated_at = ?3 WHERE id = ?1",
@@ -2005,7 +2626,10 @@ impl TextAnnotationRepository {
     }
 
     pub fn unresolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE text_annotations SET resolved_at = NULL, updated_at = ?2 WHERE id = ?1",
@@ -2014,14 +2638,16 @@ impl TextAnnotationRepository {
     }
 
     pub fn delete_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM text_annotations WHERE id = ?1",
             params![annotation_id],
         )
     }
 }
-
 
 pub struct StorySummaryRepository {
     pool: DbPool,
@@ -2041,11 +2667,22 @@ impl StorySummaryRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO story_summaries (id, story_id, summary_type, content, created_at, updated_at)
+            "INSERT INTO story_summaries (id, story_id, summary_type, content, created_at, \
+             updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![&id, story_id, summary_type, content, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                summary_type,
+                content,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(StorySummary {
@@ -2058,11 +2695,17 @@ impl StorySummaryRepository {
         })
     }
 
-    pub fn get_summaries_by_story(&self, story_id: &str) -> Result<Vec<StorySummary>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_summaries_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<StorySummary>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, summary_type, content, created_at, updated_at
-             FROM story_summaries WHERE story_id = ?1 ORDER BY updated_at DESC"
+             FROM story_summaries WHERE story_id = ?1 ORDER BY updated_at DESC",
         )?;
 
         let rows = stmt.query_map([story_id], |row| {
@@ -2081,31 +2724,43 @@ impl StorySummaryRepository {
         rows.collect()
     }
 
-    pub fn get_summary_by_type(&self, story_id: &str, summary_type: &str) -> Result<Option<StorySummary>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let result = conn.query_row(
-            "SELECT id, story_id, summary_type, content, created_at, updated_at
+    pub fn get_summary_by_type(
+        &self,
+        story_id: &str,
+        summary_type: &str,
+    ) -> Result<Option<StorySummary>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let result = conn
+            .query_row(
+                "SELECT id, story_id, summary_type, content, created_at, updated_at
              FROM story_summaries WHERE story_id = ?1 AND summary_type = ?2
              ORDER BY updated_at DESC LIMIT 1",
-            params![story_id, summary_type],
-            |row| {
-                let created_str: String = row.get(4)?;
-                let updated_str: String = row.get(5)?;
-                Ok(StorySummary {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    summary_type: row.get(2)?,
-                    content: row.get(3)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            },
-        ).optional()?;
+                params![story_id, summary_type],
+                |row| {
+                    let created_str: String = row.get(4)?;
+                    let updated_str: String = row.get(5)?;
+                    Ok(StorySummary {
+                        id: row.get(0)?,
+                        story_id: row.get(1)?,
+                        summary_type: row.get(2)?,
+                        content: row.get(3)?,
+                        created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                        updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    })
+                },
+            )
+            .optional()?;
         Ok(result)
     }
 
     pub fn update_summary(&self, id: &str, content: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE story_summaries SET content = ?2, updated_at = ?3 WHERE id = ?1",
@@ -2114,14 +2769,13 @@ impl StorySummaryRepository {
     }
 
     pub fn delete_summary(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM story_summaries WHERE id = ?1",
-            params![id],
-        )
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM story_summaries WHERE id = ?1", params![id])
     }
 }
-
 
 // ==================== ChangeTrack Repository (修订模式) ====================
 
@@ -2135,9 +2789,13 @@ impl ChangeTrackRepository {
     }
 
     pub fn create(&self, track: &ChangeTrack) -> Result<ChangeTrack, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO change_tracks (id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at)
+            "INSERT INTO change_tracks (id, scene_id, chapter_id, version_id, author_id, \
+             author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &track.id,
@@ -2159,10 +2817,14 @@ impl ChangeTrackRepository {
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<ChangeTrack>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
-             FROM change_tracks WHERE id = ?1"
+            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, \
+             from_pos, to_pos, content, status, created_at, resolved_at
+             FROM change_tracks WHERE id = ?1",
         )?;
 
         let result = stmt.query_row([id], |row| {
@@ -2201,10 +2863,14 @@ impl ChangeTrackRepository {
     }
 
     pub fn get_by_scene(&self, scene_id: &str) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
-             FROM change_tracks WHERE scene_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, \
+             from_pos, to_pos, content, status, created_at, resolved_at
+             FROM change_tracks WHERE scene_id = ?1 ORDER BY created_at DESC",
         )?;
 
         let rows = stmt.query_map([scene_id], |row| {
@@ -2238,8 +2904,14 @@ impl ChangeTrackRepository {
         rows.collect()
     }
 
-    pub fn get_pending_by_scene(&self, scene_id: &str) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_pending_by_scene(
+        &self,
+        scene_id: &str,
+    ) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
              FROM change_tracks WHERE scene_id = ?1 AND status = 'Pending' ORDER BY created_at DESC"
@@ -2276,11 +2948,19 @@ impl ChangeTrackRepository {
         rows.collect()
     }
 
-    pub fn get_pending_by_chapter(&self, chapter_id: &str) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_pending_by_chapter(
+        &self,
+        chapter_id: &str,
+    ) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
-             FROM change_tracks WHERE chapter_id = ?1 AND status = 'Pending' ORDER BY created_at DESC"
+            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, \
+             from_pos, to_pos, content, status, created_at, resolved_at
+             FROM change_tracks WHERE chapter_id = ?1 AND status = 'Pending' ORDER BY created_at \
+             DESC",
         )?;
 
         let rows = stmt.query_map([chapter_id], |row| {
@@ -2315,10 +2995,14 @@ impl ChangeTrackRepository {
     }
 
     pub fn get_by_version(&self, version_id: &str) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
-             FROM change_tracks WHERE version_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, \
+             from_pos, to_pos, content, status, created_at, resolved_at
+             FROM change_tracks WHERE version_id = ?1 ORDER BY created_at DESC",
         )?;
 
         let rows = stmt.query_map([version_id], |row| {
@@ -2353,7 +3037,10 @@ impl ChangeTrackRepository {
     }
 
     pub fn update_status(&self, id: &str, status: ChangeStatus) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let resolved = match status {
             ChangeStatus::Pending => None,
             _ => Some(Local::now().to_rfc3339()),
@@ -2365,50 +3052,68 @@ impl ChangeTrackRepository {
     }
 
     pub fn accept_all_by_scene(&self, scene_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE change_tracks SET status = 'Accepted', resolved_at = ?2 WHERE scene_id = ?1 AND status = 'Pending'",
+            "UPDATE change_tracks SET status = 'Accepted', resolved_at = ?2 WHERE scene_id = ?1 \
+             AND status = 'Pending'",
             params![scene_id, now],
         )
     }
 
     pub fn reject_all_by_scene(&self, scene_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE change_tracks SET status = 'Rejected', resolved_at = ?2 WHERE scene_id = ?1 AND status = 'Pending'",
+            "UPDATE change_tracks SET status = 'Rejected', resolved_at = ?2 WHERE scene_id = ?1 \
+             AND status = 'Pending'",
             params![scene_id, now],
         )
     }
 
     pub fn accept_all_by_chapter(&self, chapter_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE change_tracks SET status = 'Accepted', resolved_at = ?2 WHERE chapter_id = ?1 AND status = 'Pending'",
+            "UPDATE change_tracks SET status = 'Accepted', resolved_at = ?2 WHERE chapter_id = ?1 \
+             AND status = 'Pending'",
             params![chapter_id, now],
         )
     }
 
     pub fn reject_all_by_chapter(&self, chapter_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE change_tracks SET status = 'Rejected', resolved_at = ?2 WHERE chapter_id = ?1 AND status = 'Pending'",
+            "UPDATE change_tracks SET status = 'Rejected', resolved_at = ?2 WHERE chapter_id = ?1 \
+             AND status = 'Pending'",
             params![chapter_id, now],
         )
     }
 
     pub fn delete_by_scene(&self, scene_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM change_tracks WHERE scene_id = ?1",
             params![scene_id],
         )
     }
 }
-
 
 // ==================== CommentThread Repository (评论线程) ====================
 
@@ -2422,9 +3127,13 @@ impl CommentThreadRepository {
     }
 
     pub fn create_thread(&self, thread: &CommentThread) -> Result<CommentThread, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO comment_threads (id, scene_id, chapter_id, version_id, anchor_type, from_pos, to_pos, selected_text, status, created_at, resolved_at)
+            "INSERT INTO comment_threads (id, scene_id, chapter_id, version_id, anchor_type, \
+             from_pos, to_pos, selected_text, status, created_at, resolved_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 &thread.id,
@@ -2444,9 +3153,13 @@ impl CommentThreadRepository {
     }
 
     pub fn add_message(&self, message: &CommentMessage) -> Result<CommentMessage, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO comment_messages (id, thread_id, author_id, author_name, content, created_at)
+            "INSERT INTO comment_messages (id, thread_id, author_id, author_name, content, \
+             created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 &message.id,
@@ -2496,14 +3209,23 @@ impl CommentThreadRepository {
         })
     }
 
-    pub fn get_threads_by_chapter(&self, chapter_id: &str) -> Result<Vec<CommentThreadWithMessages>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_threads_by_chapter(
+        &self,
+        chapter_id: &str,
+    ) -> Result<Vec<CommentThreadWithMessages>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, anchor_type, from_pos, to_pos, selected_text, status, created_at, resolved_at
-             FROM comment_threads WHERE chapter_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, scene_id, chapter_id, version_id, anchor_type, from_pos, to_pos, \
+             selected_text, status, created_at, resolved_at
+             FROM comment_threads WHERE chapter_id = ?1 ORDER BY created_at DESC",
         )?;
 
-        let threads: Vec<CommentThread> = stmt.query_map([chapter_id], |row| self.parse_thread(row))?.collect::<Result<Vec<_>, _>>()?;
+        let threads: Vec<CommentThread> = stmt
+            .query_map([chapter_id], |row| self.parse_thread(row))?
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut result = Vec::new();
         for thread in threads {
@@ -2513,14 +3235,23 @@ impl CommentThreadRepository {
         Ok(result)
     }
 
-    pub fn get_threads_by_scene(&self, scene_id: &str) -> Result<Vec<CommentThreadWithMessages>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_threads_by_scene(
+        &self,
+        scene_id: &str,
+    ) -> Result<Vec<CommentThreadWithMessages>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, scene_id, chapter_id, version_id, anchor_type, from_pos, to_pos, selected_text, status, created_at, resolved_at
-             FROM comment_threads WHERE scene_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, scene_id, chapter_id, version_id, anchor_type, from_pos, to_pos, \
+             selected_text, status, created_at, resolved_at
+             FROM comment_threads WHERE scene_id = ?1 ORDER BY created_at DESC",
         )?;
 
-        let threads: Vec<CommentThread> = stmt.query_map([scene_id], |row| self.parse_thread(row))?.collect::<Result<Vec<_>, _>>()?;
+        let threads: Vec<CommentThread> = stmt
+            .query_map([scene_id], |row| self.parse_thread(row))?
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut result = Vec::new();
         for thread in threads {
@@ -2531,10 +3262,13 @@ impl CommentThreadRepository {
     }
 
     pub fn get_messages(&self, thread_id: &str) -> Result<Vec<CommentMessage>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, thread_id, author_id, author_name, content, created_at
-             FROM comment_messages WHERE thread_id = ?1 ORDER BY created_at ASC"
+             FROM comment_messages WHERE thread_id = ?1 ORDER BY created_at ASC",
         )?;
 
         let rows = stmt.query_map([thread_id], |row| self.parse_message(row))?;
@@ -2542,7 +3276,10 @@ impl CommentThreadRepository {
     }
 
     pub fn resolve_thread(&self, thread_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE comment_threads SET status = 'Resolved', resolved_at = ?2 WHERE id = ?1",
@@ -2551,7 +3288,10 @@ impl CommentThreadRepository {
     }
 
     pub fn reopen_thread(&self, thread_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "UPDATE comment_threads SET status = 'Open', resolved_at = NULL WHERE id = ?1",
             params![thread_id],
@@ -2559,14 +3299,16 @@ impl CommentThreadRepository {
     }
 
     pub fn delete_thread(&self, thread_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM comment_threads WHERE id = ?1",
             params![thread_id],
         )
     }
 }
-
 
 // ==================== StoryStyleConfig Repository ====================
 
@@ -2579,13 +3321,22 @@ impl StoryStyleConfigRepository {
         Self { pool }
     }
 
-    pub fn create(&self, story_id: &str, name: &str, blend_json: &str) -> Result<StoryStyleConfig, rusqlite::Error> {
+    pub fn create(
+        &self,
+        story_id: &str,
+        name: &str,
+        blend_json: &str,
+    ) -> Result<StoryStyleConfig, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now().to_rfc3339();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO story_style_configs (id, story_id, name, blend_json, is_active, created_at, updated_at)
+            "INSERT INTO story_style_configs (id, story_id, name, blend_json, is_active, \
+             created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![&id, story_id, name, blend_json, 1, &now, &now],
         )?;
@@ -2601,58 +3352,82 @@ impl StoryStyleConfigRepository {
         })
     }
 
-    pub fn get_active_by_story(&self, story_id: &str) -> Result<Option<StoryStyleConfig>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_active_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<StoryStyleConfig>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, blend_json, is_active, created_at, updated_at
-             FROM story_style_configs WHERE story_id = ?1 AND is_active = 1 LIMIT 1"
+             FROM story_style_configs WHERE story_id = ?1 AND is_active = 1 LIMIT 1",
         )?;
 
-        let result = stmt.query_row([story_id], |row| {
-            let is_active: i32 = row.get(4)?;
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(StoryStyleConfig {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                blend_json: row.get(3)?,
-                is_active: is_active != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let result = stmt
+            .query_row([story_id], |row| {
+                let is_active: i32 = row.get(4)?;
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                Ok(StoryStyleConfig {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    blend_json: row.get(3)?,
+                    is_active: is_active != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(result)
     }
 
-    pub fn get_all_by_story(&self, story_id: &str) -> Result<Vec<StoryStyleConfig>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_all_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<StoryStyleConfig>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, blend_json, is_active, created_at, updated_at
-             FROM story_style_configs WHERE story_id = ?1 ORDER BY updated_at DESC"
+             FROM story_style_configs WHERE story_id = ?1 ORDER BY updated_at DESC",
         )?;
 
-        let configs = stmt.query_map([story_id], |row| {
-            let is_active: i32 = row.get(4)?;
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(StoryStyleConfig {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                blend_json: row.get(3)?,
-                is_active: is_active != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let configs = stmt
+            .query_map([story_id], |row| {
+                let is_active: i32 = row.get(4)?;
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                Ok(StoryStyleConfig {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    blend_json: row.get(3)?,
+                    is_active: is_active != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(configs)
     }
 
-    pub fn update(&self, id: &str, name: Option<&str>, blend_json: Option<&str>) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        blend_json: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
             "UPDATE story_style_configs SET
@@ -2665,7 +3440,10 @@ impl StoryStyleConfigRepository {
     }
 
     pub fn set_active(&self, story_id: &str, config_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         // 先取消该 story 下所有配置的 active 状态
         conn.execute(
             "UPDATE story_style_configs SET is_active = 0 WHERE story_id = ?1",
@@ -2680,14 +3458,13 @@ impl StoryStyleConfigRepository {
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM story_style_configs WHERE id = ?1",
-            params![id],
-        )
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM story_style_configs WHERE id = ?1", params![id])
     }
 }
-
 
 // ==================== StyleDNA Repository ====================
 
@@ -2700,15 +3477,33 @@ impl StyleDnaRepository {
         Self { pool }
     }
 
-    pub fn create(&self, name: &str, author: Option<&str>, dna_json: &str, is_builtin: bool) -> Result<super::models::StyleDNA, rusqlite::Error> {
+    pub fn create(
+        &self,
+        name: &str,
+        author: Option<&str>,
+        dna_json: &str,
+        is_builtin: bool,
+    ) -> Result<super::models::StyleDNA, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now().to_rfc3339();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO style_dnas (id, name, author, dna_json, is_builtin, is_user_created, created_at)
+            "INSERT INTO style_dnas (id, name, author, dna_json, is_builtin, is_user_created, \
+             created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![&id, name, author, dna_json, is_builtin as i32, !is_builtin as i32, now],
+            params![
+                &id,
+                name,
+                author,
+                dna_json,
+                is_builtin as i32,
+                !is_builtin as i32,
+                now
+            ],
         )?;
 
         Ok(super::models::StyleDNA {
@@ -2723,82 +3518,100 @@ impl StyleDnaRepository {
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<super::models::StyleDNA>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
-             FROM style_dnas WHERE id = ?1"
+             FROM style_dnas WHERE id = ?1",
         )?;
 
-        let result = stmt.query_row([id], |row| {
-            let is_builtin: i32 = row.get(4)?;
-            let is_user_created: i32 = row.get(5)?;
-            let created_str: String = row.get(6)?;
-            Ok(super::models::StyleDNA {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                author: row.get(2)?,
-                dna_json: row.get(3)?,
-                is_builtin: is_builtin != 0,
-                is_user_created: is_user_created != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+        let result = stmt
+            .query_row([id], |row| {
+                let is_builtin: i32 = row.get(4)?;
+                let is_user_created: i32 = row.get(5)?;
+                let created_str: String = row.get(6)?;
+                Ok(super::models::StyleDNA {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    author: row.get(2)?,
+                    dna_json: row.get(3)?,
+                    is_builtin: is_builtin != 0,
+                    is_user_created: is_user_created != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(result)
     }
 
     pub fn get_all(&self) -> Result<Vec<super::models::StyleDNA>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
-             FROM style_dnas ORDER BY is_builtin DESC, name ASC"
+             FROM style_dnas ORDER BY is_builtin DESC, name ASC",
         )?;
 
-        let dnas = stmt.query_map([], |row| {
-            let is_builtin: i32 = row.get(4)?;
-            let is_user_created: i32 = row.get(5)?;
-            let created_str: String = row.get(6)?;
-            Ok(super::models::StyleDNA {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                author: row.get(2)?,
-                dna_json: row.get(3)?,
-                is_builtin: is_builtin != 0,
-                is_user_created: is_user_created != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let dnas = stmt
+            .query_map([], |row| {
+                let is_builtin: i32 = row.get(4)?;
+                let is_user_created: i32 = row.get(5)?;
+                let created_str: String = row.get(6)?;
+                Ok(super::models::StyleDNA {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    author: row.get(2)?,
+                    dna_json: row.get(3)?,
+                    is_builtin: is_builtin != 0,
+                    is_user_created: is_user_created != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(dnas)
     }
 
     pub fn get_builtin(&self) -> Result<Vec<super::models::StyleDNA>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
-             FROM style_dnas WHERE is_builtin = 1 ORDER BY name ASC"
+             FROM style_dnas WHERE is_builtin = 1 ORDER BY name ASC",
         )?;
 
-        let dnas = stmt.query_map([], |row| {
-            let is_builtin: i32 = row.get(4)?;
-            let is_user_created: i32 = row.get(5)?;
-            let created_str: String = row.get(6)?;
-            Ok(super::models::StyleDNA {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                author: row.get(2)?,
-                dna_json: row.get(3)?,
-                is_builtin: is_builtin != 0,
-                is_user_created: is_user_created != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let dnas = stmt
+            .query_map([], |row| {
+                let is_builtin: i32 = row.get(4)?;
+                let is_user_created: i32 = row.get(5)?;
+                let created_str: String = row.get(6)?;
+                Ok(super::models::StyleDNA {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    author: row.get(2)?,
+                    dna_json: row.get(3)?,
+                    is_builtin: is_builtin != 0,
+                    is_user_created: is_user_created != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(dnas)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM style_dnas WHERE id = ?1 AND is_builtin = 0",
             params![id],
@@ -2806,14 +3619,16 @@ impl StyleDnaRepository {
     }
 
     pub fn update_dna_json(&self, id: &str, dna_json: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "UPDATE style_dnas SET dna_json = ?2 WHERE id = ?1",
             params![id, dna_json],
         )
     }
 }
-
 
 // ==================== StyleSnapshot Repository (W3-B7) ====================
 
@@ -2836,7 +3651,10 @@ impl StyleSnapshotRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now().to_rfc3339();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "INSERT INTO style_snapshots
              (id, story_id, chapter_number, scene_number, sentence_length, dialogue_ratio,
@@ -2876,30 +3694,35 @@ impl StyleSnapshotRepository {
         &self,
         story_id: &str,
     ) -> Result<Vec<super::models::StyleSnapshot>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, chapter_number, scene_number,
                     sentence_length, dialogue_ratio, metaphor_density,
                     inner_monologue_ratio, emotion_density, rhythm_score, computed_at
-             FROM style_snapshots WHERE story_id = ?1 ORDER BY computed_at DESC"
+             FROM style_snapshots WHERE story_id = ?1 ORDER BY computed_at DESC",
         )?;
 
-        let snapshots = stmt.query_map([story_id], |row| {
-            let created_str: String = row.get(10)?;
-            Ok(super::models::StyleSnapshot {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                chapter_number: row.get(2)?,
-                scene_number: row.get(3)?,
-                sentence_length: row.get(4)?,
-                dialogue_ratio: row.get(5)?,
-                metaphor_density: row.get(6)?,
-                inner_monologue_ratio: row.get(7)?,
-                emotion_density: row.get(8)?,
-                rhythm_score: row.get(9)?,
-                computed_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let snapshots = stmt
+            .query_map([story_id], |row| {
+                let created_str: String = row.get(10)?;
+                Ok(super::models::StyleSnapshot {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    chapter_number: row.get(2)?,
+                    scene_number: row.get(3)?,
+                    sentence_length: row.get(4)?,
+                    dialogue_ratio: row.get(5)?,
+                    metaphor_density: row.get(6)?,
+                    inner_monologue_ratio: row.get(7)?,
+                    emotion_density: row.get(8)?,
+                    rhythm_score: row.get(9)?,
+                    computed_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(snapshots)
     }
@@ -2908,43 +3731,50 @@ impl StyleSnapshotRepository {
         &self,
         story_id: &str,
     ) -> Result<Option<super::models::StyleSnapshot>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, chapter_number, scene_number,
                     sentence_length, dialogue_ratio, metaphor_density,
                     inner_monologue_ratio, emotion_density, rhythm_score, computed_at
-             FROM style_snapshots WHERE story_id = ?1 ORDER BY computed_at DESC LIMIT 1"
+             FROM style_snapshots WHERE story_id = ?1 ORDER BY computed_at DESC LIMIT 1",
         )?;
 
-        let result = stmt.query_row([story_id], |row| {
-            let created_str: String = row.get(10)?;
-            Ok(super::models::StyleSnapshot {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                chapter_number: row.get(2)?,
-                scene_number: row.get(3)?,
-                sentence_length: row.get(4)?,
-                dialogue_ratio: row.get(5)?,
-                metaphor_density: row.get(6)?,
-                inner_monologue_ratio: row.get(7)?,
-                emotion_density: row.get(8)?,
-                rhythm_score: row.get(9)?,
-                computed_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+        let result = stmt
+            .query_row([story_id], |row| {
+                let created_str: String = row.get(10)?;
+                Ok(super::models::StyleSnapshot {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    chapter_number: row.get(2)?,
+                    scene_number: row.get(3)?,
+                    sentence_length: row.get(4)?,
+                    dialogue_ratio: row.get(5)?,
+                    metaphor_density: row.get(6)?,
+                    inner_monologue_ratio: row.get(7)?,
+                    emotion_density: row.get(8)?,
+                    rhythm_score: row.get(9)?,
+                    computed_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(result)
     }
 
     pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM style_snapshots WHERE story_id = ?1",
             params![story_id],
         )
     }
 }
-
 
 // ==================== UserFeedback Repository ====================
 
@@ -2973,15 +3803,28 @@ impl UserFeedbackRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now().to_rfc3339();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO user_feedback_log (id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at)
+            "INSERT INTO user_feedback_log (id, story_id, scene_id, chapter_id, feedback_type, \
+             agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, \
+             created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
-                &id, story_id, scene_id, chapter_id, feedback_type,
-                agent_type, original_ai_text, final_text,
-                ai_score, user_satisfaction,
-                metadata.map(|m| m.to_string()), now
+                &id,
+                story_id,
+                scene_id,
+                chapter_id,
+                feedback_type,
+                agent_type,
+                original_ai_text,
+                final_text,
+                ai_score,
+                user_satisfaction,
+                metadata.map(|m| m.to_string()),
+                now
             ],
         )?;
 
@@ -2990,7 +3833,9 @@ impl UserFeedbackRepository {
             story_id: story_id.to_string(),
             scene_id: scene_id.map(|s| s.to_string()),
             chapter_id: chapter_id.map(|s| s.to_string()),
-            feedback_type: feedback_type.parse().unwrap_or(super::models::FeedbackType::Accept),
+            feedback_type: feedback_type
+                .parse()
+                .unwrap_or(super::models::FeedbackType::Accept),
             agent_type: agent_type.map(|s| s.to_string()),
             original_ai_text: original_ai_text.to_string(),
             final_text: final_text.to_string(),
@@ -3001,78 +3846,111 @@ impl UserFeedbackRepository {
         })
     }
 
-    pub fn get_by_story(&self, story_id: &str, limit: Option<i64>) -> Result<Vec<super::models::UserFeedbackLog>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_story(
+        &self,
+        story_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<super::models::UserFeedbackLog>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let sql = if let Some(lim) = limit {
             format!(
-                "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+                "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, \
+                 original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
                  FROM user_feedback_log WHERE story_id = ?1 ORDER BY created_at DESC LIMIT {}",
                 lim
             )
         } else {
-            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
-             FROM user_feedback_log WHERE story_id = ?1 ORDER BY created_at DESC".to_string()
+            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, \
+             original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+             FROM user_feedback_log WHERE story_id = ?1 ORDER BY created_at DESC"
+                .to_string()
         };
         let mut stmt = conn.prepare(&sql)?;
 
-        let logs = stmt.query_map([story_id], |row| {
-            let meta_str: Option<String> = row.get(10)?;
-            let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
-            let created_str: String = row.get(11)?;
-            Ok(super::models::UserFeedbackLog {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                scene_id: row.get(2)?,
-                chapter_id: row.get(3)?,
-                feedback_type: row.get::<_, String>(4)?.parse().unwrap_or(super::models::FeedbackType::Accept),
-                agent_type: row.get(5)?,
-                original_ai_text: row.get(6)?,
-                final_text: row.get(7)?,
-                ai_score: row.get(8)?,
-                user_satisfaction: row.get(9)?,
-                metadata: meta,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let logs = stmt
+            .query_map([story_id], |row| {
+                let meta_str: Option<String> = row.get(10)?;
+                let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
+                let created_str: String = row.get(11)?;
+                Ok(super::models::UserFeedbackLog {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    scene_id: row.get(2)?,
+                    chapter_id: row.get(3)?,
+                    feedback_type: row
+                        .get::<_, String>(4)?
+                        .parse()
+                        .unwrap_or(super::models::FeedbackType::Accept),
+                    agent_type: row.get(5)?,
+                    original_ai_text: row.get(6)?,
+                    final_text: row.get(7)?,
+                    ai_score: row.get(8)?,
+                    user_satisfaction: row.get(9)?,
+                    metadata: meta,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(logs)
     }
 
-    pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<super::models::UserFeedbackLog>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_recent(
+        &self,
+        story_id: &str,
+        days: i64,
+    ) -> Result<Vec<super::models::UserFeedbackLog>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let cutoff = (Local::now() - chrono::Duration::days(days)).to_rfc3339();
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
-             FROM user_feedback_log WHERE story_id = ?1 AND created_at >= ?2 ORDER BY created_at DESC"
+            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, \
+             original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+             FROM user_feedback_log WHERE story_id = ?1 AND created_at >= ?2 ORDER BY created_at \
+             DESC",
         )?;
 
-        let logs = stmt.query_map(params![story_id, cutoff], |row| {
-            let meta_str: Option<String> = row.get(10)?;
-            let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
-            let created_str: String = row.get(11)?;
-            Ok(super::models::UserFeedbackLog {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                scene_id: row.get(2)?,
-                chapter_id: row.get(3)?,
-                feedback_type: row.get::<_, String>(4)?.parse().unwrap_or(super::models::FeedbackType::Accept),
-                agent_type: row.get(5)?,
-                original_ai_text: row.get(6)?,
-                final_text: row.get(7)?,
-                ai_score: row.get(8)?,
-                user_satisfaction: row.get(9)?,
-                metadata: meta,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let logs = stmt
+            .query_map(params![story_id, cutoff], |row| {
+                let meta_str: Option<String> = row.get(10)?;
+                let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
+                let created_str: String = row.get(11)?;
+                Ok(super::models::UserFeedbackLog {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    scene_id: row.get(2)?,
+                    chapter_id: row.get(3)?,
+                    feedback_type: row
+                        .get::<_, String>(4)?
+                        .parse()
+                        .unwrap_or(super::models::FeedbackType::Accept),
+                    agent_type: row.get(5)?,
+                    original_ai_text: row.get(6)?,
+                    final_text: row.get(7)?,
+                    ai_score: row.get(8)?,
+                    user_satisfaction: row.get(9)?,
+                    metadata: meta,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(logs)
     }
 
     pub fn get_stats(&self, story_id: &str) -> Result<FeedbackStats, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT feedback_type, COUNT(*) FROM user_feedback_log WHERE story_id = ?1 GROUP BY feedback_type"
+            "SELECT feedback_type, COUNT(*) FROM user_feedback_log WHERE story_id = ?1 GROUP BY \
+             feedback_type",
         )?;
 
         let mut accept = 0;
@@ -3095,7 +3973,11 @@ impl UserFeedbackRepository {
             }
         }
 
-        Ok(FeedbackStats { accept, reject, modify })
+        Ok(FeedbackStats {
+            accept,
+            reject,
+            modify,
+        })
     }
 }
 
@@ -3126,20 +4008,27 @@ impl UserPreferenceRepository {
         confidence: f32,
         evidence_count: i32,
     ) -> Result<super::models::UserPreference, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         // 先检查是否已存在
-        let existing: Option<String> = conn.query_row(
-            "SELECT id FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 AND preference_key = ?3",
-            params![story_id, preference_type, preference_key],
-            |row| row.get(0),
-        ).optional()?;
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 AND \
+                 preference_key = ?3",
+                params![story_id, preference_type, preference_key],
+                |row| row.get(0),
+            )
+            .optional()?;
 
         if let Some(id) = existing {
             // 更新
             conn.execute(
-                "UPDATE user_preferences SET preference_value = ?4, confidence = ?5, evidence_count = ?6, updated_at = ?7
+                "UPDATE user_preferences SET preference_value = ?4, confidence = ?5, \
+                 evidence_count = ?6, updated_at = ?7
                  WHERE id = ?1",
                 params![&id, preference_value, confidence, evidence_count, now],
             )?;
@@ -3147,7 +4036,9 @@ impl UserPreferenceRepository {
             Ok(super::models::UserPreference {
                 id,
                 story_id: story_id.to_string(),
-                preference_type: preference_type.parse().unwrap_or(super::models::PreferenceType::Content),
+                preference_type: preference_type
+                    .parse()
+                    .unwrap_or(super::models::PreferenceType::Content),
                 preference_key: preference_key.to_string(),
                 preference_value: preference_value.to_string(),
                 confidence,
@@ -3158,15 +4049,27 @@ impl UserPreferenceRepository {
             // 创建
             let id = Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO user_preferences (id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at)
+                "INSERT INTO user_preferences (id, story_id, preference_type, preference_key, \
+                 preference_value, confidence, evidence_count, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![&id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, now],
+                params![
+                    &id,
+                    story_id,
+                    preference_type,
+                    preference_key,
+                    preference_value,
+                    confidence,
+                    evidence_count,
+                    now
+                ],
             )?;
 
             Ok(super::models::UserPreference {
                 id,
                 story_id: story_id.to_string(),
-                preference_type: preference_type.parse().unwrap_or(super::models::PreferenceType::Content),
+                preference_type: preference_type
+                    .parse()
+                    .unwrap_or(super::models::PreferenceType::Content),
                 preference_key: preference_key.to_string(),
                 preference_value: preference_value.to_string(),
                 confidence,
@@ -3176,63 +4079,88 @@ impl UserPreferenceRepository {
         }
     }
 
-    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<super::models::UserPreference>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<super::models::UserPreference>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at
-             FROM user_preferences WHERE story_id = ?1 ORDER BY confidence DESC"
+            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, \
+             evidence_count, updated_at
+             FROM user_preferences WHERE story_id = ?1 ORDER BY confidence DESC",
         )?;
 
-        let prefs = stmt.query_map([story_id], |row| {
-            let updated_str: String = row.get(7)?;
-            Ok(super::models::UserPreference {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                preference_type: row.get::<_, String>(2)?.parse().unwrap_or(super::models::PreferenceType::Content),
-                preference_key: row.get(3)?,
-                preference_value: row.get(4)?,
-                confidence: row.get(5)?,
-                evidence_count: row.get(6)?,
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let prefs = stmt
+            .query_map([story_id], |row| {
+                let updated_str: String = row.get(7)?;
+                Ok(super::models::UserPreference {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    preference_type: row
+                        .get::<_, String>(2)?
+                        .parse()
+                        .unwrap_or(super::models::PreferenceType::Content),
+                    preference_key: row.get(3)?,
+                    preference_value: row.get(4)?,
+                    confidence: row.get(5)?,
+                    evidence_count: row.get(6)?,
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(prefs)
     }
 
-    pub fn get_by_type(&self, story_id: &str, pref_type: &str) -> Result<Vec<super::models::UserPreference>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_type(
+        &self,
+        story_id: &str,
+        pref_type: &str,
+    ) -> Result<Vec<super::models::UserPreference>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at
-             FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 ORDER BY confidence DESC"
+            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, \
+             evidence_count, updated_at
+             FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 ORDER BY \
+             confidence DESC",
         )?;
 
-        let prefs = stmt.query_map(params![story_id, pref_type], |row| {
-            let updated_str: String = row.get(7)?;
-            Ok(super::models::UserPreference {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                preference_type: row.get::<_, String>(2)?.parse().unwrap_or(super::models::PreferenceType::Content),
-                preference_key: row.get(3)?,
-                preference_value: row.get(4)?,
-                confidence: row.get(5)?,
-                evidence_count: row.get(6)?,
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let prefs = stmt
+            .query_map(params![story_id, pref_type], |row| {
+                let updated_str: String = row.get(7)?;
+                Ok(super::models::UserPreference {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    preference_type: row
+                        .get::<_, String>(2)?
+                        .parse()
+                        .unwrap_or(super::models::PreferenceType::Content),
+                    preference_key: row.get(3)?,
+                    preference_value: row.get(4)?,
+                    confidence: row.get(5)?,
+                    evidence_count: row.get(6)?,
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(prefs)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM user_preferences WHERE id = ?1",
-            params![id],
-        )
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM user_preferences WHERE id = ?1", params![id])
     }
 }
-
 
 // ==================== Story Outline Repository ====================
 
@@ -3256,11 +4184,24 @@ impl StoryOutlineRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, \
+             total_scenes_estimate, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, story_id, content, structure_json, act_count, total_scenes_estimate, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                content,
+                structure_json,
+                act_count,
+                total_scenes_estimate,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(super::models::StoryOutline {
@@ -3275,28 +4216,37 @@ impl StoryOutlineRepository {
         })
     }
 
-    pub fn get_by_story(&self, story_id: &str) -> Result<Option<super::models::StoryOutline>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<super::models::StoryOutline>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at
-             FROM story_outlines WHERE story_id = ?1"
+            "SELECT id, story_id, content, structure_json, act_count, total_scenes_estimate, \
+             created_at, updated_at
+             FROM story_outlines WHERE story_id = ?1",
         )?;
 
-        let outline = stmt.query_row([story_id], |row| {
-            let created_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
+        let outline = stmt
+            .query_row([story_id], |row| {
+                let created_str: String = row.get(6)?;
+                let updated_str: String = row.get(7)?;
 
-            Ok(super::models::StoryOutline {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                content: row.get(2)?,
-                structure_json: row.get(3)?,
-                act_count: row.get(4)?,
-                total_scenes_estimate: row.get(5)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                Ok(super::models::StoryOutline {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    content: row.get(2)?,
+                    structure_json: row.get(3)?,
+                    act_count: row.get(4)?,
+                    total_scenes_estimate: row.get(5)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(outline)
     }
@@ -3307,18 +4257,25 @@ impl StoryOutlineRepository {
         content: Option<&str>,
         structure_json: Option<&str>,
     ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
-            "UPDATE story_outlines SET content = COALESCE(?2, content), structure_json = COALESCE(?3, structure_json), updated_at = ?4 WHERE story_id = ?1",
+            "UPDATE story_outlines SET content = COALESCE(?2, content), structure_json = \
+             COALESCE(?3, structure_json), updated_at = ?4 WHERE story_id = ?1",
             params![story_id, content, structure_json, now],
         )?;
         Ok(count)
     }
 
     pub fn delete(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute("DELETE FROM story_outlines WHERE story_id = ?1", [story_id])
     }
 }
@@ -3346,11 +4303,24 @@ impl CharacterRelationshipRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, description, dynamic, created_at)
+            "INSERT INTO character_relationships (id, story_id, source_character_id, \
+             target_character_id, relationship_type, description, dynamic, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, story_id, source_character_id, target_character_id, relationship_type, description, dynamic, now.to_rfc3339()],
+            params![
+                &id,
+                story_id,
+                source_character_id,
+                target_character_id,
+                relationship_type,
+                description,
+                dynamic,
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(super::models::CharacterRelationship {
@@ -3366,14 +4336,21 @@ impl CharacterRelationshipRepository {
         })
     }
 
-    pub fn get_by_id(&self, id: &str) -> Result<Option<super::models::CharacterRelationship>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<super::models::CharacterRelationship>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as target_name,
+            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as \
+             target_name,
                     r.relationship_type, r.description, r.dynamic, r.created_at
              FROM character_relationships r
              LEFT JOIN characters c ON r.target_character_id = c.id
-             WHERE r.id = ?1"
+             WHERE r.id = ?1",
         )?;
 
         let result = stmt.query_row([id], |row| {
@@ -3399,32 +4376,41 @@ impl CharacterRelationshipRepository {
         }
     }
 
-    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<super::models::CharacterRelationship>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<super::models::CharacterRelationship>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as target_name,
+            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as \
+             target_name,
                     r.relationship_type, r.description, r.dynamic, r.created_at
              FROM character_relationships r
              LEFT JOIN characters c ON r.target_character_id = c.id
              WHERE r.story_id = ?1
-             ORDER BY r.created_at"
+             ORDER BY r.created_at",
         )?;
 
-        let relationships = stmt.query_map([story_id], |row| {
-            let created_str: String = row.get(8)?;
+        let relationships = stmt
+            .query_map([story_id], |row| {
+                let created_str: String = row.get(8)?;
 
-            Ok(super::models::CharacterRelationship {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                source_character_id: row.get(2)?,
-                target_character_id: row.get(3)?,
-                target_character_name: row.get(4)?,
-                relationship_type: row.get(5)?,
-                description: row.get(6)?,
-                dynamic: row.get(7)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(super::models::CharacterRelationship {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    source_character_id: row.get(2)?,
+                    target_character_id: row.get(3)?,
+                    target_character_name: row.get(4)?,
+                    relationship_type: row.get(5)?,
+                    description: row.get(6)?,
+                    dynamic: row.get(7)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(relationships)
     }
@@ -3436,7 +4422,10 @@ impl CharacterRelationshipRepository {
         description: Option<&str>,
         dynamic: Option<&str>,
     ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         let mut updates = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -3459,20 +4448,35 @@ impl CharacterRelationshipRepository {
         }
 
         params.push(Box::new(relationship_id.to_string()));
-        let sql = format!("UPDATE character_relationships SET {} WHERE id = ?", updates.join(", "));
+        let sql = format!(
+            "UPDATE character_relationships SET {} WHERE id = ?",
+            updates.join(", ")
+        );
 
         let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         conn.execute(&sql, param_refs.as_slice())
     }
 
     pub fn delete(&self, relationship_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute("DELETE FROM character_relationships WHERE id = ?1", [relationship_id])
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM character_relationships WHERE id = ?1",
+            [relationship_id],
+        )
     }
 
     pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute("DELETE FROM character_relationships WHERE story_id = ?1", [story_id])
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM character_relationships WHERE story_id = ?1",
+            [story_id],
+        )
     }
 }
 
@@ -3496,33 +4500,41 @@ impl SceneCharacterRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         // 检查是否已存在
-        let exists: bool = conn.query_row(
-            "SELECT 1 FROM scene_characters WHERE scene_id = ?1 AND character_id = ?2",
-            [scene_id, character_id],
-            |_| Ok(true)
-        ).unwrap_or(false);
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM scene_characters WHERE scene_id = ?1 AND character_id = ?2",
+                [scene_id, character_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
 
         if exists {
             return Err(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                Some("Character already in scene".to_string())
+                Some("Character already in scene".to_string()),
             ));
         }
 
         conn.execute(
-            "INSERT INTO scene_characters (id, scene_id, character_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO scene_characters (id, scene_id, character_id, created_at) VALUES (?1, \
+             ?2, ?3, ?4)",
             params![&id, scene_id, character_id, now.to_rfc3339()],
         )?;
 
         // 获取角色名称
-        let character_name: Option<String> = conn.query_row(
-            "SELECT name FROM characters WHERE id = ?1",
-            [character_id],
-            |row| row.get(0)
-        ).ok();
+        let character_name: Option<String> = conn
+            .query_row(
+                "SELECT name FROM characters WHERE id = ?1",
+                [character_id],
+                |row| row.get(0),
+            )
+            .ok();
 
         Ok(super::models::SceneCharacter {
             id,
@@ -3534,71 +4546,104 @@ impl SceneCharacterRepository {
     }
 
     /// 从场景移除角色
-    pub fn remove_character_from_scene(&self, scene_id: &str, character_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn remove_character_from_scene(
+        &self,
+        scene_id: &str,
+        character_id: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "DELETE FROM scene_characters WHERE scene_id = ?1 AND character_id = ?2",
-            [scene_id, character_id]
+            [scene_id, character_id],
         )
     }
 
     /// 获取场景中的所有角色
-    pub fn get_characters_in_scene(&self, scene_id: &str) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_characters_in_scene(
+        &self,
+        scene_id: &str,
+    ) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT sc.id, sc.scene_id, sc.character_id, c.name, sc.created_at
              FROM scene_characters sc
              LEFT JOIN characters c ON sc.character_id = c.id
              WHERE sc.scene_id = ?1
-             ORDER BY sc.created_at"
+             ORDER BY sc.created_at",
         )?;
 
-        let scene_characters = stmt.query_map([scene_id], |row| {
-            let created_str: String = row.get(4)?;
-            Ok(super::models::SceneCharacter {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                character_id: row.get(2)?,
-                character_name: row.get(3)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_characters = stmt
+            .query_map([scene_id], |row| {
+                let created_str: String = row.get(4)?;
+                Ok(super::models::SceneCharacter {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    character_id: row.get(2)?,
+                    character_name: row.get(3)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(scene_characters)
     }
 
     /// 获取角色参与的所有场景
-    pub fn get_scenes_for_character(&self, character_id: &str) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_scenes_for_character(
+        &self,
+        character_id: &str,
+    ) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT sc.id, sc.scene_id, sc.character_id, c.name, sc.created_at
              FROM scene_characters sc
              LEFT JOIN characters c ON sc.character_id = c.id
              WHERE sc.character_id = ?1
-             ORDER BY sc.created_at"
+             ORDER BY sc.created_at",
         )?;
 
-        let scene_characters = stmt.query_map([character_id], |row| {
-            let created_str: String = row.get(4)?;
-            Ok(super::models::SceneCharacter {
-                id: row.get(0)?,
-                scene_id: row.get(1)?,
-                character_id: row.get(2)?,
-                character_name: row.get(3)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let scene_characters = stmt
+            .query_map([character_id], |row| {
+                let created_str: String = row.get(4)?;
+                Ok(super::models::SceneCharacter {
+                    id: row.get(0)?,
+                    scene_id: row.get(1)?,
+                    character_id: row.get(2)?,
+                    character_name: row.get(3)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(scene_characters)
     }
 
     /// 批量设置场景中的角色
-    pub fn set_scene_characters(&self, scene_id: &str, character_ids: &[String]) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn set_scene_characters(
+        &self,
+        scene_id: &str,
+        character_ids: &[String],
+    ) -> Result<Vec<super::models::SceneCharacter>, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
         // 先清除现有关联
-        tx.execute("DELETE FROM scene_characters WHERE scene_id = ?1", [scene_id])?;
+        tx.execute(
+            "DELETE FROM scene_characters WHERE scene_id = ?1",
+            [scene_id],
+        )?;
 
         let mut result = Vec::new();
         let now = Local::now();
@@ -3608,16 +4653,19 @@ impl SceneCharacterRepository {
             let id = Uuid::new_v4().to_string();
 
             tx.execute(
-                "INSERT INTO scene_characters (id, scene_id, character_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO scene_characters (id, scene_id, character_id, created_at) VALUES \
+                 (?1, ?2, ?3, ?4)",
                 params![&id, scene_id, character_id, now.to_rfc3339()],
             )?;
 
             // 获取角色名称
-            let character_name: Option<String> = tx.query_row(
-                "SELECT name FROM characters WHERE id = ?1",
-                [character_id],
-                |row| row.get(0)
-            ).ok();
+            let character_name: Option<String> = tx
+                .query_row(
+                    "SELECT name FROM characters WHERE id = ?1",
+                    [character_id],
+                    |row| row.get(0),
+                )
+                .ok();
 
             result.push(super::models::SceneCharacter {
                 id,
@@ -3634,14 +4682,26 @@ impl SceneCharacterRepository {
 
     /// 删除场景的所有角色关联
     pub fn delete_by_scene(&self, scene_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute("DELETE FROM scene_characters WHERE scene_id = ?1", [scene_id])
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM scene_characters WHERE scene_id = ?1",
+            [scene_id],
+        )
     }
 
     /// 删除角色的所有场景关联
     pub fn delete_by_character(&self, character_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute("DELETE FROM scene_characters WHERE character_id = ?1", [character_id])
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM scene_characters WHERE character_id = ?1",
+            [character_id],
+        )
     }
 }
 
@@ -3666,11 +4726,23 @@ impl SceneDividerRepository {
     ) -> Result<super::models::SceneDividerNode, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO scene_divider_nodes (id, chapter_id, position, scene_id, label, created_at, updated_at)
+            "INSERT INTO scene_divider_nodes (id, chapter_id, position, scene_id, label, \
+             created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![&id, chapter_id, position, scene_id, label, now.to_rfc3339(), now.to_rfc3339()],
+            params![
+                &id,
+                chapter_id,
+                position,
+                scene_id,
+                label,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
         Ok(super::models::SceneDividerNode {
             id,
@@ -3688,24 +4760,29 @@ impl SceneDividerRepository {
         &self,
         chapter_id: &str,
     ) -> Result<Vec<super::models::SceneDividerNode>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, chapter_id, position, scene_id, label, created_at, updated_at
-             FROM scene_divider_nodes WHERE chapter_id = ?1 ORDER BY position ASC"
+             FROM scene_divider_nodes WHERE chapter_id = ?1 ORDER BY position ASC",
         )?;
-        let nodes = stmt.query_map([chapter_id], |row| {
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(super::models::SceneDividerNode {
-                id: row.get(0)?,
-                chapter_id: row.get(1)?,
-                position: row.get(2)?,
-                scene_id: row.get(3)?,
-                label: row.get(4)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let nodes = stmt
+            .query_map([chapter_id], |row| {
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                Ok(super::models::SceneDividerNode {
+                    id: row.get(0)?,
+                    chapter_id: row.get(1)?,
+                    position: row.get(2)?,
+                    scene_id: row.get(3)?,
+                    label: row.get(4)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(nodes)
     }
 
@@ -3715,17 +4792,32 @@ impl SceneDividerRepository {
         chapter_id: &str,
         dividers: &[(String, i32, Option<String>)], // (scene_id, position, label)
     ) -> Result<Vec<super::models::SceneDividerNode>, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM scene_divider_nodes WHERE chapter_id = ?1", [chapter_id])?;
+        tx.execute(
+            "DELETE FROM scene_divider_nodes WHERE chapter_id = ?1",
+            [chapter_id],
+        )?;
         let now = Local::now();
         let mut nodes = Vec::new();
         for (scene_id, position, label) in dividers {
             let id = Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO scene_divider_nodes (id, chapter_id, position, scene_id, label, created_at, updated_at)
+                "INSERT INTO scene_divider_nodes (id, chapter_id, position, scene_id, label, \
+                 created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![&id, chapter_id, position, scene_id, label, now.to_rfc3339(), now.to_rfc3339()],
+                params![
+                    &id,
+                    chapter_id,
+                    position,
+                    scene_id,
+                    label,
+                    now.to_rfc3339(),
+                    now.to_rfc3339()
+                ],
             )?;
             nodes.push(super::models::SceneDividerNode {
                 id,
@@ -3743,14 +4835,23 @@ impl SceneDividerRepository {
 
     /// 删除单个 divider
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute("DELETE FROM scene_divider_nodes WHERE id = ?1", [id])
     }
 
     /// 删除章节的所有 divider
     pub fn delete_by_chapter(&self, chapter_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute("DELETE FROM scene_divider_nodes WHERE chapter_id = ?1", [chapter_id])
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM scene_divider_nodes WHERE chapter_id = ?1",
+            [chapter_id],
+        )
     }
 }
 
@@ -3763,13 +4864,31 @@ impl StoryRepository {
         Self { pool }
     }
 
-    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, req: CreateStoryRequest) -> Result<Story, rusqlite::Error> {
+    pub fn create_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        req: CreateStoryRequest,
+    ) -> Result<Story, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
         tx.execute(
-            "INSERT INTO stories (id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![&id, &req.title, req.description, req.genre, "dark", "medium", req.style_dna_id, None::<String>, None::<i32>, now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO stories (id, title, description, genre, tone, pacing, style_dna_id, \
+             methodology_id, methodology_step, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, \
+             ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                &id,
+                &req.title,
+                req.description,
+                req.genre,
+                "dark",
+                "medium",
+                req.style_dna_id,
+                None::<String>,
+                None::<i32>,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(Story {
@@ -3788,7 +4907,10 @@ impl StoryRepository {
     }
 
     pub fn create(&self, req: CreateStoryRequest) -> Result<Story, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let story = self.create_in_tx(&tx, req)?;
         tx.commit()?;
@@ -3796,85 +4918,118 @@ impl StoryRepository {
     }
 
     pub fn get_all(&self) -> Result<Vec<Story>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at FROM stories ORDER BY updated_at DESC"
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, \
+             methodology_step, created_at, updated_at FROM stories ORDER BY updated_at DESC",
         )?;
-        
-        let stories = stmt.query_map([], |row| {
-            let created_str: String = row.get(9)?;
-            let updated_str: String = row.get(10)?;
-            Ok(Story {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                genre: row.get(3)?,
-                tone: row.get(4)?,
-                pacing: row.get(5)?,
-                style_dna_id: row.get(6)?,
-                methodology_id: row.get(7)?,
-                methodology_step: row.get(8)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-        
+
+        let stories = stmt
+            .query_map([], |row| {
+                let created_str: String = row.get(9)?;
+                let updated_str: String = row.get(10)?;
+                Ok(Story {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    genre: row.get(3)?,
+                    tone: row.get(4)?,
+                    pacing: row.get(5)?,
+                    style_dna_id: row.get(6)?,
+                    methodology_id: row.get(7)?,
+                    methodology_step: row.get(8)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(stories)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<Story>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, methodology_step, created_at, updated_at FROM stories WHERE id = ?1"
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, \
+             methodology_step, created_at, updated_at FROM stories WHERE id = ?1",
         )?;
-        
-        let story = stmt.query_row([id], |row| {
-            let created_str: String = row.get(9)?;
-            let updated_str: String = row.get(10)?;
-            Ok(Story {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                genre: row.get(3)?,
-                tone: row.get(4)?,
-                pacing: row.get(5)?,
-                style_dna_id: row.get(6)?,
-                methodology_id: row.get(7)?,
-                methodology_step: row.get(8)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+
+        let story = stmt
+            .query_row([id], |row| {
+                let created_str: String = row.get(9)?;
+                let updated_str: String = row.get(10)?;
+                Ok(Story {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    genre: row.get(3)?,
+                    tone: row.get(4)?,
+                    pacing: row.get(5)?,
+                    style_dna_id: row.get(6)?,
+                    methodology_id: row.get(7)?,
+                    methodology_step: row.get(8)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
-        
+            .optional()?;
+
         Ok(story)
     }
 
-    pub fn update(&self, id: &str, req: &super::UpdateStoryRequest) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        req: &super::UpdateStoryRequest,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
-            "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, description),
+            "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, \
+             description),
              genre = COALESCE(?4, genre), tone = COALESCE(?5, tone), pacing = COALESCE(?6, pacing),
-             style_dna_id = COALESCE(?7, style_dna_id), methodology_id = COALESCE(?8, methodology_id),
+             style_dna_id = COALESCE(?7, style_dna_id), methodology_id = COALESCE(?8, \
+             methodology_id),
              methodology_step = COALESCE(?9, methodology_step), updated_at = ?10 WHERE id = ?1",
-            params![id, req.title, req.description, req.genre, req.tone, req.pacing, req.style_dna_id, req.methodology_id, req.methodology_step, now],
+            params![
+                id,
+                req.title,
+                req.description,
+                req.genre,
+                req.tone,
+                req.pacing,
+                req.style_dna_id,
+                req.methodology_id,
+                req.methodology_step,
+                now
+            ],
         )?;
         Ok(count)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         // 在事务中执行删除操作，确保级联删除正确执行
         let tx = conn.unchecked_transaction()?;
 
         // 验证故事是否存在
-        let exists: bool = tx.query_row(
-            "SELECT 1 FROM stories WHERE id = ?1",
-            [id],
-            |_| Ok(true)
-        ).unwrap_or(false);
+        let exists: bool = tx
+            .query_row("SELECT 1 FROM stories WHERE id = ?1", [id], |_| Ok(true))
+            .unwrap_or(false);
 
         if !exists {
             tx.rollback()?;
@@ -3882,7 +5037,10 @@ impl StoryRepository {
         }
         // 即使外键约束已启用，也作为防御性编程添加显式 DELETE
         let _ = tx.execute("DELETE FROM story_metadata WHERE story_id = ?1", [id]);
-        let _ = tx.execute("DELETE FROM foreshadowing_tracker WHERE story_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM foreshadowing_tracker WHERE story_id = ?1",
+            [id],
+        );
         let _ = tx.execute("DELETE FROM user_preferences WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM story_runtime_states WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM story_style_configs WHERE story_id = ?1", [id]);
@@ -3891,7 +5049,10 @@ impl StoryRepository {
         let _ = tx.execute("DELETE FROM story_summaries WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM narrative_characters WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM narrative_scenes WHERE story_id = ?1", [id]);
-        let _ = tx.execute("DELETE FROM narrative_world_buildings WHERE story_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM narrative_world_buildings WHERE story_id = ?1",
+            [id],
+        );
         let _ = tx.execute("DELETE FROM chat_sessions WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM text_annotations WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM ai_operations WHERE story_id = ?1", [id]);
@@ -3905,7 +5066,10 @@ impl StoryRepository {
         // 仅在 debug 构建时检查，用于在开发和测试阶段快速发现级联删除遗漏
         #[cfg(debug_assertions)]
         {
-            let check_conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+            let check_conn = self
+                .pool
+                .get()
+                .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
             let orphan_tables = [
                 ("chapters", "story_id"),
                 ("characters", "story_id"),
@@ -3925,7 +5089,8 @@ impl StoryRepository {
                     .unwrap_or(0);
                 debug_assert_eq!(
                     orphan_count, 0,
-                    "StoryRepository::delete orphan invariant violated: {} rows remain in {} after story {} deletion",
+                    "StoryRepository::delete orphan invariant violated: {} rows remain in {} \
+                     after story {} deletion",
                     orphan_count, table, id
                 );
             }
@@ -3944,14 +5109,43 @@ impl CharacterRepository {
         Self { pool }
     }
 
-    pub fn create_in_tx(&self, tx: &rusqlite::Transaction, req: CreateCharacterRequest) -> Result<Character, rusqlite::Error> {
+    pub fn create_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        req: CreateCharacterRequest,
+    ) -> Result<Character, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         let traits_json = "[]";
 
         tx.execute(
-            "INSERT INTO characters (id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-            params![&id, &req.story_id, &req.name, req.background, req.personality, req.goals, req.appearance, req.gender, req.age, traits_json, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, \
+             appearance, gender, age, dynamic_traits, cs_location, cs_power_level, \
+             cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, \
+             cs_updated_at_chapter, cs_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, \
+             ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
+                &id,
+                &req.story_id,
+                &req.name,
+                req.background,
+                req.personality,
+                req.goals,
+                req.appearance,
+                req.gender,
+                req.age,
+                traits_json,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                rusqlite::types::Null,
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(Character {
@@ -3979,7 +5173,10 @@ impl CharacterRepository {
     }
 
     pub fn create(&self, req: CreateCharacterRequest) -> Result<Character, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let character = self.create_in_tx(&tx, req)?;
         tx.commit()?;
@@ -3987,92 +5184,135 @@ impl CharacterRepository {
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Character>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE story_id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
+             dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
+             cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, \
+             updated_at FROM characters WHERE story_id = ?1",
         )?;
 
-        let characters = stmt.query_map([story_id], |row| {
-            let traits_json: String = row.get(9)?;
-            let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(18)?;
-            let updated_str: String = row.get(19)?;
+        let characters = stmt
+            .query_map([story_id], |row| {
+                let traits_json: String = row.get(9)?;
+                let dynamic_traits: Vec<DynamicTrait> =
+                    serde_json::from_str(&traits_json).unwrap_or_default();
+                let created_str: String = row.get(18)?;
+                let updated_str: String = row.get(19)?;
 
-            Ok(Character {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                background: row.get(3)?,
-                personality: row.get(4)?,
-                goals: row.get(5)?,
-                appearance: row.get(6)?,
-                gender: row.get(7)?,
-                age: row.get(8)?,
-                dynamic_traits,
-                cs_location: row.get(10).ok(),
-                cs_power_level: row.get(11).ok(),
-                cs_physical_state: row.get(12).ok(),
-                cs_mental_state: row.get(13).ok(),
-                cs_key_items: row.get(14).ok(),
-                cs_recent_events: row.get(15).ok(),
-                cs_updated_at_chapter: row.get(16).ok(),
-                cs_json: row.get(17).ok(),
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(Character {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    background: row.get(3)?,
+                    personality: row.get(4)?,
+                    goals: row.get(5)?,
+                    appearance: row.get(6)?,
+                    gender: row.get(7)?,
+                    age: row.get(8)?,
+                    dynamic_traits,
+                    cs_location: row.get(10).ok(),
+                    cs_power_level: row.get(11).ok(),
+                    cs_physical_state: row.get(12).ok(),
+                    cs_mental_state: row.get(13).ok(),
+                    cs_key_items: row.get(14).ok(),
+                    cs_recent_events: row.get(15).ok(),
+                    cs_updated_at_chapter: row.get(16).ok(),
+                    cs_json: row.get(17).ok(),
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(characters)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<Character>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
+             dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
+             cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, \
+             updated_at FROM characters WHERE id = ?1",
         )?;
 
-        let character = stmt.query_row([id], |row| {
-            let traits_json: String = row.get(9)?;
-            let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(18)?;
-            let updated_str: String = row.get(19)?;
+        let character = stmt
+            .query_row([id], |row| {
+                let traits_json: String = row.get(9)?;
+                let dynamic_traits: Vec<DynamicTrait> =
+                    serde_json::from_str(&traits_json).unwrap_or_default();
+                let created_str: String = row.get(18)?;
+                let updated_str: String = row.get(19)?;
 
-            Ok(Character {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                name: row.get(2)?,
-                background: row.get(3)?,
-                personality: row.get(4)?,
-                goals: row.get(5)?,
-                appearance: row.get(6)?,
-                gender: row.get(7)?,
-                age: row.get(8)?,
-                dynamic_traits,
-                cs_location: row.get(10).ok(),
-                cs_power_level: row.get(11).ok(),
-                cs_physical_state: row.get(12).ok(),
-                cs_mental_state: row.get(13).ok(),
-                cs_key_items: row.get(14).ok(),
-                cs_recent_events: row.get(15).ok(),
-                cs_updated_at_chapter: row.get(16).ok(),
-                cs_json: row.get(17).ok(),
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                Ok(Character {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    name: row.get(2)?,
+                    background: row.get(3)?,
+                    personality: row.get(4)?,
+                    goals: row.get(5)?,
+                    appearance: row.get(6)?,
+                    gender: row.get(7)?,
+                    age: row.get(8)?,
+                    dynamic_traits,
+                    cs_location: row.get(10).ok(),
+                    cs_power_level: row.get(11).ok(),
+                    cs_physical_state: row.get(12).ok(),
+                    cs_mental_state: row.get(13).ok(),
+                    cs_key_items: row.get(14).ok(),
+                    cs_recent_events: row.get(15).ok(),
+                    cs_updated_at_chapter: row.get(16).ok(),
+                    cs_json: row.get(17).ok(),
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(character)
     }
 
-    pub fn update(&self, id: &str, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, appearance: Option<String>, gender: Option<String>, age: Option<i32>) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        name: Option<String>,
+        background: Option<String>,
+        personality: Option<String>,
+        goals: Option<String>,
+        appearance: Option<String>,
+        gender: Option<String>,
+        age: Option<i32>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
-            "UPDATE characters SET name = COALESCE(?2, name), background = COALESCE(?3, background),
-             personality = COALESCE(?4, personality), goals = COALESCE(?5, goals), appearance = COALESCE(?6, appearance),
+            "UPDATE characters SET name = COALESCE(?2, name), background = COALESCE(?3, \
+             background),
+             personality = COALESCE(?4, personality), goals = COALESCE(?5, goals), appearance = \
+             COALESCE(?6, appearance),
              gender = COALESCE(?7, gender), age = COALESCE(?8, age), updated_at = ?9 WHERE id = ?1",
-            params![id, name, background, personality, goals, appearance, gender, age, now],
+            params![
+                id,
+                name,
+                background,
+                personality,
+                goals,
+                appearance,
+                gender,
+                age,
+                now
+            ],
         )?;
         Ok(count)
     }
@@ -4082,7 +5322,10 @@ impl CharacterRepository {
         character_id: &str,
         state: &CharacterState,
     ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
@@ -4115,46 +5358,60 @@ impl CharacterRepository {
         &self,
         character_id: &str,
     ) -> Result<Option<CharacterState>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter FROM characters WHERE id = ?1"
+            "SELECT cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
+             cs_key_items, cs_recent_events, cs_updated_at_chapter FROM characters WHERE id = ?1",
         )?;
 
-        let state = stmt.query_row([character_id], |row| {
-            Ok(CharacterState {
-                location: row.get(0).ok(),
-                power_level: row.get(1).ok(),
-                physical_state: row.get(2).ok(),
-                mental_state: row.get(3).ok(),
-                key_items: row.get(4).ok(),
-                recent_events: row.get(5).ok(),
-                updated_at_chapter: row.get(6).ok(),
+        let state = stmt
+            .query_row([character_id], |row| {
+                Ok(CharacterState {
+                    location: row.get(0).ok(),
+                    power_level: row.get(1).ok(),
+                    physical_state: row.get(2).ok(),
+                    mental_state: row.get(3).ok(),
+                    key_items: row.get(4).ok(),
+                    recent_events: row.get(5).ok(),
+                    updated_at_chapter: row.get(6).ok(),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(state)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         // 在事务中执行删除操作
         let tx = conn.unchecked_transaction()?;
 
         // 验证角色是否存在
-        let exists: bool = tx.query_row(
-            "SELECT 1 FROM characters WHERE id = ?1",
-            [id],
-            |_| Ok(true)
-        ).unwrap_or(false);
+        let exists: bool = tx
+            .query_row("SELECT 1 FROM characters WHERE id = ?1", [id], |_| Ok(true))
+            .unwrap_or(false);
 
         if !exists {
             tx.rollback()?;
             return Ok(0);
         }
         let _ = tx.execute("DELETE FROM scene_characters WHERE character_id = ?1", [id]);
-        let _ = tx.execute("DELETE FROM scene_character_actions WHERE character_id = ?1", [id]);
-        let _ = tx.execute("DELETE FROM character_relationships WHERE source_character_id = ?1 OR target_character_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM scene_character_actions WHERE character_id = ?1",
+            [id],
+        );
+        let _ = tx.execute(
+            "DELETE FROM character_relationships WHERE source_character_id = ?1 OR \
+             target_character_id = ?1",
+            [id],
+        );
         let _ = tx.execute("DELETE FROM character_states WHERE character_id = ?1", [id]);
 
         // 执行删除操作 - 外键约束会自动级联剩余关联数据
@@ -4179,24 +5436,41 @@ impl ChapterRepository {
         let now = Local::now();
         let word_count = req.content.as_ref().map(|c| c.len() as i32);
 
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
         // 1. 插入 Chapter
         tx.execute(
-            "INSERT INTO chapters (id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO chapters (id, story_id, chapter_number, title, outline, content, \
+             word_count, model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, \
+             ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
-                &id, &req.story_id, req.chapter_number, req.title, req.outline, req.content,
-                word_count, "", 0.0, now.to_rfc3339(), now.to_rfc3339()
+                &id,
+                &req.story_id,
+                req.chapter_number,
+                req.title,
+                req.outline,
+                req.content,
+                word_count,
+                "",
+                0.0,
+                now.to_rfc3339(),
+                now.to_rfc3339()
             ],
         )?;
 
         // 2. 查找或创建关联的 Scene
-        let _scene_id = match tx.query_row(
-            "SELECT id FROM scenes WHERE story_id = ?1 AND sequence_number = ?2",
-            params![&req.story_id, req.chapter_number],
-            |row| row.get::<_, String>(0)
-        ).optional()? {
+        let _scene_id = match tx
+            .query_row(
+                "SELECT id FROM scenes WHERE story_id = ?1 AND sequence_number = ?2",
+                params![&req.story_id, req.chapter_number],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        {
             Some(sid) => {
                 // 关联已有 Scene
                 tx.execute(
@@ -4209,11 +5483,22 @@ impl ChapterRepository {
                 // 创建新 Scene
                 let sid = Uuid::new_v4().to_string();
                 tx.execute(
-                    "INSERT INTO scenes (id, story_id, sequence_number, title, content, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at)
+                    "INSERT INTO scenes (id, story_id, sequence_number, title, content, \
+                     characters_present, character_conflicts, execution_stage, chapter_id, \
+                     created_at, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
-                        &sid, &req.story_id, req.chapter_number, req.title, req.content,
-                        "[]", "[]", "drafting", &id, now.to_rfc3339(), now.to_rfc3339()
+                        &sid,
+                        &req.story_id,
+                        req.chapter_number,
+                        req.title,
+                        req.content,
+                        "[]",
+                        "[]",
+                        "drafting",
+                        &id,
+                        now.to_rfc3339(),
+                        now.to_rfc3339()
                     ],
                 )?;
                 Some(sid)
@@ -4238,61 +5523,84 @@ impl ChapterRepository {
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY chapter_number"
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, \
+             model_used, cost, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY \
+             chapter_number",
         )?;
 
-        let chapters = stmt.query_map([story_id], |row| {
-            let created_str: String = row.get(9)?;
-            let updated_str: String = row.get(10)?;
-            Ok(Chapter {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                chapter_number: row.get(2)?,
-                title: row.get(3)?,
-                outline: row.get(4)?,
-                content: row.get(5)?,
-                word_count: row.get(6)?,
-                model_used: row.get(7)?,
-                cost: row.get(8)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let chapters = stmt
+            .query_map([story_id], |row| {
+                let created_str: String = row.get(9)?;
+                let updated_str: String = row.get(10)?;
+                Ok(Chapter {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    chapter_number: row.get(2)?,
+                    title: row.get(3)?,
+                    outline: row.get(4)?,
+                    content: row.get(5)?,
+                    word_count: row.get(6)?,
+                    model_used: row.get(7)?,
+                    cost: row.get(8)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(chapters)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1"
+            "SELECT id, story_id, chapter_number, title, outline, content, word_count, \
+             model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1",
         )?;
 
-        let chapter = stmt.query_row([id], |row| {
-            let created_str: String = row.get(9)?;
-            let updated_str: String = row.get(10)?;
-            Ok(Chapter {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                chapter_number: row.get(2)?,
-                title: row.get(3)?,
-                outline: row.get(4)?,
-                content: row.get(5)?,
-                word_count: row.get(6)?,
-                model_used: row.get(7)?,
-                cost: row.get(8)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let chapter = stmt
+            .query_row([id], |row| {
+                let created_str: String = row.get(9)?;
+                let updated_str: String = row.get(10)?;
+                Ok(Chapter {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    chapter_number: row.get(2)?,
+                    title: row.get(3)?,
+                    outline: row.get(4)?,
+                    content: row.get(5)?,
+                    word_count: row.get(6)?,
+                    model_used: row.get(7)?,
+                    cost: row.get(8)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(chapter)
     }
 
-    pub fn update(&self, id: &str, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn update(
+        &self,
+        id: &str,
+        title: Option<String>,
+        outline: Option<String>,
+        content: Option<String>,
+        word_count: Option<i32>,
+    ) -> Result<usize, rusqlite::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         let word_count = word_count.or_else(|| content.as_ref().map(|c| c.len() as i32));
 
@@ -4300,18 +5608,21 @@ impl ChapterRepository {
 
         let count = tx.execute(
             "UPDATE chapters SET title = COALESCE(?2, title), outline = COALESCE(?3, outline),
-             content = COALESCE(?4, content), word_count = COALESCE(?5, word_count), updated_at = ?6 WHERE id = ?1",
+             content = COALESCE(?4, content), word_count = COALESCE(?5, word_count), updated_at = \
+             ?6 WHERE id = ?1",
             params![id, title, outline, content, word_count, now],
         )?;
 
         // 同步更新关联的 Scene(s)
         if title.is_some() || content.is_some() {
-            let scene_ids: Vec<String> = tx.prepare(
-                "SELECT id FROM scenes WHERE chapter_id = ?1"
-            )?.query_map([id], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+            let scene_ids: Vec<String> = tx
+                .prepare("SELECT id FROM scenes WHERE chapter_id = ?1")?
+                .query_map([id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
             for sid in scene_ids {
                 tx.execute(
-                    "UPDATE scenes SET title = COALESCE(?2, title), content = COALESCE(?3, content), updated_at = ?4 WHERE id = ?1",
+                    "UPDATE scenes SET title = COALESCE(?2, title), content = COALESCE(?3, \
+                     content), updated_at = ?4 WHERE id = ?1",
                     params![sid, title, content, now],
                 )?;
             }
@@ -4322,15 +5633,16 @@ impl ChapterRepository {
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
         // 验证章节是否存在
-        let exists: bool = tx.query_row(
-            "SELECT 1 FROM chapters WHERE id = ?1",
-            [id],
-            |_| Ok(true)
-        ).unwrap_or(false);
+        let exists: bool = tx
+            .query_row("SELECT 1 FROM chapters WHERE id = ?1", [id], |_| Ok(true))
+            .unwrap_or(false);
 
         if !exists {
             tx.rollback()?;
@@ -4338,7 +5650,10 @@ impl ChapterRepository {
         }
 
         // 解除与 scenes 的关联关系
-        tx.execute("UPDATE scenes SET chapter_id = NULL WHERE chapter_id = ?1", [id])?;
+        tx.execute(
+            "UPDATE scenes SET chapter_id = NULL WHERE chapter_id = ?1",
+            [id],
+        )?;
 
         // 删除章节
         let count = tx.execute("DELETE FROM chapters WHERE id = ?1", [id])?;
@@ -4347,7 +5662,6 @@ impl ChapterRepository {
         Ok(count)
     }
 }
-
 
 // ==================== UserRepository ====================
 
@@ -4360,13 +5674,22 @@ impl UserRepository {
         Self { pool }
     }
 
-    pub fn create_user(&self, email: Option<String>, display_name: Option<String>, avatar_url: Option<String>) -> Result<User, rusqlite::Error> {
+    pub fn create_user(
+        &self,
+        email: Option<String>,
+        display_name: Option<String>,
+        avatar_url: Option<String>,
+    ) -> Result<User, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO users (id, email, display_name, avatar_url, is_local_user, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
+            "INSERT INTO users (id, email, display_name, avatar_url, is_local_user, created_at, \
+             updated_at) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
             params![&id, email, display_name, avatar_url, now.to_rfc3339()],
         )?;
 
@@ -4381,40 +5704,72 @@ impl UserRepository {
         })
     }
 
-    pub fn find_by_oauth(&self, provider: &str, provider_account_id: &str) -> Result<Option<User>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn find_by_oauth(
+        &self,
+        provider: &str,
+        provider_account_id: &str,
+    ) -> Result<Option<User>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT u.id, u.email, u.display_name, u.avatar_url, u.is_local_user, u.created_at, u.updated_at
+            "SELECT u.id, u.email, u.display_name, u.avatar_url, u.is_local_user, u.created_at, \
+             u.updated_at
              FROM users u
              JOIN oauth_accounts oa ON u.id = oa.user_id
-             WHERE oa.provider = ?1 AND oa.provider_account_id = ?2"
+             WHERE oa.provider = ?1 AND oa.provider_account_id = ?2",
         )?;
 
-        let user = stmt.query_row([provider, provider_account_id], |row| {
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(User {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                display_name: row.get(2)?,
-                avatar_url: row.get(3)?,
-                is_local_user: row.get::<_, i32>(4)? != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let user = stmt
+            .query_row([provider, provider_account_id], |row| {
+                let created_str: String = row.get(5)?;
+                let updated_str: String = row.get(6)?;
+                Ok(User {
+                    id: row.get(0)?,
+                    email: row.get(1)?,
+                    display_name: row.get(2)?,
+                    avatar_url: row.get(3)?,
+                    is_local_user: row.get::<_, i32>(4)? != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(user)
     }
 
-    pub fn create_oauth_account(&self, user_id: &str, provider: &str, provider_account_id: &str, access_token: Option<String>, refresh_token: Option<String>, expires_at: Option<chrono::DateTime<Local>>) -> Result<OAuthAccount, rusqlite::Error> {
+    pub fn create_oauth_account(
+        &self,
+        user_id: &str,
+        provider: &str,
+        provider_account_id: &str,
+        access_token: Option<String>,
+        refresh_token: Option<String>,
+        expires_at: Option<chrono::DateTime<Local>>,
+    ) -> Result<OAuthAccount, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, expires_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-            params![&id, user_id, provider, provider_account_id, access_token, refresh_token, expires_at.map(|d| d.to_rfc3339()), now.to_rfc3339()],
+            "INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, \
+             access_token, refresh_token, expires_at, created_at, updated_at) VALUES (?1, ?2, ?3, \
+             ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![
+                &id,
+                user_id,
+                provider,
+                provider_account_id,
+                access_token,
+                refresh_token,
+                expires_at.map(|d| d.to_rfc3339()),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(OAuthAccount {
@@ -4430,14 +5785,29 @@ impl UserRepository {
         })
     }
 
-    pub fn create_session(&self, user_id: &str, token: &str, expires_at: chrono::DateTime<Local>) -> Result<Session, rusqlite::Error> {
+    pub fn create_session(
+        &self,
+        user_id: &str,
+        token: &str,
+        expires_at: chrono::DateTime<Local>,
+    ) -> Result<Session, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![&id, user_id, token, expires_at.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?1, ?2, \
+             ?3, ?4, ?5)",
+            params![
+                &id,
+                user_id,
+                token,
+                expires_at.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
 
         Ok(Session {
@@ -4450,7 +5820,10 @@ impl UserRepository {
     }
 
     pub fn delete_session(&self, token: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let count = conn.execute("DELETE FROM sessions WHERE token = ?1", [token])?;
         Ok(count)
     }
@@ -4484,10 +5857,23 @@ impl GenesisRunRepository {
         total_steps: i32,
     ) -> Result<super::GenesisRun, rusqlite::Error> {
         let now = Local::now();
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO genesis_runs (id, session_id, premise, status, total_steps, steps_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, session_id, premise, "pending", total_steps, "{}", now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO genesis_runs (id, session_id, premise, status, total_steps, steps_json, \
+             created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                id,
+                session_id,
+                premise,
+                "pending",
+                total_steps,
+                "{}",
+                now.to_rfc3339(),
+                now.to_rfc3339()
+            ],
         )?;
         Ok(super::GenesisRun {
             id: id.to_string(),
@@ -4513,105 +5899,124 @@ impl GenesisRunRepository {
         status: &str,
         steps_json: &str,
     ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE genesis_runs SET current_step = ?2, current_step_number = ?3, status = ?4, steps_json = ?5, updated_at = ?6 WHERE id = ?1",
+            "UPDATE genesis_runs SET current_step = ?2, current_step_number = ?3, status = ?4, \
+             steps_json = ?5, updated_at = ?6 WHERE id = ?1",
             params![id, step_name, step_number, status, steps_json, now],
         )
     }
 
-    pub fn complete(
-        &self,
-        id: &str,
-        story_id: Option<&str>,
-    ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn complete(&self, id: &str, story_id: Option<&str>) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE genesis_runs SET status = 'completed', story_id = ?2, updated_at = ?3 WHERE id = ?1",
+            "UPDATE genesis_runs SET status = 'completed', story_id = ?2, updated_at = ?3 WHERE \
+             id = ?1",
             params![id, story_id, now],
         )
     }
 
-    pub fn fail(
-        &self,
-        id: &str,
-        error_message: &str,
-    ) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn fail(&self, id: &str, error_message: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         conn.execute(
-            "UPDATE genesis_runs SET status = 'failed', error_message = ?2, updated_at = ?3 WHERE id = ?1",
+            "UPDATE genesis_runs SET status = 'failed', error_message = ?2, updated_at = ?3 WHERE \
+             id = ?1",
             params![id, error_message, now],
         )
     }
 
-    pub fn get_by_id(
-        &self,
-        id: &str,
-    ) -> Result<Option<super::GenesisRun>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn get_by_id(&self, id: &str) -> Result<Option<super::GenesisRun>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs WHERE id = ?1"
+            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, \
+             total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs \
+             WHERE id = ?1",
         )?;
-        let run = stmt.query_row([id], |row| {
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
-            Ok(super::GenesisRun {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                session_id: row.get(2)?,
-                premise: row.get(3)?,
-                status: row.get(4)?,
-                current_step: row.get(5)?,
-                current_step_number: row.get(6)?,
-                total_steps: row.get(7)?,
-                steps_json: row.get(8)?,
-                error_message: row.get(9)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        let run = stmt
+            .query_row([id], |row| {
+                let created_str: String = row.get(10)?;
+                let updated_str: String = row.get(11)?;
+                Ok(super::GenesisRun {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    premise: row.get(3)?,
+                    status: row.get(4)?,
+                    current_step: row.get(5)?,
+                    current_step_number: row.get(6)?,
+                    total_steps: row.get(7)?,
+                    steps_json: row.get(8)?,
+                    error_message: row.get(9)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
             })
-        }).optional()?;
+            .optional()?;
         Ok(run)
     }
 
-    pub fn list_all(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<super::GenesisRun>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    pub fn list_all(&self, limit: i64) -> Result<Vec<super::GenesisRun>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs ORDER BY created_at DESC LIMIT ?1"
+            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, \
+             total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs \
+             ORDER BY created_at DESC LIMIT ?1",
         )?;
-        let runs = stmt.query_map([limit], |row| {
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
-            Ok(super::GenesisRun {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                session_id: row.get(2)?,
-                premise: row.get(3)?,
-                status: row.get(4)?,
-                current_step: row.get(5)?,
-                current_step_number: row.get(6)?,
-                total_steps: row.get(7)?,
-                steps_json: row.get(8)?,
-                error_message: row.get(9)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let runs = stmt
+            .query_map([limit], |row| {
+                let created_str: String = row.get(10)?;
+                let updated_str: String = row.get(11)?;
+                Ok(super::GenesisRun {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    premise: row.get(3)?,
+                    status: row.get(4)?,
+                    current_step: row.get(5)?,
+                    current_step_number: row.get(6)?,
+                    total_steps: row.get(7)?,
+                    steps_json: row.get(8)?,
+                    error_message: row.get(9)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(runs)
     }
 }
 
 // ==================== Trait Implementations ====================
 
-use crate::db::traits::{SceneRepo, StoryRepo, CharacterRepo, ChapterRepo, WorldBuildingRepo, WritingStyleRepo};
+use crate::db::traits::{
+    ChapterRepo, CharacterRepo, SceneRepo, StoryRepo, WorldBuildingRepo, WritingStyleRepo,
+};
 
 impl SceneRepo for SceneRepository {
-    fn create(&self, story_id: &str, sequence_number: i32, title: Option<&str>) -> Result<Scene, rusqlite::Error> {
+    fn create(
+        &self,
+        story_id: &str,
+        sequence_number: i32,
+        title: Option<&str>,
+    ) -> Result<Scene, rusqlite::Error> {
         self.create(story_id, sequence_number, title)
     }
     fn get_by_id(&self, id: &str) -> Result<Option<Scene>, rusqlite::Error> {
@@ -4673,7 +6078,16 @@ impl CharacterRepo for CharacterRepository {
         gender: Option<String>,
         age: Option<i32>,
     ) -> Result<usize, rusqlite::Error> {
-        self.update(id, name, background, personality, goals, appearance, gender, age)
+        self.update(
+            id,
+            name,
+            background,
+            personality,
+            goals,
+            appearance,
+            gender,
+            age,
+        )
     }
     fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         self.delete(id)

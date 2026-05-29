@@ -2,18 +2,26 @@
 //!
 //! 将拆书分析实现为 TaskExecutor trait，接入任务系统。
 
-use super::chunker::create_chunks;
-use super::models::*;
-use super::parser::parse_book;
-use super::repository::*;
-use crate::db::DbPool;
-use crate::db::repositories_narrative::{NarrativeCharacterRepository, NarrativeSceneRepository, NarrativeWorldBuildingRepository};
-use crate::llm::LlmService;
-use crate::narrative::elements::ElementStatus;
-use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
-use crate::task_system::models::*;
-use tauri::{AppHandle, Emitter, Manager};
 use std::sync::Arc;
+
+use tauri::{AppHandle, Emitter, Manager};
+
+use super::{chunker::create_chunks, models::*, parser::parse_book, repository::*};
+use crate::{
+    db::{
+        repositories_narrative::{
+            NarrativeCharacterRepository, NarrativeSceneRepository,
+            NarrativeWorldBuildingRepository,
+        },
+        DbPool,
+    },
+    llm::LlmService,
+    narrative::elements::ElementStatus,
+    task_system::{
+        executor::{TaskExecutionContext, TaskExecutor},
+        models::*,
+    },
+};
 
 pub struct BookDeconstructionExecutor {
     pool: DbPool,
@@ -37,16 +45,10 @@ impl TaskExecutor for BookDeconstructionExecutor {
         *task_type == TaskType::BookDeconstruction
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-    ) -> Result<TaskResult, Box<dyn std::error::Error>> {
+    async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
         log::info!("[BookDeconstructionExecutor] Task {} started", task.id);
-        let ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
+        let ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
 
         ctx.log("info", "开始拆书分析任务");
 
@@ -66,10 +68,12 @@ impl TaskExecutor for BookDeconstructionExecutor {
             None => serde_json::json!({}),
         };
 
-        let book_id = payload.get("book_id")
+        let book_id = payload
+            .get("book_id")
             .and_then(|v| v.as_str())
             .ok_or("Missing book_id in task payload")?;
-        let file_path_str = payload.get("file_path")
+        let file_path_str = payload
+            .get("file_path")
             .and_then(|v| v.as_str())
             .ok_or("Missing file_path in task payload")?;
         let file_path = std::path::Path::new(file_path_str);
@@ -79,28 +83,27 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         // 解析文件（同步操作，用 spawn_blocking 避免阻塞异步运行时）
         let file_path_owned = file_path.to_path_buf();
-        
-        let parsed = match tokio::task::spawn_blocking(move || {
-            parse_book(&file_path_owned, None)
-        }).await {
-            Ok(Ok(p)) => p,
-            Ok(Err(e)) => {
-                ctx.log("error", &format!("文件解析失败: {}", e));
-                return Ok(TaskResult {
-                    success: false,
-                    result_json: None,
-                    error_message: Some(format!("文件解析失败: {}", e)),
-                });
-            }
-            Err(e) => {
-                ctx.log("error", &format!("解析任务异常: {}", e));
-                return Ok(TaskResult {
-                    success: false,
-                    result_json: None,
-                    error_message: Some(format!("解析任务异常: {}", e)),
-                });
-            }
-        };
+
+        let parsed =
+            match tokio::task::spawn_blocking(move || parse_book(&file_path_owned, None)).await {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
+                    ctx.log("error", &format!("文件解析失败: {}", e));
+                    return Ok(TaskResult {
+                        success: false,
+                        result_json: None,
+                        error_message: Some(format!("文件解析失败: {}", e)),
+                    });
+                }
+                Err(e) => {
+                    ctx.log("error", &format!("解析任务异常: {}", e));
+                    return Ok(TaskResult {
+                        success: false,
+                        result_json: None,
+                        error_message: Some(format!("解析任务异常: {}", e)),
+                    });
+                }
+            };
 
         ctx.update_progress("chunking", 5, "正在分块处理...");
         ctx.heartbeat();
@@ -125,14 +128,15 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 .unwrap_or(3)
         };
         // 转换 TextChunk 类型
-        let narrative_chunks: Vec<crate::narrative::analysis::TextChunk> = chunks.iter().map(|c| {
-            crate::narrative::analysis::TextChunk {
+        let narrative_chunks: Vec<crate::narrative::analysis::TextChunk> = chunks
+            .iter()
+            .map(|c| crate::narrative::analysis::TextChunk {
                 index: c.index,
                 title: c.title.clone(),
                 content: c.content.clone(),
                 word_count: c.word_count,
-            }
-        }).collect();
+            })
+            .collect();
 
         let mut analysis_ctx = crate::narrative::analysis::AnalysisContext::new(
             book_id.to_string(),
@@ -149,52 +153,69 @@ impl TaskExecutor for BookDeconstructionExecutor {
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = self.app_handle.clone();
         let book_id_for_progress = book_id.to_string();
-        let heartbeat_ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
+        let heartbeat_ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
+        let progress_callback = Arc::new(
+            move |evt: crate::narrative::progress::PipelineProgressEvent| {
+                // 发射新事件
+                let _ = app_handle_progress.emit("pipeline-progress", &evt);
+                // 发射旧事件（向后兼容）
+                let _ = app_handle_progress.emit(
+                    "book-analysis-progress",
+                    BookAnalysisProgressEvent {
+                        book_id: book_id_for_progress.clone(),
+                        status: match evt.status {
+                            crate::narrative::progress::StepStatus::Running => {
+                                "analyzing".to_string()
+                            }
+                            crate::narrative::progress::StepStatus::Completed => {
+                                "completed".to_string()
+                            }
+                            crate::narrative::progress::StepStatus::Failed => "failed".to_string(),
+                            _ => "analyzing".to_string(),
+                        },
+                        progress: evt.progress_percent,
+                        current_step: evt.step_name.clone(),
+                        message: Some(evt.message.clone()),
+                        active_threads: 0,
+                        total_chunks: 0,
+                        processed_chunks: 0,
+                    },
+                );
+                // 心跳保活
+                heartbeat_ctx.heartbeat();
+            },
         );
-        let progress_callback = Arc::new(move |evt: crate::narrative::progress::PipelineProgressEvent| {
-            // 发射新事件
-            let _ = app_handle_progress.emit("pipeline-progress", &evt);
-            // 发射旧事件（向后兼容）
-            let _ = app_handle_progress.emit("book-analysis-progress", BookAnalysisProgressEvent {
-                book_id: book_id_for_progress.clone(),
-                status: match evt.status {
-                    crate::narrative::progress::StepStatus::Running => "analyzing".to_string(),
-                    crate::narrative::progress::StepStatus::Completed => "completed".to_string(),
-                    crate::narrative::progress::StepStatus::Failed => "failed".to_string(),
-                    _ => "analyzing".to_string(),
-                },
-                progress: evt.progress_percent,
-                current_step: evt.step_name.clone(),
-                message: Some(evt.message.clone()),
-                active_threads: 0,
-                total_chunks: 0,
-                processed_chunks: 0,
-            });
-            // 心跳保活
-            heartbeat_ctx.heartbeat();
-        });
 
-        let pipeline_result = pipeline_executor.execute(&mut analysis_ctx, &llm, progress_callback).await;
+        let pipeline_result = pipeline_executor
+            .execute(&mut analysis_ctx, &llm, progress_callback)
+            .await;
 
         if pipeline_result.is_ok() {
-            log::info!("[BookDeconstructionExecutor] Pipeline completed for book {}", book_id);
-            let _ = self.app_handle.emit("pipeline-complete", crate::narrative::progress::PipelineCompleteEvent {
-                pipeline_id: task.id.clone(),
-                pipeline_type: crate::narrative::progress::PipelineType::Analysis,
-                success: true,
-                total_elapsed_seconds: 0,
-                elements_created: crate::narrative::progress::ElementsCount::default(),
-                error_message: None,
-            });
+            log::info!(
+                "[BookDeconstructionExecutor] Pipeline completed for book {}",
+                book_id
+            );
+            let _ = self.app_handle.emit(
+                "pipeline-complete",
+                crate::narrative::progress::PipelineCompleteEvent {
+                    pipeline_id: task.id.clone(),
+                    pipeline_type: crate::narrative::progress::PipelineType::Analysis,
+                    success: true,
+                    total_elapsed_seconds: 0,
+                    elements_created: crate::narrative::progress::ElementsCount::default(),
+                    error_message: None,
+                },
+            );
         }
 
         let analysis_result = match pipeline_result {
             Ok(()) => convert_bundle_to_analysis_result(&analysis_ctx.bundle),
             Err(crate::narrative::pipeline::PipelineError::Cancelled(msg)) => {
-                log::warn!("[BookDeconstructionExecutor] Pipeline cancelled for task {}", task.id);
+                log::warn!(
+                    "[BookDeconstructionExecutor] Pipeline cancelled for task {}",
+                    task.id
+                );
                 ctx.log("warn", &format!("分析被取消: {}", msg));
                 let repo = ReferenceBookRepository::new(self.pool.clone());
                 let _ = repo.update_status(book_id, AnalysisStatus::Cancelled, ctx.get_progress());
@@ -244,11 +265,22 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 wb.status = ElementStatus::Reference;
             }
 
-            ctx.update_progress("saving", 96, &format!("正在保存 {} 个人物...", analysis_ctx.bundle.characters.len()));
+            ctx.update_progress(
+                "saving",
+                96,
+                &format!(
+                    "正在保存 {} 个人物...",
+                    analysis_ctx.bundle.characters.len()
+                ),
+            );
             let char_repo = NarrativeCharacterRepository::new(self.pool.clone());
             let _ = char_repo.create_batch(&analysis_ctx.bundle.characters);
 
-            ctx.update_progress("saving", 98, &format!("正在保存 {} 个场景...", analysis_ctx.bundle.scenes.len()));
+            ctx.update_progress(
+                "saving",
+                98,
+                &format!("正在保存 {} 个场景...", analysis_ctx.bundle.scenes.len()),
+            );
             let scene_repo = NarrativeSceneRepository::new(self.pool.clone());
             let _ = scene_repo.create_batch(&analysis_ctx.bundle.scenes);
 
@@ -268,7 +300,10 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 self.app_handle.clone(),
             );
             if let Err(e) = service.store_embeddings(book_id, &analysis_result).await {
-                log::warn!("[BookDeconstructionExecutor] store_embeddings failed: {}", e);
+                log::warn!(
+                    "[BookDeconstructionExecutor] store_embeddings failed: {}",
+                    e
+                );
             }
         }
 
@@ -296,17 +331,23 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
 // ==================== 结果转换器 ====================
 /// 将 NarrativeBundle 转换为 BookAnalysisResult（兼容旧接口）
-fn convert_bundle_to_analysis_result(bundle: &crate::narrative::elements::NarrativeBundle) -> BookAnalysisResult {
+fn convert_bundle_to_analysis_result(
+    bundle: &crate::narrative::elements::NarrativeBundle,
+) -> BookAnalysisResult {
     use chrono::Local;
 
     let now = Local::now();
 
     // 构建 ReferenceBook
     let book = if let Some(ref meta) = bundle.story_meta {
-        let world_setting = bundle.world_building.as_ref()
+        let world_setting = bundle
+            .world_building
+            .as_ref()
             .map(|w| serde_json::to_string(w).ok())
             .flatten();
-        let story_arc = bundle.outline.as_ref()
+        let story_arc = bundle
+            .outline
+            .as_ref()
             .map(|o| serde_json::to_string(&o.acts).ok())
             .flatten();
         ReferenceBook {
@@ -351,38 +392,50 @@ fn convert_bundle_to_analysis_result(bundle: &crate::narrative::elements::Narrat
     };
 
     // 转换角色
-    let characters: Vec<ReferenceCharacter> = bundle.characters.iter().map(|c| {
-        let relationships_json = serde_json::to_string(&c.relationships).ok();
-        ReferenceCharacter {
-            id: c.id.clone(),
-            book_id: c.story_id.clone(),
-            name: c.name.clone(),
-            role_type: Some(c.role_type.clone()),
-            personality: Some(c.personality.clone()),
-            appearance: Some(c.appearance.clone()),
-            relationships: relationships_json,
-            key_scenes: None,
-            importance_score: Some(c.importance_score),
-            created_at: now,
-        }
-    }).collect();
+    let characters: Vec<ReferenceCharacter> = bundle
+        .characters
+        .iter()
+        .map(|c| {
+            let relationships_json = serde_json::to_string(&c.relationships).ok();
+            ReferenceCharacter {
+                id: c.id.clone(),
+                book_id: c.story_id.clone(),
+                name: c.name.clone(),
+                role_type: Some(c.role_type.clone()),
+                personality: Some(c.personality.clone()),
+                appearance: Some(c.appearance.clone()),
+                relationships: relationships_json,
+                key_scenes: None,
+                importance_score: Some(c.importance_score),
+                created_at: now,
+            }
+        })
+        .collect();
 
     // 转换场景
-    let scenes: Vec<ReferenceScene> = bundle.scenes.iter().map(|s| {
-        let chars_present_json = serde_json::to_string(&s.characters_present).ok();
-        ReferenceScene {
-            id: s.id.clone(),
-            book_id: s.story_id.clone(),
-            sequence_number: s.sequence_number,
-            title: Some(s.title.clone()),
-            summary: Some(s.summary.clone()),
-            characters_present: chars_present_json,
-            key_events: None,
-            conflict_type: Some(s.conflict_type.clone()),
-            emotional_tone: None,
-            created_at: now,
-        }
-    }).collect();
+    let scenes: Vec<ReferenceScene> = bundle
+        .scenes
+        .iter()
+        .map(|s| {
+            let chars_present_json = serde_json::to_string(&s.characters_present).ok();
+            ReferenceScene {
+                id: s.id.clone(),
+                book_id: s.story_id.clone(),
+                sequence_number: s.sequence_number,
+                title: Some(s.title.clone()),
+                summary: Some(s.summary.clone()),
+                characters_present: chars_present_json,
+                key_events: None,
+                conflict_type: Some(s.conflict_type.clone()),
+                emotional_tone: None,
+                created_at: now,
+            }
+        })
+        .collect();
 
-    BookAnalysisResult { book, characters, scenes }
+    BookAnalysisResult {
+        book,
+        characters,
+        scenes,
+    }
 }

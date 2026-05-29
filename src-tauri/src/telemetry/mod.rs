@@ -3,12 +3,19 @@
 //! 不联网，只写本地 SQLite。用于评估各功能模块的使用情况，
 //! 为功能去留决策提供数据支撑。
 
-use crate::db::DbPool;
 use chrono::Local;
 use serde::Serialize;
 
+use crate::db::DbPool;
+
 /// 记录一次功能使用事件
-pub fn log_feature_usage(pool: &DbPool, feature_id: &str, action: &str, story_id: Option<&str>, metadata: Option<&str>) {
+pub fn log_feature_usage(
+    pool: &DbPool,
+    feature_id: &str,
+    action: &str,
+    story_id: Option<&str>,
+    metadata: Option<&str>,
+) {
     let conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -21,7 +28,8 @@ pub fn log_feature_usage(pool: &DbPool, feature_id: &str, action: &str, story_id
     let now = Local::now().to_rfc3339();
 
     if let Err(e) = conn.execute(
-        "INSERT INTO feature_usage_logs (id, feature_id, action, story_id, metadata, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO feature_usage_logs (id, feature_id, action, story_id, metadata, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![id, feature_id, action, story_id, metadata, now],
     ) {
         log::warn!("[Telemetry] Failed to log feature usage: {}", e);
@@ -40,7 +48,9 @@ pub fn get_feature_usage_stats(
     pool: &DbPool,
     days: i32,
 ) -> Result<Vec<FeatureUsageStat>, rusqlite::Error> {
-    let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    let conn = pool
+        .get()
+        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
     let since = (Local::now() - chrono::Duration::days(days as i64)).to_rfc3339();
 
     let mut stmt = conn.prepare(
@@ -48,16 +58,18 @@ pub fn get_feature_usage_stats(
          FROM feature_usage_logs
          WHERE created_at >= ?1
          GROUP BY feature_id, action
-         ORDER BY feature_id, action"
+         ORDER BY feature_id, action",
     )?;
 
-    let stats = stmt.query_map([since], |row| {
-        Ok(FeatureUsageStat {
-            feature_id: row.get(0)?,
-            action: row.get(1)?,
-            count: row.get(2)?,
-        })
-    })?.collect::<Result<Vec<_>, _>>()?;
+    let stats = stmt
+        .query_map([since], |row| {
+            Ok(FeatureUsageStat {
+                feature_id: row.get(0)?,
+                action: row.get(1)?,
+                count: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(stats)
 }

@@ -4,9 +4,10 @@
 //! 用于快速回顾故事世界观、人物关系与核心情节
 #![allow(dead_code)]
 
+use async_trait::async_trait;
+
 use super::{Agent, AgentContext, AgentResult};
 use crate::llm::service::LlmService;
-use async_trait::async_trait;
 
 pub struct KnowledgeDistillerAgent {
     llm_service: LlmService,
@@ -60,7 +61,10 @@ impl Agent for KnowledgeDistillerAgent {
             input
         );
 
-        let response = self.llm_service.generate(prompt, Some(2048), Some(0.4)).await?;
+        let response = self
+            .llm_service
+            .generate(prompt, Some(2048), Some(0.4))
+            .await?;
 
         Ok(AgentResult::with_score(response.content, 0.9))
     }

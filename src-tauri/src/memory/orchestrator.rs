@@ -7,9 +7,11 @@
 //!
 //! 预算分配：按任务类型 (write/plan/review) 分配各层条目上限
 
-use crate::db::{DbPool, MemoryItemRepository, SceneCommitRepository};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::db::{DbPool, MemoryItemRepository, SceneCommitRepository};
 
 /// 记忆类别优先级（数值越小优先级越高）
 pub const MEMORY_PRIORITY: &[(&str, i32)] = &[
@@ -142,17 +144,20 @@ impl MemoryOrchestrator {
 
         // 3. 获取语义记忆
         let repo = MemoryItemRepository::new(self.pool.clone());
-        let active_items = repo.get_active_by_story(story_id)
+        let active_items = repo
+            .get_active_by_story(story_id)
             .map_err(|e| format!("获取记忆项失败: {}", e))?;
 
-        let conflicts = repo.get_conflicts(story_id)
+        let conflicts = repo
+            .get_conflicts(story_id)
             .map_err(|e| format!("获取冲突项失败: {}", e))?;
 
         // 4. 按相关性过滤
         let filtered = self.filter_relevant(&active_items, chapter_number, outline);
 
         // 5. 应用预算
-        let semantic_items = filtered.into_iter()
+        let semantic_items = filtered
+            .into_iter()
             .take(budget.semantic_max)
             .map(|item| MemoryItemDto {
                 id: item.id.clone(),
@@ -165,16 +170,19 @@ impl MemoryOrchestrator {
             })
             .collect::<Vec<_>>();
 
-        let working_items = working.into_iter()
+        let working_items = working
+            .into_iter()
             .take(budget.working_max)
             .collect::<Vec<_>>();
 
-        let episodic_items = episodic.into_iter()
+        let episodic_items = episodic
+            .into_iter()
             .take(budget.episodic_max)
             .collect::<Vec<_>>();
 
         // 6. 提取活跃约束
-        let active_constraints: Vec<MemoryItemDto> = semantic_items.iter()
+        let active_constraints: Vec<MemoryItemDto> = semantic_items
+            .iter()
             .filter(|item| item.category == "world_rule" || item.category == "open_loop")
             .cloned()
             .collect();
@@ -185,15 +193,19 @@ impl MemoryOrchestrator {
             warnings.push(MemoryWarning {
                 warning_type: "memory_conflict".to_string(),
                 count: conflicts.len(),
-                sample: conflicts.into_iter().take(5).map(|item| MemoryItemDto {
-                    id: item.id.clone(),
-                    category: item.category,
-                    subject: item.subject,
-                    field: item.field,
-                    value: item.value,
-                    source_chapter: item.source_chapter,
-                    confidence: item.confidence,
-                }).collect(),
+                sample: conflicts
+                    .into_iter()
+                    .take(5)
+                    .map(|item| MemoryItemDto {
+                        id: item.id.clone(),
+                        category: item.category,
+                        subject: item.subject,
+                        field: item.field,
+                        value: item.value,
+                        source_chapter: item.source_chapter,
+                        confidence: item.confidence,
+                    })
+                    .collect(),
             });
         }
 
@@ -243,10 +255,12 @@ impl MemoryOrchestrator {
 
         // 添加近章摘要（最近3章）
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
-        let recent_commits = commit_repo.get_by_story(story_id)
+        let recent_commits = commit_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取最近提交失败: {}", e))?;
 
-        let recent_summaries: Vec<_> = recent_commits.into_iter()
+        let recent_summaries: Vec<_> = recent_commits
+            .into_iter()
             .filter(|c| c.chapter_number < chapter_number)
             .take(3)
             .collect();
@@ -274,16 +288,18 @@ impl MemoryOrchestrator {
 
         // 1. 获取最近 3 个章节的场景提交记录（状态变更历史）
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
-        let commits = commit_repo.get_by_story(story_id)
+        let commits = commit_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景提交失败: {}", e))?;
 
-        for commit in commits.into_iter()
+        for commit in commits
+            .into_iter()
             .filter(|c| c.chapter_number < chapter_number)
             .take(3)
         {
             // 解析 state_deltas_json 中的状态变更
             if let Ok(deltas) = serde_json::from_str::<serde_json::Value>(
-                commit.state_deltas_json.as_deref().unwrap_or("{}")
+                commit.state_deltas_json.as_deref().unwrap_or("{}"),
             ) {
                 if let Some(changes) = deltas.as_object() {
                     for (key, value) in changes {
@@ -317,10 +333,16 @@ impl MemoryOrchestrator {
             for character in characters.into_iter().take(5) {
                 let state = format!(
                     "{}: 目标={}, 状态={}",
-                    if character.name.is_empty() { "Unknown" } else { &character.name },
+                    if character.name.is_empty() {
+                        "Unknown"
+                    } else {
+                        &character.name
+                    },
                     character.goals.as_deref().unwrap_or("N/A"),
                     // 使用 dynamic_traits 的第一个特征作为当前状态
-                    character.dynamic_traits.first()
+                    character
+                        .dynamic_traits
+                        .first()
                         .map(|t| format!("{}({:.0}%)", t.trait_name, t.confidence * 100.0))
                         .unwrap_or_else(|| "Active".to_string())
                 );
@@ -345,11 +367,11 @@ impl MemoryOrchestrator {
         let outline_text = outline.unwrap_or("");
         let source_window = 20;
 
-        let priority_map: HashMap<&str, i32> = MEMORY_PRIORITY.iter()
-            .map(|(k, v)| (*k, *v))
-            .collect();
+        let priority_map: HashMap<&str, i32> =
+            MEMORY_PRIORITY.iter().map(|(k, v)| (*k, *v)).collect();
 
-        let mut filtered: Vec<&crate::db::MemoryItem> = items.iter()
+        let mut filtered: Vec<&crate::db::MemoryItem> = items
+            .iter()
             .filter(|item| {
                 // 按大纲关键词匹配
                 if let Some(ref subject) = item.subject {
@@ -382,7 +404,9 @@ impl MemoryOrchestrator {
             let pa = priority_map.get(a.category.as_str()).unwrap_or(&99);
             let pb = priority_map.get(b.category.as_str()).unwrap_or(&99);
             pa.cmp(pb).then_with(|| {
-                b.source_chapter.unwrap_or(0).cmp(&a.source_chapter.unwrap_or(0))
+                b.source_chapter
+                    .unwrap_or(0)
+                    .cmp(&a.source_chapter.unwrap_or(0))
             })
         });
 

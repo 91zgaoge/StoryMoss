@@ -1,8 +1,8 @@
 //! Memory commands
 
 use tauri::State;
-use crate::db::DbPool;
-use crate::error::AppError;
+
+use crate::{db::DbPool, error::AppError};
 
 // ==================== Memory Commands ====================
 
@@ -16,7 +16,12 @@ pub fn build_memory_pack(
 ) -> Result<crate::memory::MemoryPack, AppError> {
     let pool = pool.inner().clone();
     let orchestrator = crate::memory::MemoryOrchestrator::new(pool.clone());
-    let mut pack = orchestrator.build_memory_pack(&story_id, chapter_number, &task_type, outline.as_deref())?;
+    let mut pack = orchestrator.build_memory_pack(
+        &story_id,
+        chapter_number,
+        &task_type,
+        outline.as_deref(),
+    )?;
 
     // 解耦点：memory 模块不再直接依赖 crate::creative_engine::PayoffLedger
     // 在协调层（lib.rs）合并伏笔账本数据
@@ -54,14 +59,15 @@ pub fn build_memory_pack(
     Ok(pack)
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_memory_items(pool: State<'_, DbPool>, story_id: String) -> Result<Vec<crate::db::MemoryItem>, AppError> {
+pub fn get_memory_items(
+    pool: State<'_, DbPool>,
+    story_id: String,
+) -> Result<Vec<crate::db::MemoryItem>, AppError> {
     let pool = pool.inner().clone();
     let repo = crate::db::MemoryItemRepository::new(pool);
     repo.get_active_by_story(&story_id).map_err(AppError::from)
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn create_memory_item(
@@ -76,7 +82,14 @@ pub fn create_memory_item(
 ) -> Result<crate::db::MemoryItem, AppError> {
     let pool = pool.inner().clone();
     let repo = crate::db::MemoryItemRepository::new(pool);
-    repo.create(&story_id, &category, subject.as_deref(), field.as_deref(),
-        value.as_deref(), source_chapter, confidence
-    ).map_err(AppError::from)
+    repo.create(
+        &story_id,
+        &category,
+        subject.as_deref(),
+        field.as_deref(),
+        value.as_deref(),
+        source_chapter,
+        confidence,
+    )
+    .map_err(AppError::from)
 }

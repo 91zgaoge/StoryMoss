@@ -1,30 +1,33 @@
 #![allow(dead_code)]
 
 //! 记忆系统模块
-//! 
+//!
 //! 基于llm_wiki方法论的记忆系统实现：
 //! - 两步思维链Ingest流程
 //! - 知识图谱（带关系强度）
 //! - 四阶段查询检索管线
 //! - 多助手独立会话
 
-use crate::agents::{AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext, StoryContext, StyleContext, WorldContext};
-use crate::db::{Chapter, Character, Story};
-
-pub mod tokenizer;
-pub mod ingest;
-pub mod query;
-pub mod multi_agent;
-pub mod hybrid_search;
-pub mod retention;
-pub mod orchestrator;
-pub mod writer;
-pub mod health_daemon;
-
-pub use tokenizer::CJKTokenizer;
-pub use orchestrator::{
-    MemoryOrchestrator, MemoryPack, MemoryItemDto,
+use crate::{
+    agents::{
+        AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
+        StoryContext, StyleContext, WorldContext,
+    },
+    db::{Chapter, Character, Story},
 };
+
+pub mod health_daemon;
+pub mod hybrid_search;
+pub mod ingest;
+pub mod multi_agent;
+pub mod orchestrator;
+pub mod query;
+pub mod retention;
+pub mod tokenizer;
+pub mod writer;
+
+pub use orchestrator::{MemoryItemDto, MemoryOrchestrator, MemoryPack};
+pub use tokenizer::CJKTokenizer;
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
 pub struct ShortTermMemory {
@@ -95,20 +98,24 @@ impl ShortTermMemory {
             ) {
                 Ok(mut pack) => {
                     for chapter in &previous_chapters {
-                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
-                            layer: "working".to_string(),
-                            source: "previous_chapter".to_string(),
-                            chapter: chapter.number as i32,
-                            content: serde_json::json!({
-                                "title": chapter.title,
-                                "summary": chapter.summary
-                            }),
-                        });
+                        pack.working_memory
+                            .push(crate::memory::orchestrator::MemoryEntry {
+                                layer: "working".to_string(),
+                                source: "previous_chapter".to_string(),
+                                chapter: chapter.number as i32,
+                                content: serde_json::json!({
+                                    "title": chapter.title,
+                                    "summary": chapter.summary
+                                }),
+                            });
                     }
                     Some(pack)
                 }
                 Err(e) => {
-                    log::warn!("[ShortTermMemory] MemoryPack build failed: {}, continuing without", e);
+                    log::warn!(
+                        "[ShortTermMemory] MemoryPack build failed: {}, continuing without",
+                        e
+                    );
                     None
                 }
             }
@@ -157,15 +164,22 @@ impl ShortTermMemory {
             return content.to_string();
         }
 
-        let paragraphs: Vec<&str> = content.split('\n').filter(|s| !s.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = content
+            .split('\n')
+            .filter(|s| !s.trim().is_empty())
+            .collect();
         let first_para = paragraphs.first().unwrap_or(&"").trim();
         let last_para = paragraphs.last().unwrap_or(&"").trim();
 
         // 关键词密度提取：找出出现频率最高的 2-3 个词
-        let mut word_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut word_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for word in content.split_whitespace() {
-            let w = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-            if w.len() > 1 && !w.starts_with("的") && !w.starts_with("了") && !w.starts_with("是") {
+            let w = word
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            if w.len() > 1 && !w.starts_with("的") && !w.starts_with("了") && !w.starts_with("是")
+            {
                 *word_counts.entry(w).or_insert(0) += 1;
             }
         }
@@ -183,10 +197,7 @@ impl ShortTermMemory {
     }
 
     /// 提取关键事件（简化版，基于关键词）
-    fn extract_key_events(
-        &self,
-        chapter: &Chapter,
-    ) -> Vec<String> {
+    fn extract_key_events(&self, chapter: &Chapter) -> Vec<String> {
         let mut events = Vec::new();
 
         // 如果有大纲，使用大纲
@@ -198,15 +209,12 @@ impl ShortTermMemory {
     }
 
     /// 推断角色当前状态
-    fn infer_character_state(
-        &self,
-        character: &Character,
-        _chapters: &[Chapter],
-    ) -> String {
+    fn infer_character_state(&self, character: &Character, _chapters: &[Chapter]) -> String {
         // 简化版：返回目标或最新动态特征
         character.goals.clone().unwrap_or_else(|| {
             if let Some(first_trait) = character.dynamic_traits.first() {
-                format!("{} (confidence: {:.0}%)",
+                format!(
+                    "{} (confidence: {:.0}%)",
                     first_trait.trait_name,
                     first_trait.confidence * 100.0
                 )

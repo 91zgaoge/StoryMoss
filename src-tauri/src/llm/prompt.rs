@@ -55,7 +55,9 @@ Write the chapter now:"#.to_string(),
     pub fn character_analysis() -> PromptTemplate {
         PromptTemplate {
             name: "character_analysis".to_string(),
-            system_prompt: "You are a character development expert. Analyze character consistency and suggest trait updates based on their actions in the story.".to_string(),
+            system_prompt: "You are a character development expert. Analyze character consistency \
+                            and suggest trait updates based on their actions in the story."
+                .to_string(),
             user_prompt_template: r#"Analyze the following character's behavior in this chapter:
 
 Character: {character_name}
@@ -70,14 +72,17 @@ Please:
 2. Note any contradictions with established character
 3. Suggest dynamic trait updates with confidence scores (0.0-1.0)
 
-Respond in JSON format with an array of traits:"#.to_string(),
+Respond in JSON format with an array of traits:"#
+                .to_string(),
         }
     }
 
     pub fn plot_consistency_check() -> PromptTemplate {
         PromptTemplate {
             name: "plot_consistency".to_string(),
-            system_prompt: "You are a story editor specializing in continuity and plot consistency.".to_string(),
+            system_prompt: "You are a story editor specializing in continuity and plot \
+                            consistency."
+                .to_string(),
             user_prompt_template: r#"Check this chapter for plot consistency:
 
 New Chapter:
@@ -93,7 +98,8 @@ Identify any:
 1. Timeline inconsistencies
 2. Contradictions with previous events
 3. Character behavior that conflicts with established traits
-4. Unexplained plot developments"#.to_string(),
+4. Unexplained plot developments"#
+                .to_string(),
         }
     }
 }

@@ -1,19 +1,24 @@
-pub mod types;
-pub mod refine;
-pub mod review;
+pub mod commands;
+pub mod executor;
 pub mod finalize;
 pub mod post_process;
-pub mod commands;
+pub mod refine;
+pub mod review;
 pub mod style_analysis;
-pub mod executor;
+pub mod types;
 
-pub use refine::refine_draft;
-pub use review::review_draft;
 pub use finalize::finalize_draft;
 pub use post_process::{build_finalize_steps, run_post_process_step};
+pub use refine::refine_draft;
+pub use review::review_draft;
 
-use crate::db::{DbPool, DraftRepository, DraftStatus, RevisionRepository, RevisionStatus, PipelineReviewRepository, PostProcessRepository};
-use crate::error::AppError;
+use crate::{
+    db::{
+        DbPool, DraftRepository, DraftStatus, PipelineReviewRepository, PostProcessRepository,
+        RevisionRepository, RevisionStatus,
+    },
+    error::AppError,
+};
 
 /// 管线编排器 — 提供高级管线操作
 pub struct PipelineOrchestrator {
@@ -88,10 +93,7 @@ impl PipelineOrchestrator {
     }
 
     /// 标记修稿为已合并（用户接受修稿结果）
-    pub fn merge_revision(
-        &self,
-        revision_id: &str,
-    ) -> Result<usize, AppError> {
+    pub fn merge_revision(&self, revision_id: &str) -> Result<usize, AppError> {
         let repo = RevisionRepository::new(self.pool.clone());
         repo.update_status(revision_id, RevisionStatus::Merged)
             .map_err(AppError::from)

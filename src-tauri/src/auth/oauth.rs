@@ -4,19 +4,20 @@
 //! Google: https://developers.google.com/identity/protocols/oauth2/native-app
 //! GitHub: https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps
 
-use crate::error::AppError;
-use super::OAuthProvider;
+use std::{collections::HashMap, sync::Mutex};
+
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
-    Scope, TokenUrl, AuthorizationCode,
-    basic::BasicClient, TokenResponse,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse, TokenUrl,
 };
-use std::collections::HashMap;
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
+use super::OAuthProvider;
+use crate::error::AppError;
+
 /// 存储正在进行的OAuth流程状态（state -> PKCE verifier映射）
-static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, OAuthState>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, OAuthState>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone)]
 pub struct OAuthState {
@@ -100,7 +101,9 @@ pub async fn handle_oauth_callback(
     // 查找并移除state
     let oauth_state = {
         let mut store = OAUTH_STATE_STORE.lock().unwrap();
-        store.remove(state).ok_or("Invalid or expired OAuth state")?
+        store
+            .remove(state)
+            .ok_or("Invalid or expired OAuth state")?
     };
 
     let provider = oauth_state.provider;
@@ -134,14 +137,20 @@ pub async fn handle_oauth_callback(
     let access_token = token_result.access_token().secret().clone();
     let refresh_token = token_result.refresh_token().map(|t| t.secret().clone());
     let expires_at = token_result.expires_in().map(|d| {
-        chrono::Local::now() + chrono::Duration::from_std(d).unwrap_or(chrono::Duration::seconds(3600))
+        chrono::Local::now()
+            + chrono::Duration::from_std(d).unwrap_or(chrono::Duration::seconds(3600))
     });
 
     // 获取用户资料
     let profile = match provider {
         OAuthProvider::Google => fetch_google_user_info(&access_token).await?,
         OAuthProvider::Github => fetch_github_user_info(&access_token).await?,
-        _ => return Err(AppError::internal(format!("Provider {:?} not yet implemented", provider))),
+        _ => {
+            return Err(AppError::internal(format!(
+                "Provider {:?} not yet implemented",
+                provider
+            )))
+        }
     };
 
     Ok(OAuthUserProfile {
@@ -157,12 +166,17 @@ pub async fn handle_oauth_callback(
 }
 
 /// 获取各Provider的OAuth URL
-fn get_provider_urls(provider: OAuthProvider) -> (AuthUrl, TokenUrl, Option<oauth2::RevocationUrl>) {
+fn get_provider_urls(
+    provider: OAuthProvider,
+) -> (AuthUrl, TokenUrl, Option<oauth2::RevocationUrl>) {
     match provider {
         OAuthProvider::Google => (
             AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string()).unwrap(),
             TokenUrl::new("https://oauth2.googleapis.com/token".to_string()).unwrap(),
-            Some(oauth2::RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string()).unwrap()),
+            Some(
+                oauth2::RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
+                    .unwrap(),
+            ),
         ),
         OAuthProvider::Github => (
             AuthUrl::new("https://github.com/login/oauth/authorize".to_string()).unwrap(),
@@ -231,8 +245,14 @@ async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserProfile, 
 
     let data: serde_json::Value = response.json().await.map_err(AppError::from)?;
 
-    let user_id = data["id"].as_i64().map(|id| id.to_string()).unwrap_or_default();
-    let name = data["name"].as_str().or_else(|| data["login"].as_str()).map(|s| s.to_string());
+    let user_id = data["id"]
+        .as_i64()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    let name = data["name"]
+        .as_str()
+        .or_else(|| data["login"].as_str())
+        .map(|s| s.to_string());
     let avatar = data["avatar_url"].as_str().map(|s| s.to_string());
 
     // 获取用户邮箱（GitHub可能不返回public email）
@@ -269,7 +289,11 @@ async fn fetch_github_email(access_token: &str) -> Result<String, AppError> {
 
     // 找到primary邮箱
     for email_entry in &emails {
-        if email_entry.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if email_entry
+            .get("primary")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             if let Some(email) = email_entry["email"].as_str() {
                 return Ok(email.to_string());
             }

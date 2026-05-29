@@ -11,13 +11,13 @@
 use crate::error::AppError;
 
 pub mod feedback;
-pub mod miner;
 pub mod generator;
+pub mod miner;
 pub mod personalizer;
 
-pub use feedback::{FeedbackRecorder, FeedbackEvent};
-pub use miner::{PreferenceMiner, MinedPreference};
+pub use feedback::{FeedbackEvent, FeedbackRecorder};
 pub use generator::{AdaptiveGenerator, GenerationStrategy};
+pub use miner::{MinedPreference, PreferenceMiner};
 pub use personalizer::PromptPersonalizer;
 
 use crate::db::DbPool;
@@ -44,7 +44,11 @@ impl AdaptiveLearningEngine {
                 let miner = PreferenceMiner::new(pool);
                 match miner.mine(&story_id) {
                     Ok(prefs) if !prefs.is_empty() => {
-                        log::info!("[AdaptiveLearning] Mined {} preferences for story {}", prefs.len(), story_id);
+                        log::info!(
+                            "[AdaptiveLearning] Mined {} preferences for story {}",
+                            prefs.len(),
+                            story_id
+                        );
                     }
                     Ok(_) => {}
                     Err(e) => log::warn!("[AdaptiveLearning] Preference mining failed: {}", e),

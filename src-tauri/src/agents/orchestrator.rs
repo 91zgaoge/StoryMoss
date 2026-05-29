@@ -5,13 +5,17 @@
 //!
 //! 幕后运行，幕前只呈现最终结果。
 
-use super::AgentResult;
-use super::service::{AgentService, AgentTask, AgentType};
-use crate::db::DbPool;
-use crate::db::repositories::StyleDnaRepository;
-use crate::creative_engine::style::{StyleChecker, StyleDNA};
-use crate::error::AppError;
 use tauri::{AppHandle, Emitter, Manager};
+
+use super::{
+    service::{AgentService, AgentTask, AgentType},
+    AgentResult,
+};
+use crate::{
+    creative_engine::style::{StyleChecker, StyleDNA},
+    db::{repositories::StyleDnaRepository, DbPool},
+    error::AppError,
+};
 
 /// 生成模式 — 决定 Orchestrator 执行路径
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,9 +99,9 @@ pub struct WorkflowStepResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowStepType {
-    Generation,  // 生成
-    Inspection,  // 质检
-    Rewrite,     // 改写
+    Generation, // 生成
+    Inspection, // 质检
+    Rewrite,    // 改写
 }
 
 impl WorkflowStepType {
@@ -119,7 +123,11 @@ pub struct AgentOrchestrator {
 
 impl AgentOrchestrator {
     pub fn new(service: AgentService, config: WorkflowConfig, app_handle: AppHandle) -> Self {
-        Self { service, config, app_handle }
+        Self {
+            service,
+            config,
+            app_handle,
+        }
     }
 
     pub fn with_default_config(service: AgentService, app_handle: AppHandle) -> Self {
@@ -127,7 +135,13 @@ impl AgentOrchestrator {
     }
 
     /// 发射工作流步骤事件到前端
-    fn emit_step_event(&self, task_id: &str, step_type: WorkflowStepType, loop_idx: Option<u32>, score: Option<f32>) {
+    fn emit_step_event(
+        &self,
+        task_id: &str,
+        step_type: WorkflowStepType,
+        loop_idx: Option<u32>,
+        score: Option<f32>,
+    ) {
         let event = serde_json::json!({
             "task_id": task_id,
             "step_type": step_type.name(),
@@ -156,8 +170,13 @@ impl AgentOrchestrator {
                 tauri::async_runtime::spawn(async move {
                     let context = crate::agents::AgentContext::minimal(story_id, input);
                     let data = serde_json::json!({ "chapter_number": chapter_number });
-                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
-                    log::info!("[AgentOrchestrator] Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
+                    let _ = skill_manager
+                        .execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data)
+                        .await;
+                    log::info!(
+                        "[AgentOrchestrator] Hook executed: {:?}",
+                        crate::skills::HookEvent::BeforeAiWrite
+                    );
                 });
             }
         }
@@ -176,7 +195,9 @@ impl AgentOrchestrator {
             let content = workflow_result.final_content.clone();
             tauri::async_runtime::spawn(async move {
                 match writer.write(&story_id, chapter_number, &content).await {
-                    Ok(_) => log::info!("[AgentOrchestrator] Memory updated for story {}", story_id),
+                    Ok(_) => {
+                        log::info!("[AgentOrchestrator] Memory updated for story {}", story_id)
+                    }
                     Err(e) => log::warn!("[AgentOrchestrator] Memory write failed: {}", e),
                 }
             });
@@ -194,8 +215,13 @@ impl AgentOrchestrator {
                     tauri::async_runtime::spawn(async move {
                         let context = crate::agents::AgentContext::minimal(story_id, content);
                         let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
-                        let _ = skill_manager.execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data).await;
-                        log::info!("[AgentOrchestrator] Hook executed: {:?}", crate::skills::HookEvent::AfterAiWrite);
+                        let _ = skill_manager
+                            .execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data)
+                            .await;
+                        log::info!(
+                            "[AgentOrchestrator] Hook executed: {:?}",
+                            crate::skills::HookEvent::AfterAiWrite
+                        );
                     });
                 }
             }
@@ -237,10 +263,7 @@ impl AgentOrchestrator {
     /// 2. Inspector 质检
     /// 3. 如果分数 < threshold，将质检反馈传给 Writer 改写
     /// 4. 重复 2-3 直到分数达标或达到最大循环次数
-    pub async fn execute_full(
-        &self,
-        task: AgentTask,
-    ) -> Result<WorkflowResult, AppError> {
+    pub async fn execute_full(&self, task: AgentTask) -> Result<WorkflowResult, AppError> {
         let mut steps: Vec<WorkflowStepResult> = Vec::new();
         let mut rewrite_count: u32 = 0;
         let mut was_rewritten = false;
@@ -250,7 +273,15 @@ impl AgentOrchestrator {
 
         // v0.7.8: 3 候选并行生成选优（续写场景且有风格指纹时启用）
         let (writer_result, request_id, mut current_content) =
-            if task.context.style.style_fingerprint.is_some() || task.context.narrative.current_content.as_ref().map(|c| c.len() > 100).unwrap_or(false) {
+            if task.context.style.style_fingerprint.is_some()
+                || task
+                    .context
+                    .narrative
+                    .current_content
+                    .as_ref()
+                    .map(|c| c.len() > 100)
+                    .unwrap_or(false)
+            {
                 let (r, req_id, content) = self.generate_candidates(&task, 3).await?;
                 (r, Some(req_id), content)
             } else {
@@ -307,7 +338,8 @@ impl AgentOrchestrator {
                         }
                     }
                     if !dnas.is_empty() {
-                        let check_result = StyleChecker::check_blend(&current_content, blend, &dnas);
+                        let check_result =
+                            StyleChecker::check_blend(&current_content, blend, &dnas);
                         if !check_result.passed {
                             style_issues = check_result.issues;
                         }
@@ -328,7 +360,12 @@ impl AgentOrchestrator {
                 }
             }
 
-            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), Some(composite_score));
+            self.emit_step_event(
+                &task.id,
+                WorkflowStepType::Inspection,
+                Some(loop_idx),
+                Some(composite_score),
+            );
 
             let mut all_suggestions = inspect_result.suggestions.clone();
             all_suggestions.extend(style_issues);
@@ -399,7 +436,12 @@ impl AgentOrchestrator {
             let rewrite_result = Box::pin(self.service.execute_task(rewrite_task)).await?;
             current_content = rewrite_result.content.clone();
 
-            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), rewrite_result.score);
+            self.emit_step_event(
+                &task.id,
+                WorkflowStepType::Rewrite,
+                Some(loop_idx),
+                rewrite_result.score,
+            );
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Rewrite,
@@ -438,7 +480,10 @@ impl AgentOrchestrator {
     }
 
     /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）和记忆分析（v0.8.0）
-    fn parse_inspector_style_analysis(content: &str, fallback_score: f32) -> (f32, f32, Vec<String>) {
+    fn parse_inspector_style_analysis(
+        content: &str,
+        fallback_score: f32,
+    ) -> (f32, f32, Vec<String>) {
         // 尝试从 content 中提取 JSON
         let json_str = Self::extract_json_from_content(content);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -491,7 +536,9 @@ impl AgentOrchestrator {
                         }
                     }
                 }
-                if let Some(violations) = mem.get("world_rule_violations").and_then(|c| c.as_array()) {
+                if let Some(violations) =
+                    mem.get("world_rule_violations").and_then(|c| c.as_array())
+                {
                     for c in violations {
                         if let Some(s) = c.as_str() {
                             drift_details.push(format!("[记忆-世界观] {}", s));
@@ -548,7 +595,8 @@ impl AgentOrchestrator {
     ) -> String {
         let mut feedback = String::from("【质检反馈】\n");
 
-        feedback.push_str(&format!("叙事评分: {:.0}% | 风格评分: {:.0}%\n",
+        feedback.push_str(&format!(
+            "叙事评分: {:.0}% | 风格评分: {:.0}%\n",
             narrative_score * 100.0,
             style_score * 100.0
         ));
@@ -580,9 +628,15 @@ impl AgentOrchestrator {
         }
 
         if style_worse {
-            feedback.push_str("\n【重点】本次改写请优先解决风格一致性问题。保持与参考文本相同的句长分布、虚词偏好和四字格密度，宁可放慢叙事节奏也要保证语言风格统一。");
+            feedback.push_str(
+                "\n【重点】本次改写请优先解决风格一致性问题。保持与参考文本相同的句长分布、\
+                 虚词偏好和四字格密度，宁可放慢叙事节奏也要保证语言风格统一。",
+            );
         } else {
-            feedback.push_str("\n【重点】本次改写请优先解决叙事和文笔问题。在保持现有语言风格的基础上，改进情节连贯性和描写质量。");
+            feedback.push_str(
+                "\n【重点】本次改写请优先解决叙事和文笔问题。在保持现有语言风格的基础上，\
+                 改进情节连贯性和描写质量。",
+            );
         }
 
         feedback
@@ -631,28 +685,47 @@ impl AgentOrchestrator {
             tasks.push(candidate_task);
         }
 
-        log::info!("[Orchestrator] Generating {} candidates for task {}", count, task.id);
+        log::info!(
+            "[Orchestrator] Generating {} candidates for task {}",
+            count,
+            task.id
+        );
 
         // 并行执行所有候选
         let results: Vec<Result<AgentResult, AppError>> = futures::future::join_all(
-            tasks.into_iter().map(|t| self.service.execute_writer_raw(t))
-        ).await;
+            tasks
+                .into_iter()
+                .map(|t| self.service.execute_writer_raw(t)),
+        )
+        .await;
 
         // 获取参考指纹（从预计算或 current_content 提取）
         let reference_fp = task.context.style.style_fingerprint.clone().or_else(|| {
-            task.context.narrative.current_content.as_ref().and_then(|c| {
-                let cleaned = c.trim().trim_start_matches("...").trim_start();
-                let cleaned = if cleaned.starts_with('(') && cleaned.contains("已省略)") {
-                    cleaned.split_once('\n').map(|(_, rest)| rest).unwrap_or(cleaned).trim_start()
-                } else {
-                    cleaned
-                };
-                if cleaned.len() > 50 {
-                    Some(crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(cleaned))
-                } else {
-                    None
-                }
-            })
+            task.context
+                .narrative
+                .current_content
+                .as_ref()
+                .and_then(|c| {
+                    let cleaned = c.trim().trim_start_matches("...").trim_start();
+                    let cleaned = if cleaned.starts_with('(') && cleaned.contains("已省略)") {
+                        cleaned
+                            .split_once('\n')
+                            .map(|(_, rest)| rest)
+                            .unwrap_or(cleaned)
+                            .trim_start()
+                    } else {
+                        cleaned
+                    };
+                    if cleaned.len() > 50 {
+                        Some(
+                            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
+                                cleaned,
+                            ),
+                        )
+                    } else {
+                        None
+                    }
+                })
         });
 
         // 评分并选优
@@ -688,7 +761,9 @@ impl AgentOrchestrator {
         let best = candidates.swap_remove(best_idx);
         log::info!(
             "[Orchestrator] Selected candidate {} with score {:.2} (from {} valid)",
-            best_idx, best_score, candidates.len() + 1
+            best_idx,
+            best_score,
+            candidates.len() + 1
         );
 
         let req_id = best.0.request_id.clone().unwrap_or_default();
@@ -701,11 +776,13 @@ impl AgentOrchestrator {
         text: &str,
         reference: &crate::creative_engine::style::fingerprint::StyleFingerprint,
     ) -> f32 {
-        let candidate = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(text);
+        let candidate =
+            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(text);
 
         // 句长匹配度 (0-1)
         let len_match = if reference.syntax.avg_sentence_length > 0.0 {
-            let diff = (candidate.syntax.avg_sentence_length - reference.syntax.avg_sentence_length).abs();
+            let diff =
+                (candidate.syntax.avg_sentence_length - reference.syntax.avg_sentence_length).abs();
             let ratio = diff / reference.syntax.avg_sentence_length;
             (1.0 - ratio).clamp(0.0, 1.0)
         } else {
@@ -714,14 +791,26 @@ impl AgentOrchestrator {
 
         // 四字格密度匹配度 (0-1)
         let four_char_match = {
-            let diff = (candidate.vocabulary.four_char_density - reference.vocabulary.four_char_density).abs();
+            let diff = (candidate.vocabulary.four_char_density
+                - reference.vocabulary.four_char_density)
+                .abs();
             (1.0 - diff / 20.0).clamp(0.0, 1.0) // 20% 为最大容忍偏离
         };
 
         // 虚词偏好匹配度 — 计算前5虚词的重叠率
         let function_word_match = {
-            let ref_top: std::collections::HashSet<&String> = reference.vocabulary.function_words.iter().map(|(w, _)| w).collect();
-            let cand_top: std::collections::HashSet<&String> = candidate.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+            let ref_top: std::collections::HashSet<&String> = reference
+                .vocabulary
+                .function_words
+                .iter()
+                .map(|(w, _)| w)
+                .collect();
+            let cand_top: std::collections::HashSet<&String> = candidate
+                .vocabulary
+                .function_words
+                .iter()
+                .map(|(w, _)| w)
+                .collect();
             if !ref_top.is_empty() {
                 let overlap = ref_top.intersection(&cand_top).count() as f32;
                 overlap / ref_top.len() as f32
@@ -784,10 +873,7 @@ mod tests {
         let inspect_result = AgentResult {
             content: "质检报告".to_string(),
             score: Some(0.6),
-            suggestions: vec![
-                "对话不够自然".to_string(),
-                "角色动机不充分".to_string(),
-            ],
+            suggestions: vec!["对话不够自然".to_string(), "角色动机不充分".to_string()],
             request_id: None,
         };
 

@@ -1,7 +1,7 @@
 pub mod client;
 pub mod server;
-pub mod types;
 pub mod transport;
+pub mod types;
 
 #[allow(unused_imports)]
 pub use client::McpClient;

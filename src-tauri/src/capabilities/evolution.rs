@@ -1,13 +1,18 @@
 //! Capability Evolution - 能力进化反馈环
 //!
-//! Records execution results and uses LLM to improve capability descriptions over time.
+//! Records execution results and uses LLM to improve capability descriptions
+//! over time.
+
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
-use crate::llm::LlmService;
-use std::collections::HashMap;
 use tauri::Manager;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+
+use crate::llm::LlmService;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
@@ -30,11 +35,16 @@ impl ExecutionRecordStore {
     pub fn new(app_data_dir: &PathBuf) -> Self {
         let storage_path = app_data_dir.join("capability_execution_records.json");
         let cache = Arc::new(Mutex::new(Self::load_records(&storage_path)));
-        Self { storage_path, cache }
+        Self {
+            storage_path,
+            cache,
+        }
     }
 
     pub fn from_app_handle(app_handle: &tauri::AppHandle) -> Self {
-        let app_data_dir = app_handle.path().app_data_dir()
+        let app_data_dir = app_handle
+            .path()
+            .app_data_dir()
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         Self::new(&app_data_dir)
     }
@@ -76,8 +86,13 @@ impl ExecutionRecordStore {
 
     pub fn get_records(&self, capability_id: Option<&str>, limit: usize) -> Vec<ExecutionRecord> {
         let records = self.cache.lock().unwrap();
-        let filtered: Vec<_> = records.iter()
-            .filter(|r| capability_id.map(|id| r.capability_id == id).unwrap_or(true))
+        let filtered: Vec<_> = records
+            .iter()
+            .filter(|r| {
+                capability_id
+                    .map(|id| r.capability_id == id)
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect();
         filtered.into_iter().rev().take(limit).collect()
@@ -118,7 +133,9 @@ impl CapabilityEvolutionEngine {
     pub fn record_execution(&self, record: ExecutionRecord) -> Result<(), String> {
         log::info!(
             "[CapabilityEvolution] {} executed for '{}': success={}",
-            record.capability_id, record.user_input, record.success
+            record.capability_id,
+            record.user_input,
+            record.success
         );
         self.store.append(record);
         let total_records = self.store.len();
@@ -127,7 +144,12 @@ impl CapabilityEvolutionEngine {
             tauri::async_runtime::spawn(async move {
                 match engine.evolve_capability_descriptions().await {
                     Ok(improvements) if !improvements.is_empty() => {
-                        log::info!("[CapabilityEvolution] Periodic evolution triggered ({} records), {} descriptions improved", total_records, improvements.len());
+                        log::info!(
+                            "[CapabilityEvolution] Periodic evolution triggered ({} records), {} \
+                             descriptions improved",
+                            total_records,
+                            improvements.len()
+                        );
                     }
                     Ok(_) => {}
                     Err(e) => {
@@ -150,7 +172,9 @@ impl CapabilityEvolutionEngine {
         let path = match path {
             Some(p) => p,
             None => {
-                log::warn!("[CapabilityEvolution] EVOLVED_DESCRIPTIONS_PATH not set, skipping load");
+                log::warn!(
+                    "[CapabilityEvolution] EVOLVED_DESCRIPTIONS_PATH not set, skipping load"
+                );
                 return HashMap::new();
             }
         };
@@ -160,13 +184,19 @@ impl CapabilityEvolutionEngine {
         match std::fs::read_to_string(&path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(e) => {
-                log::warn!("[CapabilityEvolution] Failed to load evolved descriptions: {}", e);
+                log::warn!(
+                    "[CapabilityEvolution] Failed to load evolved descriptions: {}",
+                    e
+                );
                 HashMap::new()
             }
         }
     }
 
-    fn save_evolved_descriptions(&self, descriptions: &HashMap<String, String>) -> Result<(), String> {
+    fn save_evolved_descriptions(
+        &self,
+        descriptions: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let path = match crate::capabilities::EVOLVED_DESCRIPTIONS_PATH.lock() {
             Ok(guard) => guard.clone(),
             Err(_) => None,
@@ -177,12 +207,12 @@ impl CapabilityEvolutionEngine {
         };
         let json = serde_json::to_string_pretty(descriptions)
             .map_err(|e| format!("Serialize failed: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Write failed: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Write failed: {}", e))?;
         Ok(())
     }
 
-    /// Analyze execution history and suggest improvements to capability descriptions
+    /// Analyze execution history and suggest improvements to capability
+    /// descriptions
     pub async fn evolve_capability_descriptions(&self) -> Result<Vec<(String, String)>, String> {
         let stats = self.store.get_statistics();
         if stats.is_empty() {
@@ -206,7 +236,9 @@ impl CapabilityEvolutionEngine {
                 let feedback = r.user_feedback.as_deref().unwrap_or("none");
                 record_summary.push_str(&format!(
                     "- success={}, time={}ms, feedback={}, input={}\n",
-                    r.success, r.execution_time_ms, feedback,
+                    r.success,
+                    r.execution_time_ms,
+                    feedback,
                     &r.user_input.chars().take(80).collect::<String>()
                 ));
             }
@@ -223,10 +255,17 @@ Recent execution history:
 
 Based on this data, what is the single most important improvement to the "when_to_use" description?
 Respond with ONLY the improved description text (1-2 sentences). Do not include any explanation or formatting."#,
-                capability_id, total, success_rate * 100.0, record_summary
+                capability_id,
+                total,
+                success_rate * 100.0,
+                record_summary
             );
 
-            match self.llm_service.generate(prompt, Some(256), Some(0.3)).await {
+            match self
+                .llm_service
+                .generate(prompt, Some(256), Some(0.3))
+                .await
+            {
                 Ok(response) => {
                     let improved = response.content.trim().to_string();
                     if !improved.is_empty() && improved.len() > 20 {
@@ -234,7 +273,11 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
                     }
                 }
                 Err(e) => {
-                    log::warn!("[CapabilityEvolution] LLM analysis failed for {}: {}", capability_id, e);
+                    log::warn!(
+                        "[CapabilityEvolution] LLM analysis failed for {}: {}",
+                        capability_id,
+                        e
+                    );
                 }
             }
         }
@@ -246,13 +289,22 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
                 evolved.insert(id.clone(), desc.clone());
             }
             if let Err(e) = self.save_evolved_descriptions(&evolved) {
-                log::warn!("[CapabilityEvolution] Failed to save evolved descriptions: {}", e);
+                log::warn!(
+                    "[CapabilityEvolution] Failed to save evolved descriptions: {}",
+                    e
+                );
             } else {
-                log::info!("[CapabilityEvolution] Saved {} evolved descriptions", improvements.len());
+                log::info!(
+                    "[CapabilityEvolution] Saved {} evolved descriptions",
+                    improvements.len()
+                );
             }
         }
 
-        log::info!("[CapabilityEvolution] Generated {} improvement suggestions", improvements.len());
+        log::info!(
+            "[CapabilityEvolution] Generated {} improvement suggestions",
+            improvements.len()
+        );
         Ok(improvements)
     }
 

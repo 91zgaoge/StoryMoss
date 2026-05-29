@@ -1,11 +1,12 @@
 //! 自动化处理器定义
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Wry};
 
-use crate::db::DbPool;
 use super::triggers::TriggerEvent;
+use crate::db::DbPool;
 
 /// 处理器上下文
 #[derive(Debug, Clone)]
