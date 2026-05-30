@@ -83,7 +83,7 @@ export function NarrativeAnalysis() {
           <p className="text-gray-500 text-sm">暂无分析数据。保存章节后将自动分析。</p>
         ) : (
           <div className="grid grid-cols-4 gap-3">
-            {structure.map((act) => (
+            {structure.map(act => (
               <div
                 key={act.act_number}
                 className={`p-4 rounded-lg border ${actColors[act.act_type] || 'bg-gray-500/20 border-gray-500/40'}`}
@@ -113,8 +113,11 @@ export function NarrativeAnalysis() {
           <p className="text-gray-500 text-sm">暂无事件数据。</p>
         ) : (
           <div className="space-y-2">
-            {events.slice(0, 20).map((ev) => (
-              <div key={ev.scene_id} className="flex items-center gap-3 bg-cinema-800/50 rounded px-3 py-2">
+            {events.slice(0, 20).map(ev => (
+              <div
+                key={ev.scene_id}
+                className="flex items-center gap-3 bg-cinema-800/50 rounded px-3 py-2"
+              >
                 <div className="text-sm text-gray-400 w-16">第{ev.scene_number}章</div>
                 <div className="flex-1 text-sm text-white truncate">{ev.title || '未命名场景'}</div>
                 <div className="w-32 h-2 bg-cinema-900 rounded-full overflow-hidden">

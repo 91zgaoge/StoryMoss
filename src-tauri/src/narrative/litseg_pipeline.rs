@@ -2,27 +2,31 @@
 //!
 //! 依次执行：
 //! 1. ThreadTracker 推断线索 → 保存 narrative_threads
-//! 2. NarrativeStructureAnalyzer 分析幕结构 → 保存 narrative_structure + positions
+//! 2. NarrativeStructureAnalyzer 分析幕结构 → 保存 narrative_structure +
+//!    positions
 //! 3. NarrativeChunker 生成文本块 → 保存 narrative_chunks
 
 use std::{str::FromStr, sync::Arc};
 
 use chrono::Local;
 
-use crate::db::{
-    repositories_narrative_events::{
-        NarrativeChunkRepository, NarrativeEventRepository, NarrativeStructurePositionRepository,
-        NarrativeStructureRepository, NarrativeThreadRepository,
+use crate::{
+    db::{
+        repositories_narrative_events::{
+            NarrativeChunkRepository, NarrativeEventRepository,
+            NarrativeStructurePositionRepository, NarrativeStructureRepository,
+            NarrativeThreadRepository,
+        },
+        DbPool,
     },
-    DbPool,
-};
-use crate::llm::LlmService;
-use crate::narrative::{
-    chunker::{NarrativeChunker, SceneRef},
-    event::NarrativeEvent as DomainEvent,
-    structure::NarrativeStructure as DomainStructure,
-    structure_analyzer::NarrativeStructureAnalyzer,
-    thread_tracker::ThreadTracker,
+    llm::LlmService,
+    narrative::{
+        chunker::{NarrativeChunker, SceneRef},
+        event::NarrativeEvent as DomainEvent,
+        structure::NarrativeStructure as DomainStructure,
+        structure_analyzer::NarrativeStructureAnalyzer,
+        thread_tracker::ThreadTracker,
+    },
 };
 
 /// 运行完整的叙事分析流水线
@@ -72,8 +76,7 @@ pub async fn run_narrative_analysis(
 // ==================== 转换函数 ====================
 
 fn db_event_to_domain(db: crate::db::models::NarrativeEvent) -> DomainEvent {
-    use crate::db::ConflictType;
-    use crate::narrative::event::EventType;
+    use crate::{db::ConflictType, narrative::event::EventType};
 
     DomainEvent {
         id: db.id,
@@ -84,7 +87,8 @@ fn db_event_to_domain(db: crate::db::models::NarrativeEvent) -> DomainEvent {
         intensity: db.intensity,
         sentiment: db.sentiment,
         description: db.description,
-        involved_character_ids: serde_json::from_str(&db.involved_character_ids).unwrap_or_default(),
+        involved_character_ids: serde_json::from_str(&db.involved_character_ids)
+            .unwrap_or_default(),
         conflict_types: serde_json::from_str::<Vec<String>>(&db.conflict_types)
             .unwrap_or_default()
             .into_iter()

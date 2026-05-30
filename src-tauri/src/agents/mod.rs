@@ -319,7 +319,10 @@ impl AgentContext {
                 parts.push("注意: 接近叙事边界，可能发生转折".to_string());
             }
             if !self.narrative.active_threads.is_empty() {
-                parts.push(format!("活跃线索: {}", self.narrative.active_threads.join(", ")));
+                parts.push(format!(
+                    "活跃线索: {}",
+                    self.narrative.active_threads.join(", ")
+                ));
             }
             parts.join("\n")
         } else {

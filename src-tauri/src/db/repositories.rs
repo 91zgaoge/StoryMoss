@@ -4838,21 +4838,21 @@ impl SceneDividerRepository {
                  created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    &id,
-                    chapter_id,
-            narrative_intensity: None,
-            narrative_sentiment: None,
-            narrative_event_types: None,
-            narrative_preceding_scene_id: None,
-            narrative_following_scene_id: None,
-            act_number: None,
-            position_in_act: None,
-                    position,
-                    scene_id,
-                    label,
-                    now.to_rfc3339(),
-                    now.to_rfc3339()
-                ],
+                        &id,
+                        chapter_id,
+                narrative_intensity: None,
+                narrative_sentiment: None,
+                narrative_event_types: None,
+                narrative_preceding_scene_id: None,
+                narrative_following_scene_id: None,
+                act_number: None,
+                position_in_act: None,
+                        position,
+                        scene_id,
+                        label,
+                        now.to_rfc3339(),
+                        now.to_rfc3339()
+                    ],
             )?;
             nodes.push(super::models::SceneDividerNode {
                 id,

@@ -1320,13 +1320,21 @@ export interface NarrativeChunk {
 }
 
 export const analyzeNarrativeStructure = (storyId: string) =>
-  loggedInvoke<{ structure: NarrativeStructureAct[] }>('analyze_narrative_structure', { story_id: storyId });
+  loggedInvoke<{ structure: NarrativeStructureAct[] }>('analyze_narrative_structure', {
+    story_id: storyId,
+  });
 
 export const getNarrativeEvents = (storyId: string) =>
-  loggedInvoke<{ count: number; events: NarrativeEvent[] }>('get_narrative_events', { story_id: storyId });
+  loggedInvoke<{ count: number; events: NarrativeEvent[] }>('get_narrative_events', {
+    story_id: storyId,
+  });
 
 export const getNarrativeThreads = (storyId: string) =>
-  loggedInvoke<{ count: number; threads: NarrativeThread[] }>('get_narrative_threads', { story_id: storyId });
+  loggedInvoke<{ count: number; threads: NarrativeThread[] }>('get_narrative_threads', {
+    story_id: storyId,
+  });
 
 export const getNarrativeChunks = (storyId: string) =>
-  loggedInvoke<{ count: number; chunks: NarrativeChunk[] }>('get_narrative_chunks', { story_id: storyId });
+  loggedInvoke<{ count: number; chunks: NarrativeChunk[] }>('get_narrative_chunks', {
+    story_id: storyId,
+  });

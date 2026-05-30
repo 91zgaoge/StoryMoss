@@ -19,17 +19,17 @@
 
 pub mod analysis;
 pub mod audit;
+pub mod chunker;
 pub mod elements;
 pub mod event;
 pub mod genesis;
 pub mod health;
+pub mod litseg_pipeline;
 pub mod pipeline;
 pub mod progress;
 pub mod prompts;
-pub mod segment;
-pub mod chunker;
-pub mod litseg_pipeline;
 pub mod search;
+pub mod segment;
 pub mod structure;
 pub mod structure_analyzer;
 pub mod thread;

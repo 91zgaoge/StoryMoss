@@ -6,10 +6,14 @@
 //! 3. 将高潮点映射到起承转合
 //! 4. 为每个事件标注戏剧功能
 
-use crate::db::DbPool;
-use crate::narrative::event::{EventType, NarrativeEvent};
-use crate::narrative::structure::{
-    Act, ActType, DramaticFunction, NarrativeStructure, NarrativeStructurePosition,
+use crate::{
+    db::DbPool,
+    narrative::{
+        event::{EventType, NarrativeEvent},
+        structure::{
+            Act, ActType, DramaticFunction, NarrativeStructure, NarrativeStructurePosition,
+        },
+    },
 };
 
 /// 叙事结构分析器
@@ -74,8 +78,7 @@ impl NarrativeStructureAnalyzer {
         let position_in_act = self.calculate_position_in_act(event, act, events);
 
         // 确定戏剧功能
-        let dramatic_function =
-            self.determine_dramatic_function(event, act, position_in_act);
+        let dramatic_function = self.determine_dramatic_function(event, act, position_in_act);
 
         // 判断是否为叙事边界
         let is_boundary = self.is_narrative_boundary(event, act, position_in_act, events);
@@ -127,11 +130,7 @@ impl NarrativeStructureAnalyzer {
 
     // ==================== 幕推断 ====================
 
-    fn infer_acts_from_peaks(
-        &self,
-        events: &[NarrativeEvent],
-        peaks: &[usize],
-    ) -> Vec<Act> {
+    fn infer_acts_from_peaks(&self, events: &[NarrativeEvent], peaks: &[usize]) -> Vec<Act> {
         let max_chapter = events.iter().map(|e| e.chapter_number).max().unwrap_or(1);
 
         if peaks.is_empty() {
@@ -223,13 +222,16 @@ impl NarrativeStructureAnalyzer {
 
     // ==================== 事件位置分配 ====================
 
-    fn find_act_for_event<'a>(&self, event: &NarrativeEvent, structure: &'a NarrativeStructure) -> &'a Act {
+    fn find_act_for_event<'a>(
+        &self,
+        event: &NarrativeEvent,
+        structure: &'a NarrativeStructure,
+    ) -> &'a Act {
         structure
             .acts
             .iter()
             .find(|act| {
-                event.chapter_number >= act.start_chapter
-                    && event.chapter_number <= act.end_chapter
+                event.chapter_number >= act.start_chapter && event.chapter_number <= act.end_chapter
             })
             .unwrap_or(structure.acts.last().unwrap())
     }

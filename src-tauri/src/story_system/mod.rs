@@ -469,9 +469,9 @@ impl SceneCommitService {
         // LitSeg E1: 触发叙事分析流水线（在 kg ingest 完成后执行）
         let narrative_status = if kg_status == "success" {
             let pool = self.pool.clone();
-            match crate::narrative::litseg_pipeline::run_narrative_analysis(
-                &story_id, pool, None,
-            ).await {
+            match crate::narrative::litseg_pipeline::run_narrative_analysis(&story_id, pool, None)
+                .await
+            {
                 Ok(()) => "success".to_string(),
                 Err(e) => format!("error: {}", e),
             }

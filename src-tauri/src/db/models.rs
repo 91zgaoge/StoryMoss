@@ -1904,10 +1904,13 @@ pub struct CharacterState {
 }
 
 // ==================== LitSeg 深度融合模型 ====================
-// 注意: narrative_events / narrative_threads / narrative_structure 已合并到现有表:
+// 注意: narrative_events / narrative_threads / narrative_structure
+// 已合并到现有表:
 //   - narrative_events → scenes 表 (narrative_* 字段)
-//   - narrative_threads.foreshadow → foreshadowing_tracker (event_id + score 字段)
-//   - narrative_threads.character_arc → character_states (transitions + arc_type 字段)
+//   - narrative_threads.foreshadow → foreshadowing_tracker (event_id + score
+//     字段)
+//   - narrative_threads.character_arc → character_states (transitions +
+//     arc_type 字段)
 //   - narrative_threads.conflict_escalation → conflict_escalations 表
 //   - narrative_structure → story_outlines.analyzed_structure_json
 

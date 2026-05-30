@@ -2,14 +2,19 @@
 //!
 //! 基于叙事事件自动推断三种叙事线索：
 //! 1. 人物弧光线（CharacterArcThread）— 从 character_arc 事件推断
-//! 2. 伏笔线（ForeshadowThread）— 从 foreshadow_setup/payoff 事件推断，与 PayoffLedger 联动
+//! 2. 伏笔线（ForeshadowThread）— 从 foreshadow_setup/payoff 事件推断，与
+//!    PayoffLedger 联动
 //! 3. 冲突升级线（ConflictEscalationThread）— 从 conflict_eruption 事件推断
 
-use crate::db::ConflictType;
-use crate::narrative::event::{EventType, NarrativeEvent};
-use crate::narrative::thread::{
-    ArcType, CharacterArcThread, ConflictEscalationThread, ForeshadowStatus,
-    ForeshadowThread, IntensityRecord, NarrativeThread, StateTransition,
+use crate::{
+    db::ConflictType,
+    narrative::{
+        event::{EventType, NarrativeEvent},
+        thread::{
+            ArcType, CharacterArcThread, ConflictEscalationThread, ForeshadowStatus,
+            ForeshadowThread, IntensityRecord, NarrativeThread, StateTransition,
+        },
+    },
 };
 
 /// 叙事线索追踪器 — 从叙事事件自动推断线索
@@ -41,7 +46,10 @@ impl ThreadTracker {
         let mut character_events: std::collections::HashMap<String, Vec<&NarrativeEvent>> =
             std::collections::HashMap::new();
 
-        for event in events.iter().filter(|e| e.event_type == EventType::CharacterArc) {
+        for event in events
+            .iter()
+            .filter(|e| e.event_type == EventType::CharacterArc)
+        {
             for char_id in &event.involved_character_ids {
                 character_events
                     .entry(char_id.clone())
@@ -188,8 +196,7 @@ impl ThreadTracker {
         let a_chars: std::collections::HashSet<char> = a.chars().collect();
         let b_chars: std::collections::HashSet<char> = b.chars().collect();
 
-        let intersection: std::collections::HashSet<_> =
-            a_chars.intersection(&b_chars).collect();
+        let intersection: std::collections::HashSet<_> = a_chars.intersection(&b_chars).collect();
         let union: std::collections::HashSet<_> = a_chars.union(&b_chars).collect();
 
         if union.is_empty() {
@@ -205,10 +212,8 @@ impl ThreadTracker {
         let mut threads = Vec::new();
 
         // 按冲突类型分组收集 conflict_eruption 和 turning_point 事件
-        let mut conflict_events: std::collections::HashMap<
-            ConflictType,
-            Vec<&NarrativeEvent>,
-        > = std::collections::HashMap::new();
+        let mut conflict_events: std::collections::HashMap<ConflictType, Vec<&NarrativeEvent>> =
+            std::collections::HashMap::new();
 
         for event in events.iter().filter(|e| {
             e.event_type == EventType::ConflictEruption || e.event_type == EventType::TurningPoint

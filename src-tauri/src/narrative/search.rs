@@ -2,9 +2,10 @@
 //!
 //! 在标准混合检索（RRF）后增加叙事感知重排序层。
 
-use crate::memory::hybrid_search::HybridSearchResult;
-use crate::narrative::segment::ChunkType;
-use crate::narrative::structure::ActType;
+use crate::{
+    memory::hybrid_search::HybridSearchResult,
+    narrative::{segment::ChunkType, structure::ActType},
+};
 
 /// 叙事意图 — 查询的叙事阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

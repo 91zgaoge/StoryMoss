@@ -3,11 +3,15 @@
 //! 基于叙事结构生成文本块，在叙事边界处切分。
 //! 每个 NarrativeChunk 是一个完整的叙事单元。
 
-use crate::db::ConflictType;
-use crate::narrative::event::{EventType, NarrativeEvent};
-use crate::narrative::segment::{ChunkType, NarrativeChunk};
-use crate::narrative::structure::{Act, ActType, NarrativeStructure};
-use crate::narrative::structure_analyzer::NarrativeStructureAnalyzer;
+use crate::{
+    db::ConflictType,
+    narrative::{
+        event::{EventType, NarrativeEvent},
+        segment::{ChunkType, NarrativeChunk},
+        structure::{Act, ActType, NarrativeStructure},
+        structure_analyzer::NarrativeStructureAnalyzer,
+    },
+};
 
 /// 叙事感知分段器
 pub struct NarrativeChunker;
@@ -47,12 +51,16 @@ impl NarrativeChunker {
         // 筛选该幕的场景和事件
         let act_scenes: Vec<&SceneRef> = scenes
             .iter()
-            .filter(|s| s.chapter_number >= act.start_chapter && s.chapter_number <= act.end_chapter)
+            .filter(|s| {
+                s.chapter_number >= act.start_chapter && s.chapter_number <= act.end_chapter
+            })
             .collect();
 
         let act_events: Vec<&NarrativeEvent> = events
             .iter()
-            .filter(|e| e.chapter_number >= act.start_chapter && e.chapter_number <= act.end_chapter)
+            .filter(|e| {
+                e.chapter_number >= act.start_chapter && e.chapter_number <= act.end_chapter
+            })
             .collect();
 
         if act_scenes.is_empty() {
@@ -116,9 +124,7 @@ impl NarrativeChunker {
     }
 
     /// 在幕内查找叙事边界 — 基于事件强度突变
-    fn find_narrative_boundaries_within_act(
-        events: &[&NarrativeEvent],
-    ) -> Vec<usize> {
+    fn find_narrative_boundaries_within_act(events: &[&NarrativeEvent]) -> Vec<usize> {
         if events.len() < 3 {
             return vec![];
         }

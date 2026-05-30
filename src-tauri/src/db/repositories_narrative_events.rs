@@ -1,16 +1,16 @@
 //! LitSeg 叙事感知分段与检索 — Repository 层 (深度融合后)
 //!
-//! 操作 narrative_structure_positions / conflict_escalations / narrative_chunks 表。
-//! 注意: narrative_events / narrative_threads / narrative_structure 已合并到现有表。
+//! 操作 narrative_structure_positions / conflict_escalations / narrative_chunks
+//! 表。 注意: narrative_events / narrative_threads / narrative_structure
+//! 已合并到现有表。
 
 use chrono::Local;
 use rusqlite::params;
 
-use super::{
-    ConflictEscalation, DbPool, NarrativeChunk, NarrativeStructurePosition,
-};
+use super::{ConflictEscalation, DbPool, NarrativeChunk, NarrativeStructurePosition};
 
-// ==================== Narrative Structure Position Repository ====================
+// ==================== Narrative Structure Position Repository
+// ====================
 
 pub struct NarrativeStructurePositionRepository {
     pool: DbPool,
@@ -164,10 +164,7 @@ impl ConflictEscalationRepository {
         Ok(())
     }
 
-    pub fn get_by_story(
-        &self,
-        story_id: &str,
-    ) -> Result<Vec<ConflictEscalation>, rusqlite::Error> {
+    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<ConflictEscalation>, rusqlite::Error> {
         let conn = self
             .pool
             .get()

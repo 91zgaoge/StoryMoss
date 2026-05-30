@@ -3560,7 +3560,8 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 74)?;
     }
 
-    // Migration 76: 创建 narrative_structure_positions 表 — LitSeg 叙事结构定位 (E1)
+    // Migration 76: 创建 narrative_structure_positions 表 — LitSeg 叙事结构定位
+    // (E1)
     if current_version < 75 {
         let position_tables: Vec<String> = conn
             .prepare(
@@ -3698,25 +3699,46 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             .collect::<Result<Vec<_>, _>>()?;
 
         if !scene_cols.contains(&"narrative_intensity".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_intensity REAL DEFAULT 0.5", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN narrative_intensity REAL DEFAULT 0.5",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"narrative_sentiment".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_sentiment REAL DEFAULT 0.0", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN narrative_sentiment REAL DEFAULT 0.0",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"narrative_event_types".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_event_types TEXT DEFAULT '[]'", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN narrative_event_types TEXT DEFAULT '[]'",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"narrative_preceding_scene_id".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_preceding_scene_id TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN narrative_preceding_scene_id TEXT",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"narrative_following_scene_id".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_following_scene_id TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN narrative_following_scene_id TEXT",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"act_number".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN act_number INTEGER DEFAULT 1", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN act_number INTEGER DEFAULT 1",
+                [],
+            )?;
         }
         if !scene_cols.contains(&"position_in_act".to_string()) {
-            conn.execute("ALTER TABLE scenes ADD COLUMN position_in_act INTEGER DEFAULT 1", [])?;
+            conn.execute(
+                "ALTER TABLE scenes ADD COLUMN position_in_act INTEGER DEFAULT 1",
+                [],
+            )?;
         }
         record_migration(conn, 78)?;
     }
@@ -3732,13 +3754,22 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             .collect::<Result<Vec<_>, _>>()?;
 
         if !fs_cols.contains(&"setup_event_id".to_string()) {
-            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN setup_event_id TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN setup_event_id TEXT",
+                [],
+            )?;
         }
         if !fs_cols.contains(&"payoff_event_id".to_string()) {
-            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN payoff_event_id TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN payoff_event_id TEXT",
+                [],
+            )?;
         }
         if !fs_cols.contains(&"risk_signals_score".to_string()) {
-            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals_score REAL DEFAULT 0.0", [])?;
+            conn.execute(
+                "ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals_score REAL DEFAULT 0.0",
+                [],
+            )?;
         }
         record_migration(conn, 79)?;
     }
@@ -3754,10 +3785,16 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             .collect::<Result<Vec<_>, _>>()?;
 
         if !cs_cols.contains(&"state_transitions_json".to_string()) {
-            conn.execute("ALTER TABLE character_states ADD COLUMN state_transitions_json TEXT DEFAULT '[]'", [])?;
+            conn.execute(
+                "ALTER TABLE character_states ADD COLUMN state_transitions_json TEXT DEFAULT '[]'",
+                [],
+            )?;
         }
         if !cs_cols.contains(&"arc_type".to_string()) {
-            conn.execute("ALTER TABLE character_states ADD COLUMN arc_type TEXT DEFAULT 'positive'", [])?;
+            conn.execute(
+                "ALTER TABLE character_states ADD COLUMN arc_type TEXT DEFAULT 'positive'",
+                [],
+            )?;
         }
         record_migration(conn, 80)?;
     }
@@ -3773,7 +3810,10 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             .collect::<Result<Vec<_>, _>>()?;
 
         if !so_cols.contains(&"analyzed_structure_json".to_string()) {
-            conn.execute("ALTER TABLE story_outlines ADD COLUMN analyzed_structure_json TEXT", [])?;
+            conn.execute(
+                "ALTER TABLE story_outlines ADD COLUMN analyzed_structure_json TEXT",
+                [],
+            )?;
         }
         record_migration(conn, 81)?;
     }
@@ -3781,7 +3821,9 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     // Migration 83: 新建 conflict_escalations 表
     if current_version < 82 {
         let ce_tables: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conflict_escalations'")?
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='conflict_escalations'",
+            )?
             .query_map([], |row| {
                 let name: String = row.get(0)?;
                 Ok(name)
@@ -3804,8 +3846,14 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
                 )",
                 [],
             )?;
-            conn.execute("CREATE INDEX idx_conflict_escalations_story ON conflict_escalations(story_id)", [])?;
-            conn.execute("CREATE INDEX idx_conflict_escalations_type ON conflict_escalations(conflict_type)", [])?;
+            conn.execute(
+                "CREATE INDEX idx_conflict_escalations_story ON conflict_escalations(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_conflict_escalations_type ON conflict_escalations(conflict_type)",
+                [],
+            )?;
         }
         record_migration(conn, 82)?;
     }
@@ -3814,9 +3862,11 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     if current_version < 83 {
         // 删除 narrative_events 表（功能已合并到 scenes 表）
         conn.execute("DROP TABLE IF EXISTS narrative_events", [])?;
-        // 删除 narrative_threads 表（功能已拆分到 foreshadowing_tracker/character_states/conflict_escalations）
+        // 删除 narrative_threads 表（功能已拆分到
+        // foreshadowing_tracker/character_states/conflict_escalations）
         conn.execute("DROP TABLE IF EXISTS narrative_threads", [])?;
-        // 删除 narrative_structure 表（功能已合并到 story_outlines.analyzed_structure_json）
+        // 删除 narrative_structure 表（功能已合并到
+        // story_outlines.analyzed_structure_json）
         conn.execute("DROP TABLE IF EXISTS narrative_structure", [])?;
         // 清理相关索引
         conn.execute("DROP INDEX IF EXISTS idx_narrative_events_story", [])?;

@@ -19,7 +19,9 @@ pub async fn analyze_narrative_structure(
     let repo = StoryOutlineRepository::new(state.inner().clone());
     match repo.get_by_story(&story_id) {
         Ok(outline) => {
-            let structure = outline.analyzed_structure_json.as_ref()
+            let structure = outline
+                .analyzed_structure_json
+                .as_ref()
                 .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
                 .unwrap_or_else(|| serde_json::json!([]));
             Ok(serde_json::json!({
@@ -45,16 +47,18 @@ pub async fn get_narrative_events(
             let events: Vec<serde_json::Value> = scenes
                 .into_iter()
                 .filter(|s| s.narrative_intensity.is_some())
-                .map(|s| serde_json::json!({
-                    "scene_id": s.id,
-                    "scene_number": s.sequence_number,
-                    "title": s.title,
-                    "intensity": s.narrative_intensity,
-                    "sentiment": s.narrative_sentiment,
-                    "event_types": s.narrative_event_types,
-                    "act_number": s.act_number,
-                    "position_in_act": s.position_in_act,
-                }))
+                .map(|s| {
+                    serde_json::json!({
+                        "scene_id": s.id,
+                        "scene_number": s.sequence_number,
+                        "title": s.title,
+                        "intensity": s.narrative_intensity,
+                        "sentiment": s.narrative_sentiment,
+                        "event_types": s.narrative_event_types,
+                        "act_number": s.act_number,
+                        "position_in_act": s.position_in_act,
+                    })
+                })
                 .collect();
             Ok(serde_json::json!({
                 "success": true,

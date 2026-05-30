@@ -734,7 +734,8 @@ impl IngestPipeline {
             return;
         }
 
-        // 按事件类型排序：introduction -> foreshadow_setup -> conflict_eruption -> turning_point -> climax -> resolution -> foreshadow_payoff
+        // 按事件类型排序：introduction -> foreshadow_setup -> conflict_eruption ->
+        // turning_point -> climax -> resolution -> foreshadow_payoff
         let type_order = |et: &EventType| match et {
             EventType::Introduction => 0,
             EventType::ForeshadowSetup => 1,
@@ -777,8 +778,8 @@ impl IngestPipeline {
 
             let event_types_json = serde_json::to_string(&[event.event_type.to_string()])
                 .unwrap_or_else(|_| "[]".to_string());
-            let conflict_types_json = serde_json::to_string(&event.conflict_types)
-                .unwrap_or_else(|_| "[]".to_string());
+            let conflict_types_json =
+                serde_json::to_string(&event.conflict_types).unwrap_or_else(|_| "[]".to_string());
 
             let result = conn.execute(
                 "UPDATE scenes SET
@@ -803,7 +804,11 @@ impl IngestPipeline {
             );
 
             if let Err(e) = result {
-                log::warn!("[Ingest] 更新场景叙事字段失败 (scene_id={}): {}", scene_id, e);
+                log::warn!(
+                    "[Ingest] 更新场景叙事字段失败 (scene_id={}): {}",
+                    scene_id,
+                    e
+                );
             }
         }
         Ok(())

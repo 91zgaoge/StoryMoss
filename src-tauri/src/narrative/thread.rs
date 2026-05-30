@@ -12,14 +12,14 @@ use crate::db::ConflictType;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ForeshadowStatus {
-    Setup,      // 已埋设
-    Payoff,     // 已回收
-    Abandoned,  // 已放弃
-    Pending,    // 待处理
-    Hinted,     // 暗示阶段
-    PaidOff,    // 已回收（PayoffLedger 用）
-    Failed,     // 失败（PayoffLedger 用）
-    Overdue,    // 超期未回收（PayoffLedger 用）
+    Setup,     // 已埋设
+    Payoff,    // 已回收
+    Abandoned, // 已放弃
+    Pending,   // 待处理
+    Hinted,    // 暗示阶段
+    PaidOff,   // 已回收（PayoffLedger 用）
+    Failed,    // 失败（PayoffLedger 用）
+    Overdue,   // 超期未回收（PayoffLedger 用）
 }
 
 impl Default for ForeshadowStatus {
@@ -136,4 +136,3 @@ pub struct IntensityRecord {
     pub intensity: f32,
     pub description: String,
 }
-

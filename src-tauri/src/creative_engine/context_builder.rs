@@ -521,9 +521,9 @@ impl StoryContextBuilder {
         acts: &[crate::narrative::structure::Act],
         current_chapter: i32,
     ) -> Option<NarrativeStructureContext> {
-        let current_act = acts.iter().find(|a| {
-            current_chapter >= a.start_chapter && current_chapter <= a.end_chapter
-        })?;
+        let current_act = acts
+            .iter()
+            .find(|a| current_chapter >= a.start_chapter && current_chapter <= a.end_chapter)?;
 
         let position_in_act = if current_act.end_chapter > current_act.start_chapter {
             (current_chapter - current_act.start_chapter) as f32
@@ -554,7 +554,9 @@ impl StoryContextBuilder {
 
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = repo.get_by_story(story_id).ok()?;
-        let current_scene = scenes.iter().find(|s| s.sequence_number == current_chapter)?;
+        let current_scene = scenes
+            .iter()
+            .find(|s| s.sequence_number == current_chapter)?;
         let act_number = current_scene.act_number.unwrap_or(1);
         let position_in_act = current_scene.position_in_act.unwrap_or(1) as f32 / 3.0;
 
@@ -584,7 +586,11 @@ impl StoryContextBuilder {
         let fs_tracker = ForeshadowingTracker::new(self.pool.clone());
         if let Ok(unresolved) = fs_tracker.get_unresolved(story_id) {
             for fs in unresolved.iter().take(5) {
-                threads.push(format!("伏笔:{}(风险:{:.1})", fs.content, fs.risk_signals_score.unwrap_or(0.0)));
+                threads.push(format!(
+                    "伏笔:{}(风险:{:.1})",
+                    fs.content,
+                    fs.risk_signals_score.unwrap_or(0.0)
+                ));
             }
         }
 

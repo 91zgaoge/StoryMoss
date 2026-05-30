@@ -107,14 +107,16 @@ Identify any:
     pub fn narrative_event_extraction() -> PromptTemplate {
         PromptTemplate {
             name: "narrative_event_extraction".to_string(),
-            system_prompt: "你是一个专业的叙事分析专家。你的任务是从小说文本中提取推动情节发展的关键事件。\n\n\
+            system_prompt:
+                "你是一个专业的叙事分析专家。你的任务是从小说文本中提取推动情节发展的关键事件。\n\n\
 分析标准：\n\
 1. 「有效事件」= 真正推动情节发展的关键节点，不是过渡性描述\n\
 2. 事件强度（0.0-1.0）反映对后续情节的影响程度\n\
 3. 如果角色发生内在改变（信念、态度、关系本质），标记为角色弧光\n\
 4. 伏笔埋设和回收是独立事件，即使在同一场景中\n\
 5. 保持与已有事件链的因果一致性\n\n\
-输出 JSON 格式的事件数组。".to_string(),
+输出 JSON 格式的事件数组。"
+                    .to_string(),
             user_prompt_template: "请分析以下文本，提取推动情节发展的关键事件。\n\n\
 【角色列表】\n\
 {characters}\n\n\
@@ -139,7 +141,8 @@ Identify any:
 - description: 事件描述（20-50字）\n\
 - involved_character_ids: 涉及的角色 ID 数组\n\
 - conflict_types: 涉及的冲突类型数组\n\n\
-只输出 JSON，不要其他文字。".to_string(),
+只输出 JSON，不要其他文字。"
+                .to_string(),
         }
     }
 
