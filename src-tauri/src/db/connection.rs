@@ -3878,6 +3878,68 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 83)?;
     }
 
+    // Migration 85: 增强 reference_scenes 表 — 添加 LitSeg 叙事分析字段
+    if current_version < 85 {
+        let rs_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(reference_scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !rs_cols.contains(&"narrative_intensity".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_scenes ADD COLUMN narrative_intensity REAL",
+                [],
+            )?;
+        }
+        if !rs_cols.contains(&"narrative_sentiment".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_scenes ADD COLUMN narrative_sentiment REAL",
+                [],
+            )?;
+        }
+        if !rs_cols.contains(&"narrative_event_types".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_scenes ADD COLUMN narrative_event_types TEXT DEFAULT '[]'",
+                [],
+            )?;
+        }
+        if !rs_cols.contains(&"act_number".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_scenes ADD COLUMN act_number INTEGER DEFAULT 1",
+                [],
+            )?;
+        }
+        if !rs_cols.contains(&"position_in_act".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_scenes ADD COLUMN position_in_act REAL DEFAULT 0.0",
+                [],
+            )?;
+        }
+        record_migration(conn, 85)?;
+    }
+
+    // Migration 86: 增强 reference_books 表 — 添加 LitSeg 分析后的叙事结构
+    if current_version < 86 {
+        let rb_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(reference_books)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !rb_cols.contains(&"analyzed_structure_json".to_string()) {
+            conn.execute(
+                "ALTER TABLE reference_books ADD COLUMN analyzed_structure_json TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 86)?;
+    }
+
     Ok(())
 }
 

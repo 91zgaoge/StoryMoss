@@ -170,7 +170,10 @@ impl SceneRepository {
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
              updated_at, confidence_score,
                     execution_stage, outline_content, draft_content, style_blend_override, \
-             foreshadowing_ids, chapter_id
+             foreshadowing_ids, chapter_id,
+                    narrative_intensity, narrative_sentiment, narrative_event_types, \
+             narrative_preceding_scene_id,
+                    narrative_following_scene_id, act_number, position_in_act
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number",
         )?;
 
@@ -224,6 +227,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
+                        narrative_intensity: row.get(26)?,
+                        narrative_sentiment: row.get(27)?,
+                        narrative_event_types: row.get(28)?,
+                        narrative_preceding_scene_id: row.get(29)?,
+                        narrative_following_scene_id: row.get(30)?,
+                        act_number: row.get(31)?,
+                        position_in_act: row.get(32)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -244,7 +254,10 @@ impl SceneRepository {
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
              updated_at, confidence_score,
                     execution_stage, outline_content, draft_content, style_blend_override, \
-             foreshadowing_ids, chapter_id
+             foreshadowing_ids, chapter_id,
+                    narrative_intensity, narrative_sentiment, narrative_event_types, \
+             narrative_preceding_scene_id,
+                    narrative_following_scene_id, act_number, position_in_act
              FROM scenes WHERE chapter_id = ?1 ORDER BY sequence_number",
         )?;
 
@@ -298,6 +311,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
+                        narrative_intensity: row.get(26)?,
+                        narrative_sentiment: row.get(27)?,
+                        narrative_event_types: row.get(28)?,
+                        narrative_preceding_scene_id: row.get(29)?,
+                        narrative_following_scene_id: row.get(30)?,
+                        act_number: row.get(31)?,
+                        position_in_act: row.get(32)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -318,7 +338,10 @@ impl SceneRepository {
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, \
              updated_at, confidence_score,
                     execution_stage, outline_content, draft_content, style_blend_override, \
-             foreshadowing_ids, chapter_id
+             foreshadowing_ids, chapter_id,
+                    narrative_intensity, narrative_sentiment, narrative_event_types, \
+             narrative_preceding_scene_id,
+                    narrative_following_scene_id, act_number, position_in_act
              FROM scenes WHERE id = ?1",
         )?;
 
@@ -372,6 +395,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
+                        narrative_intensity: row.get(26)?,
+                        narrative_sentiment: row.get(27)?,
+                        narrative_event_types: row.get(28)?,
+                        narrative_preceding_scene_id: row.get(29)?,
+                        narrative_following_scene_id: row.get(30)?,
+                        act_number: row.get(31)?,
+                        position_in_act: row.get(32)?,
                 })
             })
             .optional()?;
@@ -2494,13 +2524,6 @@ impl TextAnnotationRepository {
                 story_id,
                 scene_id,
                 chapter_id,
-            narrative_intensity: None,
-            narrative_sentiment: None,
-            narrative_event_types: None,
-            narrative_preceding_scene_id: None,
-            narrative_following_scene_id: None,
-            act_number: None,
-            position_in_act: None,
                 content,
                 annotation_type,
                 from_pos,
@@ -3831,13 +3854,6 @@ impl UserFeedbackRepository {
                 story_id,
                 scene_id,
                 chapter_id,
-            narrative_intensity: None,
-            narrative_sentiment: None,
-            narrative_event_types: None,
-            narrative_preceding_scene_id: None,
-            narrative_following_scene_id: None,
-            act_number: None,
-            position_in_act: None,
                 feedback_type,
                 agent_type,
                 original_ai_text,
@@ -4234,6 +4250,7 @@ impl StoryOutlineRepository {
             total_scenes_estimate,
             created_at: now,
             updated_at: now,
+            analyzed_structure_json: None,
         })
     }
 
@@ -4247,14 +4264,14 @@ impl StoryOutlineRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, content, structure_json, act_count, total_scenes_estimate, \
-             created_at, updated_at
+             analyzed_structure_json, created_at, updated_at
              FROM story_outlines WHERE story_id = ?1",
         )?;
 
         let outline = stmt
             .query_row([story_id], |row| {
-                let created_str: String = row.get(6)?;
-                let updated_str: String = row.get(7)?;
+                let created_str: String = row.get(7)?;
+                let updated_str: String = row.get(8)?;
 
                 Ok(super::models::StoryOutline {
                     id: row.get(0)?,
@@ -4263,6 +4280,7 @@ impl StoryOutlineRepository {
                     structure_json: row.get(3)?,
                     act_count: row.get(4)?,
                     total_scenes_estimate: row.get(5)?,
+                    analyzed_structure_json: row.get(6)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
@@ -4758,13 +4776,6 @@ impl SceneDividerRepository {
             params![
                 &id,
                 chapter_id,
-            narrative_intensity: None,
-            narrative_sentiment: None,
-            narrative_event_types: None,
-            narrative_preceding_scene_id: None,
-            narrative_following_scene_id: None,
-            act_number: None,
-            position_in_act: None,
                 position,
                 scene_id,
                 label,
@@ -4838,21 +4849,14 @@ impl SceneDividerRepository {
                  created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                        &id,
-                        chapter_id,
-                narrative_intensity: None,
-                narrative_sentiment: None,
-                narrative_event_types: None,
-                narrative_preceding_scene_id: None,
-                narrative_following_scene_id: None,
-                act_number: None,
-                position_in_act: None,
-                        position,
-                        scene_id,
-                        label,
-                        now.to_rfc3339(),
-                        now.to_rfc3339()
-                    ],
+                    &id,
+                    chapter_id,
+                    position,
+                    scene_id,
+                    label,
+                    now.to_rfc3339(),
+                    now.to_rfc3339()
+                ],
             )?;
             nodes.push(super::models::SceneDividerNode {
                 id,
@@ -5412,6 +5416,8 @@ impl CharacterRepository {
                     key_items: row.get(4).ok(),
                     recent_events: row.get(5).ok(),
                     updated_at_chapter: row.get(6).ok(),
+                    arc_type: None,
+                    state_transitions_json: None,
                 })
             })
             .optional()?;

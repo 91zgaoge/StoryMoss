@@ -137,7 +137,7 @@ export function BookDetailView({ analysis, onConvertToStory, isConverting }: Boo
 
         {activeTab === 'characters' && <CharacterList characters={characters} />}
         {activeTab === 'chapters' && <ChapterOutline scenes={scenes} />}
-        {activeTab === 'story-arc' && <StoryArcView book={book} />}
+        {activeTab === 'story-arc' && <StoryArcView book={book} scenes={scenes} />}
       </div>
     </div>
   );

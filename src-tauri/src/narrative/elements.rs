@@ -145,6 +145,17 @@ pub struct SceneElement {
     #[serde(default)]
     pub setting_time: String,
     pub content: Option<String>, // 正文内容（可选）
+    // LitSeg: 叙事分析字段（从 conflict_type + emotional_tone 推导）
+    #[serde(default)]
+    pub narrative_intensity: f32, // 0.0-1.0
+    #[serde(default)]
+    pub narrative_sentiment: f32, // -1.0 ~ +1.0
+    #[serde(default)]
+    pub narrative_event_types: Vec<String>, // 关键事件归类
+    #[serde(default)]
+    pub act_number: i32, // 所属幕（pipeline 后填充）
+    #[serde(default)]
+    pub position_in_act: f32, // 在幕中的位置 0.0-1.0
     #[serde(default)]
     pub source: ElementSource,
     #[serde(default)]

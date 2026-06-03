@@ -583,8 +583,13 @@ JSON格式：
                         serde_json::to_string(&result.characters_present).unwrap_or_default(),
                     ),
                     key_events: Some(serde_json::to_string(&result.key_events).unwrap_or_default()),
+                    narrative_intensity: result.conflict_type.as_ref().map(|ct| crate::narrative::intensity_mapper::conflict_type_to_intensity(ct)),
+                    narrative_sentiment: result.emotional_tone.as_ref().map(|et| crate::narrative::intensity_mapper::emotional_tone_to_sentiment(et)),
                     conflict_type: result.conflict_type,
                     emotional_tone: result.emotional_tone,
+                    narrative_event_types: None,
+                    act_number: None,
+                    position_in_act: None,
                     created_at: now,
                 },
                 Err(e) => {
@@ -603,6 +608,11 @@ JSON格式：
                         key_events: None,
                         conflict_type: None,
                         emotional_tone: None,
+                        narrative_intensity: None,
+                        narrative_sentiment: None,
+                        narrative_event_types: None,
+                        act_number: None,
+                        position_in_act: None,
                         created_at: now,
                     }
                 }
@@ -761,6 +771,7 @@ JSON格式：
             world_setting: Some(world_setting),
             plot_summary: Some(plot_summary),
             story_arc: Some(story_arc_json),
+            analyzed_structure_json: None,
             analysis_status: AnalysisStatus::Completed,
             task_id: None,
             analysis_progress: 100,

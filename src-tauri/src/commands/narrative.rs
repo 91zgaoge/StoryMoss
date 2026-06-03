@@ -18,7 +18,7 @@ pub async fn analyze_narrative_structure(
 
     let repo = StoryOutlineRepository::new(state.inner().clone());
     match repo.get_by_story(&story_id) {
-        Ok(outline) => {
+        Ok(Some(outline)) => {
             let structure = outline
                 .analyzed_structure_json
                 .as_ref()
@@ -29,6 +29,10 @@ pub async fn analyze_narrative_structure(
                 "structure": structure,
             }))
         }
+        Ok(None) => Ok(serde_json::json!({
+            "success": true,
+            "structure": serde_json::json!([]),
+        })),
         Err(e) => Err(format!("获取叙事结构失败: {}", e)),
     }
 }

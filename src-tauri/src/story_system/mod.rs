@@ -421,6 +421,7 @@ impl SceneCommitService {
                             chapter_number,
                             text: vector_text,
                             record_type: "chapter".to_string(),
+                            metadata: None,
                             embedding,
                         };
                         match store.add_record(record).await {

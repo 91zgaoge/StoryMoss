@@ -510,7 +510,7 @@ impl StoryContextBuilder {
         use crate::db::repositories::StoryOutlineRepository;
 
         let repo = StoryOutlineRepository::new(self.pool.clone());
-        let outline = repo.get_by_story(story_id).ok()?;
+        let outline = repo.get_by_story(story_id).ok()??;
         let json_str = outline.analyzed_structure_json?;
         serde_json::from_str(&json_str).ok()
     }
@@ -735,6 +735,13 @@ mod tests {
             style_blend_override: None,
             foreshadowing_ids: None,
             chapter_id: None,
+            narrative_intensity: None,
+            narrative_sentiment: None,
+            narrative_event_types: None,
+            narrative_preceding_scene_id: None,
+            narrative_following_scene_id: None,
+            act_number: None,
+            position_in_act: None,
         };
 
         let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();

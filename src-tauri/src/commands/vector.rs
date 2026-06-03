@@ -93,6 +93,7 @@ pub async fn embed_chapter(
         chapter_number,
         text: content.chars().take(500).collect(),
         record_type: "chapter".to_string(),
+        metadata: None,
         embedding,
     };
 

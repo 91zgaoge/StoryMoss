@@ -290,6 +290,7 @@ mod tests {
             world_setting: None,
             plot_summary: None,
             story_arc: None,
+            analyzed_structure_json: None,
             analysis_status: AnalysisStatus::Completed,
             analysis_progress: 100,
             analysis_error: None,

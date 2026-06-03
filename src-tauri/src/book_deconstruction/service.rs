@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     db::{
-        repositories::{SceneRepository, WorldBuildingRepository},
+        repositories::{SceneRepository, StoryOutlineRepository, WorldBuildingRepository},
         repositories_narrative::{
             NarrativeCharacterRepository, NarrativeSceneRepository,
             NarrativeWorldBuildingRepository,
@@ -109,6 +109,7 @@ impl BookDeconstructionService {
             world_setting: None,
             plot_summary: None,
             story_arc: None,
+            analyzed_structure_json: None,
             analysis_status: AnalysisStatus::Pending,
             analysis_progress: 0,
             analysis_error: None,
@@ -230,7 +231,7 @@ impl BookDeconstructionService {
             .await?;
 
         // 保存分析结果到数据库
-        repo.update_analysis_result(
+        repo.update_analysis_result_with_structure(
             book_id,
             Some(result.book.title.as_str()),
             result.book.author.as_deref(),
@@ -238,6 +239,7 @@ impl BookDeconstructionService {
             result.book.world_setting.as_deref(),
             result.book.plot_summary.as_deref(),
             result.book.story_arc.as_deref(),
+            result.book.analyzed_structure_json.as_deref(),
         )
         .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
@@ -305,6 +307,13 @@ impl BookDeconstructionService {
                         setting_location: String::new(),
                         setting_time: String::new(),
                         content: None,
+                        narrative_intensity: s.narrative_intensity.unwrap_or(0.0),
+                        narrative_sentiment: s.narrative_sentiment.unwrap_or(0.0),
+                        narrative_event_types: s.narrative_event_types.as_ref()
+                            .and_then(|et| serde_json::from_str(et).ok())
+                            .unwrap_or_default(),
+                        act_number: s.act_number.unwrap_or(1),
+                        position_in_act: s.position_in_act.unwrap_or(0.0),
                         source: ElementSource::Extracted,
                         source_ref_id: Some(book_id.to_string()),
                         status: ElementStatus::Reference,
@@ -407,6 +416,11 @@ impl BookDeconstructionService {
                     key_events: None,
                     conflict_type: Some(s.conflict_type),
                     emotional_tone: None,
+                    narrative_intensity: Some(s.narrative_intensity),
+                    narrative_sentiment: Some(s.narrative_sentiment),
+                    narrative_event_types: None,
+                    act_number: Some(s.act_number),
+                    position_in_act: Some(s.position_in_act),
                     created_at: Local::now(),
                 }
             })
@@ -582,6 +596,28 @@ impl BookDeconstructionService {
             analysis.scenes.len()
         );
 
+        // 5. 创建 StoryOutlines（如果存在叙事结构分析结果）— LitSeg Phase 4
+        if let Some(ref structure_json) = analysis.book.analyzed_structure_json {
+            let outline_repo = StoryOutlineRepository::new(pool.clone());
+            let act_count = serde_json::from_str::<Vec<serde_json::Value>>(structure_json)
+                .ok()
+                .map(|v| v.len() as i32)
+                .unwrap_or(3);
+            let _ = outline_repo.create(
+                &story_id,
+                "由拆书分析自动生成的叙事结构",
+                Some(structure_json),
+                act_count,
+                Some(analysis.scenes.len() as i32),
+            );
+            log::info!(
+                "[BookDeconstruction] Convert step {}: created story_outline with {} acts for story {}",
+                "story_outline",
+                act_count,
+                story_id
+            );
+        }
+
         // W3-B3: 将 narrative_* 表中对应记录状态从 Reference 更新为 Active
         {
             let conn = self.pool.get().map_err(AppError::from)?;
@@ -683,6 +719,12 @@ impl BookDeconstructionService {
                 continue;
             }
             if let Ok(embedding) = embed_text_async(text.clone()).await {
+                let metadata = serde_json::json!({
+                    "act_number": scene.act_number,
+                    "narrative_intensity": scene.narrative_intensity,
+                    "narrative_sentiment": scene.narrative_sentiment,
+                    "position_in_act": scene.position_in_act,
+                }).to_string();
                 scene_records.push(VectorRecord {
                     id: format!("{}_scene_{}", book_id, idx),
                     story_id: book_id.to_string(),
@@ -690,6 +732,7 @@ impl BookDeconstructionService {
                     chapter_number: scene.sequence_number as i32,
                     text,
                     record_type: "reference_scene".to_string(),
+                    metadata: Some(metadata),
                     embedding,
                 });
             }
@@ -722,6 +765,7 @@ impl BookDeconstructionService {
                     chapter_number: 0,
                     text,
                     record_type: "reference_character".to_string(),
+                    metadata: None,
                     embedding,
                 });
             }

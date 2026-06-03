@@ -62,6 +62,8 @@ pub struct ReferenceBook {
     pub world_setting: Option<String>,
     pub plot_summary: Option<String>,
     pub story_arc: Option<String>,
+    // LitSeg: 分析后的叙事结构（起承转合幕级划分）
+    pub analyzed_structure_json: Option<String>,
     pub analysis_status: AnalysisStatus,
     pub analysis_progress: i32,
     pub analysis_error: Option<String>,
@@ -112,6 +114,12 @@ pub struct ReferenceScene {
     pub key_events: Option<String>,
     pub conflict_type: Option<String>,
     pub emotional_tone: Option<String>,
+    // LitSeg: 叙事分析字段
+    pub narrative_intensity: Option<f32>,
+    pub narrative_sentiment: Option<f32>,
+    pub narrative_event_types: Option<String>, // JSON ["conflict_eruption", "character_arc"]
+    pub act_number: Option<i32>,
+    pub position_in_act: Option<f32>,
     pub created_at: DateTime<Local>,
 }
 
@@ -174,9 +182,11 @@ pub struct TextChunk {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkingStrategy {
-    Full,         // 短篇：全文一次处理
-    ByChapters,   // 中篇：按章节分块
-    MergedBlocks, // 长篇：相邻章节合并成固定数量块，覆盖全部内容
+    Full,           // 短篇：全文一次处理
+    ByChapters,     // 中篇：按章节分块
+    NarrativeAware, // 长篇：叙事感知分块（章节边界+场景转换点）
+    #[allow(dead_code)]
+    MergedBlocks, // 保留兼容（旧版固定大小分块）
     #[allow(dead_code)]
     SampledBlocks, // 保留兼容（已不再使用）
 }

@@ -349,6 +349,7 @@ pub async fn apply_vector_projection(
         chapter_number,
         text,
         record_type: "chapter_summary".to_string(),
+        metadata: None,
         embedding,
     };
 

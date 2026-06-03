@@ -122,6 +122,7 @@ pub async fn import_text(
                     chapter_number,
                     text: chunk.clone(),
                     record_type: source_label.to_string(),
+                    metadata: None,
                     embedding,
                 };
                 if let Err(e) = store.upsert(record).await {

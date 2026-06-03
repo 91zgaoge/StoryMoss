@@ -324,6 +324,7 @@ pub async fn update_scene(
                                         chapter_number: scene.sequence_number,
                                         text: content_for_vector,
                                         record_type: "scene".to_string(),
+                                        metadata: None,
                                         embedding,
                                     };
                                     match store.add_record(record).await {
@@ -1113,6 +1114,13 @@ mod tests {
             style_blend_override: None,
             foreshadowing_ids: None,
             chapter_id: None,
+            narrative_intensity: None,
+            narrative_sentiment: None,
+            narrative_event_types: None,
+            narrative_preceding_scene_id: None,
+            narrative_following_scene_id: None,
+            act_number: None,
+            position_in_act: None,
         }
     }
 

@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.8.1 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.8.2 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法、**LitSeg 叙事感知分段**。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v0.8.1 最新更新（2026-05-30）**：LitSeg 叙事感知分段深度融合 — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 将 AI 的叙事结构感知能力融入创作全流程。**深度融合而非机械叠加** — narrative_events / narrative_threads / narrative_structure 三张冗余表全部删除，功能分别合并到 scenes / foreshadowing_tracker / character_states / story_outlines 等现有表；新增 scenes.narrative_intensity/event_types/act_number 等 7 个字段，让"场景=情节节点"的设计意图与 LitSeg 的"事件提取"洞察融为一体。**叙事分析页面** — 后台新增"叙事分析"标签页，可视化展示起承转合四幕结构、事件强度时间线、未回收伏笔与角色弧光。**Agent 上下文增强** — Writer Agent 的系统提示词自动注入当前叙事位置（"第3幕75%，接近高潮"），AI 写作时明确知道故事进展到哪个阶段，生成内容更符合叙事节奏。
+> **v0.8.2 最新更新（2026-06-03）**：LitSeg 拆书融合全面完成 — Phase 1-6 六阶段深度融合落地。**叙事感知分块**（chunker.rs）长篇小说按章节边界+场景转换点智能分块，杜绝 5000 字符固定切分切断叙事的问题。**模型增强**（elements.rs + intensity_mapper.rs）场景元素自动携带 narrative_intensity/sentiment/event_types/act_number 等 7 个 LitSeg 字段。**Executor 后处理**（executor.rs）7 步 Pipeline 完成后自动运行 NarrativeStructureAnalyzer 推断起承转合幕结构。**转故事迁移**（service.rs）拆书结果一键转创作故事时，叙事分析数据无缝迁移到 story_outlines / scenes 表。**前端可视化**（StoryArcView.tsx）故事线标签页新增幕结构图、场景叙事强度时间线、场景情感分布三大可视化组件。**向量化增强**（lancedb_store.rs）场景 embedding 携带 act_number 等 narrative 元数据，语义检索时可按叙事结构重排序。全部 264 项 Rust 测试通过，前端构建成功。
+>
+> **v0.8.1 更新（2026-05-30）**：LitSeg 叙事感知分段深度融合 — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 将 AI 的叙事结构感知能力融入创作全流程。**深度融合而非机械叠加** — narrative_events / narrative_threads / narrative_structure 三张冗余表全部删除，功能分别合并到 scenes / foreshadowing_tracker / character_states / story_outlines 等现有表；新增 scenes.narrative_intensity/event_types/act_number 等 7 个字段，让"场景=情节节点"的设计意图与 LitSeg 的"事件提取"洞察融为一体。**叙事分析页面** — 后台新增"叙事分析"标签页，可视化展示起承转合四幕结构、事件强度时间线、未回收伏笔与角色弧光。**Agent 上下文增强** — Writer Agent 的系统提示词自动注入当前叙事位置（"第3幕75%，接近高潮"），AI 写作时明确知道故事进展到哪个阶段，生成内容更符合叙事节奏。
 >
 > **v0.8.0 更新（2026-05-29）**：模型管理重构 + 浮点数精度修复 + 连接状态增强。**模型管理统一集中** — 四个分散的模型 Tab 合并为单一"模型管理"页面，顶部五档类型筛选器，新建模型时先选类型再配置。**浮点数精度全面修复** — 后端 temperature 序列化规范化到 2 位小数，前端新增 `normalizeFloat`/`formatDisplayFloat` 工具函数，GeneralSettings slider 彻底消除 `0.8999999` 类显示问题。**模型连接状态丰富化** — 检测中显示步骤名称+脉冲动画，已连接显示延迟+质量评级，失败时展开步骤详情+重试按钮，全局 Store 自动轮询 30s，状态变更自动 toast 提示。**幕前底部栏 tooltip 增强** — 悬停显示提供商、API Base 简写、延迟、最后检测时间，失败时一键"前往配置"。
 >

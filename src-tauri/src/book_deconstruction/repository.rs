@@ -53,14 +53,14 @@ impl ReferenceBookRepository {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, \
-             world_setting, plot_summary, story_arc, analysis_status, analysis_progress, \
-             analysis_error, task_id, created_at, updated_at
+             world_setting, plot_summary, story_arc, analyzed_structure_json, analysis_status, \
+             analysis_progress, analysis_error, task_id, created_at, updated_at
              FROM reference_books WHERE id = ?1",
         )?;
 
         let book = stmt
             .query_row([id], |row| {
-                let status_str: String = row.get(11)?;
+                let status_str: String = row.get(12)?;
                 let status = status_str.parse().unwrap_or(AnalysisStatus::Pending);
 
                 Ok(ReferenceBook {
@@ -75,12 +75,13 @@ impl ReferenceBookRepository {
                     world_setting: row.get(8)?,
                     plot_summary: row.get(9)?,
                     story_arc: row.get(10)?,
+                    analyzed_structure_json: row.get(11)?,
                     analysis_status: status,
-                    analysis_progress: row.get(12)?,
-                    analysis_error: row.get(13)?,
-                    task_id: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    analysis_progress: row.get(13)?,
+                    analysis_error: row.get(14)?,
+                    task_id: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             })
             .optional()?;
@@ -96,14 +97,14 @@ impl ReferenceBookRepository {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, \
-             world_setting, plot_summary, story_arc, analysis_status, analysis_progress, \
-             analysis_error, task_id, created_at, updated_at
+             world_setting, plot_summary, story_arc, analyzed_structure_json, analysis_status, \
+             analysis_progress, analysis_error, task_id, created_at, updated_at
              FROM reference_books WHERE file_hash = ?1",
         )?;
 
         let book = stmt
             .query_row([hash], |row| {
-                let status_str: String = row.get(11)?;
+                let status_str: String = row.get(12)?;
                 let status = status_str.parse().unwrap_or(AnalysisStatus::Pending);
 
                 Ok(ReferenceBook {
@@ -118,12 +119,13 @@ impl ReferenceBookRepository {
                     world_setting: row.get(8)?,
                     plot_summary: row.get(9)?,
                     story_arc: row.get(10)?,
+                    analyzed_structure_json: row.get(11)?,
                     analysis_status: status,
-                    analysis_progress: row.get(12)?,
-                    analysis_error: row.get(13)?,
-                    task_id: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    analysis_progress: row.get(13)?,
+                    analysis_error: row.get(14)?,
+                    task_id: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             })
             .optional()?;
@@ -212,6 +214,38 @@ impl ReferenceBookRepository {
                 world_setting,
                 plot_summary,
                 story_arc,
+                Local::now().to_rfc3339(),
+                id
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 更新分析结果（含叙事结构）
+    pub fn update_analysis_result_with_structure(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        author: Option<&str>,
+        genre: Option<&str>,
+        world_setting: Option<&str>,
+        plot_summary: Option<&str>,
+        story_arc: Option<&str>,
+        analyzed_structure_json: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE reference_books SET title = COALESCE(?1, title), author = COALESCE(?2, \
+             author), genre = ?3, world_setting = ?4, plot_summary = ?5, story_arc = ?6, \
+             analyzed_structure_json = ?7, updated_at = ?8 WHERE id = ?9",
+            params![
+                title,
+                author,
+                genre,
+                world_setting,
+                plot_summary,
+                story_arc,
+                analyzed_structure_json,
                 Local::now().to_rfc3339(),
                 id
             ],
@@ -358,8 +392,9 @@ impl ReferenceSceneRepository {
         let conn = self.pool.get()?;
         conn.execute(
             "INSERT INTO reference_scenes (id, book_id, sequence_number, title, summary, \
-             characters_present, key_events, conflict_type, emotional_tone, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             characters_present, key_events, conflict_type, emotional_tone, \
+             narrative_intensity, narrative_sentiment, narrative_event_types, act_number, position_in_act, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 scene.id,
                 scene.book_id,
@@ -370,6 +405,11 @@ impl ReferenceSceneRepository {
                 scene.key_events,
                 scene.conflict_type,
                 scene.emotional_tone,
+                scene.narrative_intensity,
+                scene.narrative_sentiment,
+                scene.narrative_event_types,
+                scene.act_number,
+                scene.position_in_act,
                 scene.created_at.to_rfc3339(),
             ],
         )?;
@@ -386,8 +426,9 @@ impl ReferenceSceneRepository {
         for scene in scenes {
             tx.execute(
                 "INSERT INTO reference_scenes (id, book_id, sequence_number, title, summary, \
-                 characters_present, key_events, conflict_type, emotional_tone, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 characters_present, key_events, conflict_type, emotional_tone, \
+                 narrative_intensity, narrative_sentiment, narrative_event_types, act_number, position_in_act, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     scene.id,
                     scene.book_id,
@@ -398,6 +439,11 @@ impl ReferenceSceneRepository {
                     scene.key_events,
                     scene.conflict_type,
                     scene.emotional_tone,
+                    scene.narrative_intensity,
+                    scene.narrative_sentiment,
+                    scene.narrative_event_types,
+                    scene.act_number,
+                    scene.position_in_act,
                     scene.created_at.to_rfc3339(),
                 ],
             )?;
@@ -414,7 +460,8 @@ impl ReferenceSceneRepository {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             "SELECT id, book_id, sequence_number, title, summary, characters_present, key_events, \
-             conflict_type, emotional_tone, created_at
+             conflict_type, emotional_tone, \
+             narrative_intensity, narrative_sentiment, narrative_event_types, act_number, position_in_act, created_at
              FROM reference_scenes WHERE book_id = ?1 ORDER BY sequence_number",
         )?;
 
@@ -430,7 +477,12 @@ impl ReferenceSceneRepository {
                     key_events: row.get(6)?,
                     conflict_type: row.get(7)?,
                     emotional_tone: row.get(8)?,
-                    created_at: row.get(9)?,
+                    narrative_intensity: row.get(9)?,
+                    narrative_sentiment: row.get(10)?,
+                    narrative_event_types: row.get(11)?,
+                    act_number: row.get(12)?,
+                    position_in_act: row.get(13)?,
+                    created_at: row.get(14)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

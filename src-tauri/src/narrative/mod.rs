@@ -24,6 +24,7 @@ pub mod elements;
 pub mod event;
 pub mod genesis;
 pub mod health;
+pub mod intensity_mapper;
 pub mod litseg_pipeline;
 pub mod pipeline;
 pub mod progress;

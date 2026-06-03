@@ -191,11 +191,87 @@ impl TaskExecutor for BookDeconstructionExecutor {
             .execute(&mut analysis_ctx, &llm, progress_callback)
             .await;
 
-        if pipeline_result.is_ok() {
+        // ========== LitSeg 后处理阶段 ==========
+        // 在 7 步 Pipeline 完成后，对提取的叙事元素进行结构分析
+        let analyzed_structure_json = if pipeline_result.is_ok() {
             log::info!(
-                "[BookDeconstructionExecutor] Pipeline completed for book {}",
+                "[BookDeconstructionExecutor] Pipeline completed for book {}, running LitSeg post-processing",
                 book_id
             );
+
+            // 1. 为每个 SceneElement 计算 narrative_intensity / sentiment / event_types
+            for scene in &mut analysis_ctx.bundle.scenes {
+                if !scene.conflict_type.is_empty() {
+                    scene.narrative_intensity = crate::narrative::intensity_mapper::conflict_type_to_intensity(&scene.conflict_type);
+                }
+                // 注意：SceneElement 目前没有 emotional_tone 字段
+                // 需要从 LLM 响应中提取，或通过其他方式推断
+                // 暂时用 conflict_type 的 intensity 作为 sentiment 的绝对值符号
+                scene.narrative_sentiment = scene.narrative_intensity * 0.2 - 0.1; // 轻微负面偏置
+
+                // 从 dramatic_goal + external_pressure 推断 event_types
+                let mut event_types = Vec::new();
+                if !scene.conflict_type.is_empty() {
+                    event_types.push(crate::narrative::intensity_mapper::classify_event_type(&scene.conflict_type));
+                }
+                if !scene.dramatic_goal.is_empty() {
+                    event_types.push("development".to_string());
+                }
+                scene.narrative_event_types = event_types;
+            }
+
+            // 2. 构建 NarrativeEvent 列表，运行 NarrativeStructureAnalyzer
+            let narrative_events: Vec<crate::narrative::event::NarrativeEvent> = analysis_ctx
+                .bundle
+                .scenes
+                .iter()
+                .map(|s| crate::narrative::event::NarrativeEvent {
+                    id: s.id.clone(),
+                    story_id: s.story_id.clone(),
+                    chapter_number: s.sequence_number,
+                    scene_id: Some(s.id.clone()),
+                    event_type: crate::narrative::event::EventType::ConflictEruption,
+                    intensity: s.narrative_intensity,
+                    sentiment: s.narrative_sentiment,
+                    description: s.summary.clone(),
+                    involved_character_ids: s.characters_present.clone(),
+                    conflict_types: vec![],
+                    preceding_event_id: None,
+                    following_event_id: None,
+                    act_number: 1,
+                    position_in_act: 1,
+                    created_at: chrono::Local::now(),
+                })
+                .collect();
+
+            let analyzer = crate::narrative::structure_analyzer::NarrativeStructureAnalyzer::new();
+            let structure = analyzer.analyze(book_id, &narrative_events);
+
+            // 3. 为每个 SceneElement 标注 act_number 和 position_in_act
+            for scene in &mut analysis_ctx.bundle.scenes {
+                if let Some(act) = structure.acts.iter().find(|a| {
+                    scene.sequence_number >= a.start_chapter && scene.sequence_number <= a.end_chapter
+                }) {
+                    scene.act_number = act.act_number;
+                    let act_len = (act.end_chapter - act.start_chapter + 1).max(1) as f32;
+                    let offset = (scene.sequence_number - act.start_chapter) as f32;
+                    scene.position_in_act = offset / act_len;
+                }
+            }
+
+            log::info!(
+                "[BookDeconstructionExecutor] LitSeg analysis: {} acts detected for book {}",
+                structure.acts.len(),
+                book_id
+            );
+
+            // 4. 序列化幕结构为 JSON
+            serde_json::to_string(&structure.acts).ok()
+        } else {
+            None
+        };
+
+        if pipeline_result.is_ok() {
             let _ = self.app_handle.emit(
                 "pipeline-complete",
                 crate::narrative::progress::PipelineCompleteEvent {
@@ -243,7 +319,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
         // 保存分析结果到 narrative_* 表（W3-B3 存储同构化）
         {
             let repo = ReferenceBookRepository::new(self.pool.clone());
-            let _ = repo.update_analysis_result(
+            let _ = repo.update_analysis_result_with_structure(
                 book_id,
                 Some(analysis_result.book.title.as_str()),
                 analysis_result.book.author.as_deref(),
@@ -251,6 +327,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 analysis_result.book.world_setting.as_deref(),
                 analysis_result.book.plot_summary.as_deref(),
                 analysis_result.book.story_arc.as_deref(),
+                analyzed_structure_json.as_deref(),
             );
             let _ = repo.update_status(book_id, AnalysisStatus::Completed, 100);
 
@@ -350,6 +427,11 @@ fn convert_bundle_to_analysis_result(
             .as_ref()
             .map(|o| serde_json::to_string(&o.acts).ok())
             .flatten();
+        let analyzed_structure_json = bundle
+            .outline
+            .as_ref()
+            .map(|o| serde_json::to_string(&o.acts).ok())
+            .flatten();
         ReferenceBook {
             id: meta.id.clone(),
             title: meta.title.clone(),
@@ -362,6 +444,7 @@ fn convert_bundle_to_analysis_result(
             world_setting,
             plot_summary: Some(meta.description.clone()),
             story_arc,
+            analyzed_structure_json,
             analysis_status: AnalysisStatus::Completed,
             analysis_progress: 100,
             analysis_error: None,
@@ -382,6 +465,7 @@ fn convert_bundle_to_analysis_result(
             world_setting: None,
             plot_summary: None,
             story_arc: None,
+            analyzed_structure_json: None,
             analysis_status: AnalysisStatus::Completed,
             analysis_progress: 100,
             analysis_error: None,
@@ -412,12 +496,13 @@ fn convert_bundle_to_analysis_result(
         })
         .collect();
 
-    // 转换场景
+    // 转换场景（含 LitSeg 叙事字段）
     let scenes: Vec<ReferenceScene> = bundle
         .scenes
         .iter()
         .map(|s| {
             let chars_present_json = serde_json::to_string(&s.characters_present).ok();
+            let event_types_json = serde_json::to_string(&s.narrative_event_types).ok();
             ReferenceScene {
                 id: s.id.clone(),
                 book_id: s.story_id.clone(),
@@ -428,6 +513,12 @@ fn convert_bundle_to_analysis_result(
                 key_events: None,
                 conflict_type: Some(s.conflict_type.clone()),
                 emotional_tone: None,
+                // LitSeg 叙事字段
+                narrative_intensity: Some(s.narrative_intensity).filter(|&v| v > 0.0),
+                narrative_sentiment: Some(s.narrative_sentiment).filter(|&v| v != 0.0),
+                narrative_event_types: event_types_json,
+                act_number: Some(s.act_number).filter(|&v| v > 0),
+                position_in_act: Some(s.position_in_act).filter(|&v| v > 0.0),
                 created_at: now,
             }
         })

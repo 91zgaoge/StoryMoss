@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use arrow_array::{
-    types::Float32Type, FixedSizeListArray, Float32Array, Int32Array, RecordBatch,
+    types::Float32Type, Array, FixedSizeListArray, Float32Array, Int32Array, RecordBatch,
     RecordBatchIterator, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
@@ -32,6 +32,8 @@ pub struct VectorRecord {
     pub chapter_number: i32,
     pub text: String,
     pub record_type: String,
+    /// LitSeg: 叙事元数据（JSON，含 act_number 等）
+    pub metadata: Option<String>,
     pub embedding: Vec<f32>,
 }
 
@@ -44,6 +46,8 @@ pub struct SearchResult {
     pub chapter_number: i32,
     pub text: String,
     pub score: f32,
+    /// LitSeg: 叙事元数据
+    pub metadata: Option<String>,
 }
 
 /// LanceDB 向量存储
@@ -70,6 +74,7 @@ impl LanceVectorStore {
             Field::new("chapter_number", DataType::Int32, false),
             Field::new("text", DataType::Utf8, false),
             Field::new("record_type", DataType::Utf8, false),
+            Field::new("metadata", DataType::Utf8, true),
             Field::new(
                 VECTOR_COL,
                 DataType::FixedSizeList(
@@ -92,6 +97,7 @@ impl LanceVectorStore {
                 Arc::new(Int32Array::from(Vec::<i32>::new())),
                 Arc::new(StringArray::from(Vec::<&str>::new())),
                 Arc::new(StringArray::from(Vec::<&str>::new())),
+                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
                 Arc::new(
                     FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
                         std::iter::empty::<Option<Vec<Option<f32>>>>(),
@@ -113,6 +119,7 @@ impl LanceVectorStore {
         let chapter_numbers: Vec<i32> = records.iter().map(|r| r.chapter_number).collect();
         let texts: Vec<&str> = records.iter().map(|r| r.text.as_str()).collect();
         let record_types: Vec<&str> = records.iter().map(|r| r.record_type.as_str()).collect();
+        let metadata: Vec<Option<&str>> = records.iter().map(|r| r.metadata.as_deref()).collect();
         let vectors: Vec<Option<Vec<Option<f32>>>> = records
             .iter()
             .map(|r| Some(r.embedding.iter().map(|&v| Some(v)).collect()))
@@ -127,6 +134,7 @@ impl LanceVectorStore {
                 Arc::new(Int32Array::from(chapter_numbers)),
                 Arc::new(StringArray::from(texts)),
                 Arc::new(StringArray::from(record_types)),
+                Arc::new(StringArray::from(metadata)),
                 Arc::new(
                     FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
                         vectors.into_iter(),
@@ -142,7 +150,19 @@ impl LanceVectorStore {
         let db = connect(&self.db_path).execute().await?;
 
         let table = match db.open_table(TABLE_NAME).execute().await {
-            Ok(t) => t,
+            Ok(t) => {
+                // LitSeg: 检查 schema 是否包含 metadata 列，如果不包含则重建表
+                let schema = t.schema().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                let has_metadata = schema.fields.iter().any(|f| f.name() == "metadata");
+                if !has_metadata {
+                    log::info!("[LanceVectorStore] Schema outdated, dropping and recreating table");
+                    let _ = db.drop_table(TABLE_NAME, &[]).await;
+                    let empty_batch = Self::empty_batch()?;
+                    db.create_table(TABLE_NAME, empty_batch).execute().await?
+                } else {
+                    t
+                }
+            }
             Err(_) => {
                 let empty_batch = Self::empty_batch()?;
                 db.create_table(TABLE_NAME, empty_batch).execute().await?
@@ -240,12 +260,22 @@ impl LanceVectorStore {
             let texts = batch
                 .column_by_name("text")
                 .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let metadata_arr = batch
+                .column_by_name("metadata")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
             let distances = batch
                 .column_by_name("_distance")
                 .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
 
             for i in 0..num_rows {
                 let score = distances.map(|d| 1.0 - d.value(i)).unwrap_or(0.0);
+                let metadata = metadata_arr.and_then(|a| {
+                    if a.is_null(i) {
+                        None
+                    } else {
+                        Some(a.value(i).to_string())
+                    }
+                });
                 results.push(SearchResult {
                     id: ids.map(|a| a.value(i).to_string()).unwrap_or_default(),
                     story_id: story_ids
@@ -257,6 +287,7 @@ impl LanceVectorStore {
                     chapter_number: chapter_numbers.map(|a| a.value(i)).unwrap_or(0),
                     text: texts.map(|a| a.value(i).to_string()).unwrap_or_default(),
                     score,
+                    metadata,
                 });
             }
         }
@@ -317,6 +348,7 @@ impl LanceVectorStore {
                     chapter_number: chapter_numbers.map(|a| a.value(i)).unwrap_or(0),
                     text: texts.map(|a| a.value(i).to_string()).unwrap_or_default(),
                     score: 0.8, // 基础文本匹配分数
+                    metadata: None,
                 });
             }
         }
@@ -391,6 +423,33 @@ impl LanceVectorStore {
         let table = self.table()?;
         Ok(table.count_rows(None).await?)
     }
+
+    fn to_memory_result(r: SearchResult) -> crate::memory::query::SearchResult {
+        let mut metadata = serde_json::json!({
+            "story_id": r.story_id,
+            "chapter_id": r.chapter_id,
+            "chapter_number": r.chapter_number,
+        });
+        // LitSeg: 合并 narrative 元数据
+        if let Some(ref meta_str) = r.metadata {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta_str) {
+                if let Some(obj) = metadata.as_object_mut() {
+                    if let Some(parsed_obj) = parsed.as_object() {
+                        for (k, v) in parsed_obj {
+                            obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            }
+        }
+        crate::memory::query::SearchResult {
+            id: r.id,
+            content: r.text,
+            score: r.score,
+            source_type: crate::memory::query::SourceType::Scene,
+            metadata,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -403,20 +462,7 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
     ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
     {
         let results = self.text_search(story_id, token, limit).await?;
-        Ok(results
-            .into_iter()
-            .map(|r| crate::memory::query::SearchResult {
-                id: r.id,
-                content: r.text,
-                score: r.score,
-                source_type: crate::memory::query::SourceType::Scene,
-                metadata: serde_json::json!({
-                    "story_id": r.story_id,
-                    "chapter_id": r.chapter_id,
-                    "chapter_number": r.chapter_number,
-                }),
-            })
-            .collect())
+        Ok(results.into_iter().map(LanceVectorStore::to_memory_result).collect())
     }
 
     async fn search_with_embedding(
@@ -427,20 +473,7 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
     ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
     {
         let results = self.search(story_id, embedding, limit).await?;
-        Ok(results
-            .into_iter()
-            .map(|r| crate::memory::query::SearchResult {
-                id: r.id,
-                content: r.text,
-                score: r.score,
-                source_type: crate::memory::query::SourceType::Scene,
-                metadata: serde_json::json!({
-                    "story_id": r.story_id,
-                    "chapter_id": r.chapter_id,
-                    "chapter_number": r.chapter_number,
-                }),
-            })
-            .collect())
+        Ok(results.into_iter().map(LanceVectorStore::to_memory_result).collect())
     }
 }
 
@@ -468,6 +501,7 @@ mod tests {
             chapter_number: 1,
             text: "测试文本".to_string(),
             record_type: "chapter".to_string(),
+            metadata: None,
             embedding,
         }
     }

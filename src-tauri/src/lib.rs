@@ -456,6 +456,7 @@ pub fn run() {
                                                     chapter_number: chapter.chapter_number,
                                                     text: content_text.clone(),
                                                     record_type: "chapter".to_string(),
+                                                    metadata: None,
                                                     embedding,
                                                 };
                                                 if let Some(store) = VECTOR_STORE.get() {

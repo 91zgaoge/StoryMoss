@@ -7,6 +7,7 @@
 use std::{collections::HashMap, str::FromStr};
 
 use chrono::Local;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use tauri::Emitter;
@@ -14,7 +15,6 @@ use tauri::Emitter;
 use crate::{
     db::{
         models::{Entity, EntityType, Relation, RelationType},
-        repositories_narrative_events::NarrativeEventRepository,
         DbPool,
     },
     embeddings::{embed_entity, EntityEmbeddingRequest},
