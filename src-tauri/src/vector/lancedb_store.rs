@@ -152,7 +152,10 @@ impl LanceVectorStore {
         let table = match db.open_table(TABLE_NAME).execute().await {
             Ok(t) => {
                 // LitSeg: 检查 schema 是否包含 metadata 列，如果不包含则重建表
-                let schema = t.schema().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                let schema = t
+                    .schema()
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 let has_metadata = schema.fields.iter().any(|f| f.name() == "metadata");
                 if !has_metadata {
                     log::info!("[LanceVectorStore] Schema outdated, dropping and recreating table");
@@ -462,7 +465,10 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
     ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
     {
         let results = self.text_search(story_id, token, limit).await?;
-        Ok(results.into_iter().map(LanceVectorStore::to_memory_result).collect())
+        Ok(results
+            .into_iter()
+            .map(LanceVectorStore::to_memory_result)
+            .collect())
     }
 
     async fn search_with_embedding(
@@ -473,7 +479,10 @@ impl crate::memory::query::VectorStore for LanceVectorStore {
     ) -> Result<Vec<crate::memory::query::SearchResult>, Box<dyn std::error::Error + Send + Sync>>
     {
         let results = self.search(story_id, embedding, limit).await?;
-        Ok(results.into_iter().map(LanceVectorStore::to_memory_result).collect())
+        Ok(results
+            .into_iter()
+            .map(LanceVectorStore::to_memory_result)
+            .collect())
     }
 }
 

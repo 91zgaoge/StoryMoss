@@ -61,13 +61,20 @@ pub fn emotional_tone_to_sentiment(tone: &str) -> f32 {
         "讽刺" | "嘲讽" | "挖苦" => -0.35,
         // 默认
         _ => {
-            if normalized.contains("喜") || normalized.contains("乐") || normalized.contains("欢") {
+            if normalized.contains("喜") || normalized.contains("乐") || normalized.contains("欢")
+            {
                 0.50
-            } else if normalized.contains("悲") || normalized.contains("伤") || normalized.contains("痛") {
+            } else if normalized.contains("悲")
+                || normalized.contains("伤")
+                || normalized.contains("痛")
+            {
                 -0.70
             } else if normalized.contains("怒") || normalized.contains("恨") {
                 -0.60
-            } else if normalized.contains("恐") || normalized.contains("惧") || normalized.contains("怕") {
+            } else if normalized.contains("恐")
+                || normalized.contains("惧")
+                || normalized.contains("怕")
+            {
                 -0.55
             } else {
                 0.0
@@ -163,9 +170,7 @@ pub fn classify_event_type(event: &str) -> String {
     }
 
     // 过渡类
-    if normalized.contains("过渡")
-        || normalized.contains("转场")
-        || normalized.contains("时间流逝")
+    if normalized.contains("过渡") || normalized.contains("转场") || normalized.contains("时间流逝")
     {
         return "transition".to_string();
     }

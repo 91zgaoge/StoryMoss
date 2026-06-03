@@ -583,8 +583,12 @@ JSON格式：
                         serde_json::to_string(&result.characters_present).unwrap_or_default(),
                     ),
                     key_events: Some(serde_json::to_string(&result.key_events).unwrap_or_default()),
-                    narrative_intensity: result.conflict_type.as_ref().map(|ct| crate::narrative::intensity_mapper::conflict_type_to_intensity(ct)),
-                    narrative_sentiment: result.emotional_tone.as_ref().map(|et| crate::narrative::intensity_mapper::emotional_tone_to_sentiment(et)),
+                    narrative_intensity: result.conflict_type.as_ref().map(|ct| {
+                        crate::narrative::intensity_mapper::conflict_type_to_intensity(ct)
+                    }),
+                    narrative_sentiment: result.emotional_tone.as_ref().map(|et| {
+                        crate::narrative::intensity_mapper::emotional_tone_to_sentiment(et)
+                    }),
                     conflict_type: result.conflict_type,
                     emotional_tone: result.emotional_tone,
                     narrative_event_types: None,

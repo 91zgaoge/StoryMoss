@@ -1,7 +1,8 @@
 //! LitSeg 叙事分析流水线 — 在 ingest 完成后触发
 //!
-//! 注意: narrative_events / narrative_threads / narrative_structure 表已合并到现有表。
-//! 此模块保留为向后兼容的存根，实际叙事分析在 book_deconstruction/executor.rs 中完成。
+//! 注意: narrative_events / narrative_threads / narrative_structure
+//! 表已合并到现有表。 此模块保留为向后兼容的存根，实际叙事分析在
+//! book_deconstruction/executor.rs 中完成。
 
 use crate::db::DbPool;
 

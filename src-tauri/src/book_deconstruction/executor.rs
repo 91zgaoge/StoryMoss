@@ -202,7 +202,10 @@ impl TaskExecutor for BookDeconstructionExecutor {
             // 1. 为每个 SceneElement 计算 narrative_intensity / sentiment / event_types
             for scene in &mut analysis_ctx.bundle.scenes {
                 if !scene.conflict_type.is_empty() {
-                    scene.narrative_intensity = crate::narrative::intensity_mapper::conflict_type_to_intensity(&scene.conflict_type);
+                    scene.narrative_intensity =
+                        crate::narrative::intensity_mapper::conflict_type_to_intensity(
+                            &scene.conflict_type,
+                        );
                 }
                 // 注意：SceneElement 目前没有 emotional_tone 字段
                 // 需要从 LLM 响应中提取，或通过其他方式推断
@@ -212,7 +215,9 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 // 从 dramatic_goal + external_pressure 推断 event_types
                 let mut event_types = Vec::new();
                 if !scene.conflict_type.is_empty() {
-                    event_types.push(crate::narrative::intensity_mapper::classify_event_type(&scene.conflict_type));
+                    event_types.push(crate::narrative::intensity_mapper::classify_event_type(
+                        &scene.conflict_type,
+                    ));
                 }
                 if !scene.dramatic_goal.is_empty() {
                     event_types.push("development".to_string());
@@ -250,7 +255,8 @@ impl TaskExecutor for BookDeconstructionExecutor {
             // 3. 为每个 SceneElement 标注 act_number 和 position_in_act
             for scene in &mut analysis_ctx.bundle.scenes {
                 if let Some(act) = structure.acts.iter().find(|a| {
-                    scene.sequence_number >= a.start_chapter && scene.sequence_number <= a.end_chapter
+                    scene.sequence_number >= a.start_chapter
+                        && scene.sequence_number <= a.end_chapter
                 }) {
                     scene.act_number = act.act_number;
                     let act_len = (act.end_chapter - act.start_chapter + 1).max(1) as f32;

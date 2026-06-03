@@ -245,16 +245,48 @@ fn detect_scene_boundaries(content: &str) -> Vec<usize> {
     let lines: Vec<&str> = content.lines().collect();
 
     let time_transition_markers = [
-        "三天后", "一周后", "一个月后", "一年后", "几年后", "数年后",
-        "第二天", "次日", "当晚", "翌日", "翌晨", "黄昏", "黎明",
-        "与此同时", "同一时间", "不久", "过了一会儿", "片刻之后",
-        "翌年", "翌月", "数日后", "几日后", "次日清晨", "翌日黄昏",
-        "翌日凌晨", "翌日清晨", "翌日中午", "翌日傍晚",
+        "三天后",
+        "一周后",
+        "一个月后",
+        "一年后",
+        "几年后",
+        "数年后",
+        "第二天",
+        "次日",
+        "当晚",
+        "翌日",
+        "翌晨",
+        "黄昏",
+        "黎明",
+        "与此同时",
+        "同一时间",
+        "不久",
+        "过了一会儿",
+        "片刻之后",
+        "翌年",
+        "翌月",
+        "数日后",
+        "几日后",
+        "次日清晨",
+        "翌日黄昏",
+        "翌日凌晨",
+        "翌日清晨",
+        "翌日中午",
+        "翌日傍晚",
     ];
 
     let location_transition_markers = [
-        "回到", "来到", "抵达", "进入", "离开", "走出", "走进",
-        "与此同时", "另一边", "在", "位于",
+        "回到",
+        "来到",
+        "抵达",
+        "进入",
+        "离开",
+        "走出",
+        "走进",
+        "与此同时",
+        "另一边",
+        "在",
+        "位于",
     ];
 
     let mut empty_line_count = 0;
@@ -322,8 +354,14 @@ fn build_chunk(chapters: &[&ParsedChapter], index: usize) -> TextChunk {
         0 => None,
         1 => chapters[0].title.clone(),
         _ => {
-            let first = chapters.first().and_then(|c| c.title.as_deref()).unwrap_or("");
-            let last = chapters.last().and_then(|c| c.title.as_deref()).unwrap_or("");
+            let first = chapters
+                .first()
+                .and_then(|c| c.title.as_deref())
+                .unwrap_or("");
+            let last = chapters
+                .last()
+                .and_then(|c| c.title.as_deref())
+                .unwrap_or("");
             if first == last || last.is_empty() {
                 Some(first.to_string())
             } else {

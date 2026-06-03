@@ -227,13 +227,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
-                        narrative_intensity: row.get(26)?,
-                        narrative_sentiment: row.get(27)?,
-                        narrative_event_types: row.get(28)?,
-                        narrative_preceding_scene_id: row.get(29)?,
-                        narrative_following_scene_id: row.get(30)?,
-                        act_number: row.get(31)?,
-                        position_in_act: row.get(32)?,
+                    narrative_intensity: row.get(26)?,
+                    narrative_sentiment: row.get(27)?,
+                    narrative_event_types: row.get(28)?,
+                    narrative_preceding_scene_id: row.get(29)?,
+                    narrative_following_scene_id: row.get(30)?,
+                    act_number: row.get(31)?,
+                    position_in_act: row.get(32)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -311,13 +311,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
-                        narrative_intensity: row.get(26)?,
-                        narrative_sentiment: row.get(27)?,
-                        narrative_event_types: row.get(28)?,
-                        narrative_preceding_scene_id: row.get(29)?,
-                        narrative_following_scene_id: row.get(30)?,
-                        act_number: row.get(31)?,
-                        position_in_act: row.get(32)?,
+                    narrative_intensity: row.get(26)?,
+                    narrative_sentiment: row.get(27)?,
+                    narrative_event_types: row.get(28)?,
+                    narrative_preceding_scene_id: row.get(29)?,
+                    narrative_following_scene_id: row.get(30)?,
+                    act_number: row.get(31)?,
+                    position_in_act: row.get(32)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -395,13 +395,13 @@ impl SceneRepository {
                     style_blend_override: row.get(23)?,
                     foreshadowing_ids,
                     chapter_id: row.get::<_, Option<String>>(25)?,
-                        narrative_intensity: row.get(26)?,
-                        narrative_sentiment: row.get(27)?,
-                        narrative_event_types: row.get(28)?,
-                        narrative_preceding_scene_id: row.get(29)?,
-                        narrative_following_scene_id: row.get(30)?,
-                        act_number: row.get(31)?,
-                        position_in_act: row.get(32)?,
+                    narrative_intensity: row.get(26)?,
+                    narrative_sentiment: row.get(27)?,
+                    narrative_event_types: row.get(28)?,
+                    narrative_preceding_scene_id: row.get(29)?,
+                    narrative_following_scene_id: row.get(30)?,
+                    act_number: row.get(31)?,
+                    position_in_act: row.get(32)?,
                 })
             })
             .optional()?;

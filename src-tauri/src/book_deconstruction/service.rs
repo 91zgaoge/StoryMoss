@@ -309,7 +309,9 @@ impl BookDeconstructionService {
                         content: None,
                         narrative_intensity: s.narrative_intensity.unwrap_or(0.0),
                         narrative_sentiment: s.narrative_sentiment.unwrap_or(0.0),
-                        narrative_event_types: s.narrative_event_types.as_ref()
+                        narrative_event_types: s
+                            .narrative_event_types
+                            .as_ref()
                             .and_then(|et| serde_json::from_str(et).ok())
                             .unwrap_or_default(),
                         act_number: s.act_number.unwrap_or(1),
@@ -724,7 +726,8 @@ impl BookDeconstructionService {
                     "narrative_intensity": scene.narrative_intensity,
                     "narrative_sentiment": scene.narrative_sentiment,
                     "position_in_act": scene.position_in_act,
-                }).to_string();
+                })
+                .to_string();
                 scene_records.push(VectorRecord {
                     id: format!("{}_scene_{}", book_id, idx),
                     story_id: book_id.to_string(),
