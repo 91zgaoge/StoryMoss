@@ -1,4 +1,16 @@
-import { loggedInvoke } from './core';import type { Draft, Revision, PipelineReview, PostProcessRun, PostProcessStep, LlmCall, CharacterState, RefineResult, ReviewResult, PipelineResult } from '@/types/pipeline';
+import { loggedInvoke } from './core';
+import type {
+  Draft,
+  Revision,
+  PipelineReview,
+  PostProcessRun,
+  PostProcessStep,
+  LlmCall,
+  CharacterState,
+  RefineResult,
+  ReviewResult,
+  PipelineResult,
+} from '@/types/pipeline';
 
 // --- Draft (保留前端查询) ---
 
@@ -91,4 +103,3 @@ export const getPostProcessStatus = (runId: string) =>
 
 export const updateCharacterState = (characterId: string, state: CharacterState) =>
   loggedInvoke<number>('update_character_state', { character_id: characterId, state });
-

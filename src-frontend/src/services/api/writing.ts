@@ -35,4 +35,3 @@ export const autoReviseCancel = (taskId: string) =>
 // Window communication
 export const notifyFrontstageDataRefresh = (entity: string) =>
   loggedInvoke<void>('notify_frontstage_data_refresh', { entity });
-

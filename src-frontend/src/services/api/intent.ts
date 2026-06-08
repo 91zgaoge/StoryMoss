@@ -1,4 +1,5 @@
-import { loggedInvoke } from './core';import type { Intent, IntentParseRequest, IntentExecutionResult } from '@/types/index';
+import { loggedInvoke } from './core';
+import type { Intent, IntentParseRequest, IntentExecutionResult } from '@/types/index';
 // Intent Engine
 export const parseIntent = (req: IntentParseRequest) =>
   loggedInvoke<Intent>('parse_intent', { user_input: req.user_input });

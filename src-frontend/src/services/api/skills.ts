@@ -1,4 +1,6 @@
-import { loggedInvoke } from './core';import type { Skill, McpServer, McpTool } from '@/types/index';import type { SceneAnnotation, TextAnnotation, ParagraphCommentary } from '@/types/v3';
+import { loggedInvoke } from './core';
+import type { Skill, McpServer, McpTool } from '@/types/index';
+import type { SceneAnnotation, TextAnnotation, ParagraphCommentary } from '@/types/v3';
 // Skills
 export const getSkills = () => loggedInvoke<Skill[]>('get_skills');
 

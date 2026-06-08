@@ -6,8 +6,10 @@
 //!
 //! Replaces the previous 3,111-line hand-rolled migration block.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use rusqlite::Connection;
 
@@ -188,7 +190,8 @@ impl MigrationRunner {
     }
 
     /// Run SQL file migrations, then run a legacy inline migration function.
-    /// This allows gradual migration from hand-rolled Rust migrations to `.sql` files.
+    /// This allows gradual migration from hand-rolled Rust migrations to `.sql`
+    /// files.
     pub fn run_with_legacy<F>(
         &self,
         conn: &mut Connection,
@@ -208,7 +211,8 @@ impl MigrationRunner {
         Ok(())
     }
 
-    /// Execute a single migration's SQL, splitting on `;` into individual statements.
+    /// Execute a single migration's SQL, splitting on `;` into individual
+    /// statements.
     fn execute_migration_sql(tx: &rusqlite::Transaction, sql: &str) -> Result<(), MigrationError> {
         // Split by semicolons, but be careful with semicolons inside string literals.
         // For simplicity, we split on `;\n` or `;` at end of line, which is safe
@@ -391,9 +395,11 @@ impl From<rusqlite::Error> for MigrationError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_parse_filename_valid() {

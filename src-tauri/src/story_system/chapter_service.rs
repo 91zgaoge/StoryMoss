@@ -264,7 +264,8 @@ impl ChapterService {
 
     /// `create_chapter` 成功后的后续业务处理。
     ///
-    /// 包含：Skill Hook、状态同步事件、逾期伏笔检测、自动化触发、即时 auto commit。
+    /// 包含：Skill Hook、状态同步事件、逾期伏笔检测、自动化触发、即时 auto
+    /// commit。
     pub fn on_chapter_created(
         &self,
         chapter: &Chapter,

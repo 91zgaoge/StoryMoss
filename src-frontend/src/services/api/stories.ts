@@ -1,4 +1,21 @@
-import { loggedInvoke } from './core';import type { Story, Character, Chapter, CreateStoryRequest, CreateCharacterRequest, UpdateChapterRequest } from '@/types/index';import type { SceneAnnotation, TextAnnotation, ParagraphCommentary, SceneProposal, WorldBuildingOption, CharacterProfileOption, WritingStyleOption } from '@/types/v3';
+import { loggedInvoke } from './core';
+import type {
+  Story,
+  Character,
+  Chapter,
+  CreateStoryRequest,
+  CreateCharacterRequest,
+  UpdateChapterRequest,
+} from '@/types/index';
+import type {
+  SceneAnnotation,
+  TextAnnotation,
+  ParagraphCommentary,
+  SceneProposal,
+  WorldBuildingOption,
+  CharacterProfileOption,
+  WritingStyleOption,
+} from '@/types/v3';
 // Health Check
 export const healthCheck = () =>
   loggedInvoke<{ status: string; timestamp: string; version: string }>('health_check');
@@ -129,4 +146,3 @@ export const updateWritingStyle = (
     style_rules?: string;
   }
 ) => loggedInvoke<void>('update_writing_style', { style_id: styleId, ...updates });
-

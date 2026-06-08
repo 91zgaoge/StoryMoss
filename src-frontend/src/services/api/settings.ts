@@ -1,4 +1,6 @@
-import { loggedInvoke } from './core';import type { LlmConfig, VectorSearchRequest, SimilarityResult } from '@/types/index';import type { AppSettings } from '@/types/llm';
+import { loggedInvoke } from './core';
+import type { LlmConfig, VectorSearchRequest, SimilarityResult } from '@/types/index';
+import type { AppSettings } from '@/types/llm';
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
   loggedInvoke<SimilarityResult[]>('search_similar', {

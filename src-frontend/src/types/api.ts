@@ -344,4 +344,3 @@ export interface NarrativeChunk {
   text: string;
   chunk_type: string;
 }
-

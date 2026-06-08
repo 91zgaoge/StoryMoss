@@ -296,7 +296,7 @@ export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Prom
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
         const resp = await fetch(`${baseUrl}/v1/models`, { headers });
         const data = await resp.json();
-        return (data.data as Array<{ id: string }>)?.map((m) => m.id) || [];
+        return (data.data as Array<{ id: string }>)?.map(m => m.id) || [];
       } catch {
         return [];
       }

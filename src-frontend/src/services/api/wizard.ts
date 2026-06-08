@@ -1,4 +1,11 @@
-import { loggedInvoke } from './core';import type { WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal } from '@/types/v3';import type { WizardCreationResult } from '@/types/index';
+import { loggedInvoke } from './core';
+import type {
+  WorldBuildingOption,
+  CharacterProfileOption,
+  WritingStyleOption,
+  SceneProposal,
+} from '@/types/v3';
+import type { WizardCreationResult } from '@/types/index';
 // Novel Creation Wizard
 export const generateWorldBuildingOptions = (userInput: string) =>
   loggedInvoke<WorldBuildingOption[]>('generate_world_building_options', { user_input: userInput });

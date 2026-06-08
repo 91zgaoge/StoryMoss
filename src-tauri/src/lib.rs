@@ -69,8 +69,9 @@ use tauri::{Emitter, Manager};
 // use collab::websocket::WebSocketServer;
 
 // GLOBAL: DB_POOL — 数据库连接池全局访问点。
-// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。Mutex 用于 Lazy 初始化，不是频繁锁竞争。
-// NOTE: 理想情况下应通过 Tauri State 注入，但当前大量模块直接调用 get_pool()，保留为过渡期全局。
+// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。Mutex 用于 Lazy
+// 初始化，不是频繁锁竞争。 NOTE: 理想情况下应通过 Tauri State
+// 注入，但当前大量模块直接调用 get_pool()，保留为过渡期全局。
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 
 // GLOBAL: APP_CONFIG — 应用配置全局访问点。

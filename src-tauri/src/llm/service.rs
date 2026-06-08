@@ -844,9 +844,9 @@ fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
 }
 
 // GLOBAL: LLM 服务单例。
-// SAFETY: OnceCell 保证仅初始化一次。通过 init_llm_service() 在 setup() 中设置。
-// NOTE: 当前使用全局静态是因为大量命令处理器直接调用 get_llm_service()。
-// 长期目标：通过 Tauri State 注入，消除全局依赖。
+// SAFETY: OnceCell 保证仅初始化一次。通过 init_llm_service() 在 setup()
+// 中设置。 NOTE: 当前使用全局静态是因为大量命令处理器直接调用
+// get_llm_service()。 长期目标：通过 Tauri State 注入，消除全局依赖。
 static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Mutex<Option<LlmService>>> =
     once_cell::sync::OnceCell::new();
 
