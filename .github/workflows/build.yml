@@ -185,6 +185,8 @@ jobs:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256
       # 禁用 LTO 进一步加速（默认已关闭，显式声明以防万一）
       CARGO_PROFILE_RELEASE_LTO: false
+      # Tauri 更新包签名私钥
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
     steps:
       - uses: actions/checkout@v4
