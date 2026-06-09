@@ -3,4 +3,4 @@
 /**
  * AI 提示位置
  */
-export type HintPosition = { line: number; column: number; offset: number };
+export type HintPosition = { line: number, column: number, offset: number, };

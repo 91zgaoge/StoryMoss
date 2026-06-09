@@ -338,7 +338,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 Err(e) => return Err(PipelineError::LlmError(e.to_string())),
             };
 
-            // 保存到 Chapter
+            // 保存到 Chapter（自动补齐可能已创建 chapter_number=1 的 Chapter，需要检查）
             let chapter_repo = ChapterRepository::new(ctx.pool.clone());
             let content_len = result.content.chars().count();
             tracing::info!(
@@ -346,15 +346,43 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 ctx.story_id,
                 content_len
             );
-            let chapter = chapter_repo
-                .create(crate::db::CreateChapterRequest {
-                    story_id: ctx.story_id.clone(),
-                    chapter_number: 1,
-                    title: Some("第一章".to_string()),
-                    outline: None,
-                    content: Some(result.content.clone()),
-                })
+
+            // 检查是否已有 chapter_number=1 的 Chapter（由 auto-fill 创建）
+            let existing_chapters = chapter_repo
+                .get_by_story(&ctx.story_id)
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+            let existing_chapter = existing_chapters
+                .into_iter()
+                .find(|c| c.chapter_number == 1);
+
+            let chapter = if let Some(ch) = existing_chapter {
+                tracing::info!(
+                    "[FirstChapterGenerationStep] Existing chapter found: chapter_id={}, updating",
+                    ch.id
+                );
+                chapter_repo
+                    .update(
+                        &ch.id,
+                        Some("第一章".to_string()),
+                        None,
+                        Some(result.content.clone()),
+                        Some(content_len as i32),
+                    )
+                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                ch
+            } else {
+                let ch = chapter_repo
+                    .create(crate::db::CreateChapterRequest {
+                        story_id: ctx.story_id.clone(),
+                        chapter_number: 1,
+                        title: Some("第一章".to_string()),
+                        outline: None,
+                        content: Some(result.content.clone()),
+                    })
+                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                ch
+            };
+
             tracing::info!(
                 "[FirstChapterGenerationStep] Chapter saved: chapter_id={}, chapter_content_len={}",
                 chapter.id,
