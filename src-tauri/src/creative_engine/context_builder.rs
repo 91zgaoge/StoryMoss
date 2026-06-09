@@ -83,7 +83,7 @@ impl StoryContextBuilder {
         let world_rules = self.fetch_world_rules(story_id)?;
         let style = self.fetch_writing_style(story_id)?;
         let current_scene = match scene_number {
-            Some(n) => Some(self.fetch_current_scene(story_id, n)?),
+            Some(n) => self.fetch_current_scene(story_id, n)?,
             None => None,
         };
         let relevant_entities = self.fetch_relevant_entities(story_id, 10)?;
@@ -297,16 +297,15 @@ impl StoryContextBuilder {
         &self,
         story_id: &str,
         scene_number: i32,
-    ) -> Result<crate::db::models::Scene, String> {
+    ) -> Result<Option<crate::db::models::Scene>, String> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = repo
             .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
 
-        scenes
+        Ok(scenes
             .into_iter()
-            .find(|s| s.sequence_number == scene_number)
-            .ok_or_else(|| "当前场景不存在".to_string())
+            .find(|s| s.sequence_number == scene_number))
     }
 
     fn fetch_world_rules(&self, story_id: &str) -> Result<Vec<WorldRuleSummary>, String> {

@@ -32,7 +32,7 @@ pub async fn chat_completion(
         .post(format!("{}/chat/completions", base_url))
         .header("Content-Type", "application/json");
 
-    if let Some(key) = api_key {
+    if let Some(ref key) = api_key {
         if !key.is_empty() {
             request = request.header("Authorization", format!("Bearer {}", key));
         }
@@ -49,7 +49,21 @@ pub async fn chat_completion(
         "stream": false,
     });
 
-    let response = request.json(&body).send().await.map_err(AppError::from)?;
+    let mut response = request.json(&body).send().await.map_err(AppError::from)?;
+
+    // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        let mut fallback = client
+            .post(format!("{}/v1/chat/completions", base_url))
+            .header("Content-Type", "application/json");
+        if let Some(ref key) = api_key {
+            if !key.is_empty() {
+                fallback = fallback.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+        response = fallback.json(&body).send().await.map_err(AppError::from)?;
+    }
+
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();

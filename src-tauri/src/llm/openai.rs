@@ -130,7 +130,7 @@ impl LlmAdapter for OpenAiAdapter {
             temperature: request.temperature.unwrap_or(self.default_temperature),
         };
 
-        let response = self
+        let mut response = self
             .client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -138,6 +138,18 @@ impl LlmAdapter for OpenAiAdapter {
             .json(&openai_req)
             .send()
             .await?;
+
+        // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            response = self
+                .client
+                .post(format!("{}/v1/chat/completions", self.api_base))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&openai_req)
+                .send()
+                .await?;
+        }
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
@@ -176,7 +188,7 @@ impl LlmAdapter for OpenAiAdapter {
             stream: true,
         };
 
-        let response = self
+        let mut response = self
             .client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -184,6 +196,18 @@ impl LlmAdapter for OpenAiAdapter {
             .json(&openai_req)
             .send()
             .await?;
+
+        // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            response = self
+                .client
+                .post(format!("{}/v1/chat/completions", self.api_base))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&openai_req)
+                .send()
+                .await?;
+        }
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
