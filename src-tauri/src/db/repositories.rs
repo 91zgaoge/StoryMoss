@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Repository 层
 
 use chrono::Local;
@@ -498,7 +497,7 @@ impl SceneRepository {
                     row.get(0)
                 })?;
             self.sync_scene_settings_to_world_building(
-                &tx,
+                tx,
                 &story_id,
                 updates.setting_location.as_deref(),
                 updates.setting_time.as_deref(),
@@ -884,7 +883,7 @@ impl SceneVersionRepository {
             content: scene.content.clone(),
             dramatic_goal: scene.dramatic_goal.clone(),
             external_pressure: scene.external_pressure.clone(),
-            conflict_type: scene.conflict_type.clone(),
+            conflict_type: scene.conflict_type,
             characters_present: scene.characters_present.clone(),
             character_conflicts: scene.character_conflicts.clone(),
             setting_location: scene.setting_location.clone(),

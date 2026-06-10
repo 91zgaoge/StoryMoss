@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Capability Evolution - 能力进化反馈环
 //!
 //! Records execution results and uses LLM to improve capability descriptions
@@ -6,7 +5,7 @@
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -33,7 +32,7 @@ pub struct ExecutionRecordStore {
 }
 
 impl ExecutionRecordStore {
-    pub fn new(app_data_dir: &PathBuf) -> Self {
+    pub fn new(app_data_dir: &Path) -> Self {
         let storage_path = app_data_dir.join("capability_execution_records.json");
         let cache = Arc::new(Mutex::new(Self::load_records(&storage_path)));
         Self {
@@ -125,7 +124,7 @@ impl CapabilityEvolutionEngine {
         Self { llm_service, store }
     }
 
-    pub fn new_with_path(llm_service: LlmService, app_data_dir: &PathBuf) -> Self {
+    pub fn new_with_path(llm_service: LlmService, app_data_dir: &Path) -> Self {
         let store = ExecutionRecordStore::new(app_data_dir);
         Self { llm_service, store }
     }
@@ -140,7 +139,7 @@ impl CapabilityEvolutionEngine {
         );
         self.store.append(record);
         let total_records = self.store.len();
-        if total_records > 0 && total_records % 5 == 0 {
+        if total_records > 0 && total_records.is_multiple_of(5) {
             let engine = self.clone();
             tauri::async_runtime::spawn(async move {
                 match engine.evolve_capability_descriptions().await {

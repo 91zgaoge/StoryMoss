@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub mod commands;
 
 use serde::{Deserialize, Serialize};
@@ -37,7 +36,7 @@ pub struct KbStats {
 /// - 每块最大 max_chars 字符
 /// - 块间重叠 overlap 字符
 pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
-    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| p.trim().len() > 0).collect();
+    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
     let mut chunks = Vec::new();
     let mut current = String::new();
 
@@ -48,7 +47,7 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
                 current = String::new();
             }
             let sentences: Vec<&str> = para
-                .split(|c: char| c == '。' || c == '！' || c == '？')
+                .split(['。', '！', '？'])
                 .collect();
             let mut sentence_chunk = String::new();
             for sentence in sentences {

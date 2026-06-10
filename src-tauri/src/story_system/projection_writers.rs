@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Projection Writers - 投影写入器
 //!
 //! CHAPTER_COMMIT 被接受后，各 projection writer 负责更新对应的 read-model：

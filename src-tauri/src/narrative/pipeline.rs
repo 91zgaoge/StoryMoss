@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! NarrativePipeline — 叙事流水线抽象框架
 //!
 //! 核心设计：提取 Bootstrap 和拆书的共同流程模式，形成可复用的 Pipeline。

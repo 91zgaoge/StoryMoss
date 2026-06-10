@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 雪花写作法 (Snowflake Method)
 //!
 //! 由 Randy Ingermanson 提出，从一句话逐步扩展为完整小说的十步创作法。

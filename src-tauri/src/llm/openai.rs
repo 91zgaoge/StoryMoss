@@ -223,7 +223,7 @@ impl LlmAdapter for OpenAiAdapter {
             use tokio::io::AsyncBufReadExt;
 
             let stream = response.bytes_stream().map(|result| {
-                result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+                result.map_err(std::io::Error::other)
             });
             let reader = tokio_util::io::StreamReader::new(stream);
             let mut lines = reader.lines();

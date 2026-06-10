@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 自动化相关的 IPC 命令
 
 use std::collections::HashMap;

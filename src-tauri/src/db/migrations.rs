@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Lightweight migration runner
 //!
 //! Reads `.sql` files from `migrations/` directory, tracks applied versions in

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::{
     fs, io,
     path::{Path, PathBuf},

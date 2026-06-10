@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! DTO (Data Transfer Object) 模块
 //!
 //! 包含请求/响应模型，从 models.rs 迁移至此，避免贫血模型与 DTO 混杂。

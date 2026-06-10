@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! LitSeg 叙事感知分段与检索 — Repository 层 (深度融合后)
 //!
 //! 操作 narrative_structure_positions / conflict_escalations / narrative_chunks

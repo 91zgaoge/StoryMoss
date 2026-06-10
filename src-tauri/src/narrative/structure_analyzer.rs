@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 叙事结构分析器 — LitSeg Phase 4 (最大价值模块)
 //!
 //! 基于事件强度分布自动推断幕级结构：
@@ -173,7 +172,7 @@ impl NarrativeStructureAnalyzer {
         }
 
         // 转 — 中间峰值到最后峰值前
-        if peaks.len() >= 1 {
+        if !peaks.is_empty() {
             let last_peak_chapter = events[peaks[peaks.len() - 1]].chapter_number;
             if last_peak_chapter > current_start {
                 acts.push(Act {
@@ -291,7 +290,7 @@ impl NarrativeStructureAnalyzer {
         events: &[NarrativeEvent],
     ) -> bool {
         // 条件1: 位于幕的边界附近（前10%或后10%）
-        let at_act_boundary = position_in_act < 0.1 || position_in_act > 0.9;
+        let at_act_boundary = !(0.1..=0.9).contains(&position_in_act);
 
         // 条件2: 事件强度突变
         let intensity_surge = self.has_intensity_surge(event, events);
@@ -323,15 +322,15 @@ impl NarrativeStructureAnalyzer {
 
         if let Some(prev) = prev_event {
             // 事件类型发生质变（如 introduction -> conflict_eruption）
-            match (&prev.event_type, &event.event_type) {
-                (EventType::Introduction, EventType::ConflictEruption) => true,
-                (EventType::Introduction, EventType::TurningPoint) => true,
-                (EventType::ForeshadowSetup, EventType::ForeshadowPayoff) => true,
-                (EventType::ConflictEruption, EventType::Climax) => true,
-                (EventType::TurningPoint, EventType::Climax) => true,
-                (EventType::Climax, EventType::Resolution) => true,
-                _ => false,
-            }
+            matches!(
+                (&prev.event_type, &event.event_type),
+                (EventType::Introduction, EventType::ConflictEruption)
+                    | (EventType::Introduction, EventType::TurningPoint)
+                    | (EventType::ForeshadowSetup, EventType::ForeshadowPayoff)
+                    | (EventType::ConflictEruption, EventType::Climax)
+                    | (EventType::TurningPoint, EventType::Climax)
+                    | (EventType::Climax, EventType::Resolution)
+            )
         } else {
             false
         }

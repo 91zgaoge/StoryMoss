@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Task Heartbeat Monitor
 //!
 //! 参考 memoh-X internal/heartbeat/engine.go 的心跳检测设计。

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Story Structure Audit — 故事结构健康检查
 //!
 //! 对已有故事项目进行结构分析，检测潜在问题。
@@ -356,7 +355,7 @@ impl StoryStructureAuditor {
 
         let score = if estimated_scenes > 0 {
             let ratio = actual_scenes as f32 / estimated_scenes as f32;
-            if ratio >= 0.8 && ratio <= 1.2 {
+            if (0.8..=1.2).contains(&ratio) {
                 100
             } else if ratio >= 0.5 {
                 70

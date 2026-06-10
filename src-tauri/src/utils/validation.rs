@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 /// Validation utilities
 pub struct ValidationUtils;
 

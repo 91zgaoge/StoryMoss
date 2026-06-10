@@ -68,10 +68,8 @@ impl PlanTemplateLibrary {
             })
             .map_err(AppError::from)?;
 
-        for row in rows {
-            if let Ok(template) = row {
-                self.templates.push(template);
-            }
+        for template in rows.flatten() {
+            self.templates.push(template);
         }
         log::info!(
             "[PlanTemplateLibrary] Loaded {} templates from DB",

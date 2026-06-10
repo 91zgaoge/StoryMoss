@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! AnalysisPipeline — 逆向/分析流程
 //!
 //! 增强版拆书功能，基于统一的 NarrativePipeline 框架。
@@ -195,7 +194,7 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = extract_json(content).map_err(PipelineError::ParseError)?;
             let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析元信息失败: {}", e)))?;
 
@@ -304,7 +303,7 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = extract_json(content).map_err(PipelineError::ParseError)?;
             let wb: WorldBuildingElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
@@ -712,7 +711,7 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = extract_json(content).map_err(PipelineError::ParseError)?;
 
             #[derive(Debug, Deserialize)]
             struct ArcResponse {
@@ -798,7 +797,7 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = extract_json(content).map_err(PipelineError::ParseError)?;
 
             #[derive(Debug, Deserialize)]
             struct ForeshadowingResponse {

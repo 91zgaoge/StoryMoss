@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Knowledge Distiller Agent - 知识蒸馏师
 //!
 //! 将知识图谱中的实体与关系蒸馏为高层故事摘要和世界设定

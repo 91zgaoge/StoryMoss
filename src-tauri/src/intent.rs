@@ -37,33 +37,27 @@ pub enum IntentType {
 /// 执行模式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ExecutionMode {
+    #[default]
     Serial,
     Parallel,
 }
 
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        ExecutionMode::Serial
-    }
-}
 
 /// 反馈类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum FeedbackType {
     DirectApply,
+    #[default]
     SuggestionCard,
     DiffPreview,
     SystemNotice,
     VisualHighlight,
 }
 
-impl Default for FeedbackType {
-    fn default() -> Self {
-        FeedbackType::SuggestionCard
-    }
-}
 
 /// 意图目标
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

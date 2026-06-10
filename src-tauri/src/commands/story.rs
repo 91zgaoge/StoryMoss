@@ -31,7 +31,7 @@ pub fn create_story(
             style_dna_id: None,
         })
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
+    crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
     let automation_service_clone = automation_service.inner().clone();
     let story_id_clone = story.id.clone();
     tauri::async_runtime::spawn(async move {
@@ -77,7 +77,7 @@ pub fn update_story(
     StoryRepository::new(pool.inner().clone())
         .update(&id, &req)
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_story_updated(&app, &id, title.as_deref());
+    crate::state_sync::StateSync::emit_story_updated(&app, &id, title.as_deref());
     Ok(())
 }
 
@@ -86,6 +86,6 @@ pub fn delete_story(id: String, pool: State<'_, DbPool>, app: AppHandle) -> Resu
     StoryRepository::new(pool.inner().clone())
         .delete(&id)
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_story_deleted(&app, &id);
+    crate::state_sync::StateSync::emit_story_deleted(&app, &id);
     Ok(())
 }

@@ -58,7 +58,7 @@ impl MemoryWriter {
 
         // 取前 max_chars 字，然后找到最后一个句号/逗号截断
         let prefix: String = trimmed.chars().take(max_chars).collect();
-        if let Some(pos) = prefix.rfind(|c| c == '。' || c == '！' || c == '？') {
+        if let Some(pos) = prefix.rfind(['。', '！', '？']) {
             prefix[..=pos].to_string()
         } else if let Some(pos) = prefix.rfind('，') {
             prefix[..=pos].to_string()
@@ -84,7 +84,7 @@ impl MemoryWriter {
         let target = commits
             .into_iter()
             .filter(|c| c.chapter_number == chapter_number)
-            .max_by_key(|c| c.created_at.clone());
+            .max_by_key(|c| c.created_at);
 
         if let Some(commit) = target {
             repo.update_commit(

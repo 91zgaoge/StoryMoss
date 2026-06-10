@@ -140,7 +140,7 @@ class ModelService {
     let finalResponse: ChatCompletionResponse | null = null;
 
     try {
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
 

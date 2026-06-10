@@ -53,6 +53,7 @@ pub struct OAuthClientConfig {
 
 /// 认证配置（前端可见部分）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AuthConfig {
     pub google_enabled: bool,
     pub github_enabled: bool,
@@ -60,13 +61,3 @@ pub struct AuthConfig {
     pub qq_enabled: bool,
 }
 
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            google_enabled: false,
-            github_enabled: false,
-            wechat_enabled: false,
-            qq_enabled: false,
-        }
-    }
-}

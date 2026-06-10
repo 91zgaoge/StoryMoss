@@ -426,18 +426,15 @@ fn convert_bundle_to_analysis_result(
         let world_setting = bundle
             .world_building
             .as_ref()
-            .map(|w| serde_json::to_string(w).ok())
-            .flatten();
+            .and_then(|w| serde_json::to_string(w).ok());
         let story_arc = bundle
             .outline
             .as_ref()
-            .map(|o| serde_json::to_string(&o.acts).ok())
-            .flatten();
+            .and_then(|o| serde_json::to_string(&o.acts).ok());
         let analyzed_structure_json = bundle
             .outline
             .as_ref()
-            .map(|o| serde_json::to_string(&o.acts).ok())
-            .flatten();
+            .and_then(|o| serde_json::to_string(&o.acts).ok());
         ReferenceBook {
             id: meta.id.clone(),
             title: meta.title.clone(),

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! PromptEvolver - 提示词进化器
 //!
 //! 核心理念：不是用模板变量替换，而是让LLM根据故事上下文自由改写整个prompt。

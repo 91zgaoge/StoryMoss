@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Foreshadowing Tracker - 伏笔追踪系统
 //!
 //! 追踪故事中的伏笔（setup）和回收（payoff），

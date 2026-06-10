@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 自动化服务核心实现
 
 use std::{

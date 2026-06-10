@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Prompt Template Engine - 提示词模板引擎
 //!
 //! 将硬编码的提示词字符串替换为可维护的模板系统。

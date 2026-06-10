@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 叙事线索追踪模型 — LitSeg 叙事感知分段与检索增强 (E1)
 //!
 //! 基于 LitSeg 论文：追踪人物弧光、伏笔/回报线、冲突升级等叙事线索，
@@ -12,7 +11,9 @@ use crate::db::ConflictType;
 /// 伏笔状态 — 与 db models 中的 ForeshadowingStatus 对齐（避免重复定义）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ForeshadowStatus {
+    #[default]
     Setup,     // 已埋设
     Payoff,    // 已回收
     Abandoned, // 已放弃
@@ -23,17 +24,14 @@ pub enum ForeshadowStatus {
     Overdue,   // 超期未回收（PayoffLedger 用）
 }
 
-impl Default for ForeshadowStatus {
-    fn default() -> Self {
-        ForeshadowStatus::Setup
-    }
-}
 
 /// 弧光类型——角色内在转变的方向
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ArcType {
     /// 正向弧光——角色从负面到正面（如恐惧→勇敢）
+    #[default]
     Positive,
     /// 负向弧光——角色从正面到负面（如英雄→堕落）
     Negative,
@@ -41,11 +39,6 @@ pub enum ArcType {
     Flat,
 }
 
-impl Default for ArcType {
-    fn default() -> Self {
-        ArcType::Positive
-    }
-}
 
 /// 叙事线索——跨场景连续推进的叙事元素
 #[derive(Debug, Clone)]

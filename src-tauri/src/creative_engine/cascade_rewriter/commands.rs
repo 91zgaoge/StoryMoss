@@ -118,7 +118,7 @@ pub async fn apply_cascade_rewrite(
             );
 
             // 发射场景更新同步事件
-            let _ = crate::state_sync::StateSync::emit_scene_updated(
+            crate::state_sync::StateSync::emit_scene_updated(
                 &app_handle,
                 &scene.story_id,
                 &scene_id,

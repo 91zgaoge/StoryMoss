@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Export commands
 
 use tauri::{AppHandle, Manager, State};

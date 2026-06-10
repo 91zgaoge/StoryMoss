@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 创作工作流引擎核心
 //!
 //! 串联所有创作阶段和 Agent，形成完整闭环：
@@ -382,8 +381,9 @@ impl CreationWorkflowEngine {
                         "description": format!("从创作内容中提取的{}", entity_type),
                         "auto_extracted": true
                     });
-                    if let Ok(_) =
-                        kg_repo.create_entity(&story_id, &name, &entity_type, &attrs, None)
+                    if kg_repo
+                        .create_entity(&story_id, &name, &entity_type, &attrs, None)
+                        .is_ok()
                     {
                         entity_count += 1;
                     }
@@ -714,7 +714,7 @@ impl CreationWorkflowEngine {
 
             state.current_phase = phase;
             self.emit_progress(
-                &state,
+                state,
                 WorkflowStage::InProgress,
                 &format!("进入{}阶段", phase.name()),
                 phase_progress(phase),
@@ -755,7 +755,7 @@ impl CreationWorkflowEngine {
 
                         state.current_phase = CreationPhase::Iteration;
                         self.emit_progress(
-                            &state,
+                            state,
                             WorkflowStage::InProgress,
                             "进入迭代阶段",
                             phase_progress(CreationPhase::Iteration),
@@ -771,7 +771,7 @@ impl CreationWorkflowEngine {
                         *current_input = iteration_result.content;
 
                         self.emit_progress(
-                            &state,
+                            state,
                             WorkflowStage::Completed,
                             "迭代阶段完成",
                             phase_progress(CreationPhase::Ingestion),
@@ -791,7 +791,7 @@ impl CreationWorkflowEngine {
             state.completed_phases.push(phase);
             let next_phase = phase.next().unwrap_or(CreationPhase::Ingestion);
             self.emit_progress(
-                &state,
+                state,
                 WorkflowStage::Completed,
                 &format!("{}阶段完成", phase.name()),
                 phase_progress(next_phase),
@@ -809,7 +809,7 @@ impl CreationWorkflowEngine {
 
             state.current_phase = CreationPhase::Ingestion;
             self.emit_progress(
-                &state,
+                state,
                 WorkflowStage::InProgress,
                 "进入记忆阶段",
                 phase_progress(CreationPhase::Ingestion),
@@ -819,7 +819,7 @@ impl CreationWorkflowEngine {
                 .execute_phase(CreationPhase::Ingestion, context, &final_content)
                 .await;
             state.completed_phases.push(CreationPhase::Ingestion);
-            self.emit_progress(&state, WorkflowStage::Completed, "一键创作完成", 1.0);
+            self.emit_progress(state, WorkflowStage::Completed, "一键创作完成", 1.0);
         }
 
         Ok(())
@@ -905,7 +905,7 @@ impl CreationWorkflowEngine {
                     if let Some(end) = part.find(*close) {
                         let quoted = &part[..end];
                         let len = quoted.chars().count();
-                        if len >= 2 && len <= 20 && seen.insert(quoted.to_string()) {
+                        if (2..=20).contains(&len) && seen.insert(quoted.to_string()) {
                             entities.push((quoted.to_string(), "Concept".to_string()));
                         }
                     }

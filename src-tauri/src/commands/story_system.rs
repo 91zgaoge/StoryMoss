@@ -29,8 +29,7 @@ pub fn create_master_setting(
             &world_rules,
         )
         .map_err(AppError::from)?;
-    let _ =
-        crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "storyContracts");
+    crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "storyContracts");
     Ok(result)
 }
 
@@ -59,8 +58,7 @@ pub fn create_chapter_contract(
             chapter_span.as_deref(),
         )
         .map_err(AppError::from)?;
-    let _ =
-        crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "storyContracts");
+    crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "storyContracts");
     Ok(result)
 }
 
@@ -106,7 +104,7 @@ pub fn init_chapter_commit(
             chapter_number,
         )
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "sceneCommits");
+    crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "sceneCommits");
     Ok(result)
 }
 

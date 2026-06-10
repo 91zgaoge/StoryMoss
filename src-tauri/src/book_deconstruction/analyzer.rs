@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Book Analyzer - LLM 分析编排器
 //!
 //! 5步分析 Pipeline：元信息 → 世界观 → 人物 → 章节概要 → 故事线
@@ -141,13 +140,10 @@ impl BookAnalyzer {
             )
             .await;
             log::info!(
-                "[BookAnalyzer] Step {} completed: {}",
+                "[BookAnalyzer] Step {} completed: {} / {}",
                 "metadata",
-                format!(
-                    "{} / {}",
-                    metadata.title.as_deref().unwrap_or("未知"),
-                    metadata.genre.as_deref().unwrap_or("未知类型")
-                )
+                metadata.title.as_deref().unwrap_or("未知"),
+                metadata.genre.as_deref().unwrap_or("未知类型")
             );
             if let Some(ref cb) = heartbeat_callback {
                 cb();
@@ -189,7 +185,7 @@ impl BookAnalyzer {
             }
             check_cancel()?;
             let characters = self
-                .extract_characters(book_id, chunks, cancel_check.as_ref())
+                .extract_characters(book_id, chunks, cancel_check.as_deref())
                 .await?;
             self.emit_progress(
                 book_id,
@@ -199,9 +195,9 @@ impl BookAnalyzer {
             )
             .await;
             log::info!(
-                "[BookAnalyzer] Step {} completed: {}",
+                "[BookAnalyzer] Step {} completed: 共识别 {} 个角色",
                 "characters",
-                format!("共识别 {} 个角色", characters.len())
+                characters.len()
             );
             if let Some(ref cb) = heartbeat_callback {
                 cb();
@@ -221,7 +217,7 @@ impl BookAnalyzer {
             }
             check_cancel()?;
             let scenes = self
-                .extract_scene_summaries(book_id, chunks, cancel_check.as_ref())
+                .extract_scene_summaries(book_id, chunks, cancel_check.as_deref())
                 .await?;
             self.emit_progress(
                 book_id,
@@ -231,9 +227,9 @@ impl BookAnalyzer {
             )
             .await;
             log::info!(
-                "[BookAnalyzer] Step {} completed: {}",
+                "[BookAnalyzer] Step {} completed: 共 {} 章",
                 "scenes",
-                format!("共 {} 章", scenes.len())
+                scenes.len()
             );
             if let Some(ref cb) = heartbeat_callback {
                 cb();
@@ -265,18 +261,15 @@ impl BookAnalyzer {
             )
             .await;
             log::info!(
-                "[BookAnalyzer] Step {} completed: {}",
+                "[BookAnalyzer] Step {} completed: 主线{}、支线{}条、高潮{}处",
                 "story_arc",
-                format!(
-                    "主线{}、支线{}条、高潮{}处",
-                    if story_arc.main_arc.is_empty() {
-                        "待补充"
-                    } else {
-                        "已提取"
-                    },
-                    story_arc.sub_arcs.len(),
-                    story_arc.climaxes.len()
-                )
+                if story_arc.main_arc.is_empty() {
+                    "待补充"
+                } else {
+                    "已提取"
+                },
+                story_arc.sub_arcs.len(),
+                story_arc.climaxes.len()
             );
             if let Some(ref cb) = heartbeat_callback {
                 cb();
@@ -407,7 +400,7 @@ JSON格式：
         &self,
         book_id: &str,
         chunks: &[TextChunk],
-        cancel_check: Option<&Box<dyn Fn() -> bool + Send + Sync>>,
+        cancel_check: Option<&(dyn Fn() -> bool + Send + Sync)>,
     ) -> Result<Vec<ReferenceCharacter>, AnalysisError> {
         // 对每个 chunk 并行提取人物
         let mut character_results: Vec<Vec<ExtractedCharacter>> = Vec::new();
@@ -528,7 +521,7 @@ JSON格式：
         &self,
         book_id: &str,
         chunks: &[TextChunk],
-        cancel_check: Option<&Box<dyn Fn() -> bool + Send + Sync>>,
+        cancel_check: Option<&(dyn Fn() -> bool + Send + Sync)>,
     ) -> Result<Vec<ReferenceScene>, AnalysisError> {
         let mut scenes = Vec::new();
         let total = chunks.len();

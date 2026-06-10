@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 叙事感知分段模型 — LitSeg 叙事感知分段与检索增强 (E1)
 //!
 //! 基于 LitSeg 论文：在叙事边界处切分文本，而非均匀切分。
@@ -10,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// 文本块类型——用于检索时的语义加权
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ChunkType {
     /// 开场块——引入角色/世界观
     Introduction,
@@ -22,6 +22,7 @@ pub enum ChunkType {
     /// 回落块——紧张缓解
     Resolution,
     /// 过渡块——连接功能
+    #[default]
     Transition,
 }
 
@@ -81,8 +82,3 @@ pub struct NarrativeChunk {
     pub created_at: DateTime<Local>,
 }
 
-impl Default for ChunkType {
-    fn default() -> Self {
-        ChunkType::Transition
-    }
-}

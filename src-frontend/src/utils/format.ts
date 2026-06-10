@@ -105,8 +105,8 @@ export function autoFormatText(input: string): string {
     const nextSentence = sentences[i + 1] || '';
 
     // 对话检测：以引号/书名号/括号开头的句子优先独立成段
-    const isDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"\'「『（《].*/.test(sentence.trim());
-    const nextIsDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"\'「『（《].*/.test(
+    const isDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"'「『（《].*/.test(sentence.trim());
+    const nextIsDialogue = /^[\u201c\u2018\u300c\u300e\uff08\u300a"'「『（《].*/.test(
       nextSentence.trim()
     );
 

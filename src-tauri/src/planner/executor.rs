@@ -480,7 +480,7 @@ impl PlanExecutor {
         // Resolve current scene number from DB (latest scene for the story)
         let scene_number = self.get_current_scene_number(story_id).unwrap_or(None);
 
-        Ok(builder.build(story_id, scene_number, current_content, selected_text)?)
+        builder.build(story_id, scene_number, current_content, selected_text)
     }
 
     fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, AppError> {

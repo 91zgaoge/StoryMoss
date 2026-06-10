@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub mod commands;
 pub mod executor;
 pub mod finalize;

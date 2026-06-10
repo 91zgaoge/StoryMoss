@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::{collections::HashMap, fs, path::Path};
 
 // W4-B3: SQLite-backed config storage
@@ -251,8 +250,10 @@ pub struct LlmProfile {
 /// 模型来源 — 决定配额和用量统计策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ModelSource {
     /// 平台提供的模型（用量统计 + 配额检查）
+    #[default]
     Platform,
     /// 本地模型（Ollama 等，无平台配额）
     Local,
@@ -260,11 +261,6 @@ pub enum ModelSource {
     UserOwned,
 }
 
-impl Default for ModelSource {
-    fn default() -> Self {
-        ModelSource::Platform
-    }
-}
 
 /// 支持的LLM提供商
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

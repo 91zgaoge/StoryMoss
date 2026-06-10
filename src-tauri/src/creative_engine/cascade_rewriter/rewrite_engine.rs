@@ -133,7 +133,7 @@ impl RewriteEngine {
                     // 长度检查
                     let len_ratio =
                         rewritten_text.len() as f64 / paragraph_text.len().max(1) as f64;
-                    if len_ratio < 0.5 || len_ratio > 1.5 {
+                    if !(0.5..=1.5).contains(&len_ratio) {
                         log::warn!(
                             "[CascadeRewriter] Length ratio {:.2} for scene {}, paragraph {}",
                             len_ratio,

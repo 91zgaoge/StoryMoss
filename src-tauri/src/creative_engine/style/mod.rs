@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Style DNA 系统 - 深度风格引擎
 //!
 //! 从"排版皮肤"升级为"创作基因"，让 AI 真正模仿风格。
@@ -144,7 +143,7 @@ impl StyleAnalyzer {
             .iter()
             .map(|&m| text.matches(m).count())
             .sum::<usize>();
-        dna.perspective.interior_monologue_ratio = if sentences.len() > 0 {
+        dna.perspective.interior_monologue_ratio = if !sentences.is_empty() {
             (interior_count as f32 / sentences.len() as f32).min(1.0)
         } else {
             0.0

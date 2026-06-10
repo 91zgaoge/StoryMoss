@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 高密度状态世界构建法 (High-Density World Building)
 //!
 //! 源于90年代经典老游戏在极致资源约束下的结构智慧。

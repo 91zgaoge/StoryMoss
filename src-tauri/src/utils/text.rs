@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub struct TextUtils;
 
 impl TextUtils {

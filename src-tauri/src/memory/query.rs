@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 四阶段查询检索管线
 //!
 //! Stage 1: CJK二元组分词搜索

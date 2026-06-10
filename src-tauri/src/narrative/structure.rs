@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 叙事结构定位模型 — LitSeg 叙事感知分段与检索增强 (E1)
 //!
 //! 基于 LitSeg 论文：识别叙事结构转折点——如亚里士多德的"发现/逆转"、
@@ -10,8 +9,10 @@ use serde::{Deserialize, Serialize};
 /// 叙事幕——宏观叙事结构单元
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ActType {
     /// 起——铺垫与引入（Act 1）
+    #[default]
     Introduction,
     /// 承——发展与冲突升级（Act 2a）
     Development,
@@ -47,15 +48,11 @@ impl std::str::FromStr for ActType {
     }
 }
 
-impl Default for ActType {
-    fn default() -> Self {
-        ActType::Introduction
-    }
-}
 
 /// 亚里士多德式戏剧功能
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DramaticFunction {
     /// 开端——引入冲突
     Prologue,
@@ -72,6 +69,7 @@ pub enum DramaticFunction {
     /// 发现——真相揭露
     Anagnorisis,
     /// 过渡——连接功能
+    #[default]
     Transition,
 }
 
@@ -109,11 +107,6 @@ impl std::str::FromStr for DramaticFunction {
     }
 }
 
-impl Default for DramaticFunction {
-    fn default() -> Self {
-        DramaticFunction::Transition
-    }
-}
 
 /// 叙事结构定位——事件在宏观叙事中的位置
 #[derive(Debug, Clone, Serialize, Deserialize)]

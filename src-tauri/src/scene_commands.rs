@@ -100,7 +100,7 @@ pub async fn create_scene(
             },
         );
         // P1-9 修复: 额外字段更新后发射 scene_updated，确保前端缓存刷新
-        let _ = crate::state_sync::StateSync::emit_scene_updated(
+        crate::state_sync::StateSync::emit_scene_updated(
             &app_handle,
             &story_id,
             &scene.id,
@@ -108,8 +108,7 @@ pub async fn create_scene(
         );
         // W2-F3: setting 字段变更同步触发 world_building 更新
         if has_setting_changes {
-            let _ =
-                crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
+            crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
         }
     }
 
@@ -126,7 +125,6 @@ pub async fn create_scene(
 }
 
 /// 业务逻辑层：获取故事的所有场景（可被 mock 测试）
-
 pub fn get_story_scenes_core(
     repo: &dyn crate::db::traits::SceneRepo,
     story_id: &str,
@@ -278,12 +276,12 @@ pub async fn update_scene(
                             saved_entities,
                             saved_relations
                         );
-                        let _ = crate::state_sync::StateSync::emit_ingestion_completed(
+                        crate::state_sync::StateSync::emit_ingestion_completed(
                             &app_handle_for_sync,
                             &story_id,
                             "scene",
                         );
-                        let _ = crate::state_sync::StateSync::emit_data_refresh(
+                        crate::state_sync::StateSync::emit_data_refresh(
                             &app_handle_for_sync,
                             Some(&story_id),
                             "knowledgeGraph",
@@ -337,10 +335,9 @@ pub async fn update_scene(
             || updates.setting_time.is_some()
             || updates.setting_atmosphere.is_some()
         {
-            let _ =
-                crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
+            crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
         }
-        let _ = crate::state_sync::StateSync::emit_scene_updated(
+        crate::state_sync::StateSync::emit_scene_updated(
             &app_handle,
             story_id,
             &scene_id,
@@ -383,8 +380,8 @@ pub async fn delete_scene(
     })?;
     if let Some(story_id) = story_id {
         // W2-F3: 场景删除后同步触发 world_building 更新（清理无引用规则）
-        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
-        let _ = crate::state_sync::StateSync::emit_scene_deleted(&app_handle, &story_id, &scene_id);
+        crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
+        crate::state_sync::StateSync::emit_scene_deleted(&app_handle, &story_id, &scene_id);
     }
     Ok(result)
 }
@@ -403,7 +400,7 @@ pub async fn reorder_scenes(
             .map_err(AppError::from)?;
     }
 
-    let _ = crate::state_sync::StateSync::emit_scene_updated(
+    crate::state_sync::StateSync::emit_scene_updated(
         &app_handle,
         &story_id,
         &scene_ids.first().cloned().unwrap_or_default(),
@@ -439,7 +436,7 @@ pub async fn create_scene_annotation(
             );
             AppError::from(e)
         })?;
-    let _ = crate::state_sync::StateSync::emit_annotation_created(
+    crate::state_sync::StateSync::emit_annotation_created(
         &app_handle,
         &story_id,
         &annotation.id,
@@ -503,7 +500,7 @@ pub async fn resolve_scene_annotation(
         .resolve_annotation(&annotation_id)
         .map_err(AppError::from)?;
     if let Some((story_id, scene_id)) = meta_opt {
-        let _ = crate::state_sync::StateSync::emit_annotation_resolved(
+        crate::state_sync::StateSync::emit_annotation_resolved(
             &app_handle,
             &story_id,
             &annotation_id,

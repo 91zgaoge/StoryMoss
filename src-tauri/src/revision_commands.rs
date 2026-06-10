@@ -91,7 +91,7 @@ pub async fn track_change(
         Err(rusqlite::Error::InvalidQuery)
     };
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "changeTracks",
@@ -131,7 +131,7 @@ pub async fn accept_change(
                 |row| row.get(0),
             );
             if let Ok(story_id) = story_id {
-                let _ = crate::state_sync::StateSync::emit_data_refresh(
+                crate::state_sync::StateSync::emit_data_refresh(
                     &app_handle,
                     Some(&story_id),
                     "changeTracks",
@@ -173,7 +173,7 @@ pub async fn reject_change(
                 |row| row.get(0),
             );
             if let Ok(story_id) = story_id {
-                let _ = crate::state_sync::StateSync::emit_data_refresh(
+                crate::state_sync::StateSync::emit_data_refresh(
                     &app_handle,
                     Some(&story_id),
                     "changeTracks",
@@ -232,7 +232,7 @@ pub async fn accept_all_changes(
                 row.get(0)
             });
         if let Ok(story_id) = story_id {
-            let _ = crate::state_sync::StateSync::emit_data_refresh(
+            crate::state_sync::StateSync::emit_data_refresh(
                 &app_handle,
                 Some(&story_id),
                 "changeTracks",
@@ -271,7 +271,7 @@ pub async fn reject_all_changes(
                 row.get(0)
             });
         if let Ok(story_id) = story_id {
-            let _ = crate::state_sync::StateSync::emit_data_refresh(
+            crate::state_sync::StateSync::emit_data_refresh(
                 &app_handle,
                 Some(&story_id),
                 "changeTracks",
@@ -339,7 +339,7 @@ pub async fn create_comment_thread(
         Err(rusqlite::Error::InvalidQuery)
     };
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "commentThreads",
@@ -391,7 +391,7 @@ pub async fn add_comment_message(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "commentThreads",
@@ -440,7 +440,7 @@ pub async fn resolve_comment_thread(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "commentThreads",
@@ -470,7 +470,7 @@ pub async fn reopen_comment_thread(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "commentThreads",
@@ -501,7 +501,7 @@ pub async fn delete_comment_thread(
     let result = repo.delete_thread(&thread_id).map_err(AppError::from)?;
 
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "commentThreads",
@@ -547,7 +547,7 @@ pub async fn create_character_relationship(
         })?;
 
     // P0-3 修复: 发射同步事件，确保幕后界面自动刷新
-    let _ = crate::state_sync::StateSync::emit_data_refresh(
+    crate::state_sync::StateSync::emit_data_refresh(
         &app_handle,
         Some(&story_id),
         "characterRelationships",
@@ -608,7 +608,7 @@ pub async fn update_character_relationship(
         |row| row.get(0),
     );
     if let Ok(ref story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(story_id),
             "characterRelationships",
@@ -783,7 +783,7 @@ pub async fn delete_character_relationship(
 
     // P0-3 修复: 发射同步事件
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "characterRelationships",

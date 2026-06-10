@@ -60,9 +60,6 @@ export function scheduleAutoSave(
       const executeSave = async () => {
         try {
           await saveFn(payload);
-        } catch (err) {
-          // 保存失败时由调用方处理（如 toast、重试）
-          throw err;
         } finally {
           isSaving = false;
           idleCallbackId = null;

@@ -63,17 +63,29 @@ jobs:
           workspaces: src-tauri
           shared-key: tauri
 
-      - name: Install rustfmt nightly
-        run: rustup component add rustfmt --toolchain nightly
-
       - name: Check Rust formatting
         working-directory: src-tauri
-        run: cargo +nightly fmt -- --check
+        run: cargo fmt -- --check
 
-      # TODO: 修复 471 个已有 Clippy 警告后恢复 -D warnings
       - name: Run Clippy
         working-directory: src-tauri
-        run: cargo clippy
+        run: |
+          cargo clippy -- \
+            -A dead_code \
+            -A clippy::too_many_arguments \
+            -A clippy::type_complexity \
+            -A clippy::module_inception \
+            -A clippy::manual_clamp \
+            -A clippy::manual_strip \
+            -A clippy::unnecessary_sort_by \
+            -A clippy::field_reassign_with_default \
+            -A clippy::match_like_matches_macro \
+            -A clippy::wildcard_in_or_patterns \
+            -A clippy::if_same_then_else \
+            -A clippy::mutex_atomic \
+            -A clippy::vec_init_then_push \
+            -A clippy::no_effect_replace \
+            -D warnings
 
       - name: Check Rust code
         working-directory: src-tauri
@@ -105,10 +117,9 @@ jobs:
         working-directory: src-frontend
         run: npm run format:check
 
-      # TODO: 修复 200+ 个已有 lint 错误后恢复
-      # - name: Lint frontend
-      #   working-directory: src-frontend
-      #   run: npm run lint
+      - name: Lint frontend
+        working-directory: src-frontend
+        run: npm run lint
 
       - name: Type check
         working-directory: src-frontend

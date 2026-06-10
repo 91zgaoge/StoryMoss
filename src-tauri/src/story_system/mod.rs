@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Story System - 合同驱动体系
 //!
 //! 参考 webnovel-writer 的 Story System Phase 5 设计：
@@ -448,7 +447,7 @@ impl SceneCommitService {
                     {
                         Ok(true) => {
                             // P0 修复: KG 提取成功后发射同步事件，确保幕后知识图谱自动刷新
-                            let _ = crate::state_sync::StateSync::emit_data_refresh(
+                            crate::state_sync::StateSync::emit_data_refresh(
                                 &app,
                                 Some(&story_id),
                                 "knowledgeGraph",

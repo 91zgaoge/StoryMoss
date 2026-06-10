@@ -12,6 +12,7 @@ use crate::db::ConflictType;
 /// 叙事事件类型——推动情节发展的关键节点
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EventType {
     /// 开场/引入——引入角色或世界观
     Introduction,
@@ -32,6 +33,7 @@ pub enum EventType {
     /// 伏笔回收——伏笔得到回报
     ForeshadowPayoff,
     /// 过渡——连接功能
+    #[default]
     Transition,
 }
 
@@ -104,11 +106,6 @@ pub struct NarrativeEvent {
     pub created_at: DateTime<Local>,
 }
 
-impl Default for EventType {
-    fn default() -> Self {
-        EventType::Transition
-    }
-}
 
 impl Default for NarrativeEvent {
     fn default() -> Self {

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Agent Commands
 //!
 //! Tauri commands for agent execution
@@ -141,7 +140,7 @@ pub async fn agent_execute_stream(
     let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
         id: task_id.clone(),
-        agent_type: request.agent_type.clone(),
+        agent_type: request.agent_type,
         context,
         input: request.input.clone(),
         parameters: request.parameters.unwrap_or_default(),
@@ -824,13 +823,13 @@ pub async fn auto_write(
                     let mut saved_relations = 0usize;
 
                     for entity in &ingest_result.entities {
-                        if let Ok(_) = kg_repo.create_entity(
+                        if kg_repo.create_entity(
                             &story_id_for_ingest,
                             &entity.name,
                             &entity.entity_type.to_string(),
                             &entity.attributes,
                             entity.embedding.clone(),
-                        ) {
+                        ).is_ok() {
                             saved_entities += 1;
                         }
                     }
@@ -849,13 +848,13 @@ pub async fn auto_write(
                         let target_id = entity_name_to_id
                             .get(&relation.target_id)
                             .unwrap_or(&relation.target_id);
-                        if let Ok(_) = kg_repo.create_relation(
+                        if kg_repo.create_relation(
                             &story_id_for_ingest,
                             source_id,
                             target_id,
                             &relation.relation_type.to_string(),
                             relation.strength,
-                        ) {
+                        ).is_ok() {
                             saved_relations += 1;
                         }
                     }

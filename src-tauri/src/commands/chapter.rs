@@ -74,7 +74,7 @@ pub fn delete_chapter(id: String, pool: State<'_, DbPool>, app: AppHandle) -> Re
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.delete(&id).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt {
-        let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
+        crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
     }
     Ok(())
 }

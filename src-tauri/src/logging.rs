@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! StoryForge 结构化日志系统
 //!
 //! 使用 tracing + tracing-subscriber + tracing-appender 实现：

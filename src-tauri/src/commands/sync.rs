@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Sync commands
 
 use tauri::{AppHandle, Emitter, Manager};

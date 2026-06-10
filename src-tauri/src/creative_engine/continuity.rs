@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Story Continuity Engine - 故事连续性引擎
 //!
 //! 追踪角色状态、检测一致性冲突、管理时间线。
@@ -273,7 +272,7 @@ impl ContinuityEngine {
         for rule in world_building.rules {
             if let Some(ref desc) = rule.description {
                 let clauses: Vec<&str> = desc
-                    .split(|c| c == '，' || c == '。' || c == ';' || c == '、')
+                    .split(['，', '。', ';', '、'])
                     .collect();
                 for clause in clauses {
                     let trimmed = clause.trim();

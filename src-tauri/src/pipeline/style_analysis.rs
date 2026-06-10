@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Style Analysis - 风格分析管线步骤
 //!
 //! W3-B6: 每 5 章触发时，计算当前 StyleDNA 六维向量，保存并演化。

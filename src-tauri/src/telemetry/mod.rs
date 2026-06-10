@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 功能使用度量遥测模块
 //!
 //! 不联网，只写本地 SQLite。用于评估各功能模块的使用情况，
@@ -79,13 +78,13 @@ pub fn get_feature_usage_stats(
 #[macro_export]
 macro_rules! log_feature {
     ($feature_id:expr, $action:expr) => {
-        if let Some(pool) = crate::get_pool() {
-            crate::telemetry::log_feature_usage(&pool, $feature_id, $action, None, None);
+        if let Some(pool) = $crate::get_pool() {
+            $crate::telemetry::log_feature_usage(&pool, $feature_id, $action, None, None);
         }
     };
     ($feature_id:expr, $action:expr, $story_id:expr) => {
-        if let Some(pool) = crate::get_pool() {
-            crate::telemetry::log_feature_usage(&pool, $feature_id, $action, Some($story_id), None);
+        if let Some(pool) = $crate::get_pool() {
+            $crate::telemetry::log_feature_usage(&pool, $feature_id, $action, Some($story_id), None);
         }
     };
 }

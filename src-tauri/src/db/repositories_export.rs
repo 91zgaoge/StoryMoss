@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;

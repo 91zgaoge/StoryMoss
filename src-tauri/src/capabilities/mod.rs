@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Capability Registry
 
 pub mod evolution;

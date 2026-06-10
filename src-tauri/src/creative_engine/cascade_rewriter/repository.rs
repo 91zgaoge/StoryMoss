@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::models::EntityMention;
 use crate::{db::DbPool, error::AppError};
 

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Chat module — RESERVED FOR FUTURE USE (Phase 4)
 //!
 //! This module provides story-associated chat sessions with message history.

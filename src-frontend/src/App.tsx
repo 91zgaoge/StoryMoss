@@ -130,7 +130,7 @@ function App() {
               setIsFrontstageOpen(true);
               break;
             // DataRefresh 已统一由 useSyncStore 处理，避免重复刷新
-            case 'NavigateTo':
+            case 'NavigateTo': {
               const targetView = payload?.view || 'dashboard';
               setCurrentView(targetView as ViewType);
               if (payload?.highlight_story_id) {
@@ -138,6 +138,7 @@ function App() {
                 useAppStore.getState().setNavigateHighlightStoryId(payload.highlight_story_id);
               }
               break;
+            }
           }
         });
       } catch (e) {

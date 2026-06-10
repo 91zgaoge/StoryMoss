@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Agent Service - 智能代理服务
 //!
 //! 协调多个Agent完成复杂的创作任务
@@ -1435,7 +1434,7 @@ impl AgentService {
             if let Ok(snapshot) = cs_manager.get_snapshot(&ctx.story.story_id).await {
                 emit_and_yield("正在注入叙事阶段指导...", 0.188);
                 system_prompt.push_str("\n\n【叙事阶段指导】\n");
-                system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
+                system_prompt.push_str(snapshot.narrative_phase.writer_guidance());
                 system_prompt.push('\n');
                 tokio::task::yield_now().await;
 

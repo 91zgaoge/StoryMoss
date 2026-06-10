@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 个性化提示词系统
 //!
 //! 根据用户偏好构建个性化 system prompt 扩展，

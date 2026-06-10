@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Reading Power System - 追读力系统
 //!
 //! 参考 webnovel-writer 的追读力设计：
@@ -88,7 +87,7 @@ impl ReadingPowerEvaluator {
         } else {
             0.7
         };
-        let debt_penalty = (debt_balance as f64 * 0.1_f64).min(0.5_f64);
+        let debt_penalty = (debt_balance * 0.1_f64).min(0.5_f64);
 
         let score: f64 = (hook_score * 0.4_f64 + coolpoint_score * 0.3_f64 + 0.3_f64)
             .min(1.0_f64)

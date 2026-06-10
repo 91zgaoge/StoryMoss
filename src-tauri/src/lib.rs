@@ -9,8 +9,8 @@ mod automation;
 mod book_deconstruction;
 mod canonical_state;
 mod capabilities;
-mod chat; // RESERVED: story-associated chat sessions (Phase 4)
-mod collab; // RESERVED: collaborative editing WebSocket server (Phase 4)
+// mod chat;  // RESERVED: story-associated chat sessions (Phase 4)
+// mod collab; // RESERVED: collaborative editing WebSocket server (Phase 4)
 mod config;
 mod creation_commands;
 mod creative_engine;
@@ -34,7 +34,7 @@ mod revision_commands;
 mod router;
 mod scene_commands;
 mod skills;
-mod state; // RESERVED: runtime story state manager (Phase 4)
+// mod state; // RESERVED: runtime story state manager (Phase 4)
 mod state_sync;
 mod story_system;
 mod studio_commands;
@@ -458,6 +458,9 @@ fn init_windows(app: &mut tauri::App) {
             if let Some(window) = app.get_webview_window(label) {
                 let _ = window.with_webview(|webview| {
                     let controller = webview.controller();
+                    // SAFETY: CoreWebView2() is a COM interface accessor provided by Tauri's
+                    // webview controller. It is safe here because we are on the main thread
+                    // and the webview is fully initialized before this setup hook runs.
                     unsafe {
                         if let Ok(core) = controller.CoreWebView2() {
                             if let Ok(settings) = core.Settings() {
@@ -513,7 +516,7 @@ fn spawn_background_tasks(app_handle: tauri::AppHandle) {
 }
 
 pub fn run() {
-    let _app = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -529,7 +532,7 @@ pub fn run() {
                     }
                     "frontstage" => {
                         // 优雅关闭: 检查数据库、保存向量索引、停止自动化服务
-                        graceful_shutdown(&window.app_handle());
+                        graceful_shutdown(window.app_handle());
                     }
                     _ => {
                         // 其他窗口默认退出
@@ -537,7 +540,7 @@ pub fn run() {
                             "Window {} close requested, exiting application",
                             window.label()
                         );
-                        graceful_shutdown(&window.app_handle());
+                        graceful_shutdown(window.app_handle());
                     }
                 }
             }

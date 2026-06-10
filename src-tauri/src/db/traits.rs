@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Repository Trait 抽象层
 //!
 //! 目标：打破 `db` 上帝模块，上层依赖接口而非具体实现。

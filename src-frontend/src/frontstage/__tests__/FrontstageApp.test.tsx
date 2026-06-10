@@ -21,10 +21,11 @@ vi.mock('@/services/tauri', () => ({
 }));
 
 // Mock RichTextEditor (TipTap 在 jsdom 中无法运行)
+import React from 'react';
+
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
   default: function MockRichTextEditor() {
-    const React = require('react');
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, '编辑器内容');
   },
 }));

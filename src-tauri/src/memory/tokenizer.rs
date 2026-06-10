@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! CJK分词器
 //!
 //! 基于二元组分词（bigram）的简单高效分词实现

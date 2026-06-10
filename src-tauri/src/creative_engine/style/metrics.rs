@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Style Metrics - 六维风格向量计算
 //!
 //! 从文本样例中提取可量化的六维风格特征：

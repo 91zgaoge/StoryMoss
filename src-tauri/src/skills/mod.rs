@@ -300,7 +300,7 @@ impl SkillManager {
                 self.skills_dir.join(skill_id)
             };
             let updated_skill = Skill {
-                manifest: manifest,
+                manifest,
                 path: skill_dir.clone(),
                 is_enabled: skill.is_enabled,
                 loaded_at: skill.loaded_at,

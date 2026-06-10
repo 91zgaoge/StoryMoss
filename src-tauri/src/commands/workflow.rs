@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Workflow commands
 
 use tauri::{AppHandle, Emitter};

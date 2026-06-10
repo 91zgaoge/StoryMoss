@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Memory Compressor Agent - 记忆压缩师
 //!
 //! 将长篇内容、实体档案、历史版本压缩为高层记忆摘要

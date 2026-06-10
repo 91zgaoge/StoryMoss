@@ -89,9 +89,7 @@ pub fn generate_epub(
 
         let default_title = format!("第{}章", chapter.chapter_number);
         let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
+            .title.as_deref()
             .unwrap_or(&default_title);
 
         chapter_content.push_str(&format!("<h2>{}</h2>\n", title));
@@ -158,9 +156,7 @@ fn generate_toc_html(story: &crate::db::Story, chapters: &[crate::db::Chapter]) 
     for (i, chapter) in chapters.iter().enumerate() {
         let default_title = format!("第{}章", chapter.chapter_number);
         let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
+            .title.as_deref()
             .unwrap_or(&default_title);
 
         html.push_str(&format!(

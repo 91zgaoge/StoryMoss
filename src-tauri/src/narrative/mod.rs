@@ -117,7 +117,7 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
                 } else if ch == '/' && chars.peek() == Some(&'/') {
                     // 跳过单行注释
                     chars.next(); // skip second /
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == '\n' {
                             result.push('\n'); // 保留换行以保持行号
                             break;

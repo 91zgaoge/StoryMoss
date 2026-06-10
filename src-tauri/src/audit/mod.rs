@@ -78,7 +78,7 @@ impl AuditService {
         let content_len = content.chars().count();
 
         // 智能升降级：字数 < 200 或 > 5000 自动升级为完整审计
-        let effective_audit_type = if content_len < 200 || content_len > 5000 {
+        let effective_audit_type = if !(200..=5000).contains(&content_len) {
             "full"
         } else {
             audit_type
@@ -481,7 +481,7 @@ impl AuditService {
     }
 
     /// 合并 LLM 深度评估结果到各维度
-    fn merge_llm_dimensions(&self, dimensions: &mut Vec<AuditDimension>, llm_dim: &AuditDimension) {
+    fn merge_llm_dimensions(&self, dimensions: &mut [AuditDimension], llm_dim: &AuditDimension) {
         // 用 LLM 总体评分对各维度进行轻微加权修正
         let llm_score = llm_dim.score;
         for dim in dimensions.iter_mut() {

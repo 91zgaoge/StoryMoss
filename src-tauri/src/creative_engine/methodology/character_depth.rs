@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 人物深度模型 (Character Depth Model)
 //!
 //! 六维人物模型：目标-动机-冲突-秘密-弧光-顿悟

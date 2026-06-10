@@ -496,7 +496,7 @@ impl TaskRepository {
                                 .and_hms_opt(hour, minute, 0)
                                 .unwrap_or(now.naive_local());
                             if next_date <= now.naive_local() {
-                                next_date = next_date + chrono::Duration::days(1);
+                                next_date += chrono::Duration::days(1);
                             }
                             return Ok(next_date.and_utc().to_rfc3339());
                         }

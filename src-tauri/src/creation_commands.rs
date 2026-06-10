@@ -147,7 +147,7 @@ fn persist_wizard_elements_in_tx(
     let char_repo = CharacterRepository::new(pool.clone());
     let mut created_chars = Vec::new();
     for char_opt in characters {
-        let background = format!("{}", char_opt.background);
+        let background = char_opt.background.to_string();
         let char = char_repo.create_in_tx(
             tx,
             CreateCharacterRequest {
@@ -414,8 +414,8 @@ pub async fn create_story_with_wizard(
     );
 
     // P0-2 修复: 发射同步事件，确保幕后界面自动刷新新创建的内容
-    let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, &story.title);
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "all");
+    crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, &story.title);
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "all");
 
     // 触发自动化事件：故事创建完成
     if let Err(e) = automation_service
@@ -592,7 +592,7 @@ pub async fn set_story_style_dna(
     };
     match repo.update(&story_id, &req) {
         Ok(_) => {
-            let _ = crate::state_sync::StateSync::emit_data_refresh(
+            crate::state_sync::StateSync::emit_data_refresh(
                 &app_handle,
                 Some(&story_id),
                 "storyStyle",
@@ -626,7 +626,7 @@ pub async fn analyze_style_sample(
         .create(&dna_name, dna.meta.author.as_deref(), &dna_json, false)
         .map_err(|e| format!("保存 StyleDNA 失败: {}", e))?;
 
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "styleDnas");
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "styleDnas");
 
     Ok(serde_json::json!({
         "id": record.id,
@@ -689,7 +689,7 @@ pub async fn create_foreshadowing(
             AppError::from(e)
         });
     if result.is_ok() {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "foreshadowings",
@@ -724,7 +724,7 @@ pub async fn update_foreshadowing_status(
             |row| row.get(0),
         );
         if let Ok(story_id) = story_id {
-            let _ = crate::state_sync::StateSync::emit_data_refresh(
+            crate::state_sync::StateSync::emit_data_refresh(
                 &app_handle,
                 Some(&story_id),
                 "foreshadowings",
@@ -743,7 +743,7 @@ pub async fn get_payoff_ledger(
 ) -> Result<Vec<serde_json::Value>, AppError> {
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
-    let items = ledger.get_ledger(&story_id).map_err(AppError::from)?;
+    let items = ledger.get_ledger(&story_id)?;
 
     let result: Vec<serde_json::Value> = items
         .into_iter()
@@ -780,8 +780,7 @@ pub async fn detect_overdue_payoffs(
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
     let items = ledger
-        .detect_overdue(&story_id, current_scene_number)
-        .map_err(AppError::from)?;
+        .detect_overdue(&story_id, current_scene_number)?;
 
     let result: Vec<serde_json::Value> = items
         .into_iter()
@@ -818,8 +817,7 @@ pub async fn recommend_payoff_timing(
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
     let recs = ledger
-        .recommend_payoff_timing(&story_id, current_scene_number)
-        .map_err(AppError::from)?;
+        .recommend_payoff_timing(&story_id, current_scene_number)?;
 
     let result: Vec<serde_json::Value> = recs
         .into_iter()
@@ -861,8 +859,7 @@ pub async fn update_payoff_ledger_fields(
             risk_signals,
             scope,
             ledger_key,
-        )
-        .map_err(AppError::from);
+        );
 
     if result.is_ok() {
         // 查询 story_id 以发射同步事件
@@ -873,7 +870,7 @@ pub async fn update_payoff_ledger_fields(
             |row| row.get(0),
         );
         if let Ok(story_id) = story_id {
-            let _ = crate::state_sync::StateSync::emit_data_refresh(
+            crate::state_sync::StateSync::emit_data_refresh(
                 &app_handle,
                 Some(&story_id),
                 "foreshadowings",
@@ -1193,7 +1190,7 @@ pub async fn set_story_style_blend(
                 AppError::from(e)
             })?;
 
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "storyStyleBlend",
@@ -1229,7 +1226,7 @@ pub async fn set_story_style_blend(
             "[story_commands] {} created new config",
             "set_story_style_blend"
         );
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "storyStyleBlend",
@@ -1290,7 +1287,7 @@ pub async fn update_scene_style_blend(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        let _ = crate::state_sync::StateSync::emit_data_refresh(
+        crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "storyStyleBlend",
@@ -1409,7 +1406,7 @@ pub async fn update_story_outline(
     let repo = StoryOutlineRepository::new(pool.inner().clone());
     repo.update(&story_id, Some(&content), structure_json.as_deref())
         .map_err(AppError::from)?;
-    let _ = crate::state_sync::StateSync::emit_data_refresh(
+    crate::state_sync::StateSync::emit_data_refresh(
         &app_handle,
         Some(&story_id),
         "storyOutlines",

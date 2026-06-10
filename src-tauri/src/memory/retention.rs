@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 记忆保留管理 - Phase 1.4
 //!
 //! 基于 Ebbinghaus 遗忘曲线理论的记忆优先级管理
@@ -178,7 +177,7 @@ impl RetentionManager {
 
         entities
             .iter()
-            .zip(scores.into_iter())
+            .zip(scores)
             .filter(|(_, score)| score.final_priority >= min_threshold)
             .map(|(e, s)| (e.clone(), s))
             .collect()
@@ -190,7 +189,7 @@ impl RetentionManager {
 
         entities
             .iter()
-            .zip(scores.into_iter())
+            .zip(scores)
             .filter(|(_, score)| matches!(score.priority_level, PriorityLevel::Forgotten))
             .map(|(e, s)| (e.clone(), s))
             .collect()
@@ -202,7 +201,7 @@ impl RetentionManager {
 
         entities
             .iter()
-            .zip(scores.into_iter())
+            .zip(scores)
             .filter(|(_, score)| matches!(score.priority_level, PriorityLevel::Low))
             .map(|(e, s)| (e.clone(), s))
             .collect()

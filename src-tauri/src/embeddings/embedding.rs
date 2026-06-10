@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Text Embedding Module
 //!
 //! 增强版嵌入服务，支持：
@@ -17,7 +16,6 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 static EMBEDDING_INITIALIZED: OnceCell<bool> = OnceCell::new();
-static mut VOCAB: Option<HashMap<String, usize>> = None;
 static EMBEDDING_INIT: Once = Once::new();
 
 /// Embedding 缓存
@@ -135,9 +133,6 @@ pub struct CacheStats {
 pub fn init_embedding_model() -> Result<(), Box<dyn std::error::Error>> {
     EMBEDDING_INIT.call_once(|| {
         let _ = EMBEDDING_INITIALIZED.set(true);
-        unsafe {
-            VOCAB = Some(HashMap::new());
-        }
         let _ = EMBEDDING_CACHE.set(Mutex::new(EmbeddingCache::new(10000)));
         log::info!("Embedding module initialized (384-dim feature vectors with cache)");
     });
@@ -290,7 +285,7 @@ pub async fn embed_text_async(
     tokio::task::spawn_blocking(move || {
         embed_text(&text).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            Box::new(std::io::Error::other(msg))
                 as Box<dyn std::error::Error + Send + Sync>
         })
     })
@@ -305,7 +300,7 @@ pub async fn embed_entity_async(
     tokio::task::spawn_blocking(move || {
         embed_entity(&request).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            Box::new(std::io::Error::other(msg))
                 as Box<dyn std::error::Error + Send + Sync>
         })
     })

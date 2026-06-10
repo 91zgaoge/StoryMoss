@@ -106,14 +106,13 @@ impl SkillExecutor {
         params: &HashMap<String, serde_json::Value>,
     ) -> Result<(), AppError> {
         for param in &manifest.parameters {
-            if param.required && !params.contains_key(&param.name) {
-                if param.default.is_none() {
+            if param.required && !params.contains_key(&param.name)
+                && param.default.is_none() {
                     return Err(AppError::internal(format!(
                         "Missing required parameter: {}",
                         param.name
                     )));
                 }
-            }
         }
         Ok(())
     }

@@ -144,7 +144,7 @@ pub async fn smart_execute(
                 let bundle = ctx.bundle.clone();
 
                 // 发射 story_created 同步事件
-                let _ = crate::state_sync::StateSync::emit_story_created(
+                crate::state_sync::StateSync::emit_story_created(
                     &app_handle,
                     &story_id,
                     "新故事",
@@ -456,9 +456,7 @@ pub async fn smart_execute(
         // 异步加载MCP工具列表
         let mcp_tools_available = {
             let connections = crate::MCP_CONNECTIONS.lock().await;
-            connections
-                .iter()
-                .flat_map(|(_id, client)| {
+            connections.values().flat_map(|client| {
                     client
                         .get_tools()
                         .iter()

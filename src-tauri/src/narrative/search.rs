@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 叙事感知检索增强 — LitSeg Phase 5
 //!
 //! 在标准混合检索（RRF）后增加叙事感知重排序层。
@@ -97,14 +96,14 @@ impl NarrativeReRanker {
     }
 
     fn matches_intent(chunk_type: &ChunkType, intent: NarrativeIntent) -> bool {
-        match (chunk_type, intent) {
-            (ChunkType::Introduction, NarrativeIntent::Introduction) => true,
-            (ChunkType::Development, NarrativeIntent::Development) => true,
-            (ChunkType::Turn, NarrativeIntent::Turn) => true,
-            (ChunkType::Climax, NarrativeIntent::Climax) => true,
-            (ChunkType::Resolution, NarrativeIntent::Resolution) => true,
-            _ => false,
-        }
+        matches!(
+            (chunk_type, intent),
+            (ChunkType::Introduction, NarrativeIntent::Introduction)
+                | (ChunkType::Development, NarrativeIntent::Development)
+                | (ChunkType::Turn, NarrativeIntent::Turn)
+                | (ChunkType::Climax, NarrativeIntent::Climax)
+                | (ChunkType::Resolution, NarrativeIntent::Resolution)
+        )
     }
 }
 

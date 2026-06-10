@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Agent Context Optimizer - L0/L1/L2 上下文优化器
 //!
 //! 借鉴 Vela 项目的 Agent 上下文管理策略，实现三层上下文体系：

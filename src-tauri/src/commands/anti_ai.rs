@@ -85,5 +85,5 @@ pub fn log_frontend_feature_usage(
     action: String,
     story_id: Option<String>,
 ) {
-    crate::telemetry::log_feature_usage(&*pool, &feature_id, &action, story_id.as_deref(), None);
+    crate::telemetry::log_feature_usage(&pool, &feature_id, &action, story_id.as_deref(), None);
 }

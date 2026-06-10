@@ -34,7 +34,7 @@ function splitParagraphs(text: string): string[] {
 /** 按句子分割（中文标点） */
 function splitSentences(text: string): string[] {
   return text
-    .split(/([。！？；\.\!\?\;]+)/)
+    .split(/([。！？；.!?;]+)/)
     .reduce((acc: string[], part, i, arr) => {
       if (i % 2 === 0 && part.trim()) {
         const punctuation = arr[i + 1] || '';

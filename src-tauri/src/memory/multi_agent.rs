@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 多助手独立会话管理
 //!
 //! 世界观助手、人物助手、文风助手独立会话
@@ -76,7 +75,7 @@ impl MultiAgentSessionManager {
             AgentBotType::Plot,
         ] {
             sessions.insert(
-                agent_type.clone(),
+                agent_type,
                 AgentSession {
                     agent_type,
                     messages: vec![],
@@ -347,7 +346,7 @@ impl MultiAgentSessionManager {
                     created_at: session.created_at,
                     updated_at: session.updated_at,
                 };
-                (agent_type.clone(), stats)
+                (*agent_type, stats)
             })
             .collect()
     }

@@ -106,7 +106,7 @@ pub async fn record_feedback(
         }
     });
 
-    let _ = crate::state_sync::StateSync::emit_data_refresh(
+    crate::state_sync::StateSync::emit_data_refresh(
         &app,
         Some(&request.story_id),
         "learningPoints",

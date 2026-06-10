@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Task Scheduler
 //!
 //! 基于 tokio::time 的任务调度器，参考 memoh-X CronPool 设计。
@@ -198,8 +197,8 @@ impl TaskScheduler {
     {
         tauri::async_runtime::spawn(async move {
             // 获取 upcoming 时间点，跳过已过期的时间
-            let mut upcoming = schedule.upcoming(chrono::Utc);
-            while let Some(next) = upcoming.next() {
+            let upcoming = schedule.upcoming(chrono::Utc);
+            for next in upcoming {
                 let now = chrono::Utc::now();
                 if next > now {
                     let sleep_duration = (next - now).to_std().unwrap_or(Duration::from_secs(60));

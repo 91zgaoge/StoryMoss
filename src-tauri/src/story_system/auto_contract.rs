@@ -236,7 +236,7 @@ impl AutoContractBuilder {
             .map_err(|e| format!("读取世界构建失败: {}", e))?;
 
         // 构建 prompt
-        let mut prompt = format!("根据以下故事信息，生成一个 MASTER_SETTING 世界观合同 JSON。\n\n");
+        let mut prompt = "根据以下故事信息，生成一个 MASTER_SETTING 世界观合同 JSON。\n\n".to_string();
         prompt.push_str(&format!("故事标题: {}\n", story.title));
         if let Some(ref genre) = story.genre {
             prompt.push_str(&format!("体裁: {}\n", genre));
@@ -429,7 +429,7 @@ impl AutoContractBuilder {
             .unwrap_or_default();
 
         // 构建 prompt
-        let mut prompt = format!("根据以下信息，生成一个 CHAPTER 章节合同 JSON。\n\n");
+        let mut prompt = "根据以下信息，生成一个 CHAPTER 章节合同 JSON。\n\n".to_string();
         prompt.push_str(&format!("故事标题: {}\n", story.title));
         if let Some(ref genre) = story.genre {
             prompt.push_str(&format!("体裁: {}\n", genre));
@@ -623,7 +623,7 @@ impl AutoContractBuilder {
 
         // 构建 prompt
         let mut prompt =
-            format!("根据以下故事和场景信息，生成一段详细的场景大纲（200-400字）。\n\n");
+            "根据以下故事和场景信息，生成一段详细的场景大纲（200-400字）。\n\n".to_string();
         prompt.push_str(&format!("故事标题: {}\n", story.title));
         if let Some(ref genre) = story.genre {
             prompt.push_str(&format!("体裁: {}\n", genre));
@@ -643,7 +643,7 @@ impl AutoContractBuilder {
             prompt.push_str(&format!("  外部压迫: {}\n", pressure));
         }
         if let Some(ref conflict) = scene.conflict_type {
-            prompt.push_str(&format!("  冲突类型: {}\n", format!("{:?}", conflict)));
+            prompt.push_str(&format!("  冲突类型: {:?}\n", conflict));
         }
         if let Some(ref location) = scene.setting_location {
             prompt.push_str(&format!("  地点: {}\n", location));
@@ -715,7 +715,7 @@ impl AutoContractBuilder {
         }
 
         // 前一场景摘要
-        if let Some(ref prev) = prev_scene {
+        if let Some(prev) = prev_scene {
             let content = prev
                 .content
                 .as_deref()
@@ -743,7 +743,7 @@ impl AutoContractBuilder {
         }
 
         // 后一场景摘要
-        if let Some(ref next) = next_scene {
+        if let Some(next) = next_scene {
             let content = next
                 .content
                 .as_deref()

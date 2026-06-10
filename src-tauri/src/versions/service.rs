@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! 场景版本服务 - Phase 3.2
 //!
 //! 提供版本比较、恢复和版本链管理功能
@@ -142,7 +141,7 @@ impl SceneVersionService {
             content: target_version.content.clone(),
             dramatic_goal: target_version.dramatic_goal.clone(),
             external_pressure: target_version.external_pressure.clone(),
-            conflict_type: target_version.conflict_type.clone(),
+            conflict_type: target_version.conflict_type,
             characters_present: Some(target_version.characters_present.clone()),
             character_conflicts: Some(target_version.character_conflicts.clone()),
             setting_location: target_version.setting_location.clone(),
@@ -221,7 +220,7 @@ impl SceneVersionService {
         }
 
         // 按版本号排序
-        chain.sort_by(|a, b| a.version.version_number.cmp(&b.version.version_number));
+        chain.sort_by_key(|a| a.version.version_number);
 
         Ok(chain)
     }
@@ -309,7 +308,7 @@ impl SceneVersionService {
             .into_iter()
             .filter(|v| {
                 v.confidence_score
-                    .map_or(false, |score| score >= min_confidence)
+                    .is_some_and(|score| score >= min_confidence)
                     && !matches!(v.created_by, crate::db::models::CreatorType::System)
             })
             .max_by(|a, b| {

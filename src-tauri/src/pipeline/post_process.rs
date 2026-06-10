@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::types::*;
 use crate::{
     db::{BlueprintRepository, CharacterRepository, CharacterState, DbPool},

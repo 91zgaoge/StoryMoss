@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Agent System - 智能代理系统
 //!
 //! 提供创作辅助的智能Agent框架
