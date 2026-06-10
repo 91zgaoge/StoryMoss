@@ -66,6 +66,16 @@ build-*.err
 check_dist*.py
 fix_commands*.py
 
+# Apple Developer Certificates (sensitive)
+*.key
+*.csr
+*.p12
+*.cer
+*.pem
+*.p8
+apple_certificate_base64.txt
+github_secrets_*.txt
+
 # Archived ghost crate
 src-core-archived/
 
