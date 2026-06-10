@@ -271,9 +271,10 @@ fn extract_vocabulary_fingerprint(
     let mut char_freq: HashMap<char, u32> = HashMap::new();
     for ch in text.chars() {
         if (ch.is_alphabetic() || (ch as u32) > 0x4e00 && (ch as u32) < 0x9fff)
-            && !common_chars.contains(&ch) {
-                *char_freq.entry(ch).or_insert(0) += 1;
-            }
+            && !common_chars.contains(&ch)
+        {
+            *char_freq.entry(ch).or_insert(0) += 1;
+        }
     }
     let mut signature_words: Vec<(String, u32)> = char_freq
         .into_iter()

@@ -779,8 +779,7 @@ pub async fn detect_overdue_payoffs(
 ) -> Result<Vec<serde_json::Value>, AppError> {
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
-    let items = ledger
-        .detect_overdue(&story_id, current_scene_number)?;
+    let items = ledger.detect_overdue(&story_id, current_scene_number)?;
 
     let result: Vec<serde_json::Value> = items
         .into_iter()
@@ -816,8 +815,7 @@ pub async fn recommend_payoff_timing(
 ) -> Result<Vec<serde_json::Value>, AppError> {
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
-    let recs = ledger
-        .recommend_payoff_timing(&story_id, current_scene_number)?;
+    let recs = ledger.recommend_payoff_timing(&story_id, current_scene_number)?;
 
     let result: Vec<serde_json::Value> = recs
         .into_iter()
@@ -851,15 +849,14 @@ pub async fn update_payoff_ledger_fields(
     use crate::creative_engine::payoff_ledger::PayoffLedger;
     let ledger = PayoffLedger::new(pool.inner().clone());
     let scope = scope_type.as_deref().and_then(|s| s.parse().ok());
-    let result = ledger
-        .update_ledger_fields(
-            &foreshadowing_id,
-            target_start_scene,
-            target_end_scene,
-            risk_signals,
-            scope,
-            ledger_key,
-        );
+    let result = ledger.update_ledger_fields(
+        &foreshadowing_id,
+        target_start_scene,
+        target_end_scene,
+        risk_signals,
+        scope,
+        ledger_key,
+    );
 
     if result.is_ok() {
         // 查询 story_id 以发射同步事件
@@ -1406,10 +1403,6 @@ pub async fn update_story_outline(
     let repo = StoryOutlineRepository::new(pool.inner().clone());
     repo.update(&story_id, Some(&content), structure_json.as_deref())
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "storyOutlines",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "storyOutlines");
     Ok(())
 }

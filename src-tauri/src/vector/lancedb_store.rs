@@ -190,9 +190,8 @@ impl LanceVectorStore {
 
     fn table(&self) -> Result<&Table, Box<dyn std::error::Error + Send + Sync>> {
         self.table.as_ref().ok_or_else(|| {
-            Box::new(std::io::Error::other(
-                "Table not initialized",
-            )) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other("Table not initialized"))
+                as Box<dyn std::error::Error + Send + Sync>
         })
     }
 

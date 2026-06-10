@@ -23,19 +23,12 @@ from typing import Set, Tuple
 ROOT = Path(__file__).parent.parent
 
 BACKEND_LIB_RS = ROOT / "src-tauri" / "src" / "lib.rs"
+HANDLERS_RS = ROOT / "src-tauri" / "src" / "handlers.rs"
 FRONTEND_SRC_DIR = ROOT / "src-frontend" / "src"
 
 
-def extract_backend_commands(content: str) -> Set[str]:
-    """
-    Extract all command names from lib.rs generate_handler![] macro.
-    Supports:
-        - Simple names: health_check
-        - Module paths: window::show_frontstage
-        - Comment lines are ignored
-        - Multi-line macros with nested [] (e.g. array literals)
-    Returns the actual command name string (last segment of module path).
-    """
+def _extract_from_generate_handler(content: str) -> Set[str]:
+    """Helper: extract commands from generate_handler![] macro content."""
     commands = set()
     lines = content.splitlines()
 
@@ -47,8 +40,91 @@ def extract_backend_commands(content: str) -> Set[str]:
             break
 
     if start_idx is None:
-        print("WARN: generate_handler![] macro not found in lib.rs")
         return commands
+
+    # Collect from start until matching ] is found
+    # Use bracket depth counting
+    bracket_depth = 0
+    block_lines = []
+    for i in range(start_idx, len(lines)):
+        line = lines[i]
+        for ch in line:
+            if ch == "[":
+                bracket_depth += 1
+            elif ch == "]":
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    block_lines.append(line)
+                    break
+        else:
+            block_lines.append(line)
+            continue
+        break
+
+    # Strip text before generate_handler![ on first line
+    first = block_lines[0]
+    if "generate_handler![" in first:
+        first = first.split("generate_handler![", 1)[1]
+    block_lines[0] = first
+
+    # Strip text after closing ] on last line
+    last = block_lines[-1]
+    last_closing = last.rfind("]")
+    if last_closing != -1:
+        block_lines[-1] = last[:last_closing]
+
+    for line in block_lines:
+        line = line.split("//")[0].strip()
+        if not line:
+            continue
+
+        # A line may contain multiple commands separated by commas
+        for item in line.split(","):
+            item = item.strip()
+            if not item:
+                continue
+
+            # Extract command name: window::show_frontstage -> show_frontstage
+            if "::" in item:
+                name = item.split("::")[-1].strip()
+            else:
+                name = item.strip()
+
+            if name and name not in ("",):
+                commands.add(name)
+
+    return commands
+
+
+def extract_backend_commands(content: str) -> Set[str]:
+    """
+    Extract all command names from backend handler registry.
+    Supports:
+        - generate_handler![] macro directly in lib.rs
+        - include!("handlers.rs") pattern where handlers.rs contains generate_handler![]
+        - Simple names: health_check
+        - Module paths: window::show_frontstage
+        - Comment lines are ignored
+        - Multi-line macros with nested [] (e.g. array literals)
+    Returns the actual command name string (last segment of module path).
+    """
+    # 1. Try generate_handler![] directly in lib.rs
+    commands = _extract_from_generate_handler(content)
+    if commands:
+        return commands
+
+    # 2. Try include!("handlers.rs") pattern
+    if 'include!("handlers.rs")' in content or "include!(\"handlers.rs\")" in content:
+        if HANDLERS_RS.exists():
+            handlers_content = HANDLERS_RS.read_text(encoding="utf-8")
+            commands = _extract_from_generate_handler(handlers_content)
+            if commands:
+                return commands
+        else:
+            print("WARN: lib.rs references include!(\"handlers.rs\") but handlers.rs not found")
+
+    print("WARN: generate_handler![] macro not found in lib.rs or handlers.rs")
+    return commands
 
     # Collect from start until matching ] is found
     # Use bracket depth counting

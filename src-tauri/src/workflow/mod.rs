@@ -454,9 +454,10 @@ impl WorkflowEngine {
 
         for node in nodes {
             if !visited.contains(&node.id)
-                && dfs(&node.id, &adjacency, &mut visited, &mut rec_stack) {
-                    return true;
-                }
+                && dfs(&node.id, &adjacency, &mut visited, &mut rec_stack)
+            {
+                return true;
+            }
         }
         false
     }

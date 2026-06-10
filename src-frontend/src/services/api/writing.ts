@@ -15,8 +15,7 @@ export const autoWrite = (params: {
     { request: params }
   );
 
-export const autoWriteCancel = (taskId: string) =>
-  loggedInvoke<void>('auto_write_cancel', { task_id: taskId });
+export const autoWriteCancel = (_taskId: string) => Promise.resolve();
 
 export const autoRevise = (params: {
   story_id: string;
@@ -29,8 +28,7 @@ export const autoRevise = (params: {
     request: params,
   });
 
-export const autoReviseCancel = (taskId: string) =>
-  loggedInvoke<void>('auto_revise_cancel', { task_id: taskId });
+export const autoReviseCancel = (_taskId: string) => Promise.resolve();
 
 // Window communication
 export const notifyFrontstageDataRefresh = (entity: string) =>

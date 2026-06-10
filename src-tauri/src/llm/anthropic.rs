@@ -184,9 +184,9 @@ impl LlmAdapter for AnthropicAdapter {
             use futures_util::StreamExt;
             use tokio::io::AsyncBufReadExt;
 
-            let stream = response.bytes_stream().map(|result| {
-                result.map_err(std::io::Error::other)
-            });
+            let stream = response
+                .bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other));
             let reader = tokio_util::io::StreamReader::new(stream);
             let mut lines = reader.lines();
 

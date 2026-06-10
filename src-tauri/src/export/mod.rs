@@ -268,9 +268,7 @@ fn generate_markdown(
     content.push_str("# 正文\n\n");
 
     for chapter in chapters {
-        let title = chapter
-            .title.as_deref()
-            .unwrap_or("未命名章节");
+        let title = chapter.title.as_deref().unwrap_or("未命名章节");
 
         content.push_str(&format!("## {}\n\n", title));
 
@@ -382,9 +380,7 @@ fn generate_html(
     html.push_str("<h2>正文</h2>\n");
 
     for chapter in chapters {
-        let title = chapter
-            .title.as_deref()
-            .unwrap_or("未命名章节");
+        let title = chapter.title.as_deref().unwrap_or("未命名章节");
 
         html.push_str(&format!("<h3>{}</h3>\n", html_escape(title)));
 
@@ -468,9 +464,7 @@ fn generate_plaintext(
     text.push('\n');
 
     for chapter in chapters {
-        let title = chapter
-            .title.as_deref()
-            .unwrap_or("未命名章节");
+        let title = chapter.title.as_deref().unwrap_or("未命名章节");
 
         text.push('\n');
         text.push_str(&format!("{}\n", title));

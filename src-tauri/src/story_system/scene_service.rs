@@ -140,11 +140,7 @@ impl SceneIngestor {
             );
 
             StateSync::emit_ingestion_completed(&app_handle_for_sync, &story_id, "scene");
-            StateSync::emit_data_refresh(
-                &app_handle_for_sync,
-                Some(&story_id),
-                "knowledgeGraph",
-            );
+            StateSync::emit_data_refresh(&app_handle_for_sync, Some(&story_id), "knowledgeGraph");
 
             // 向量索引更新
             if let Some(store) = VECTOR_STORE.get() {

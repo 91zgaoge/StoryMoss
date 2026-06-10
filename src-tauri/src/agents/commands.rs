@@ -823,13 +823,16 @@ pub async fn auto_write(
                     let mut saved_relations = 0usize;
 
                     for entity in &ingest_result.entities {
-                        if kg_repo.create_entity(
-                            &story_id_for_ingest,
-                            &entity.name,
-                            &entity.entity_type.to_string(),
-                            &entity.attributes,
-                            entity.embedding.clone(),
-                        ).is_ok() {
+                        if kg_repo
+                            .create_entity(
+                                &story_id_for_ingest,
+                                &entity.name,
+                                &entity.entity_type.to_string(),
+                                &entity.attributes,
+                                entity.embedding.clone(),
+                            )
+                            .is_ok()
+                        {
                             saved_entities += 1;
                         }
                     }
@@ -848,13 +851,16 @@ pub async fn auto_write(
                         let target_id = entity_name_to_id
                             .get(&relation.target_id)
                             .unwrap_or(&relation.target_id);
-                        if kg_repo.create_relation(
-                            &story_id_for_ingest,
-                            source_id,
-                            target_id,
-                            &relation.relation_type.to_string(),
-                            relation.strength,
-                        ).is_ok() {
+                        if kg_repo
+                            .create_relation(
+                                &story_id_for_ingest,
+                                source_id,
+                                target_id,
+                                &relation.relation_type.to_string(),
+                                relation.strength,
+                            )
+                            .is_ok()
+                        {
                             saved_relations += 1;
                         }
                     }

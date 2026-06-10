@@ -271,9 +271,7 @@ impl ContinuityEngine {
 
         for rule in world_building.rules {
             if let Some(ref desc) = rule.description {
-                let clauses: Vec<&str> = desc
-                    .split(['，', '。', ';', '、'])
-                    .collect();
+                let clauses: Vec<&str> = desc.split(['，', '。', ';', '、']).collect();
                 for clause in clauses {
                     let trimmed = clause.trim();
                     if trimmed.is_empty() {

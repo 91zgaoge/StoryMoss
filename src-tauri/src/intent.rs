@@ -44,7 +44,6 @@ pub enum ExecutionMode {
     Parallel,
 }
 
-
 /// 反馈类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -57,7 +56,6 @@ pub enum FeedbackType {
     SystemNotice,
     VisualHighlight,
 }
-
 
 /// 意图目标
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

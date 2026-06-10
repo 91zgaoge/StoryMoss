@@ -251,9 +251,7 @@ impl AntiAiReviewer {
         let flagged = Vec::new();
         let suggestions = Vec::new();
 
-        let sentences: Vec<&str> = text
-            .split(['。', '！', '？'])
-            .collect();
+        let sentences: Vec<&str> = text.split(['。', '！', '？']).collect();
 
         // 检查句式多样性
         let mut short_sentences = 0;

@@ -227,12 +227,7 @@ impl ChapterService {
         );
 
         // 2. 章节更新同步事件
-        StateSync::emit_chapter_updated(
-            &self.app_handle,
-            chapter_id,
-            title.as_deref(),
-            story_id,
-        );
+        StateSync::emit_chapter_updated(&self.app_handle, chapter_id, title.as_deref(), story_id);
 
         // 3. 自动化触发
         let word_count_val = word_count.unwrap_or(0) as usize;

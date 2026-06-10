@@ -52,12 +52,10 @@ pub struct OAuthClientConfig {
 }
 
 /// 认证配置（前端可见部分）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     pub google_enabled: bool,
     pub github_enabled: bool,
     pub wechat_enabled: bool,
     pub qq_enabled: bool,
 }
-

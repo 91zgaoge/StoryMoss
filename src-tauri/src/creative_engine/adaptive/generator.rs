@@ -227,35 +227,37 @@ impl AdaptiveGenerator {
         strategy: &mut GenerationStrategy,
         pref: &crate::db::models::UserPreference,
     ) {
-        if pref.preference_key.as_str() == "dialogue_ratio" { match pref.preference_value.as_str() {
-            "prefer_more_dialogue" => {
-                strategy
-                    .prompt_weight_adjustments
-                    .push(PromptWeightAdjustment {
-                        target: "对话".to_string(),
-                        direction: "increase".to_string(),
-                        strength: pref.confidence,
-                        reason: "用户偏好更多对话".to_string(),
-                    });
-                strategy
-                    .content_constraints
-                    .push("增加对话比例，让角色通过对话推动情节".to_string());
+        if pref.preference_key.as_str() == "dialogue_ratio" {
+            match pref.preference_value.as_str() {
+                "prefer_more_dialogue" => {
+                    strategy
+                        .prompt_weight_adjustments
+                        .push(PromptWeightAdjustment {
+                            target: "对话".to_string(),
+                            direction: "increase".to_string(),
+                            strength: pref.confidence,
+                            reason: "用户偏好更多对话".to_string(),
+                        });
+                    strategy
+                        .content_constraints
+                        .push("增加对话比例，让角色通过对话推动情节".to_string());
+                }
+                "prefer_less_dialogue" => {
+                    strategy
+                        .prompt_weight_adjustments
+                        .push(PromptWeightAdjustment {
+                            target: "对话".to_string(),
+                            direction: "decrease".to_string(),
+                            strength: pref.confidence,
+                            reason: "用户偏好减少对话".to_string(),
+                        });
+                    strategy
+                        .content_constraints
+                        .push("减少对话，增加叙述和描写".to_string());
+                }
+                _ => {}
             }
-            "prefer_less_dialogue" => {
-                strategy
-                    .prompt_weight_adjustments
-                    .push(PromptWeightAdjustment {
-                        target: "对话".to_string(),
-                        direction: "decrease".to_string(),
-                        strength: pref.confidence,
-                        reason: "用户偏好减少对话".to_string(),
-                    });
-                strategy
-                    .content_constraints
-                    .push("减少对话，增加叙述和描写".to_string());
-            }
-            _ => {}
-        } }
+        }
     }
 
     fn apply_content_preference(
@@ -316,37 +318,39 @@ impl AdaptiveGenerator {
         strategy: &mut GenerationStrategy,
         pref: &crate::db::models::UserPreference,
     ) {
-        if pref.preference_key.as_str() == "sentence_length" { match pref.preference_value.as_str() {
-            "prefer_slower_pacing" => {
-                strategy
-                    .prompt_weight_adjustments
-                    .push(PromptWeightAdjustment {
-                        target: "节奏".to_string(),
-                        direction: "decrease".to_string(),
-                        strength: pref.confidence,
-                        reason: "用户偏好慢节奏".to_string(),
-                    });
-                strategy
-                    .content_constraints
-                    .push("使用更长、更复杂的句子，放慢叙事节奏".to_string());
-                strategy.temperature = (strategy.temperature - 0.05).max(0.5);
+        if pref.preference_key.as_str() == "sentence_length" {
+            match pref.preference_value.as_str() {
+                "prefer_slower_pacing" => {
+                    strategy
+                        .prompt_weight_adjustments
+                        .push(PromptWeightAdjustment {
+                            target: "节奏".to_string(),
+                            direction: "decrease".to_string(),
+                            strength: pref.confidence,
+                            reason: "用户偏好慢节奏".to_string(),
+                        });
+                    strategy
+                        .content_constraints
+                        .push("使用更长、更复杂的句子，放慢叙事节奏".to_string());
+                    strategy.temperature = (strategy.temperature - 0.05).max(0.5);
+                }
+                "prefer_faster_pacing" => {
+                    strategy
+                        .prompt_weight_adjustments
+                        .push(PromptWeightAdjustment {
+                            target: "节奏".to_string(),
+                            direction: "increase".to_string(),
+                            strength: pref.confidence,
+                            reason: "用户偏好快节奏".to_string(),
+                        });
+                    strategy
+                        .content_constraints
+                        .push("使用短句、快节奏，增加动作密度".to_string());
+                    strategy.temperature = (strategy.temperature + 0.05).min(1.0);
+                }
+                _ => {}
             }
-            "prefer_faster_pacing" => {
-                strategy
-                    .prompt_weight_adjustments
-                    .push(PromptWeightAdjustment {
-                        target: "节奏".to_string(),
-                        direction: "increase".to_string(),
-                        strength: pref.confidence,
-                        reason: "用户偏好快节奏".to_string(),
-                    });
-                strategy
-                    .content_constraints
-                    .push("使用短句、快节奏，增加动作密度".to_string());
-                strategy.temperature = (strategy.temperature + 0.05).min(1.0);
-            }
-            _ => {}
-        } }
+        }
     }
 
     fn apply_style_preference(

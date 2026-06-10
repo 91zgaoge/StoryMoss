@@ -267,4 +267,8 @@ tauri::generate_handler![
     commands::narrative::get_narrative_events,
     commands::narrative::get_narrative_threads,
     commands::narrative::get_narrative_chunks,
+    // Logging commands
+    logging::write_frontend_log,
+    logging::get_log_directory,
+    logging::get_recent_logs,
 ]

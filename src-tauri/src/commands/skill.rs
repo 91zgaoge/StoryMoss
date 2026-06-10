@@ -24,7 +24,8 @@ pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError>
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .import_skill(std::path::Path::new(&path)).map(SkillInfo::from)
+        .import_skill(std::path::Path::new(&path))
+        .map(SkillInfo::from)
         .emit_sync(&app, None, "skills")
 }
 
@@ -35,7 +36,8 @@ pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .enable_skill(&skill_id).emit_sync(&app, None, "skills")
+        .enable_skill(&skill_id)
+        .emit_sync(&app, None, "skills")
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -45,7 +47,8 @@ pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .disable_skill(&skill_id).emit_sync(&app, None, "skills")
+        .disable_skill(&skill_id)
+        .emit_sync(&app, None, "skills")
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -55,7 +58,8 @@ pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError>
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .uninstall_skill(&skill_id).emit_sync(&app, None, "skills")
+        .uninstall_skill(&skill_id)
+        .emit_sync(&app, None, "skills")
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -82,7 +86,8 @@ pub fn update_skill(
         .ok_or(AppError::internal("Skills not initialized"))?
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .update_skill(&skill_id, manifest).emit_sync(&app, None, "skills")
+        .update_skill(&skill_id, manifest)
+        .emit_sync(&app, None, "skills")
 }
 
 #[tauri::command(rename_all = "snake_case")]

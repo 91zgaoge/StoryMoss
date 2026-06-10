@@ -48,7 +48,6 @@ impl std::str::FromStr for ActType {
     }
 }
 
-
 /// 亚里士多德式戏剧功能
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,7 +105,6 @@ impl std::str::FromStr for DramaticFunction {
         }
     }
 }
-
 
 /// 叙事结构定位——事件在宏观叙事中的位置
 #[derive(Debug, Clone, Serialize, Deserialize)]

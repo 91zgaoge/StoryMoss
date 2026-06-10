@@ -261,7 +261,6 @@ pub enum ModelSource {
     UserOwned,
 }
 
-
 /// 支持的LLM提供商
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]

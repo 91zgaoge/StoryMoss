@@ -285,8 +285,7 @@ pub async fn embed_text_async(
     tokio::task::spawn_blocking(move || {
         embed_text(&text).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::other(msg))
-                as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
         })
     })
     .await
@@ -300,8 +299,7 @@ pub async fn embed_entity_async(
     tokio::task::spawn_blocking(move || {
         embed_entity(&request).map_err(|e| {
             let msg = e.to_string();
-            Box::new(std::io::Error::other(msg))
-                as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
         })
     })
     .await

@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;

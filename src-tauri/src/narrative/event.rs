@@ -106,7 +106,6 @@ pub struct NarrativeEvent {
     pub created_at: DateTime<Local>,
 }
 
-
 impl Default for NarrativeEvent {
     fn default() -> Self {
         Self {

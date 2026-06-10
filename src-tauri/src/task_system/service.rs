@@ -306,10 +306,7 @@ impl<R: Runtime> TaskService<R> {
         let executor = match executor {
             Some(e) => e,
             None => {
-                let err_msg = format!(
-                    "No executor found for task type: {}",
-                    task.task_type
-                );
+                let err_msg = format!("No executor found for task type: {}", task.task_type);
                 repo.update_status(
                     task_id,
                     &TaskStatus::Failed,

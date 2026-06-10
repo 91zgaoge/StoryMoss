@@ -81,4 +81,3 @@ pub struct NarrativeChunk {
     /// 时间戳
     pub created_at: DateTime<Local>,
 }
-

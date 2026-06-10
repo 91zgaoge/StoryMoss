@@ -14,7 +14,7 @@ use crate::db::ConflictType;
 #[derive(Default)]
 pub enum ForeshadowStatus {
     #[default]
-    Setup,     // 已埋设
+    Setup, // 已埋设
     Payoff,    // 已回收
     Abandoned, // 已放弃
     Pending,   // 待处理
@@ -23,7 +23,6 @@ pub enum ForeshadowStatus {
     Failed,    // 失败（PayoffLedger 用）
     Overdue,   // 超期未回收（PayoffLedger 用）
 }
-
 
 /// 弧光类型——角色内在转变的方向
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +37,6 @@ pub enum ArcType {
     /// 扁平弧光——角色不变，世界改变
     Flat,
 }
-
 
 /// 叙事线索——跨场景连续推进的叙事元素
 #[derive(Debug, Clone)]

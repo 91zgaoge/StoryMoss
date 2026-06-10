@@ -284,11 +284,7 @@ pub async fn create_writing_style(
     let result = repo
         .create(&story_id, name.as_deref())
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "writingStyles",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "writingStyles");
     Ok(result)
 }
 
@@ -341,11 +337,7 @@ pub async fn create_studio_config(
     let result = manager
         .create_default_studio(&story_id, "")
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "studioConfig",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "studioConfig");
     Ok(result)
 }
 
@@ -449,11 +441,7 @@ pub async fn create_entity(
             log::error!("[story_commands] {} failed: {}", "create_entity", e);
             AppError::from(e)
         })?;
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "knowledgeGraph",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
     Ok(result)
 }
 
@@ -558,11 +546,7 @@ pub async fn create_relation(
     let result = repo
         .create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "knowledgeGraph",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
     Ok(result)
 }
 
@@ -944,11 +928,7 @@ pub async fn archive_forgotten_entities(
         archived_entities: archived,
         story_id: story_id.clone(),
     };
-    crate::state_sync::StateSync::emit_data_refresh(
-        &app_handle,
-        Some(&story_id),
-        "knowledgeGraph",
-    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
     Ok(result)
 }
 

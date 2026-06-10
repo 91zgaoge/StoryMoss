@@ -137,9 +137,9 @@ impl LlmAdapter for OllamaAdapter {
             use futures_util::StreamExt;
             use tokio::io::AsyncBufReadExt;
 
-            let stream = response.bytes_stream().map(|result| {
-                result.map_err(std::io::Error::other)
-            });
+            let stream = response
+                .bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other));
             let reader = tokio_util::io::StreamReader::new(stream);
             let mut lines = reader.lines();
 
@@ -150,9 +150,10 @@ impl LlmAdapter for OllamaAdapter {
                 match serde_json::from_str::<OllamaResponse>(&line) {
                     Ok(parsed) => {
                         if !parsed.response.is_empty()
-                            && tx.send(Ok(parsed.response)).await.is_err() {
-                                break;
-                            }
+                            && tx.send(Ok(parsed.response)).await.is_err()
+                        {
+                            break;
+                        }
                         if parsed.done {
                             break;
                         }

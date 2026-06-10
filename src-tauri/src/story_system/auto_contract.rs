@@ -236,7 +236,8 @@ impl AutoContractBuilder {
             .map_err(|e| format!("读取世界构建失败: {}", e))?;
 
         // 构建 prompt
-        let mut prompt = "根据以下故事信息，生成一个 MASTER_SETTING 世界观合同 JSON。\n\n".to_string();
+        let mut prompt =
+            "根据以下故事信息，生成一个 MASTER_SETTING 世界观合同 JSON。\n\n".to_string();
         prompt.push_str(&format!("故事标题: {}\n", story.title));
         if let Some(ref genre) = story.genre {
             prompt.push_str(&format!("体裁: {}\n", genre));
