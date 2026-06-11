@@ -60,7 +60,7 @@ impl AnthropicAdapter {
         temperature: f32,
     ) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(120))
+            .timeout(Duration::from_secs(600))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| Client::new());
