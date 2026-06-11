@@ -759,6 +759,7 @@ impl PipelineStep<GenesisContext> for CharacterGenerationStep {
 
             #[derive(Debug, Deserialize)]
             struct CharacterResponse {
+                #[serde(default)]
                 characters: Vec<CharacterElement>,
             }
             let char_data: CharacterResponse = serde_json::from_str(&json_str).map_err(|e| {

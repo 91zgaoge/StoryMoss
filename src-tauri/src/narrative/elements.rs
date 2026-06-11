@@ -90,13 +90,21 @@ pub struct CharacterElement {
     pub id: String,
     #[serde(default)]
     pub story_id: String,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub role_type: String, // 主角/反派/导师/盟友/爱情线...
+    #[serde(default)]
     pub personality: String,
+    #[serde(default)]
     pub background: String,
+    #[serde(default)]
     pub goals: String,
+    #[serde(default)]
     pub fears: String,
+    #[serde(default)]
     pub appearance: String,
+    #[serde(default)]
     pub gender: String,
     #[serde(default)]
     pub age: i32,
@@ -114,7 +122,9 @@ pub struct CharacterElement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterRelationship {
+    #[serde(default)]
     pub target_name: String,
+    #[serde(default)]
     pub relation_type: String, // 朋友/敌人/恋人/师徒...
     pub description: Option<String>,
 }
