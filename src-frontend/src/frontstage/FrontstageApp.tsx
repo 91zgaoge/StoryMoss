@@ -1071,7 +1071,11 @@ const FrontstageApp: React.FC = () => {
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          reject(new Error('前端超时：模型响应超过300秒（5分钟）。本地模型生成较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'));
+          reject(
+            new Error(
+              '前端超时：模型响应超过300秒（5分钟）。本地模型生成较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
+            )
+          );
         }, 300000);
       });
 
