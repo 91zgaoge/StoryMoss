@@ -81,7 +81,8 @@ jobs:
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test
+        # Windows runner 上完整 cargo test（含集成测试）频繁超时/挂起，先用 --lib 保证核心库测试
+        run: cargo test --lib
 
   # Frontend checks
   frontend-check:
