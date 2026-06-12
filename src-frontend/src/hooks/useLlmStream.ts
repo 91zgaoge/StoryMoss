@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { llmGenerateStream } from '@/services/tauri';
+import { llmGenerateStream, llmCancelGeneration } from '@/services/tauri';
 import { getOfflineBlockReason } from '@/components/ConnectionStatus';
 import type { ModelSource } from '@/types/llm';
 
@@ -47,7 +47,7 @@ export interface UseLlmStreamReturn {
     onComplete?: (result: LlmStreamComplete) => void;
     onError?: (error: LlmStreamError) => void;
   }) => Promise<void>;
-  /** 停止监听（不会取消后端生成，仅清理前端状态） */
+  /** 停止流式生成：通知后端取消并清理前端状态 */
   stopStream: () => void;
   /** 重置状态 */
   reset: () => void;
@@ -57,6 +57,7 @@ export function useLlmStream(): UseLlmStreamReturn {
   const [text, setText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
+  const requestIdRef = useRef<string | null>(null);
 
   const clearListeners = useCallback(() => {
     unlistenRefs.current.forEach(u => u());
@@ -67,11 +68,20 @@ export function useLlmStream(): UseLlmStreamReturn {
     clearListeners();
     setText('');
     setIsStreaming(false);
+    requestIdRef.current = null;
   }, [clearListeners]);
 
   const stopStream = useCallback(() => {
+    const requestId = requestIdRef.current;
     clearListeners();
     setIsStreaming(false);
+    requestIdRef.current = null;
+    // 真正通知后端取消生成，避免模型继续空转。
+    if (requestId) {
+      llmCancelGeneration(requestId).catch(err => {
+        console.warn('[useLlmStream] Failed to cancel generation:', err);
+      });
+    }
   }, [clearListeners]);
 
   const startStream = useCallback(
@@ -100,6 +110,7 @@ export function useLlmStream(): UseLlmStreamReturn {
       setIsStreaming(true);
 
       const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      requestIdRef.current = requestId;
 
       try {
         const unlistenChunk = await listen<LlmStreamChunk>(
@@ -117,6 +128,7 @@ export function useLlmStream(): UseLlmStreamReturn {
           event => {
             clearListeners();
             setIsStreaming(false);
+            requestIdRef.current = null;
             params.onComplete?.(event.payload);
           }
         );
@@ -127,6 +139,7 @@ export function useLlmStream(): UseLlmStreamReturn {
           event => {
             clearListeners();
             setIsStreaming(false);
+            requestIdRef.current = null;
             params.onError?.(event.payload);
           }
         );
@@ -142,6 +155,7 @@ export function useLlmStream(): UseLlmStreamReturn {
       } catch (err) {
         clearListeners();
         setIsStreaming(false);
+        requestIdRef.current = null;
         params.onError?.({
           error: String(err),
           error_code: 'FRONTEND_ERROR',

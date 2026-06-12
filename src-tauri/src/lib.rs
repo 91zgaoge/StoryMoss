@@ -594,6 +594,13 @@ pub fn run() {
                     log::error!("Failed to initialize database: {}", e);
                 }
             }
+
+            // 初始化全局 LLM 服务，确保后续所有 LlmService::new 复用同一连接池与缓存。
+            crate::llm::service::init_llm_service(app.handle().clone());
+            if let Some(llm_service) = crate::llm::service::get_llm_service() {
+                app.manage(llm_service);
+            }
+
             let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(
                 crate::llm::LlmService::new(app.handle().clone()),
             ))));

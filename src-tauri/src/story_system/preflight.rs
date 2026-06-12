@@ -21,7 +21,24 @@ impl PreflightChecker {
         Self
     }
 
-    pub fn check(&self, pool: &DbPool, story_id: &str, chapter_number: i32) -> PreflightResult {
+    pub async fn check(&self, pool: &DbPool, story_id: &str, chapter_number: i32) -> PreflightResult {
+        let pool = pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            Self::check_sync(&pool, &story_id, chapter_number)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            PreflightResult {
+                ready: false,
+                missing_contracts: vec![],
+                warnings: vec![format!("预检任务执行失败: {}", e)],
+                blocking_issues: vec!["预检无法完成".to_string()],
+            }
+        })
+    }
+
+    fn check_sync(pool: &DbPool, story_id: &str, chapter_number: i32) -> PreflightResult {
         let mut missing_contracts = Vec::new();
         let mut warnings = Vec::new();
         let mut blocking_issues = Vec::new();

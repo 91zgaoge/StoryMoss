@@ -27,7 +27,7 @@ import { useSettings, useModels } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
-import { usePipelineProgress } from '@/hooks/usePipelineProgress';
+import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
@@ -353,6 +353,7 @@ const FrontstageApp: React.FC = () => {
 
   // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress + 顶部 Toast 大阶段）
   const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });
+  const lastPipelineComplete = usePipelineComplete();
   useEffect(() => {
     if (pipelineProgress) {
       setBootstrapProgress({
@@ -968,6 +969,38 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
+  // v0.9.5: Genesis 后台阶段完成后自动刷新当前故事内容
+  useEffect(() => {
+    if (!lastPipelineComplete || lastPipelineComplete.pipelineType !== 'genesis') return;
+    if (!lastPipelineComplete.success) {
+      toast.error('第一章后台生成失败，请检查模型配置或稍后重试');
+      return;
+    }
+    if (!currentStory?.id) return;
+    (async () => {
+      try {
+        const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
+          story_id: currentStory.id,
+        });
+        const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', {
+          story_id: currentStory.id,
+        });
+        setChapters(storyChapters);
+        setScenes(storyScenes);
+        const activeChapter =
+          storyChapters.find(c => c.id === currentChapter?.id) || storyChapters[0];
+        if (activeChapter) {
+          selectChapter(activeChapter);
+          toast.success('第一章生成完成，已开始写作');
+        }
+      } catch (e) {
+        frontstageLogger.error('[PipelineComplete] Failed to refresh story after genesis', {
+          error: e,
+        });
+      }
+    })();
+  }, [lastPipelineComplete, currentStory?.id, currentChapter?.id, selectChapter]);
+
   const handleContentChange = useCallback(
     async (newContent: string) => {
       setContent(newContent);
@@ -1171,6 +1204,10 @@ const FrontstageApp: React.FC = () => {
         const storyCreatedMsg = result.messages?.find((m: string) =>
           m.startsWith('story_created:')
         );
+        const isBackgroundBootstrap = result.messages?.some(
+          (m: string) => m === 'novel_bootstrap_background_started'
+        );
+
         if (storyCreatedMsg) {
           const newStoryId = storyCreatedMsg.replace('story_created:', '');
           (async () => {
@@ -1195,6 +1232,19 @@ const FrontstageApp: React.FC = () => {
               frontstageLogger.error('[Bootstrap] Failed to auto-load new story', { error: e });
             }
           })();
+        }
+
+        // v0.9.5: 新故事创建后，第一章在后台生成，此时 final_content 为空是正常的
+        if (isBackgroundBootstrap) {
+          frontstageLogger.info('[Bootstrap] Story created, first chapter generating in background');
+          toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
+            duration: 5000,
+          });
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          return;
         }
 
         const text = result.final_content || '';
@@ -1590,12 +1640,26 @@ const FrontstageApp: React.FC = () => {
         toast.dismiss(toastId);
         activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
+
+        // v0.9.5: 区分后台生成中的 Bootstrap 与已完成的 Bootstrap
+        const isBackgroundBootstrap = result.messages.some(
+          m => m === 'novel_bootstrap_background_started'
+        );
+        const isBootstrapCompleted =
+          !isBackgroundBootstrap && result.messages.some(m => m.includes('novel_bootstrap'));
+
+        if (isBackgroundBootstrap) {
+          frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
+          toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
+            duration: 5000,
+          });
+        }
+
         // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
         const hasContent = result.final_content && result.final_content.trim().length > 0;
         if (hasContent) {
           // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
           // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
-          const isBootstrapCompleted = result.messages.some(m => m.includes('novel_bootstrap'));
           if (isBootstrapCompleted) {
             toast.success('小说已创建！第一章已生成，您可以开始写作了');
           } else {
@@ -1615,6 +1679,8 @@ const FrontstageApp: React.FC = () => {
             setGeneratedText(finalContent);
             toast.success('创作完成！');
           }
+        } else if (isBackgroundBootstrap) {
+          // 后台生成中，final_content 为空是预期行为，已在上文提示用户
         } else if (!result.success) {
           // 后端返回了失败
           toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');

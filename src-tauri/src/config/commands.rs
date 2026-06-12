@@ -121,7 +121,7 @@ fn build_llm_profile(
         api_base: config.api_base.clone(),
         max_tokens: config.max_tokens.unwrap_or(2000),
         temperature: normalize_temperature(config.temperature.unwrap_or(0.7)),
-        timeout_seconds: 120,
+        timeout_seconds: super::settings::DEFAULT_LLM_TIMEOUT_SECONDS,
         is_default: config.is_default.unwrap_or(false),
         capabilities,
         model_source,

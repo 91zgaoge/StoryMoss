@@ -51,6 +51,11 @@ pub struct WorkflowConfig {
     pub style_weight: f32,
     /// 叙事权重（0-1，默认 0.5）
     pub narrative_weight: f32,
+    /// 综合分数达到该阈值时跳过改写闭环，直接返回结果（0.0 - 1.0，默认 0.90）
+    ///
+    /// 用于降低 Full 模式的平均等待时间：当 Inspector 已经给出较高评价时，
+    /// 不再强制进行 Writer→Inspector→Rewrite 循环。
+    pub skip_rewrite_threshold: f32,
 }
 
 impl Default for WorkflowConfig {
@@ -61,6 +66,7 @@ impl Default for WorkflowConfig {
             keep_revision_history: true,
             style_weight: 0.5,
             narrative_weight: 0.5,
+            skip_rewrite_threshold: 0.90,
         }
     }
 }
@@ -355,6 +361,24 @@ impl AgentOrchestrator {
 
         // 反馈循环
         for loop_idx in 0..self.config.max_feedback_loops {
+            // v0.9.5: 协作式取消检查 —— 若上层已请求取消，则立即退出闭环
+            if let Some(ref req_id) = request_id {
+                if self.service.is_cancelled(req_id) {
+                    log::info!("[AgentOrchestrator] Cancellation requested for request_id {}, stopping feedback loop", req_id);
+                    return Ok(WorkflowResult {
+                        final_content: current_content,
+                        final_score: 0.0,
+                        style_score: 0.0,
+                        narrative_score: 0.0,
+                        drift_details: vec![],
+                        steps,
+                        was_rewritten,
+                        rewrite_count,
+                        request_id: request_id.clone(),
+                    });
+                }
+            }
+
             // 步骤2: Inspector 质检
             self.emit_step_event(
                 &task.id,
@@ -444,8 +468,16 @@ impl AgentOrchestrator {
             let style_ok = style_score >= 0.70;
             let narrative_ok = narrative_score >= self.config.rewrite_threshold;
 
-            if style_ok && narrative_ok {
-                // 双达标，通过
+            // v0.9.5: 综合分数已足够高时，跳过改写闭环以降低等待时间
+            let composite_good_enough = composite_score >= self.config.skip_rewrite_threshold;
+
+            if style_ok && narrative_ok || composite_good_enough {
+                if composite_good_enough && !(style_ok && narrative_ok) {
+                    log::info!(
+                        "[AgentOrchestrator] Composite score {:.2} >= skip_rewrite_threshold {:.2}, skipping rewrite loop",
+                        composite_score, self.config.skip_rewrite_threshold
+                    );
+                }
                 return Ok(WorkflowResult {
                     final_content: current_content,
                     final_score: composite_score,

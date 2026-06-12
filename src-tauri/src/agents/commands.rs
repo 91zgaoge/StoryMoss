@@ -319,6 +319,7 @@ pub async fn writer_agent_execute(
             keep_revision_history: true,
             style_weight: 0.5,
             narrative_weight: 0.5,
+            skip_rewrite_threshold: 0.90,
         })
         .unwrap_or_default();
 

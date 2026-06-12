@@ -5,13 +5,16 @@
 //! 支持多提供商配置管理和自动切换
 
 use std::{
-    collections::HashMap,
+    collections::hash_map::DefaultHasher,
+    collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::time::{timeout, Duration};
+use tokio::time::timeout;
 
 use super::{
     adapter::{GenerateRequest, GenerateResponse},
@@ -23,6 +26,127 @@ use crate::{
     config::settings::{AppConfig, LlmProfile, LlmProvider},
     error::AppError,
 };
+
+/// Prompt/Response 缓存键
+#[derive(Debug, Clone)]
+struct PromptCacheKey {
+    provider: String,
+    model: String,
+    max_tokens: Option<i32>,
+    temperature: Option<f32>,
+    prompt_hash: u64,
+}
+
+impl PartialEq for PromptCacheKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.provider == other.provider
+            && self.model == other.model
+            && self.max_tokens == other.max_tokens
+            && self.temperature.map(|f| f.to_bits()) == other.temperature.map(|f| f.to_bits())
+            && self.prompt_hash == other.prompt_hash
+    }
+}
+
+impl Eq for PromptCacheKey {}
+
+impl Hash for PromptCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.provider.hash(state);
+        self.model.hash(state);
+        self.max_tokens.hash(state);
+        self.temperature.map(|f| f.to_bits()).hash(state);
+        self.prompt_hash.hash(state);
+    }
+}
+
+/// 缓存条目
+struct PromptCacheEntry {
+    response: GenerateResponse,
+    created_at: Instant,
+}
+
+/// Prompt/Response 缓存：对确定性请求（如 test_connection、风格分析）复用结果。
+#[derive(Clone)]
+pub struct PromptCache {
+    inner: Arc<Mutex<HashMap<PromptCacheKey, PromptCacheEntry>>>,
+    ttl: Duration,
+    max_entries: usize,
+}
+
+impl PromptCache {
+    pub fn new(ttl: Duration, max_entries: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+            max_entries,
+        }
+    }
+
+    fn key(profile: &LlmProfile, prompt: &str, max_tokens: Option<i32>, temperature: Option<f32>) -> PromptCacheKey {
+        let mut hasher = DefaultHasher::new();
+        prompt.hash(&mut hasher);
+        PromptCacheKey {
+            provider: format!("{:?}", profile.provider),
+            model: profile.model.clone(),
+            max_tokens,
+            temperature,
+            prompt_hash: hasher.finish(),
+        }
+    }
+
+    pub fn get(
+        &self,
+        profile: &LlmProfile,
+        prompt: &str,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Option<GenerateResponse> {
+        let key = Self::key(profile, prompt, max_tokens, temperature);
+        let mut inner = self.inner.lock().ok()?;
+        if let Some(entry) = inner.get(&key) {
+            if entry.created_at.elapsed() < self.ttl {
+                log::debug!("[LlmService] Prompt cache hit");
+                return Some(entry.response.clone());
+            }
+            inner.remove(&key);
+        }
+        None
+    }
+
+    pub fn put(
+        &self,
+        profile: &LlmProfile,
+        prompt: &str,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        response: GenerateResponse,
+    ) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        if inner.len() >= self.max_entries {
+            let oldest = inner
+                .iter()
+                .min_by_key(|(_, entry)| entry.created_at)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                inner.remove(&k);
+            }
+        }
+        let key = Self::key(profile, prompt, max_tokens, temperature);
+        inner.insert(
+            key,
+            PromptCacheEntry {
+                response,
+                created_at: Instant::now(),
+            },
+        );
+    }
+}
+
+fn default_prompt_cache() -> PromptCache {
+    PromptCache::new(Duration::from_secs(300), 100)
+}
 
 /// 流式生成事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +194,17 @@ pub struct PipelineContext {
     pub action: String,
 }
 
+/// 封装一次 LLM 调用记录所需的数据，避免 `record_llm_call` 参数过多。
+struct LlmCallRecord<'a> {
+    model_id: &'a str,
+    model_name: Option<&'a str>,
+    purpose: &'a str,
+    prompt: &'a str,
+    response: Option<&'a GenerateResponse>,
+    duration_ms: u64,
+    error: Option<&'a AppError>,
+}
+
 /// LLM服务 - 管理所有LLM调用
 pub struct LlmService {
     app_handle: AppHandle,
@@ -77,10 +212,23 @@ pub struct LlmService {
     cancel_senders: Arc<Mutex<HashMap<String, Option<tokio::sync::mpsc::Sender<()>>>>>,
     /// 按配置缓存适配器，避免每次调用重复创建 reqwest::Client
     adapter_cache: Arc<Mutex<HashMap<String, Box<dyn super::LlmAdapter>>>>,
+    /// Prompt/Response 缓存，对确定性请求复用结果
+    prompt_cache: PromptCache,
+    /// 已被取消的 request_id 集合，用于协作式取消检查
+    cancelled_requests: Arc<Mutex<HashSet<String>>>,
 }
 
 impl LlmService {
+    /// 创建新的 LLM 服务实例。
+    ///
+    /// 如果全局 LLM 服务已经初始化（通过 `init_llm_service`），则直接返回其克隆，
+    /// 从而复用 reqwest 连接池与 adapter 缓存；否则创建新实例。
     pub fn new(app_handle: AppHandle) -> Self {
+        // 优先返回全局共享实例，避免每次命令重建 client 与缓存。
+        if let Some(service) = get_llm_service() {
+            return service;
+        }
+
         let app_dir = app_handle
             .path()
             .app_data_dir()
@@ -93,6 +241,8 @@ impl LlmService {
             config: Arc::new(Mutex::new(config)),
             cancel_senders: Arc::new(Mutex::new(HashMap::new())),
             adapter_cache: Arc::new(Mutex::new(HashMap::new())),
+            prompt_cache: default_prompt_cache(),
+            cancelled_requests: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -129,6 +279,79 @@ impl LlmService {
     fn get_profile_by_id(&self, profile_id: &str) -> Option<LlmProfile> {
         let guard = self.config.lock().ok()?;
         guard.llm_profiles.get(profile_id).cloned()
+    }
+
+    /// 计算实际生效的超时秒数
+    ///
+    /// 统一所有生成路径的超时策略：优先使用 profile 配置；若未设置（0）则回退到
+    /// 项目默认 300 秒，避免本地大模型被 120 秒误超时。
+    fn effective_timeout_seconds(profile: &LlmProfile) -> u64 {
+        if profile.timeout_seconds > 0 {
+            profile.timeout_seconds
+        } else {
+            crate::config::settings::DEFAULT_LLM_TIMEOUT_SECONDS
+        }
+    }
+
+    /// 将本次 LLM 调用记录到 `llm_calls` 表，并输出结构化指标日志。
+    ///
+    /// 失败不返回错误，避免记录本身阻塞主流程。
+    fn record_llm_call(&self, record: LlmCallRecord<'_>) {
+        let prompt_len = record.prompt.chars().count() as i32;
+        let prompt_tokens = prompt_len / 2;
+        let completion_tokens = record.response.map(|r| r.tokens_used).unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+        let provider = self.get_active_profile().map(|p| format!("{:?}", p.provider));
+        let cached = record.response.is_some() && prompt_tokens == 0;
+
+        // 统一结构化指标日志，便于后续通过日志聚合分析耗时、超时、缓存命中率。
+        let metrics = serde_json::json!({
+            "event": "llm_call",
+            "provider": provider,
+            "model": record.model_id,
+            "purpose": record.purpose,
+            "prompt_len": prompt_len,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "duration_ms": record.duration_ms,
+            "success": record.error.is_none(),
+            "error_type": record.error.map(|e| format!("{:?}", std::mem::discriminant(e))),
+            "cached": cached,
+        });
+        log::info!(target: "llm_metrics", "{}", metrics);
+
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            use crate::db::{
+                repositories_pipeline::LlmCallRepository, RecordLlmCallRequest,
+            };
+            let repo = LlmCallRepository::new(pool.inner().clone());
+            let req = RecordLlmCallRequest {
+                story_id: None,
+                draft_id: None,
+                model_id: record.model_id.to_string(),
+                model_name: record.model_name.map(|s| s.to_string()),
+                purpose: record.purpose.to_string(),
+                prompt_tokens,
+                completion_tokens,
+                duration_ms: record.duration_ms as i32,
+                success: record.error.is_none(),
+                error_message: record.error.map(|e| e.to_string()),
+            };
+            let preview = if record.prompt.len() > 200 {
+                &record.prompt[..200]
+            } else {
+                record.prompt
+            };
+            let metadata = serde_json::json!({
+                "provider": provider,
+                "cached": cached,
+            })
+            .to_string();
+            if let Err(e) = repo.create(req, total_tokens, record.duration_ms as i32, Some(preview), Some(&metadata)) {
+                log::warn!("[LLM] Failed to record llm_call: {}", e);
+            }
+        }
     }
 
     /// 判断错误是否可重试（超时/网络/5xx）
@@ -410,11 +633,7 @@ impl LlmService {
         }
 
         let start_time = std::time::Instant::now();
-        let timeout_seconds = if profile.timeout_seconds > 0 {
-            profile.timeout_seconds
-        } else {
-            600
-        };
+        let timeout_seconds = Self::effective_timeout_seconds(&profile);
         let max_retries = 2u32;
 
         // 带超时与重试的生成循环
@@ -486,11 +705,30 @@ impl LlmService {
                     duration,
                     response.content.len()
                 );
+                self.record_llm_call(LlmCallRecord {
+                    model_id: &model_name,
+                    model_name: Some(&model_name),
+                    purpose: label,
+                    prompt: &req.prompt,
+                    response: Some(&response),
+                    duration_ms: duration,
+                    error: None,
+                });
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = matches!(e, AppError::LlmTimeout { .. });
+                let duration = start_time.elapsed().as_millis() as u64;
+                self.record_llm_call(LlmCallRecord {
+                    model_id: &model_name,
+                    model_name: Some(&model_name),
+                    purpose: label,
+                    prompt: &req.prompt,
+                    response: None,
+                    duration_ms: duration,
+                    error: Some(&e),
+                });
                 self.emit_llm_progress(
                     "error",
                     &e.to_string(),
@@ -503,7 +741,7 @@ impl LlmService {
         }
     }
 
-    /// 使用指定模型配置同步生成文本（带600秒超时 + 心跳进度）
+    /// 使用指定模型配置同步生成文本（带统一超时 + 心跳进度）
     pub async fn generate_with_profile(
         &self,
         profile_id: &str,
@@ -598,6 +836,7 @@ impl LlmService {
             max_tokens,
             temperature,
         };
+        let prompt_for_record = req.prompt.clone();
 
         let label = context_label.unwrap_or("");
         let connecting_msg = if label.is_empty() {
@@ -662,15 +901,16 @@ impl LlmService {
         }
 
         let start_time = std::time::Instant::now();
+        let timeout_seconds = Self::effective_timeout_seconds(&profile);
 
         let result = tokio::select! {
-            r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
+            r = timeout(Duration::from_secs(timeout_seconds), adapter.generate(req)) => {
                 match r {
                     Ok(Ok(resp)) => Ok(resp),
                     Ok(Err(e)) => Err(AppError::internal(format!("Generation failed: {}", e))),
                     Err(_) => {
-                        log::warn!("[LLM] Generation timed out after {}s", 600);
-                        Err(AppError::llm_timeout(600_000))
+                        log::warn!("[LLM] Generation timed out after {}s", timeout_seconds);
+                        Err(AppError::llm_timeout(timeout_seconds * 1000))
                     }
                 }
             }
@@ -698,11 +938,30 @@ impl LlmService {
                     duration,
                     response.content.len()
                 );
+                self.record_llm_call(LlmCallRecord {
+                    model_id: &model_name,
+                    model_name: Some(&model_name),
+                    purpose: label,
+                    prompt: &prompt_for_record,
+                    response: Some(&response),
+                    duration_ms: duration,
+                    error: None,
+                });
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
                 let is_timeout = matches!(e, AppError::LlmTimeout { .. });
+                let duration = start_time.elapsed().as_millis() as u64;
+                self.record_llm_call(LlmCallRecord {
+                    model_id: &model_name,
+                    model_name: Some(&model_name),
+                    purpose: label,
+                    prompt: &prompt_for_record,
+                    response: None,
+                    duration_ms: duration,
+                    error: Some(&e),
+                });
                 self.emit_llm_progress(
                     "error",
                     &e.to_string(),
@@ -715,7 +974,7 @@ impl LlmService {
         }
     }
 
-    /// 流式生成文本（带整体 90 秒超时 + chunk 15 秒超时）
+    /// 流式生成文本（启动 30 秒超时 + chunk 60 秒超时）
     ///
     /// 通过Tauri事件向前端发送生成进度
     /// 事件名称: `llm-stream-chunk`, `llm-stream-complete`, `llm-stream-error`
@@ -769,25 +1028,75 @@ impl LlmService {
             senders.insert(request_id.clone(), Some(cancel_tx));
         }
 
-        // chunk 超时：15 秒没有收到新数据就中断
-        let chunk_timeout = Duration::from_secs(60);
+        // chunk 超时：60 秒没有收到新数据就中断（与本地大模型实际速度匹配）
+        let chunk_timeout_seconds = 60u64;
+        let chunk_timeout = Duration::from_secs(chunk_timeout_seconds);
+
+        // 流式 batching：聚合高频小 chunk 再跨 webview 发送，降低 IPC 开销。
+        // 首 chunk 立即发送；后续按 80ms 或 40 字符批量发送。
+        const BATCH_MAX_CHARS: usize = 40;
+        const BATCH_TIMEOUT: Duration = Duration::from_millis(80);
+        let mut buffer = String::with_capacity(BATCH_MAX_CHARS);
+        let mut flush_deadline: Option<Instant> = None;
+
+        let flush_buffer = |buffer: &mut String,
+                            full_text: &mut String,
+                            is_first: &mut bool,
+                            is_last: bool| {
+            if buffer.is_empty() && !is_last {
+                return;
+            }
+            full_text.push_str(buffer);
+            let chunk = std::mem::take(buffer);
+            let stream_chunk = StreamChunk {
+                chunk,
+                is_first: *is_first,
+                is_last,
+                model: profile.model.clone(),
+            };
+            let _ = self
+                .app_handle
+                .emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
+            *is_first = false;
+        };
 
         loop {
+            let deadline_sleep = async {
+                match flush_deadline {
+                    Some(d) => {
+                        let now = Instant::now();
+                        if d > now {
+                            tokio::time::sleep(d - now).await;
+                        }
+                    }
+                    None => std::future::pending::<()>().await,
+                }
+            };
+
             tokio::select! {
+                biased;
+                _ = cancel_rx.recv() => {
+                    log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
+                    flush_buffer(&mut buffer, &mut full_text, &mut is_first, false);
+                    break;
+                }
+                _ = deadline_sleep, if flush_deadline.is_some() => {
+                    flush_buffer(&mut buffer, &mut full_text, &mut is_first, false);
+                    flush_deadline = None;
+                }
                 chunk_result = timeout(chunk_timeout, rx.recv()) => {
                     match chunk_result {
                         Ok(Some(Ok(chunk))) => {
-                            full_text.push_str(&chunk);
-                            let stream_chunk = StreamChunk {
-                                chunk,
-                                is_first,
-                                is_last: false,
-                                model: profile.model.clone(),
-                            };
-                            let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
-                            is_first = false;
+                            buffer.push_str(&chunk);
+                            if is_first || buffer.len() >= BATCH_MAX_CHARS {
+                                flush_buffer(&mut buffer, &mut full_text, &mut is_first, false);
+                                flush_deadline = None;
+                            } else if flush_deadline.is_none() {
+                                flush_deadline = Some(Instant::now() + BATCH_TIMEOUT);
+                            }
                         }
                         Ok(Some(Err(e))) => {
+                            flush_buffer(&mut buffer, &mut full_text, &mut is_first, false);
                             let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
                             let error = GenerationError {
                                 error: e.to_string(),
@@ -796,27 +1105,28 @@ impl LlmService {
                             let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
                             return Err(AppError::internal(format!("Stream error: {}", e)));
                         }
-                        Ok(None) => break,
+                        Ok(None) => {
+                            flush_buffer(&mut buffer, &mut full_text, &mut is_first, true);
+                            break;
+                        }
                         Err(_) => {
                             // chunk 超时
+                            flush_buffer(&mut buffer, &mut full_text, &mut is_first, false);
                             let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
                             let error = GenerationError {
-                                error: "模型响应超时（15秒内未收到新数据）".to_string(),
+                                error: format!("模型响应超时（{}秒内未收到新数据）", chunk_timeout_seconds),
                                 error_code: "CHUNK_TIMEOUT".to_string(),
                             };
                             let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
-                            return Err(AppError::llm_timeout(15_000));
+                            return Err(AppError::llm_timeout(chunk_timeout_seconds * 1000));
                         }
                     }
-                }
-                _ = cancel_rx.recv() => {
-                    log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
-                    break;
                 }
             }
         }
 
         let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+        self.clear_cancellation(&request_id);
 
         // 发送完成事件
         let duration = start_time.elapsed().as_millis() as u64;
@@ -842,6 +1152,33 @@ impl LlmService {
         build_writing_prompt(user_input, context)
     }
 
+    /// 带 Prompt/Response 缓存的同步生成（主要用于 test_connection 等确定性请求）
+    async fn generate_cached(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<GenerateResponse, AppError> {
+        let profile = match self.get_active_profile() {
+            Some(p) => p,
+            None => {
+                return Err(AppError::internal("No active LLM profile configured"));
+            }
+        };
+
+        if let Some(cached) = self
+            .prompt_cache
+            .get(&profile, &prompt, max_tokens, temperature)
+        {
+            return Ok(cached);
+        }
+
+        let response = self.generate(prompt.clone(), max_tokens, temperature).await?;
+        self.prompt_cache
+            .put(&profile, &prompt, max_tokens, temperature, response.clone());
+        Ok(response)
+    }
+
     /// 测试连接
     pub async fn test_connection(&self) -> Result<(bool, u64), AppError> {
         let profile = self
@@ -853,11 +1190,11 @@ impl LlmService {
 
         let start = std::time::Instant::now();
 
-        // 发送一个简单的测试请求
+        // 发送一个简单的测试请求；使用缓存避免频繁测试时重复调用模型
         let test_prompt = "Hello, respond with 'OK' only.";
 
         match self
-            .generate(test_prompt.to_string(), Some(10), Some(0.0))
+            .generate_cached(test_prompt.to_string(), Some(10), Some(0.0))
             .await
         {
             Ok(_) => {
@@ -874,6 +1211,10 @@ impl LlmService {
 
     /// 取消指定 request_id 的流式生成
     pub fn cancel_generation(&self, request_id: &str) {
+        {
+            let mut cancelled = self.cancelled_requests.lock().unwrap();
+            cancelled.insert(request_id.to_string());
+        }
         let mut senders = self.cancel_senders.lock().unwrap();
         if let Some(opt_sender) = senders.get_mut(request_id) {
             if let Some(sender) = opt_sender.take() {
@@ -891,6 +1232,20 @@ impl LlmService {
                 request_id
             );
         }
+    }
+
+    /// 检查指定 request_id 是否已被请求取消
+    pub fn is_cancelled(&self, request_id: &str) -> bool {
+        self.cancelled_requests
+            .lock()
+            .unwrap()
+            .contains(request_id)
+    }
+
+    /// 清理已完成的 request_id 取消记录（可选，防止集合无限增长）
+    pub fn clear_cancellation(&self, request_id: &str) {
+        let mut cancelled = self.cancelled_requests.lock().unwrap();
+        cancelled.remove(request_id);
     }
 
     /// 解析当前用户ID（从 .machine_id 文件）
@@ -960,6 +1315,8 @@ impl Clone for LlmService {
             config: Arc::clone(&self.config),
             cancel_senders: Arc::clone(&self.cancel_senders),
             adapter_cache: Arc::clone(&self.adapter_cache),
+            prompt_cache: self.prompt_cache.clone(),
+            cancelled_requests: Arc::clone(&self.cancelled_requests),
         }
     }
 }
@@ -1112,5 +1469,76 @@ mod tests {
         let deserialized: GenerateResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.content, "World");
         assert_eq!(deserialized.tokens_used, 10);
+    }
+
+    #[test]
+    fn test_prompt_cache_hit_and_miss() {
+        use std::time::Duration;
+
+        let cache = PromptCache::new(Duration::from_secs(60), 10);
+        let profile = LlmProfile {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: crate::config::settings::ModelSource::Local,
+            model: "gpt-4".to_string(),
+            api_key: "key".to_string(),
+            api_base: None,
+            max_tokens: 100,
+            temperature: 0.7,
+            timeout_seconds: 300,
+            is_default: false,
+            capabilities: vec![],
+        };
+        let response = GenerateResponse {
+            content: "OK".to_string(),
+            model: "gpt-4".to_string(),
+            tokens_used: 1,
+            cost: 0.0,
+        };
+
+        assert!(cache.get(&profile, "hello", Some(10), Some(0.0)).is_none());
+        cache.put(&profile, "hello", Some(10), Some(0.0), response.clone());
+        let hit = cache.get(&profile, "hello", Some(10), Some(0.0));
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().content, "OK");
+
+        // 不同参数未命中
+        assert!(cache.get(&profile, "hello", Some(20), Some(0.0)).is_none());
+        assert!(cache.get(&profile, "world", Some(10), Some(0.0)).is_none());
+    }
+
+    #[test]
+    fn test_prompt_cache_ttl_eviction() {
+        use std::time::Duration;
+
+        let cache = PromptCache::new(Duration::from_millis(10), 10);
+        let profile = LlmProfile {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: crate::config::settings::ModelSource::Local,
+            model: "gpt-4".to_string(),
+            api_key: "key".to_string(),
+            api_base: None,
+            max_tokens: 100,
+            temperature: 0.7,
+            timeout_seconds: 300,
+            is_default: false,
+            capabilities: vec![],
+        };
+        let response = GenerateResponse {
+            content: "OK".to_string(),
+            model: "gpt-4".to_string(),
+            tokens_used: 1,
+            cost: 0.0,
+        };
+
+        cache.put(&profile, "hello", None, None, response);
+        assert!(cache.get(&profile, "hello", None, None).is_some());
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(cache.get(&profile, "hello", None, None).is_none());
     }
 }

@@ -2,6 +2,85 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.6] - 智能创作性能优化：超时、缓存、后台化与取消（2026-06-12）
+
+### 摘要
+
+- 针对用户反馈的「智能创作流程速度慢、等待时间长、甚至超出模型连接限时」问题进行全面梳理与优化
+- 在不牺牲创作质量理解准确性的前提下，从统一超时、服务缓存、上下文缓存、异步化、后台化、协作取消六个方向改善响应能力
+- GenesisPipeline 故事创建后第一章改为后台生成，用户可立即进入工作台
+- 已撰写完整性能优化报告：`PERFORMANCE_OPTIMIZATION_REPORT.md`
+
+### 后端改进
+
+- **统一并延长 LLM 超时**：`src-tauri/src/llm/service.rs`
+  - 默认超时从 120s 提升到 300s，减少大模型长输出超时失败
+  - 所有调用路径共享 `effective_timeout_seconds`，超时逻辑一致
+- **`LlmService` 全局单例**：`src-tauri/src/llm/service.rs` / `src-tauri/src/lib.rs`
+  - 通过 `init_llm_service` 将服务作为 Tauri State 注册，避免每次请求重建服务
+  - 减少 Provider 初始化、配置加载等重复开销
+- **Prompt/Response 缓存**：`src-tauri/src/llm/service.rs`
+  - 对 `test_connection` 等确定性调用进行缓存，5min TTL / 100 条目
+  - 缓存命中时直接返回，不再调用模型
+- **LLM 调用可观测性**：`src-tauri/src/llm/service.rs`
+  - 每次 LLM 调用写入 `llm_calls` 表
+  - 输出结构化 `llm_metrics` 日志，便于监控超时率与调用次数
+- **流式输出聚合**：`src-tauri/src/llm/service.rs` + `src-frontend/src/hooks/useLlmStream.ts`
+  - 后端按 80ms / 40 字符聚合 chunk，减少 IPC 频率
+  - 前端 `stopStream()` 正确调用 `llm_cancel_generation`
+- **`StoryContextBuilder` LRU 缓存**：`src-tauri/src/creative_engine/context_builder.rs`
+  - 50 条目 / 5min TTL，按故事/场景/内容哈希键控
+  - 同场景连续续写时显著减少重复 DB 查询
+- **DB 连接池扩容**：`src-tauri/src/db/connection.rs`
+  - 生产环境 `max_size` 10 → 20，测试环境 5 → 10
+- **阻塞查询异步化**：`src-tauri/src/commands/orchestrator.rs` / `src-tauri/src/story_system/preflight.rs`
+  - `smart_execute` 初始上下文加载、`check_preflight` 改为 `spawn_blocking`
+  - 避免同步 SQLite 查询阻塞 tokio worker
+- **协作式取消**：`src-tauri/src/agents/service.rs` / `src-tauri/src/agents/orchestrator.rs`
+  - `LlmService` 与 `AgentService` 增加 `is_cancelled` 检查
+  - `AgentOrchestrator` 在生成循环中持续检查取消标志
+- **Embedding Provider 缓存**：`src-tauri/src/embeddings/provider.rs`
+  - OpenAI / Ollama provider 对相同 `(model, text)` 结果缓存 1h / 1000 条目
+- **GenesisPipeline 后台化**：`src-tauri/src/commands/orchestrator.rs` / `src-tauri/src/narrative/genesis.rs`
+  - 故事概念同步阶段完成后立即返回，用户瞬间看到故事创建成功
+  - 第一章与背景设定在后台 `tauri::async_runtime::spawn` 中生成
+  - 后台阶段通过 `pipeline-progress` / `pipeline-complete` 事件向前端汇报
+- **AgentOrchestrator Full 模式按需降级**：`src-tauri/src/agents/orchestrator.rs`
+  - `WorkflowConfig` 新增 `skip_rewrite_threshold`（默认 0.90）
+  - 初稿综合评分达到阈值时直接返回，跳过 Inspector→Writer 改写循环
+
+### 前端改进
+
+- **Genesis 后台生成适配**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - 识别 `novel_bootstrap_background_started` 消息，避免误报「AI 返回了空内容」
+  - 故事创建后提示「第一章正在后台生成，完成后会自动加载」
+  - 通过 `usePipelineComplete` 监听 `pipeline-complete`，后台完成后自动刷新并切换到第一章
+- **测试适配**：`src-frontend/src/frontstage/__tests__/FrontstageApp.test.tsx`
+  - mock 更新，添加 `usePipelineComplete`
+
+### 已取消的优化
+
+- **Phase 3.3 计划生成缓存与内置模板**：`src-tauri/src/planner/executor.rs` / `src-tauri/src/planner/template_learning.rs`
+  - 硬编码模板和基于 user_input 的计划缓存因创作指令高度依赖上下文而被回退
+  - 保留 LLM planner 动态理解意图，避免路由误判导致内容生成偏离用户意图
+  - 详细分析见 `PERFORMANCE_OPTIMIZATION_REPORT.md`
+
+### 编译与测试状态
+
+- `cargo check --manifest-path src-tauri/Cargo.toml` ✅
+- `cargo clippy --lib` ✅（无新增 warning，仅既有历史 warning）
+- `cargo test --lib` ✅ 323/323 通过
+- `npx tsc --noEmit`（src-frontend） ✅
+- `npx vitest run` ✅ 116 passed / 3 skipped
+
+### 版本号
+
+- `src-tauri/Cargo.toml`: `0.9.4` → `0.9.6`
+- `src-tauri/tauri.conf.json`: `0.9.4` → `0.9.6`
+- `src-frontend/package.json`: `0.9.4` → `0.9.6`
+
+---
+
 ## [v0.9.5] - 智能创作补齐采摘闭环（2026-06-12）
 
 ### 摘要

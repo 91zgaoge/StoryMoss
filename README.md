@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.9.4-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.9.6-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.9.4 进一步优化智能创作进度感知与幕前界面：全局监听 orchestrator-step 让智能输入栏也能实时看到续写进度，细化上下文加载阶段提示，删除左侧边栏并将设置入口移至顶部，采摘（Ingest）与编辑器右键菜单按统一 VI 风格重绘。`cargo check` 零错误，`cargo test` 318/318 通过。
+**最新动态**：v0.9.6 针对智能创作速度慢、易超时问题进行全面性能优化：统一延长 LLM 超时、共享 LlmService 单例、上下文/Prompt/Embedding 多级缓存、DB 查询异步化与连接池扩容、协作式取消、GenesisPipeline 故事创建后台化、AgentOrchestrator 高分初稿跳过改写。前端已适配 Genesis 后台生成中间态。完整报告见 [`PERFORMANCE_OPTIMIZATION_REPORT.md`](./PERFORMANCE_OPTIMIZATION_REPORT.md)。`cargo test` 323/323 通过，`vitest` 116 passed。
 
 ---
 

@@ -1,8 +1,72 @@
 #![allow(dead_code)]
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    sync::Mutex as StdMutex,
+    time::{Duration, Instant},
+};
 
 use super::embedding::*;
+
+/// Embedding 向量缓存：对相同文本的 embedding 结果复用，避免重复调用嵌入模型。
+type EmbeddingCacheMap = HashMap<(String, u64), (Vec<f32>, Instant)>;
+
+#[derive(Clone)]
+struct EmbeddingCache {
+    inner: std::sync::Arc<StdMutex<EmbeddingCacheMap>>,
+    ttl: Duration,
+    max_entries: usize,
+}
+
+impl EmbeddingCache {
+    fn new(ttl: Duration, max_entries: usize) -> Self {
+        Self {
+            inner: std::sync::Arc::new(StdMutex::new(EmbeddingCacheMap::new())),
+            ttl,
+            max_entries,
+        }
+    }
+
+    fn key(model: &str, text: &str) -> (String, u64) {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        (model.to_string(), hasher.finish())
+    }
+
+    fn get(&self, model: &str, text: &str) -> Option<Vec<f32>> {
+        let key = Self::key(model, text);
+        let mut inner = self.inner.lock().ok()?;
+        if let Some((vector, created_at)) = inner.get(&key) {
+            if created_at.elapsed() < self.ttl {
+                return Some(vector.clone());
+            }
+            inner.remove(&key);
+        }
+        None
+    }
+
+    fn put(&self, model: &str, text: &str, vector: Vec<f32>) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        if inner.len() >= self.max_entries {
+            let oldest = inner
+                .iter()
+                .min_by_key(|(_, (_, t))| *t)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                inner.remove(&k);
+            }
+        }
+        inner.insert(Self::key(model, text), (vector, Instant::now()));
+    }
+
+    fn default_cache() -> Self {
+        Self::new(Duration::from_secs(3600), 1000)
+    }
+}
 
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
@@ -31,6 +95,15 @@ pub struct OpenAIEmbeddingProvider {
     model: String,
     dimensions: usize,
     client: reqwest::Client,
+    cache: EmbeddingCache,
+}
+
+fn build_embedding_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 impl OpenAIEmbeddingProvider {
@@ -39,7 +112,8 @@ impl OpenAIEmbeddingProvider {
             api_key,
             model,
             dimensions,
-            client: reqwest::Client::new(),
+            client: build_embedding_client(),
+            cache: EmbeddingCache::default_cache(),
         }
     }
 }
@@ -47,6 +121,19 @@ impl OpenAIEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for OpenAIEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
+        // v0.9.5: 对单条文本先查缓存，减少重复 embedding 调用
+        if texts.len() == 1 {
+            let text = &texts[0];
+            if let Some(cached_vector) = self.cache.get(&self.model, text) {
+                return Ok(vec![Embedding {
+                    id: "emb_0".to_string(),
+                    vector: cached_vector,
+                    dimensions: self.dimensions,
+                    model: self.model.clone(),
+                }]);
+            }
+        }
+
         let request = OpenAIEmbeddingRequest {
             model: self.model.clone(),
             input: texts.clone(),
@@ -78,7 +165,7 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
                 code: "PARSE_ERROR".to_string(),
             })?;
 
-        Ok(result
+        let embeddings: Vec<Embedding> = result
             .data
             .into_iter()
             .enumerate()
@@ -88,7 +175,14 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
                 dimensions: self.dimensions,
                 model: self.model.clone(),
             })
-            .collect())
+            .collect();
+
+        // 缓存结果
+        for (text, embedding) in texts.iter().zip(embeddings.iter()) {
+            self.cache.put(&self.model, text, embedding.vector.clone());
+        }
+
+        Ok(embeddings)
     }
 
     fn dimensions(&self) -> usize {
@@ -122,6 +216,7 @@ pub struct OllamaEmbeddingProvider {
     api_base: String,
     dimensions: usize,
     client: reqwest::Client,
+    cache: EmbeddingCache,
 }
 
 impl OllamaEmbeddingProvider {
@@ -130,7 +225,8 @@ impl OllamaEmbeddingProvider {
             model,
             api_base: api_base.unwrap_or_else(|| "http://localhost:11434".to_string()),
             dimensions,
-            client: reqwest::Client::new(),
+            client: build_embedding_client(),
+            cache: EmbeddingCache::default_cache(),
         }
     }
 }
@@ -151,9 +247,20 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
         let mut embeddings = Vec::with_capacity(texts.len());
         for (i, text) in texts.into_iter().enumerate() {
+            // v0.9.5: 查缓存，避免对相同文本重复请求 Ollama
+            if let Some(cached_vector) = self.cache.get(&self.model, &text) {
+                embeddings.push(Embedding {
+                    id: format!("emb_{}", i),
+                    vector: cached_vector,
+                    dimensions: self.dimensions,
+                    model: self.model.clone(),
+                });
+                continue;
+            }
+
             let request = OllamaEmbedRequest {
                 model: self.model.clone(),
-                prompt: text,
+                prompt: text.clone(),
             };
             let response = self
                 .client
@@ -180,6 +287,7 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                     code: "PARSE_ERROR".to_string(),
                 })?;
 
+            self.cache.put(&self.model, &text, result.embedding.clone());
             embeddings.push(Embedding {
                 id: format!("emb_{}", i),
                 vector: result.embedding,

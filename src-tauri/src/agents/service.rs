@@ -130,6 +130,11 @@ impl AgentService {
         &self.app_handle
     }
 
+    /// 检查指定 request_id 是否已被请求取消
+    pub fn is_cancelled(&self, request_id: &str) -> bool {
+        self.llm_service.is_cancelled(request_id)
+    }
+
     /// 从用户指令中提取明确的题材要求
     fn extract_genre_from_instruction(instruction: &str) -> Option<String> {
         let lower = instruction.to_lowercase();
@@ -296,6 +301,13 @@ impl AgentService {
         tier: SubscriptionTier,
         request_id: Option<String>,
     ) -> Result<(String, crate::llm::GenerateResponse), AppError> {
+        // v0.9.5: 协作式取消 —— 若上层已请求取消，直接返回，避免无效 LLM 调用
+        if let Some(ref req_id) = request_id {
+            if self.llm_service.is_cancelled(req_id) {
+                return Err(AppError::internal("生成已取消".to_string()));
+            }
+        }
+
         let start_time = std::time::Instant::now();
         let effective_max = match tier {
             SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
@@ -407,11 +419,13 @@ impl AgentService {
     pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let checker = crate::story_system::preflight::PreflightChecker::new();
-        let preflight = checker.check(
-            pool.inner(),
-            &task.context.story.story_id,
-            task.context.narrative.chapter_number as i32,
-        );
+        let preflight = checker
+            .check(
+                pool.inner(),
+                &task.context.story.story_id,
+                task.context.narrative.chapter_number as i32,
+            )
+            .await;
         if !preflight.ready {
             log::info!(
                 "[AgentService] Preflight failed for story {} chapter {}, blocking_issues={:?}, \
@@ -473,11 +487,13 @@ impl AgentService {
                             result.created_outline
                         );
 
-                        let preflight_after = checker.check(
-                            pool.inner(),
-                            &task.context.story.story_id,
-                            task.context.narrative.chapter_number as i32,
-                        );
+                        let preflight_after = checker
+                            .check(
+                                pool.inner(),
+                                &task.context.story.story_id,
+                                task.context.narrative.chapter_number as i32,
+                            )
+                            .await;
                         if !preflight_after.ready {
                             return Err(AppError::preflight_failed(
                                 "自动补齐后写作前检查仍发现阻塞性问题",

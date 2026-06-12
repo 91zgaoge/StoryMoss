@@ -4,6 +4,13 @@
 //! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。
 //! 解决 intent.rs 中硬编码 "未命名作品"/"小说"/"中性" 的问题。
 
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
 use crate::{
     agents::{
         AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
@@ -18,6 +25,116 @@ use crate::{
     },
     error::AppError,
 };
+
+/// 创作上下文缓存键
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+struct ContextCacheKey {
+    story_id: String,
+    scene_number: Option<i32>,
+    current_content_hash: u64,
+    selected_text_hash: u64,
+}
+
+/// 带 TTL 与容量上限的上下文缓存
+#[derive(Clone)]
+pub struct ContextCache {
+    inner: Arc<Mutex<ContextCacheInner>>,
+}
+
+struct ContextCacheInner {
+    entries: std::collections::HashMap<ContextCacheKey, (AgentContext, Instant)>,
+    max_entries: usize,
+    ttl: Duration,
+}
+
+impl ContextCache {
+    pub fn new(max_entries: usize, ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ContextCacheInner {
+                entries: std::collections::HashMap::new(),
+                max_entries,
+                ttl,
+            })),
+        }
+    }
+
+    fn hash_option_text(text: &Option<String>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn key(
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: &Option<String>,
+        selected_text: &Option<String>,
+    ) -> ContextCacheKey {
+        ContextCacheKey {
+            story_id: story_id.to_string(),
+            scene_number,
+            current_content_hash: Self::hash_option_text(current_content),
+            selected_text_hash: Self::hash_option_text(selected_text),
+        }
+    }
+
+    pub fn get(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: &Option<String>,
+        selected_text: &Option<String>,
+    ) -> Option<AgentContext> {
+        let key = Self::key(story_id, scene_number, current_content, selected_text);
+        let mut inner = self.inner.lock().ok()?;
+        if let Some((ctx, created_at)) = inner.entries.get(&key) {
+            if created_at.elapsed() < inner.ttl {
+                log::debug!("[StoryContextBuilder] Context cache hit for story {}", story_id);
+                return Some(ctx.clone());
+            }
+            inner.entries.remove(&key);
+        }
+        None
+    }
+
+    pub fn put(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: &Option<String>,
+        selected_text: &Option<String>,
+        context: AgentContext,
+    ) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        let key = Self::key(story_id, scene_number, current_content, selected_text);
+        // 简单 LRU 清理：超过容量时移除最旧的条目
+        if inner.entries.len() >= inner.max_entries {
+            let oldest = inner
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, t))| *t)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                inner.entries.remove(&k);
+            }
+        }
+        inner.entries.insert(key, (context, Instant::now()));
+    }
+}
+
+/// 默认全局上下文缓存：最多保留 50 个故事上下文，5 分钟 TTL。
+///
+/// 命中缓存可跳过重复的 DB 查询、MemoryPack 构建与叙事结构分析，
+/// 显著降低 Writer → Inspector → Rewrite 闭环内的等待时间。
+fn default_context_cache() -> ContextCache {
+    ContextCache::new(50, Duration::from_secs(300))
+}
+
+thread_local! {
+    static DEFAULT_CONTEXT_CACHE: ContextCache = default_context_cache();
+}
 
 /// 知识图谱实体摘要（用于注入提示词）
 #[derive(Debug, Clone)]
@@ -54,11 +171,27 @@ pub struct SceneStructure {
 /// 上下文构建器
 pub struct StoryContextBuilder {
     pool: DbPool,
+    cache: Option<ContextCache>,
 }
 
 impl StoryContextBuilder {
+    /// 创建带有默认全局缓存的构建器
     pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+        Self::with_cache(pool, default_context_cache())
+    }
+
+    /// 创建不带缓存的构建器（主要用于测试或需要强制重新加载的场景）
+    #[allow(dead_code)]
+    pub fn without_cache(pool: DbPool) -> Self {
+        Self { pool, cache: None }
+    }
+
+    /// 创建带有指定缓存的构建器
+    pub fn with_cache(pool: DbPool, cache: ContextCache) -> Self {
+        Self {
+            pool,
+            cache: Some(cache),
+        }
     }
 
     /// 构建完整的 Agent 上下文
@@ -75,6 +208,13 @@ impl StoryContextBuilder {
         current_content: Option<String>,
         selected_text: Option<String>,
     ) -> Result<AgentContext, AppError> {
+        // v0.9.5: 优先命中上下文缓存，避免 Writer → Inspector → Rewrite 闭环内重复构建
+        if let Some(ref cache) = self.cache {
+            if let Some(ctx) = cache.get(story_id, scene_number, &current_content, &selected_text) {
+                return Ok(ctx);
+            }
+        }
+
         // v0.9.3: 并行获取互相独立的上下文数据，减少构建时间
         let (story, characters, all_scenes, world_rules, style, relevant_entities) = tokio::try_join!(
             self.fetch_story_async(story_id),
@@ -211,7 +351,7 @@ impl StoryContextBuilder {
             async move { Ok::<_, AppError>(self.fetch_active_threads(story_id)) },
         )?;
 
-        Ok(AgentContext {
+        let context = AgentContext {
             story: StoryContext {
                 story_id: story_id.to_string(),
                 story_title: story.title,
@@ -253,7 +393,19 @@ impl StoryContextBuilder {
                 memory_pack,
                 memory: None,
             },
-        })
+        };
+
+        if let Some(ref cache) = self.cache {
+            cache.put(
+                story_id,
+                scene_number,
+                &context.narrative.current_content,
+                &context.narrative.selected_text,
+                context.clone(),
+            );
+        }
+
+        Ok(context)
     }
 
     /// 快速构建（用于 intent 执行等场景）
@@ -1062,5 +1214,112 @@ mod tests {
             result.is_ok(),
             "无冲突类型的场景且无角色时，build 应返回 Ok"
         );
+    }
+
+    #[test]
+    fn test_context_cache_hit_and_miss() {
+        use std::time::Duration;
+
+        let cache = ContextCache::new(10, Duration::from_secs(60));
+        let ctx = dummy_agent_context("story-1");
+
+        // 首次未命中
+        assert!(cache.get("story-1", Some(1), &Some("hello".to_string()), &None).is_none());
+
+        // 写入后命中
+        cache.put(
+            "story-1",
+            Some(1),
+            &Some("hello".to_string()),
+            &None,
+            ctx.clone(),
+        );
+        let hit = cache.get("story-1", Some(1), &Some("hello".to_string()), &None);
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().story.story_id, ctx.story.story_id);
+
+        // 不同参数未命中
+        assert!(cache.get("story-1", Some(2), &Some("hello".to_string()), &None).is_none());
+        assert!(cache.get("story-1", Some(1), &Some("world".to_string()), &None).is_none());
+    }
+
+    #[test]
+    fn test_context_cache_ttl_eviction() {
+        use std::time::Duration;
+
+        let cache = ContextCache::new(10, Duration::from_millis(10));
+        let ctx = dummy_agent_context("story-ttl");
+
+        cache.put(
+            "story-ttl",
+            None,
+            &None,
+            &None,
+            ctx.clone(),
+        );
+        assert!(cache.get("story-ttl", None, &None, &None).is_some());
+
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(cache.get("story-ttl", None, &None, &None).is_none());
+    }
+
+    #[test]
+    fn test_context_cache_lru_eviction() {
+        use std::time::Duration;
+
+        let cache = ContextCache::new(2, Duration::from_secs(60));
+
+        for i in 0..3 {
+            cache.put(
+                &format!("story-{}", i),
+                None,
+                &None,
+                &None,
+                dummy_agent_context(&format!("story-{}", i)),
+            );
+        }
+
+        // 容量为 2，最旧的 story-0 应被移除
+        assert!(cache.get("story-0", None, &None, &None).is_none());
+        assert!(cache.get("story-1", None, &None, &None).is_some());
+        assert!(cache.get("story-2", None, &None, &None).is_some());
+    }
+
+    fn dummy_agent_context(story_id: &str) -> AgentContext {
+        AgentContext {
+            story: StoryContext {
+                story_id: story_id.to_string(),
+                story_title: "Test".to_string(),
+                genre: "novel".to_string(),
+                tone: "neutral".to_string(),
+                pacing: "normal".to_string(),
+                personalizer_extension: None,
+            },
+            narrative: NarrativeContext {
+                chapter_number: 1,
+                characters: vec![],
+                previous_chapters: vec![],
+                current_content: None,
+                selected_text: None,
+                narrative_structure: None,
+                active_threads: vec![],
+            },
+            style: StyleContext {
+                style_dna_id: None,
+                style_blend: None,
+                style_fingerprint: None,
+                style_dna_extension: None,
+            },
+            world: WorldContext {
+                world_rules: None,
+                scene_structure: None,
+                methodology_id: None,
+                methodology_step: None,
+            },
+            memory: AgentMemoryContext {
+                memory_pack: None,
+                memory: None,
+            },
+        }
     }
 }

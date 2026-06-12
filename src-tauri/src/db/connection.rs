@@ -19,7 +19,7 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
              PRAGMA busy_timeout = 5000;",
         )
     });
-    let pool = Pool::builder().max_size(5).build(manager)?;
+    let pool = Pool::builder().max_size(10).build(manager)?;
 
     let mut conn = pool.get()?;
 
@@ -81,7 +81,7 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
              PRAGMA synchronous = NORMAL;",
         )
     });
-    let pool = Pool::builder().max_size(10).build(manager)?;
+    let pool = Pool::builder().max_size(20).build(manager)?;
 
     // Initialize tables
     let mut conn = pool.get()?;

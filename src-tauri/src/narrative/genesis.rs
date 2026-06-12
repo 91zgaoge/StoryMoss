@@ -118,15 +118,15 @@ impl GenesisContext {
 pub struct GenesisPipeline;
 
 impl GenesisPipeline {
-    pub fn quick_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
-        vec![
-            Box::new(ConceptGenerationStep),
-            Box::new(FirstChapterGenerationStep),
-        ]
+    /// 即时阶段：仅生成故事概念并创建 Story 记录，快速返回让前端先进入工作台
+    pub fn concept_only_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
+        vec![Box::new(ConceptGenerationStep)]
     }
 
-    pub fn background_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
+    /// 后台阶段：第一章 + 世界观/大纲/角色/场景/伏笔/知识图谱
+    pub fn first_chapter_and_background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
+            Box::new(FirstChapterGenerationStep),
             // 世界观、大纲、角色互相独立，合并为一个并行步骤
             Box::new(ParallelWorldOutlineCharacterStep),
             Box::new(SceneGenerationStep),

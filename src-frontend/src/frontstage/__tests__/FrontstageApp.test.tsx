@@ -47,6 +47,7 @@ vi.mock('@/hooks/useSyncStore', () => ({
 
 vi.mock('@/hooks/usePipelineProgress', () => ({
   usePipelineProgress: () => ({ data: null }),
+  usePipelineComplete: () => null,
 }));
 
 vi.mock('@/hooks/useCharacters', () => ({

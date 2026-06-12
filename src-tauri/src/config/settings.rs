@@ -63,6 +63,9 @@ fn env_or_default(var: &str, default: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| default.to_string())
 }
 
+/// 默认 LLM 请求超时（秒）。本地大模型生成长文本较慢，300 秒比 120 秒更能避免误超时。
+pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 300;
+
 // ============================================================================
 // Secure API Key Storage (cross-platform keychain)
 // ============================================================================
@@ -365,7 +368,7 @@ impl Default for AppConfig {
             )),
             max_tokens: 8192,
             temperature: 0.8,
-            timeout_seconds: 120,
+            timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
             capabilities: vec![
                 ModelCapability::Chat,
@@ -390,7 +393,7 @@ impl Default for AppConfig {
             )),
             max_tokens: 8192,
             temperature: 0.7,
-            timeout_seconds: 120,
+            timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: false,
             capabilities: vec![
                 ModelCapability::Chat,
@@ -746,7 +749,7 @@ impl AppConfig {
                 )),
                 max_tokens: 8192,
                 temperature: 0.8,
-                timeout_seconds: 120,
+                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
                 is_default: config.llm_profiles.values().all(|p| !p.is_default),
                 capabilities: vec![
                     ModelCapability::Chat,
@@ -777,7 +780,7 @@ impl AppConfig {
                 )),
                 max_tokens: 8192,
                 temperature: 0.7,
-                timeout_seconds: 120,
+                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
                 is_default: false,
                 capabilities: vec![
                     ModelCapability::Chat,
@@ -996,7 +999,7 @@ impl AppConfig {
             api_base: self.llm.api_base.clone(),
             max_tokens: self.llm.max_tokens,
             temperature: self.llm.temperature,
-            timeout_seconds: 120,
+            timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
             capabilities: vec![ModelCapability::Chat, ModelCapability::Completion],
         };

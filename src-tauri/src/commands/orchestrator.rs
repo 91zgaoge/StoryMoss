@@ -3,21 +3,24 @@
 use tauri::{AppHandle, State};
 
 use crate::{
-    db::{ChapterRepository, DbPool, StoryRepository},
+    db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
     error::AppError,
     is_novel_creation_intent, record_ai_operation,
 };
 
+/// smart_execute 初始上下文加载结果类型别名，降低闭包类型复杂度
+type SmartExecuteContext = (Vec<Story>, Option<Story>, Option<String>, Vec<Chapter>);
+
 /// 预检命令 - 写作前检查阻塞性问题
 #[tauri::command(rename_all = "snake_case")]
-pub fn check_preflight(
+pub async fn check_preflight(
     story_id: String,
     chapter_number: i32,
     pool: State<'_, DbPool>,
 ) -> Result<crate::story_system::preflight::PreflightResult, AppError> {
     let pool = pool.inner().clone();
     let checker = crate::story_system::preflight::PreflightChecker::new();
-    Ok(checker.check(&pool, &story_id, chapter_number))
+    Ok(checker.check(&pool, &story_id, chapter_number).await)
 }
 
 /// 智能执行命令 - 新一代意图理解与执行入口
@@ -52,21 +55,29 @@ pub async fn smart_execute(
     emit_progress("loading_context", "正在读取故事信息...", 1, 5);
 
     // 构建 PlanContext：从当前系统状态推断
-    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| {
-        AppError::internal(format!("[smart_execute] Failed to load stories: {}", e))
-    })?;
-    let current_story = stories.first().cloned();
-    let current_story_id = current_story.as_ref().map(|s| s.id.clone());
-
-    let chapters = if let Some(ref story_id) = current_story_id {
-        ChapterRepository::new(pool.clone())
-            .get_by_story(story_id)
-            .map_err(|e| {
-                AppError::internal(format!("[smart_execute] Failed to load chapters: {}", e))
-            })?
-    } else {
-        vec![]
-    };
+    // v0.9.5: 将同步 DB 查询移入 spawn_blocking，避免阻塞 tokio worker
+    let pool_for_loader = pool.clone();
+    let (stories, current_story, current_story_id, chapters) = tokio::task::spawn_blocking(
+        move || -> Result<SmartExecuteContext, AppError> {
+            let stories = StoryRepository::new(pool_for_loader.clone()).get_all().map_err(|e| {
+                AppError::internal(format!("[smart_execute] Failed to load stories: {}", e))
+            })?;
+            let current_story = stories.first().cloned();
+            let current_story_id = current_story.as_ref().map(|s| s.id.clone());
+            let chapters = if let Some(ref story_id) = current_story_id {
+                ChapterRepository::new(pool_for_loader.clone())
+                    .get_by_story(story_id)
+                    .map_err(|e| {
+                        AppError::internal(format!("[smart_execute] Failed to load chapters: {}", e))
+                    })?
+            } else {
+                vec![]
+            };
+            Ok((stories, current_story, current_story_id, chapters))
+        },
+    )
+    .await
+    .map_err(|e| AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e)))??;
 
     let chapter_count = chapters.len();
 
@@ -91,14 +102,14 @@ pub async fn smart_execute(
     let is_bootstrap_intent = is_novel_creation_intent(&user_input);
 
     if is_bootstrap_intent {
-        log::info!("[smart_execute] Detected novel creation intent, starting GenesisPipeline");
+        log::info!("[smart_execute] Detected novel creation intent, starting GenesisPipeline (concept sync + first-chapter background)");
         let mut ctx =
             crate::narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
         let session_id = ctx.session_id.clone();
         let llm = crate::llm::LlmService::new(app_handle.clone());
-        let quick_steps = crate::narrative::genesis::GenesisPipeline::quick_phase_steps();
+        let concept_steps = crate::narrative::genesis::GenesisPipeline::concept_only_steps();
         let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(&session_id);
-        let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
+        let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(concept_steps)
             .with_cancel_flag(cancel_flag);
 
         // 进度回调：同时发射新旧两种事件（向后兼容）
@@ -127,47 +138,32 @@ pub async fn smart_execute(
             .await
         {
             Ok(()) => {
-                let _ = app_handle.emit(
-                    "pipeline-complete",
-                    crate::narrative::progress::PipelineCompleteEvent {
-                        pipeline_id: ctx.session_id.clone(),
-                        pipeline_type: crate::narrative::progress::PipelineType::Genesis,
-                        success: true,
-                        total_elapsed_seconds: 0,
-                        elements_created: crate::narrative::progress::ElementsCount::default(),
-                        error_message: None,
-                    },
-                );
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
-                let first_chapter = ctx.first_chapter_content.clone();
                 let bundle = ctx.bundle.read().await.clone();
 
-                // 发射 story_created 同步事件
+                // 发射 story_created 同步事件，让前端立即进入工作台
                 let _ = crate::state_sync::StateSync::emit_story_created(
                     &app_handle,
                     &story_id,
                     "新故事",
                 );
 
-                // Record AI operation (before user_input is moved)
-                let user_input_for_record = user_input.clone();
+                // Record AI operation
                 record_ai_operation(crate::db::CreateAiOperationRequest {
                     story_id: story_id.clone(),
                     scene_id: None,
                     chapter_id: None,
                     operation_type: "bootstrap".to_string(),
                     operation_name: "小说创世".to_string(),
-                    input_summary: Some(user_input_for_record),
-                    output_summary: first_chapter
-                        .as_ref()
-                        .map(|c| c.chars().take(200).collect()),
+                    input_summary: Some(user_input.clone()),
+                    output_summary: None,
                     previous_content: None,
-                    new_content: first_chapter.clone(),
-                    metadata: Some(serde_json::json!({"session_id": session_id}).to_string()),
+                    new_content: None,
+                    metadata: Some(serde_json::json!({"session_id": session_id, "mode": "concept_sync"}).to_string()),
                 });
 
-                // 启动后台阶段
+                // v0.9.5: 第一章与剩余结构在后台生成，避免阻塞用户
                 let app_handle_bg = app_handle.clone();
                 let story_id_bg = story_id.clone();
                 let session_id_bg = session_id.clone();
@@ -184,7 +180,7 @@ pub async fn smart_execute(
                     );
                     let llm_bg = crate::llm::LlmService::new(app_handle_bg.clone());
                     let bg_steps =
-                        crate::narrative::genesis::GenesisPipeline::background_phase_steps();
+                        crate::narrative::genesis::GenesisPipeline::first_chapter_and_background_steps();
                     let bg_cancel_flag =
                         crate::narrative::pipeline::register_pipeline_cancel(&session_id_bg);
                     let bg_executor =
@@ -214,7 +210,6 @@ pub async fn smart_execute(
                         .await;
                     let bg_elapsed = bg_start.elapsed().as_secs();
 
-                    // P0-5 修复: 根据后台阶段实际结果设置 success/error，不再硬编码
                     let (success, error_message) = match &bg_result {
                         Ok(_) => {
                             log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
@@ -231,20 +226,13 @@ pub async fn smart_execute(
                         }
                     };
 
-                    // 统计实际生成的元素数量
                     let elements_created = if success {
                         let mut counts = crate::narrative::progress::ElementsCount::default();
                         let bundle = bg_ctx.bundle.read().await;
-                        // 从上下文统计实际生成的元素（P0-5 修复: 使用 ElementsCount 的正确字段名）
-                        counts.world_rules = if bundle.world_building.is_some() {
-                            1
-                        } else {
-                            0
-                        };
+                        counts.world_rules = if bundle.world_building.is_some() { 1 } else { 0 };
                         counts.characters = bundle.characters.len();
                         counts.scenes = bundle.scenes.len();
                         counts.foreshadowings = bundle.foreshadowings.len();
-                        // outline 映射到 plot_points
                         counts.plot_points = if bundle.outline.is_some() { 1 } else { 0 };
                         counts
                     } else {
@@ -265,17 +253,17 @@ pub async fn smart_execute(
 
                 return Ok(crate::planner::PlanExecutionResult {
                     success: true,
-                    steps_completed: 2,
-                    final_content: first_chapter,
+                    steps_completed: 1,
+                    final_content: None,
                     messages: vec![
                         format!("story_created:{}", story_id),
                         format!("session_id:{}", session_id),
-                        "novel_bootstrap_completed".to_string(),
+                        "novel_bootstrap_background_started".to_string(),
                     ],
                 });
             }
             Err(e) => {
-                log::error!("[smart_execute] GenesisPipeline failed: {}", e);
+                log::error!("[smart_execute] GenesisPipeline concept generation failed: {}", e);
                 return Err(AppError::internal(format!("小说初始化失败: {}", e)));
             }
         }
@@ -299,10 +287,15 @@ pub async fn smart_execute(
         chapter_number,
     ) = if let Some(ref story_id) = current_story_id {
         emit_progress("loading_context", "正在读取章节与场景结构...", 1, 5);
-        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
-        let scenes = scene_repo.get_by_story(story_id).map_err(|e| {
-            AppError::internal(format!("[smart_execute] Failed to load scenes: {}", e))
-        })?;
+        let pool_for_scenes = pool.clone();
+        let story_id_for_scenes = story_id.clone();
+        let scenes = tokio::task::spawn_blocking(move || {
+            let scene_repo = crate::db::repositories::SceneRepository::new(pool_for_scenes);
+            scene_repo.get_by_story(&story_id_for_scenes)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("[smart_execute] 场景加载任务失败: {}", e)))?
+        .map_err(|e| AppError::internal(format!("[smart_execute] Failed to load scenes: {}", e)))?;
         let scene_count = scenes.len();
 
         let scenes_summary: Vec<crate::planner::SceneStructureSummary> = scenes
@@ -373,44 +366,59 @@ pub async fn smart_execute(
 
         emit_progress("loading_context", "正在读取世界观、角色与伏笔...", 1, 5);
 
-        // ===== 增强上下文加载 =====
-        // 世界观摘要
-        let wb_repo = crate::db::repositories::WorldBuildingRepository::new(pool.clone());
-        let world_building_summary = wb_repo.get_by_story(story_id).ok().flatten().map(|wb| {
-            let rules_summary = wb
-                .rules
-                .iter()
-                .filter(|r| r.importance >= 7)
-                .map(|r| format!("{}: {}", r.name, r.description.as_deref().unwrap_or("")))
-                .collect::<Vec<_>>()
-                .join("; ");
-            format!("概念：{}；核心规则：{}", wb.concept, rules_summary)
-        });
+        // v0.9.5: 将多个同步上下文查询批量移入 spawn_blocking
+        let pool_for_context = pool.clone();
+        let story_id_for_context = story_id.clone();
+        let (world_building_summary, character_list, foreshadowing_status) =
+            tokio::task::spawn_blocking(move || {
+                // 世界观摘要
+                let wb_repo =
+                    crate::db::repositories::WorldBuildingRepository::new(pool_for_context.clone());
+                let world_building_summary = wb_repo.get_by_story(&story_id_for_context).ok().flatten().map(|wb| {
+                    let rules_summary = wb
+                        .rules
+                        .iter()
+                        .filter(|r| r.importance >= 7)
+                        .map(|r| format!("{}: {}", r.name, r.description.as_deref().unwrap_or("")))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    format!("概念：{}；核心规则：{}", wb.concept, rules_summary)
+                });
 
-        // 角色列表
-        let char_repo = crate::db::repositories::CharacterRepository::new(pool.clone());
-        let character_list = char_repo
-            .get_by_story(story_id)
-            .ok()
-            .map(|chars| {
-                chars
-                    .iter()
-                    .map(|c| {
-                        let role = c.background.as_deref().unwrap_or("主要角色");
-                        format!("{}（{}）", c.name, role)
+                // 角色列表
+                let char_repo =
+                    crate::db::repositories::CharacterRepository::new(pool_for_context.clone());
+                let character_list = char_repo
+                    .get_by_story(&story_id_for_context)
+                    .ok()
+                    .map(|chars| {
+                        chars
+                            .iter()
+                            .map(|c| {
+                                let role = c.background.as_deref().unwrap_or("主要角色");
+                                format!("{}（{}）", c.name, role)
+                            })
+                            .collect()
                     })
-                    .collect()
-            })
-            .unwrap_or_default();
+                    .unwrap_or_default();
 
-        // 活跃伏笔
-        let foreshadowing_tracker =
-            crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.clone());
-        let foreshadowing_status = foreshadowing_tracker
-            .get_unresolved(story_id)
-            .ok()
-            .map(|records| records.into_iter().take(5).map(|r| r.content).collect())
-            .unwrap_or_default();
+                // 活跃伏笔
+                let foreshadowing_tracker =
+                    crate::creative_engine::foreshadowing::ForeshadowingTracker::new(
+                        pool_for_context.clone(),
+                    );
+                let foreshadowing_status = foreshadowing_tracker
+                    .get_unresolved(&story_id_for_context)
+                    .ok()
+                    .map(|records| records.into_iter().take(5).map(|r| r.content).collect())
+                    .unwrap_or_default();
+
+                (world_building_summary, character_list, foreshadowing_status)
+            })
+            .await
+            .map_err(|e| {
+                AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e))
+            })?;
 
         emit_progress("loading_context", "正在读取风格配置...", 1, 5);
 
