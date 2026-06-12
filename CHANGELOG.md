@@ -2,13 +2,15 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v0.9.6] - 智能创作性能优化：超时、缓存、后台化与取消（2026-06-12）
+## [v0.9.6] - 智能创作性能与质量双重优化（2026-06-12）
 
 ### 摘要
 
-- 针对用户反馈的「智能创作流程速度慢、等待时间长、甚至超出模型连接限时」问题进行全面梳理与优化
+- 针对用户反馈的「智能创作流程速度慢、等待时间长、甚至超出模型连接限时」问题进行全面性能优化
+- 针对「人物单一、场景简单、情节单调、命名雷同（林/陈单字名）」等质量问题进行系统性创作质量提升
 - 在不牺牲创作质量理解准确性的前提下，从统一超时、服务缓存、上下文缓存、异步化、后台化、协作取消六个方向改善响应能力
 - GenesisPipeline 故事创建后第一章改为后台生成，用户可立即进入工作台
+- 内置增强技能（情感节奏、文风润色）现在会在 Writer 输出后自动调用
 - 已撰写完整性能优化报告：`PERFORMANCE_OPTIMIZATION_REPORT.md`
 
 ### 后端改进
@@ -48,6 +50,36 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **AgentOrchestrator Full 模式按需降级**：`src-tauri/src/agents/orchestrator.rs`
   - `WorkflowConfig` 新增 `skip_rewrite_threshold`（默认 0.90）
   - 初稿综合评分达到阈值时直接返回，跳过 Inspector→Writer 改写循环
+
+### 创作质量提升
+
+- **重写 Writer 系统提示词**：`src-tauri/src/prompts/engine.rs`
+  - 明确要求角色立体（内心/动机/成长）、场景生动（多感官描写）、情节张力（目标-阻碍-转折-困境-决定）
+  - 强制伏笔回收、悬念推进、避免陈词滥调
+  - 新增命名多样性约束：禁止高频单字姓、禁止单字名、主要角色姓氏不得重复
+- **增强上下文注入**：`src-tauri/src/creative_engine/context_builder.rs` / `src-tauri/src/agents/mod.rs`
+  - `StoryContextBuilder` 现在读取 `story.methodology_id` / `methodology_step` 并传入 `WorldContext`
+  - 场景结构注入 `title`、`outline_content`、`draft_content`
+  - 新增 `outline_context` 字段，向 Writer 提供当前场景/章节大纲定位
+  - 角色信息注入 `appearance` / `gender` / `age`
+  - 新增 `fetch_story_outline_summary`，从故事大纲提取当前场景附近摘要
+- **修复 ContextOptimizer 角色信息**：`src-tauri/src/agents/context_optimizer.rs`
+  - `CharacterCard` 与 `CharacterInfo` 同步包含 `appearance` / `gender` / `age`
+- **命名多样性约束**：`src-tauri/src/narrative/prompts.rs` / `src-tauri/src/agents/novel_creation.rs` / `src-tauri/src/story_system/auto_contract.rs`
+  - 所有角色生成 prompt 增加命名多样性要求
+  - AutoContract 默认主角生成也要求外貌、性别、年龄
+- **默认配置调整**：`src-tauri/src/config/settings.rs` / `src-tauri/src/agents/service.rs` / `src-tauri/src/narrative/genesis.rs`
+  - 默认写作策略 `run_mode` 从 `fast` 改为 `balanced`，冲突强度默认 60
+  - 免费版 max_tokens 限制从 1000 放宽到 2000
+  - Genesis 第一章从 `Fast` 模式改为 `Full` 模式，通过 Inspector 闭环保证第一印象质量
+- **内置技能自动调用**：`src-tauri/src/agents/orchestrator.rs`
+  - 新增 `apply_writing_skills`：Writer 输出后自动调用 `builtin.emotion_pacing` + `builtin.style_enhancer`
+  - 情感节奏优化与文风润色不再依赖 Planner 偶然选中
+- **升级 Inspector 质检标准**：`src-tauri/src/prompts/engine.rs` / `src-tauri/src/agents/orchestrator.rs`
+  - Inspector 系统提示词从 7 维升级为 7 维质量评分（logic/character/writing/scene/plot/pacing/world）
+  - 显式检查人物深度、场景丰富度、情节张力、命名一致性、陈词滥调
+  - `parse_inspector_style_analysis` 同步解析新的维度分数
+  - 风格分 fallback 使用 writing + scene 平均分，确保无参考文本时也能反映质量
 
 ### 前端改进
 
