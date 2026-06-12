@@ -13,6 +13,7 @@ export function ModelList({
   onEdit,
   onSetActive,
   onRetry,
+  onDelete,
   groupTitle,
   showAddButton = true,
   showTypeHeader = true,
@@ -25,6 +26,7 @@ export function ModelList({
   onEdit: (model: ModelConfig) => void;
   onSetActive: (modelId: string) => void;
   onRetry?: (modelId: string) => void;
+  onDelete?: (modelId: string) => void;
   groupTitle?: string;
   showAddButton?: boolean;
   showTypeHeader?: boolean;
@@ -82,6 +84,7 @@ export function ModelList({
               onEdit={() => onEdit(model)}
               onSetActive={() => onSetActive(model.id)}
               onRetry={onRetry ? () => onRetry(model.id) : undefined}
+              onDelete={onDelete ? () => onDelete(model.id) : undefined}
             />
           ))}
         </div>

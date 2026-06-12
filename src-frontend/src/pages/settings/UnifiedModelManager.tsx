@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, Database, MessageSquare, Sparkles, Image, Filter, Cpu } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useModels, useSetActiveModel } from '@/hooks/useSettings';
+import { useModels, useSetActiveModel, useDeleteModel } from '@/hooks/useSettings';
 import { useSettings } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import type { ModelConfig, ModelType } from '@/types/llm';
@@ -33,6 +33,8 @@ export function UnifiedModelManager() {
   const { data: models = [], isLoading } = useModels();
   const { data: settings } = useSettings();
   const setActiveModelMutation = useSetActiveModel();
+  const deleteModelMutation = useDeleteModel();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const activeModelIds = settings?.active_models ?? {};
 
@@ -84,6 +86,17 @@ export function UnifiedModelManager() {
   // 处理重试连接检测
   const handleRetry = (modelId: string) => {
     checkModel(modelId);
+  };
+
+  // 处理删除模型
+  const handleDelete = (modelId: string) => {
+    if (!confirm('确定要删除该模型配置吗？如果该模型正被 Agent 使用，对应映射会被自动清除。')) {
+      return;
+    }
+    setDeletingId(modelId);
+    deleteModelMutation.mutate(modelId, {
+      onSettled: () => setDeletingId(null),
+    });
   };
 
   if (isLoading) {
@@ -188,6 +201,7 @@ export function UnifiedModelManager() {
                   setActiveModelMutation.mutate({ type, modelId });
                 }}
                 onRetry={handleRetry}
+                onDelete={handleDelete}
                 showTypeHeader={false}
               />
             </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, Edit2, Key, Globe, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Star, Edit2, Key, Globe, RotateCcw, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
@@ -14,6 +14,7 @@ export function ModelCard({
   onEdit,
   onSetActive,
   onRetry,
+  onDelete,
 }: {
   model: ModelConfig;
   isActive?: boolean;
@@ -24,6 +25,7 @@ export function ModelCard({
   onEdit: () => void;
   onSetActive: () => void;
   onRetry?: () => void;
+  onDelete?: () => void;
 }) {
   const [showSteps, setShowSteps] = useState(false);
   const isDefault = model.is_default;
@@ -166,6 +168,17 @@ export function ModelCard({
             <Button variant="ghost" size="sm" onClick={onEdit}>
               <Edit2 className="w-4 h-4" />
             </Button>
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onDelete}
+                title="删除模型配置"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         </div>
 

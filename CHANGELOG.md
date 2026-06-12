@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.10.2] - 修复模型连接硬编码、增加删除模型与 Agent 映射对齐（2026-06-13）
+
+### 修复
+
+- **修复状态栏显示已删除模型ID**：`agents/service.rs` 中「使用指定模型 … 生成…」现在显示模型**名称**而非原始ID；若Agent映射指向已删除模型，自动fallback到默认模型，不再显示不存在的硬编码ID
+- **删除模型时自动清理Agent映射**：后端 `delete_model` 删除LLM/Embedding配置后，会清除所有Agent映射（writer/inspector/outline_planner/style_mimic/plot_analyzer）中对该模型的引用，并重新设置活跃模型为剩余配置中的第一个
+- **Agent模型选择增加有效性校验**：`get_agent_model_id` 校验映射的模型ID是否仍存在于 `llm_profiles` / `embedding_profiles`，引用已删除模型时返回None并fallback到默认模型
+
+### 新增
+
+- **模型管理支持删除模型**：在「设置 → 模型管理」每个模型卡片新增删除按钮，可删除错误/不再使用的模型配置；删除前弹窗确认，并提示会自动清理Agent引用
+
+### 涉及文件
+
+- 后端：`src-tauri/src/config/commands.rs`、`src-tauri/src/agents/service.rs`
+- 前端：`src/frontstage/components/FrontstageBottomBar.tsx`（无直接改动，但受益于后端名称显示）、`src/pages/settings/ModelCard.tsx`、`src/pages/settings/ModelList.tsx`、`src/pages/settings/UnifiedModelManager.tsx`、`src/hooks/useSettings.ts`
+
+### 验证
+
+- `cargo test --lib` ✅ 332 passed
+- `cargo check --lib` ✅ 无警告
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+- `cargo +nightly fmt` ✅ / `prettier --write` ✅
+
+---
+
 ## [v0.10.1] - 生成状态提示统一到底部 AI 编排器状态栏（2026-06-13）
 
 ### 改进

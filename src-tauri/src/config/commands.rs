@@ -652,20 +652,55 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
 
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
+    let mut changed;
+
     // 尝试删除LLM配置
     if config.llm_profiles.contains_key(&id) {
         config.remove_llm_profile(&id).map_err(AppError::from)?;
+        changed = true;
     }
     // 尝试删除Embedding配置
     else if config.embedding_profiles.contains_key(&id) {
         config
             .remove_embedding_profile(&id)
             .map_err(AppError::from)?;
+        changed = true;
     } else {
         return Err(AppError::internal(format!("Model '{}' not found", id)));
     }
 
-    config.save(&app_dir).map_err(AppError::from)
+    // 清理 Agent 映射中引用该模型的字段，避免已删除模型仍被使用
+    for mapping in config.agent_mappings.values_mut() {
+        if mapping.chat_model_id.as_ref() == Some(&id) {
+            mapping.chat_model_id = None;
+            changed = true;
+        }
+        if mapping.embedding_model_id.as_ref() == Some(&id) {
+            mapping.embedding_model_id = None;
+            changed = true;
+        }
+        if mapping.multimodal_model_id.as_ref() == Some(&id) {
+            mapping.multimodal_model_id = None;
+            changed = true;
+        }
+    }
+
+    // 如果当前活跃模型就是被删除的模型，重置为剩余配置中的第一个（如果存在）
+    if config.active_llm_profile.as_ref() == Some(&id) {
+        config.active_llm_profile = config.llm_profiles.keys().next().cloned();
+        changed = true;
+    }
+    if config.active_embedding_profile.as_ref() == Some(&id) {
+        config.active_embedding_profile = config.embedding_profiles.keys().next().cloned();
+        changed = true;
+    }
+
+    // 没有模型时保持 None，避免硬编码 fallback
+    if changed {
+        config.save(&app_dir).map_err(AppError::from)?;
+    }
+
+    Ok(())
 }
 
 /// 设置活跃模型

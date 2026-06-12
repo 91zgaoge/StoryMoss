@@ -242,6 +242,26 @@ impl AgentService {
         self.get_agent_model_id(agent_type, |m| m.multimodal_model_id.as_ref())
     }
 
+    /// 获取模型配置的友好显示名称；若找不到则回退到模型ID
+    fn get_model_display_name(&self, model_id: &str) -> String {
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
+        if let Ok(config) = AppConfig::load(&app_dir) {
+            if let Some(profile) = config.llm_profiles.get(model_id) {
+                return profile.name.clone();
+            }
+            if let Some(profile) = config.embedding_profiles.get(model_id) {
+                return profile.name.clone();
+            }
+        }
+
+        model_id.to_string()
+    }
+
     fn get_agent_model_id<F>(&self, agent_type: AgentType, extractor: F) -> Option<String>
     where
         F: FnOnce(&crate::config::AgentMapping) -> Option<&String>,
@@ -253,10 +273,22 @@ impl AgentService {
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
 
         let config = AppConfig::load(&app_dir).ok()?;
-        config
-            .agent_mappings
-            .get(agent_type.agent_id())
-            .and_then(|m| extractor(m).cloned())
+        let mapping = config.agent_mappings.get(agent_type.agent_id())?;
+        let model_id = extractor(mapping)?;
+
+        // 校验模型ID是否仍然存在于对应配置中，避免引用已删除模型
+        let is_valid = config.llm_profiles.contains_key(model_id)
+            || config.embedding_profiles.contains_key(model_id);
+        if !is_valid {
+            log::warn!(
+                "[AgentService] Agent '{}' references removed model '{}', falling back to default",
+                agent_type.agent_id(),
+                model_id
+            );
+            return None;
+        }
+
+        Some(model_id.clone())
     }
 
     /// 获取 Agent 对应的生成参数（max_tokens, temperature）。
@@ -398,11 +430,12 @@ impl AgentService {
         );
 
         let (req_id, response) = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
+            let display_name = self.get_model_display_name(&model_id);
             self.emit_event(
                 &task.id,
                 agent_type,
                 AgentStage::Generating,
-                &format!("使用指定模型 {} 生成...", model_id),
+                &format!("使用指定模型 {} 生成...", display_name),
                 0.35,
             );
             let (rid, result) = self
