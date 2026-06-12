@@ -651,6 +651,194 @@ body {
   stroke-width: 2;
 }
 
+/* Ingest 健康状态指示器 - 统一 VI 风格 */
+.ingest-health-wrapper {
+  position: relative;
+}
+
+.ingest-health-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--stone-gray);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform 0.15s ease;
+}
+
+.ingest-health-btn:hover {
+  background-color: var(--warm-sand);
+  color: var(--charcoal);
+  transform: scale(1.1);
+}
+
+.ingest-health-btn.active {
+  background-color: var(--warm-sand);
+  color: var(--charcoal);
+}
+
+.ingest-health-btn svg {
+  stroke-width: 2;
+}
+
+.ingest-health-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ingest-health-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--parchment);
+  background-color: var(--stone-gray);
+  transition: background-color var(--transition-fast);
+}
+
+.ingest-health-btn.ingest-status--healthy .ingest-health-dot {
+  background-color: #22c55e;
+}
+
+.ingest-health-btn.ingest-status--failed .ingest-health-dot {
+  background-color: #f59e0b;
+}
+
+.ingest-health-btn.ingest-status--pending .ingest-health-dot {
+  background-color: var(--stone-gray);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ingest-health-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 240px;
+  background-color: var(--parchment-dark);
+  border: 1px solid var(--border-cream);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px oklch(25% 0.015 85 / 0.08);
+  z-index: 50;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.ingest-health-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-cream);
+}
+
+.ingest-health-panel__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--charcoal);
+}
+
+.ingest-health-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--stone-gray);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.ingest-health-panel__close:hover {
+  background-color: var(--warm-sand);
+  color: var(--charcoal);
+}
+
+.ingest-health-panel__body {
+  max-height: 192px;
+  overflow-y: auto;
+}
+
+.ingest-health-job {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-cream);
+}
+
+.ingest-health-job:last-child {
+  border-bottom: none;
+}
+
+.ingest-health-job__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ingest-health-job__type {
+  font-size: 11px;
+  color: var(--charcoal);
+  text-transform: capitalize;
+}
+
+.ingest-health-job__badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background-color: var(--warm-sand);
+  color: var(--stone-gray);
+  white-space: nowrap;
+}
+
+.ingest-health-job__badge--success {
+  background-color: oklch(58% 0.2 145 / 0.12);
+  color: oklch(50% 0.18 145);
+}
+
+.ingest-health-job__badge--failed {
+  background-color: oklch(58% 0.2 25 / 0.12);
+  color: oklch(50% 0.18 25);
+}
+
+.ingest-health-job__badge--pending {
+  background-color: var(--warm-sand);
+  color: var(--stone-gray);
+}
+
+.ingest-health-job__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--stone-gray);
+}
+
+.ingest-health-job__error {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: oklch(50% 0.18 25);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ===== Chat Toolbar - 对话栏样式（v2 重构版） ===== */
 .chat-toolbar {
   z-index: 50;

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { CheckCircle, AlertTriangle, X, Clock } from 'lucide-react';
+import { X, Clock } from 'lucide-react';
 import { getIngestJobs } from '@/services/tauri';
 import type { IngestJob } from '@/types/v3';
 import { cn } from '@/utils/cn';
@@ -11,21 +11,21 @@ interface Props {
 
 const POLL_INTERVAL = 30000; // 30s fallback poll
 
-/** 统一 VI 风格 Ingest 图标：漏斗 + 下箭头，表示知识/素材汇入 */
+/** 统一 VI 风格 Ingest 图标：柔和漏斗 + 下箭头，表示知识/素材汇入 */
 const IngestIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg
     className={className}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="2"
+    strokeWidth="1.75"
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M4 4h16l-6 8v6l-4 2v-8L4 4z" />
-    <path d="M12 14v4" />
-    <path d="M10 17l2 2 2-2" />
+    <path d="M5 5h14l-5.5 7v5.5l-3 1.5V12L5 5z" />
+    <path d="M12 13.5V17" />
+    <path d="M10.5 15.5 12 17l1.5-1.5" />
   </svg>
 );
 
@@ -86,10 +86,13 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
   const latest = jobs[0];
   const isHealthy = latest.status === 'completed';
   const isFailed = latest.status === 'failed';
+  const isRunning = !isHealthy && !isFailed;
 
-  const statusColor = isFailed ? 'text-amber-500' : isHealthy ? 'text-green-500' : 'text-slate-400';
-
-  const StatusIcon = isFailed ? AlertTriangle : CheckCircle;
+  const statusClass = isFailed
+    ? 'ingest-status--failed'
+    : isHealthy
+      ? 'ingest-status--healthy'
+      : 'ingest-status--pending';
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
@@ -97,43 +100,42 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
   };
 
   return (
-    <div className="relative" ref={panelRef}>
+    <div className="ingest-health-wrapper" ref={panelRef}>
       <button
-        className={cn(
-          'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs transition-colors hover:bg-white/10',
-          statusColor
-        )}
+        className={cn('ingest-health-btn', showPanel && 'active', statusClass)}
         onClick={() => setShowPanel(!showPanel)}
         title={isFailed ? `Ingest 失败: ${latest.error_message || '未知错误'}` : 'Ingest 状态'}
+        aria-label="Ingest 状态"
       >
-        <IngestIcon className="w-3.5 h-3.5" />
-        <StatusIcon className="w-3 h-3" />
+        <IngestIcon className="ingest-health-icon" />
+        <span className="ingest-health-dot" aria-hidden="true" />
       </button>
 
       {showPanel && (
-        <div className="absolute right-0 top-full mt-1 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-            <span className="text-xs font-medium text-slate-200">Ingest 作业记录</span>
+        <div className="ingest-health-panel">
+          <div className="ingest-health-panel__header">
+            <span className="ingest-health-panel__title">Ingest 作业记录</span>
             <button
               onClick={() => setShowPanel(false)}
-              className="text-slate-400 hover:text-slate-200"
+              className="ingest-health-panel__close"
+              aria-label="关闭"
             >
               <X className="w-3 h-3" />
             </button>
           </div>
-          <div className="max-h-48 overflow-y-auto">
+          <div className="ingest-health-panel__body">
             {jobs.slice(0, 3).map(job => (
-              <div key={job.id} className="px-3 py-2 border-b border-slate-700/50 last:border-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-300 capitalize">{job.resource_type}</span>
+              <div key={job.id} className="ingest-health-job">
+                <div className="ingest-health-job__row">
+                  <span className="ingest-health-job__type">{job.resource_type}</span>
                   <span
                     className={cn(
-                      'text-[10px] px-1.5 py-0.5 rounded-full',
-                      job.status === 'completed'
-                        ? 'bg-green-500/20 text-green-400'
-                        : job.status === 'failed'
-                          ? 'bg-red-500/20 text-red-400'
-                          : 'bg-slate-500/20 text-slate-400'
+                      'ingest-health-job__badge',
+                      job.status === 'completed' && 'ingest-health-job__badge--success',
+                      job.status === 'failed' && 'ingest-health-job__badge--failed',
+                      job.status !== 'completed' &&
+                        job.status !== 'failed' &&
+                        'ingest-health-job__badge--pending'
                     )}
                   >
                     {job.status === 'completed'
@@ -143,14 +145,12 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
                         : '运行中'}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-500">
+                <div className="ingest-health-job__meta">
                   <Clock className="w-3 h-3" />
                   <span>{formatTime(job.created_at)}</span>
                 </div>
                 {job.error_message && (
-                  <div className="mt-1 text-[10px] text-red-400 line-clamp-2">
-                    {job.error_message}
-                  </div>
+                  <div className="ingest-health-job__error">{job.error_message}</div>
                 )}
               </div>
             ))}
