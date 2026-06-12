@@ -50,6 +50,9 @@ export function ModelModal({
     api_base: '',
     temperature: 0.7,
     max_tokens: 4096,
+    top_p: undefined as number | undefined,
+    frequency_penalty: undefined as number | undefined,
+    presence_penalty: undefined as number | undefined,
     dimensions: 1536,
     is_default: false,
     enabled: true,
@@ -65,6 +68,9 @@ export function ModelModal({
             model.type === 'chat' || model.type === 'multimodal'
               ? normalizeFloat((model as any).temperature ?? 0.7, 2)
               : 0.7,
+          top_p: (model as any).top_p,
+          frequency_penalty: (model as any).frequency_penalty,
+          presence_penalty: (model as any).presence_penalty,
         }
       : defaultValues,
   });
@@ -125,6 +131,15 @@ export function ModelModal({
     if (effectiveType === 'chat' || effectiveType === 'multimodal') {
       payload.temperature = normalizeFloat(Number(data.temperature), 2);
       payload.max_tokens = Number(data.max_tokens);
+      if (data.top_p !== undefined && data.top_p !== '') {
+        payload.top_p = normalizeFloat(Number(data.top_p), 2);
+      }
+      if (data.frequency_penalty !== undefined && data.frequency_penalty !== '') {
+        payload.frequency_penalty = normalizeFloat(Number(data.frequency_penalty), 2);
+      }
+      if (data.presence_penalty !== undefined && data.presence_penalty !== '') {
+        payload.presence_penalty = normalizeFloat(Number(data.presence_penalty), 2);
+      }
       payload.capabilities =
         effectiveType === 'chat'
           ? ['chat', 'completion', 'long_context']
@@ -371,6 +386,46 @@ export function ModelModal({
                     <input
                       {...register('max_tokens', { valueAsNumber: true })}
                       type="number"
+                      className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Top P（可选）</label>
+                    <input
+                      {...register('top_p', { valueAsNumber: true })}
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      placeholder="默认不设置"
+                      className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Frequency Penalty（可选）
+                    </label>
+                    <input
+                      {...register('frequency_penalty', { valueAsNumber: true })}
+                      type="number"
+                      step="0.1"
+                      min="-2"
+                      max="2"
+                      placeholder="默认不设置"
+                      className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Presence Penalty（可选）
+                    </label>
+                    <input
+                      {...register('presence_penalty', { valueAsNumber: true })}
+                      type="number"
+                      step="0.1"
+                      min="-2"
+                      max="2"
+                      placeholder="默认不设置"
                       className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                     />
                   </div>

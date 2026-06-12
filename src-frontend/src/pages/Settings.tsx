@@ -30,6 +30,7 @@ import { StatsSettings } from './settings/StatsSettings';
 import { MethodologySettings } from './settings/MethodologySettings';
 import { WorkflowSettings } from './settings/WorkflowSettings';
 import { GeneralSettings } from './settings/GeneralSettings';
+import { AgentConfig } from './settings/AgentConfig';
 import { AccountSettings } from './settings/AccountSettings';
 
 type TabType = 'models' | 'agents' | 'methodology' | 'workflows' | 'general' | 'account' | 'stats';
@@ -176,16 +177,4 @@ function TabButton({
   );
 }
 
-// Agent配置组件
-function AgentConfig() {
-  return (
-    <Card>
-      <CardContent className="p-8 text-center">
-        <Bot className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-white mb-2">Agent模型映射</h3>
-        <p className="text-gray-500">为不同的Agent配置专用的LLM模型</p>
-        <p className="text-sm text-gray-600 mt-4">功能开发中...</p>
-      </CardContent>
-    </Card>
-  );
-}
+
