@@ -195,6 +195,19 @@ node scripts/cdp-inspect.js
   - **Ingest 图标与右键菜单重绘**：Ingest 改为统一 VI 风格漏斗+下箭头 SVG；编辑器右键菜单仅保留剪切/复制/粘贴/全选，并继承全局色调
   - **编译测试通过**：`cargo check` 零错误，`npx tsc --noEmit` 零错误，`vitest run` 116 passed
 
+- **v0.9.4 Ingest 状态指示器 VI 风格再优化** (2026-06-12) — 针对截图反馈的"灰色 pill 像橡皮擦"问题，进一步美化 Ingest 状态 UI：
+  - **移除灰色 pill 容器**：改为与设置/文思/禅模式一致的 28px 圆形透明按钮
+  - **简化状态表达**：漏斗图标 + 右下角微型状态点（绿/琥珀/灰）替代双图标并排
+  - **全局色调继承**：hover、active、面板背景、边框、文字全部使用 `--parchment`、`--warm-sand`、`--stone-gray`、`--charcoal` 等 CSS 变量
+  - **面板风格统一**：下拉面板改为暖色纸张质感圆角卡片，替代原来的深色 slate 面板
+  - **图标线条优化**：漏斗 SVG 路径更柔和，stroke-width 调整为 1.75，视觉上更纤细
+  - **前端验证**：`npx tsc --noEmit` 零错误，`vitest run` 116 passed，`npm run build` 通过
+
+- **v0.9.4 CI 调整：E2E 不再阻塞整体工作流** (2026-06-12) — 解决 master 构建整体被 E2E 测试标红的问题：
+  - 给 `e2e-check` job 添加 `continue-on-error: true`
+  - 移动并更新注释：E2E 在缺少真实 Tauri 后端的 Vite dev server 上运行，settings 页 IPC 调用会挂起，因此不作为发布阻塞项
+  - 单元测试与构建检查（rust-check / frontend-check / tauri-build）仍是可靠质量门
+
 - **v0.9.4 构建修复：固定 Rust 1.95.0 并提交 Cargo.lock** (2026-06-12) — 修复 GitHub Actions 在 latest stable Rust 下的 E0119 编译失败，关键变更：
   - **根因**：Rust 1.96（latest stable）与 `time` crate 0.3.47/0.3.48 存在 coherence 冲突，导致 `tracing-subscriber`、`tantivy-common`、`cookie`、`tauri-utils` 等 crate 报 `From<HourBase>` 冲突实现错误
   - **修复**：新增 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**；将 `Cargo.lock` 从 `.gitignore` 移除并纳入版本控制，锁定 `time` 在 0.3.47
