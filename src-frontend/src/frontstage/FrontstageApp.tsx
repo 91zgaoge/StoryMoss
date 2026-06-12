@@ -199,6 +199,7 @@ const FrontstageApp: React.FC = () => {
     loopIdx?: number;
     score?: number;
     message: string;
+    detail?: string;
   } | null>(null);
 
   // Bootstrap 进度
@@ -1105,6 +1106,7 @@ const FrontstageApp: React.FC = () => {
           step_type: string;
           loop_idx?: number;
           score?: number;
+          detail?: string;
         }>('orchestrator-step', event => {
           const p = event.payload;
           updateLastEventTime();
@@ -1113,11 +1115,11 @@ const FrontstageApp: React.FC = () => {
             质检: '质检中...',
             改写: '改写中...',
           };
-          let message = stepNames[p.step_type] || p.step_type;
-          if (p.step_type === '改写' && typeof p.loop_idx === 'number') {
+          let message = p.detail || stepNames[p.step_type] || p.step_type;
+          if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
             message = `第 ${p.loop_idx + 1} 轮优化中...`;
           }
-          if (p.step_type === '质检' && typeof p.score === 'number') {
+          if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
             message = `质检中... 评分 ${p.score}%`;
           }
           // 注意：orchestrator-step 事件会直接覆盖状态，暂时不叠加时间显示
@@ -1127,6 +1129,7 @@ const FrontstageApp: React.FC = () => {
             loopIdx: p.loop_idx,
             score: p.score,
             message,
+            detail: p.detail,
           });
         });
 

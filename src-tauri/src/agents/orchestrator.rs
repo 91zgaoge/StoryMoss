@@ -136,19 +136,24 @@ impl AgentOrchestrator {
     }
 
     /// 发射工作流步骤事件到前端
+    /// v0.9.3: 增加 detail 字段，用于描述候选进度、回炉原因等更细粒度的状态
     fn emit_step_event(
         &self,
         task_id: &str,
         step_type: WorkflowStepType,
         loop_idx: Option<u32>,
         score: Option<f32>,
+        detail: Option<&str>,
     ) {
-        let event = serde_json::json!({
+        let mut event = serde_json::json!({
             "task_id": task_id,
             "step_type": step_type.name(),
             "loop_idx": loop_idx,
             "score": score.map(|s| (s * 100.0) as i32),
         });
+        if let Some(d) = detail {
+            event["detail"] = serde_json::Value::String(d.to_string());
+        }
         let _ = self.app_handle.emit("orchestrator-step", event);
     }
 
@@ -233,7 +238,7 @@ impl AgentOrchestrator {
 
     /// Fast 模式：单轮 LLM 生成，跳过 Inspector / StyleChecker
     async fn execute_fast(&self, task: AgentTask) -> Result<WorkflowResult, AppError> {
-        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
+        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None, None);
         let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
 
         let steps = vec![WorkflowStepResult {
@@ -270,9 +275,9 @@ impl AgentOrchestrator {
         let mut was_rewritten = false;
 
         // 步骤1: Writer 生成初稿
-        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
+        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None, None);
 
-        // v0.7.8: 3 候选并行生成选优（续写场景且有风格指纹时启用）
+        // v0.7.8: 2 候选并行生成选优（续写场景且有风格指纹时启用）
         let (writer_result, request_id, mut current_content) =
             if task.context.style.style_fingerprint.is_some()
                 || task
@@ -303,7 +308,13 @@ impl AgentOrchestrator {
         // 反馈循环
         for loop_idx in 0..self.config.max_feedback_loops {
             // 步骤2: Inspector 质检
-            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), None);
+            self.emit_step_event(
+                &task.id,
+                WorkflowStepType::Inspection,
+                Some(loop_idx),
+                None,
+                Some("正在评估内容与风格一致性..."),
+            );
             let inspect_task = AgentTask {
                 id: format!("{}-inspect-{}", task.id, loop_idx),
                 agent_type: AgentType::Inspector,
@@ -366,6 +377,7 @@ impl AgentOrchestrator {
                 WorkflowStepType::Inspection,
                 Some(loop_idx),
                 Some(composite_score),
+                None,
             );
 
             let mut all_suggestions = inspect_result.suggestions.clone();
@@ -411,7 +423,19 @@ impl AgentOrchestrator {
             rewrite_count += 1;
 
             // 步骤3: Writer 改写
-            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), None);
+            let rewrite_reason = format!(
+                "质检未达标（风格 {:.0}%，叙事 {:.0}%），进入第 {} 轮改写优化",
+                style_score * 100.0,
+                narrative_score * 100.0,
+                loop_idx + 1
+            );
+            self.emit_step_event(
+                &task.id,
+                WorkflowStepType::Rewrite,
+                Some(loop_idx),
+                None,
+                Some(&rewrite_reason),
+            );
             let mut rewrite_context = task.context.clone();
             rewrite_context.narrative.selected_text = Some(current_content.clone());
             let rewrite_task = AgentTask {
@@ -442,6 +466,7 @@ impl AgentOrchestrator {
                 WorkflowStepType::Rewrite,
                 Some(loop_idx),
                 rewrite_result.score,
+                Some("改写优化完成"),
             );
 
             steps.push(WorkflowStepResult {
@@ -692,6 +717,14 @@ impl AgentOrchestrator {
             task.id
         );
 
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some(&format!("生成候选中（共 {} 个）", count)),
+        );
+
         // 并行执行所有候选
         let results: Vec<Result<AgentResult, AppError>> = futures::future::join_all(
             tasks
@@ -765,6 +798,17 @@ impl AgentOrchestrator {
             best_idx,
             best_score,
             candidates.len() + 1
+        );
+
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            Some(best_score),
+            Some(&format!(
+                "候选评估完成，选用最优结果（匹配度 {:.0}%）",
+                best_score * 100.0
+            )),
         );
 
         let req_id = best.0.request_id.clone().unwrap_or_default();
