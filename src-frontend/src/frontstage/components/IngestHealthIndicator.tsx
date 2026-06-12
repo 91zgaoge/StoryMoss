@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Brain, CheckCircle, AlertTriangle, X, Clock } from 'lucide-react';
+import { CheckCircle, AlertTriangle, X, Clock } from 'lucide-react';
 import { getIngestJobs } from '@/services/tauri';
 import type { IngestJob } from '@/types/v3';
 import { cn } from '@/utils/cn';
@@ -10,6 +10,24 @@ interface Props {
 }
 
 const POLL_INTERVAL = 30000; // 30s fallback poll
+
+/** 统一 VI 风格 Ingest 图标：漏斗 + 下箭头，表示知识/素材汇入 */
+const IngestIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 4h16l-6 8v6l-4 2v-8L4 4z" />
+    <path d="M12 14v4" />
+    <path d="M10 17l2 2 2-2" />
+  </svg>
+);
 
 export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
   const [jobs, setJobs] = useState<IngestJob[]>([]);
@@ -88,7 +106,7 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
         onClick={() => setShowPanel(!showPanel)}
         title={isFailed ? `Ingest 失败: ${latest.error_message || '未知错误'}` : 'Ingest 状态'}
       >
-        <Brain className="w-3.5 h-3.5" />
+        <IngestIcon className="w-3.5 h-3.5" />
         <StatusIcon className="w-3 h-3" />
       </button>
 

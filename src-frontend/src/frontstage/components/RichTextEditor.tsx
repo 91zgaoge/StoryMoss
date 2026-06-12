@@ -20,7 +20,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
-import { Sparkles, Loader2, X, Check, GitBranch, CheckCheck, Undo2 } from 'lucide-react';
+import { Sparkles, X, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
 import type { Character } from '@/types/index';
@@ -32,25 +32,14 @@ import { loadEditorConfig, type EditorConfig } from '@/components/EditorSettings
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useSubscription } from '@/hooks/useSubscription';
-import type { ParagraphCommentary } from '@/types/v3';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
 const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
-import { generateParagraphCommentaries, smartExecute, formatText } from '@/services/tauri';
-import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
+import { smartExecute, formatText } from '@/services/tauri';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
-import {
-  usePendingChanges,
-  useTrackChange,
-  useAcceptChange,
-  useRejectChange,
-  useAcceptAllChanges,
-  useRejectAllChanges,
-} from '@/hooks/useChangeTracking';
-import type { ChangeTrack } from '@/types/v3';
 
 interface RichTextEditorProps {
   content: string;
@@ -77,8 +66,6 @@ interface RichTextEditorProps {
   onSmartGeneration?: (userInput: string) => void;
   /** Slash 命令回调（自动续写/审校/评点等） */
   onSlashCommand?: (commandId: string) => void;
-  isRevisionMode?: boolean;
-  onRevisionModeChange?: (v: boolean) => void;
   /** 智能文思 Ghost Text 建议 */
   smartGhostText?: string;
   /** 内联修改建议 */
@@ -107,7 +94,6 @@ export interface RichTextEditorRef {
   getText: () => string;
   getSelectedText: () => string;
   focus: () => void;
-  generateCommentary: () => void;
   setContent: (text: string) => void;
   /** 加载聚合场景内容 — 将多个 Scene 用 divider 拼接后写入编辑器 */
   loadAggregatedScenes: (
@@ -143,8 +129,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onRequestGeneration,
       onSmartGeneration,
       onSlashCommand,
-      isRevisionMode: externalIsRevisionMode = false,
-      onRevisionModeChange,
       smartGhostText,
       inlineSuggestion,
       onClearInlineSuggestion,
@@ -155,7 +139,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
     const [isAiThinking, setIsAiThinking] = useState(false);
-    const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
 
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{
@@ -170,27 +153,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [slashInputPos, setSlashInputPos] = useState({ x: 0, y: 0 });
     const slashInputRef = useRef<HTMLInputElement>(null);
 
-    // 修订模式状态（受控）
-    const isRevisionMode = externalIsRevisionMode;
-    const setIsRevisionMode = (v: boolean) => onRevisionModeChange?.(v);
-    const prevTextRef = useRef('');
-    const isRevisionModeRef = useRef(isRevisionMode);
-    isRevisionModeRef.current = isRevisionMode;
-    const chapterIdRef = useRef(chapterId);
-    chapterIdRef.current = chapterId;
-
     // 右键菜单状态
     const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number }>({
       visible: false,
       x: 0,
       y: 0,
     });
-    const { data: pendingChanges = [] } = usePendingChanges(undefined, chapterId || undefined);
-    const trackChangeMutation = useTrackChange();
-    const acceptChangeMutation = useAcceptChange();
-    const rejectChangeMutation = useRejectChange();
-    const acceptAllMutation = useAcceptAllChanges();
-    const rejectAllMutation = useRejectAllChanges();
 
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -221,64 +189,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         Placeholder.configure({ placeholder }),
         Underline,
         Highlight.configure({ multicolor: true }),
-        TrackInsertMark,
-        TrackDeleteMark,
         AiSuggestionNode,
         SceneDividerNode,
       ],
       content,
       onUpdate: ({ editor }) => {
         onChange(editor.getHTML());
-
-        if (isRevisionModeRef.current && chapterIdRef.current) {
-          const currentText = editor.getText();
-          const prevText = prevTextRef.current;
-
-          if (prevText && currentText !== prevText) {
-            if (currentText.length > prevText.length) {
-              const insertPos = findFirstDiff(prevText, currentText);
-              const insertedText = currentText.slice(
-                insertPos,
-                insertPos + (currentText.length - prevText.length)
-              );
-              if (insertedText.trim()) {
-                trackChangeMutation.mutate({
-                  chapterId: chapterIdRef.current,
-                  changeType: 'Insert',
-                  fromPos: insertPos,
-                  toPos: insertPos + insertedText.length,
-                  content: insertedText,
-                });
-                const pmPos = textOffsetToPmPosition(editor, insertPos, insertedText.length);
-                if (pmPos) {
-                  editor
-                    .chain()
-                    .focus()
-                    .setTextSelection({ from: pmPos.from, to: pmPos.to })
-                    .setMark('trackInsert', { changeId: `temp-${Date.now()}` })
-                    .setTextSelection(pmPos.to)
-                    .run();
-                }
-              }
-            } else if (currentText.length < prevText.length) {
-              const deletePos = findFirstDiff(prevText, currentText);
-              const deletedText = prevText.slice(
-                deletePos,
-                deletePos + (prevText.length - currentText.length)
-              );
-              if (deletedText.trim()) {
-                trackChangeMutation.mutate({
-                  chapterId: chapterIdRef.current,
-                  changeType: 'Delete',
-                  fromPos: deletePos,
-                  toPos: deletePos + deletedText.length,
-                  content: deletedText,
-                });
-              }
-            }
-          }
-          prevTextRef.current = currentText;
-        }
       },
       editorProps: {
         attributes: {
@@ -402,13 +318,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editor.commands.setContent(content);
       }
     }, [content, editor]);
-
-    // 修订模式：初始化/同步 prevTextRef
-    useEffect(() => {
-      if (editor) {
-        prevTextRef.current = editor.getText();
-      }
-    }, [editor, isRevisionMode]);
 
     // 选区变化跟踪（用于角色卡片弹窗）
     useEffect(() => {
@@ -691,105 +600,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [onAcceptGeneration, wensiMode, isZenMode, onRequestGeneration]);
 
-    // 生成古典评点
-    const handleGenerateCommentary = useCallback(async () => {
-      if (!editor || !storyId) return;
-
-      const text = editor.getText();
-      if (!text.trim()) return;
-
-      setIsGeneratingCommentary(true);
-      try {
-        const result = await generateParagraphCommentaries({
-          story_id: storyId,
-          story_title: '',
-          genre: '',
-          text,
-        });
-
-        const commentaries: ParagraphCommentary[] = JSON.parse(result);
-        if (!commentaries.length) return;
-
-        const paragraphs: { pos: number; nodeSize: number }[] = [];
-        editor.state.doc.descendants((node, pos) => {
-          if (node.type.name === 'paragraph') {
-            paragraphs.push({ pos, nodeSize: node.nodeSize });
-          }
-        });
-
-        const chain = editor.chain().focus();
-        const sorted = [...commentaries]
-          .filter(c => c.paragraph_index < paragraphs.length)
-          .sort((a, b) => b.paragraph_index - a.paragraph_index);
-
-        for (const c of sorted) {
-          const para = paragraphs[c.paragraph_index];
-          const insertPos = para.pos + para.nodeSize;
-          chain.insertContentAt(insertPos, {
-            type: 'paragraph',
-            attrs: { class: 'commentary-paragraph' },
-            content: [{ type: 'text', text: `【批】${c.commentary}` }],
-          });
-        }
-        chain.run();
-      } catch (error) {
-        rtEditorLogger.error('Commentary error', { error });
-      } finally {
-        setIsGeneratingCommentary(false);
-      }
-    }, [editor, storyId]);
-
-    // 创建文本批注
-    const handleAcceptChange = async (changeId: string) => {
-      try {
-        await acceptChangeMutation.mutateAsync({ changeId, chapterId });
-        toast.success('已接受变更');
-      } catch (error) {
-        rtEditorLogger.error('Failed to accept change', { error });
-        toast.error('操作失败');
-      }
-    };
-
-    const handleRejectChange = async (changeId: string) => {
-      try {
-        await rejectChangeMutation.mutateAsync({ changeId, chapterId });
-        toast.success('已拒绝变更');
-      } catch (error) {
-        rtEditorLogger.error('Failed to reject change', { error });
-        toast.error('操作失败');
-      }
-    };
-
-    // 辅助函数
-    const findFirstDiff = (a: string, b: string): number => {
-      let i = 0;
-      while (i < a.length && i < b.length && a[i] === b[i]) i++;
-      return i;
-    };
-
-    const textOffsetToPmPosition = (editorInstance: any, offset: number, length: number) => {
-      let currentOffset = 0;
-      let startPos = -1;
-      let endPos = -1;
-      editorInstance.state.doc.descendants((node: any, pos: number) => {
-        if (!node.isText) return;
-        const text = node.text || '';
-        const nodeStart = currentOffset;
-        const nodeEnd = currentOffset + text.length;
-        if (startPos === -1 && nodeEnd > offset) {
-          startPos = pos + (offset - nodeStart);
-        }
-        if (endPos === -1 && nodeEnd >= offset + length) {
-          endPos = pos + (offset + length - nodeStart);
-        }
-        currentOffset += text.length;
-      });
-      if (startPos !== -1 && endPos !== -1) {
-        return { from: startPos, to: endPos };
-      }
-      return null;
-    };
-
     // 键盘快捷键（全局，用于接受/拒绝 AI 生成）
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -844,9 +654,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           return editor.state.doc.textBetween(from, to, '\n');
         },
         focus: () => editor?.commands.focus(),
-        generateCommentary: () => {
-          handleGenerateCommentary();
-        },
         setContent: (text: string) => {
           if (editor) {
             editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
@@ -866,7 +673,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           editor.commands.setContent(html || '<p></p>');
         },
       }),
-      [editor, handleGenerateCommentary, selectedRange]
+      [editor, selectedRange]
     );
 
     // AI 生成时自动滚动到编辑器底部，让幽灵文本和 Tab/Esc 提示可见
@@ -919,86 +726,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       >
         {/* 编辑器内容区 */}
         <div className="flex-1 overflow-auto relative min-h-0">
-          {/* 修订模式横幅 — 精简为单行 */}
-          {isRevisionMode && (
-            <div className="revision-banner">
-              <div className="revision-banner-main">
-                <div className="flex items-center gap-2 text-sm text-blue-400">
-                  <GitBranch className="w-4 h-4" />
-                  <span>修订模式</span>
-                  <span className="text-xs text-blue-500/70">({pendingChanges.length} 处待审)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => chapterId && acceptAllMutation.mutate({ chapterId })}
-                    disabled={acceptAllMutation.isPending || pendingChanges.length === 0}
-                    className="revision-banner-btn revision-banner-btn-accept"
-                  >
-                    <CheckCheck className="w-3.5 h-3.5" />
-                    全部接受
-                  </button>
-                  <button
-                    onClick={() => chapterId && rejectAllMutation.mutate({ chapterId })}
-                    disabled={rejectAllMutation.isPending || pendingChanges.length === 0}
-                    className="revision-banner-btn revision-banner-btn-reject"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    全部拒绝
-                  </button>
-                  <button onClick={() => setIsRevisionMode(false)} className="revision-banner-btn">
-                    退出
-                  </button>
-                </div>
-              </div>
-              {/* 变更列表折叠展开 */}
-              {pendingChanges.length > 0 && (
-                <div className="revision-changes-list">
-                  {pendingChanges.map(change => (
-                    <div key={change.id} className="revision-change-item">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className={cn(
-                            'revision-change-badge',
-                            change.change_type === 'Insert' && 'revision-badge-insert',
-                            change.change_type === 'Delete' && 'revision-badge-delete',
-                            change.change_type === 'Format' && 'revision-badge-format'
-                          )}
-                        >
-                          {change.change_type === 'Insert'
-                            ? '插入'
-                            : change.change_type === 'Delete'
-                              ? '删除'
-                              : '排版'}
-                        </span>
-                        <span className="text-gray-300 truncate">
-                          {change.content || '（无内容）'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        <button
-                          onClick={() => handleAcceptChange(change.id)}
-                          disabled={acceptChangeMutation.isPending}
-                          className="revision-change-action revision-change-accept"
-                        >
-                          <Check className="w-3 h-3" />
-                          接受
-                        </button>
-                        <button
-                          onClick={() => handleRejectChange(change.id)}
-                          disabled={rejectChangeMutation.isPending}
-                          className="revision-change-action revision-change-reject"
-                        >
-                          <X className="w-3 h-3" />
-                          拒绝
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           <EditorContent editor={editor} />
 
           {/* 编辑器内 Slash 指令输入框 */}
@@ -1084,13 +811,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           y={contextMenu.y}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
           editor={editor}
-          isRevisionMode={isRevisionMode}
-          onToggleRevision={() => setIsRevisionMode(!isRevisionMode)}
-          onGenerateCommentary={() => {
-            handleGenerateCommentary();
-            setContextMenu({ visible: false, x: 0, y: 0 });
-          }}
-          isGeneratingCommentary={isGeneratingCommentary}
           hasSelection={!!selectedRange}
         />
 

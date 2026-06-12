@@ -1,14 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  GitBranch,
-  Quote,
-  Check,
-  Loader2,
-  Scissors,
-  Copy,
-  Clipboard,
-  CheckSquare,
-} from 'lucide-react';
+import { Scissors, Copy, Clipboard, CheckSquare } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface EditorContextMenuProps {
@@ -17,10 +8,6 @@ interface EditorContextMenuProps {
   y: number;
   onClose: () => void;
   editor: any;
-  isRevisionMode: boolean;
-  onToggleRevision: () => void;
-  onGenerateCommentary: () => void;
-  isGeneratingCommentary: boolean;
   hasSelection: boolean;
 }
 
@@ -30,10 +17,6 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
   y,
   onClose,
   editor,
-  isRevisionMode,
-  onToggleRevision,
-  onGenerateCommentary,
-  isGeneratingCommentary,
   hasSelection,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -93,30 +76,18 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
     onClose();
   };
 
-  const MenuItem = ({
-    onClick,
-    disabled,
-    children,
-  }: {
-    onClick?: () => void;
-    disabled?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <button
-      onClick={!disabled ? onClick : undefined}
-      disabled={disabled}
-      className={cn(
-        'w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors',
-        disabled
-          ? 'text-[var(--stone-gray)]/60 cursor-not-allowed'
-          : 'hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]'
-      )}
-    >
-      {children}
-    </button>
-  );
-
-  const Divider = () => <div className="h-px bg-[var(--charcoal)]/10 my-1" />;
+  const items = [
+    { id: 'cut', label: '剪切', icon: Scissors, onClick: handleCut, disabled: !hasSelection },
+    { id: 'copy', label: '复制', icon: Copy, onClick: handleCopy, disabled: !hasSelection },
+    { id: 'paste', label: '粘贴', icon: Clipboard, onClick: handlePaste, disabled: false },
+    {
+      id: 'select-all',
+      label: '全选',
+      icon: CheckSquare,
+      onClick: handleSelectAll,
+      disabled: false,
+    },
+  ];
 
   return (
     <div
@@ -125,61 +96,28 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
         e.preventDefault();
         e.stopPropagation();
       }}
-      className="fixed z-[9999] bg-[var(--ivory)] border border-[var(--warm-sand)] rounded-xl shadow-xl p-1.5 min-w-[160px] animate-fade-in text-[var(--charcoal)]"
+      className="editor-context-menu"
       style={{ left: pos.x, top: pos.y }}
     >
-      <div className="grid grid-cols-3 gap-0.5">
-        <button
-          onClick={handleCut}
-          className="flex flex-col items-center justify-center py-2 rounded-lg hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]"
-        >
-          <Scissors className="w-4 h-4 mb-1" />
-          <span className="text-[10px]">剪切</span>
-        </button>
-        <button
-          onClick={handleCopy}
-          className="flex flex-col items-center justify-center py-2 rounded-lg hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]"
-        >
-          <Copy className="w-4 h-4 mb-1" />
-          <span className="text-[10px]">复制</span>
-        </button>
-        <button
-          onClick={handlePaste}
-          className="flex flex-col items-center justify-center py-2 rounded-lg hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]"
-        >
-          <Clipboard className="w-4 h-4 mb-1" />
-          <span className="text-[10px]">粘贴</span>
-        </button>
-      </div>
-
-      <Divider />
-
-      <MenuItem onClick={onToggleRevision}>
-        <GitBranch
-          className={cn(
-            'w-4 h-4',
-            isRevisionMode ? 'text-[var(--terracotta)]' : 'text-[var(--stone-gray)]'
-          )}
-        />
-        <span className="flex-1">修订模式</span>
-        {isRevisionMode && <Check className="w-4 h-4 text-[var(--terracotta)]" />}
-      </MenuItem>
-
-      <Divider />
-
-      <MenuItem onClick={onGenerateCommentary} disabled={isGeneratingCommentary}>
-        {isGeneratingCommentary ? (
-          <Loader2 className="w-4 h-4 animate-spin text-[var(--stone-gray)]" />
-        ) : (
-          <Quote className="w-4 h-4 text-[var(--stone-gray)]" />
-        )}
-        <span className="flex-1">生成古典评点</span>
-      </MenuItem>
-
-      <MenuItem onClick={handleSelectAll}>
-        <CheckSquare className="w-4 h-4 text-[var(--stone-gray)]" />
-        <span className="flex-1">全选</span>
-      </MenuItem>
+      {items.map((item, index) => {
+        const Icon = item.icon;
+        return (
+          <React.Fragment key={item.id}>
+            {index > 0 && <div className="editor-context-menu-divider" />}
+            <button
+              onClick={!item.disabled ? item.onClick : undefined}
+              disabled={item.disabled}
+              className={cn(
+                'editor-context-menu-item',
+                item.disabled && 'editor-context-menu-item-disabled'
+              )}
+            >
+              <Icon className="editor-context-menu-icon" />
+              <span className="editor-context-menu-label">{item.label}</span>
+            </button>
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 };

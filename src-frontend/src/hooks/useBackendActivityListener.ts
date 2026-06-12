@@ -112,22 +112,23 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         step_type: string;
         loop_idx?: number;
         score?: number;
+        detail?: string;
       }>('orchestrator-step', event => {
         const p = event.payload;
+        // v0.9.4: 后端实际发射的是中文 step_type（生成 / 质检 / 改写）
         const stepNames: Record<string, string> = {
-          Generation: 'AI 生成中...',
-          Inspection: 'AI 质检中...',
-          Rewrite: 'AI 优化中...',
+          生成: 'AI 生成中...',
+          质检: 'AI 质检中...',
+          改写: 'AI 优化中...',
         };
-        let message = stepNames[p.step_type] || p.step_type;
-        if (p.step_type === 'Rewrite' && typeof p.loop_idx === 'number') {
+        let message = p.detail || stepNames[p.step_type] || p.step_type;
+        if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
           message = `第 ${p.loop_idx + 1} 轮优化中...`;
         }
-        if (p.step_type === 'Inspection' && typeof p.score === 'number') {
+        if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
           message = `质检评分 ${p.score}%`;
         }
-        const progress =
-          p.step_type === 'Generation' ? 0.3 : p.step_type === 'Inspection' ? 0.6 : 0.9;
+        const progress = p.step_type === '生成' ? 0.3 : p.step_type === '质检' ? 0.6 : 0.9;
         updatePrimary({
           category: 'orchestrator',
           stage: p.step_type,

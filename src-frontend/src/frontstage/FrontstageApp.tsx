@@ -33,14 +33,13 @@ import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
-import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
+
 import toast from 'react-hot-toast';
 import { createLogger } from '@/utils/logger';
 
 const frontstageLogger = createLogger('ui:FrontstageApp');
 
 import FrontstageHeader from './components/FrontstageHeader';
-import FrontstageSidebar from './components/FrontstageSidebar';
 import FrontstageBottomBar from './components/FrontstageBottomBar';
 
 interface Story {
@@ -111,7 +110,6 @@ const FrontstageApp: React.FC = () => {
   const [wordCount, setWordCount] = useState(0);
   const [fontSize, setFontSize] = useState(() => loadEditorConfig().fontSize);
   const [isZenMode, setIsZenMode] = useState(false);
-  const [isRevisionMode, setIsRevisionMode] = useState(false);
 
   // 文思三态：关闭 / 被动提示 / 主动辅助
   const [wensiMode, setWensiMode] = useState<WensiMode>('passive');
@@ -262,6 +260,27 @@ const FrontstageApp: React.FC = () => {
     if (s.includes('改写') || s.includes('润色') || s.includes('revise')) {
       return { icon: '✏️', text: '正在润色改写...' };
     }
+    // v0.9.4: 智能执行与计划生成的大阶段映射，避免 Toast 长时间卡在初始提示
+    if (s.includes('加载上下文') || s.includes('读取故事') || s.includes('读取章节')) {
+      return { icon: '📂', text: '正在加载故事上下文...' };
+    }
+    if (
+      s.includes('分析故事上下文') ||
+      s.includes('生成执行计划') ||
+      s.includes('planning') ||
+      s.includes('context')
+    ) {
+      return { icon: '🧠', text: '正在规划创作步骤...' };
+    }
+    if (s.includes('执行创作计划') || s.includes('executing')) {
+      return { icon: '⚙️', text: '正在执行创作计划...' };
+    }
+    if (s.includes('生成') || s.includes('续写') || s.includes('writing') || s.includes('draft')) {
+      return { icon: '✍️', text: '正在生成续写内容...' };
+    }
+    if (s.includes('完成') || s.includes('completed')) {
+      return { icon: '✅', text: '创作计划执行完成...' };
+    }
     return null;
   }, []);
 
@@ -377,7 +396,6 @@ const FrontstageApp: React.FC = () => {
   const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
 
   // AI 学习指示器
-  const [learnings, setLearnings] = useState<LearningPoint[]>([]);
 
   const editorRef = useRef<RichTextEditorRef>(null);
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -767,6 +785,41 @@ const FrontstageApp: React.FC = () => {
       });
       unlisteners.push(unlisten6);
 
+      // v0.9.4: 监听 orchestrator-step 事件 — Writer / Inspector / Rewrite 质量闭环
+      // 之前只在 handleRequestGeneration 中局部监听，导致智能输入栏（smart generation）无法看到细粒度进度
+      const unlistenOrchestrator = await listen<{
+        task_id: string;
+        step_type: string;
+        loop_idx?: number;
+        score?: number;
+        detail?: string;
+      }>('orchestrator-step', event => {
+        const p = event.payload;
+        updateLastEventTime();
+        const stepNames: Record<string, string> = {
+          生成: '生成中...',
+          质检: '质检中...',
+          改写: '改写中...',
+        };
+        let message = p.detail || stepNames[p.step_type] || p.step_type;
+        if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
+          message = `第 ${p.loop_idx + 1} 轮优化中...`;
+        }
+        if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
+          message = `质检中... 评分 ${p.score}%`;
+        }
+        setGenerationStatus(message);
+        setOrchestratorStatus({
+          stepType: p.step_type,
+          loopIdx: p.loop_idx,
+          score: p.score,
+          message,
+          detail: p.detail,
+        });
+        updateToastPhase(p.step_type);
+      });
+      unlisteners.push(unlistenOrchestrator);
+
       // 监听 agent-stage-update 事件 — Agent内部阶段
       const unlisten7 = await listen<{
         agent_type: string;
@@ -1087,7 +1140,7 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      let unlisten: (() => void) | null = null;
+      // v0.9.4: orchestrator-step 已改为全局监听，不再在此处注册局部监听器
       // 续写功能添加600秒超时保护（与后端任务超时一致）
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1101,38 +1154,6 @@ const FrontstageApp: React.FC = () => {
       });
 
       try {
-        unlisten = await listen<{
-          task_id: string;
-          step_type: string;
-          loop_idx?: number;
-          score?: number;
-          detail?: string;
-        }>('orchestrator-step', event => {
-          const p = event.payload;
-          updateLastEventTime();
-          const stepNames: Record<string, string> = {
-            生成: '生成中...',
-            质检: '质检中...',
-            改写: '改写中...',
-          };
-          let message = p.detail || stepNames[p.step_type] || p.step_type;
-          if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
-            message = `第 ${p.loop_idx + 1} 轮优化中...`;
-          }
-          if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
-            message = `质检中... 评分 ${p.score}%`;
-          }
-          // 注意：orchestrator-step 事件会直接覆盖状态，暂时不叠加时间显示
-          setGenerationStatus(message);
-          setOrchestratorStatus({
-            stepType: p.step_type,
-            loopIdx: p.loop_idx,
-            score: p.score,
-            message,
-            detail: p.detail,
-          });
-        });
-
         const result = await Promise.race([
           smartExecute({
             user_input: context || '续写',
@@ -1269,10 +1290,6 @@ const FrontstageApp: React.FC = () => {
         setIsGenerating(false);
         setGenerationStatus('');
         setOrchestratorStatus(null);
-      } finally {
-        if (unlisten) {
-          unlisten();
-        }
       }
     },
     [isGenerating]
@@ -1293,20 +1310,12 @@ const FrontstageApp: React.FC = () => {
           agent_type: 'writer',
           original_ai_text: generatedText,
         })
-          .then(learnings => {
-            if (learnings && learnings.length > 0) {
-              setLearnings(learnings);
-            } else {
-              setLearnings([
-                { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
-              ]);
-            }
+          .then(() => {
+            toast.success('已记录接受偏好，系统将学习此方向');
           })
           .catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
       } else {
-        setLearnings([
-          { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
-        ]);
+        toast.success('已记录接受偏好');
       }
       setGeneratedText('');
     }
@@ -1322,20 +1331,12 @@ const FrontstageApp: React.FC = () => {
         agent_type: 'writer',
         original_ai_text: generatedText,
       })
-        .then(learnings => {
-          if (learnings && learnings.length > 0) {
-            setLearnings(learnings);
-          } else {
-            setLearnings([
-              { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
-            ]);
-          }
+        .then(() => {
+          toast.success('已记录拒绝偏好，系统将调整生成策略');
         })
         .catch(e => console.error('Feedback record failed:', e));
     } else {
-      setLearnings([
-        { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
-      ]);
+      toast.success('已记录拒绝偏好');
     }
     setGeneratedText('');
   }, [generatedText, currentStory, currentChapter]);
@@ -1412,6 +1413,24 @@ const FrontstageApp: React.FC = () => {
     // 如果同时包含创建信号和续写信号，优先判断为续写（用户说"续写一部小说"）
     if (hasContinuationSignal) return false;
     return true;
+  };
+
+  // v0.9.4: 检测用户输入是否明确为"续写/继续写"意图，用于显示更准确的初始提示
+  const isContinuationIntent = (input: string): boolean => {
+    const txt = input.toLowerCase();
+    const continuationSignals = [
+      '续写',
+      '接着写',
+      '往下写',
+      '继续写',
+      '继续',
+      '后续',
+      '后面',
+      '接下来',
+      '写下去',
+      '往下续',
+    ];
+    return continuationSignals.some(kw => txt.includes(kw));
   };
 
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
@@ -1510,9 +1529,19 @@ const FrontstageApp: React.FC = () => {
       }
 
       setIsGenerating(true);
-      setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
+      const isContinuation = isContinuationIntent(userInput);
+      const initialStatusMsg = isBootstrap
+        ? '正在创建新小说...'
+        : isContinuation
+          ? '正在续写...'
+          : '正在理解创作意图并执行...';
+      const initialToastMsg = isBootstrap
+        ? '🎨 正在构思故事概念...'
+        : isContinuation
+          ? '📝 正在续写...'
+          : '💭 正在理解创作意图并执行...';
+      setGenerationStatus(initialStatusMsg);
       startElapsedTimer();
-      const initialToastMsg = isBootstrap ? '🎨 正在构思故事概念...' : '💭 正在理解您的创作意图...';
       const toastId = toast.loading(initialToastMsg, { duration: Infinity });
       activeToastIdRef.current = toastId;
       currentToastPhaseRef.current = initialToastMsg;
@@ -1699,6 +1728,7 @@ const FrontstageApp: React.FC = () => {
         activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
         setIsGenerating(false);
+        setOrchestratorStatus(null);
         // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
         // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
         if (isBootstrap) {
@@ -1917,8 +1947,6 @@ const FrontstageApp: React.FC = () => {
     } else if (commandId === 'auto_revise') {
       setWenSiTab('revise');
       setShowWenSiPanel(true);
-    } else if (commandId === 'commentary') {
-      editorRef.current?.generateCommentary();
     } else if (commandId === 'dialog') {
       setWenSiTab('dialog');
       setShowWenSiPanel(true);
@@ -1998,15 +2026,6 @@ const FrontstageApp: React.FC = () => {
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <FrontstageSidebar
-          isZenMode={isZenMode}
-          isRevisionMode={isRevisionMode}
-          hasCurrentStory={!!currentStory}
-          onToggleRevisionMode={() => setIsRevisionMode(prev => !prev)}
-          onGenerateCommentary={() => editorRef.current?.generateCommentary()}
-          onOpenBackstage={openBackstage}
-        />
-
         {/* Editor + Bottom Input */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
@@ -2039,8 +2058,6 @@ const FrontstageApp: React.FC = () => {
               storyId={currentStory?.id}
               chapterId={currentChapter?.id}
               chapterNumber={currentChapter?.chapter_number}
-              isRevisionMode={isRevisionMode}
-              onRevisionModeChange={setIsRevisionMode}
               smartGhostText={smartGhostText}
               inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
               onClearInlineSuggestion={() => setInlineSuggestion(null)}
@@ -2200,22 +2217,6 @@ const FrontstageApp: React.FC = () => {
         trigger={upgradeTrigger}
         onUpgraded={() => subscription.fetchStatus()}
       />
-
-      {/* AI 学习指示器 */}
-      {learnings.length > 0 && !isZenMode && (
-        <AiLearningIndicator
-          learnings={learnings}
-          onDismiss={() => setLearnings([])}
-          onStrengthen={idx => {
-            toast.success(`已强化「${learnings[idx].category}」偏好`);
-            setLearnings([]);
-          }}
-          onIgnore={idx => {
-            toast('已忽略该观察');
-            setLearnings(prev => prev.filter((_, i) => i !== idx));
-          }}
-        />
-      )}
 
       {/* 禅模式退出提示 */}
       {isZenMode && (

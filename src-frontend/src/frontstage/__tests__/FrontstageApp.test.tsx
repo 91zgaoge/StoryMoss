@@ -80,9 +80,8 @@ describe('FrontstageApp', () => {
     // Header 应该存在
     expect(screen.getByText('草苔')).toBeInTheDocument();
 
-    // Sidebar 按钮应该存在
-    expect(screen.getByTitle('修订模式')).toBeInTheDocument();
-    expect(screen.getByTitle('打开幕后工作室')).toBeInTheDocument();
+    // 设置 / 幕后工作室按钮应该存在（已移到顶部色调设置旁边）
+    expect(screen.getByTitle('打开设置 / 幕后工作室')).toBeInTheDocument();
 
     // BottomBar 应该存在
     expect(screen.getByPlaceholderText('输入任意指令…')).toBeInTheDocument();
@@ -91,6 +90,10 @@ describe('FrontstageApp', () => {
     await waitFor(() => {
       expect(screen.getByTestId('rich-text-editor')).toBeInTheDocument();
     });
+
+    // 左侧边栏已完全删除
+    expect(screen.queryByTitle('修订模式')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('生成古典评点')).not.toBeInTheDocument();
   });
 
   it('不应该渲染窥视面板按钮（已移除）', () => {
@@ -109,9 +112,6 @@ describe('FrontstageApp', () => {
     await waitFor(() => {
       expect(screen.queryByTitle('进入全屏禅写模式（F11）')).not.toBeInTheDocument();
     });
-
-    // 禅模式下 Sidebar 应该消失
-    expect(screen.queryByTitle('修订模式')).not.toBeInTheDocument();
 
     // 禅模式下 BottomBar 应该消失
     expect(screen.queryByPlaceholderText('输入任意指令…')).not.toBeInTheDocument();
@@ -135,25 +135,8 @@ describe('FrontstageApp', () => {
     // 恢复正常
     await waitFor(() => {
       expect(screen.getByTitle('进入全屏禅写模式（F11）')).toBeInTheDocument();
-      expect(screen.getByTitle('修订模式')).toBeInTheDocument();
+      expect(screen.getByTitle('打开设置 / 幕后工作室')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('输入任意指令…')).toBeInTheDocument();
-    });
-  });
-
-  it('点击修订模式按钮应该切换状态', async () => {
-    render(<FrontstageApp />);
-
-    const revisionBtn = screen.getByTitle('修订模式');
-    expect(revisionBtn).not.toHaveClass('active');
-
-    await userEvent.click(revisionBtn);
-    await waitFor(() => {
-      expect(screen.getByTitle('修订模式')).toHaveClass('active');
-    });
-
-    await userEvent.click(revisionBtn);
-    await waitFor(() => {
-      expect(screen.getByTitle('修订模式')).not.toHaveClass('active');
     });
   });
 });

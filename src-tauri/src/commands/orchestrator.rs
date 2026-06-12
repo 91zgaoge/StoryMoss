@@ -49,7 +49,7 @@ pub async fn smart_execute(
             );
         };
 
-    emit_progress("loading_context", "正在加载故事上下文...", 1, 5);
+    emit_progress("loading_context", "正在读取故事信息...", 1, 5);
 
     // 构建 PlanContext：从当前系统状态推断
     let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| {
@@ -298,6 +298,7 @@ pub async fn smart_execute(
         mcp_tools_available,
         chapter_number,
     ) = if let Some(ref story_id) = current_story_id {
+        emit_progress("loading_context", "正在读取章节与场景结构...", 1, 5);
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let scenes = scene_repo.get_by_story(story_id).map_err(|e| {
             AppError::internal(format!("[smart_execute] Failed to load scenes: {}", e))
@@ -370,6 +371,8 @@ pub async fn smart_execute(
             }
         };
 
+        emit_progress("loading_context", "正在读取世界观、角色与伏笔...", 1, 5);
+
         // ===== 增强上下文加载 =====
         // 世界观摘要
         let wb_repo = crate::db::repositories::WorldBuildingRepository::new(pool.clone());
@@ -408,6 +411,8 @@ pub async fn smart_execute(
             .ok()
             .map(|records| records.into_iter().take(5).map(|r| r.content).collect())
             .unwrap_or_default();
+
+        emit_progress("loading_context", "正在读取风格配置...", 1, 5);
 
         // 风格DNA / 风格混合
         let style_dna_info = {

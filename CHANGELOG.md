@@ -2,14 +2,93 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.4] - 修复智能创作进度提示长时间卡住的问题（2026-06-12）
+
+### 摘要
+
+- 解决用户反馈的「智能创作/续写时提示长时间显示“正在理解您的创作意图”」问题
+- 将 `orchestrator-step`（生成/质检/改写）事件监听从局部改为全局，智能输入栏也能实时看到写作进度
+- 在 `smart_execute` 上下文加载阶段新增细粒度进度事件，避免初始阶段无反馈
+- 优化初始提示文案：续写意图显示“正在续写...”，通用指令显示“正在理解创作意图并执行...”
+
+### 前端改进
+
+- **全局 orchestrator-step 监听**：`frontstage/FrontstageApp.tsx`
+  - 新增全局 `orchestrator-step` 监听器，覆盖智能输入栏（`handleSmartGeneration`）和 Ctrl+Enter（`handleRequestGeneration`）两条路径
+  - 统一更新 `generationStatus`、`orchestratorStatus` 与顶部 Toast 大阶段
+  - 移除 `handleRequestGeneration` 中的局部监听器，避免重复接收事件
+- **Toast 大阶段映射扩展**：`frontstage/FrontstageApp.tsx` 的 `getMajorPhase`
+  - 新增“加载上下文 / 读取故事 / 读取章节”→“正在加载故事上下文...”
+  - 新增“分析故事上下文 / planning / context”→“正在规划创作步骤...”
+  - 新增“执行创作计划 / executing”→“正在执行创作计划...”
+  - 新增“生成 / 续写 / writing / draft”→“正在生成续写内容...”
+  - 新增“完成 / completed”→“创作计划执行完成...”
+- **更准确的初始提示**：`frontstage/FrontstageApp.tsx`
+  - 新增 `isContinuationIntent` 辅助函数，识别“续写 / 接着写 / 往下写 / 继续 / 后续”等明确续写意图
+  - 续写意图：状态栏显示“正在续写...”，Toast 显示“📝 正在续写...”
+  - 通用指令：状态栏显示“正在理解创作意图并执行...”，Toast 显示“💭 正在理解创作意图并执行...”
+  - 生成结束后统一清空 `orchestratorStatus`，避免状态残留
+- **后台活动监听器修复**：`hooks/useBackendActivityListener.ts`
+  - `orchestrator-step` 的 `step_type` 映射从英文（Generation/Inspection/Rewrite）修正为中文（生成 / 质检 / 改写），与后端实际发射值一致
+  - 支持 `detail` 字段，优先展示更详细的阶段描述
+- **删除“我学到这些”卡片式提示**：`frontstage/FrontstageApp.tsx` + `frontstage/components/AiLearningIndicator.tsx` + `frontstage/styles/frontstage.css`
+  - 移除右下角的 `AiLearningIndicator` 卡片组件及相关样式
+  - 接受/拒绝续写后的学习反馈改为 `toast.success` 进程提示，样式与其他操作反馈统一
+  - 接受时提示：“已记录接受偏好，系统将学习此方向”
+  - 拒绝时提示：“已记录拒绝偏好，系统将调整生成策略”
+- **完全删除左侧边栏**：`frontstage/FrontstageApp.tsx` + `frontstage/components/FrontstageSidebar.tsx` + `frontstage/styles/frontstage.css`
+  - 移除修订模式按钮、生成古典评点按钮、打开幕后工作室按钮
+  - 删除 `FrontstageSidebar` 组件文件及全部相关样式
+  - 同步清理 `RichTextEditor.tsx` 中的修订模式状态、TrackChanges 扩展、变更追踪 hooks、修订模式横幅
+  - 同步清理 `EditorContextMenu.tsx` 中的“修订模式”与“生成古典评点”菜单项
+- **打开幕后工作室按钮改为设置图标并移到顶部**：`frontstage/components/FrontstageHeader.tsx`
+  - 在顶部色调设置（ColorThemeDot）旁边新增设置按钮
+  - 使用 `Settings` 图标，tooltip 为“打开设置 / 幕后工作室”
+  - 点击后仍打开幕后工作室
+- **Ingest 图标重新设计**：`frontstage/components/IngestHealthIndicator.tsx`
+  - 移除 `Brain`（原图标像橡皮）
+  - 新增统一 VI 风格的自定义 SVG 图标：漏斗 + 下箭头，表示知识/素材汇入
+- **编辑器右键菜单重新设计**：`frontstage/components/EditorContextMenu.tsx` + `frontstage/styles/frontstage.css`
+  - 仅保留 4 个功能：剪切、复制、粘贴、全选
+  - 改为统一 VI 风格的纵向列表：暖色纸张背景、圆角、柔和阴影、hover 高亮、`active:scale(0.98)`
+  - 图标与文字横向排列，剪切/复制在未选中文本时自动禁用
+
+### 后端改进
+
+- **`smart_execute` 上下文加载进度细化**：`src-tauri/src/commands/orchestrator.rs`
+  - “正在加载故事上下文...”→“正在读取故事信息...”
+  - 新增“正在读取章节与场景结构...”
+  - 新增“正在读取世界观、角色与伏笔...”
+  - 新增“正在读取风格配置...”
+  - 让初始 DB 查询阶段也有可见反馈，避免用户以为进程卡住
+
+### 编译与测试状态
+
+- `cargo check --manifest-path src-tauri/Cargo.toml` ✅
+- `cargo +nightly fmt` ✅
+- `npx tsc --noEmit`（src-frontend） ✅
+- `npx vitest run src/frontstage/components/__tests__` ✅ 30 passed
+- `npx vitest run` ✅ 116 passed（全量前端测试）
+- 注：`cargo clippy` 当前仓库存在约 300 个历史 warning，均不在本次修改文件内
+
+### 版本号
+
+- `src-tauri/Cargo.toml`: `0.9.3` → `0.9.4`
+- `src-tauri/tauri.conf.json`: `0.9.3` → `0.9.4`
+- `src-frontend/package.json`: `0.9.3` → `0.9.4`
+
+---
+
 ## [v0.9.3] - 续写性能再优化：候选精简、上下文并行、候选共享缓存（2026-06-12）
 
 ### 摘要
+
 - 针对用户反馈的「单次续写 5–10 分钟太慢」做第二轮优化
 - 在保留生成质量的前提下，减少 LLM 调用次数、并行化上下文查询、让候选间共享预计算缓存
 - 修复 AI 续写接受后内容插入光标位置导致段落混乱的问题
 
 ### 性能优化
+
 - **Writer 默认候选数 3 → 2**：`agents/orchestrator.rs` 在续写场景下将并行候选从 3 个减为 2 个，temperature 调整为 `[0.82, 1.0]`，保留多样性的同时减少 1 次 LLM 调用
 - **StoryContextBuilder 查询并行化**：`creative_engine/context_builder.rs`
   - `build` / `build_quick` / `build_for_scene` 改为 `async`
@@ -23,6 +102,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `build_writer_prompt` 优先使用预计算缓存，避免每个 Writer 候选重复查库
 
 ### 前端体验优化
+
 - **续写过程状态提示细化**：`agents/orchestrator.rs` + `frontstage/FrontstageApp.tsx`
   - `orchestrator-step` 事件新增 `detail` 字段
   - 候选生成阶段提示："生成候选中（共 2 个）"、"候选评估完成，选用最优结果（匹配度 XX%）"
@@ -30,9 +110,11 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 改写阶段提示："质检未达标（风格 XX%，叙事 XX%），进入第 N 轮改写优化"
 
 ### Bug 修复
+
 - **AI 续写接受后始终追加到正文最后**：`frontstage/components/RichTextEditor.tsx` 新增 `appendText` 方法，`FrontstageApp.tsx` 接受续写时改用 `appendText`，避免插入光标处造成段落混乱
 
 ### 编译状态
+
 - `cargo check --lib` ✅
 - `cargo +nightly fmt -- --check` ✅
 - `cargo test --lib` ✅ **318/318** 通过
@@ -42,6 +124,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `npm run build` ✅
 
 ### 版本号
+
 - `src-tauri/Cargo.toml`: `0.9.2` → `0.9.3`
 - `src-tauri/tauri.conf.json`: `0.9.2` → `0.9.3`
 - `src-frontend/package.json`: `0.9.2` → `0.9.3`
@@ -51,11 +134,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.9.2] - 自动创作性能优化：并行化、缓存与前端收敛（2026-06-11）
 
 ### 摘要
+
 - 全面优化自动创作性能，解决“后台任务多”和“创作速度慢”两大痛点
 - `cargo test --lib` 318/318 通过，`vitest run` 124 passed
 - 前端状态栏同一时刻只显示一个主任务，减少用户感知混乱
 
 ### 后端性能优化
+
 - **PlanExecutor 同 batch 步骤并行**：`planner/executor.rs` 中拓扑排序后的无依赖步骤使用 `join_all` 并行执行，多独立 LLM 调用从串行求和变为并行取最大值
 - **GenesisPipeline 后台阶段分组并行**：`narrative/genesis.rs` 将世界观/大纲/角色合并为 `ParallelWorldOutlineCharacterStep`，内部使用 `tokio::join!` 并行调用 LLM；场景、伏笔、知识图谱按依赖顺序执行。后台阶段从 6 个串行步骤优化为 4 个步骤
 - **上下文共享可写化**：`GenesisContext.bundle` 升级为 `Arc<RwLock<NarrativeBundle>>`，支持多个后台步骤安全并发读写
@@ -67,10 +152,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **数据库调优**：`db/connection.rs` 启用 SQLite WAL、busy_timeout=5000、synchronous=NORMAL，连接池从 5 提升到 10
 
 ### 前端体验优化
+
 - **单一主活动显示**：`hooks/useBackendActivityListener.ts` 将合同补齐、Orchestrator、Agent 阶段、smart_execute、pipeline、plan_executor 等 6 类事件聚合为一个 `ai-primary-activity`，按优先级切换显示
 - **生成状态收敛**：`FrontstageApp.tsx` 中本地 `isGenerating` 与 `backendActivityStore` 对齐，后台无活动时自动关闭生成锁
 
 ### 编译状态
+
 - `cargo build --package storyforge` ✅ 成功
 - `cargo test --lib` ✅ **318/318** 通过
 - `cd src-frontend && npx tsc --noEmit` ✅ 零错误
@@ -78,6 +165,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `cd src-frontend && npm run build` ✅ 成功
 
 ### 版本号
+
 - `src-tauri/Cargo.toml`: `0.9.0` → `0.9.2`
 - `src-tauri/tauri.conf.json`: `0.9.0` → `0.9.2`
 - `src-frontend/package.json`: `0.9.0` → `0.9.2`
@@ -87,6 +175,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.9.1] - 架构拆分与全面测试覆盖（2026-06-10）
 
 ### 摘要
+
 - 完成 Phase 3 架构拆分：God File 拆解 + 模型领域拆分 + RESERVED 模块清理
 - 完成 Phase 4 测试覆盖：前端 71 新测试 + Rust 21 新测试 + E2E 36 行为驱动测试
 - `cargo check` 零警告，`cargo test` 318/318 通过
@@ -94,6 +183,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - E2E `npx playwright test` 32 passed, 4 skipped
 
 ### Phase 3 架构拆分
+
 - **repositories.rs 拆分**：6198 行 → 183 行。24 个 Repository 提取到独立 `repositories_{domain}.rs` 文件，保留 Trait Implementations 和 `pub use` 重导出
 - **models.rs 拆分**：按领域拆分为 8 个子模块（scene/story/world/knowledge/studio/change_track/user/pipeline），`models/mod.rs` 统一重导出
 - **FrontstageApp.tsx 拆分**：提取 5 个自定义 hooks + 2 个纯展示子组件
@@ -102,6 +192,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **RESERVED 模块清理**：移除 3 个幽灵模块（`src-core` crate、StoryStateManager、Chat 模块）
 
 ### Phase 4 测试覆盖
+
 - **前端单元测试（71 新测试）**：
   - Hooks：`useFrontstageWensi` 6 例、`useFrontstagePanels` 8 例、`useFrontstageEditor` 7 例、`useFrontstageGeneration` 6 例
   - 组件：`HelpPanel` 3 例、`ZenModeExit` 2 例
@@ -120,6 +211,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 共享 `mock-tauri.ts`：集中式 Tauri API mock 工具
 
 ### 编译状态
+
 - `cargo check` ✅ 零警告
 - `cargo test --lib` ✅ **318/318** 通过
 - `cd src-frontend && npx tsc --noEmit` ✅ 零错误
@@ -131,22 +223,26 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.9.0] - Brooks-Lint 代码质量重构：DTO、服务下沉、前端拆分、迁移框架（2026-06-08）
 
 ### 摘要
+
 - 基于 Brooks-Lint v1.0 扫描报告，完成第一轮代码质量重构
 - `cargo check` 接近零警告（仅 1 处预留测试辅助函数 dead_code 提示）
 - 前端 `tsc --noEmit` 零错误
 - Rust 测试覆盖从 264 → **297** passed，全部本地 SQLite + mock 运行
 
 ### Phase 1 基础设施与测试根基
+
 - **测试覆盖扩展至 297 例**：新增 `db/repositories_tests.rs`、`db/cascade_tests.rs`、`canonical_state/tests.rs` 等模块，为核心 Repository、Cascade 删除、规范状态构建器铺设回归保护网
 - **本地可运行**：所有新增测试基于纯本地 SQLite + mock LLM，无需网络即可通过
 - **迁移框架 SQL 化**：在 `src-tauri/src/db/migrations.rs` 实现自定义 `MigrationRunner`，将历史内联迁移提取为 `V007 ~ V027` 共 21 个版本化 `.sql` 文件，按 `schema_migrations` 表版本顺序执行，支持幂等跳过与 legacy inline 迁移兼容
 
 ### Phase 2 启动序列与全局状态治理
+
 - **`lib.rs` 初始化热点收敛**：`run()` 中 500+ 行的发散式 setup 逻辑拆分为 `init_task_system_and_automation()`、`seed_builtin_data()`、`graceful_shutdown()` 等独立函数
 - **全局静态文档化**：`DB_POOL`、`APP_CONFIG`、`SKILL_MANAGER`、`CHAPTER_COMMIT_DEBOUNCE` 等全局单例添加详细 SAFETY 注释，明确生命周期与迁移路径
 - **连接池初始化整合**：`init_db()` 通过 `MigrationRunner::run_with_legacy()` 统一执行 SQL 迁移与遗留 Rust 内联迁移，避免启动闪退
 
 ### Phase 3 领域层重构
+
 - **DTO 独立化**：新建 `src-tauri/src/db/dto.rs`，将 `CreateSceneRequest`、`UpdateStoryRequest`、`CreateChapterRequest`、`CreateCharacterRequest`、`CreateAiOperationRequest` 等 18+ 个请求/响应 DTO 从 `models.rs` 迁出，消除贫血模型与 DTO 混杂
 - **Story System 服务下沉**：
   - 新建 `story_system/chapter_service.rs`：`ChapterService` / `ChapterCommitDebouncer` / `PayoffDetector` / `AutomationTrigger`，统一处理章节更新后的 debounce commit、伏笔逾期检测、状态同步、Skill Hook
@@ -154,6 +250,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **命令层薄化**：`commands/chapter.rs` 与 `scene_commands.rs` 只保留参数校验与事件发射，业务编排全部委托领域服务
 
 ### Phase 4 前端架构清理
+
 - **`services/tauri.ts` 拆分完成**：原 1,340 行上帝文件拆分为 `services/api/` 下 17 个按域子模块
   - `core.ts`：仅保留 `loggedInvoke<T>`（带参数脱敏与耗时日志）
   - `stories.ts`、`storySystem.ts`、`skills.ts`、`settings.ts`、`intent.ts`、`annotations.ts`、`knowledge.ts`、`memory.ts`、`pipeline.ts`、`quality.ts`、`genesis.ts`、`stream.ts`、`subscription.ts`、`writing.ts`、`wizard.ts`
@@ -162,11 +259,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **状态同步 Hook 完善**：`useSyncStore.ts` 覆盖 Story / Character / Scene / Chapter / WorldBuilding / StyleDna / Task / Annotation / PayoffLedger / DataRefresh 等全量资源，自动调用 `queryClient.invalidateQueries/removeQueries`
 
 ### Phase 5 后端代码质量收尾
+
 - **`cargo check` 接近零警告**：消除 Brooks-Lint 报告中的未使用变量、冗余导入、未处理 Result 等批量问题
 - **字段与序列化清理**：`settings.rs` temperature 序列化、`numberFormat.ts` 浮点精度等前期修复保持稳定
 - **连接状态模块**：`modelConnectionStore.ts` + `ModelCard` 连接测试可视化稳定运行
 
 ### 迁移框架技术细节
+
 - **自定义 `MigrationRunner`**：因项目使用 rusqlite 0.39，未启用 refinery 默认特性，而是实现兼容 runner
 - **路径探测**：支持 exe 旁、`CARGO_MANIFEST_DIR`、`src-tauri/src/db/migrations` 等多环境路径
 - **事务管理**：每个迁移在独立事务中执行，自动忽略 SQL 中的 `BEGIN/COMMIT/ROLLBACK`
@@ -180,6 +279,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.8.2] - LitSeg 拆书融合 Phase 1-6 全面完成（2026-06-03）
 
 ### 📖 LitSeg 叙事感知分块与模型增强
+
 - **Phase 1: 叙事感知分块** (`book_deconstruction/chunker.rs`)
   - `NarrativeAware` 分块策略：章节边界为首要叙事边界，大章节(>8000字)按场景转换点再分
   - 3 个单元测试全部通过
@@ -189,6 +289,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - Migration 85：`reference_scenes` 表增强 narrative 字段
 
 ### 🔧 Pipeline 后处理与向量化
+
 - **Phase 3: Executor 后处理** (`book_deconstruction/executor.rs`)
   - Pipeline 完成后运行 LitSeg 后处理：计算 intensity、推断幕结构、标注 `act_number`
   - Migration 86：`reference_books` 添加 `analyzed_structure_json`
@@ -197,6 +298,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - LanceDB schema 添加 `metadata` 列，旧表自动重建
 
 ### 🔄 转故事与前端升级
+
 - **Phase 4: convert_to_story 迁移** (`book_deconstruction/service.rs`)
   - 拆书转故事时自动创建 `story_outlines`，携带 narrative 结构
 - **Phase 5: 前端升级**
@@ -210,6 +312,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.8.1] - LitSeg 叙事感知分段深度融合（2026-05-30）
 
 ### 📖 LitSeg 叙事感知分段深度融合
+
 - **深度融合而非机械叠加** — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 的核心洞察，将 LitSeg 分析能力融入现有架构而非创建平行系统
 - **删除 3 张冗余表**：`narrative_events` / `narrative_threads` / `narrative_structure`
 - **增强 4 张现有表**：
@@ -221,17 +324,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **保留 2 张表**：`narrative_structure_positions`（场景级精细定位）、`narrative_chunks`（物化缓存）
 
 ### 🧠 AI 叙事结构感知
+
 - **ingest 流程增强** — 保存章节后自动提取叙事事件并更新 scenes 表 narrative 字段
 - **叙事分析流水线** — 在 kg ingest 完成后触发，自动推断叙事线索、分析幕结构、生成叙事感知文本块
 - **Agent 上下文增强** — Writer Agent 系统提示词自动注入当前叙事位置（如"第3幕75%，接近高潮"）
 
 ### 🖥️ 叙事分析页面
+
 - 新增"叙事分析"侧边栏导航项
 - **幕级结构可视化** — 起承转合四幕图，显示章节范围
 - **事件强度时间线** — 按章节排序的强度条，直观展示故事节奏
 - **活跃线索面板** — 未回收伏笔、角色弧光、冲突升级状态
 
 ### 🔧 数据库迁移
+
 - **Migration 79-84**：6 个新迁移完成表结构变更
 - `cargo check` 零错误，`cargo test` 通过
 
@@ -240,26 +346,31 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.8.0] - 模型管理重构 + 浮点数精度修复 + 连接状态增强（2026-05-29）
 
 ### 🎯 模型管理统一集中
+
 - **单一模型管理入口** — 将分散的 Chat/Embedding/Multimodal/Image 四个 Tab 合并为统一的"模型管理"页面 (`UnifiedModelManager`)
 - **顶部类型筛选器** — 全部 / 聊天 / 嵌入 / 多模态 / 图像五档筛选，实时过滤
 - **按类型分组展示** — 同类型模型归为一组，每组带图标和计数
 - **新建模型类型选择** — 添加模型时先选择类型（四卡片 UI），再进入配置表单
 
 ### 🔢 浮点数精度全面修复
+
 - **后端 temperature 序列化规范化** (`settings.rs`) — 新增 `temperature_serde` 模块，序列化/反序列化时统一截断到 2 位小数，范围 `[0.0, 2.0]`
 - **前端数字工具函数** (`numberFormat.ts`) — `normalizeFloat` / `formatDisplayFloat` / `normalizeInt` / `clampNumber` / `formatLatencyWithQuality`
 - **GeneralSettings rewriteThreshold** — slider 值和展示值均经过 `normalizeFloat(value, 2)` 处理，彻底消除 `0.8999999` 类显示问题
 
 ### 🔌 模型连接状态丰富化
+
 - **连接测试步骤可视化** (`ModelCard`) — 检测中显示当前步骤名称 + 脉冲动画；已连接显示延迟 + 质量评级（优秀/良好/一般）；连接失败显示红色状态 + 重试按钮 + 可展开的步骤详情列表
 - **全局连接状态 Store** (`modelConnectionStore.ts`) — Zustand 统一管理，支持自动轮询（30s）、手动重试、批量检测
 - **状态变更 Toast 提示** — 连接恢复 / 断开时自动弹出通知
 
 ### 🖥️ 幕前底部栏 Tooltip 增强
+
 - **悬停模型状态点** 显示丰富信息：模型提供商、API Base 简写、连接延迟、最后检测时间
 - **连接失败时** 显示"前往配置 →"快捷链接，一键跳转到设置页
 
 ### 🛠️ 后端命令重构
+
 - **`commands.rs` 辅助函数提取** — `parse_llm_provider` / `parse_capabilities` / `normalize_temperature` / `build_llm_profile`
 - **`create_model` 重复逻辑合并** — Chat/Multimodal 共用 `build_llm_profile`
 - **`test_model_connection` 重写** — 返回带 `steps` 字段的详细探测结果，每步包含 `name` / `status` / `detail`
@@ -271,22 +382,26 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.7.9] - 六阶段架构深度优化（2026-05-29）
 
 ### 🔒 安全与稳定性
+
 - **修复 FrontstageApp 内存泄漏** — 9 个 Tauri 事件监听器保存 unlisten 回调，组件卸载时统一清理
 - **删除旧版前端死代码** — 移除 src/main.js（~1000 行）和 src/views.js（~1400 行），构建产物仅使用 src-frontend/
 - **清理 lib.rs 空白行** — 删除 200+ 行连续空白行
 - **移除 detect_and_route_intent 死代码** — 始终返回 None 的占位函数及其所有调用点
 
 ### 🏗️ 后端模块化
+
 - **拆分 story_commands.rs** — 3445 行单体文件拆分为 4 个领域文件：scene_commands.rs（33 命令）、creation_commands.rs（24 命令）、studio_commands.rs（32 命令）、revision_commands.rs（16 命令）
 - **统一错误处理** — 14 个命令文件从 `Result<T, String>` 迁移到 `Result<T, AppError>`，消除两套错误模式并存
 - **标准化状态注入** — 所有命令文件从全局 `get_pool()` 改为 `State<'_, DbPool>` 参数注入
 
 ### 🔄 状态同步
+
 - **32 个 mutation 命令补全状态同步事件** — skill/export/story_system/intent/studio/creation/revision 等领域
 - **React Query 缓存优化** — currentStory 切换时先 `cancelQueries()` 取消过时请求，再 `invalidateQueries()`
 - **DOM hack 封装** — App.tsx 中的 forceRedraw 提取为 `useWebViewRedrawFix()` hook
 
 ### 🔧 构建工具链
+
 - **Rust 格式化配置** — 新增 rustfmt.toml（max_width=100, edition=2021, imports_granularity）
 - **Clippy 配置** — 新增 .clippy.toml（自定义 doc-valid-idents）
 - **前端格式化** — 新增 .prettierrc + eslint.config.mjs（ESLint v9 flat config）
@@ -294,12 +409,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **CI 质量门禁** — build.yml 新增 cargo fmt --check、cargo clippy -- -D warnings、npm run format:check、npm run lint
 
 ### 🗄️ 数据层深化
+
 - **迁移版本控制** — 新增 schema_migrations 表，`get_current_version()` + `record_migration()` 管理 72 个迁移
 - **删除 v3 模型文件** — models_v3.rs（~2900 行）和 repositories_v3.rs（~3200 行）已删除
 - **合并 create_v3_tables** — 将 v3 表定义内联到 create_tables，消除重复调用
 - **向量存储统一** — 删除 FallbackVectorStore，所有向量操作统一走 LanceVectorStore
 
 ### 🏛️ 架构改进
+
 - **AgentContext 拆分** — 拆分为 StoryContext / NarrativeContext / StyleContext / WorldContext / AgentMemoryContext 5 个子结构
 - **优雅关闭** — `graceful_shutdown()` 执行 SQLite WAL checkpoint → 持久化 pending vector indexes → 停止 automation service → exit(0)
 - **修复 LLM 取消竞态** — `cancel_senders` 改为 `HashMap<String, Option<Sender<()>>>`，`cancel_generation()` 使用 `take()` 原子消费 sender，消除 TOCTOU 竞态
@@ -311,6 +428,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.7.8] - 记忆无处不在 + 续写风格指纹加固 + 自动更新增强（2026-05-26）
 
 ### 🧠 记忆无处不在 — 记忆系统与创作流程深度融合
+
 - **章节号正确传递** — `auto_write` / `smart_execute` / `PlanExecutor` 均使用当前场景的 `sequence_number` 作为章节号，修复了记忆上下文永远按第1章构建的问题
 - **MemoryContext 基础设施** — `AgentContext` 新增 `memory_context` 字段，支持带相关度评分的结构化记忆注入（`ScoredMemoryEntry`），`format_memory_context` 显示分数和注入理由
 - **Inspector 第7维「记忆一致性」** — 质检 prompt 新增角色状态一致性(30分)、伏笔回收状态(25分)、世界观规则遵守(25分)、时间线连续性(20分)四子维度
@@ -319,6 +437,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **完整记忆读写闭环** — 读（章节号正确传递 + MemoryContext 注入）→ 校验（Inspector 第7维）→ 写（MemoryWriter 自动压缩）→ 维护（HealthDaemon 定时归档）
 
 ### ✍️ 续写功能风格指纹加固
+
 - **风格指纹引擎** — 从任意参考文本提取句长分布、四字格密度、虚词频率、标志性词汇、锚点片段等量化特征
 - **Writer prompt 自动注入** — 实时从 `current_content` 提取指纹注入 system prompt，支持外部参考文本 + `style_weight` 调节
 - **Inspector 第6维「风格一致性评分」** — 句长(25%) + 词汇(25%) + 虚词(15%) + 四字格(15%) + 语感(20%) 五子维度
@@ -329,6 +448,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **前端 WenSiPanel 增强** — 参考文本输入 + 风格-叙事平衡滑块 + 实时风格分数显示（绿/橙/红三色）
 
 ### 🔄 自动更新系统增强
+
 - **检测间隔缩短** — 24h → 4h
 - **后台静默下载** — 下载进度可视化
 - **结构化更新日志** — 新增/修复/注意分类
@@ -342,12 +462,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.7.7] - 后端预检自动补齐 + 统一后台活动提示系统（2026-05-25）
 
 ### 🛡️ 后端预检自动补齐
+
 - **`execute_writer_raw` 自我修复** — 当 `PreflightChecker` 发现缺少 `MASTER_SETTING` / `CHAPTER` 合同或场景大纲时，不再直接返回 `PREFLIGHT_FAILED` 错误，而是自动调用 `AutoContractBuilder::auto_fill` 补齐缺失要素
 - **补齐后重检** — 自动补齐完成后重新运行 `PreflightChecker::check()`，只有通过后才继续写作流程
 - **事件通知** — 补齐过程中发射 `agent-stage-update` 事件，前端可感知"正在自动补齐"状态
 - **全覆盖** — 所有后端写作入口（`smart_execute`、`auto_write`、`auto_revise`、`generate_scene_draft`、`workflow WriteChapter/Revise`）均受益
 
 ### 💓 统一后台活动提示系统
+
 - **`backendActivityStore` (Zustand)** — 新增统一后台活动状态管理 Store，支持注册/更新/完成/失败/清理活动，按类别优先级自动选择"最重要"的活动作为 `primaryActivity`
 - **`useBackendActivityListener` Hook** — 统一监听 6 类后台事件（`contract-auto-progress`、`orchestrator-step`、`agent-stage-update`、`smart-execute-progress`、`pipeline-progress`、`plan-executor-step`），将分散的进度事件聚合为单一活动状态流
 - **`FrontstageBottomBar` 增强** — 底部状态栏新增心跳脉冲动画（`Activity` 图标 + `animate-ping` 扩散圈）、进度条、多任务计数（`+N`）、类别标签（补齐/编排/流水线/续写/修改），让用户持续感知后台智能平台状态
@@ -355,6 +477,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`WenSiPanel` 同步** — 自动续写/修改的进度（`auto-write-progress-*` / `auto-revise-progress-*`）同步到统一 store，主界面也能感知
 
 ### 🔧 版本同步
+
 - **`tauri.conf.json`** — 版本号从 `0.7.5` 同步为 `0.7.7`
 
 **编译状态**: `cargo check` 零错误，前端 `tsc --noEmit` 通过。
@@ -364,13 +487,16 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v0.7.6] - 系统性差距审计 + 自动补齐修复 + 事件系统强化（2026-05-23）
 
 ### 🔧 场景大纲自动补齐修复
+
 - **`autoCreateSceneOutline` fallback** — 当 `currentScene` 为 null 时，自动创建临时 Scene 对象而非 panic，确保大纲生成流程不中断
 
 ### 📋 系统性差距审计与修复计划
+
 - **`docs/plans/2026-05-23-systemic-gap-audit.md`** — 全面审计 14 个"有设计未集成"子系统，分类为 5 个健康等级（完全健康 / 轻微差距 / 显著差距 / 严重差距 / 有设计未集成）
 - **`docs/plans/2026-05-23-systemic-gap-fix-plan.md`** — 制定可执行的修复路线图，Phase 5.1~5.3 分步落地
 
 ### 🧹 代码清理与架构同步
+
 - **删除废弃 `Chapters.tsx` 页面** — 362 行旧章节管理页面彻底移除，功能已迁移至 Scene 核心流程
 - **`CLAUDE.md` 升级** — 追加 Zero-Pause 连续执行层规范 + GitNexus 代码智能协议（影响分析、变更检测、符号重命名约束）
 - **Rust 后端模块同步**
@@ -392,6 +518,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🎯 事件驱动架构升级
 
 #### 自动化事件覆盖全部关键生命周期
+
 - **`TriggerEvent` 扩展** — 新增 `SceneContentUpdated`、`SceneGenerationRequested`、`SceneGenerated`、`ChapterFinalized` 等事件变体
 - **`create_scene`** — 创建成功后触发 `TriggerEvent::SceneCreated`
 - **`update_scene`** — 更新成功后触发 `TriggerEvent::SceneContentUpdated`
@@ -401,17 +528,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📖 追读力自动评估集成
 
 #### 后端自动触发
+
 - **`update_scene()`** — 内容更新后自动调用 `ReadingPowerEvaluator::evaluate_chapter()`
 - **`finalize_draft()`** — 定稿完成后自动评估并保存追读力数据
 - **`ChapterReadingPowerRepository`** — 评估结果写入 `chapter_reading_power` 表
 
 #### 前端可操作化
+
 - **StorySystem "追读力"标签页** — 新增"重新评估"按钮，支持手动触发评估
 - **API 确认** — `evaluateReadingPower` 已注册到 `tauri.ts`
 
 ### 🛡️ Writer Agent 预检集成
 
 #### 真实预检逻辑（替代存根）
+
 - **`PreflightChecker::check()`** — 实现 4 项真实检查：
   - `MASTER_SETTING` 合同是否存在
   - `CHAPTER` 合同是否存在（解析 JSON 提取 chapter_number）
@@ -420,6 +550,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **返回结构化结果** — `PreflightResult { ready, issues, blocking_issues }`
 
 #### Writer Agent 前拦截
+
 - **`agents/service.rs` `execute_writer_raw()`** — `build_writer_prompt` 之前调用 `PreflightChecker::check()`
 - **阻塞时返回** — `AppError::PreflightFailed { message, issues }`，前端可精准展示阻塞原因
 - **`AppError` 扩展** — 新增 `PreflightFailed` 变体，错误码 `PREFLIGHT_FAILED`
@@ -427,6 +558,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔍 语义检索自动注入 Writer Agent
 
 #### `kb_search` 集成到上下文构建
+
 - **`agents/commands.rs`** — `build_context` 之后、`build_writer_prompt` 之前，检查 `request.input` 长度 >= 10
 - **自动查询** — 调用 `kb_search`（hybrid 模式，top 5），将语义检索结果格式化为 "相关记忆检索" 段落
 - **注入位置** — 追加到 `context.scene_structure`，Writer Prompt 自动包含检索到的相关章节摘要
@@ -434,21 +566,25 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📜 合同与提交链前端可操作化
 
 #### StorySystem "合同"标签页
+
 - **空状态时** — 显示"生成世界观合同"按钮，调用 `createMasterSetting`
 - **选择章节后** — 显示"生成章节合同"按钮，调用 `createChapterContract`
 
 #### StorySystem "提交链"标签页
+
 - **空状态时** — 显示"初始化提交"按钮，调用 `initChapterCommit`
 - **每条 commit 旁** — 添加"应用提交"按钮，调用 `applyChapterCommit`
 
 ### 🔬 叙事审计 story-level 命令与前端面板
 
 #### 后端
+
 - **`audit_story` 命令** — 遍历 story 全部 scene/chapter，调用 `StoryStructureAuditor` 5 维度审计方法
 - **聚合报告** — 返回 `StoryAnalysisReport`，含各维度评分、发现问题列表、综合建议
 - **注册** — `lib.rs` `generate_handler!` 宏注册
 
 #### 前端
+
 - **StorySystem 新增"审计"标签页** — 显示"运行全面审计"按钮
 - **评分展示** — 5 维度进度条（伏笔/角色/场景/世界构建/大纲）
 - **问题列表** — 按严重程度分级（Error/Warning/Info）
@@ -457,11 +593,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🧬 风格进化接入审校反馈
 
 #### 后端
+
 - **`evolve_style_from_anti_ai_review` 命令** — 接收 `story_id` + `AntiAiReview`，调用 `StyleEvolutionEngine::evolve_from_reviews()`
 - **DNA 更新** — 计算 `StyleDnaDelta` 后写入 `style_dna` 表（`update_dna_json`）
 - **注册** — `lib.rs` `generate_handler!` 宏注册
 
 #### 前端
+
 - **Anti-AI 审校结果面板** — 新增"接受审校并进化风格"按钮
 - **状态管理** — `isEvolving` 状态 + `handleEvolveStyle` 处理函数
 - **API** — `evolveStyleFromAntiAiReview` 已注册到 `tauri.ts`
@@ -469,12 +607,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🤖 合同自动补齐（AutoContractBuilder）
 
 #### 自动补齐缺失合同
+
 - **`story_system/auto_contract.rs`** — 新增 `AutoContractBuilder`，当预检发现缺少 `MASTER_SETTING` 或 `CHAPTER` 合同时自动触发
 - **世界观合同自动生成** — 读取故事标题/体裁/简介/角色（最多10个）/世界构建（概念/规则/历史）/已有章节摘要（最多5章），构建 Prompt 调用 LLM 生成 `MasterSettingContract`，自动保存到 `story_contracts`
 - **章节合同自动生成** — 读取故事信息 + 前一章摘要（500字）/ 当前章内容（1000字）/ 后一章摘要（300字）+ 世界观概要，构建 Prompt 调用 LLM 生成 `ChapterContract`，自动保存到 `story_contracts`
 - **进度事件** — `contract-auto-progress`（stage/message/progress），前端实时展示补齐进度
 
 #### 前端预检逻辑重构
+
 - **`FrontstageApp.tsx`** — `handleRequestGeneration` / `handleSmartGeneration` 预检失败时，若检测到缺少合同，自动调用 `autoCreateMissingContracts` 而非仅报错
 - **进度监听** — 监听 `contract-auto-progress` 事件，将进度消息实时显示在生成状态栏（"正在自动补齐合同..." → "世界观合同已生成并保存" → "合同补齐完成，继续生成..."）
 - **补齐后自动续写** — 合同补齐成功后自动继续 AI 生成流程，无需用户再次点击
@@ -486,14 +626,17 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🧹 废弃系统清理（Phase 4）
 
 #### WebSocket 协作服务器
+
 - **`lib.rs`** — WebSocket 服务器启动代码已注释掉，减少运行时资源占用
 - **`useCollaboration.ts`** — `connect()` 直接 toast 提示"协同编辑功能即将推出，敬请期待"，不再尝试连接
 - **模块标记** — `chat` / `collab` / `state` 模块声明旁标注 `RESERVED`
 
 #### StoryStateManager
+
 - **`state/manager.rs`** — 模块顶部添加 `RESERVED FOR FUTURE USE` 说明，与 `CanonicalStateManager` + `StateSync` 功能重叠，暂不维护
 
 #### Chat 模块
+
 - **`chat/mod.rs`** — 模块顶部添加 `RESERVED FOR FUTURE USE` 说明，有 DB 表但无命令暴露
 
 **编译状态**: `cargo check` 零错误，`npm run build` 通过。
@@ -505,6 +648,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🌍 幕后世界构建页面
 
 #### 新增 `WorldBuilding` backstage 页面
+
 - **文件**: `src-frontend/src/pages/WorldBuilding.tsx`
 - **功能**: 显式调整和设置小说的世界观
   - 核心概念编辑（textarea + 800ms debounce 自动保存）
@@ -515,6 +659,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **空状态**: 未选择故事提示；无 world_building 数据时显示「初始化世界构建」按钮
 
 #### 路由与导航注册
+
 - `types/index.ts`: `ViewType` 扩展 `'world_building'`
 - `Sidebar.tsx`: `navItems` 新增「世界构建」（Globe 图标，位于「角色」与「场景」之间）
 - `App.tsx`: `renderView()` switch 注册 `<WorldBuilding />`
@@ -522,6 +667,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔗 世界-场景自动关联（场景增世界增，场景减世界减）
 
 #### `SceneRepository` 注入同步逻辑
+
 - `update()` — 场景 setting 字段变更时自动同步到 `world_building`:
   - `setting_location` → 自动生成 `Physical` 类型 `WorldRule`（如不存在）
   - `setting_atmosphere` → 自动生成 `Cultural` 类型 `WorldRule`（如不存在）
@@ -530,6 +676,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 自动生成规则通过 `description` 中的 `(auto-generated from scene)` 标记，与用户手动规则区分
 
 #### 实时同步事件
+
 - `create_scene` / `update_scene` / `delete_scene` 命令在 setting 字段变更后追加 `emit_world_building_updated`，确保前端世界构建页面实时刷新
 
 **编译状态**: `cargo check` 零错误，`npm run build` 通过。
@@ -541,15 +688,17 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🐛 修复：应用启动闪退
 
 #### 根因
+
 旧数据库升级路径中存在 4 处迁移冲突，导致 `init_db` 返回错误，`r2d2::Pool` 未被 `app.manage()` 注册，后续 `app.state()` 调用触发 `state() called before manage()` panic。
 
 #### 修复内容
-| 修复点 | 问题 | 解决 |
-|--------|------|------|
-| `create_tables` 初始 Schema | `scene_divider_nodes` 表在 `scenes` 表之前创建，FK 引用失败 | 移除 `scene_divider_nodes`（已由 Migration 72 处理） |
-| Migration 71 | `ALTER TABLE chapters DROP COLUMN scene_id` 失败，因为列上有索引 | 先 `DROP INDEX idx_chapters_scene`，再 `DROP COLUMN` |
-| Migration 69 | `INSERT OR IGNORE INTO narrative_*` 从 `reference_*` 迁移数据时，`book_id` 不存在于 `stories` 表，触发 FK 约束失败 | 添加 `EXISTS (SELECT 1 FROM stories WHERE id = rc.book_id)` 过滤 |
-| Migration 70 | `ALTER TABLE chapter_commits RENAME TO scene_commits` 失败，因为 Migration 48 已创建空的 `scene_commits` | 重命名前检测并 `DROP` 空表 |
+
+| 修复点                      | 问题                                                                                                               | 解决                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `create_tables` 初始 Schema | `scene_divider_nodes` 表在 `scenes` 表之前创建，FK 引用失败                                                        | 移除 `scene_divider_nodes`（已由 Migration 72 处理）             |
+| Migration 71                | `ALTER TABLE chapters DROP COLUMN scene_id` 失败，因为列上有索引                                                   | 先 `DROP INDEX idx_chapters_scene`，再 `DROP COLUMN`             |
+| Migration 69                | `INSERT OR IGNORE INTO narrative_*` 从 `reference_*` 迁移数据时，`book_id` 不存在于 `stories` 表，触发 FK 约束失败 | 添加 `EXISTS (SELECT 1 FROM stories WHERE id = rc.book_id)` 过滤 |
+| Migration 70                | `ALTER TABLE chapter_commits RENAME TO scene_commits` 失败，因为 Migration 48 已创建空的 `scene_commits`           | 重命名前检测并 `DROP` 空表                                       |
 
 **编译状态**：`cargo check` 零错误，`cargo test` ~225/225 通过，`npm run build` 通过。
 
@@ -560,28 +709,33 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 💼 商业模式重构：订阅解锁功能，非模型配额
 
 #### SubscriptionService 精简
+
 - **移除配额计量体系**：删除 `QuotaDetail`、`QuotaCheckResult`、`OFFLINE_GRACE_LIMIT` 及全部配额检查/消费方法
 - **移除方法**：`get_or_create_quota`、`get_quota_detail`、`check_auto_write_quota`、`consume_auto_write_quota`、`check_auto_revise_quota`、`consume_auto_revise_quota`、`check_platform_model_quota`、`consume_platform_model_quota`、`check_ai_quota`、`consume_ai_quota`
 - **保留方法**：`get_or_create_subscription`（仅创建/查询订阅状态）、`has_feature_access`（功能开关检查）、`upgrade_subscription`、`log_ai_usage`（纯统计）
 
 #### `has_feature_access` 细粒度功能权限
+
 - **Free 用户可用**：`writer`、`scene_management`、`character_management`、`knowledge_graph_query`、`outline`
 - **Pro/Enterprise 解锁**：`pipeline_refine`、`pipeline_review`、`pipeline_finalize`、`book_deconstruction`、`auto_write`、`auto_revise` 等全部高级功能
 - **拆书与 Pipeline 命令接入**：`book_deconstruction/commands.rs` 和 `pipeline/commands.rs` 统一调用 `has_feature_access`，未授权返回 `AppError::subscription_required`
 
 #### `AppError::SubscriptionRequired` 取代 `QuotaExceeded`
+
 - **错误码变更**：`QUOTA_EXCEEDED` → `SUBSCRIPTION_REQUIRED`
 - **字段变更**：`{ quota_type, remaining }` → `{ feature_id, current_tier }`
 - **构造函数变更**：`quota_exceeded()` → `subscription_required(feature_id, message)`
 - **前端兼容**：`loggedInvoke` 按 `SUBSCRIPTION_REQUIRED` code 渲染升级引导 UI
 
 #### `log_ai_usage` 纯统计（不参与配额控制）
+
 - 记录字段：`user_id`、`story_id`、`chapter_id`、`agent_type`、`instruction`、`prompt_tokens`、`completion_tokens`、`model_used`、`cost`、`duration_ms`、`tier_at_time`
 - 仅用于 UsageStats 看板展示，不做任何拦截或限制
 
 ### 🏗️ 1:N Chapter↔Scene 架构完成（Phase 4）
 
 #### 废弃 `chapters.scene_id`
+
 - **Migration 71**：`chapters` 表移除 `scene_id` 列（旧数据库 `DROP COLUMN IF EXISTS`）
 - **`Chapter` 模型**：删除 `pub scene_id: Option<String>` 字段
 - **全链路改为 `scenes.chapter_id` 查询**：
@@ -591,6 +745,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `lib.rs` `create_chapter` / `update_chapter`：改为 `SceneRepository::get_by_chapter(&chapter.id)` 查询关联场景，触发 `SceneCommitService::auto_commit`
 
 #### `SceneCommitService` 取代 `ChapterCommitService`
+
 - **提交粒度对齐 Scene**：`scene_commits` 表新增 `scene_id` 外键（可空），记录 `state_deltas_json` / `entity_deltas_json` / `accepted_events_json`，提交链以 Scene 为单元
 - **Migration 70**：`chapter_commits` 表重命名为 `scene_commits`；所有索引同步重建（`idx_scene_commits_story` / `idx_scene_commits_scene` / `idx_scene_commits_number` / `idx_scene_commits_chapter`）
 - **Repository 重命名**：`ChapterCommitRepository` → `SceneCommitRepository`，`ChapterCommit` → `SceneCommit`
@@ -598,12 +753,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **IPC 命令**：`init_chapter_commit` / `apply_chapter_commit` / `get_chapter_commits` 保留原签名，内部操作 `scene_commits` 表
 
 #### `SceneDividerNode` 功能预留接口
+
 - **`SceneDividerNode` 模型**（`db/models_v3.rs`）：`id` / `chapter_id` / `position` / `scene_id` / `label` / `created_at` / `updated_at`
 - **`SceneDividerRepository`**（`db/repositories_v3.rs`）：`create`、`get_by_chapter`、`set_dividers`（事务级全量替换）、`delete`、`delete_by_chapter`
 - **Migration 72**：`scene_divider_nodes` 表（`TEXT` 主键 + `chapter_id` 外键 + `position` 整数 + `scene_id` / `label`），新建数据库自动创建；`CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)`
 - **前端保留**：`SceneDividerNode.ts` TipTap 扩展维持原子块节点定义，等待 1:N 编辑器模式激活
 
 ### 🔧 其他变更
+
 - **`db/connection.rs` 初始 Schema**：`scenes` 表 CREATE TABLE 添加 `chapter_id TEXT` + `FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL`；`CREATE INDEX idx_scene_chapter ON scenes(chapter_id)`；新增 `scene_divider_nodes` 表定义
 - **编译状态**：`cargo check` 零错误，`cargo test` ~225/225 通过，`npm run build` 通过
 - **版本号**：Cargo.toml / package.json / tauri.conf.json → 0.7.3
@@ -617,30 +774,36 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🌍 新增第五种创作方法论
 
 #### 后端实现
+
 - **`high_density_world_building.rs`** — 新建方法论模块，定义 `WorldBuildingPhase` 枚举（Seed/StateExpansion/Convergence/DensityIteration）+ `HighDensityWorldBuildingMethodology` 实现 `Methodology` trait
 - **`FromStr` 解析** — 支持 `"seed"` / `"1"` / `"state_expansion"` / `"2"` / `"convergence"` / `"3"` / `"density_iteration"` / `"4"` 等多种阶段标识解析
 - **`MethodologyType` 注册** — `mod.rs` 新增 `HighDensityWorldBuilding` 变体，`name()` / `description()` / `build_prompt_extension()` / `list_available()` 完整分支
 - **`agents/service.rs` 接入** — writer prompt 映射新增 `"world_building"` → `MethodologyType::HighDensityWorldBuilding`
 
 #### 四阶段世界构建流程
+
 - **阶段 1：最小世界种子** — 设计高密度"世界切片"（锚点场景/地点/事件），定义核心状态向量（身份/资源/关系旗标/历史旗标/心理目标），创建 3-5 个桥节点（每个至少连接 3 条叙事线）
 - **阶段 2：状态网扩张** — 主角群扩展（每人独特初始状态但共享桥节点），列出"状态触发表"（资源匮乏+关系敌对→冲突等），世界规则显式化，信息不对称矩阵
 - **阶段 3：多线交织与回流** — 桥节点多线映射（正面/侧面/误解视角），每 3-5 章至少一次回流，事件多功能重用（叙事+世界构建+象征/驱动），伏笔与回响网络
 - **阶段 4：密度迭代与克制** — 克制检查清单（每引入新元素问能否被现有替代），"未写出的世界"留白审计，状态一致性审计，涌现性验证，重读价值优化
 
 #### 前端集成
+
 - **`MethodologySettings.tsx`** — `methodologies` 数组新增 `{ id: 'world_building', name: '高密度世界构建', description: '...' }` 选项
 - **阶段选择 UI** — 新增 `worldBuildingPhases` 数组（4 个阶段名称）+ `methodologyId === 'world_building'` 条件渲染阶段选择器
 - **保存逻辑** — `handleSave` 正确写入 `methodology_id` + `methodology_step`
 
 #### 输出 Schema
+
 每阶段提供结构化 JSON Schema，规范 AI 输出格式：
+
 - Seed：`{ seed: { anchor_scene, state_vectors[], bridge_nodes[] } }`
 - StateExpansion：`{ protagonists[], trigger_table[], world_rules[], information_asymmetry[] }`
 - Convergence：`{ bridge_perspectives[], convergence_points[], event_functions[], foreshadowing[] }`
 - DensityIteration：`{ restraint_check, unwritten_world, state_consistency[], emergence_validation, reread_value[] }`
 
 **编译与测试**
+
 - `cargo check`：零错误
 - `cargo test`：~225/225 通过
 - `npm run build`：通过
@@ -652,6 +815,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🏭 AI 三审 Pipeline 系统
 
 #### Pipeline 核心架构
+
 - **`pipeline/mod.rs`** — 四级创作管线：`Rewrite` → `Refine` → `Review` → `Finalize`
 - **`pipeline/refine.rs`** — `run_refine(story_id, draft_id, chapter_info, config)`：AI 修稿，对章节草稿进行语言润色、结构调整、错别字修正
 - **`pipeline/review.rs`** — `run_review(...)`：AI 审稿，输出 `overall_score`（0-100）+ `dimensions` JSON 数组 + `issues` JSON 数组 + `content` 总结
@@ -659,22 +823,26 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`pipeline/post_process.rs`** — `run_post_process_step(...)` + `run_character_cards(...)`：执行单个后处理步骤，LLM 驱动角色状态解析
 
 #### 后处理步骤追踪
+
 - **`PostProcessStepDef`** 定义 4 个标准步骤：`kb_import`（知识库更新）、`chapter_notes`（章节笔记）、`character_cards`（角色状态卡）、`style_analysis`（风格分析）
 - **`PostProcessStep`** 数据库记录：`id`/`story_id`/`chapter_number`/`step_type`/`status`（Running/Success/Failed）/`is_critical`/`error_message`/`created_at`/`updated_at`
 - **关键/非关键分类**：`is_critical=true` 的步骤失败时阻断定稿流程；非关键步骤失败仅记录日志，不影响整体定稿
 - **真实执行**：`finalize.rs` 创建 `LlmService` 并调用 `run_post_process_step`，更新每一步的真实状态（替代原占位实现）
 
 #### LLM 驱动角色状态解析
+
 - `run_character_cards` 构建综合 Prompt：角色上下文（姓名/背景/性格/目标/外貌/关系）+ 章节内容
 - 调用 LLM 输出 JSON 数组：`[{ "character_id": "...", "cs_location": "...", "cs_power_level": "...", ... }]`
 - 解析 JSON 后批量更新 `characters` 表的 6 个动态状态字段 + `cs_updated_at_chapter`
 
 #### 前端 Pipeline 面板
+
 - **`Stories.tsx`** 场景级 Pipeline 进度看板：场景列表显示 `execution_stage` 彩色徽章（plan/outline/draft/review/final）+ 多色进度条
 - **Actions/Drafts/Reviews 三标签页**：Actions 执行修稿/审稿/定稿；Drafts 查看草稿列表；Reviews 查看审稿结果与评分
 - **`usePipeline.ts`** 新增 `parseReviewResult()` 辅助函数，将后端 `PipelineReview`（JSON 字符串字段）解析为结构化 `ReviewResult`
 
 #### 幕前 `/` 指令打通
+
 - **`RichTextEditor.tsx`** 扩展 slash 命令映射：`AI修稿`/`修稿` → `pipeline_refine`、`AI审稿`/`审稿` → `pipeline_review`、`定稿` → `pipeline_finalize`
 - **`FrontstageApp.tsx`** 新增 `handlePipelineRefine` / `handlePipelineReview` / `handlePipelineFinalize` 处理器，调用 `runRefine` / `runReview` / `runFinalize` IPC
 - `RichTextEditorRef` 扩展 `setContent(text: string)` 方法，支持 Pipeline 执行后自动回写编辑器内容
@@ -682,6 +850,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🧬 角色动态状态系统
 
 #### 6 项动态状态字段
+
 - `cs_location` — 角色当前所在位置
 - `cs_power_level` — 实力等级/修为层次
 - `cs_physical_state` — 身体状态（健康/负伤/疲惫等）
@@ -691,6 +860,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `cs_updated_at_chapter` — 状态最后更新的章节号
 
 #### `CharacterStatePanel` 组件
+
 - 可折叠 UI：每个角色卡片下方展开/收起状态面板
 - 6 字段只读展示 + `cs_updated_at_chapter` 时间戳
 - 内联编辑：点击字段值进入编辑模式，失焦自动保存
@@ -699,27 +869,32 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📊 用量统计与可观测性
 
 #### `UsageStats` 页面
+
 - 幕后独立页面，Sidebar `BarChart3` 图标导航
 - **全局统计卡片**：总调用次数 / 总 token 数 / 平均响应时间 / 成功率
 - **单故事统计**：按故事维度聚合（调用次数 / token 消耗）
 - **最近调用记录表**：最近 20 条，展示模型名称、功能、token、耗时、状态、时间
 
 #### 后端 API
+
 - `get_llm_call_stats(story_id?: string)` — 返回 `LlmCallStats`（全局或单故事）
 - `get_recent_llm_calls(limit: i64)` — 返回最近 N 条 `LlmCallRecord`
 - `LlmCallRepository` — `get_stats()` / `get_recent()` 统计查询
 
 ### 🖥️ 前端架构升级
+
 - **`Sidebar.tsx`** 新增「用量统计」导航项（`BarChart3` 图标）
 - **`App.tsx`** 新增 `UsageStats` 路由 case（`'usage-stats'`）
 - **`types/index.ts`** `ViewType` 扩展 `'usage-stats'`
 
 ### 🔧 技术细节
+
 - `finalize.rs` 原占位实现重写为真实执行逻辑：创建 `LlmService` → 遍历步骤定义 → 执行 `run_post_process_step` → 更新数据库状态
 - `post_process.rs` 修复 `resp.text` → `resp.content`（`GenerateResponse` 字段名修正）
 - `usePipeline.ts` 类型对齐：`refreshReviews` 返回 `ReviewResult | null`（通过 `parseReviewResult` 转换）
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
@@ -732,6 +907,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📝 网文体裁模板扩充与优化
 
 #### 新增 5 个 2026 年热门/经典缺失体裁模板
+
 - **灵气复苏** (`spiritual-recovery`) — 现代都市中灵气突然复苏，强调"日常与超凡的撕裂感"与旧秩序崩溃后的新博弈
 - **规则怪谈** (`rules-horror`) — 以"规则文本"为核心恐怖机制的独立流派，逻辑推理与在规则夹缝中求生存
 - **模拟器流** (`simulator`) — 系统流独立分支，"人生模拟器"推演不同选择，用无数次虚拟死亡换取现实中一次正确选择
@@ -739,14 +915,17 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **星际机甲** (`mecha-stellar`) — 科幻核心分支，机甲战斗、星际战争、宇宙探索，钢铁浪漫与史诗感
 
 #### 现有 38 个模板全面优化
+
 - **typical_structure 补全** — 全部 38 个现有模板从空数组 `[]` 补充为完整的 `{title, description}` 典型结构节点（平均 5-6 个阶段），为 AI 生成提供更清晰的叙事结构指引
 - **凡人流反模式修复** — 原 `anti_patterns` 为空的凡人流模板补充 5 条反模式（资质逆转、准备无敌、越阶无代价、人缘逆天、长生无感）
 
 #### 数据更新
+
 - `templates/genres.json`：`count` 38 → 43，全部 43 个 profile 已补充 `typical_structure`
 - 新增 5 个 Markdown 模板文件：`mecha-stellar.md` / `spiritual-recovery.md` / `rules-horror.md` / `simulator.md` / `tomb-raiding.md`
 
 **编译与测试**
+
 - `cargo check`：零错误
 - `cargo test`：~225/225 通过
 - `npm run build`：通过
@@ -758,7 +937,8 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 🗄️ 拆书分析存储同构化
 
-#### 统一存储层：reference_* → narrative_*
+#### 统一存储层：reference*\* → narrative*\*
+
 - **`BookDeconstructionExecutor`** — 分析结果保存时统一写入 `narrative_characters` / `narrative_scenes` / `narrative_world_buildings`，`source='extracted'` / `status='reference'`
 - **`BookDeconstructionService::run_analysis`** — 保存到 `reference_*` 后，同步转换为 `CharacterElement` / `SceneElement` 并写入 `narrative_*`，保持过渡期双向兼容
 - **`BookDeconstructionService::get_analysis`** — 从 `narrative_*` 读取并转换回 `BookAnalysisResult`，API 接口零变动
@@ -766,6 +946,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`BookDeconstructionService::convert_to_story`** — 一键转故事时自动 `UPDATE narrative_* SET status = 'active'`，角色/场景从参考态切换为生产态
 
 #### Migration 69：历史数据自动迁移
+
 - `reference_characters` → `narrative_characters`：`INSERT OR IGNORE` + `LEFT JOIN` 去重，缺失字段（`background`/`goals`/`gender`/`age`）置空或默认值
 - `reference_scenes` → `narrative_scenes`：同上，字段映射对齐 `SceneElement` 结构
 
@@ -804,10 +985,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **向后兼容** — 未显式返回 `AppError` 的命令仍走原有字符串错误路径，逐步迁移
 
 ### 🔧 其他修复
+
 - **`CharacterElement::fears` 字段补全** — `service.rs` 构造 `CharacterElement` 时新增 `fears: String::new()`，修复 `cargo check` 编译错误
 - **`AgentResult::request_id` 测试补全** — `orchestrator.rs` 测试初始化补充 `request_id: None`，修复 `cargo test` 编译错误
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
@@ -820,12 +1003,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🏗️ 后端架构优化
 
 #### ChapterCommitService 防抖聚合提交
+
 - **`lib.rs`** — 移除独立的 `auto_ingest_chapter` 函数、`INGEST_COOLDOWN`、`hash_content`，消除与 Projection Writer 的重复索引工作
 - **`CHAPTER_COMMIT_DEBOUNCE`** — 新增全局防抖状态，`CHAPTER_COMMIT_DEBOUNCE_SECONDS = 30`
 - **`ChapterCommitService::auto_commit()`** — 取代 `auto_ingest_chapter`，30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`
 - `update_chapter` / `create_chapter` 命令统一调用 `auto_commit` 而非独立摄取
 
 #### 导出聚合完整性
+
 - **`export/mod.rs`** — `export_to_file` 新增 `scenes` 参数
 - **`export_story`（`lib.rs`）** — 导出前自动检查章节内容，空章节按关联场景的 `sequence_number` 排序聚合填充，确保 Markdown/HTML/PlainText 导出完整无缺
 - `generate_json` 导出 schema 扩展为包含 `scenes` 数组，支持全数据便携导出
@@ -833,16 +1018,19 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🖥️ 前端架构优化
 
 #### 大型组件提取重构
+
 - **`Settings.tsx`** — 提取 8 个原子化子组件到 `src/pages/settings/`：`ModelCard`、`ModelList`、`ModelModal`、`StatsSettings`、`MethodologySettings`、`WorkflowSettings`、`GeneralSettings`、`AccountSettings`
 - **`SceneEditor.tsx`** — 提取 `SceneAuditPanel` 和 `SceneAnnotationPanel` 到 `src/components/scene-editor/` 子目录，消除重复渲染与关注点混杂
 - 清理未使用导入：`Image`、`createLogger`、`Clock`、`Eye`、`FileText`、`CharacterConflict`、`AuditReport`
 - 移除 `SceneEditor.tsx` 中未使用的 `handleStageChange` 函数
 
 #### StoryTimeline 场景进度可视化
+
 - **`StoryTimeline.tsx`** — 场景卡片新增 `execution_stage` 彩色徽章（plan/outline/draft/review/final），与叙事阶段（铺垫/上升/高潮/收尾）双轨可视化
 - 新增辅助函数 `getExecutionStageLabel()` / `getExecutionStageColor()`
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
@@ -854,11 +1042,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🏗️ 架构级新体系：Story System 合同驱动
 
 #### 四级合同架构
+
 - **`story_contracts` 表**（Migration 47）— 四级合同存储：`MASTER_SETTING`（故事级全局设定）/ `Volume`（卷级设定）/ `Chapter`（章节级设定与预期）/ `Review`（审阅与修订合同）
 - **`chapter_commits` 表**（Migration 48）— CHAPTER_COMMIT 写后真源，记录 `state_deltas_json`、`entity_deltas_json`、`accepted_events_json`，形成提交链
 - **8 个新 Repository** — `StoryContractRepository`、`ChapterCommitRepository`、`MemoryItemRepository`、`ChapterReadingPowerRepository`、`ChaseDebtRepository`、`OverrideContractRepository`、`ReviewIssueRepository`、`GenreProfileRepository`
 
 #### CHAPTER_COMMIT 提交链与 Projection Writer
+
 - `ChapterCommitService::init_commit()` — 创建初始 commit 记录
 - `ChapterCommitService::apply_commit()` — 异步应用 commit，驱动 5 个 Projection Writer
   - `StateProjectionWriter` — 解析 `state_deltas_json`，写入 `memory_items`（category="state"）
@@ -872,6 +1062,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🧠 三层记忆编排器
 
 #### MemoryOrchestrator
+
 - `build_memory_pack()` — 按任务类型（write/plan/review）动态组装 MemoryPack
 - **三层记忆模型**：
   - **Working Memory**：最近 5 章 + 活跃角色（出场 > 3 次）+ 开放伏笔（未回收）
@@ -884,6 +1075,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📈 追读力评估系统
 
 #### ReadingPowerEvaluator
+
 - `evaluate()` — 单章追读力五维评估：
   - **Hook 检测**：悬念/冲突/转折三类钩子识别与计数
   - **Coolpoint 追踪**：打脸/收获/揭秘三类爽点追踪
@@ -892,6 +1084,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `get_trend()` — 返回最近 N 章评分趋势数组
 
 #### DebtManager
+
 - `create_debt()` — 创建未兑现承诺/伏笔债务
 - `accrue_interest()` — 债务逾期自动计算利息（每日 5%）
 - `check_overdue_debts()` — 扫描逾期债务并返回告警
@@ -902,6 +1095,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📚 37 体裁模板库
 
 #### GenreProfile
+
 - **`templates/genres/`** 目录新增 37 个 Markdown 体裁模板文件
 - **内置模板覆盖**：玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/游戏/修真/无限流/系统流/重生/穿越/快穿/凡人流/争霸流/幕后流/签到流/御兽流/驭鬼流/诡异流/赛博朋克/蒸汽朋克/克苏鲁/国运流/种田/末世/轻小说/体育/军事/西幻/灵异/现实/洪荒/武侠仙侠/诸天万界
 - **模板五要素**：核心基调、节奏策略、反模式清单、参考数据表、典型结构
@@ -911,6 +1105,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔍 Anti-AI 五维审查
 
 #### AntiAiReviewer
+
 - `review(text, genre)` — 对输入文本进行五维度 AI 痕迹审查：
   - **词汇维度**：Cliché 检测（"浩瀚"、"磅礴"、"无尽"、"宛如"等 AI 高频词列表）+ 重复用词统计
   - **语法维度**：句式多样性（句长标准差评估，< 5 为单调）+ 被动语态计数
@@ -922,6 +1117,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🖥️ 前端集成
 
 #### StorySystem.tsx
+
 - 新增幕后页面「故事系统」，5 个标签页：
   - **Contracts** — 合同树浏览、运行时合同查看
   - **Commits** — CHAPTER_COMMIT 提交历史、Projection 状态追踪
@@ -930,12 +1126,15 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - **Anti-AI** — 五维审查结果、评分与建议
 
 #### Sidebar.tsx
+
 - 新增「故事系统」导航入口（ShieldCheck 图标）
 
 #### App.tsx
+
 - 导入 `StorySystem` 组件，添加 `story-system` 路由 case
 
 #### tauri.ts
+
 - 新增 17 个 v6.0.0 IPC 命令的 TypeScript 接口与 API 函数：
   - `create_master_setting` / `create_chapter_contract` / `get_contract_tree` / `get_runtime_contract`
   - `init_chapter_commit` / `apply_chapter_commit` / `get_chapter_commits`
@@ -945,6 +1144,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `anti_ai_review`
 
 ### 🗄️ 数据库迁移
+
 - **Migration 47**：`story_contracts` 表（四级合同）
 - **Migration 48**：`chapter_commits` 表（提交链）
 - **Migration 49**：`memory_items` 表（记忆项）
@@ -957,17 +1157,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **scenes 表扩展**：新增 `writing_phase` 字段（v6.0.0 叙事阶段标记）
 
 ### 🔧 技术细节
+
 - `IpcResponse` trait 要求 `Serialize` derive — `ContractTree` / `RuntimeContract` / `MemoryPack` / `ReadingPowerEvaluation` 等新增结构体均已实现
 - `apply_chapter_commit` 为异步 Tauri 命令，通过 `VECTOR_STORE.get()` 获取 LanceDB 实例进行向量投影
 - `rusqlite 0.39` 兼容：`row.get::<_, i32>()` 显式类型注解
 - Anti-AI 审查中中文引号使用 Unicode 转义（`\u{201C}` / `\u{201D}` / `\u{2018}` / `\u{2019}`）避免空字符字面量编译错误
 
 **类型安全基座**
+
 - ts-rs 集成：`SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]`
 - 前端穷尽匹配：`useSyncStore.ts` 重构为 typed discriminated union，`assertUnreachable(type: never)`
 - IPC 一致性检查：`scripts/verify-ipc-manifest.py` 自动比对前后端命令注册
 
 **可靠性与可观测性**
+
 - Ingest 作业追踪（Migration 55）：`ingest_jobs` 表记录 pending/running/completed/failed
 - Ingest 健康指示器：幕前顶栏 🧠 图标，点击展示最近 3 条记录
 - Projection 健康检查：`check_projection_health` 解析 `projection_status_json`
@@ -975,11 +1178,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 技术债务清理：删除 `bug_condition_v57.rs` 中 11 个已修复的 `#[ignore]` 测试
 
 **UX 微优化**
+
 - 角色悬浮卡片：RichTextEditor hover 角色名 600ms 显示微型浮卡
 - 体裁模板外部化：`templates/genres.json` 支持用户自定义
 - 导出出版前体检：ExportDialog 4 步流程，可选 Anti-AI 审查
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误（~121 warnings）
 - `cargo test` ✅ ~225/225 全部通过（0 ignored，历史 bug condition 测试已删除）
 - `npm run build` ✅ 通过
@@ -992,21 +1197,25 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 JSON 解析与生成稳定性
 
 #### `extract_and_sanitize_json` 全面增强
+
 - **字符串内未转义换行符修复** — LLM 经常在 JSON 字符串值中直接换行，导致 `serde_json::from_str` 解析失败。新增状态机：仅在字符串内部将实际换行符替换为 `\n`，避免破坏 JSON 结构
 - **C 风格注释移除** — LLM 有时在 JSON 中插入 `//` 或 `/* */` 注释，导致解析失败。新增注释跳过逻辑（保留换行以维持行号）
 - **移除破坏性中文引号替换** — 原代码将中文引号「」『』强制替换为 ASCII 引号 `"`，这会破坏 JSON 字符串边界（如键名或值中包含中文引号时）。修复：不再替换中文引号，JSON 格式错误由 LLM 自行修正
 
 #### 场景生成去重与幂等性
+
 - **跳过重复 `sequence_number`** — LLM 返回的场景列表中可能包含重复的 `sequence_number`（重试或格式错误）。`SceneGenerationStep` 新增 `seen_seqs` HashSet，遇到重复序号时跳过并记录警告日志
 - **更新已存在场景而非重复创建** — Bootstrap 重试或重新执行时，`sequence_number` 已存在的场景不再新建，而是获取现有记录并更新标题/内容，避免数据库中出现重复场景
 
 #### 数据库类型安全加固
+
 - **`scene_id`/`chapter_id` 显式类型注解** — `repositories.rs` 和 `repositories_v3.rs` 中 `row.get(9)?` 等调用添加显式 `Option<String>` 类型注解，消除编译器推断歧义，防止空值场景下的运行时 panic
 - **`pending_vector_indexes` 查询容错** — `lib.rs` 中 `chapter_id` 查询结果从 `String` 改为 `Option<String>`，数据库中可能存在的 NULL 值不再导致 `rusqlite::Error`
 
 ### 🟡 P1 前端排版与体验
 
 #### `autoFormatText` 自动排版引擎
+
 - **新增 `src-frontend/src/utils/format.ts`** — 智能中文段落分段与引号规范化
   - 直引号 `"..."` / `'...'` 自动转换为中文弯引号「...」/『...』
   - 按句子长度（2~4 句/段）、对话检测（以引号开头优先独立成段）智能分段
@@ -1015,10 +1224,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **集成到 `FrontstageApp`** — 所有内容更新路径（`ContentUpdate`/`AppendContent`/`ChapterSwitch`/`SmartGeneration`）统一经过 `autoFormatText`，LLM 返回的未格式化纯文本自动转换为标准 HTML 段落
 
 #### AI 续写去重保护
+
 - **去除重复前缀** — LLM 有时返回包含当前编辑器完整内容的续写结果，导致用户看到重复文本。`requestGeneration` 中新增前缀检测：若生成内容以当前编辑器文本开头，自动截去重复前缀，仅保留新增部分
 - **空内容保护** — 去重后若内容为空，直接提示"AI 续写内容与当前文本相同，无需添加"，不插入空幽灵文本
 
 #### 排版与样式优化
+
 - **`frontstage.css` 借鉴 heti 排版理念** — 添加 `overflow-wrap: break-word`、`hyphens: auto`、`text-spacing-trim: space-all`、`text-autospace: ideograph-alpha`，改善中西文混排效果
 - **段落间距公式化** — `.ProseMirror p` 的 `margin-block-start/end` 改为基于行高的动态计算，更符合中文排版网格
 - **`AiSuggestionNode` 接受逻辑修复** — 接受 AI 建议时先删除原文段落再插入新内容，避免旧内容残留导致重复
@@ -1026,11 +1237,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🟢 P2 基础设施
 
 #### GitHub Actions CI 修复
+
 - **移除 `.cargo/config.toml` UTF-8 BOM** — 字符 65279（`\u{feff}`）导致 `tauri-action` 发布步骤在 Windows 和 Ubuntu 上解析失败。移除 BOM 后三平台构建通过
-- **macOS 构建目标修正** — `macos-latest`  runner 已升级为 Apple Silicon（arm64/M1/M2），原 `x86_64-apple-darwin` 目标在交叉编译时触发 LanceDB AVX512 链接错误（`_sum_4bit_dist_table_32bytes_batch_avx512` symbol not found）。修复：目标改为 `aarch64-apple-darwin`
+- **macOS 构建目标修正** — `macos-latest` runner 已升级为 Apple Silicon（arm64/M1/M2），原 `x86_64-apple-darwin` 目标在交叉编译时触发 LanceDB AVX512 链接错误（`_sum_4bit_dist_table_32bytes_batch_avx512` symbol not found）。修复：目标改为 `aarch64-apple-darwin`
 - **同步本地缺失的 workflow 文件** — `.github/workflows/build.yml` 之前仅存在于 GitHub 远程，未纳入本地版本控制。现已同步到仓库
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误（121 warnings）
 - `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
@@ -1043,17 +1256,19 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 核心断裂修复
 
 #### Tauri v2 自动 camelCase 转换导致 IPC 参数静默丢弃
+
 - **根因**：Tauri v2 默认行为 — `#[tauri::command]` 自动将 Rust `snake_case` 参数名转换为 `camelCase` 传给 JS 前端。v5.6.3 修复将前端参数从 camelCase 改为 snake_case，但未同步修改后端命令宏，导致 Tauri 仍期望 camelCase 而前端传 snake_case，参数全部静默丢弃
 - **影响范围**：`smart_execute`（`user_input`/`current_content` 被丢弃 → AI 续写不可用）、`get_input_hint`、`record_feedback`、`call_mcp_tool`、`check_auto_write_quota`/`check_auto_revise_quota` 等全部命令
 - **修复**：157 个后端 `#[tauri::command]` 全部添加 `rename_all = "snake_case"`
   - `src-tauri/src/lib.rs`：63 个命令
-  - `src-tauri/src/commands_v3.rs`：92 个命令  
+  - `src-tauri/src/commands_v3.rs`：92 个命令
   - `src-tauri/src/subscription/commands.rs`：2 个命令
 - **机制**：`rename_all = "snake_case"` 禁用 Tauri 自动转换，前端传 `user_input` → 后端接收 `user_input`，零映射歧义
 
 ### v5.6.4 设计-实现对齐全面修复 v6（2026-05-13）
 
 #### 🔴 P0 数据层根因修复 — 补齐缺失表定义与级联删除
+
 - **`story_metadata` 表定义补齐**（Migration 43）— `automation/service.rs` 大量操作 `story_metadata` 表，但 `connection.rs` schema 中缺失 CREATE TABLE。修复：新增 `story_metadata` 表（`story_id`/`key`/`value`/`updated_at`）+ 复合索引 + `REFERENCES stories(id) ON DELETE CASCADE` 外键约束
 - **`scene_characters` 表定义补齐**（Migration 44）— `SceneCharacterRepository` 操作 `scene_characters` 表，但 schema 缺失。修复：新增表（`id`/`scene_id`/`character_id`/`created_at`）+ 双外键级联 + 双索引
 - **`scene_character_actions` 表定义补齐**（Migration 45）— 同上，新增表（`id`/`scene_id`/`character_id`/`action_type`/`content`/`created_at`）+ 双外键级联
@@ -1061,12 +1276,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`delete_character` 显式级联清理加固** — 事务内显式清理 `scene_characters`/`scene_character_actions`/`character_relationships`/`character_states`，消除外键未覆盖的残留
 
 #### 🔴 P0 同步事件补全 — 幕前幕后自动关联
+
 - **`auto_ingest_chapter` 发射同步事件** — Ingest 成功保存实体/关系后，追加 `emit_ingestion_completed` + `emit_data_refresh(_, _, "knowledgeGraph")`，幕后 KG 可视化自动刷新新抽取的实体
 - **`update_scene` auto ingest 发射同步事件** — 异步 ingest 块完成保存后，通过 `AppHandle` 发射 `ingestionCompleted` + `dataRefresh(knowledgeGraph)`，消除场景内容更新后 KG 不刷新的问题
 - **KG CRUD 命令统一 StateSync** — `create_entity`/`update_entity`/`delete_entity`/`create_relation`/`delete_relation` 命令末尾全部追加 `emit_data_refresh(_, _, "knowledgeGraph")`，所有 KG 更新统一经过 StateSync，前端实时感知变更
 - **前端 `useSyncStore` 补全特定事件 case** — 新增 `case 'characterRelationshipsUpdated'`（刷新 `characterRelationships` 缓存）、`case 'payoffLedgerUpdated'`（刷新 `payoffLedger` 缓存）、`case 'ingestionCompleted'`（刷新 `knowledgeGraph` 缓存），后端直接发射特定事件时前端正确响应
 
 #### 🟡 P1 Automation Service 全面集成
+
 - **`create_story` 触发 `StoryCreated`** — 故事创建完成后推入 Automation Service 事件队列，激活 `init_story_structure` 等触发器
 - **`create_character` 触发 `CharacterCreated`** — 角色创建完成后触发自动化事件，激活角色分析/关系推断等触发器
 - **`update_chapter` 触发 `ChapterContentUpdated`** — 章节保存后触发内容更新事件（带字数），激活章节审校/向量索引等触发器
@@ -1074,15 +1291,18 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`automation/service.rs` Tauri v2 API 修复** — `emit_all` → `emit`（Tauri v2 `Emitter` trait），`word_count` 类型 `usize` → `i32` 转换修复
 
 #### 🟡 P1 后台自动化闭环
+
 - **`PlanTemplateLibrary` SQLite 持久化**（Migration 46）— 原纯 `Vec<PlanTemplate>` 内存存储，重启后学习成果丢失。修复：新建 `plan_templates` 表（`id`/`trigger_patterns`/`plan_json`/`success_count`/`failure_count`/`created_at`）；`new()` 时从数据库加载；`record_success()` 时保存到 SQLite；`find_match()` 从内存+数据库查询。避免重复 LLM 调用，实现"越写越懂"效果持续累积
 - **能力进化周期触发机制** — 原仅启动时延迟 30 秒执行一次 `evolve_capability_descriptions()`，长时间运行后不进化。修复：`ExecutionRecordStore::append()` 每次追加记录后检查总记录数是否达到阈值（默认 5 的倍数），达到则 `tokio::spawn` 异步触发进化。保留启动时兜底进化
 - **`WorkflowEngine` 恢复实例自动入队** — `with_pool()` 从数据库加载 Pending/Running/Paused 实例到内存 HashMap，但恢复的实例未加入 Scheduler 队列，重启后中断工作流永不执行。修复：`with_pool()` 返回待恢复实例 ID 列表；`lib.rs` setup 中遍历列表调用 `scheduler.schedule_execution(instance_id).await`，确保应用重启后工作流自动恢复调度
 
 #### 🟢 P2 系统整洁度优化
+
 - **Settings.tsx 隐藏图像生成 Tab** — 后端无图像生成 IPC 命令或 Agent，用户配置后无法使用。修复：隐藏"图像生成" Tab 并标注"暂未实现"，消除死胡同功能
 - **StateSync 注释加固** — 在 KG 更新命令中添加注释，说明所有 KG 更新必须经过 StateSync，防止未来开发绕过同步路径
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误（109 warnings）
 - `cargo test` ✅ ~225/225 全部通过（0 ignored，历史 bug condition 测试已删除）
 - `npm run build` ✅ 通过
@@ -1094,10 +1314,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 核心断裂修复
 
 #### Bootstrap 进度卡死修复
+
 - **角色字段缺失导致 serde 反序列化失败** — LLM 返回的 JSON 可能省略 `CharacterElement::age` 和 `SceneElement` 的 8 个核心字段（`sequence_number`/`title`/`summary`/`dramatic_goal`/`external_pressure`/`conflict_type`/`setting_location`/`setting_time`）。缺失字段导致 `serde_json::from_str` 失败 → `PipelineError::ParseError` → 后续步骤永不执行 → 前端永久显示 "塑造角色 (3/6)"。修复：给所有可能被 LLM 省略的字段添加 `#[serde(default)]`
 - **Bootstrap 事件缺少状态传递** — `BootstrapProgressEvent` 没有 `status` 字段，前端无法区分进行中和失败。修复：新增 `BootstrapStatus` 枚举（`InProgress`/`Completed`/`Failed`），事件包含 `status`，前端根据状态显示 ❌ 失败标记
 
 #### IPC 参数名全面审计与修复
+
 - **smart_execute camelCase 传参** — 前端传 `userInput`/`currentContent`，后端期望 `user_input`/`current_content`。Tauri v2 反序列化不匹配导致参数静默丢弃为 `None`，AI 续写/润色完全不可用。修复：前端改为 snake_case 传参
 - **get_input_hint camelCase 传参** — 前端传 `currentContent`，后端期望 `current_content`。修复：改为 snake_case
 - **record_feedback 参数结构错误** — 前端将请求对象展开为平铺字段传递，后端期望 `{ request: RecordFeedbackRequest }` 包裹对象。修复：前端改为 `{ request: req }`
@@ -1106,12 +1328,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **updateConfig 裸 invoke** — `save_settings` 使用裸 `invoke` 绕过日志追踪和错误脱敏。修复：统一使用 `loggedInvoke`
 
 #### 后端命令参数补全
+
 - **run_creation_workflow mode 映射错误** — 前端传 `"human_draft_ai_polish"`，后端只识别 `"human_first"`，导致 "我初稿 + AI 润色" 模式被错误映射为 "AI 初稿 + 我精修"。修复： `"human_draft_ai_polish"` 映射到 `CreationMode::HumanDraftAiPolish`
 - **update_story 缺少 genre 参数** — 后端 `update_story` 命令签名缺少 `genre`，前端 Stories.tsx 编辑表单修改类型被静默忽略。修复：后端添加 `genre: Option<String>`，更新 `UpdateStoryRequest` / `StoryRepository::update` SQL
 - **create_character 扩展字段被忽略** — 后端只接受 `story_id`/`name`/`background`，前端传的 `personality`/`goals`/`appearance`/`gender`/`age` 被硬编码为 `None`。修复：后端扩展参数列表
 - **update_character 扩展字段被忽略** — 后端只接受 `name`/`background`/`personality`/`goals`，缺少 `appearance`/`gender`/`age`。修复：后端扩展参数并传给 Repository
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误（109 warnings）
 - `npm run build` ✅ 通过
 - `cargo tauri build` ✅ Windows 安装包生成
@@ -1123,15 +1347,18 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 核心断裂修复
 
 #### 前端缓存同步精确化
+
 - **writingStyle 缓存刷新错误** — `useSyncStore.ts` 中 `case 'writingStyle'` 刷新的是 `['world_building', storyId]`，但 `useWritingStyle` hook 使用的 queryKey 是 `['writing_style', storyId]`。写作风格更新后前端写作风格缓存不会自动刷新。修复：同时刷新 `['writing_style', storyId]` 缓存
 - **chapterUpdated 缓存刷新不精确** — `case 'chapterUpdated'` 仅调用 `invalidateQueries(['chapters'])`（全局），未刷新 `['chapters', storyId]`（当前故事）。幕前保存章节后，幕后 chapters 列表可能不立即刷新。修复：补充 `invalidateQueries(['chapters', storyId])`
 
 #### 后台自动化闭环补全
+
 - **update_scene 未触发向量索引** — `update_chapter`/`create_chapter` 保存后触发 `auto_ingest_chapter`（含 KG 分析 + 向量索引），但 `update_scene` 仅内联了 KG 分析，未写入 LanceDB 向量存储。修复：将 `VECTOR_STORE`/`embeddings` 可见性提升为 `pub(crate)`；`update_scene` 的 Ingest 逻辑补充 `embed_text_async` → `VectorRecord` → `add_record` 向量索引闭环；通过独立作用域隔离 `Box<dyn Error>` 避免 `Send` 编译错误
 
 ### 🟡 P1 功能补全
 
 #### 前端缓存同步增强
+
 - **storySelected 未刷新关联数据** — `case 'storySelected'` 仅触发回调，未调用 `invalidateQueries`。幕后切换故事时关联数据刷新依赖 `App.tsx` 中的 `useEffect` 时序。修复：补充 characters/scenes/chapters/worldBuilding/foreshadowings/storyOutlines/knowledgeGraph/characterRelationships 缓存刷新
 - **dataRefresh 缺少 knowledgeGraph/characterRelationships 单独 case** — 后端可能发射单独资源类型事件，但前端 switch 未处理。修复：补充 `case 'knowledgeGraph'` 和 `case 'characterRelationships'`
 
@@ -1140,6 +1367,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - ** cargo warnings 清理** — `resource_type()`/`emit_story_selected`/`emit_scene_selected`/`validate_token`/`redirect_port` 等 5 处 dead_code 警告。修复：添加 `#[allow(dead_code)]` 标记保留 API（未来可能使用），warnings 从 113 降至 109
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误
 - `npm run build` ✅ 通过
 - `cargo test` 待验证
@@ -1151,18 +1379,22 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 核心断裂修复
 
 #### 幕前幕后自动关联补全
+
 - **sceneCreated/sceneDeleted 缓存不对称** — `useSyncStore.ts` 中 `sceneCreated`/`sceneDeleted` 只刷新 `scenes` 缓存，不刷新 `chapters` 缓存。后端 `SceneRepository::create`/`delete` 会修改 `chapters.scene_id` / `chapters.chapter_id`，但前端 chapters 列表中的 scene 关联状态滞后。修复：两个 case 中追加 `invalidateQueries(['chapters', storyId])`
 
 #### 自适应学习真实反馈
+
 - **FrontstageApp learnings 伪实现** — v5.6.0 注释声称"非硬编码 mock"，但 `setLearnings()` 仍是固定字符串。修复：后端 `record_feedback` 返回 `Vec<LearningPoint>`，同步调用 `PreferenceMiner::mine` 获取真实偏好；前端 `handleAcceptGeneration`/`handleRejectGeneration` 使用返回结果设置 learnings，无结果时 graceful fallback
 
 ### 🟡 P1 功能补全
 
 #### 前端缓存同步完整覆盖
+
 - **WritingStyle 更新缓存不刷新** — `update_writing_style` 发射 `data-refresh("writingStyle")`，但 `useSyncStore.ts` 无对应 case。修复：新增 `case 'writingStyle'` 刷新 `worldBuilding` 缓存
 - **Outline/Foreshadowing 更新缓存不刷新** — 后端发射 `storyOutlines`/`foreshadowings`，前端 `useSyncStore.ts` 缺少对应 case。修复：新增 `case 'storyOutlines'` 和 `case 'foreshadowings'` 分别刷新对应缓存
 
 #### 后台自动化加固
+
 - **Pending vector SQLite 持久化** — v5.5.0 使用 `pending_vector_indexes.json` 文件持久化，与文档声明的"SQLite 持久化"不符。修复：Migration 42 创建 `pending_vector_indexes` 表；`save_pending_vector_indexes`/`load_pending_vector_indexes` 改为 SQLite 操作，保留 JSON fallback 用于迁移
 
 ### 🟢 P2 优化
@@ -1171,6 +1403,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Workflow 幂等性** — `schedule_execution` 无幂等检查，同一 instance_id 可被重复入队。修复：入队前检查 queue 和 running_instances，已存在则跳过
 
 ### 编译状态
+
 - `cargo check` ✅ 零错误
 - `cargo test` ✅ 217/217 通过
 - `npm run build` ✅ 通过
@@ -1183,6 +1416,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 致命差距修复
 
 #### 数据一致性
+
 - **Scene 删除外键悬空** — `SceneRepository::delete` 删除前未清理 `chapters.scene_id` 外键，导致 chapter 指向已删除 scene。修复：删除 scene 前 `UPDATE chapters SET scene_id = NULL WHERE scene_id = ?`
 - **Wizard 创建后前端不刷新** — `create_story_with_wizard` 完成所有步骤后未发射同步事件，前端 Stories 列表不显示新故事。修复：流程结束时发射 `story_created` + `data_refresh("all")` 双重事件
 - **CharacterElement relationships 硬编码空数组** — `NarrativeCharacterRepository::get_by_story` 返回 `relationships: Vec::new()`，角色关系卡片始终为空。修复：二次查询 `character_relationships` 表，按 `source_character_id` JOIN `characters` 获取 `target_name` 填充 `CharacterRelationship`
@@ -1190,19 +1424,23 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Workflow EdgeCondition 永不匹配** — `get_next_nodes` 原代码 `all(|edge| completed.contains(&edge.from_node))` 忽略了 `edge.condition` 字段，条件边永远被视为满足。修复：`EdgeCondition::evaluate()` 实现完整条件表达式求值（Eq/Neq/Gt/Gte/Lt/Lte/Contains/NotContains），根据 `instance.context.variables` 判断
 
 #### 任务系统可靠性
+
 - **Task 心跳超时无重试** — HeartbeatMonitor 检测到任务超时后仅标记 `Failed`，不触发重试。修复：超时后若 `retry_count < max_retries`，计算指数退避 `30*2^retry` 秒更新 `next_run_at`，状态回退为 `Pending`，发射 `task-retried` 事件
 
 ### 🟡 P1 重要差距修复
 
 #### 缓存同步对称性
+
 - **Outline/Foreshadowing 修改无同步** — `update_story_outline`、`create_foreshadowing`、`update_foreshadowing_status`、`update_payoff_ledger_fields` 修改数据后未发射同步事件。修复：所有方法完成后调用 `StateSync::emit_data_refresh`
 - **Cache 失效不对称** — `sceneUpdated` 只失效 scenes 缓存但 chapter 数据中的 scene 引用已变；`chapterDeleted` 不清理关联 scenes 缓存。修复：`sceneUpdated` 追加 `invalidateQueries(['chapters', storyId])`；`chapterDeleted` 追加 `invalidateQueries(['scenes', storyId])`
 
 #### Workflow 健壮性
+
 - **Workflow 节点无限阻塞** — `execute_node` 中 LLM 调用可能永久阻塞（本地模型无响应），无超时机制。修复：每个节点执行包裹 `tokio::time::timeout`，默认 300s，超时标记 `Failed` 并触发重试
 - **INGEST_COOLDOWN 内存泄漏** — `HashMap<String, (u64, Instant)>` 只增不减，长期运行内存膨胀。修复：`cleanup_expired_entries()` 在每次插入时清理 24h 前条目
 
 #### 前端体验
+
 - **FrontstageApp mock learnings** — `setLearnings()` 硬编码 3 条假数据。修复：接入 `recordFeedback()` API，根据用户实际反馈动态生成学习提示
 
 ### 🟢 P2 优化差距修复
@@ -1215,6 +1453,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Task 执行无限阻塞** — `run_task_internal` 中 `executor.execute()` 可能永久阻塞。修复：包裹 `tokio::time::timeout(300s)`，超时标记失败
 
 ### 🧪 质量保障
+
 - `cargo check` 零错误（114 dead_code warnings 来自 `#![warn(dead_code)]` 激活）
 - `cargo test` 217/217 全部通过
 - `npm run build` 通过
@@ -1224,6 +1463,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔴 P0 致命差距修复
 
 #### 幕前幕后自动关联
+
 - **state_sync 空 story_id 修复** — `update_character`/`delete_character`/`update_chapter`/`delete_chapter`/`update_scene` 共 5 处使用 `unwrap_or_default()` 获取 story_id，数据库查询失败时发射 `story_id=""` 的同步事件，前端 `if (storyId)` 判断为 falsy 导致缓存永不刷新。修复为 `if let Some(story_id)` 条件发射，确保 update/delete 后前端对应故事的数据列表自动刷新（而非全局刷新所有故事的缓存）。
 - **`delete_world_building` 命令补全** — 后端新增 IPC 命令 + `WorldBuildingRepository::delete()` + 前端 `useDeleteWorldBuilding` Hook。此前只有 create/get/update，幕后无法删除世界观设定。
 - **`useSyncStore` DataRefresh 缺 worldBuilding** — `dataRefresh` case 中新增 `worldBuilding` 分支，后端批量刷新世界观信号不再被前端忽略。
@@ -1232,6 +1472,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`App.tsx` `backstage-shown` 未用 story_id** — 监听事件时读取 payload 中的 `story_id` 并调用 `setCurrentStory`，幕后窗口重新 show 时自动定位到当前故事。
 
 #### 后台自动化
+
 - **Bootstrap 后台失败不可见** — `pipeline-complete` 事件原硬编码 `success: true`、`elements_created: default()`、`error_message: None`。修复为根据 `bg_executor.execute()` 实际结果设置 success/error，并从 `GenesisContext.bundle` 统计实际生成的元素数量（world_rules/characters/scenes/foreshadowings/plot_points）。前端可区分成功与失败。
 - **向量存储初始化竞态** — `VECTOR_STORE` 是 `OnceCell`，应用启动后立即保存章节时若 LanceDB 尚未 init 则跳过索引，该章节永不被向量检索。修复：新增全局 `PENDING_VECTOR_INDEXES` 队列，未初始化时将 chapter_id 入队；LanceDB init 成功后自动批量处理积压队列，查询数据库→生成 embedding→写入 LanceDB。
 
@@ -1251,6 +1492,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **`FrontstageToolbar` 废弃组件清理** — 删除 `FrontstageToolbar.tsx` 文件及 `index.ts` 中的注释引用
 
 ### 🧪 质量保障
+
 - `cargo check` 零错误零警告
 - `cargo test` 217/217 全部通过
 - `npm run build` 通过
@@ -1260,20 +1502,24 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔧 架构对齐
 
 #### 幕前幕后自动关联补全
+
 - `create_world_building` / `update_world_building` 正确发射 `WorldBuildingUpdated` 同步事件（原错误发射 `StoryUpdated`）
 - `ChapterRepository::delete` 添加事务清理 `scenes.chapter_id` 外键，消除悬空引用
 - `characterDeleted` 按 `storyId` 精准失效缓存（原全局失效所有 characters）
 
 #### 后台自动化闭环
+
 - `auto_ingest_chapter` 成功后写入 LanceDB 向量存储：`embed_text_async` 生成 embedding → 创建 `VectorRecord` → `store.add_record()`，语义搜索可检索最新写作内容
 - WorkflowEngine 支持数据库持久化：Migration 41 创建 `workflow_instances` 表，`with_pool()` 初始化时自动加载，`update_instance()` 自动保存
 - 能力进化反馈环闭合：`evolve_capability_descriptions` 自动保存进化描述到 JSON；`build_default_registry()` 加载并应用已进化描述；PlanExecutor 每次执行完成后后台触发进化分析
 
 #### 技术债务清理
+
 - 移除 `src-core` 幽灵 crate（54 文件、15 模块，名义依赖但零引用）
 - 同步 `FEATURES.md` / `ROADMAP.md` / `ARCHITECTURE.md` 版本号至 v5.4.1
 
 ### 🧪 质量保障
+
 - `cargo check` 零错误零警告
 - `cargo test` 217/217 全部通过
 - `npm run build` 通过
@@ -1284,6 +1530,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🐛 Bug修复
 
 #### 创世流程编辑器内容丢失
+
 - **根因**：`ConceptGenerationStep` 创建 Story 后发射 `storyCreated` 事件 → `useSyncStore` 调用 `loadStories()` → `selectStory()` → `get_story_chapters` 返回空列表（此时 `FirstChapterGenerationStep` 尚未执行）→ `setContent('')` 清空编辑器。随后 `ChapterSwitch` 事件到达时，`currentStory` 已设置走 `else` 分支，但 `chaptersRef` 为空数组找不到 chapter，不调用 `selectChapter`
 - **修复1**：`FrontstageEvent::ChapterSwitch` 新增 `content` 字段，`FirstChapterGenerationStep` 直接通过事件传递生成内容到前端
 - **修复2**：前端 `ChapterSwitch` 事件处理优先使用 `payload.content`，绕过 DB 查询竞态
@@ -1297,11 +1544,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🐛 Bug修复
 
 #### Bootstrap重复显示小说开头
+
 - **根因**：`handleSmartGeneration` 在 Bootstrap 完成时设置 `generatedText`（幽灵文本），同时 `ChapterSwitch` 事件加载 `chapter.content`（正文），编辑器同时显示两份内容
 - **修复**：Bootstrap 完成时不再设置 `generatedText`，内容已通过数据库保存并由 `ChapterSwitch` 事件加载到编辑器
 - **文件**：`src-frontend/src/frontstage/FrontstageApp.tsx`
 
 #### 幕后结构要素不显示
+
 - **根因**：`useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致：
   - `['world-building', storyId]` ≠ `['world_building', storyId]`
   - `['story-outlines', storyId]` ≠ `['story-outline', storyId]`
@@ -1310,11 +1559,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **文件**：`src-frontend/src/hooks/useSyncStore.ts`
 
 #### Bootstrap解析失败：missing field `id`
+
 - **根因**：`ConceptGenerationStep` 中 LLM 返回的 JSON 缺少 `id`/`story_id`/`source` 等后端生成字段，`serde_json::from_str::<StoryMetaElement>()` 反序列化失败
 - **修复**：给所有 `NarrativeElement` 结构体的 `id`/`story_id`/`source`/`source_ref_id`/`status` 字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略这些字段
 - **文件**：`src-tauri/src/narrative/elements.rs`
 
 #### Bootstrap生成中断：幕前无正文 + 幕后无结构要素
+
 - **根因1**：`StoryContextBuilder::build` 中 `fetch_characters`/`fetch_previous_scenes`/`fetch_writing_style` 在 Bootstrap 时数据库为空返回 `Err`，导致 `FirstChapterGenerationStep` 失败，第一章无法生成
 - **修复1**：`build` 方法中这些查询失败时返回默认值（`vec![]`/`None`）而非传播错误
 - **根因2**：LLM 返回的角色/场景/世界观/大纲 JSON 可能缺少 `relationships`/`rules`/`key_locations`/`power_system`/`total_scenes_estimate`/`key_plot_points`/`estimated_scenes` 等字段，后台阶段反序列化失败中断
@@ -1322,15 +1573,18 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **文件**：`src-tauri/src/creative_engine/context_builder.rs`、`src-tauri/src/narrative/elements.rs`
 
 #### 续写时重复生成小说开头
+
 - **根因**：`current_content_preview` 从**头部截断 2000 字符**，第一次续写后总字数超过 2000，LLM 只能看到第一章内容，看不到续写内容，于是重新生成开头
 - **修复**：改为从**尾部截断 6000 字符**（保留最新内容），并标注省略字数，LLM 能看到最近的续写内容并在此基础上继续
 - **文件**：`src-tauri/src/lib.rs`
 
 #### 其他
+
 - 移除 `state_sync/mod.rs` 未使用的 `SyncEvent` 导入
 - `lib.rs`：后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
 
 ### 编译与测试
+
 - `cargo check`：零错误
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1345,6 +1599,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 核心理念：无论正向生成（Bootstrap/创世）还是逆向分析（拆书），操作的叙事元素是同一套抽象。
 
 #### Phase 1: 统一数据模型
+
 - **新建 `src-tauri/src/narrative/` 模块**（8个文件）：
   - `elements.rs` — `CharacterElement/SceneElement/WorldBuildingElement/OutlineElement/ForeshadowingElement/StoryMetaElement` + `ElementSource` 枚举
   - `pipeline.rs` — `NarrativePipelineExecutor` + `PipelineStep` trait
@@ -1355,19 +1610,23 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Migration 38**: `narrative_characters/scenes/world_buildings/outlines/foreshadowings/character_relationships` 统一表
 
 #### Phase 2: Pipeline 框架切换
+
 - `smart_execute` 已切换到 `GenesisPipeline`
 - 拆书 `executor.rs` 已切换到 `AnalysisPipeline`
 - 向后兼容：同时发射 `pipeline-progress`（新）和旧事件
 
 #### Phase 3: 统一进度系统
+
 - 前端新建 `usePipelineProgress.ts` Hook
 - `AnalysisProgress.tsx` 和 `FrontstageApp.tsx` 已接入统一进度
 
 #### Phase 4: 统一存储层
+
 - `repositories_narrative.rs` — `NarrativeCharacterRepository`, `NarrativeSceneRepository`, `NarrativeWorldBuildingRepository`
 - 生产表和参考表数据最终都汇聚到统一表中
 
 #### Phase 5: 故事→分析功能
+
 - **`StoryHealthAnalyzer`** — 6 维度结构健康检查：
   - 伏笔回收率、角色弧光完整度、冲突类型多样性
   - 大纲覆盖率、世界观完整度、角色关系网络密度
@@ -1375,10 +1634,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `HealthReport` / `HealthCheck` / `HealthStatus` — 完整报告结构
 
 #### 附带修复
+
 - `audit.rs` `ForeshadowingTracker` 导入路径修复（`get_by_story` → `get_all`）
 - `audit.rs` `ForeshadowingRecord` 字段访问修复（`is_paid_off` → `matches!(status, Payoff)`）
 
 ### 编译与测试
+
 - `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1391,6 +1652,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🎯 P0 核心差距修复
 
 #### 通用 Workflow 引擎节点执行器实现
+
 - **`WorkflowScheduler::run_instance` 从空实现到完整 DAG 执行**：支持 Start → WriteChapter → Inspect → Revise → VectorIndex → AnalyzePlot → End 全节点类型
 - **节点执行映射**：WriteChapter/Revise → Writer Agent、Inspect → Inspector Agent、AnalyzePlot → PlotAnalyzer、VectorIndex → IngestPipeline
 - **串行拓扑执行**：按 DAG 依赖关系遍历，状态管理（Pending → Running → Completed/Failed），上下文变量传递
@@ -1399,12 +1661,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **注册标准模板**：`standard_writing_workflow` (Write → Inspect → Index) 在 setup 时自动注册
 
 #### 能力进化反馈环闭合
+
 - **`ExecutionRecordStore` JSON 持久化**：`app_data_dir/capability_execution_records.json`，自动保留最近 500 条记录
 - **`record_execution` 真正持久化**：`PlanExecutor::execute_step` 每次能力执行后自动记录（capability_id / success / duration）
 - **`evolve_capability_descriptions` LLM 分析**：查询执行历史 → 计算成功率 → LLM 生成改进后的 `when_to_use` 描述
 - **统计查询**：`get_statistics()` 按能力汇总成功/失败次数
 
 #### 幕前↔场景内容双向同步
+
 - **useSyncStore chapterUpdated → scenes 刷新**：`chapterUpdated` 事件处理中新增 `invalidateQueries(['scenes', storyId])`，因为 chapter 更新会同步到 scene
 - **FrontstageApp 监听 chapter-updated**：当当前编辑的 chapter 被幕后更新时，自动刷新编辑器内容（3 秒防循环保护）
 - **数据库双向同步已验证**：`ChapterRepository::update` 同步到 scene，`SceneRepository::update` 同步到 chapter
@@ -1412,13 +1676,16 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🎯 P1 差距修复
 
 #### 废弃组件清理
+
 - **`FrontstageToolbar` 从索引移除**：`frontstage/components/index.ts` 中不再导出，组件文件保留供参考
 
 #### QueryPipeline 降级感知
+
 - **后端 `context-degraded` 事件**：`build_agent_context` 中 `StoryContextBuilder` 降级到 `minimal` 时发射事件
 - **前端 toast 提示**：`FrontstageApp` 监听 `context-degraded`，显示 "正在使用简化上下文生成内容..."
 
 ### 编译与测试
+
 - `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1430,18 +1697,21 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🏗️ 架构级重构
 
 #### Bootstrap 两阶段执行模型（核心体验优化）
+
 - **即时阶段**（同步，2-3分钟）：生成故事概念 + 第一章正文 → 立即返回给前端，用户可以开始写作
 - **后台阶段**（异步，`tokio::spawn`，5-8分钟）：世界观 → 大纲 → 角色 → 场景 → 伏笔 → 知识图谱
 - **用户等待时间**：从 10+ 分钟缩短到 **2-3 分钟**
 - **实现**：`bootstrap.rs` `run()` 拆分为 `run_quick_phase()` + `run_background_phase()`；`lib.rs` 调用 `run()` 后，后台任务在 spawn 中继续执行
 
 #### 前端体验优化
+
 - Bootstrap 即时完成后显示："小说已创建！第一章已生成，您可以开始写作了"
 - 后台阶段进行中状态栏显示："后台正在完善小说世界..."
 - 后台全部完成后 toast："创世完成！世界观、角色、场景、伏笔已全部生成"
 - `novel-bootstrap-progress` 事件处理区分"即时完成"和"后台完成"
 
 ### 编译与测试
+
 - `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1453,6 +1723,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🐛 Bug 修复
 
 #### 小说创建超时修复
+
 - **Bootstrap 超时延长**：前端 `handleSmartGeneration` 中创建新小说超时从 180 秒延长至 **600 秒**（10 分钟），匹配本地大模型多步 LLM 调用实际耗时
 - **超时提示优化**：超时错误信息区分 Bootstrap 与普通操作，引导用户检查模型服务
 - **进度事件密度增强**：`bootstrap.rs` 在 `generate_first_chapter`、`generate_world_building`、`generate_story_outline`、`generate_characters`、`generate_scene_outline` 等每个 LLM 调用前后增加进度事件，用户可实时看到"正在调用AI..."→"已生成，正在解析..."的细粒度状态
@@ -1460,6 +1731,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Bootstrap 进度提示细化**：各步骤提示增加预计耗时说明，如"（1500-2500字，可能需要1-3分钟）"、"（8-12个核心场景）"
 
 #### 后台窗口白屏修复（v5.2.0 增强版）
+
 - **双重维度尺寸微调**：`show_backstage` 中不仅微调 width，还微调 height（width+1/height+1 → 恢复），更全面地触发 WebView2 重绘
 - **JS 重排增强**：`document.documentElement` 和 `document.body` 双重强制重排，额外触发 scroll 事件和自定义 `backstage-window-restored` 事件
 - **延迟时间延长**：`backstage-shown` 事件发射延迟从 300ms 延长至 **800ms**，给 WebView2 充足时间从休眠恢复；延迟期间再次执行尺寸微调
@@ -1467,6 +1739,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **前端监听恢复事件**：新增 `backstage-window-restored` DOM 事件监听，双重保险触发重绘
 
 ### 编译与测试
+
 - `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1476,24 +1749,29 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v5.1.1] - 设计-实现对齐全面修复（2026-05-01）
 
 ### 🎯 P0 核心断裂修复
+
 - **`update_chapter` 保存后自动触发 IngestPipeline**：`lib.rs` 中 `update_chapter` 命令成功后 `tokio::spawn` 异步调用 `auto_ingest_chapter()`，知识图谱实时更新
 - **`create_chapter` Ingest 固化触发**：在 `AfterChapterSave` skill hook 之外**硬编码**触发 Ingest，确保无论 skills 配置如何，知识图谱必定更新
 - **`state_sync` 空 story_id 修复**：`update_character` / `delete_character` / `update_chapter` / `delete_chapter` 在发射同步事件前先查询对应的 `story_id`，`useSyncStore` 可精准刷新缓存
 - **`FrontstageToolbar` story_id 传递**：废弃组件 `FrontstageToolbar.tsx` 新增 `storyId` prop，`show_backstage` 调用正确传递 `story_id`
 
 ### 🎯 后台自动化修复
+
 - **`WorkflowScheduler::schedule_execution` 队列机制**：从空实现（仅 log）改为真正的内存队列（`VecDeque`），`execute_next()` 支持串行执行工作流实例
 
 ### 🎯 代码审查修复
+
 - **LLM 5 分钟冷却期 + 内容哈希去重**：`auto_ingest_chapter` 内置 `INGEST_COOLDOWN` 全局状态，相同内容或 5 分钟内重复保存跳过 Ingest，防止 API 成本失控
 - **未使用导入清理**：`FrontstageToolbar.tsx` 删除 `Sparkles`、`Settings`；`workflow/scheduler.rs` 删除 `Workflow`、`NodeType`
 - **`WorkflowScheduler::run_instance` 明确错误**：返回 `Err("Workflow node execution is not yet implemented")` 而非空 `Ok(())`
 
 ### 📦 基础设施
+
 - **`PromptLibrary` 扩展**：新增 `style_checker_system_template()` + `commentator_system_template()`
 - **`prompts/methodologies/` 方法论模板库**：雪花法 10 步 (`snowflake.rs`) + 英雄之旅 12 阶段 (`hero_journey.rs`) + 场景结构 3 变体 (`scene_structure.rs`)
 
 ### 编译与测试
+
 - `cargo check`：零错误
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1503,6 +1781,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v5.1.0] - 幕前幕后自动关联对齐（2026-05-01）
 
 ### 🎯 幕前幕后自动关联
+
 - **Chapter↔Scene 双向映射**：Migration 37 新增 `chapters.scene_id` + `scenes.chapter_id` 外键关联，`ChapterRepository::create` 事务内自动查找/创建关联 Scene
 - **统一实时状态中心**：后端 `state_sync` 模块（`events.rs` + `service.rs` + `mod.rs`），定义 16 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件到 `sync-event` 频道
 - **前端 useSyncStore Hook**：监听 `sync-event`，根据事件类型自动 `invalidateQueries` / `removeQueries`，实现前后台数据零延迟对齐
@@ -1510,14 +1789,17 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **幕前→幕后快速跳转**：`Ctrl+Shift+B` 快捷键，标题栏点击，`show_backstage` 接收 `story_id` 参数，幕后自动定位当前故事
 
 ### 🎯 后台自动化对齐
+
 - **AgentOrchestrator 闭环接入**：`execute_writer` 集成 `AgentOrchestrator::execute_write_with_inspection`，Writer→Inspector→StyleChecker→Writer 自动质检改写生效；修复递归 async fn 调用（`Box::pin`）
 - **自适应学习闭环激活**：`AdaptiveLearningEngine::record_feedback` 成功后 `std::thread::spawn` 异步触发 `mine_preferences`，偏好挖掘自动运行
 
 ### 🎯 状态管理与数据流优化
+
 - **Zustand↔TanStack Query 同步**：`App.tsx` 使用 `useAppStore` 订阅 `currentStory`，`useEffect` 监听变化自动刷新关联数据缓存
 - **窗口通信事件标准化**：`DataRefresh` 统一由 `useSyncStore` 处理，移除 `backstage-update` 和 `handleWindowShown` 中的重复 `invalidateQueries`
 
 ### 编译与测试
+
 - `cargo check`：零错误
 - `cargo test`：193/193 全部通过
 - `npm run build`：通过
@@ -1525,35 +1807,42 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v5.0.0] - 创世引擎：一键创世，万物关联（2026-04-30）
 
 ### 🎯 创世引擎 (Genesis Engine)
+
 - **一键生成完整小说世界**：输入"写一部都市玄幻小说"，系统自动生成故事概念、第一章正文、完整大纲、主要角色及性格小传、场景规划、伏笔埋设
 - **7步创世工作流**：构思故事 → 撰写开篇 → 构建世界 → 生成大纲 → 塑造角色 → 铺设场景 → 埋设伏笔 → 编织关联
 - **自动幕后卡片创建**：所有生成内容自动在幕后对应栏目创建卡片，无需手动操作
 
 ### 🎯 故事大纲系统
+
 - **新增 `story_outlines` 表**：存储完整故事大纲（Markdown + 结构化 JSON）
 - **3幕结构自动生成**：每幕含标题、摘要、关键情节点、预估场景数
 - **前端故事概览面板**：Stories 页面新增"概览"视图，展示大纲、角色、场景、伏笔总览
 
 ### 🎯 角色系统增强
+
 - **完整性格小传入库**：`characters` 表新增 `appearance`/`gender`/`age` 字段
 - **角色关系图谱**：新增 `character_relationships` 表，记录角色间关系（朋友/敌人/恋人/师徒等）
 - **前端关系视图**：Characters 页面新增"关系"标签页，展示角色关联网络
 
 ### 🎯 伏笔自动生成
+
 - **Bootstrap 自动埋设伏笔**：基于故事大纲识别 3-5 个核心伏笔
 - **伏笔与场景自动关联**：第一个伏笔自动关联到第一章场景
 - **创世标记**：自动生成的伏笔显示"创世"金色徽章
 
 ### 🎯 知识图谱自动构建
+
 - **创世时自动创建 KG 实体**：角色 → Character、场景 → Event、伏笔 → PlotDevice
 - **自动关系连接**：角色参与场景、伏笔设置于场景
 
 ### 🎯 前后台智能联动
+
 - **Bootstrap 完成后自动导航**：幕后界面自动切换到 Stories 并高亮新故事
 - **故事概览自动展开**：新故事"概览"面板自动打开
 - **实时卡片创建事件**：新增 `novel-bootstrap-card-created` 事件，前端实时显示卡片创建进度
 
 ### 🐛 Bug 修复（v5.0.0 热修复 v3）
+
 - **后台窗口白屏修复**：修复后台窗口隐藏后重新显示时出现空白/白屏的问题
   - **根因 v3**：WebView2 窗口 `hide()` 后重新 `show()` 时渲染表面丢失；JS 强制重排不够可靠
   - **修复 v3**：`show_backstage` 命令**微调窗口大小再恢复**（`width+1` → `width`），强制 WebView2 重新创建渲染表面；配合 JS 强制重排；延迟 300ms 发射 `backstage-shown` 事件确保前端监听器就绪
@@ -1562,11 +1851,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - **修复 v3**：（1）`DataLoader` **移除 stories 查询**，完全由 `App.tsx` 控制数据加载，消除竞态；（2）`App.tsx` 引入 `useQueryClient`，`handleWindowShown` 中主动 `invalidateQueries` 强制刷新角色/场景/伏笔/大纲等所有页面数据；（3）`bootstrap.rs` LLM 调用失败时发射 `novel-bootstrap-error` 事件到前端，让错误可见
 
 ### 🎯 数据库迁移
+
 - **Migration 34**: `story_outlines` 表
 - **Migration 35**: `characters` 增强 + `character_relationships` 表
 - **Migration 36**: `scenes.foreshadowing_ids` 字段
 
 ### 📊 统计
+
 - Rust 测试：193/193 全部通过
 - 前端构建：npm run build 通过
 - 新增后端模块：StoryOutlineRepository、CharacterRelationshipRepository
@@ -1577,6 +1868,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v4.5.0] - 多账号认证与云端主站（2026-04-28）
 
 ### 🎯 多账号 OAuth 登录系统
+
 - **桌面端 OAuth2 登录**：支持 Google / GitHub OAuth2 登录，PKCE + Authorization Code 流程
 - **可选登录、本地优先**：不登录可正常使用所有功能，登录后解锁未来云同步能力
 - **微信/QQ 预留框架**：OAuth URL 和类型已定义，二期补充具体实现
@@ -1584,18 +1876,21 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **JWT Session 管理**：`jsonwebtoken` 签发/验证，7 天有效期
 
 ### 🎯 云端主站（Linux 服务端）
+
 - **Actix-web 后端**：RESTful API，PostgreSQL 持久化，JWT 中间件认证
 - **Web 前端**：Vite + React + Tailwind CSS，落地页 / 登录页 / 用户后台
 - **Docker 部署**：`docker-compose.yml` + `.env.example` + `deploy.sh`，一键部署
 - **数据库迁移**：`src-server/migrations/` 完整表结构（users / oauth_accounts / sessions / stories）
 
 ### 🎯 Bug 修复
+
 - **API KEY 保存**：重写 `update_model` 为直接字段修改（取代 delete+create 模式），避免密钥在多次读写配置时丢失
 - **前端密钥逻辑**：编辑模型时，用户输入非空值才更新 API Key，未输入则保留旧值
 - **LLM 流式生成超时**：`generate_stream` 添加 30 秒启动超时 + 15 秒 chunk 超时，防止服务器挂起导致无响应
 - **LLM 同步生成超时**：`generate` 添加 60 秒整体超时
 
 ### 🎯 构建与部署
+
 - **Rust 升级**：1.85.0 → 1.95.0（MSVC toolchain）
 - **oauth2 v5.0 兼容**：修复 Breaking API 变化（类型状态模式 builder）
 - **GitHub Actions**：全平台构建触发
@@ -1604,23 +1899,27 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v4.4.0] - 3风格三角框架：通用风格混合系统（2026-04-28）
 
 ### 🎯 通用风格混合系统（StyleBlend）
+
 - **新增 `StyleBlendConfig` + `BlendComponent`**：支持任意 2-5 个 StyleDNA 按权重组合，不绑定固定三角
 - **主导/辅助角色自动分配**：权重 >= 50% → Dominant，>= 20% → Secondary，其余 Tertiary
 - **权重归一化**：拖动滑块自动调整，总和始终为 100%
 - **验证机制**：主导风格必须存在，最多 5 个风格，权重总和必须为 1.0
 
 ### 🎯 3风格三角创作框架
+
 - **新增内置风格 DNA**：普鲁斯特（意识流/长句/内心独白 70%）+ 马尔克斯（魔幻现实/全知视角/循环时间）
 - **海明威风格已存在**：极简/短句/对话驱动，avg_sentence_length=15
 - **三角示例**：普鲁斯特 65% + 海明威 20% + 马尔克斯 15% = 心理深度 + 节奏对话 + 氛围哲理的有机融合
 
 ### 🎯 混合风格 Prompt 注入
+
 - **主导风格完整注入**：Writer prompt 中注入完整 StyleDNA.to_prompt_extension()
 - **辅助风格差异注入**：仅注入与主导风格的关键差异维度（句长/对话比/比喻密度/内心独白/情感外露）
 - **融合规则**：主导定基调，辅助在特定场景渗透；冲突时以主导为准，辅助渗透"精神"而非"形式"
 - **PlanGenerator Rule 20**：模型必须遵循混合权重，主动判断当前场景适合哪种风格元素主导
 
 ### 🎯 防漂移自检清单（5项检查）
+
 - **新增 `StyleDriftChecker`**：每章生成后自动运行风格匹配度检查
 - 1. 句长检查：加权平均 ± 30% 容差
 - 2. 对话比例检查：加权平均 ± 15% 容差
@@ -1630,51 +1929,60 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **评分机制**：每项 0.0-1.0，总体 >= 0.7 且单项全部通过才算合格
 
 ### 🎯 数据层扩展
+
 - **Migration 30**：`story_style_configs` 表（story_id + blend_json + is_active）
 - **Migration 31**：`scenes` 表新增 `style_blend_override` 字段，支持章节级风格覆盖
 - **新增 `StoryStyleConfigRepository`**：CRUD + set_active 激活配置
 
 ### 🎯 前端 UI 升级
+
 - **Stories.tsx 风格配置面板**："单一风格" / "风格混合" 双标签页
 - **`StyleBlendPanel` 组件**：添加/移除风格、权重滑块、实时归一化、验证提示
 - **新增 IPC 命令**：`get_story_style_blend` / `set_story_style_blend` / `update_scene_style_blend` / `check_style_drift`
 - **向后兼容**：保留 `style_dna_id` 单一风格选择，混合配置优先于单一风格
 
 ### 测试
+
 - Rust 测试：193/193 全部通过（新增 blend 4 项 + drift_checker 3 项 + classic_styles 2 项）
 - 前端构建：npm run build 通过
 
 ## [v4.0.0] - 借鉴 AI-Novel-Writing-Assistant 全面优化（2026-04-22）
 
 ### 🎯 Canonical State 规范状态系统
+
 - 新增 `canonical_state/` 后端模块，`CanonicalStateManager` 实时聚合 stories/scenes/characters/KG/foreshadowing 分散状态
 - 定义 `CanonicalStateSnapshot`：story_context（当前场景/开放冲突/待兑现伏笔/逾期伏笔）、character_states、world_facts、timeline、narrative_phase
 - `build_agent_context` 优先使用 Canonical State 构建上下文，AI 续写时准确知道"当前处于故事哪个阶段"
 - 新增 `get_canonical_state` IPC 命令，8 个单元测试
 
 ### 🎯 Payoff Ledger 伏笔账本
+
 - Migration 24 扩展 `foreshadowing_tracker` 表：target_start_scene / target_end_scene / risk_signals / scope_type / ledger_key
 - 新增 `PayoffLedger` 后端模块：逾期检测（基于重要性动态阈值）、回收时机智能推荐（高潮阶段自动提升 urgency）
 - 前端 `Foreshadowing.tsx` 升级为 Ledger 视图：生命周期时间轴、逾期告警横幅、回收推荐卡片
 - 新增 4 个 IPC 命令 + 3 个前端 Hook
 
 ### 🎯 Execution Panel 章节执行面板
+
 - 新增 `ExecutionPanel.tsx` 前端组件，智能推荐下一步行动（处理逾期伏笔 / 续写 / 运行审校）
 - 集成到 `Scenes.tsx` 右侧栏（三栏布局）和 `FrontstageApp` 标题栏（「下一步」快捷按钮）
 - 根据叙事阶段、逾期伏笔、场景置信度动态调整推荐
 
 ### 🎯 Narrative Phase Detection 叙事阶段检测
+
 - 增强 `calculate_narrative_phase`：逾期伏笔→ConflictActive、最近3场景高置信长内容→Climax、主要伏笔回收+场景数≥50→Resolution
 - 各阶段返回 `writer_guidance()` 指导语，注入 Writer Agent prompt
 - 前端 `StoryTimeline.tsx` 场景节点旁标注阶段标签（蓝/琥珀/红/绿）
 
 ### 🎯 Structured Outline 结构化大纲
+
 - Migration 25 扩展 `scenes` 表：execution_stage / outline_content / draft_content
 - `SceneEditor` 重写为 6 标签页：规划 / 大纲 / 起草 / 审校 / 定稿 / 批注
 - 阶段间流转按钮：生成大纲 → 根据大纲起草 → 提升为定稿
 - 新增 `generate_scene_outline` / `generate_scene_draft` IPC 命令
 
 ### 🎯 Audit System 审计系统
+
 - 新增 `audit/` 后端模块，整合 ContinuityEngine / StyleChecker / QualityChecker / PayoffLedger
 - 五维评分：continuity / character / style / pacing / payoff，0-1 分制
 - 支持 light（规则快速检查）和 full（+ LLM 深度评估）两种审计模式
@@ -1682,22 +1990,26 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 前端 SceneEditor「审校」Tab 展示五维进度条 + issue 列表 + 修复建议
 
 ### 🎯 Novel Creation Wizard 小说创建向导
+
 - 新增 `CreationWizard.tsx` 页面，5 步向导：创意输入 → 世界观选择 → 角色谱选择 → 文风选择 → 首个场景生成
 - 每步调用已有 IPC（generate_world_building_options / generate_character_profiles 等）
 - 右侧汇总栏显示所有选择，可点击跳转修改
 - Stories.tsx「AI 一键创作」按钮改为二级菜单：快速创作 / 向导创作
 
 ### 🎯 Enhanced Streaming 增强流式输出
+
 - 新增 `StreamOutput.tsx` 组件：Markdown 渲染、实时字数统计、停止生成按钮、打字机效果、复制/全屏
 - 支持 simulated 模式（前端打字机）和 real 模式（后端真实流式）
 - 接入 FrontstageApp AI 续写面板、WenSiPanel 自动修改结果、CreationWizard 场景生成
 
 ### 🎯 Strategy Configuration 写作策略配置
+
 - Settings.tsx 新增「写作策略」卡片：运行模式（快速/精修）、冲突强度（0-100）、叙事节奏（慢/均衡/快）、AI 自由度（低/中/高）
 - `AppConfig` 扩展 `WritingStrategy`，`build_writer_prompt` 根据策略动态注入 prompt 约束
 - 冲突强度≥80 → "每 500 字至少一次冲突"；pace=fast → "减少环境描写，增加动作"
 
 ### 📊 统计
+
 - Rust 测试：160/160 全部通过
 - 新增 Migration：24 / 25
 - 新增后端模块：canonical_state / audit / payoff_ledger
@@ -1708,27 +2020,32 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 > **设计理念**：从 20+ 可见 UI 元素缩减至 <5 持久元素。AI 功能以萤火暗示（firefly hints）形式按需浮现，用完即隐。
 
 ### P0 核心重构
+
 - **顶栏精简**：44px 细线设计。小说标题（点击进入幕后）、章节信息、字数/总字数/字号、🔥 文思三态切换（`off·` / `passive✨` / `active🔥`）、禅模式按钮。移除：汉堡菜单、订阅徽章、"开启文思"按钮、"AI 续写"按钮、主行动按钮。
 - **底栏删除**：彻底删除底部聊天工具栏（chat input、模型状态点、WenSiPanel 嵌入、Slash textarea 菜单）。AI 生成结果以幽灵文本内联呈现，Tab 接受 / Esc 拒绝。
 - **侧边栏精简**：5 按钮 → 3 按钮（修/批/幕）。"修"=修订模式切换，"批"=生成古典评点，"幕"=进入幕后。
 - **键盘快捷键**：`Ctrl+Enter` / `Cmd+Enter` 全局触发续写，`Ctrl+Space` 循环文思模式，`F11` 禅模式。
 
 ### P1 萤火系统
+
 - **幽灵文本**：编辑器末尾灰色斜体段落（`opacity: 0.35`），附带萤火操作栏（Tab 接受 / Esc 拒绝）。
 - **右边缘萤火**：`smartGhostText` 从编辑区右边缘淡入（0.8s）→ 停留 → 淡出（1.2s），不打扰写作流。
 - **空态引导**：编辑器无内容时居中显示诗意提示"开始写下第一句话，文思将随你而行 / 按 / 查看可用命令"。
 
 ### P2 体验优化
+
 - **内联 `/` 命令菜单**：光标处触发，8 命令——续写/润色/古风/场景/自动续写/审校/评点/排版。方向键导航，回车执行，Esc 关闭，自动删除 `/` 字符。
 - **WenSiPanel 浮动化**：从底栏嵌入改为 FrontstageApp 右下角浮动卡片，通过 `/` 菜单高级命令（auto_write/auto_revise）触发。
 - **修订横幅精简**：从多行可展开缩减为 32px 单行，变更列表可滚动，默认折叠。
 - **古典评点保留**：AI 生成的段落评点（金圣叹式朱批）保留为内联段落，朱红色 `oklch(55% 0.18 25)`，`LXGW WenKai` 字体，左边框红色，`※` 前缀，缩进 3em。通过 `/` 菜单、sidebar "批"按钮或右键菜单触发。
 
 ### 🗑️ 移除（设计决策）
+
 - **显式注释/评论系统**：sidebar "注"按钮、注释/评论面板、选中文本弹窗创建按钮、右键菜单注释项、所有相关 hooks（`useTextAnnotations`、`useCommentThreads`）。
 - **原因**：AI 写作工具不需要创作者标注自己的作品；AI 反馈应以幽灵文本或古典评点形式自然呈现。
 
 ### 📊 统计
+
 - Rust 测试：160/160 全部通过
 - 前端构建：通过
 - 修改文件：Rust 0 个 + 前端 8 个（FrontstageApp / RichTextEditor / EditorContextMenu / frontstage.css / useTextAnnotations / useCommentThreads / hooks/index.ts 导出清理）
@@ -1738,6 +2055,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v4.0.1] - 全面代码审计与空实现修复（2026-04-22）
 
 ### Phase A: 代码审计与 P0 修复
+
 - **综合代码审计**: 扫描 40+ 模块，识别 5 项严重问题、17 项参数不匹配、9 项空实现，输出 `CODE_AUDIT_REPORT_V4.md`
 - **IPC 参数统一**: 修复 17 处 camelCase→snake_case 参数名（`services/tauri.ts` 7 处、`settings.ts` 2 处、`useBookDeconstruction.ts` 6 处、`FrontstageApp.tsx` 4 处），消除 Tauri v2 反序列化静默失败
 - **空实现补全**:
@@ -1757,6 +2075,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **类型统一**: `skills/mod.rs` 移除重复 `McpServerConfig`，复用 `crate::mcp::types::McpServerConfig`
 
 ### Phase B: 内存模块 SQLite 持久化
+
 - **Migration 26**: `chat_sessions` + `chat_messages` 表，支持聊天记录持久化
 - **Migration 27**: `story_runtime_states` 表，支持故事运行状态持久化
 - **Migration 28**: `collab_sessions` + `collab_participants` 表，支持协作会话持久化
@@ -1766,6 +2085,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `collab/websocket.rs`: 完整实现 Operation/Cursor/Leave/Participants 消息处理，修复 user_id 硬编码，WebSocketServer 支持 `with_pool`
 
 ### 📊 统计
+
 - Rust 测试：160/160 全部通过
 - 前端构建：通过
 - 新增 Migration：26 / 27 / 28
@@ -1774,6 +2094,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v3.7.1] - 智能化创作系统 5 阶段重构深度修复（2026-04-22）
 
 ### Phase A: P0 核心断裂修复（5 项）
+
 - QueryPipeline `graph_expansion` 内容分词后逐 token 匹配实体，修复图谱扩展永不命中
 - QueryPipeline `budget_control` 修复内层 break 只跳出内层循环的预算泄漏
 - ContinuityEngine `check_world_rules` 修复检查方向（提取禁止条款后检测）
@@ -1783,6 +2104,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - Ingestion 实现真正的内容保存 + 简化知识图谱实体提取
 
 ### Phase B: P1 功能补全（6 项）
+
 - 方法论：Migration 22 添加 methodology_id/methodology_step，Settings 新增创作方法论配置
 - 创作模式：`CreationWorkflowEngine` 按 CreationMode 分支（AI全自动/AI初稿+精修/人工初稿+润色）
 - 进度反馈：`useWorkflowProgress` Hook + Stories.tsx 进度弹窗
@@ -1791,6 +2113,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 反馈记录：AiSuggestionNode + WenSiPanel 接入 `record_feedback`
 
 ### Phase C: P2 优化（4 项）
+
 - StyleAnalyzer 新增 `analyze_with_llm` + `analyze_style_sample` IPC
 - QualityChecker 新增 `check_with_llm`，Review 阶段优先 LLM 评估
 - PhaseWorkflow 硬编码阶段逻辑迁移到配置驱动
@@ -1799,6 +2122,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v3.6.1] - 全面功能审计与深度修复（2026-04-22）
 
 ### P0 紧急修复（10 项）
+
 - DB: Migration 21 补全 scenes/kg_relations `confidence_score` 缺失列
 - IPC: 统一 25 处 camelCase→snake_case 参数名
 - 场景: `create_scene` 后端扩展参数
@@ -1809,6 +2133,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 配额: auto_write/auto_revise 错误处理识别配额关键字
 
 ### P1 功能补全（8 项）
+
 - ContinuityEngine 补全 timeline + character_emotion + relationship 检查
 - 一键创作 `CreationWorkflowEngine` 每阶段发射 `workflow-progress` 事件
 - SceneRepository 新增 5 个单元测试（139→144→145）
@@ -1819,6 +2144,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 清理: 移除弃用 `check_ai_quota` IPC 注册
 
 ### P2 优化（6 项）
+
 - Sidebar `chapter_count` 显示从"场景"改为"章"
 - SceneEditor 置信度滑块 step 从 0.05 改为 0.1
 - 拆书转故事字段映射优化
@@ -1829,17 +2155,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [v3.5.2] - 全功能落地：剩余 7 项修复完成（2026-04-22）
 
 ### 🎯 修复项 #17 - auto_revise 取消/进度事件
+
 - `auto_revise` 从同步阻塞调用改造为后台任务模式（同 `auto_write`）
 - 新增 4 阶段进度事件：`preparing` → `revising` → `saving` → `completed`
 - 新增 `auto_revise_cancel` IPC 命令，支持用户随时取消
 - 前端 `WenSiPanel` 新增进度条（百分比 + 阶段信息）和"停止修改"按钮
 
 ### 🎯 修复项 #20 - confidence_score 类型补全
+
 - 前端 `Scene` interface 补全缺失的 `confidence_score?: number` 字段
 - `SceneEditor` 戏剧结构 Tab 新增 AI 生成置信度滑块（0-100%）
 - 保存时置信度值随场景数据一并持久化到数据库
 
 ### 🎯 修复项 #16 - MCP 持久连接
+
 - 新增全局 `MCP_CONNECTIONS` 连接池（`tokio::sync::Mutex<HashMap<String, McpClient>>`）
 - `connect_mcp_server` 连接后持久保存到池中，`call_mcp_tool` 复用已有连接
 - 新增 `disconnect_mcp_server` 和 `get_mcp_connections` 命令
@@ -1847,11 +2176,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `WebSearchTool` 改为真实 DuckDuckGo 搜索（HTML 解析），失败时回退模拟数据
 
 ### 🎯 修复项 #19 - 一键创作按钮
+
 - `Stories` 页面每个故事卡片新增"一键创作"按钮（Sparkles 图标）
 - 调用 `run_creation_workflow` 命令，`ai_only` 模式基于故事描述自动生成
 - 加载状态防重复点击，结果显示 toast 通知
 
 ### 🎯 修复项 #18 - StyleDNA 前端选择 UI
+
 - `stories` 表新增 `style_dna_id` 字段（Migration 20 自动迁移）
 - 后端新增 `list_style_dnas` 和 `set_story_style_dna` IPC 命令
 - `build_agent_context` 自动读取 story 的 `style_dna_id` 并注入 `AgentContext`
@@ -1860,6 +2191,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `StoryRepository` / `Story` 模型全链路支持 `style_dna_id` 读写
 
 ### 🎯 修复项 #15 - 技能系统补全 LLM 调用 + 缺失技能
+
 - `execute_skill` 命令从同步改为异步，内部自动调用 `LlmService::generate`
 - 所有 PromptRuntime 技能（style_enhancer / plot_twist / text_formatter 等）现在真正调用 LLM
 - `format_text` 简化为复用 `execute_skill`，移除重复的低级 HTTP 调用代码
@@ -1868,6 +2200,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 内置技能总数从 3 个补全至 5 个
 
 ### 🎯 修复项 #14 - 意图引擎接入聊天栏
+
 - `RichTextEditor` 聊天栏接入 `useIntent` hook
 - 用户发送消息后先调用 `parseIntent` 解析意图类型
 - `text_generate` / `text_rewrite` / `unknown` → 走现有 `writerAgentExecute` 路径
@@ -1875,6 +2208,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 解析失败时自动回退到 WriterAgent，保证用户体验不中断
 
 ### 📊 质量验证
+
 - **139 项 Rust 后端测试全部通过**
 - **前端构建通过**
 - `cargo check` 零警告
@@ -1887,11 +2221,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔧 关键缺陷修复（13 项）
 
 **自动修改 (auto_revise)**
+
 - 修复修改结果永不应用到编辑器的致命 bug
 - 后端自动保存修改后的内容到 scenes 表
 - 前端 `WenSiPanel` 新增 `onReviseResult` 回调，`RichTextEditor` 接收后更新内容
 
 **拆书功能 (book_deconstruction)**
+
 - 修复提取的书名/作者永不写入数据库的 bug
 - 修复 `convert_to_story` 返回错误 story_id 导致角色/场景关联失效的 bug
 - 修复任务执行器未调用 `store_embeddings` 导致向量存储缺失的 bug
@@ -1901,6 +2237,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 前端 `useBookDeconstruction` 过滤非当前 task_id 的事件，避免多任务进度乱跳
 
 **场景模型与版本控制**
+
 - 生产环境 `create_v3_tables` 中新增完整 `scene_versions` 表定义
 - Migration 19 为已有数据库补建 `scene_versions` 表
 - 修复 `conflict_type` 从错误列索引（5 而非 6）读取的 bug
@@ -1908,6 +2245,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `create_scene` 命令新增 `dramatic_goal`/`external_pressure`/`conflict_type` 参数
 
 **AI 生成核心**
+
 - `AgentOrchestrator` 集成到 `writer_agent_execute`，实现 Writer→Inspector→Writer 闭环优化
 - `AgentOrchestrator` 每步完成后发射 `orchestrator-step-{task_id}` 事件到前端
 - `ContinuityEngine` 集成到 `execute_writer` Reviewing 阶段，自动检测一致性 issues
@@ -1917,6 +2255,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - Inspector prompt 改为要求 JSON 结构化输出，`parse_inspection_result` 增强三层解析（JSON→正则→关键词）
 
 **基础设施**
+
 - LLM 取消机制：`LlmService` 新增 `cancel_senders`，`cancel_generation()` 发送取消信号
 - `llm_cancel_generation` 命令从 TODO stub 改为实际实现
 - 前端 `useLlmStream` hook 封装真实 SSE 流式生成，替换 mock 数据
@@ -1925,6 +2264,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `CreationWorkflowEngine` 暴露 `run_creation_workflow` Tauri 命令，支持 3 种创作模式
 
 ### 📊 质量验证
+
 - **139 项 Rust 后端测试全部通过**
 - **前端构建通过**
 - `cargo check` 零警告
@@ -1937,6 +2277,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📖 拆书功能：进度提示增强 + 取消支持
 
 **进度提示内容和频次全面升级**
+
 - 后端 `BookAnalyzer` 5 步 Pipeline 每个子步骤都发送详细进度事件
 - 元信息识别：准备样本 → 调用LLM → 识别完成（显示书名/类型）
 - 世界观提取：准备样本 → 调用LLM → 整理设定
@@ -1947,6 +2288,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 前端 `AnalysisProgress` 组件新增 8 步骤指示器、百分比数字、块处理信息
 
 **取消分析功能**
+
 - 后端 `TaskExecutionContext` 新增 `is_cancelled()` 检查机制
 - `BookAnalyzer` 在每个耗时循环中定期检查任务是否被取消
 - 检测到取消后优雅退出，状态更新为 `Cancelled`
@@ -1955,6 +2297,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 已取消状态 UI 展示：步骤指示器显示 `!` 标记，进度条变橙色
 
 **数据库**
+
 - `reference_books` 表新增 `task_id` 字段，关联拆书任务
 - Migration 18 自动迁移
 
@@ -1970,12 +2313,14 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🧠 智能化创作系统（5 阶段重构）
 
 **Phase 1 - 地基重构：真实上下文**
+
 - `StoryContextBuilder` — 从真实数据库构建丰富的 Agent 上下文（世界观、角色、场景结构）
 - `QueryPipeline` — 四阶段知识检索（CJK 分词搜索 → 知识图谱扩展 → 预算控制 → 上下文组装）
 - `ContinuityEngine` + `ForeshadowingTracker` — 连续性追踪与伏笔回收系统
 - `IngestPipeline` 自动触发 — 场景保存后自动摄取知识图谱
 
 **Phase 2 - 方法论注入**
+
 - 创作方法论引擎：`MethodologyEngine` 自动将方法论约束注入 Writer 系统提示词
 - 四种经典方法论：
   - **雪花法**（10 步渐进细化）
@@ -1987,6 +2332,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - Inspector 评分未达标时自动生成重写反馈
 
 **Phase 3 - 风格深度化**
+
 - `StyleDNA` 六维定量模型：词汇/句法/修辞/视角/情感/对白
 - 10 种内置经典作家 DNA：金庸、张爱玲、海明威、村上春树、莫言、古典散文、现代极简、黑色侦探、武侠诗意、浪漫主义
 - `StyleAnalyzer` — 从文本提取 StyleDNA 指纹
@@ -1994,6 +2340,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 实时风格相似度计算与提示词注入
 
 **Phase 4 - 自适应学习**
+
 - `FeedbackRecorder` — 记录用户对 AI 生成内容的接受/拒绝/修改行为
 - `PreferenceMiner` — 五维度启发式偏好挖掘（主题/风格/节奏/视角/结构）
 - `AdaptiveGenerator` — 动态调节温度（temperature）、top-p、提示词权重
@@ -2001,6 +2348,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `AdaptiveLearningEngine` — 统一入口，整合反馈→挖掘→生成→个性化全流程
 
 **Phase 5 - 工作流闭环**
+
 - `CreationWorkflowEngine` — 7 阶段全自动工作流
   - Conception（构思）→ Outlining（大纲）→ SceneDesign（场景设计）→ Writing（写作）→ Review（审阅）→ Iteration（迭代）→ Ingestion（入库）
 - 3 种创作模式：
@@ -2012,6 +2360,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 📖 拆书功能 + 任务系统（2026-04-19）
 
 **拆书功能**
+
 - **文件解析**: 支持 txt/pdf/epub 三种格式，txt 自动检测 UTF-8/GBK 编码
 - **智能分块**: 短篇全文分析 / 中篇按章节 / 长篇固定大小(~5000字)全量覆盖，不采样跳过
 - **LLM 分析 Pipeline**: 5 步深度分析 — 元信息识别 → 世界观提取 → 人物拆解 → 章节概要 → 故事线生成
@@ -2021,6 +2370,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **前端界面**: 幕后界面新增「拆书」页面，支持上传/列表/搜索/详情查看（概览/人物/章节/故事线标签页）
 
 **任务系统（参考 memoh-X 设计）**
+
 - **任务调度器**: 基于 tokio::time 的共享调度器，支持 once/daily/weekly/cron 四种调度类型
 - **心跳检测**: 任务执行中每步更新心跳，检测器每60秒扫描，超时5分钟自动标记失败并重试
 - **防重叠执行**: 每个任务独立互斥锁，避免同一任务并发执行
@@ -2029,6 +2379,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **IPC 命令**: 8个 Tauri 命令 — create/update/delete/list/get/trigger/cancel_task + get_task_logs
 
 **向量化存储**
+
 - **拆书结果入库**: 分析完成后自动为场景(summary)和人物(personality)生成 embedding
 - **接入 LanceVectorStore**: 使用现有 `embeddings::embed_text` + `LanceVectorStore::upsert`
 - **进度实时推送**: Tauri 事件 `book-analysis-progress` 实时推送分析进度到前端
@@ -2036,19 +2387,23 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔧 Bug 修复与测试建设（2026-04-19）
 
 **关键架构修复：TaskService 全局共享**
+
 - **Bug**: 每个 `#[command]` 独立 `TaskService::new()` 创建实例，`BookDeconstructionExecutor` 注册在局部变量 → 前端创建的任务找不到执行器 → 拆书功能不可用
 - **修复**: `TaskService` 改为泛型 `<R: Runtime>` + 手动实现 `Clone`（不依赖 `R: Clone`，确保 `Arc<Mutex<ExecutorRegistry>>` 共享）
 - **修复**: `commands.rs` 所有 command 改为 `tauri::State<'_, TaskService>` 获取，不再新建实例
 - **修复**: `lib.rs` `app.manage(task_service)` 全局注册，setup 阶段注册 executor 后所有 command 共享
 
 **缓存失效修复**
+
 - `useSetActiveModel` mutation `onSuccess` 中 `invalidateQueries({ queryKey: ['settings'] })`，解决"设为当前"后列表状态不同步问题
 
 **测试基础设施**
+
 - `vitest.config.ts` + `jsdom` + `@testing-library/react` 前端测试环境
 - Rust `tempfile` dev-dep + `test_utils.rs` 临时目录辅助工具
 
 **单元测试（新增 71 个）**
+
 - `config/settings_tests.rs` — 16 tests (profile CRUD, active model, default conflict)
 - `task_system/tests.rs` — 13 tests (status machine, repository CRUD, heartbeat timeout)
 - `db/repositories_tests.rs` — 14 tests (Story/Character/Chapter CRUD)
@@ -2058,10 +2413,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 前端 `utils/__tests__/cn.test.ts` — 5 tests
 
 **集成测试（新增 5 个）**
+
 - `task_system/integration_tests.rs` — 5 tests (executor registry shared via Arc, task full lifecycle, scheduler register/unregister, no-executor failure, book deconstruction duplicate detection)
 - 集成测试验证端到端流程：创建任务 → 调度 → 执行 → 状态更新，能发现单元测试发现不了的架构级 bug
 
 **数据库修复**
+
 - `create_test_pool()` 补充 `scene_versions` 表创建（被 `change_tracks`/`comment_threads` 外键引用）
 
 ### 🎨 品牌焕新
@@ -2073,26 +2430,31 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 💎 Freemium 付费系统（2026-04-18）
 
 **Phase 1 — 后端基础设施**
+
 - 数据库迁移：`subscriptions`、`ai_usage_quota`、`ai_usage_logs` 表
 - `SubscriptionService`：订阅状态管理、配额检查与消费、调用日志记录
 - Tauri 命令：`get_subscription_status`、`check_ai_quota`、`record_ai_usage`、`dev_upgrade_subscription`
 
 **Phase 2 — 前端付费开关**
+
 - `useSubscription` Hook：全局订阅状态 + `canUseFeature` + `hasQuota`
 - `SubscriptionStatus` 组件：Header 订阅状态指示器（免费版显示剩余配额，专业版显示"文思泉涌中"）
 - 后端配额中间件：`check_ai_quota_sync` + `consume_ai_quota_sync` 统一拦截
 
 **Phase 3 — 转化漏斗 UI**
+
 - `SmartHintSystem` tier 感知：免费用户只显示分析提示（不生成内联修改）
 - `free-hint-toast`：免费用户看到"句式单调"等提示，点击"查看 AI 改写"打开付费引导
 - `UpgradePanel`：功能对比 + ¥19/月定价 + 立即升级按钮（开发测试模式）
 - `quota-exhausted-toast`：配额用尽时引导升级
 
 **Phase 4 — Agent 质量分层**
+
 - 免费版：`max_tokens` 强制上限 1000，跳过创作方法论/风格 DNA/个性化偏好注入
 - 专业版：完整 `max_tokens` + 全部高级提示词扩展
 
 **9 项优化修复**
+
 1. `get_user_tier` 缓存：通过 `AgentTask.tier` 避免每次调用重复查库
 2. 配额先扣后执行 → 成功后扣费：避免用户为失败请求买单
 3. 内联回调防抖修复：`useCallback` 包裹 `onFreeHint`，稳定引用避免定时器重置
@@ -2386,6 +2748,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🔄 修订模式与变更追踪 (P3)
 
 #### Phase 1 — 变更追踪核心
+
 - **数据库与后端 API**
   - 新增 `change_tracks` 表，记录单条编辑操作的类型、位置、内容、作者和状态
   - `ChangeTrackRepository` 支持创建、查询、状态更新、批量接受/拒绝
@@ -2401,6 +2764,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 实时 diff 检测：`onUpdate` 中对比文本变化，自动调用 `track_change`
 
 #### Phase 2 — 评论线程系统
+
 - **数据库与后端 API**
   - 新增 `comment_threads` 和 `comment_messages` 表，支持多回复线程
   - `CommentThreadRepository` 支持创建线程、添加消息、查询、解决/重开/删除
@@ -2414,6 +2778,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `RichTextEditor` 右侧评论面板：选中文本创建线程、浏览消息、状态切换
 
 #### Phase 3 — 版本集成
+
 - **自动 diff 生成 ChangeTrack**
   - `create_scene_version` 在创建版本时自动与上一版本内容做字符级 diff
   - 将差异转换为 `ChangeTrack`（Insert / Delete）并绑定到该 `version_id`
@@ -2523,7 +2888,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 - **Vite dev server 模型回退**
   - `getModels()` / `getSettings()` / `testModelConnection()` 在浏览器环境下自动回退到本地硬编码模型
-  -  backstage 设置页在 `npm run dev` 浏览器模式下不再显示「暂无模型配置」
+  - backstage 设置页在 `npm run dev` 浏览器模式下不再显示「暂无模型配置」
   - 同步更新 `docs/images/backstage-preview.png`
 
 ---
@@ -2647,11 +3012,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ## [3.0.0] - 2025-04-12 - 重大架构调整
 
 ### 🎪 场景化叙事架构
+
 - Scene 取代 Chapter，戏剧冲突驱动
 - 戏剧目标、外部压迫、冲突类型、角色冲突
 - StoryTimeline 拖拽排序、SceneEditor 三标签页
 
 ### 🧠 增强记忆系统
+
 - CJK Bigram Tokenizer
 - 两步 Ingest Pipeline
 - 带权知识图谱
@@ -2659,11 +3026,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 多助手独立会话
 
 ### 🤖 AI 智能生成
+
 - NovelCreationAgent
 - 4 步引导式创建向导
 - 卡片式 UI
 
 ### 📦 工作室配置
+
 - 每部小说独立配置
 - ZIP 导入/导出
 
@@ -2685,6 +3054,3 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 基础架构
 - LLM 集成
 - 数据库设计
-
-
-

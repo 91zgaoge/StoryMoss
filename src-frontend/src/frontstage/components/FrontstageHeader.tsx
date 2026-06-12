@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/utils/cn';
-import { Flame, Sparkles, ZapOff, Maximize } from 'lucide-react';
+import { Flame, Sparkles, ZapOff, Maximize, Settings } from 'lucide-react';
 import ColorThemeDot from './ColorThemeDot';
 import { IngestHealthIndicator } from './IngestHealthIndicator';
 import type { Scene } from '@/types/v3';
@@ -128,6 +128,14 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
         <div className="frontstage-header-right">
           <IngestHealthIndicator storyId={currentStory?.id || null} />
           <ColorThemeDot isZenMode={isZenMode} />
+          <button
+            className="settings-btn"
+            onClick={onOpenBackstage}
+            title="打开设置 / 幕后工作室"
+            aria-label="打开设置 / 幕后工作室"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
           <button
             className={cn('wensi-mode-toggle', `wensi-${wensiMode}`)}
             onClick={onCycleWensiMode}
