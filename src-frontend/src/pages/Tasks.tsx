@@ -620,7 +620,7 @@ export function Tasks() {
               <option value="book_deconstruction">拆书分析</option>
               <option value="ai_generation">AI 生成</option>
               <option value="pipeline_review">Pipeline 审校</option>
-              <option value="ingest">知识图谱 Ingest</option>
+              <option value="ingest">知识图谱采摘</option>
             </select>
             <input
               type="text"

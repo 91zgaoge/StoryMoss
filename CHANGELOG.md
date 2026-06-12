@@ -45,7 +45,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 在顶部色调设置（ColorThemeDot）旁边新增设置按钮
   - 使用 `Settings` 图标，tooltip 为“打开设置 / 幕后工作室”
   - 点击后仍打开幕后工作室
-- **Ingest 图标重新设计**：`frontstage/components/IngestHealthIndicator.tsx`
+- **采摘图标重新设计**：`frontstage/components/IngestHealthIndicator.tsx`
   - 移除 `Brain`（原图标像橡皮）
   - 新增统一 VI 风格的自定义 SVG 图标：漏斗 + 下箭头，表示知识/素材汇入
 - **编辑器右键菜单重新设计**：`frontstage/components/EditorContextMenu.tsx` + `frontstage/styles/frontstage.css`
@@ -1172,7 +1172,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 **可靠性与可观测性**
 
 - Ingest 作业追踪（Migration 55）：`ingest_jobs` 表记录 pending/running/completed/failed
-- Ingest 健康指示器：幕前顶栏 🧠 图标，点击展示最近 3 条记录
+- 采摘健康指示器：幕前顶栏 🧠 图标，点击展示最近 3 条记录
 - Projection 健康检查：`check_projection_health` 解析 `projection_status_json`
 - 功能使用度量（Migration 56）：`feature_usage_logs` 表 + Settings「数据统计」标签
 - 技术债务清理：删除 `bug_condition_v57.rs` 中 11 个已修复的 `#[ignore]` 测试

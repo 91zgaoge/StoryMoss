@@ -11,7 +11,7 @@
 [![Version](https://img.shields.io/badge/version-v0.9.4-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.9.4 进一步优化智能创作进度感知与幕前界面：全局监听 orchestrator-step 让智能输入栏也能实时看到续写进度，细化上下文加载阶段提示，删除左侧边栏并将设置入口移至顶部，Ingest 与编辑器右键菜单按统一 VI 风格重绘。`cargo check` 零错误，`cargo test` 318/318 通过。
+**最新动态**：v0.9.4 进一步优化智能创作进度感知与幕前界面：全局监听 orchestrator-step 让智能输入栏也能实时看到续写进度，细化上下文加载阶段提示，删除左侧边栏并将设置入口移至顶部，采摘（Ingest）与编辑器右键菜单按统一 VI 风格重绘。`cargo check` 零错误，`cargo test` 318/318 通过。
 
 ---
 

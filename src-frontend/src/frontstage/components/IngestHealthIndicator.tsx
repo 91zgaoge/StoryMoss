@@ -11,7 +11,7 @@ interface Props {
 
 const POLL_INTERVAL = 30000; // 30s fallback poll
 
-/** 统一 VI 风格 Ingest 图标：柔和漏斗 + 下箭头，表示知识/素材汇入 */
+/** 统一 VI 风格采摘图标：柔和漏斗 + 下箭头，表示知识/素材汇入 */
 const IngestIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg
     className={className}
@@ -104,8 +104,8 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
       <button
         className={cn('ingest-health-btn', showPanel && 'active', statusClass)}
         onClick={() => setShowPanel(!showPanel)}
-        title={isFailed ? `Ingest 失败: ${latest.error_message || '未知错误'}` : 'Ingest 状态'}
-        aria-label="Ingest 状态"
+        title={isFailed ? `采摘失败: ${latest.error_message || '未知错误'}` : '采摘状态'}
+        aria-label="采摘状态"
       >
         <IngestIcon className="ingest-health-icon" />
         <span className="ingest-health-dot" aria-hidden="true" />
@@ -114,7 +114,7 @@ export const IngestHealthIndicator: React.FC<Props> = ({ storyId }) => {
       {showPanel && (
         <div className="ingest-health-panel">
           <div className="ingest-health-panel__header">
-            <span className="ingest-health-panel__title">Ingest 作业记录</span>
+            <span className="ingest-health-panel__title">采摘作业记录</span>
             <button
               onClick={() => setShowPanel(false)}
               className="ingest-health-panel__close"

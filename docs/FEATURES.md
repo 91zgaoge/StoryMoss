@@ -233,7 +233,7 @@ Layer 1: Raw Sources (原始内容)
 - 中日韩 Unicode 范围检测
 - 针对中文语义优化
 
-#### Ingest Pipeline (两步思维链)
+#### 采摘 Pipeline（Ingest，两步思维链）
 1. **分析阶段** - LLM 提取实体、关系、事件、情感
 2. **生成阶段** - 生成结构化知识，计算关系强度
 
@@ -314,7 +314,7 @@ Layer 1: Raw Sources (原始内容)
 | 模块 | 状态 | 描述 |
 |------|------|------|
 | tokenizer.rs | ✅ | CJK Bigram 分词器 |
-| ingest.rs | ✅ | 两步思维链 Ingest 管线 |
+| ingest.rs | ✅ | 两步思维链采摘（Ingest）管线 |
 | query.rs | ✅ | 四阶段查询检索管线 |
 | multi_agent.rs | ✅ | 多助手会话管理 |
 
@@ -335,7 +335,7 @@ Layer 1: Raw Sources (原始内容)
 | 类别 | 命令数 | 说明 |
 |------|--------|------|
 | 场景命令 | 12 | 场景的 CRUD 和排序 |
-| 记忆命令 | 8 | Ingest/Query/Multi-Agent |
+| 记忆命令 | 8 | 采摘（Ingest）/Query/Multi-Agent |
 | 创建命令 | 4 | AI 生成相关 |
 | 配置命令 | 2 | 工作室导入/导出 |
 | **总计** | **26** | - |
@@ -359,7 +359,7 @@ Layer 1: Raw Sources (原始内容)
 | 模块 | 完成度 | 备注 |
 |------|--------|------|
 | 场景化叙事系统 | 100% | Scene 模型、StoryTimeline、SceneEditor |
-| 增强记忆系统 | 95% | Ingest/Query Pipeline、Knowledge Graph |
+| 增强记忆系统 | 95% | 采摘（Ingest）/Query Pipeline、Knowledge Graph |
 | AI 智能生成 | 100% | NovelCreationAgent、创建向导 |
 | 工作室配置 | 100% | 导入/导出、主题系统 |
 | 幕前界面 | 95% | 场景导航、编辑器 |
@@ -371,7 +371,7 @@ Layer 1: Raw Sources (原始内容)
 | 模块 | 完成度 | 备注 |
 |------|--------|------|
 | 场景化叙事系统 | 100% | Scene 模型、StoryTimeline、SceneEditor |
-| 增强记忆系统 | 95% | Ingest/Query Pipeline、Knowledge Graph、LanceDB 向量索引 |
+| 增强记忆系统 | 95% | 采摘（Ingest）/Query Pipeline、Knowledge Graph、LanceDB 向量索引 |
 | AI 智能生成 | 100% | NovelCreationAgent、Bootstrap 两阶段、创建向导 |
 | 工作室配置 | 100% | 导入/导出、主题系统 |
 | 幕前界面 | 100% | 精简侧边栏、幽灵文本、`/` 菜单 |
@@ -386,7 +386,7 @@ Layer 1: Raw Sources (原始内容)
 ## 📝 待完善功能 (v5.5.1 状态)
 
 ### 高优先级
-1. ~~向量存储完整集成~~ ✅ LanceDB 向量索引已集成，Ingest 后自动写入
+1. ~~向量存储完整集成~~ ✅ LanceDB 向量索引已集成，采摘（Ingest）后自动写入
 2. ~~知识图谱可视化~~ ✅ ReactFlow 可视化已实现
 3. ~~场景版本历史~~ ✅ 版本快照和回滚已实现
 
@@ -411,7 +411,7 @@ Layer 1: Raw Sources (原始内容)
 - ✅ 卡片式世界观/角色/文风选择
 - ✅ 故事线视图和场景编辑器
 - ✅ 工作室配置导入/导出
-- ✅ 记忆系统（Ingest/Query）
+- ✅ 记忆系统（采摘（Ingest）/Query）
 - ✅ 沉浸式写作体验（幕前）
 
 ---
