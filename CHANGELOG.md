@@ -2,6 +2,45 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.3] - 续写性能再优化：候选精简、上下文并行、候选共享缓存（2026-06-12）
+
+### 摘要
+- 针对用户反馈的「单次续写 5–10 分钟太慢」做第二轮优化
+- 在保留生成质量的前提下，减少 LLM 调用次数、并行化上下文查询、让候选间共享预计算缓存
+- 修复 AI 续写接受后内容插入光标位置导致段落混乱的问题
+
+### 性能优化
+- **Writer 默认候选数 3 → 2**：`agents/orchestrator.rs` 在续写场景下将并行候选从 3 个减为 2 个，temperature 调整为 `[0.82, 1.0]`，保留多样性的同时减少 1 次 LLM 调用
+- **StoryContextBuilder 查询并行化**：`creative_engine/context_builder.rs`
+  - `build` / `build_quick` / `build_for_scene` 改为 `async`
+  - 第一阶段 `tokio::try_join!` 并行获取 story、characters、scenes、world_rules、writing_style、relevant_entities
+  - 第二阶段 `tokio::try_join!` 并行构建 MemoryPack、叙事结构、活跃线索
+  - 所有调用方已同步改为 `.await`
+- **候选间共享 AgentContext 缓存**：`agents/mod.rs` + `creative_engine/context_builder.rs` + `agents/service.rs`
+  - `StyleContext` 新增 `style_dna_extension: Option<String>`
+  - `StoryContext` 新增 `personalizer_extension: Option<String>`
+  - `StoryContextBuilder` 一次性查库并预计算风格 DNA 提示词扩展与个性化偏好扩展
+  - `build_writer_prompt` 优先使用预计算缓存，避免每个 Writer 候选重复查库
+
+### Bug 修复
+- **AI 续写接受后始终追加到正文最后**：`frontstage/components/RichTextEditor.tsx` 新增 `appendText` 方法，`FrontstageApp.tsx` 接受续写时改用 `appendText`，避免插入光标处造成段落混乱
+
+### 编译状态
+- `cargo check --lib` ✅
+- `cargo +nightly fmt -- --check` ✅
+- `cargo test --lib` ✅ **318/318** 通过
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 124 passed
+- `npm run format:check` ✅
+- `npm run build` ✅
+
+### 版本号
+- `src-tauri/Cargo.toml`: `0.9.2` → `0.9.3`
+- `src-tauri/tauri.conf.json`: `0.9.2` → `0.9.3`
+- `src-frontend/package.json`: `0.9.2` → `0.9.3`
+
+---
+
 ## [v0.9.2] - 自动创作性能优化：并行化、缓存与前端收敛（2026-06-11）
 
 ### 摘要
