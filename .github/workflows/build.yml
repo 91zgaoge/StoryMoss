@@ -123,9 +123,12 @@ jobs:
         run: npm run build
 
   # E2E tests
+  # NOTE: 当前 E2E 在 Vite dev server 上运行，缺少真实 Tauri 后端，settings 页 IPC 调用会挂起。
+  # 因此 E2E 失败不阻塞整体工作流；单元测试与构建检查才是可靠质量门。
   e2e-check:
     needs: [frontend-check, rust-check]
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -159,10 +162,6 @@ jobs:
           path: e2e/screenshots/
 
   # Full Tauri build (matrix build for all platforms)
-  # Note: e2e-check is intentionally NOT a blocker for release builds.
-  # E2E tests run against a Vite dev server without the real Tauri backend,
-  # causing settings page tests to fail (IPC calls hang). Unit tests (160)
-  # and build checks are the reliable quality gates.
   tauri-build:
     needs: [rust-check, frontend-check]
     runs-on: ${{ matrix.os }}
