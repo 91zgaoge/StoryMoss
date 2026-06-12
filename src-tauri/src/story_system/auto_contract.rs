@@ -808,8 +808,13 @@ impl AutoContractBuilder {
              故事标题: {}\n\
              体裁: {}\n\
              简介: {}\n\n\
+             命名要求：\n\
+             - 禁止使用林、陈、王、李、张、刘等最常见单字姓\n\
+             - 禁止单字名\n\
+             - 名字应具有辨识度，符合世界观背景\n\
+             - 角色应有明确性别、年龄、外貌描述\n\n\
              请输出以下格式的 JSON：\n\
-             {{\n  \"name\": \"角色姓名\",\n  \"background\": \"背景故事（50字以内）\",\n  \"personality\": \"性格特点（50字以内）\",\n  \"goals\": \"目标动机（50字以内）\"\n}}",
+             {{\n  \"name\": \"角色姓名\",\n  \"background\": \"背景故事（50字以内）\",\n  \"personality\": \"性格特点（50字以内）\",\n  \"goals\": \"目标动机（50字以内）\",\n  \"appearance\": \"外貌特征（30字以内）\",\n  \"gender\": \"男/女/其他\",\n  \"age\": 25\n}}",
             story.title,
             story.genre.as_deref().unwrap_or("未知"),
             story.description.as_deref().unwrap_or("暂无简介")
@@ -832,6 +837,9 @@ impl AutoContractBuilder {
         let background = char_data["background"].as_str().map(|s| s.to_string());
         let personality = char_data["personality"].as_str().map(|s| s.to_string());
         let goals = char_data["goals"].as_str().map(|s| s.to_string());
+        let appearance = char_data["appearance"].as_str().map(|s| s.to_string());
+        let gender = char_data["gender"].as_str().map(|s| s.to_string());
+        let age = char_data["age"].as_i64().map(|n| n as i32);
 
         let char_repo = CharacterRepository::new(self.pool.clone());
         let character = char_repo
@@ -841,9 +849,9 @@ impl AutoContractBuilder {
                 background,
                 personality,
                 goals,
-                appearance: None,
-                gender: None,
-                age: None,
+                appearance,
+                gender,
+                age,
             })
             .map_err(|e| format!("保存角色失败: {}", e))?;
 

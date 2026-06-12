@@ -83,6 +83,9 @@ impl ShortTermMemory {
                 name: c.name.clone(),
                 personality: c.personality.clone().unwrap_or_default(),
                 role: c.goals.clone().unwrap_or_else(|| "角色".to_string()),
+                appearance: c.appearance.clone(),
+                gender: c.gender.clone(),
+                age: c.age,
             })
             .collect();
 
@@ -137,6 +140,7 @@ impl ShortTermMemory {
                 selected_text: None,
                 narrative_structure: None,
                 active_threads: vec![],
+                outline_context: None,
             },
             style: StyleContext {
                 style_dna_id: None,

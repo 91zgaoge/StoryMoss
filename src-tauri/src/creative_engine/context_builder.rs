@@ -246,7 +246,7 @@ impl StoryContextBuilder {
             }
         }
 
-        // 构建角色信息（增强版：包含目标、背景）
+        // 构建角色信息（增强版：包含目标、背景、外貌、性别、年龄）
         let character_infos: Vec<CharacterInfo> = characters
             .into_iter()
             .map(|c| {
@@ -268,6 +268,9 @@ impl StoryContextBuilder {
                     name: c.name,
                     personality,
                     role,
+                    appearance: c.appearance,
+                    gender: c.gender,
+                    age: c.age,
                 }
             })
             .collect();
@@ -300,6 +303,8 @@ impl StoryContextBuilder {
         let world_rules_text = Self::format_world_rules(&world_rules);
         let scene_structure_text =
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
+        let outline_context_text =
+            self.build_outline_context(story_id, current_scene.as_ref());
         let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
         // v0.9.3: 预计算风格 DNA 扩展与个性化扩展，候选间共享，避免每个候选重复查库
@@ -376,6 +381,7 @@ impl StoryContextBuilder {
                 selected_text,
                 narrative_structure: Some(narrative_structure),
                 active_threads,
+                outline_context: outline_context_text,
             },
             style: StyleContext {
                 style_dna_id: story.style_dna_id,
@@ -386,8 +392,8 @@ impl StoryContextBuilder {
             world: WorldContext {
                 world_rules: world_rules_text,
                 scene_structure: scene_structure_text,
-                methodology_id: None,
-                methodology_step: None,
+                methodology_id: story.methodology_id.clone(),
+                methodology_step: story.methodology_step.map(|n| n.to_string()),
             },
             memory: AgentMemoryContext {
                 memory_pack,
@@ -768,6 +774,9 @@ impl StoryContextBuilder {
 
         // 当前场景结构
         if let Some(s) = scene {
+            if let Some(ref title) = s.title {
+                parts.push(format!("场景标题: {}", title));
+            }
             if let Some(ref goal) = s.dramatic_goal {
                 parts.push(format!("戏剧目标: {}", goal));
             }
@@ -785,6 +794,17 @@ impl StoryContextBuilder {
             }
             if !s.characters_present.is_empty() {
                 parts.push(format!("出场角色: {}", s.characters_present.join(", ")));
+            }
+            // v0.9.6: 注入场景大纲与草稿，让 Writer 知道场景节拍目标
+            if let Some(ref outline) = s.outline_content {
+                if !outline.trim().is_empty() {
+                    parts.push(format!("场景大纲: {}", outline));
+                }
+            }
+            if let Some(ref draft) = s.draft_content {
+                if !draft.trim().is_empty() {
+                    parts.push(format!("场景草稿: {}", draft));
+                }
             }
         }
 
@@ -807,6 +827,70 @@ impl StoryContextBuilder {
         } else {
             Some(parts.join("\n"))
         }
+    }
+
+    /// 构建当前场景/章节的大纲上下文（v0.9.6）
+    fn build_outline_context(
+        &self,
+        story_id: &str,
+        scene: Option<&crate::db::models::Scene>,
+    ) -> Option<String> {
+        let mut parts = Vec::new();
+
+        if let Some(s) = scene {
+            if let Some(ref title) = s.title {
+                parts.push(format!("当前场景: {}", title));
+            }
+            if let Some(ref outline) = s.outline_content {
+                if !outline.trim().is_empty() {
+                    parts.push(format!("场景大纲: {}", outline));
+                }
+            }
+            if let Some(ref draft) = s.draft_content {
+                if !draft.trim().is_empty() {
+                    parts.push(format!("草稿方向: {}", draft));
+                }
+            }
+        }
+
+        // 注入当前幕/章节的故事大纲摘要
+        if let Some(outline) = self.fetch_story_outline_summary(story_id, scene.map(|s| s.sequence_number)) {
+            if !outline.trim().is_empty() {
+                parts.push(format!("故事大纲定位: {}", outline));
+            }
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n"))
+        }
+    }
+
+    /// 获取故事大纲中当前场景对应的摘要
+    fn fetch_story_outline_summary(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+    ) -> Option<String> {
+        use crate::db::repositories::StoryOutlineRepository;
+
+        let repo = StoryOutlineRepository::new(self.pool.clone());
+        let outline = repo.get_by_story(story_id).ok()??;
+        let content = outline.content;
+        if content.trim().is_empty() {
+            return None;
+        }
+        // 如果大纲按场景分条，尝试提取当前场景附近的几条
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.is_empty() {
+            return None;
+        }
+        let n = scene_number.unwrap_or(1).max(1) as usize;
+        let start = n.saturating_sub(2).min(lines.len().saturating_sub(1));
+        let end = (n + 2).min(lines.len());
+        let snippet = lines[start..end].join("\n");
+        Some(snippet)
     }
 
     // ==================== LitSeg E1: 叙事结构感知 ====================
@@ -1303,6 +1387,7 @@ mod tests {
                 selected_text: None,
                 narrative_structure: None,
                 active_threads: vec![],
+                outline_context: None,
             },
             style: StyleContext {
                 style_dna_id: None,

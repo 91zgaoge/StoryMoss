@@ -303,8 +303,12 @@ impl AgentOrchestrator {
             suggestions: writer_result.suggestions.clone(),
         }];
 
+        let final_content = self
+            .apply_writing_skills(&task.context, &writer_result.content)
+            .await;
+
         Ok(WorkflowResult {
-            final_content: writer_result.content,
+            final_content,
             final_score: writer_result.score.unwrap_or(1.0),
             style_score: 0.0,
             narrative_score: 0.0,
@@ -572,8 +576,12 @@ impl AgentOrchestrator {
                 (0.0, final_score, Vec::new())
             };
 
+        let final_content = self
+            .apply_writing_skills(&task.context, &current_content)
+            .await;
+
         Ok(WorkflowResult {
-            final_content: current_content,
+            final_content,
             final_score,
             style_score: last_style_score,
             narrative_score: last_narrative_score,
@@ -585,6 +593,72 @@ impl AgentOrchestrator {
         })
     }
 
+    /// v0.9.6: 在 Writer 输出后自动调用内置增强技能（情感节奏 + 文风润色）
+    async fn apply_writing_skills(&self, context: &crate::agents::AgentContext, content: &str) -> String {
+        let Some(manager) = crate::SKILL_MANAGER.get() else {
+            return content.to_string();
+        };
+        let skill_manager = {
+            let Ok(guard) = manager.lock() else {
+                return content.to_string();
+            };
+            guard.clone()
+        };
+
+        let mut result = content.to_string();
+
+        // 1. 情感节奏优化
+        let emotion_params = std::collections::HashMap::from([
+            ("content".to_string(), serde_json::Value::String(result.clone())),
+            ("mode".to_string(), serde_json::Value::String("rewrite".to_string())),
+        ]);
+        match skill_manager
+            .execute_skill("builtin.emotion_pacing", context, emotion_params)
+            .await
+        {
+            Ok(skill_result) => {
+                if skill_result.success {
+                    if let Some(serde_json::Value::String(rewritten)) = skill_result.data.get("content") {
+                        if !rewritten.trim().is_empty() {
+                            result = rewritten.clone();
+                        }
+                    } else if let Some(rewritten) = skill_result.data.as_str() {
+                        if !rewritten.trim().is_empty() {
+                            result = rewritten.to_string();
+                        }
+                    }
+                }
+            }
+            Err(e) => log::warn!("[AgentOrchestrator] emotion_pacing skill failed: {}", e),
+        }
+
+        // 2. 文风增强
+        let style_params = std::collections::HashMap::from([
+            ("content".to_string(), serde_json::Value::String(result.clone())),
+        ]);
+        match skill_manager
+            .execute_skill("builtin.style_enhancer", context, style_params)
+            .await
+        {
+            Ok(skill_result) => {
+                if skill_result.success {
+                    if let Some(serde_json::Value::String(rewritten)) = skill_result.data.get("content") {
+                        if !rewritten.trim().is_empty() {
+                            result = rewritten.clone();
+                        }
+                    } else if let Some(rewritten) = skill_result.data.as_str() {
+                        if !rewritten.trim().is_empty() {
+                            result = rewritten.to_string();
+                        }
+                    }
+                }
+            }
+            Err(e) => log::warn!("[AgentOrchestrator] style_enhancer skill failed: {}", e),
+        }
+
+        result
+    }
+
     /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）和记忆分析（v0.8.0）
     fn parse_inspector_style_analysis(
         content: &str,
@@ -593,25 +667,43 @@ impl AgentOrchestrator {
         // 尝试从 content 中提取 JSON
         let json_str = Self::extract_json_from_content(content);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            // v0.9.6: 从 dimension_scores 提取各维度分数
+            let dimension_scores = json.get("dimension_scores");
+            let ds = |key: &str| {
+                dimension_scores
+                    .and_then(|d| d.get(key))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32
+            };
+            let writing_score = ds("writing");
+            let scene_score = ds("scene");
+
             let style_score = json
                 .get("style_analysis")
                 .and_then(|s| s.get("style_score"))
                 .and_then(|s| s.as_f64())
                 .map(|s| (s as f32 / 100.0).min(1.0))
-                .unwrap_or(fallback_score);
+                .unwrap_or_else(|| {
+                    // 没有风格分析时，用文笔与场景丰富度作为风格分替代
+                    if writing_score > 0.0 || scene_score > 0.0 {
+                        ((writing_score + scene_score) / 40.0).min(1.0)
+                    } else {
+                        fallback_score
+                    }
+                });
 
-            // v0.8.0: 叙事分包含 memory 维度
-            let narrative_score = json
-                .get("dimension_scores")
+            // v0.9.6: 叙事分基于升级后的七维评分（logic/character/writing/scene/plot/pacing/world）
+            let narrative_score = dimension_scores
                 .and_then(|d| {
                     let logic = d.get("logic").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let character = d.get("character").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let writing = d.get("writing").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let scene = d.get("scene").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let plot = d.get("plot").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let pacing = d.get("pacing").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let world = d.get("world").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let memory = d.get("memory").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let total = logic + character + writing + pacing + world + memory;
-                    Some((total as f32 / 125.0).min(1.0)) // 6维度总分125，归一化到0-1
+                    let total = logic + character + writing + scene + plot + pacing + world;
+                    Some((total as f32 / 140.0).min(1.0)) // 7维度总分140，归一化到0-1
                 })
                 .unwrap_or(fallback_score);
 

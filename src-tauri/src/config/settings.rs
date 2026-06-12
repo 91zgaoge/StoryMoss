@@ -142,8 +142,8 @@ fn default_conflict_level() -> i32 {
 impl Default for WritingStrategy {
     fn default() -> Self {
         Self {
-            run_mode: "fast".to_string(),
-            conflict_level: 50,
+            run_mode: "balanced".to_string(),
+            conflict_level: 60,
             pace: "balanced".to_string(),
             ai_freedom: "medium".to_string(),
         }

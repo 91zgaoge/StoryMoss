@@ -82,6 +82,9 @@ pub struct NarrativeContext {
     pub narrative_structure: Option<NarrativeStructureContext>,
     #[serde(default)]
     pub active_threads: Vec<String>,
+    /// 当前章节/场景大纲与草稿内容（v0.9.6：让 Writer 知道场景节拍目标）
+    #[serde(default)]
+    pub outline_context: Option<String>,
 }
 
 /// LitSeg 叙事结构上下文
@@ -168,6 +171,9 @@ pub struct CharacterInfo {
     pub name: String,
     pub personality: String,
     pub role: String,
+    pub appearance: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<i32>,
 }
 
 /// 章节摘要
@@ -267,6 +273,7 @@ impl AgentContext {
                 selected_text: None,
                 narrative_structure: None,
                 active_threads: vec![],
+                outline_context: None,
             },
             style: StyleContext {
                 style_dna_id: None,
@@ -295,7 +302,22 @@ impl AgentContext {
             self.narrative
                 .characters
                 .iter()
-                .map(|c| format!("{}（{}）: {}", c.name, c.role, c.personality))
+                .map(|c| {
+                    let mut parts = vec![format!("{}（{}）", c.name, c.role)];
+                    if let Some(ref gender) = c.gender {
+                        parts.push(format!("性别: {}", gender));
+                    }
+                    if let Some(age) = c.age {
+                        parts.push(format!("年龄: {}", age));
+                    }
+                    if let Some(ref appearance) = c.appearance {
+                        if !appearance.trim().is_empty() {
+                            parts.push(format!("外貌: {}", appearance));
+                        }
+                    }
+                    parts.push(format!("性格与目标: {}", c.personality));
+                    parts.join("；")
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         }

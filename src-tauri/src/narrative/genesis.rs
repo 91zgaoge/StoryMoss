@@ -324,13 +324,13 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // W2-B2: Bootstrap 初稿走 Orchestrator Fast 模式（单轮生成，跳过 Inspector）
+            // v0.9.6: Bootstrap 初稿走 Orchestrator Full 模式，确保第一章质量
             let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
                 service,
                 ctx.app_handle.clone(),
             );
             let result = match orchestrator
-                .generate(task, crate::agents::orchestrator::GenerationMode::Fast)
+                .generate(task, crate::agents::orchestrator::GenerationMode::Full)
                 .await
             {
                 Ok(workflow_result) => crate::agents::AgentResult {

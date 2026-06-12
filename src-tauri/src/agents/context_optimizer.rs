@@ -100,6 +100,10 @@ pub struct CharacterCard {
     pub name: String,
     pub personality: String,
     pub role: String,
+    /// 角色静态属性
+    pub appearance: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<i32>,
     /// 动态状态字段
     pub location: Option<String>,
     pub power_level: Option<String>,
@@ -473,6 +477,9 @@ impl ContextOptimizer {
                         name: c.name.clone(),
                         personality: c.personality.clone(),
                         role: c.role.clone(),
+                        appearance: c.appearance.clone(),
+                        gender: c.gender.clone(),
+                        age: c.age,
                     })
                     .collect(),
                 previous_chapters: l1.recent_chapters,
@@ -480,6 +487,7 @@ impl ContextOptimizer {
                 selected_text: selected_text.clone(),
                 narrative_structure: None,
                 active_threads: vec![],
+                outline_context: l1.scene_structure.clone(),
             },
             style: StyleContext {
                 style_dna_id: l0.style_dna_id,
@@ -648,6 +656,9 @@ impl ContextOptimizer {
                     name: c.name,
                     personality,
                     role,
+                    appearance: c.appearance,
+                    gender: c.gender,
+                    age: c.age,
                     location: c.cs_location,
                     power_level: c.cs_power_level,
                     physical_state: c.cs_physical_state,
@@ -1116,6 +1127,9 @@ mod tests {
             name: "张三".to_string(),
             personality: "勇敢".to_string(),
             role: "主角".to_string(),
+            appearance: Some("剑眉星目".to_string()),
+            gender: Some("男".to_string()),
+            age: Some(25),
             location: Some("京城".to_string()),
             power_level: None,
             physical_state: Some("轻伤".to_string()),

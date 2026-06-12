@@ -310,7 +310,8 @@ impl AgentService {
 
         let start_time = std::time::Instant::now();
         let effective_max = match tier {
-            SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
+            // v0.9.6: 免费版也需要足够长度生成完整场景，放宽到 2000 tokens
+            SubscriptionTier::Free => max_tokens.map(|m| m.min(2000)).or(Some(2000)),
             _ => max_tokens,
         };
         let agent_type = task.agent_type;
@@ -1221,6 +1222,18 @@ impl AgentService {
         vars.insert(
             "scene_structure".to_string(),
             ctx.world.scene_structure.clone().unwrap_or_default(),
+        );
+        vars.insert(
+            "outline_context".to_string(),
+            ctx.narrative.outline_context.clone().unwrap_or_default(),
+        );
+        vars.insert(
+            "scene_beats".to_string(),
+            ctx.world.scene_structure.clone().unwrap_or_default(),
+        );
+        vars.insert(
+            "must_cover".to_string(),
+            ctx.narrative.outline_context.clone().unwrap_or_default(),
         );
         tokio::task::yield_now().await;
 
