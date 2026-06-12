@@ -4,7 +4,7 @@
 //! 输入：用户概念 premise
 //! 输出：NarrativeBundle（包含故事的全部结构要素）
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
@@ -38,7 +38,8 @@ pub struct GenesisContext {
     pub story_id: String,
     pub session_id: String,
     pub user_premise: String,
-    pub bundle: NarrativeBundle,
+    /// 叙事元素集合，使用 Arc<RwLock<>> 支持后台阶段分组并行写入
+    pub bundle: Arc<tokio::sync::RwLock<NarrativeBundle>>,
     pub current_step: String,
     pub app_handle: AppHandle,
     pub pool: DbPool,
@@ -67,7 +68,7 @@ impl GenesisContext {
             story_id: String::new(),
             session_id: Uuid::new_v4().to_string(),
             user_premise,
-            bundle: NarrativeBundle::new(),
+            bundle: Arc::new(tokio::sync::RwLock::new(NarrativeBundle::new())),
             current_step: String::new(),
             app_handle,
             pool,
@@ -88,7 +89,7 @@ impl GenesisContext {
             story_id,
             session_id,
             user_premise,
-            bundle,
+            bundle: Arc::new(tokio::sync::RwLock::new(bundle)),
             current_step: String::new(),
             app_handle,
             pool,
@@ -126,9 +127,8 @@ impl GenesisPipeline {
 
     pub fn background_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
-            Box::new(WorldBuildingGenerationStep),
-            Box::new(OutlineGenerationStep),
-            Box::new(CharacterGenerationStep),
+            // 世界观、大纲、角色互相独立，合并为一个并行步骤
+            Box::new(ParallelWorldOutlineCharacterStep),
             Box::new(SceneGenerationStep),
             Box::new(ForeshadowingGenerationStep),
             Box::new(KnowledgeGraphGenerationStep),
@@ -204,10 +204,14 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
             ctx.story_id = story.id.clone();
-            ctx.bundle = ctx.bundle.clone().with_story_meta(StoryMetaElement {
-                id: story.id.clone(),
-                ..meta
-            });
+            let title = meta.title.clone();
+            {
+                let mut bundle = ctx.bundle.write().await;
+                *bundle = bundle.clone().with_story_meta(StoryMetaElement {
+                    id: story.id.clone(),
+                    ..meta
+                });
+            }
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
@@ -218,7 +222,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 status: StepStatus::Completed,
                 message: format!(
                     "故事概念已生成：《{}",
-                    ctx.bundle.story_meta.as_ref().unwrap().title
+                    title
                 ),
                 progress_percent: 50,
                 elapsed_seconds: 0,
@@ -253,14 +257,13 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
+            let meta = {
+                let bundle = ctx.bundle.read().await;
+                bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
                     reason: "故事概念未生成".to_string(),
-                })?;
+                })?
+            };
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
@@ -435,16 +438,18 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
     }
 }
 
-// ==================== Step 3: 世界观生成 ====================
+// ==================== Step 3: 世界观/大纲/角色并行生成 ====================
+///
+/// 原后台阶段的世界观、大纲、角色三步互相独立（均只依赖故事概念），
+/// 合并为一个步骤后内部使用 tokio::join! 并行调用 LLM，减少整体等待时间。
+struct ParallelWorldOutlineCharacterStep;
 
-struct WorldBuildingGenerationStep;
-
-impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
+impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
     fn name(&self) -> &'static str {
-        "构建世界"
+        "构建世界与骨架"
     }
     fn description(&self) -> &'static str {
-        "生成世界观设定"
+        "并行生成世界观、故事大纲和主要角色"
     }
     fn step_number(&self) -> usize {
         1
@@ -458,106 +463,397 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
+            let meta = {
+                let bundle = ctx.bundle.read().await;
+                bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
                     reason: "故事概念未生成".to_string(),
-                })?;
+                })?
+            };
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Running,
-                message: "正在调用AI生成世界观...".to_string(),
+                message: "正在并行构建世界观、大纲与角色...".to_string(),
                 progress_percent: 5,
                 elapsed_seconds: 0,
                 metadata: None,
             });
 
-            let prompt = world_building_prompt(
-                PromptMode::Generate,
-                &meta.title,
-                &meta.genre,
-                &meta.description,
-            );
-            let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成世界观设定");
-            let response = llm
-                .generate_with_context_and_pipeline(
-                    prompt,
-                    Some(2048),
-                    Some(0.6),
-                    Some("生成世界观设定"),
-                    Some(pipeline_ctx),
-                )
-                .await
-                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            let session_id = ctx.session_id.clone();
+            let story_id = ctx.story_id.clone();
+            let pool = ctx.pool.clone();
+            let bundle = ctx.bundle.clone();
+            let llm = llm.clone();
 
-            let content = response.content.trim();
-            let json_str = super::extract_and_sanitize_json(content)
-                .map_err(|e| PipelineError::ParseError(e))?;
-            let wb: WorldBuildingElement = serde_json::from_str(&json_str)
-                .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
+            let world_future = {
+                let meta = meta.clone();
+                let session_id = session_id.clone();
+                let story_id = story_id.clone();
+                let pool = pool.clone();
+                let llm = llm.clone();
+                let progress = progress.clone();
+                async move {
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "构建世界".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Running,
+                        message: "正在调用AI生成世界观...".to_string(),
+                        progress_percent: 5,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
 
-            // 保存到数据库
-            let repo = WorldBuildingRepository::new(ctx.pool.clone());
-            let world_building = repo
-                .create(&ctx.story_id, &wb.concept)
-                .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                    let prompt = world_building_prompt(
+                        PromptMode::Generate,
+                        &meta.title,
+                        &meta.genre,
+                        &meta.description,
+                    );
+                    let pipeline_ctx = LlmPipelineContext {
+                        step_name: "构建世界".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        action: "生成世界观设定".to_string(),
+                    };
+                    let response = llm
+                        .generate_with_context_and_pipeline(
+                            prompt,
+                            Some(2048),
+                            Some(0.6),
+                            Some("生成世界观设定"),
+                            Some(pipeline_ctx),
+                        )
+                        .await
+                        .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
-            let rules: Vec<crate::db::models::WorldRule> = wb
-                .rules
-                .iter()
-                .map(|r| crate::db::models::WorldRule {
-                    id: Uuid::new_v4().to_string(),
-                    name: r.name.clone(),
-                    description: Some(r.description.clone()),
-                    rule_type: match r.rule_type.as_str() {
-                        "physical" => RuleType::Physical,
-                        "magic" => RuleType::Magic,
-                        "social" => RuleType::Social,
-                        "historical" => RuleType::Historical,
-                        "technology" => RuleType::Technology,
-                        "biological" => RuleType::Biological,
-                        "cultural" => RuleType::Cultural,
-                        _ => RuleType::Custom,
-                    },
-                    importance: r.importance,
-                })
-                .collect();
+                    let content = response.content.trim();
+                    let json_str = super::extract_and_sanitize_json(content)
+                        .map_err(|e| PipelineError::ParseError(e))?;
+                    let wb: WorldBuildingElement = serde_json::from_str(&json_str)
+                        .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
-            let _ = repo.update(
-                &world_building.id,
-                None,
-                Some(&rules),
-                Some(&wb.history),
-                None,
-            );
+                    let repo = WorldBuildingRepository::new(pool.clone());
+                    let world_building = repo
+                        .create(&story_id, &wb.concept)
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
-            ctx.bundle = ctx
-                .bundle
-                .clone()
-                .with_world_building(WorldBuildingElement {
-                    id: world_building.id,
-                    story_id: ctx.story_id.clone(),
-                    ..wb
-                });
+                    let rules: Vec<crate::db::models::WorldRule> = wb
+                        .rules
+                        .iter()
+                        .map(|r| crate::db::models::WorldRule {
+                            id: Uuid::new_v4().to_string(),
+                            name: r.name.clone(),
+                            description: Some(r.description.clone()),
+                            rule_type: match r.rule_type.as_str() {
+                                "physical" => RuleType::Physical,
+                                "magic" => RuleType::Magic,
+                                "social" => RuleType::Social,
+                                "historical" => RuleType::Historical,
+                                "technology" => RuleType::Technology,
+                                "biological" => RuleType::Biological,
+                                "cultural" => RuleType::Cultural,
+                                _ => RuleType::Custom,
+                            },
+                            importance: r.importance,
+                        })
+                        .collect();
+
+                    let _ = repo.update(
+                        &world_building.id,
+                        None,
+                        Some(&rules),
+                        Some(&wb.history),
+                        None,
+                    );
+
+                    let element = WorldBuildingElement {
+                        id: world_building.id,
+                        story_id: story_id.clone(),
+                        ..wb
+                    };
+
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "构建世界".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Completed,
+                        message: "世界观设定已生成".to_string(),
+                        progress_percent: 15,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
+
+                    Ok::<WorldBuildingElement, PipelineError>(element)
+                }
+            };
+
+            let outline_future = {
+                let meta = meta.clone();
+                let session_id = session_id.clone();
+                let story_id = story_id.clone();
+                let pool = pool.clone();
+                let llm = llm.clone();
+                let progress = progress.clone();
+                async move {
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "故事大纲".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Running,
+                        message: "正在调用AI设计故事大纲...".to_string(),
+                        progress_percent: 20,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
+
+                    let prompt = outline_prompt(
+                        PromptMode::Generate,
+                        &meta.title,
+                        &meta.genre,
+                        &meta.description,
+                    );
+                    let pipeline_ctx = LlmPipelineContext {
+                        step_name: "故事大纲".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        action: "生成故事大纲".to_string(),
+                    };
+                    let response = llm
+                        .generate_with_context_and_pipeline(
+                            prompt,
+                            Some(2048),
+                            Some(0.6),
+                            Some("生成故事大纲"),
+                            Some(pipeline_ctx),
+                        )
+                        .await
+                        .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+
+                    let content = response.content.trim();
+                    let json_str = super::extract_and_sanitize_json(content)
+                        .map_err(|e| PipelineError::ParseError(e))?;
+                    let outline: OutlineElement = serde_json::from_str(&json_str)
+                        .map_err(|e| PipelineError::ParseError(format!("解析大纲失败: {}", e)))?;
+
+                    let repo = StoryOutlineRepository::new(pool.clone());
+                    let structure_json = serde_json::to_string(&outline.acts)
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                    let content_summary = outline
+                        .acts
+                        .iter()
+                        .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    let total_scenes: i32 = outline.acts.iter().map(|a| a.estimated_scenes).sum();
+
+                    let _ = repo
+                        .create(
+                            &story_id,
+                            &content_summary,
+                            Some(&structure_json),
+                            outline.acts.len() as i32,
+                            Some(total_scenes),
+                        )
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+
+                    let element = OutlineElement {
+                        id: Uuid::new_v4().to_string(),
+                        story_id: story_id.clone(),
+                        ..outline
+                    };
+
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "故事大纲".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Completed,
+                        message: "故事大纲已生成".to_string(),
+                        progress_percent: 30,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
+
+                    Ok::<OutlineElement, PipelineError>(element)
+                }
+            };
+
+            let character_future = {
+                let meta = meta.clone();
+                let story_id = story_id.clone();
+                let pool = pool.clone();
+                let bundle = bundle.clone();
+                let llm = llm.clone();
+                let progress = progress.clone();
+                async move {
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "塑造角色".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Running,
+                        message: "正在调用AI设计角色...".to_string(),
+                        progress_percent: 35,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
+
+                    let world = {
+                        let b = bundle.read().await;
+                        b.world_building
+                            .as_ref()
+                            .map(|w| w.concept.clone())
+                            .unwrap_or_default()
+                    };
+
+                    let prompt = character_prompt(
+                        PromptMode::Generate,
+                        &meta.title,
+                        &meta.genre,
+                        &world,
+                        &meta.description,
+                    );
+                    let pipeline_ctx = LlmPipelineContext {
+                        step_name: "塑造角色".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        action: "生成角色".to_string(),
+                    };
+                    let response = llm
+                        .generate_with_context_and_pipeline(
+                            prompt,
+                            Some(3000),
+                            Some(0.7),
+                            Some("生成角色"),
+                            Some(pipeline_ctx),
+                        )
+                        .await
+                        .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+
+                    let content = response.content.trim();
+                    let json_str = super::extract_and_sanitize_json(content)
+                        .map_err(|e| PipelineError::ParseError(e))?;
+
+                    #[derive(Debug, Deserialize)]
+                    struct CharacterResponse {
+                        #[serde(default)]
+                        characters: Vec<CharacterElement>,
+                    }
+                    let char_data: CharacterResponse = serde_json::from_str(&json_str).map_err(|e| {
+                        log::warn!("角色 JSON 解析失败: {}\n原始 JSON:\n{}", e, json_str);
+                        PipelineError::ParseError(format!("解析角色失败: {}", e))
+                    })?;
+
+                    let repo = CharacterRepository::new(pool.clone());
+                    let rel_repo = CharacterRelationshipRepository::new(pool.clone());
+                    let mut name_to_id: HashMap<String, String> = HashMap::new();
+                    let mut generated = Vec::new();
+
+                    for c in char_data.characters {
+                        let character = repo
+                            .create(CreateCharacterRequest {
+                                story_id: story_id.clone(),
+                                name: c.name.clone(),
+                                background: Some(c.background.clone()),
+                                personality: Some(c.personality.clone()),
+                                goals: Some(c.goals.clone()),
+                                appearance: Some(c.appearance.clone()),
+                                gender: Some(c.gender.clone()),
+                                age: Some(c.age),
+                            })
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+
+                        name_to_id.insert(c.name.clone(), character.id.clone());
+
+                        generated.push(CharacterElement {
+                            id: character.id,
+                            story_id: story_id.clone(),
+                            ..c
+                        });
+                    }
+
+                    for c in &generated {
+                        for rel in &c.relationships {
+                            if let (Some(source_id), Some(target_id)) =
+                                (name_to_id.get(&c.name), name_to_id.get(&rel.target_name))
+                            {
+                                let _ = rel_repo.create(
+                                    &story_id,
+                                    source_id,
+                                    target_id,
+                                    &rel.relation_type,
+                                    rel.description.as_deref(),
+                                    None,
+                                );
+                            }
+                        }
+                    }
+
+                    let count = generated.len();
+
+                    progress(PipelineProgressEvent {
+                        pipeline_id: session_id.clone(),
+                        pipeline_type: PipelineType::Genesis,
+                        step_name: "塑造角色".to_string(),
+                        step_number: 1,
+                        total_steps: 4,
+                        status: StepStatus::Completed,
+                        message: format!("已生成 {} 个角色", count),
+                        progress_percent: 50,
+                        elapsed_seconds: 0,
+                        metadata: None,
+                    });
+
+                    Ok::<Vec<CharacterElement>, PipelineError>(generated)
+                }
+            };
+
+            let (world_res, outline_res, characters_res) =
+                tokio::join!(world_future, outline_future, character_future);
+
+            {
+                let mut bundle_guard = bundle.write().await;
+                if let Ok(ref wb) = world_res {
+                    *bundle_guard = bundle_guard.clone().with_world_building(wb.clone());
+                }
+                if let Ok(ref outline) = outline_res {
+                    *bundle_guard = bundle_guard.clone().with_outline(outline.clone());
+                }
+                if let Ok(ref characters) = characters_res {
+                    for c in characters {
+                        *bundle_guard = bundle_guard.clone().add_character(c.clone());
+                    }
+                }
+            }
+
+            // 任一失败都中断整个 pipeline（保持严格语义）
+            world_res?;
+            outline_res?;
+            characters_res?;
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Completed,
-                message: "世界观设定已生成".to_string(),
-                progress_percent: 15,
+                message: "世界观、大纲与角色已并行生成".to_string(),
+                progress_percent: 50,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -567,16 +863,16 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
     }
 }
 
-// ==================== Step 4: 大纲生成 ====================
+// ==================== Step 4: 场景生成 ====================
 
-struct OutlineGenerationStep;
+struct SceneGenerationStep;
 
-impl PipelineStep<GenesisContext> for OutlineGenerationStep {
+impl PipelineStep<GenesisContext> for SceneGenerationStep {
     fn name(&self) -> &'static str {
-        "故事大纲"
+        "场景规划"
     }
     fn description(&self) -> &'static str {
-        "生成三幕式故事大纲"
+        "生成核心场景大纲"
     }
     fn step_number(&self) -> usize {
         2
@@ -590,301 +886,30 @@ impl PipelineStep<GenesisContext> for OutlineGenerationStep {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
+            let (meta, character_names) = {
+                let bundle = ctx.bundle.read().await;
+                let meta = bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
                     reason: "故事概念未生成".to_string(),
                 })?;
+                let character_names = bundle
+                    .characters
+                    .iter()
+                    .map(|c| format!("{}({})", c.name, c.role_type))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                (meta, character_names)
+            };
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
-                status: StepStatus::Running,
-                message: "正在调用AI设计故事大纲...".to_string(),
-                progress_percent: 20,
-                elapsed_seconds: 0,
-                metadata: None,
-            });
-
-            let prompt = outline_prompt(
-                PromptMode::Generate,
-                &meta.title,
-                &meta.genre,
-                &meta.description,
-            );
-            let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成故事大纲");
-            let response = llm
-                .generate_with_context_and_pipeline(
-                    prompt,
-                    Some(2048),
-                    Some(0.6),
-                    Some("生成故事大纲"),
-                    Some(pipeline_ctx),
-                )
-                .await
-                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
-
-            let content = response.content.trim();
-            let json_str = super::extract_and_sanitize_json(content)
-                .map_err(|e| PipelineError::ParseError(e))?;
-            let outline: OutlineElement = serde_json::from_str(&json_str)
-                .map_err(|e| PipelineError::ParseError(format!("解析大纲失败: {}", e)))?;
-
-            // 保存到数据库
-            let repo = StoryOutlineRepository::new(ctx.pool.clone());
-            let structure_json = serde_json::to_string(&outline.acts)
-                .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-            let content_summary = outline
-                .acts
-                .iter()
-                .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            let total_scenes: i32 = outline.acts.iter().map(|a| a.estimated_scenes).sum();
-
-            let _ = repo
-                .create(
-                    &ctx.story_id,
-                    &content_summary,
-                    Some(&structure_json),
-                    outline.acts.len() as i32,
-                    Some(total_scenes),
-                )
-                .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-
-            ctx.bundle = ctx.bundle.clone().with_outline(OutlineElement {
-                id: Uuid::new_v4().to_string(),
-                story_id: ctx.story_id.clone(),
-                ..outline
-            });
-
-            progress(PipelineProgressEvent {
-                pipeline_id: ctx.session_id.clone(),
-                pipeline_type: PipelineType::Genesis,
-                step_name: self.name().to_string(),
-                step_number: self.step_number(),
-                total_steps: 6,
-                status: StepStatus::Completed,
-                message: "故事大纲已生成".to_string(),
-                progress_percent: 30,
-                elapsed_seconds: 0,
-                metadata: None,
-            });
-
-            Ok(())
-        })
-    }
-}
-
-// ==================== Step 5: 角色生成 ====================
-
-struct CharacterGenerationStep;
-
-impl PipelineStep<GenesisContext> for CharacterGenerationStep {
-    fn name(&self) -> &'static str {
-        "塑造角色"
-    }
-    fn description(&self) -> &'static str {
-        "生成主要角色"
-    }
-    fn step_number(&self) -> usize {
-        3
-    }
-
-    fn execute<'a>(
-        &'a self,
-        ctx: &'a mut GenesisContext,
-        llm: &'a LlmService,
-        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?;
-            let world = ctx
-                .bundle
-                .world_building
-                .as_ref()
-                .map(|w| w.concept.clone())
-                .unwrap_or_default();
-
-            progress(PipelineProgressEvent {
-                pipeline_id: ctx.session_id.clone(),
-                pipeline_type: PipelineType::Genesis,
-                step_name: self.name().to_string(),
-                step_number: self.step_number(),
-                total_steps: 6,
-                status: StepStatus::Running,
-                message: "正在调用AI设计角色...".to_string(),
-                progress_percent: 35,
-                elapsed_seconds: 0,
-                metadata: None,
-            });
-
-            let prompt = character_prompt(
-                PromptMode::Generate,
-                &meta.title,
-                &meta.genre,
-                &world,
-                &meta.description,
-            );
-            let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成角色");
-            let response = llm
-                .generate_with_context_and_pipeline(
-                    prompt,
-                    Some(3000),
-                    Some(0.7),
-                    Some("生成角色"),
-                    Some(pipeline_ctx),
-                )
-                .await
-                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
-
-            let content = response.content.trim();
-            let json_str = super::extract_and_sanitize_json(content)
-                .map_err(|e| PipelineError::ParseError(e))?;
-
-            #[derive(Debug, Deserialize)]
-            struct CharacterResponse {
-                #[serde(default)]
-                characters: Vec<CharacterElement>,
-            }
-            let char_data: CharacterResponse = serde_json::from_str(&json_str).map_err(|e| {
-                log::warn!("角色 JSON 解析失败: {}\n原始 JSON:\n{}", e, json_str);
-                PipelineError::ParseError(format!("解析角色失败: {}", e))
-            })?;
-
-            // 保存到数据库
-            let repo = CharacterRepository::new(ctx.pool.clone());
-            let rel_repo = CharacterRelationshipRepository::new(ctx.pool.clone());
-            let mut name_to_id: HashMap<String, String> = HashMap::new();
-            let mut generated = Vec::new();
-
-            for c in char_data.characters {
-                let character = repo
-                    .create(CreateCharacterRequest {
-                        story_id: ctx.story_id.clone(),
-                        name: c.name.clone(),
-                        background: Some(c.background.clone()),
-                        personality: Some(c.personality.clone()),
-                        goals: Some(c.goals.clone()),
-                        appearance: Some(c.appearance.clone()),
-                        gender: Some(c.gender.clone()),
-                        age: Some(c.age),
-                    })
-                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-
-                name_to_id.insert(c.name.clone(), character.id.clone());
-
-                generated.push(CharacterElement {
-                    id: character.id,
-                    story_id: ctx.story_id.clone(),
-                    ..c
-                });
-            }
-
-            // 创建角色关系
-            for c in &generated {
-                for rel in &c.relationships {
-                    if let (Some(source_id), Some(target_id)) =
-                        (name_to_id.get(&c.name), name_to_id.get(&rel.target_name))
-                    {
-                        let _ = rel_repo.create(
-                            &ctx.story_id,
-                            source_id,
-                            target_id,
-                            &rel.relation_type,
-                            rel.description.as_deref(),
-                            None,
-                        );
-                    }
-                }
-            }
-
-            let count = generated.len();
-            for c in generated {
-                ctx.bundle = ctx.bundle.clone().add_character(c);
-            }
-
-            progress(PipelineProgressEvent {
-                pipeline_id: ctx.session_id.clone(),
-                pipeline_type: PipelineType::Genesis,
-                step_name: self.name().to_string(),
-                step_number: self.step_number(),
-                total_steps: 6,
-                status: StepStatus::Completed,
-                message: format!("已生成 {} 个角色", count),
-                progress_percent: 50,
-                elapsed_seconds: 0,
-                metadata: None,
-            });
-
-            Ok(())
-        })
-    }
-}
-
-// ==================== Step 6: 场景生成 ====================
-
-struct SceneGenerationStep;
-
-impl PipelineStep<GenesisContext> for SceneGenerationStep {
-    fn name(&self) -> &'static str {
-        "场景规划"
-    }
-    fn description(&self) -> &'static str {
-        "生成核心场景大纲"
-    }
-    fn step_number(&self) -> usize {
-        4
-    }
-
-    fn execute<'a>(
-        &'a self,
-        ctx: &'a mut GenesisContext,
-        llm: &'a LlmService,
-        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?;
-            let character_names = ctx
-                .bundle
-                .characters
-                .iter()
-                .map(|c| format!("{}({})", c.name, c.role_type))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            progress(PipelineProgressEvent {
-                pipeline_id: ctx.session_id.clone(),
-                pipeline_type: PipelineType::Genesis,
-                step_name: self.name().to_string(),
-                step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在调用AI设计场景...".to_string(),
-                progress_percent: 55,
+                progress_percent: 60,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -992,8 +1017,11 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
             }
 
             let count = generated.len();
-            for s in generated {
-                ctx.bundle = ctx.bundle.clone().add_scene(s);
+            {
+                let mut bundle = ctx.bundle.write().await;
+                for s in generated {
+                    *bundle = bundle.clone().add_scene(s);
+                }
             }
 
             progress(PipelineProgressEvent {
@@ -1001,7 +1029,7 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: format!("已生成 {} 个场景", count),
                 progress_percent: 70,
@@ -1026,7 +1054,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
         "埋设核心伏笔"
     }
     fn step_number(&self) -> usize {
-        5
+        3
     }
 
     fn execute<'a>(
@@ -1037,37 +1065,36 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let meta = ctx
-                .bundle
-                .story_meta
-                .as_ref()
-                .ok_or_else(|| PipelineError::StepFailed {
+            let (meta, outline_summary, first_scene_id) = {
+                let bundle = ctx.bundle.read().await;
+                let meta = bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
                     reason: "故事概念未生成".to_string(),
                 })?;
-            let outline_summary = ctx
-                .bundle
-                .outline
-                .as_ref()
-                .map(|o| {
-                    o.acts
-                        .iter()
-                        .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_else(|| "暂无大纲".to_string());
-            let first_scene_id = ctx.bundle.scenes.first().map(|s| s.id.as_str());
+                let outline_summary = bundle
+                    .outline
+                    .as_ref()
+                    .map(|o| {
+                        o.acts
+                            .iter()
+                            .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_else(|| "暂无大纲".to_string());
+                let first_scene_id = bundle.scenes.first().map(|s| s.id.clone());
+                (meta, outline_summary, first_scene_id)
+            };
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在埋设伏笔...".to_string(),
-                progress_percent: 75,
+                progress_percent: 80,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -1108,7 +1135,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
             let mut generated = Vec::new();
 
             for (idx, fw) in fw_data.foreshadowings.into_iter().enumerate() {
-                let setup_scene = if idx == 0 { first_scene_id } else { None };
+                let setup_scene = if idx == 0 { first_scene_id.as_deref() } else { None };
                 let id = tracker
                     .add_foreshadowing(&ctx.story_id, &fw.content, setup_scene, fw.importance)
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
@@ -1121,8 +1148,11 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
             }
 
             let count = generated.len();
-            for fw in generated {
-                ctx.bundle = ctx.bundle.clone().add_foreshadowing(fw);
+            {
+                let mut bundle = ctx.bundle.write().await;
+                for fw in generated {
+                    *bundle = bundle.clone().add_foreshadowing(fw);
+                }
             }
 
             progress(PipelineProgressEvent {
@@ -1130,7 +1160,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: format!("已埋设 {} 处伏笔", count),
                 progress_percent: 85,
@@ -1155,7 +1185,7 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
         "构建知识图谱"
     }
     fn step_number(&self) -> usize {
-        6
+        4
     }
 
     fn execute<'a>(
@@ -1171,10 +1201,10 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在构建知识图谱...".to_string(),
-                progress_percent: 90,
+                progress_percent: 95,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -1182,8 +1212,13 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
             let kg_repo = KnowledgeGraphRepository::new(ctx.pool.clone());
             let mut entity_id_map: HashMap<String, String> = HashMap::new();
 
+            let (characters, scenes) = {
+                let bundle = ctx.bundle.read().await;
+                (bundle.characters.clone(), bundle.scenes.clone())
+            };
+
             // 创建角色实体
-            for c in &ctx.bundle.characters {
+            for c in &characters {
                 let attrs = serde_json::json!({"role": c.role_type, "personality": c.personality});
                 let entity = kg_repo
                     .create_entity(&ctx.story_id, &c.name, "Character", &attrs, None)
@@ -1192,7 +1227,7 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
             }
 
             // 创建场景实体
-            for s in &ctx.bundle.scenes {
+            for s in &scenes {
                 let attrs =
                     serde_json::json!({"sequence_number": s.sequence_number, "summary": s.summary});
                 let entity = kg_repo
@@ -1202,8 +1237,8 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
             }
 
             // 创建关系：角色 -> 场景
-            for c in &ctx.bundle.characters {
-                for s in &ctx.bundle.scenes {
+            for c in &characters {
+                for s in &scenes {
                     let scene_text = format!("{} {}", s.title, s.summary);
                     if scene_text.contains(&c.name) {
                         if let (Some(char_entity), Some(scene_entity)) = (
@@ -1227,7 +1262,7 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 6,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: "知识图谱已构建".to_string(),
                 progress_percent: 100,

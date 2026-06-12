@@ -2,6 +2,42 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.2] - 自动创作性能优化：并行化、缓存与前端收敛（2026-06-11）
+
+### 摘要
+- 全面优化自动创作性能，解决“后台任务多”和“创作速度慢”两大痛点
+- `cargo test --lib` 318/318 通过，`vitest run` 124 passed
+- 前端状态栏同一时刻只显示一个主任务，减少用户感知混乱
+
+### 后端性能优化
+- **PlanExecutor 同 batch 步骤并行**：`planner/executor.rs` 中拓扑排序后的无依赖步骤使用 `join_all` 并行执行，多独立 LLM 调用从串行求和变为并行取最大值
+- **GenesisPipeline 后台阶段分组并行**：`narrative/genesis.rs` 将世界观/大纲/角色合并为 `ParallelWorldOutlineCharacterStep`，内部使用 `tokio::join!` 并行调用 LLM；场景、伏笔、知识图谱按依赖顺序执行。后台阶段从 6 个串行步骤优化为 4 个步骤
+- **上下文共享可写化**：`GenesisContext.bundle` 升级为 `Arc<RwLock<NarrativeBundle>>`，支持多个后台步骤安全并发读写
+- **StoryContextBuilder 查询去重**：`creative_engine/context_builder.rs` 同一次构建中只查一次 scenes，消除 `previous_scenes` 与 `current_scene` 的重复 `get_by_story`
+- **LLM 调用层优化**：`llm/service.rs`
+  - 按 provider+model+api_base+max_tokens+temperature 缓存 Adapter，避免重复创建 `reqwest::Client`
+  - 实际读取 `LlmProfile.timeout_seconds` 作为单次调用超时
+  - 增加指数退避重试（最多 2 次），自动识别超时/网络/5xx 等可重试错误
+- **数据库调优**：`db/connection.rs` 启用 SQLite WAL、busy_timeout=5000、synchronous=NORMAL，连接池从 5 提升到 10
+
+### 前端体验优化
+- **单一主活动显示**：`hooks/useBackendActivityListener.ts` 将合同补齐、Orchestrator、Agent 阶段、smart_execute、pipeline、plan_executor 等 6 类事件聚合为一个 `ai-primary-activity`，按优先级切换显示
+- **生成状态收敛**：`FrontstageApp.tsx` 中本地 `isGenerating` 与 `backendActivityStore` 对齐，后台无活动时自动关闭生成锁
+
+### 编译状态
+- `cargo build --package storyforge` ✅ 成功
+- `cargo test --lib` ✅ **318/318** 通过
+- `cd src-frontend && npx tsc --noEmit` ✅ 零错误
+- `cd src-frontend && vitest run` ✅ 124 passed, 3 skipped, 0 failed
+- `cd src-frontend && npm run build` ✅ 成功
+
+### 版本号
+- `src-tauri/Cargo.toml`: `0.9.0` → `0.9.2`
+- `src-tauri/tauri.conf.json`: `0.9.0` → `0.9.2`
+- `src-frontend/package.json`: `0.9.0` → `0.9.2`
+
+---
+
 ## [v0.9.1] - 架构拆分与全面测试覆盖（2026-06-10）
 
 ### 摘要

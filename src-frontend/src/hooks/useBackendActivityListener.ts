@@ -1,6 +1,6 @@
-//! v0.7.7: 统一后台活动监听 Hook
+//! v0.8.0: 统一后台活动监听 Hook
 //!
-//! 聚合所有后台进度事件到 backendActivityStore，让 UI 统一管理。
+//! 将所有后台进度事件聚合为单一主 activity，避免用户同时看到多个任务。
 //! 覆盖：contract-auto-progress、orchestrator-step、agent-stage-update、
 //!       smart-execute-progress、pipeline-progress、plan-executor-step
 
@@ -14,11 +14,33 @@ interface UseBackendActivityListenerOptions {
   enabled?: boolean;
 }
 
+const PRIMARY_ACTIVITY_ID = 'ai-primary-activity';
+
+/** 活动类别优先级（数字越小越优先） */
+const CATEGORY_PRIORITY: Record<ActivityCategory, number> = {
+  pipeline: 1,
+  smart_execute: 2,
+  contract_fill: 3,
+  orchestrator: 4,
+  plan_executor: 5,
+  auto_write: 6,
+  auto_revise: 7,
+  agent_stage: 8,
+};
+
+type ProgressPayload = {
+  category: ActivityCategory;
+  stage: string;
+  message: string;
+  progress?: number;
+  status?: 'running' | 'completed' | 'failed';
+};
+
 /**
  * 统一后台活动监听器
  *
  * 在组件 mount 时注册所有后台事件监听，unmount 时自动清理。
- * 将分散在各处的进度事件聚合为单一的活动状态流。
+ * 将分散在各处的进度事件聚合为单一主 activity，减少用户感知的任务数量。
  */
 export function useBackendActivityListener(options: UseBackendActivityListenerOptions = {}) {
   const { enabled = true } = options;
@@ -37,6 +59,34 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
     const store = storeRef.current;
     const unlistens: (() => void)[] = [];
 
+    const updatePrimary = (payload: ProgressPayload) => {
+      const existing = store.activities.find(a => a.id === PRIMARY_ACTIVITY_ID);
+      const priority = CATEGORY_PRIORITY[payload.category] ?? 99;
+
+      // 如果已有主活动且优先级更高，且新事件优先级更低，则忽略（避免低优先级覆盖高优先级）
+      if (existing && existing.status === 'running') {
+        const existingPriority = CATEGORY_PRIORITY[existing.category] ?? 99;
+        if (priority > existingPriority && existing.category !== payload.category) {
+          return;
+        }
+      }
+
+      // 通过 registerActivity 覆盖主活动，允许 category 变化
+      store.registerActivity({
+        id: PRIMARY_ACTIVITY_ID,
+        category: payload.category,
+        stage: payload.stage,
+        message: payload.message,
+        progress: payload.progress ?? (existing ? existing.progress : 0),
+      });
+
+      if (payload.status === 'completed') {
+        store.completeActivity(PRIMARY_ACTIVITY_ID, payload.message);
+      } else if (payload.status === 'failed') {
+        store.failActivity(PRIMARY_ACTIVITY_ID, payload.message);
+      }
+    };
+
     const setup = async () => {
       // ── 1. 合同/大纲自动补齐 ──
       const unlistenContract = await listen<{
@@ -45,28 +95,13 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         progress: number;
       }>('contract-auto-progress', event => {
         const p = event.payload;
-        const id = 'contract-auto-fill';
-        const existing = store.activities.find(a => a.id === id);
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'contract_fill',
-            stage: p.stage,
-            message: p.message,
-            progress: p.progress,
-          });
-        } else {
-          store.updateActivity(id, {
-            stage: p.stage,
-            message: p.message,
-            progress: p.progress,
-          });
-        }
-        if (p.stage === 'completed') {
-          store.completeActivity(id, '补齐完成');
-        } else if (p.stage === 'error') {
-          store.failActivity(id, p.message);
-        }
+        updatePrimary({
+          category: 'contract_fill',
+          stage: p.stage,
+          message: p.message,
+          progress: p.progress,
+          status: p.stage === 'completed' ? 'completed' : p.stage === 'error' ? 'failed' : 'running',
+        });
       });
       unlistens.push(unlistenContract);
 
@@ -78,8 +113,6 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         score?: number;
       }>('orchestrator-step', event => {
         const p = event.payload;
-        const id = `orch-${p.task_id}`;
-        const existing = store.activities.find(a => a.id === id);
         const stepNames: Record<string, string> = {
           Generation: 'AI 生成中...',
           Inspection: 'AI 质检中...',
@@ -94,17 +127,12 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         }
         const progress =
           p.step_type === 'Generation' ? 0.3 : p.step_type === 'Inspection' ? 0.6 : 0.9;
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'orchestrator',
-            stage: p.step_type,
-            message,
-            progress,
-          });
-        } else {
-          store.updateActivity(id, { stage: p.step_type, message, progress });
-        }
+        updatePrimary({
+          category: 'orchestrator',
+          stage: p.step_type,
+          message,
+          progress,
+        });
       });
       unlistens.push(unlistenOrchestrator);
 
@@ -117,31 +145,14 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         request_id?: string | null;
       }>('agent-stage-update', event => {
         const p = event.payload;
-        const id = `agent-stage-${p.agent_type}-${p.request_id || 'global'}`;
-        const existing = store.activities.find(a => a.id === id);
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'agent_stage',
-            stage: p.stage,
-            message: p.message,
-            progress: p.progress,
-          });
-        } else {
-          store.updateActivity(id, {
-            stage: p.stage,
-            message: p.message,
-            progress: p.progress,
-          });
-        }
-        if (p.stage === 'Completed' || p.stage === 'Failed') {
-          const finalMsg = p.stage === 'Completed' ? '任务完成' : '任务失败';
-          if (p.stage === 'Completed') {
-            store.completeActivity(id, finalMsg);
-          } else {
-            store.failActivity(id, finalMsg);
-          }
-        }
+        updatePrimary({
+          category: 'agent_stage',
+          stage: p.stage,
+          message: p.message,
+          progress: p.progress,
+          status:
+            p.stage === 'Completed' ? 'completed' : p.stage === 'Failed' ? 'failed' : 'running',
+        });
       });
       unlistens.push(unlistenAgentStage);
 
@@ -153,23 +164,14 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         total_steps: number;
       }>('smart-execute-progress', event => {
         const p = event.payload;
-        const id = 'smart-execute';
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
-        const existing = store.activities.find(a => a.id === id);
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'smart_execute',
-            stage: p.stage,
-            message: p.message,
-            progress,
-          });
-        } else {
-          store.updateActivity(id, { stage: p.stage, message: p.message, progress });
-        }
-        if (p.stage === 'completed') {
-          store.completeActivity(id, '智能执行完成');
-        }
+        updatePrimary({
+          category: 'smart_execute',
+          stage: p.stage,
+          message: p.message,
+          progress,
+          status: p.stage === 'completed' ? 'completed' : 'running',
+        });
       });
       unlistens.push(unlistenSmartExecute);
 
@@ -184,27 +186,14 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         progress_percent: number;
       }>('pipeline-progress', event => {
         const p = event.payload;
-        const id = `pipeline-${p.pipeline_id}`;
-        const existing = store.activities.find(a => a.id === id);
-        const progress = p.progress_percent / 100;
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'pipeline',
-            stage: p.step_name,
-            message: p.message,
-            progress,
-          });
-        } else {
-          store.updateActivity(id, { stage: p.step_name, message: p.message, progress });
-        }
-        if (p.status === 'completed' || p.status === 'failed') {
-          if (p.status === 'completed') {
-            store.completeActivity(id, p.message);
-          } else {
-            store.failActivity(id, p.message);
-          }
-        }
+        updatePrimary({
+          category: 'pipeline',
+          stage: p.step_name,
+          message: p.message,
+          progress: p.progress_percent / 100,
+          status:
+            p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'running',
+        });
       });
       unlistens.push(unlistenPipeline);
 
@@ -217,33 +206,21 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         message: string;
       }>('plan-executor-step', event => {
         const p = event.payload;
-        const id = 'plan-executor';
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
-        const existing = store.activities.find(a => a.id === id);
-        if (!existing) {
-          store.registerActivity({
-            id,
-            category: 'plan_executor',
-            stage: p.step_name,
-            message: p.message,
-            progress,
-          });
-        } else {
-          store.updateActivity(id, { stage: p.step_name, message: p.message, progress });
-        }
-        if (p.status === 'completed' || p.status === 'failed') {
-          if (p.status === 'completed') {
-            store.completeActivity(id, p.message);
-          } else {
-            store.failActivity(id, p.message);
-          }
-        }
+        updatePrimary({
+          category: 'plan_executor',
+          stage: p.step_name,
+          message: p.message,
+          progress,
+          status:
+            p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'running',
+        });
       });
       unlistens.push(unlistenPlanExecutor);
 
       // ── 7. 流水线完成 / 智能执行完成清理 ──
       const unlistenPipelineComplete = await listen('pipeline-complete', () => {
-        store.clearCompleted(5000);
+        store.clearCompleted(1000);
       });
       unlistens.push(unlistenPipelineComplete);
     };

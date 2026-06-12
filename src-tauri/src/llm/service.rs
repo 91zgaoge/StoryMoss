@@ -75,6 +75,8 @@ pub struct LlmService {
     app_handle: AppHandle,
     config: Arc<Mutex<AppConfig>>,
     cancel_senders: Arc<Mutex<HashMap<String, Option<tokio::sync::mpsc::Sender<()>>>>>,
+    /// 按配置缓存适配器，避免每次调用重复创建 reqwest::Client
+    adapter_cache: Arc<Mutex<HashMap<String, Box<dyn super::LlmAdapter>>>>,
 }
 
 impl LlmService {
@@ -90,10 +92,11 @@ impl LlmService {
             app_handle,
             config: Arc::new(Mutex::new(config)),
             cancel_senders: Arc::new(Mutex::new(HashMap::new())),
+            adapter_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// 重新加载配置
+    /// 重新加载配置，同时清空适配器缓存
     pub fn reload_config(&self) {
         let app_dir = self
             .app_handle
@@ -105,6 +108,9 @@ impl LlmService {
             Ok(config) => {
                 if let Ok(mut guard) = self.config.lock() {
                     *guard = config;
+                }
+                if let Ok(mut cache) = self.adapter_cache.lock() {
+                    cache.clear();
                 }
             }
             Err(e) => {
@@ -125,41 +131,84 @@ impl LlmService {
         guard.llm_profiles.get(profile_id).cloned()
     }
 
-    /// 创建适配器
+    /// 判断错误是否可重试（超时/网络/5xx）
+    fn is_retriable_error(error: &AppError) -> bool {
+        match error {
+            AppError::LlmTimeout { .. } => true,
+            AppError::Internal { message, .. } => {
+                let m = message.to_lowercase();
+                m.contains("timeout")
+                    || m.contains("connection")
+                    || m.contains("network")
+                    || m.contains("5")
+                    || m.contains("502")
+                    || m.contains("503")
+                    || m.contains("504")
+            }
+            _ => false,
+        }
+    }
+
+    /// 适配器缓存键
+    fn adapter_cache_key(profile: &LlmProfile) -> String {
+        format!(
+            "{:?}|{}|{:?}|{}|{}",
+            profile.provider,
+            profile.model,
+            profile.api_base,
+            profile.max_tokens,
+            profile.temperature
+        )
+    }
+
+    /// 创建适配器（优先从缓存获取）
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
-        match profile.provider {
+        let key = Self::adapter_cache_key(profile);
+        if let Ok(cache) = self.adapter_cache.lock() {
+            if let Some(adapter) = cache.get(&key) {
+                log::debug!("[LLM] Reusing cached adapter for key: {}", key);
+                return Ok(adapter.box_clone());
+            }
+        }
+
+        let adapter: Box<dyn super::LlmAdapter> = match profile.provider {
             LlmProvider::OpenAI
             | LlmProvider::Custom
             | LlmProvider::DeepSeek
-            | LlmProvider::Qwen => Ok(Box::new(OpenAiAdapter::new(
+            | LlmProvider::Qwen => Box::new(OpenAiAdapter::new(
                 profile.api_key.clone(),
                 profile.model.clone(),
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
-            ))),
-            LlmProvider::Anthropic => Ok(Box::new(AnthropicAdapter::new(
+            )),
+            LlmProvider::Anthropic => Box::new(AnthropicAdapter::new(
                 profile.api_key.clone(),
                 profile.model.clone(),
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
-            ))),
-            LlmProvider::Ollama => Ok(Box::new(OllamaAdapter::new(
+            )),
+            LlmProvider::Ollama => Box::new(OllamaAdapter::new(
                 profile.api_key.clone(),
                 profile.model.clone(),
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
-            ))),
+            )),
             _ => {
                 log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
-                Err(AppError::validation_failed(
+                return Err(AppError::validation_failed(
                     format!("Provider {:?} not supported", profile.provider),
                     Some("provider"),
-                ))
+                ));
             }
+        };
+
+        if let Ok(mut cache) = self.adapter_cache.lock() {
+            cache.insert(key, adapter.box_clone());
         }
+        Ok(adapter)
     }
 
     /// 发送 LLM 生成进度事件
@@ -361,23 +410,60 @@ impl LlmService {
         }
 
         let start_time = std::time::Instant::now();
+        let timeout_seconds = if profile.timeout_seconds > 0 {
+            profile.timeout_seconds
+        } else {
+            600
+        };
+        let max_retries = 2u32;
 
-        let result = tokio::select! {
-            r = timeout(Duration::from_secs(600), adapter.generate(req)) => {
-                match r {
-                    Ok(Ok(resp)) => Ok(resp),
-                    Ok(Err(e)) => Err(AppError::internal(format!("Generation failed: {}", e))),
-                    Err(_) => {
-                        log::warn!("[LLM] Generation timed out after {}s", 600);
-                        Err(AppError::llm_timeout(600_000))
+        // 带超时与重试的生成循环
+        let mut result: Result<GenerateResponse, AppError> = Err(AppError::internal(
+            "Generation did not run".to_string(),
+        ));
+        for attempt in 0..=max_retries {
+            let adapter = adapter.box_clone();
+            let req = req.clone();
+            let attempt_result = tokio::select! {
+                r = timeout(Duration::from_secs(timeout_seconds), adapter.generate(req)) => {
+                    match r {
+                        Ok(Ok(resp)) => Ok(resp),
+                        Ok(Err(e)) => {
+                            let err = AppError::internal(format!("Generation failed: {}", e));
+                            if Self::is_retriable_error(&err) && attempt < max_retries {
+                                log::warn!("[LLM] Generation attempt {} failed: {}, retrying...", attempt + 1, e);
+                            }
+                            Err(err)
+                        }
+                        Err(_) => {
+                            log::warn!("[LLM] Generation timed out after {}s (attempt {})", timeout_seconds, attempt + 1);
+                            Err(AppError::llm_timeout(timeout_seconds * 1000))
+                        }
                     }
                 }
+                _ = cancel_rx.recv() => {
+                    log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
+                    Err(AppError::cancelled("生成已取消"))
+                }
+            };
+
+            match attempt_result {
+                Ok(resp) => {
+                    result = Ok(resp);
+                    break;
+                }
+                Err(e) => {
+                    result = Err(e.clone());
+                    if !Self::is_retriable_error(&e) || attempt == max_retries {
+                        break;
+                    }
+                    // 指数退避：500ms, 1000ms, 2000ms...
+                    let backoff_ms = 500u64 * 2u64.pow(attempt);
+                    log::info!("[LLM] Retrying generation in {}ms (attempt {})", backoff_ms, attempt + 2);
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                }
             }
-            _ = cancel_rx.recv() => {
-                log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
-                Err(AppError::cancelled("生成已取消"))
-            }
-        };
+        }
 
         let _ = self
             .cancel_senders
@@ -870,6 +956,7 @@ impl Clone for LlmService {
             app_handle: self.app_handle.clone(),
             config: Arc::clone(&self.config),
             cancel_senders: Arc::clone(&self.cancel_senders),
+            adapter_cache: Arc::clone(&self.adapter_cache),
         }
     }
 }

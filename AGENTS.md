@@ -84,7 +84,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v0.9.1
+- **版本**: v0.9.2
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 
@@ -183,6 +183,15 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+- **v0.9.2 自动创作性能优化** (2026-06-11) — 全面优化自动创作速度与后台任务感知，重点解决"后台任务多"与"创作速度慢"问题，关键变更：
+  - **后端并行化**：PlanExecutor 同 batch 步骤 `join_all` 并行；GenesisPipeline 后台阶段将世界观/大纲/角色合并为单一并行步骤，使用 `tokio::join!` 同时调用 LLM
+  - **共享状态线程安全**：`GenesisContext.bundle` 升级为 `Arc<RwLock<NarrativeBundle>>`
+  - **上下文查询去重**：`StoryContextBuilder` 同一次构建内只查一次 scenes
+  - **LLM 调用层优化**：Adapter 缓存复用、读取 `timeout_seconds`、指数退避重试
+  - **数据库调优**：SQLite WAL + busy_timeout + synchronous=NORMAL，连接池 5 → 10
+  - **前端收敛**：`useBackendActivityListener` 将 6 类事件聚合为单一主 activity；`FrontstageApp` 的 `isGenerating` 与 `backendActivityStore` 对齐
+  - **全量测试通过**：`cargo test --lib` 318/318，`vitest run` 124 passed
 
 - **v0.9.1 架构拆分与全面测试覆盖** (2026-06-10) — 完成 Phase 3 架构拆分 + Phase 4 测试覆盖，`cargo check` 零警告，`cargo test` 318/318 通过，前端 `vitest run` 124/124 通过，E2E 32/32 通过。关键变更：
   - **后端架构拆分**：`repositories.rs` 6198 行 → 183 行（24 个 Repository 独立文件）；`models.rs` → 8 个领域子模块；移除 3 个 RESERVED 幽灵模块

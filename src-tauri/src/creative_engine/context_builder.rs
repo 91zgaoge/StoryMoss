@@ -79,11 +79,13 @@ impl StoryContextBuilder {
 
         // Phase 3.1: fetch 失败即 fatal — 所有 DB 查询错误通过 ? 传播
         let characters = self.fetch_characters(story_id)?;
-        let previous_scenes = self.fetch_previous_scenes(story_id, scene_number)?;
+        // 一次性拉取该故事所有场景，避免 previous_scenes 和 current_scene 重复查询
+        let all_scenes = self.fetch_all_scenes(story_id)?;
+        let previous_scenes = self.filter_previous_scenes(&all_scenes, scene_number);
         let world_rules = self.fetch_world_rules(story_id)?;
         let style = self.fetch_writing_style(story_id)?;
         let current_scene = match scene_number {
-            Some(n) => self.fetch_current_scene(story_id, n)?,
+            Some(n) => all_scenes.into_iter().find(|s| s.sequence_number == n),
             None => None,
         };
         let relevant_entities = self.fetch_relevant_entities(story_id, 10)?;
@@ -268,20 +270,25 @@ impl StoryContextBuilder {
             .map_err(|e| format!("获取角色失败: {}", e))
     }
 
-    fn fetch_previous_scenes(
+    fn fetch_all_scenes(
         &self,
         story_id: &str,
-        scene_number: Option<i32>,
     ) -> Result<Vec<crate::db::models::Scene>, String> {
         let repo = SceneRepository::new(self.pool.clone());
-        let all_scenes = repo
-            .get_by_story(story_id)
-            .map_err(|e| format!("获取场景失败: {}", e))?;
+        repo.get_by_story(story_id)
+            .map_err(|e| format!("获取场景失败: {}", e))
+    }
 
+    fn filter_previous_scenes(
+        &self,
+        all_scenes: &[crate::db::models::Scene],
+        scene_number: Option<i32>,
+    ) -> Vec<crate::db::models::Scene> {
         let cutoff = scene_number.unwrap_or(i32::MAX);
         let mut prev: Vec<_> = all_scenes
-            .into_iter()
+            .iter()
             .filter(|s| s.sequence_number < cutoff)
+            .cloned()
             .collect();
         prev.sort_by_key(|s| s.sequence_number);
 
@@ -290,9 +297,10 @@ impl StoryContextBuilder {
             prev = prev.into_iter().rev().take(5).rev().collect();
         }
 
-        Ok(prev)
+        prev
     }
 
+    #[allow(dead_code)]
     fn fetch_current_scene(
         &self,
         story_id: &str,

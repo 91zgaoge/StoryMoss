@@ -2,7 +2,7 @@
 //!
 //! All intelligence is in the plan. This executor just follows instructions.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -144,7 +144,10 @@ impl PlanExecutor {
         plan_context: &PlanContext,
     ) -> PlanExecutionResult {
         let mut messages = Vec::new();
-        let mut step_outputs: HashMap<String, serde_json::Value> = HashMap::new();
+        let step_outputs = Arc::new(tokio::sync::Mutex::new(HashMap::<
+            String,
+            serde_json::Value,
+        >::new()));
         let mut steps_completed = 0;
         let mut final_content: Option<String> = None;
 
@@ -170,7 +173,7 @@ impl PlanExecutor {
 
         let total_steps = plan.steps.len();
 
-        // 按批次执行（同批次内的步骤无相互依赖，未来可并行化）
+        // 按批次执行（同批次内无依赖的步骤并行执行）
         for (batch_idx, batch) in batches.batches.iter().enumerate() {
             log::info!(
                 "[PlanExecutor] Executing batch {}/{} with {} steps",
@@ -179,37 +182,21 @@ impl PlanExecutor {
                 batch.len()
             );
 
+            // 1) 在当前 batch 开始前统一检查依赖（同 batch 内步骤互相无依赖）
+            let mut batch_steps: Vec<PlanStep> = Vec::with_capacity(batch.len());
             for step_id in batch {
                 let step = match plan.steps.iter().find(|s| s.step_id == *step_id) {
-                    Some(s) => s,
+                    Some(s) => s.clone(),
                     None => {
                         messages.push(format!("Step {} not found in plan", step_id));
                         continue;
                     }
                 };
 
-                // 发送步骤开始进度事件（fire-and-forget，不阻塞）
-                let _ = self.app_handle.emit(
-                    "plan-executor-step",
-                    PlanExecutorProgress {
-                        step_id: step.step_id.clone(),
-                        capability_id: step.capability_id.clone(),
-                        status: "running".to_string(),
-                        message: format!(
-                            "正在执行: {}",
-                            Self::capability_display_name(&step.capability_id)
-                        ),
-                        steps_completed,
-                        total_steps,
-                    },
-                );
-
-                let step_start = std::time::Instant::now();
-
-                // 检查依赖是否满足
+                let outputs = step_outputs.lock().await;
                 let mut deps_ok = true;
                 for dep in &step.depends_on {
-                    if !step_outputs.contains_key(dep) {
+                    if !outputs.contains_key(dep) {
                         let msg = format!("Step {} dependency {} not found", step.step_id, dep);
                         log::warn!("[PlanExecutor] {}", msg);
                         messages.push(msg);
@@ -231,32 +218,110 @@ impl PlanExecutor {
                     );
                     continue;
                 }
+                batch_steps.push(step);
+            }
 
-                // Phase 4: Swarm 闭环增强 — Inspector→Writer 之间注入质量反馈
-                let mut resolved_params = Self::resolve_parameters(&step.parameters, &step_outputs);
-                if let Some((ref inspect_id, _)) = has_loop {
-                    if step.capability_id == "writer" && step.depends_on.contains(inspect_id) {
-                        if let Some(inspector_output) = step_outputs.get(inspect_id) {
-                            if let Some(feedback) =
-                                inspector_output.get("suggestions").and_then(|s| s.as_str())
+            // 2) 同 batch 内步骤并行执行
+            let step_futures = batch_steps.iter().map(|step| {
+                let step = step.clone();
+                let app_handle = self.app_handle.clone();
+                let step_outputs = step_outputs.clone();
+                let has_loop = has_loop.clone();
+                let plan_context = plan_context;
+                async move {
+                    // 发送步骤开始进度事件
+                    let _ = app_handle.emit(
+                        "plan-executor-step",
+                        PlanExecutorProgress {
+                            step_id: step.step_id.clone(),
+                            capability_id: step.capability_id.clone(),
+                            status: "running".to_string(),
+                            message: format!(
+                                "正在执行: {}",
+                                Self::capability_display_name(&step.capability_id)
+                            ),
+                            steps_completed,
+                            total_steps,
+                        },
+                    );
+
+                    // Phase 4: Swarm 闭环增强 — Inspector→Writer 之间注入质量反馈
+                    let resolved_params = {
+                        let outputs = step_outputs.lock().await;
+                        let mut rp = Self::resolve_parameters(&step.parameters, &outputs);
+                        if let Some((ref inspect_id, _)) = has_loop {
+                            if step.capability_id == "writer"
+                                && step.depends_on.contains(inspect_id)
                             {
-                                log::info!(
-                                    "[PlanExecutor] Injecting inspector feedback into writer step"
-                                );
-                                resolved_params.insert(
-                                    "inspector_feedback".to_string(),
-                                    serde_json::Value::String(feedback.to_string()),
-                                );
+                                if let Some(inspector_output) = outputs.get(inspect_id) {
+                                    if let Some(feedback) =
+                                        inspector_output.get("suggestions").and_then(|s| s.as_str())
+                                    {
+                                        log::info!(
+                                            "[PlanExecutor] Injecting inspector feedback into writer step"
+                                        );
+                                        rp.insert(
+                                            "inspector_feedback".to_string(),
+                                            serde_json::Value::String(feedback.to_string()),
+                                        );
+                                    }
+                                }
                             }
                         }
+                        rp
+                    };
+
+                    let step_start = std::time::Instant::now();
+                    let result = self
+                        .execute_step(&step, &resolved_params, plan_context)
+                        .await;
+                    let step_duration = step_start.elapsed().as_millis() as u64;
+
+                    match &result {
+                        Ok(_) => {
+                            let _ = app_handle.emit(
+                                "plan-executor-step",
+                                PlanExecutorProgress {
+                                    step_id: step.step_id.clone(),
+                                    capability_id: step.capability_id.clone(),
+                                    status: "completed".to_string(),
+                                    message: format!(
+                                        "{} 完成",
+                                        Self::capability_display_name(&step.capability_id)
+                                    ),
+                                    steps_completed,
+                                    total_steps,
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("[PlanExecutor] Step {} failed: {}", step.step_id, e);
+                            let _ = app_handle.emit(
+                                "plan-executor-step",
+                                PlanExecutorProgress {
+                                    step_id: step.step_id.clone(),
+                                    capability_id: step.capability_id.clone(),
+                                    status: "failed".to_string(),
+                                    message: format!(
+                                        "{} 失败: {}",
+                                        Self::capability_display_name(&step.capability_id),
+                                        e
+                                    ),
+                                    steps_completed,
+                                    total_steps,
+                                },
+                            );
+                        }
                     }
+
+                    (step, result, step_duration)
                 }
+            });
 
-                let result = self
-                    .execute_step(step, &resolved_params, plan_context)
-                    .await;
-                let step_duration = step_start.elapsed().as_millis() as u64;
+            let batch_results = futures::future::join_all(step_futures).await;
 
+            // 3) 合并本 batch 的执行结果（顺序处理，避免并发写 messages/records）
+            for (step, result, step_duration) in batch_results {
                 // Record execution result
                 let record = ExecutionRecord {
                     capability_id: step.capability_id.clone(),
@@ -268,9 +333,12 @@ impl PlanExecutor {
                 };
                 let _ = self.evolution_engine.record_execution(record);
 
-                match &result {
+                match result {
                     Ok(output) => {
-                        step_outputs.insert(step.step_id.clone(), output.clone());
+                        step_outputs.lock().await.insert(
+                            step.step_id.clone(),
+                            output.clone(),
+                        );
                         messages.push(format!(
                             "Step {} completed: {}",
                             step.step_id, step.capability_id
@@ -279,41 +347,9 @@ impl PlanExecutor {
                             final_content = Some(content.to_string());
                         }
                         steps_completed += 1;
-                        // 发送步骤完成进度事件
-                        let _ = self.app_handle.emit(
-                            "plan-executor-step",
-                            PlanExecutorProgress {
-                                step_id: step.step_id.clone(),
-                                capability_id: step.capability_id.clone(),
-                                status: "completed".to_string(),
-                                message: format!(
-                                    "{} 完成",
-                                    Self::capability_display_name(&step.capability_id)
-                                ),
-                                steps_completed,
-                                total_steps,
-                            },
-                        );
                     }
                     Err(e) => {
                         messages.push(format!("Step {} failed: {}", step.step_id, e));
-                        log::warn!("[PlanExecutor] Step {} failed: {}", step.step_id, e);
-                        // 发送步骤失败进度事件
-                        let _ = self.app_handle.emit(
-                            "plan-executor-step",
-                            PlanExecutorProgress {
-                                step_id: step.step_id.clone(),
-                                capability_id: step.capability_id.clone(),
-                                status: "failed".to_string(),
-                                message: format!(
-                                    "{} 失败: {}",
-                                    Self::capability_display_name(&step.capability_id),
-                                    e
-                                ),
-                                steps_completed,
-                                total_steps,
-                            },
-                        );
                     }
                 }
             }
@@ -322,7 +358,8 @@ impl PlanExecutor {
         // Phase 4: Swarm 质量闭环 — 如果最终内容是 writer 产出且前面有 inspector，
         // 尝试自动触发一轮轻量 inspector 检查
         if let Some((_, ref writer_id)) = has_loop {
-            if let Some(writer_output) = step_outputs.get(writer_id) {
+            let outputs = step_outputs.lock().await;
+            if let Some(writer_output) = outputs.get(writer_id) {
                 if let Some(content) = writer_output.get("content").and_then(|c| c.as_str()) {
                     if content.len() > 100 {
                         log::info!(

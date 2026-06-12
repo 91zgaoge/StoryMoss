@@ -32,4 +32,7 @@ pub trait LlmAdapter: Send + Sync {
     >;
 
     fn model_name(&self) -> String;
+
+    /// 克隆自身为新的 Box<dyn LlmAdapter>，用于缓存复用
+    fn box_clone(&self) -> Box<dyn LlmAdapter>;
 }

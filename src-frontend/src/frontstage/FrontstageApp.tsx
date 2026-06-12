@@ -311,6 +311,26 @@ const FrontstageApp: React.FC = () => {
     return unsub;
   }, []);
 
+  // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
+  useEffect(() => {
+    const unsub = useBackendActivityStore.subscribe(state => {
+      const isAnyActive = state.getIsAnyActive();
+      setIsGenerating(prev => {
+        if (prev && !isAnyActive) {
+          stopElapsedTimer();
+          setGenerationStatus('');
+          return false;
+        }
+        if (!prev && isAnyActive) {
+          startElapsedTimer();
+          return true;
+        }
+        return prev;
+      });
+    });
+    return unsub;
+  }, []);
+
   // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress + 顶部 Toast 大阶段）
   const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });
   useEffect(() => {

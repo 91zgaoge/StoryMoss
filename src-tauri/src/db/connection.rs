@@ -13,8 +13,12 @@ pub type DbPool = Pool<SqliteConnectionManager>;
 
 #[cfg(test)]
 pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
-    let manager = SqliteConnectionManager::memory()
-        .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
+    let manager = SqliteConnectionManager::memory().with_init(|c| {
+        c.execute_batch(
+            "PRAGMA foreign_keys = ON; \
+             PRAGMA busy_timeout = 5000;",
+        )
+    });
     let pool = Pool::builder().max_size(5).build(manager)?;
 
     let mut conn = pool.get()?;
@@ -69,9 +73,15 @@ fn record_migration(conn: &rusqlite::Connection, version: i32) -> Result<(), rus
 
 pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let db_path = app_dir.join("cinema_ai.db");
-    let manager = SqliteConnectionManager::file(&db_path)
-        .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
-    let pool = Pool::builder().max_size(5).build(manager)?;
+    let manager = SqliteConnectionManager::file(&db_path).with_init(|c| {
+        c.execute_batch(
+            "PRAGMA foreign_keys = ON; \
+             PRAGMA journal_mode = WAL; \
+             PRAGMA busy_timeout = 5000; \
+             PRAGMA synchronous = NORMAL;",
+        )
+    });
+    let pool = Pool::builder().max_size(10).build(manager)?;
 
     // Initialize tables
     let mut conn = pool.get()?;

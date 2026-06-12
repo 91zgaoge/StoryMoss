@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 
+#[derive(Clone)]
 pub struct OllamaAdapter {
     client: Client,
     model: String,
@@ -173,5 +174,9 @@ impl LlmAdapter for OllamaAdapter {
 
     fn model_name(&self) -> String {
         self.model.clone()
+    }
+
+    fn box_clone(&self) -> Box<dyn super::LlmAdapter> {
+        Box::new(self.clone())
     }
 }

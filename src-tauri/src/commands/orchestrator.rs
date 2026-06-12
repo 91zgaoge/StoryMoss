@@ -141,7 +141,7 @@ pub async fn smart_execute(
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
                 let first_chapter = ctx.first_chapter_content.clone();
-                let bundle = ctx.bundle.clone();
+                let bundle = ctx.bundle.read().await.clone();
 
                 // 发射 story_created 同步事件
                 let _ = crate::state_sync::StateSync::emit_story_created(
@@ -234,17 +234,18 @@ pub async fn smart_execute(
                     // 统计实际生成的元素数量
                     let elements_created = if success {
                         let mut counts = crate::narrative::progress::ElementsCount::default();
+                        let bundle = bg_ctx.bundle.read().await;
                         // 从上下文统计实际生成的元素（P0-5 修复: 使用 ElementsCount 的正确字段名）
-                        counts.world_rules = if bg_ctx.bundle.world_building.is_some() {
+                        counts.world_rules = if bundle.world_building.is_some() {
                             1
                         } else {
                             0
                         };
-                        counts.characters = bg_ctx.bundle.characters.len();
-                        counts.scenes = bg_ctx.bundle.scenes.len();
-                        counts.foreshadowings = bg_ctx.bundle.foreshadowings.len();
+                        counts.characters = bundle.characters.len();
+                        counts.scenes = bundle.scenes.len();
+                        counts.foreshadowings = bundle.foreshadowings.len();
                         // outline 映射到 plot_points
-                        counts.plot_points = if bg_ctx.bundle.outline.is_some() {
+                        counts.plot_points = if bundle.outline.is_some() {
                             1
                         } else {
                             0

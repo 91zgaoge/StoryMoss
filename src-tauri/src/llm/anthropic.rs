@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 
+#[derive(Clone)]
 pub struct AnthropicAdapter {
     client: Client,
     api_key: String,
@@ -229,5 +230,9 @@ impl LlmAdapter for AnthropicAdapter {
 
     fn model_name(&self) -> String {
         self.model.clone()
+    }
+
+    fn box_clone(&self) -> Box<dyn super::LlmAdapter> {
+        Box::new(self.clone())
     }
 }
