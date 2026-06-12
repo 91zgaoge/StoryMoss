@@ -2,6 +2,64 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.7] - 技能与设置参数对智能创作真正生效（2026-06-13）
+
+### 摘要
+
+- 针对用户反馈的「项目丰富的技能与后台参数设定没有真正影响小说内容生成」问题进行全面修复
+- 将前端设置、后端配置、创作流水线（Writer / Inspector / Planner / Genesis）重新连接，确保每项参数都能调节模型创作行为
+- 新增 Agent 模型映射 UI，可为每个 Agent 单独指定聊天/嵌入/多模态模型
+- 技能（Skills）参数默认值、config、温度/token 现在真正生效
+- Genesis 向导与创作工作流读取用户写作策略、模型配置、质检阈值
+- 模型高级参数（top_p / frequency_penalty / presence_penalty）可持久化并传入 LLM 适配器
+- 通用设置（主题/语言/自动保存/字号/行高）与隐私设置真正持久化
+- 写作风格详细字段、作品简介、场景氛围等上下文注入 Writer 提示词
+
+### 后端改进
+
+- **统一 WorkflowConfig 从 AppConfig 读取**：`src-tauri/src/agents/orchestrator.rs` / `src-tauri/src/config/settings.rs`
+  - `WorkflowConfig` 新增 `from_app_config`，读取 `rewrite_threshold` / `max_feedback_loops` / `style_weight` / `narrative_weight` / `skip_rewrite_threshold` / `keep_revision_history`
+  - 所有创作路径（`writer_agent_execute`、`auto_write`、`auto_revise`、任务系统执行器、Planner、Genesis、工作流调度器、场景草稿生成）统一使用用户配置，不再写死
+- **Agent 模型映射真正可用**：`src-tauri/src/agents/service.rs`
+  - 新增 `get_agent_llm_params`：按 Agent 类型读取映射的 chat 模型 profile 的 `temperature` / `max_tokens`
+  - Writer / Inspector / OutlinePlanner / StyleMimic / PlotAnalyzer / Commentator / MemoryCompressor / KnowledgeDistiller 均优先使用用户指定模型参数
+- **技能系统完整生效**：`src-tauri/src/skills/executor.rs` / `src-tauri/src/skills/builtin.rs` / `src-tauri/src/commands/skill.rs`
+  - `SkillParameter.default` 缺失时自动合并到调用参数
+  - `SkillManifest.config` 作为低优先级参数合并，支持 `temperature` / `max_tokens`
+  - 内置技能补充默认 config
+  - fallback LLM 调用也使用 skill 返回的参数
+- **Genesis / 创作向导读取配置**：`src-tauri/src/narrative/genesis.rs` / `src-tauri/src/creative_engine/workflow/engine.rs`
+  - 概念生成读取 active LLM profile 的 `temperature` / `max_tokens`
+  - 第一章注入用户 `writing_strategy` 与可配置目标字数（`genesis_first_chapter_word_count_target`，默认 2000）
+  - 创作工作流 `review_threshold` / `max_iterations` 从 `AppConfig` 读取
+- **模型高级参数持久化与传递**：`src-tauri/src/config/settings.rs` / `src-tauri/src/config/commands.rs` / `src-tauri/src/llm/adapter.rs` / `src-tauri/src/llm/service.rs` / `src-tauri/src/llm/openai.rs` / `src-tauri/src/llm/anthropic.rs` / `src-tauri/src/llm/ollama.rs`
+  - `LlmProfile` 新增 `top_p` / `frequency_penalty` / `presence_penalty`
+  - `ModelConfigInput` 接收并保存上述字段
+  - `GenerateRequest` 传递这些字段到 OpenAI / Anthropic / Ollama 适配器
+- **通用/隐私设置持久化**：`src-tauri/src/config/settings.rs` / `src-tauri/src/config/commands.rs`
+  - `AppConfig` 新增 `theme` / `language` / `auto_save` / `auto_save_interval` / `font_size` / `line_height` / `share_usage_data` / `store_api_keys_securely`
+  - `get_settings` / `save_settings` 真正读写这些字段，不再硬编码
+- **风格与场景参数补全注入**：`src-tauri/src/agents/mod.rs` / `src-tauri/src/creative_engine/context_builder.rs` / `src-tauri/src/agents/service.rs`
+  - `StoryContext` 新增 `description`，`StyleContext` 新增写作风格详细字段
+  - `build_writer_prompt` 注入【作品简介】与【写作风格约束】
+  - `format_scene_structure` 显式渲染 `setting_atmosphere`
+
+### 前端改进
+
+- **Agent 模型映射 UI**：`src-frontend/src/pages/settings/AgentConfig.tsx` / `src-frontend/src/pages/Settings.tsx`
+  - 替换原占位组件，支持为 8 个 Agent 配置 chat / embedding / multimodal 模型
+  - 实时保存，调用已有 `update_agent_mapping` API
+- **模型高级参数输入**：`src-frontend/src/pages/settings/ModelModal.tsx`
+  - 新增 Top P、Frequency Penalty、Presence Penalty 输入框
+
+### 测试
+
+- `cargo test --lib` ✅ 323/323 通过
+- `npm run type-check`（src-frontend）✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+
+---
+
 ## [v0.9.6] - 智能创作性能与质量双重优化（2026-06-12）
 
 ### 摘要

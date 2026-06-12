@@ -185,6 +185,16 @@ node scripts/cdp-inspect.js
 
 ### 最近完成的功能
 
+- **v0.9.7 技能与设置参数对智能创作真正生效** (2026-06-13) — 全面修复"项目丰富的技能与后台参数设定没有真正影响小说内容生成"问题，关键变更：
+  - **WorkflowConfig 统一从 AppConfig 读取**：`rewrite_threshold` / `max_feedback_loops` / `style_weight` / `narrative_weight` / `skip_rewrite_threshold` / `keep_revision_history` 全部用户可配置，创作路径不再写死
+  - **Agent 模型映射前端可用**：新增 `AgentConfig` 组件，可为 8 个 Agent 单独配置 chat / embedding / multimodal 模型；后端 `get_agent_llm_params` 按 Agent 读取模型 profile 的 `temperature` / `max_tokens`
+  - **技能参数真正生效**：`SkillParameter.default` 自动合并；`SkillManifest.config` 支持 `temperature` / `max_tokens`；内置技能补充默认 config
+  - **Genesis / 创作向导读取配置**：概念生成与第一章使用 active profile 参数；第一章注入 `writing_strategy` 与可配置目标字数；创作工作流 `review_threshold` / `max_iterations` 从配置读取
+  - **模型高级参数持久化**：`LlmProfile` 新增 `top_p` / `frequency_penalty` / `presence_penalty`，前端 `ModelModal` 可编辑，OpenAI / Anthropic / Ollama 适配器传递
+  - **通用/隐私设置持久化**：`theme` / `language` / `auto_save` / `font_size` / `line_height` / `share_usage_data` / `store_api_keys_securely` 真正保存到 `AppConfig`
+  - **风格与场景参数补全注入**：`build_writer_prompt` 注入写作风格详细字段与作品简介；`format_scene_structure` 显式渲染 `setting_atmosphere`
+  - **验证**：`cargo test --lib` 323/323 通过，`npm run type-check` 通过，`vitest run` 116 passed / 3 skipped
+
 - **v0.9.4 智能创作进度感知与幕前界面精简** (2026-06-12) — 修复"智能创作进度提示长时间卡住"问题，并进一步精简幕前界面，关键变更：
   - **全局进度监听**：`orchestrator-step` 监听从局部改为全局，智能输入栏（`handleSmartGeneration`）与 `Ctrl+Enter`（`handleRequestGeneration`）均能实时显示写作进度
   - **初始阶段提示细化**：`smart_execute` 上下文加载阶段新增"读取故事信息 / 章节与场景结构 / 世界观、角色与伏笔 / 风格配置"等细粒度事件，避免初始阶段无反馈
