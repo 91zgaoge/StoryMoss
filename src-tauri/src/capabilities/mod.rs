@@ -225,14 +225,12 @@ impl CapabilityRegistry {
             }
         };
 
-        let params = vec![
-            CapabilityParam {
-                name: "context".to_string(),
-                description: "创作上下文或用户输入".to_string(),
-                required: false,
-                param_type: "string".to_string(),
-            },
-        ];
+        let params = vec![CapabilityParam {
+            name: "context".to_string(),
+            description: "创作上下文或用户输入".to_string(),
+            required: false,
+            param_type: "string".to_string(),
+        }];
 
         self.register(Capability {
             id: asset.id.clone(),
@@ -243,11 +241,15 @@ impl CapabilityRegistry {
             output_description: asset.output_description.clone().unwrap_or_default(),
             parameters: params,
             source_type,
-            metadata: asset.payload.as_object().map(|obj| {
-                obj.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect::<std::collections::HashMap<_, _>>()
-            }).unwrap_or_default(),
+            metadata: asset
+                .payload
+                .as_object()
+                .map(|obj| {
+                    obj.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<std::collections::HashMap<_, _>>()
+                })
+                .unwrap_or_default(),
         });
     }
 

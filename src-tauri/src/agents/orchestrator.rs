@@ -608,7 +608,11 @@ impl AgentOrchestrator {
     }
 
     /// v0.9.6: 在 Writer 输出后自动调用内置增强技能（情感节奏 + 文风润色）
-    async fn apply_writing_skills(&self, context: &crate::agents::AgentContext, content: &str) -> String {
+    async fn apply_writing_skills(
+        &self,
+        context: &crate::agents::AgentContext,
+        content: &str,
+    ) -> String {
         let Some(manager) = crate::SKILL_MANAGER.get() else {
             return content.to_string();
         };
@@ -623,8 +627,14 @@ impl AgentOrchestrator {
 
         // 1. 情感节奏优化
         let emotion_params = std::collections::HashMap::from([
-            ("content".to_string(), serde_json::Value::String(result.clone())),
-            ("mode".to_string(), serde_json::Value::String("rewrite".to_string())),
+            (
+                "content".to_string(),
+                serde_json::Value::String(result.clone()),
+            ),
+            (
+                "mode".to_string(),
+                serde_json::Value::String("rewrite".to_string()),
+            ),
         ]);
         match skill_manager
             .execute_skill("builtin.emotion_pacing", context, emotion_params)
@@ -632,7 +642,9 @@ impl AgentOrchestrator {
         {
             Ok(skill_result) => {
                 if skill_result.success {
-                    if let Some(serde_json::Value::String(rewritten)) = skill_result.data.get("content") {
+                    if let Some(serde_json::Value::String(rewritten)) =
+                        skill_result.data.get("content")
+                    {
                         if !rewritten.trim().is_empty() {
                             result = rewritten.clone();
                         }
@@ -647,16 +659,19 @@ impl AgentOrchestrator {
         }
 
         // 2. 文风增强
-        let style_params = std::collections::HashMap::from([
-            ("content".to_string(), serde_json::Value::String(result.clone())),
-        ]);
+        let style_params = std::collections::HashMap::from([(
+            "content".to_string(),
+            serde_json::Value::String(result.clone()),
+        )]);
         match skill_manager
             .execute_skill("builtin.style_enhancer", context, style_params)
             .await
         {
             Ok(skill_result) => {
                 if skill_result.success {
-                    if let Some(serde_json::Value::String(rewritten)) = skill_result.data.get("content") {
+                    if let Some(serde_json::Value::String(rewritten)) =
+                        skill_result.data.get("content")
+                    {
                         if !rewritten.trim().is_empty() {
                             result = rewritten.clone();
                         }
@@ -706,7 +721,8 @@ impl AgentOrchestrator {
                     }
                 });
 
-            // v0.9.6: 叙事分基于升级后的七维评分（logic/character/writing/scene/plot/pacing/world）
+            // v0.9.6: 叙事分基于升级后的七维评分（logic/character/writing/scene/plot/
+            // pacing/world）
             let narrative_score = dimension_scores
                 .and_then(|d| {
                     let logic = d.get("logic").and_then(|v| v.as_f64()).unwrap_or(0.0);

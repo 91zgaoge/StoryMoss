@@ -3154,10 +3154,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             .collect::<Result<Vec<_>, _>>()?;
 
         if !story_cols.contains(&"genre_profile_id".to_string()) {
-            conn.execute(
-                "ALTER TABLE stories ADD COLUMN genre_profile_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE stories ADD COLUMN genre_profile_id TEXT", [])?;
         }
         record_migration(conn, 88)?;
     }

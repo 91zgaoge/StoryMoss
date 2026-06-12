@@ -57,27 +57,31 @@ pub async fn smart_execute(
     // 构建 PlanContext：从当前系统状态推断
     // v0.9.5: 将同步 DB 查询移入 spawn_blocking，避免阻塞 tokio worker
     let pool_for_loader = pool.clone();
-    let (stories, current_story, current_story_id, chapters) = tokio::task::spawn_blocking(
-        move || -> Result<SmartExecuteContext, AppError> {
-            let stories = StoryRepository::new(pool_for_loader.clone()).get_all().map_err(|e| {
-                AppError::internal(format!("[smart_execute] Failed to load stories: {}", e))
-            })?;
+    let (stories, current_story, current_story_id, chapters) =
+        tokio::task::spawn_blocking(move || -> Result<SmartExecuteContext, AppError> {
+            let stories = StoryRepository::new(pool_for_loader.clone())
+                .get_all()
+                .map_err(|e| {
+                    AppError::internal(format!("[smart_execute] Failed to load stories: {}", e))
+                })?;
             let current_story = stories.first().cloned();
             let current_story_id = current_story.as_ref().map(|s| s.id.clone());
             let chapters = if let Some(ref story_id) = current_story_id {
                 ChapterRepository::new(pool_for_loader.clone())
                     .get_by_story(story_id)
                     .map_err(|e| {
-                        AppError::internal(format!("[smart_execute] Failed to load chapters: {}", e))
+                        AppError::internal(format!(
+                            "[smart_execute] Failed to load chapters: {}",
+                            e
+                        ))
                     })?
             } else {
                 vec![]
             };
             Ok((stories, current_story, current_story_id, chapters))
-        },
-    )
-    .await
-    .map_err(|e| AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e)))??;
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e)))??;
 
     let chapter_count = chapters.len();
 
@@ -174,7 +178,10 @@ pub async fn smart_execute(
                     output_summary: None,
                     previous_content: None,
                     new_content: None,
-                    metadata: Some(serde_json::json!({"session_id": session_id, "mode": "concept_sync"}).to_string()),
+                    metadata: Some(
+                        serde_json::json!({"session_id": session_id, "mode": "concept_sync"})
+                            .to_string(),
+                    ),
                 });
 
                 // v0.9.5: 第一章与剩余结构在后台生成，避免阻塞用户
@@ -244,7 +251,11 @@ pub async fn smart_execute(
                     let elements_created = if success {
                         let mut counts = crate::narrative::progress::ElementsCount::default();
                         let bundle = bg_ctx.bundle.read().await;
-                        counts.world_rules = if bundle.world_building.is_some() { 1 } else { 0 };
+                        counts.world_rules = if bundle.world_building.is_some() {
+                            1
+                        } else {
+                            0
+                        };
                         counts.characters = bundle.characters.len();
                         counts.scenes = bundle.scenes.len();
                         counts.foreshadowings = bundle.foreshadowings.len();
@@ -278,7 +289,10 @@ pub async fn smart_execute(
                 });
             }
             Err(e) => {
-                log::error!("[smart_execute] GenesisPipeline concept generation failed: {}", e);
+                log::error!(
+                    "[smart_execute] GenesisPipeline concept generation failed: {}",
+                    e
+                );
                 return Err(AppError::internal(format!("小说初始化失败: {}", e)));
             }
         }
@@ -389,16 +403,22 @@ pub async fn smart_execute(
                 // 世界观摘要
                 let wb_repo =
                     crate::db::repositories::WorldBuildingRepository::new(pool_for_context.clone());
-                let world_building_summary = wb_repo.get_by_story(&story_id_for_context).ok().flatten().map(|wb| {
-                    let rules_summary = wb
-                        .rules
-                        .iter()
-                        .filter(|r| r.importance >= 7)
-                        .map(|r| format!("{}: {}", r.name, r.description.as_deref().unwrap_or("")))
-                        .collect::<Vec<_>>()
-                        .join("; ");
-                    format!("概念：{}；核心规则：{}", wb.concept, rules_summary)
-                });
+                let world_building_summary = wb_repo
+                    .get_by_story(&story_id_for_context)
+                    .ok()
+                    .flatten()
+                    .map(|wb| {
+                        let rules_summary = wb
+                            .rules
+                            .iter()
+                            .filter(|r| r.importance >= 7)
+                            .map(|r| {
+                                format!("{}: {}", r.name, r.description.as_deref().unwrap_or(""))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!("概念：{}；核心规则：{}", wb.concept, rules_summary)
+                    });
 
                 // 角色列表
                 let char_repo =

@@ -4,9 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::{error::AppError, llm::LlmService};
-
 use super::models::{SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides};
+use crate::{error::AppError, llm::LlmService};
 
 /// 策略选择器
 #[derive(Clone)]
@@ -133,14 +132,19 @@ fn build_selection_prompt(
     current_strategy: &SelectedStrategy,
 ) -> String {
     let mut sections: Vec<String> = vec![
-        "You are a creative strategy selector for a Chinese web-novel writing assistant.".to_string(),
-        "Your task: choose the best combination of creative assets for the current task.".to_string(),
+        "You are a creative strategy selector for a Chinese web-novel writing assistant."
+            .to_string(),
+        "Your task: choose the best combination of creative assets for the current task."
+            .to_string(),
         "".to_string(),
         "Current scene:".to_string(),
         format!("- user input: {}", context.user_input),
         format!("- story progress: {}", context.story_progress),
         format!("- has story: {}", context.has_story),
-        format!("- genre hint: {}", context.genre_hint.as_deref().unwrap_or("none")),
+        format!(
+            "- genre hint: {}",
+            context.genre_hint.as_deref().unwrap_or("none")
+        ),
         format!(
             "- methodology hint: {}",
             context.methodology_hint.as_deref().unwrap_or("none")
@@ -189,7 +193,10 @@ fn build_selection_prompt(
             let entry_len = entry.chars().count();
             if total_chars + entry_len > max_total {
                 let remaining = items.len().saturating_sub(idx);
-                sections.push(format!("- ... ({} more {} assets omitted)", remaining, kind));
+                sections.push(format!(
+                    "- ... ({} more {} assets omitted)",
+                    remaining, kind
+                ));
                 break;
             }
             sections.push(entry);
@@ -282,7 +289,10 @@ mod tests {
         let json = r#"{"rationale": "适合末世", "genre_profile_id": "apocalyptic", "methodology_id": "high_density_world_building", "style_dna_ids": [], "skill_ids": ["builtin.style_enhancer"], "workflow_id": null, "parameters": {}}"#;
         let strategy = parse_strategy_response(json).unwrap();
         assert_eq!(strategy.genre_profile_id, Some("apocalyptic".to_string()));
-        assert_eq!(strategy.methodology_id, Some("high_density_world_building".to_string()));
+        assert_eq!(
+            strategy.methodology_id,
+            Some("high_density_world_building".to_string())
+        );
         assert_eq!(strategy.skill_ids, vec!["builtin.style_enhancer"]);
     }
 

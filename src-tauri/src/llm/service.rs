@@ -5,8 +5,7 @@
 //! 支持多提供商配置管理和自动切换
 
 use std::{
-    collections::hash_map::DefaultHasher,
-    collections::{HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -82,7 +81,12 @@ impl PromptCache {
         }
     }
 
-    fn key(profile: &LlmProfile, prompt: &str, max_tokens: Option<i32>, temperature: Option<f32>) -> PromptCacheKey {
+    fn key(
+        profile: &LlmProfile,
+        prompt: &str,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> PromptCacheKey {
         let mut hasher = DefaultHasher::new();
         prompt.hash(&mut hasher);
         PromptCacheKey {
@@ -221,8 +225,9 @@ pub struct LlmService {
 impl LlmService {
     /// 创建新的 LLM 服务实例。
     ///
-    /// 如果全局 LLM 服务已经初始化（通过 `init_llm_service`），则直接返回其克隆，
-    /// 从而复用 reqwest 连接池与 adapter 缓存；否则创建新实例。
+    /// 如果全局 LLM 服务已经初始化（通过
+    /// `init_llm_service`），则直接返回其克隆， 从而复用 reqwest 连接池与
+    /// adapter 缓存；否则创建新实例。
     pub fn new(app_handle: AppHandle) -> Self {
         // 优先返回全局共享实例，避免每次命令重建 client 与缓存。
         if let Some(service) = get_llm_service() {
@@ -301,7 +306,9 @@ impl LlmService {
         let prompt_tokens = prompt_len / 2;
         let completion_tokens = record.response.map(|r| r.tokens_used).unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
-        let provider = self.get_active_profile().map(|p| format!("{:?}", p.provider));
+        let provider = self
+            .get_active_profile()
+            .map(|p| format!("{:?}", p.provider));
         let cached = record.response.is_some() && prompt_tokens == 0;
 
         // 统一结构化指标日志，便于后续通过日志聚合分析耗时、超时、缓存命中率。
@@ -322,9 +329,7 @@ impl LlmService {
         log::info!(target: "llm_metrics", "{}", metrics);
 
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            use crate::db::{
-                repositories_pipeline::LlmCallRepository, RecordLlmCallRequest,
-            };
+            use crate::db::{repositories_pipeline::LlmCallRepository, RecordLlmCallRequest};
             let repo = LlmCallRepository::new(pool.inner().clone());
             let req = RecordLlmCallRequest {
                 story_id: None,
@@ -348,7 +353,13 @@ impl LlmService {
                 "cached": cached,
             })
             .to_string();
-            if let Err(e) = repo.create(req, total_tokens, record.duration_ms as i32, Some(preview), Some(&metadata)) {
+            if let Err(e) = repo.create(
+                req,
+                total_tokens,
+                record.duration_ms as i32,
+                Some(preview),
+                Some(&metadata),
+            ) {
                 log::warn!("[LLM] Failed to record llm_call: {}", e);
             }
         }
@@ -1048,26 +1059,24 @@ impl LlmService {
         let mut buffer = String::with_capacity(BATCH_MAX_CHARS);
         let mut flush_deadline: Option<Instant> = None;
 
-        let flush_buffer = |buffer: &mut String,
-                            full_text: &mut String,
-                            is_first: &mut bool,
-                            is_last: bool| {
-            if buffer.is_empty() && !is_last {
-                return;
-            }
-            full_text.push_str(buffer);
-            let chunk = std::mem::take(buffer);
-            let stream_chunk = StreamChunk {
-                chunk,
-                is_first: *is_first,
-                is_last,
-                model: profile.model.clone(),
+        let flush_buffer =
+            |buffer: &mut String, full_text: &mut String, is_first: &mut bool, is_last: bool| {
+                if buffer.is_empty() && !is_last {
+                    return;
+                }
+                full_text.push_str(buffer);
+                let chunk = std::mem::take(buffer);
+                let stream_chunk = StreamChunk {
+                    chunk,
+                    is_first: *is_first,
+                    is_last,
+                    model: profile.model.clone(),
+                };
+                let _ = self
+                    .app_handle
+                    .emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
+                *is_first = false;
             };
-            let _ = self
-                .app_handle
-                .emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
-            *is_first = false;
-        };
 
         loop {
             let deadline_sleep = async {
@@ -1161,7 +1170,8 @@ impl LlmService {
         build_writing_prompt(user_input, context)
     }
 
-    /// 带 Prompt/Response 缓存的同步生成（主要用于 test_connection 等确定性请求）
+    /// 带 Prompt/Response 缓存的同步生成（主要用于 test_connection
+    /// 等确定性请求）
     async fn generate_cached(
         &self,
         prompt: String,
@@ -1182,7 +1192,9 @@ impl LlmService {
             return Ok(cached);
         }
 
-        let response = self.generate(prompt.clone(), max_tokens, temperature).await?;
+        let response = self
+            .generate(prompt.clone(), max_tokens, temperature)
+            .await?;
         self.prompt_cache
             .put(&profile, &prompt, max_tokens, temperature, response.clone());
         Ok(response)
@@ -1245,10 +1257,7 @@ impl LlmService {
 
     /// 检查指定 request_id 是否已被请求取消
     pub fn is_cancelled(&self, request_id: &str) -> bool {
-        self.cancelled_requests
-            .lock()
-            .unwrap()
-            .contains(request_id)
+        self.cancelled_requests.lock().unwrap().contains(request_id)
     }
 
     /// 清理已完成的 request_id 取消记录（可选，防止集合无限增长）

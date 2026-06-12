@@ -151,12 +151,7 @@ impl SkillExecutor {
     }
 
     /// 从 skill config 解析 f64 配置项
-    fn config_f64(
-        &self,
-        manifest: &SkillManifest,
-        key: &str,
-        fallback: f64,
-    ) -> f64 {
+    fn config_f64(&self, manifest: &SkillManifest, key: &str, fallback: f64) -> f64 {
         manifest
             .config
             .get(key)
@@ -199,7 +194,9 @@ impl SkillExecutor {
         let max_tokens = self
             .config_f64(manifest, "max_tokens", 2000.0)
             .clamp(1.0, 16384.0) as i32;
-        let temperature = self.config_f64(manifest, "temperature", 0.7).clamp(0.0, 2.0) as f32;
+        let temperature = self
+            .config_f64(manifest, "temperature", 0.7)
+            .clamp(0.0, 2.0) as f32;
 
         // Call LLM if service is available
         if let Some(ref llm) = self.llm_service {

@@ -6,7 +6,7 @@ use crate::{
     db::DbPool,
     error::AppError,
     llm::LlmService,
-    strategy::{load_all_assets, SelectionContext, StrategySelector, StrategyOverrides},
+    strategy::{load_all_assets, SelectionContext, StrategyOverrides, StrategySelector},
 };
 
 /// 预览模型为当前创作场景推荐的策略组合
@@ -37,5 +37,7 @@ pub async fn select_creation_strategy(
     };
 
     let selector = StrategySelector::new(llm_service.inner().clone());
-    selector.select_strategy(&context, &assets, overrides.as_ref()).await
+    selector
+        .select_strategy(&context, &assets, overrides.as_ref())
+        .await
 }

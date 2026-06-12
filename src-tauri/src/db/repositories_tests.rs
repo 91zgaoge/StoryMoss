@@ -176,8 +176,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -209,8 +209,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -259,8 +259,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -297,8 +297,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -330,8 +330,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -360,8 +360,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -402,8 +402,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -435,8 +435,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -477,8 +477,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -505,8 +505,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -528,8 +528,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -592,8 +592,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -620,8 +620,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -655,8 +655,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 
@@ -693,8 +693,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .unwrap();
 

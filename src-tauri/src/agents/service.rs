@@ -898,8 +898,7 @@ impl AgentService {
             0.4,
         );
 
-        let (max_tokens, temperature) =
-            self.get_agent_llm_params(AgentType::Inspector, 1500, 0.3);
+        let (max_tokens, temperature) = self.get_agent_llm_params(AgentType::Inspector, 1500, 0.3);
         let (_, response) = self
             .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;

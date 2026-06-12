@@ -89,7 +89,10 @@ impl ContextCache {
         let mut inner = self.inner.lock().ok()?;
         if let Some((ctx, created_at)) = inner.entries.get(&key) {
             if created_at.elapsed() < inner.ttl {
-                log::debug!("[StoryContextBuilder] Context cache hit for story {}", story_id);
+                log::debug!(
+                    "[StoryContextBuilder] Context cache hit for story {}",
+                    story_id
+                );
                 return Some(ctx.clone());
             }
             inner.entries.remove(&key);
@@ -303,8 +306,7 @@ impl StoryContextBuilder {
         let world_rules_text = Self::format_world_rules(&world_rules);
         let scene_structure_text =
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
-        let outline_context_text =
-            self.build_outline_context(story_id, current_scene.as_ref());
+        let outline_context_text = self.build_outline_context(story_id, current_scene.as_ref());
         let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
         // v0.9.3: 预计算风格 DNA 扩展与个性化扩展，候选间共享，避免每个候选重复查库
@@ -392,8 +394,12 @@ impl StoryContextBuilder {
                 style_dna_extension,
                 writing_style_name: style.as_ref().and_then(|s| s.name.clone()),
                 writing_style_description: style.as_ref().and_then(|s| s.description.clone()),
-                writing_style_vocabulary_level: style.as_ref().and_then(|s| s.vocabulary_level.clone()),
-                writing_style_sentence_structure: style.as_ref().and_then(|s| s.sentence_structure.clone()),
+                writing_style_vocabulary_level: style
+                    .as_ref()
+                    .and_then(|s| s.vocabulary_level.clone()),
+                writing_style_sentence_structure: style
+                    .as_ref()
+                    .and_then(|s| s.sentence_structure.clone()),
                 writing_style_custom_rules: style.as_ref().and_then(|s| {
                     if s.custom_rules.is_empty() {
                         None
@@ -870,7 +876,9 @@ impl StoryContextBuilder {
         }
 
         // 注入当前幕/章节的故事大纲摘要
-        if let Some(outline) = self.fetch_story_outline_summary(story_id, scene.map(|s| s.sequence_number)) {
+        if let Some(outline) =
+            self.fetch_story_outline_summary(story_id, scene.map(|s| s.sequence_number))
+        {
             if !outline.trim().is_empty() {
                 parts.push(format!("故事大纲定位: {}", outline));
             }
@@ -1324,7 +1332,9 @@ mod tests {
         let ctx = dummy_agent_context("story-1");
 
         // 首次未命中
-        assert!(cache.get("story-1", Some(1), &Some("hello".to_string()), &None).is_none());
+        assert!(cache
+            .get("story-1", Some(1), &Some("hello".to_string()), &None)
+            .is_none());
 
         // 写入后命中
         cache.put(
@@ -1339,8 +1349,12 @@ mod tests {
         assert_eq!(hit.unwrap().story.story_id, ctx.story.story_id);
 
         // 不同参数未命中
-        assert!(cache.get("story-1", Some(2), &Some("hello".to_string()), &None).is_none());
-        assert!(cache.get("story-1", Some(1), &Some("world".to_string()), &None).is_none());
+        assert!(cache
+            .get("story-1", Some(2), &Some("hello".to_string()), &None)
+            .is_none());
+        assert!(cache
+            .get("story-1", Some(1), &Some("world".to_string()), &None)
+            .is_none());
     }
 
     #[test]
@@ -1350,13 +1364,7 @@ mod tests {
         let cache = ContextCache::new(10, Duration::from_millis(10));
         let ctx = dummy_agent_context("story-ttl");
 
-        cache.put(
-            "story-ttl",
-            None,
-            &None,
-            &None,
-            ctx.clone(),
-        );
+        cache.put("story-ttl", None, &None, &None, ctx.clone());
         assert!(cache.get("story-ttl", None, &None, &None).is_some());
 
         std::thread::sleep(Duration::from_millis(50));

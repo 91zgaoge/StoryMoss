@@ -1,12 +1,13 @@
 #![allow(dead_code)]
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     sync::Mutex as StdMutex,
     time::{Duration, Instant},
 };
+
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use super::embedding::*;
 

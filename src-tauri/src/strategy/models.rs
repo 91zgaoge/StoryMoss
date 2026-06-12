@@ -2,8 +2,9 @@
 //!
 //! 定义可被模型发现与选择的创作资产，以及策略选择结果。
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// 可被发现与选择的创作资产种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

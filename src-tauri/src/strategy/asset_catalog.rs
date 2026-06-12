@@ -1,7 +1,9 @@
 //! 资产目录构建器
 //!
-//! 把各类创作资产统一转换为 SelectableAsset，供 StrategySelector 与 CapabilityRegistry 使用。
+//! 把各类创作资产统一转换为 SelectableAsset，供 StrategySelector 与
+//! CapabilityRegistry 使用。
 
+use super::models::{AssetKind, SelectableAsset};
 use crate::{
     creative_engine::{
         methodology::{MethodologyEngine, MethodologyType},
@@ -11,8 +13,6 @@ use crate::{
     skills::{Skill, SkillCategory},
     workflow::Workflow,
 };
-
-use super::models::{AssetKind, SelectableAsset};
 
 /// 把创作方法论转换为可选择资产
 pub fn methodology_assets() -> Vec<SelectableAsset> {
@@ -241,7 +241,10 @@ pub fn skill_assets(skills: &[Skill]) -> Vec<SelectableAsset> {
                 }),
                 metadata: {
                     let mut m = std::collections::HashMap::new();
-                    m.insert("enabled".to_string(), serde_json::Value::Bool(skill.is_enabled));
+                    m.insert(
+                        "enabled".to_string(),
+                        serde_json::Value::Bool(skill.is_enabled),
+                    );
                     m
                 },
             }
@@ -280,7 +283,9 @@ mod tests {
         let assets = methodology_assets();
         assert_eq!(assets.len(), 5);
         assert!(assets.iter().any(|a| a.id == "methodology.snowflake"));
-        assert!(assets.iter().any(|a| a.id == "methodology.high_density_world_building"));
+        assert!(assets
+            .iter()
+            .any(|a| a.id == "methodology.high_density_world_building"));
     }
 
     #[test]
@@ -306,7 +311,16 @@ mod tests {
         let asset = &assets[0];
         assert_eq!(asset.id, "genre_profile.apocalyptic");
         assert_eq!(asset.kind, AssetKind::GenreProfile);
-        assert!(asset.payload.get("aliases").unwrap().as_array().unwrap().len() > 0);
+        assert!(
+            asset
+                .payload
+                .get("aliases")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len()
+                > 0
+        );
         assert!(asset.payload.get("typical_structure").is_some());
     }
 

@@ -120,10 +120,7 @@ impl GenesisContext {
 }
 
 /// 根据已选策略和体裁画像构建写作指令中的策略注解
-fn build_strategy_notes(
-    ctx: &GenesisContext,
-    genre: &str,
-) -> String {
+fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
     let strategy = match &ctx.selected_strategy {
         Some(s) => s,
         None => return format!("（未选择策略，按题材 '{}' 自由发挥）", genre),
@@ -134,7 +131,10 @@ fn build_strategy_notes(
     if let Some(profile_id) = &strategy.genre_profile_id {
         let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
         if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
-            notes.push(format!("体裁画像：{}（{}）", profile.genre_name, profile.canonical_name));
+            notes.push(format!(
+                "体裁画像：{}（{}）",
+                profile.genre_name, profile.canonical_name
+            ));
             if let Some(tone) = &profile.core_tone {
                 notes.push(format!("核心基调：{}", tone));
             }
@@ -164,11 +164,17 @@ fn build_strategy_notes(
     }
 
     if !strategy.style_dna_ids.is_empty() {
-        notes.push(format!("\n参考风格 DNA：{}", strategy.style_dna_ids.join(", ")));
+        notes.push(format!(
+            "\n参考风格 DNA：{}",
+            strategy.style_dna_ids.join(", ")
+        ));
     }
 
     if !strategy.skill_ids.is_empty() {
-        notes.push(format!("\n建议激活的技能：{}", strategy.skill_ids.join(", ")));
+        notes.push(format!(
+            "\n建议激活的技能：{}",
+            strategy.skill_ids.join(", ")
+        ));
     }
 
     if notes.is_empty() {
@@ -372,8 +378,8 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 .map(|m| m.lock().unwrap().get_all_skills())
                 .unwrap_or_default();
 
-            let assets = load_all_assets(&genre_repo, &skills)
-                .map_err(|e| PipelineError::StepFailed {
+            let assets =
+                load_all_assets(&genre_repo, &skills).map_err(|e| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
                     reason: format!("加载创作资产失败: {}", e),
                 })?;
