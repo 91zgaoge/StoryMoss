@@ -22,6 +22,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `StoryContextBuilder` 一次性查库并预计算风格 DNA 提示词扩展与个性化偏好扩展
   - `build_writer_prompt` 优先使用预计算缓存，避免每个 Writer 候选重复查库
 
+### 前端体验优化
+- **续写过程状态提示细化**：`agents/orchestrator.rs` + `frontstage/FrontstageApp.tsx`
+  - `orchestrator-step` 事件新增 `detail` 字段
+  - 候选生成阶段提示："生成候选中（共 2 个）"、"候选评估完成，选用最优结果（匹配度 XX%）"
+  - 质检阶段提示："正在评估内容与风格一致性..."、"质检中... 评分 XX%"
+  - 改写阶段提示："质检未达标（风格 XX%，叙事 XX%），进入第 N 轮改写优化"
+
 ### Bug 修复
 - **AI 续写接受后始终追加到正文最后**：`frontstage/components/RichTextEditor.tsx` 新增 `appendText` 方法，`FrontstageApp.tsx` 接受续写时改用 `appendText`，避免插入光标处造成段落混乱
 
