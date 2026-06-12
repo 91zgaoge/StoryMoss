@@ -2646,6 +2646,31 @@ body {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.generation-status-base {
+  color: var(--charcoal);
+}
+
+.generation-status-suffix {
+  color: var(--olive-gray);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.generation-status-elapsed {
+  color: var(--terracotta);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.generation-status-category-icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .generation-status-progress {
@@ -2663,6 +2688,21 @@ body {
   border-radius: 999px;
   transition: width 0.5s ease;
   box-shadow: 0 0 6px oklch(58% 0.13 45 / 0.35);
+}
+
+/* 不确定进度动画：本地生成无具体进度时使用 */
+.generation-status-progress.indeterminate .generation-status-progress-bar {
+  width: 40%;
+  animation: generation-progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes generation-progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
 }
 
 .generation-status-badge {
@@ -2683,6 +2723,10 @@ body {
   font-size: 12px;
   color: var(--olive-gray);
   flex-shrink: 0;
+  padding: 2px 8px;
+  background: var(--parchment);
+  border: 1px solid var(--warm-sand);
+  border-radius: 999px;
 }
 
 .generation-status-category-label {

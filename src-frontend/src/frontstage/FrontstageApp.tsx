@@ -284,16 +284,16 @@ const FrontstageApp: React.FC = () => {
     return null;
   }, []);
 
-  /** 更新顶部 Toast 的大阶段提示（仅在阶段变化时更新，避免闪烁） */
-  const updateToastPhase = useCallback(
+  /** 更新底部状态栏的大阶段提示（仅在阶段变化时更新，避免闪烁） */
+  const updateGenerationPhase = useCallback(
     (stepName: string) => {
       const phase = getMajorPhase(stepName);
-      if (!phase || !activeToastIdRef.current) return;
+      if (!phase) return;
       const phaseKey = phase.text;
-      // 只有大阶段变化时才更新 toast
+      // 只有大阶段变化时才更新
       if (currentToastPhaseRef.current === phaseKey) return;
       currentToastPhaseRef.current = phaseKey;
-      toast.loading(`${phase.icon} ${phase.text}`, { id: activeToastIdRef.current });
+      setGenerationStatus(`${phase.icon} ${phase.text}`);
     },
     [getMajorPhase]
   );
@@ -364,9 +364,9 @@ const FrontstageApp: React.FC = () => {
         status: pipelineProgress.status,
       });
       setGenerationStatus(pipelineProgress.message);
-      updateToastPhase(pipelineProgress.stepName);
+      updateGenerationPhase(pipelineProgress.stepName);
     }
-  }, [pipelineProgress, updateToastPhase]);
+  }, [pipelineProgress, updateGenerationPhase]);
 
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
@@ -420,7 +420,7 @@ const FrontstageApp: React.FC = () => {
         : 0;
       setGenerationStatus(prev => {
         // 保留原有的状态前缀，只更新后面的时间部分
-        const base = prev.split(' ('.split('')[0])[0];
+        const base = prev.split(' (')[0];
         return `${base} (${elapsed}s)`;
       });
     }, 1000);
@@ -695,7 +695,7 @@ const FrontstageApp: React.FC = () => {
           status: p.status || 'running',
         });
         setGenerationStatus(p.message);
-        updateToastPhase(p.step_name);
+        updateGenerationPhase(p.step_name);
         // v5.2.2 / v5.4.0: 区分即时阶段完成和后台阶段完成
         // GenesisPipeline 即时阶段 total_steps=2，后台阶段 total_steps=6
         if (p.status === 'failed') {
@@ -711,12 +711,8 @@ const FrontstageApp: React.FC = () => {
           // 即时阶段完成：正文已生成，用户可开始写作
           setTimeout(() => {
             setBootstrapProgress(null);
-            setGenerationStatus('后台正在完善小说世界...');
-            // 顶部 Toast 同步切换到大阶段提示
-            if (activeToastIdRef.current) {
-              toast.loading('⏳ 后台正在完善小说世界...', { id: activeToastIdRef.current });
-              currentToastPhaseRef.current = '后台正在完善小说世界...';
-            }
+            setGenerationStatus('⏳ 后台正在完善小说世界...');
+            currentToastPhaseRef.current = '⏳ 后台正在完善小说世界...';
           }, 2000);
         } else if (p.total_steps === 6 && p.step_number >= p.total_steps) {
           // 后台阶段全部完成（GenesisPipeline 最后一步：知识图谱生成）
@@ -739,7 +735,7 @@ const FrontstageApp: React.FC = () => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
-        updateToastPhase(p.stage);
+        updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten4);
 
@@ -753,7 +749,7 @@ const FrontstageApp: React.FC = () => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
-        updateToastPhase(p.stage);
+        updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten5);
 
@@ -777,7 +773,7 @@ const FrontstageApp: React.FC = () => {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
           setGenerationStatus(`${p.message} (${p.steps_completed + 1}/${p.total_steps})`);
-          updateToastPhase(p.message);
+          updateGenerationPhase(p.message);
         } else if (p.status === 'completed') {
           setGenerationStatus(p.message);
         } else if (p.status === 'failed') {
@@ -817,7 +813,7 @@ const FrontstageApp: React.FC = () => {
           message,
           detail: p.detail,
         });
-        updateToastPhase(p.step_type);
+        updateGenerationPhase(p.step_type);
       });
       unlisteners.push(unlistenOrchestrator);
 
@@ -837,7 +833,7 @@ const FrontstageApp: React.FC = () => {
         });
         // 显示所有阶段，让用户看到完整流程
         setGenerationStatus(`${p.agent_type}: ${p.message}`);
-        updateToastPhase(p.stage);
+        updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten7);
 
@@ -871,7 +867,7 @@ const FrontstageApp: React.FC = () => {
             message: p.message,
             status: 'running',
           });
-          updateToastPhase(p.pipeline_context.step_name);
+          updateGenerationPhase(p.pipeline_context.step_name);
         }
 
         setGenerationStatus(p.message);
@@ -1583,20 +1579,15 @@ const FrontstageApp: React.FC = () => {
       setIsGenerating(true);
       const isContinuation = isContinuationIntent(userInput);
       const initialStatusMsg = isBootstrap
-        ? '正在创建新小说...'
-        : isContinuation
-          ? '正在续写...'
-          : '正在理解创作意图并执行...';
-      const initialToastMsg = isBootstrap
         ? '🎨 正在构思故事概念...'
         : isContinuation
           ? '📝 正在续写...'
           : '💭 正在理解创作意图并执行...';
       setGenerationStatus(initialStatusMsg);
       startElapsedTimer();
-      const toastId = toast.loading(initialToastMsg, { duration: Infinity });
-      activeToastIdRef.current = toastId;
-      currentToastPhaseRef.current = initialToastMsg;
+      // 取消顶部 loading toast，状态统一在底部 AI 编排器状态栏展示
+      activeToastIdRef.current = null;
+      currentToastPhaseRef.current = initialStatusMsg;
 
       // 方案A：前端动态超时 + 取消支持
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1639,7 +1630,6 @@ const FrontstageApp: React.FC = () => {
           return;
         }
 
-        toast.dismiss(toastId);
         activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
 
@@ -1766,7 +1756,6 @@ const FrontstageApp: React.FC = () => {
         }
       } catch (e: any) {
         if (timeoutId) clearTimeout(timeoutId);
-        toast.dismiss(toastId);
         activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
         frontstageLogger.error('Smart execution failed', { error: e });

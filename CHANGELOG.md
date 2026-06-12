@@ -2,6 +2,44 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.10.1] - 生成状态提示统一到底部 AI 编排器状态栏（2026-06-13）
+
+### 改进
+
+- **取消顶部黑色 loading toast**：幕前创作页的「正在生成续写内容…」等阶段性提示不再以悬浮黑色 toast 形式出现，避免与应用整体 parchment/暖沙风格冲突
+- **统一状态展示位置**：所有生成阶段文案统一合并到底部 AI 编排器状态栏（`FrontstageBottomBar`）中，与输入区、模型状态、后台任务保持同一视觉层级
+- **美化状态栏显示**：
+  - 状态文本拆分为基础文案、后缀说明、运行时长三段，避免时间截断主文案
+  - 本地生成时显示不确定进度动画；后台活动有具体进度时显示真实进度条
+  - 后台任务显示类别图标与标签（编排 / 续写 / Agent / 流水线等）
+  - 类别标签改为 pill 形状，与整体圆角、边框风格一致
+- **修复 elapsed timer 文案截断 bug**：`prev.split(' (')[0]` 替代原来错误的 `' ('.split('')[0]`，保证运行时长只追加在时间部分
+
+### 前端变更
+
+- `src/frontstage/FrontstageApp.tsx`
+  - `updateToastPhase` 重命名为 `updateGenerationPhase`，不再调用 `toast.loading`，改为更新 `generationStatus`
+  - 创建小说 / 续写入口不再创建顶部 loading toast
+  - 修复 `startElapsedTimer` 中状态前缀分割逻辑
+- `src/frontstage/components/FrontstageBottomBar.tsx`
+  - 新增状态文本解析（基础 / 时长 / 后缀）
+  - 本地生成无后台活动时显示不确定进度条
+  - 后台活动显示类别图标与 pill 标签
+- `src/frontstage/styles/frontstage.css`
+  - 新增 `.generation-status-base` / `.generation-status-suffix` / `.generation-status-elapsed` / `.generation-status-category-icon`
+  - 新增 indeterminate 进度动画
+  - 优化类别标签为圆角 pill 样式
+
+### 验证
+
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+- `cargo check --lib` ✅
+- `cargo +nightly fmt` ✅
+- `prettier --write` ✅
+
+---
+
 ## [v0.10.0] - 能力发现与自动编排（2026-06-12）
 
 ### 摘要

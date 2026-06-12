@@ -107,6 +107,15 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
     isGenerating && generationStatus ? generationStatus : primaryActivity?.message || '';
   const displayProgress = primaryActivity?.progress || 0;
 
+  // 从状态文案中分离基础文本与已运行时长，避免文案被时间截断
+  const statusMatch = displayMessage.match(/^(.+?)\s*(?:\((\d+)s\))?\s*(.*)$/);
+  const statusBase = statusMatch ? statusMatch[1].trim() : displayMessage;
+  const statusElapsed = statusMatch?.[2];
+  const statusSuffix = statusMatch?.[3] ? ` ${statusMatch[3].trim()}` : '';
+
+  // 是否为本地生成中（无具体后台活动）
+  const isLocalGenerating = isGenerating && !primaryActivity;
+
   return (
     <div className="frontstage-bottom-bar">
       <div className="frontstage-bottom-bar-inner">
@@ -220,31 +229,52 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           )}
         </div>
 
-        {/* v0.7.7: 统一后台活动状态栏 — 心跳式互动陪写 */}
+        {/* v0.10.1: 统一后台活动 / 本地生成状态栏 — 与整体 parchment 风格一致 */}
         {hasAnyActivity && displayMessage && (
           <div className="generation-status-row" title={displayMessage}>
             <div className="generation-status-content">
-              {/* 心跳脉冲图标 */}
+              {/* 状态图标：本地生成用心跳，后台活动用类别图标 */}
               <div className="generation-status-pulse">
-                <Activity className="w-4 h-4 text-terracotta animate-pulse" />
-                <span
-                  className="absolute inline-flex h-full w-full rounded-full bg-terracotta opacity-25 animate-ping"
-                  style={{ animationDuration: '2s' }}
-                />
+                {primaryActivity ? (
+                  <span className="generation-status-category-icon">
+                    {categoryIcons[primaryActivity.category]}
+                  </span>
+                ) : (
+                  <>
+                    <Activity className="w-4 h-4 text-terracotta animate-pulse" />
+                    <span
+                      className="absolute inline-flex h-full w-full rounded-full bg-terracotta opacity-25 animate-ping"
+                      style={{ animationDuration: '2s' }}
+                    />
+                  </>
+                )}
               </div>
 
-              {/* 主要活动文案 */}
-              <span className="generation-status-message">{displayMessage}</span>
+              {/* 主要活动文案：基础文本 + 后缀 + 运行时长 */}
+              <span className="generation-status-message">
+                <span className="generation-status-base">{statusBase}</span>
+                {statusSuffix && <span className="generation-status-suffix">{statusSuffix}</span>}
+                {statusElapsed && (
+                  <span className="generation-status-elapsed">({statusElapsed}s)</span>
+                )}
+              </span>
 
-              {/* 进度条 */}
-              {displayProgress > 0 && (
-                <div className="generation-status-progress">
+              {/* 进度条：有具体进度则显示；本地生成显示不确定动画 */}
+              {displayProgress > 0 ? (
+                <div
+                  className="generation-status-progress"
+                  title={`${Math.round(displayProgress * 100)}%`}
+                >
                   <div
                     className="generation-status-progress-bar"
                     style={{ width: `${Math.round(displayProgress * 100)}%` }}
                   />
                 </div>
-              )}
+              ) : isLocalGenerating ? (
+                <div className="generation-status-progress indeterminate" title="生成中">
+                  <div className="generation-status-progress-bar" />
+                </div>
+              ) : null}
 
               {/* 多任务计数 */}
               {activeCount > 1 && (
@@ -259,7 +289,6 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               {/* 类别标签 */}
               {primaryActivity && (
                 <span className="generation-status-category" title="任务类型">
-                  {categoryIcons[primaryActivity.category]}
                   <span className="generation-status-category-label">
                     {categoryLabels[primaryActivity.category]}
                   </span>
