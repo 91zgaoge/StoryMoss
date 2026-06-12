@@ -1067,16 +1067,16 @@ const FrontstageApp: React.FC = () => {
       startElapsedTimer();
 
       let unlisten: (() => void) | null = null;
-      // 续写功能添加300秒超时保护（本地模型生成长文本常见耗时）
+      // 续写功能添加600秒超时保护（与后端任务超时一致）
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           reject(
             new Error(
-              '前端超时：模型响应超过300秒（5分钟）。本地模型生成较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
+              '前端超时：模型响应超过600秒（10分钟）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
             )
           );
-        }, 300000);
+        }, 600000);
       });
 
       try {
@@ -1401,7 +1401,7 @@ const FrontstageApp: React.FC = () => {
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
-      const timeoutSeconds = isBootstrap ? 600 : 300;
+      const timeoutSeconds = isBootstrap ? 600 : 600;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
@@ -1504,7 +1504,7 @@ const FrontstageApp: React.FC = () => {
             new Error(
               isBootstrap
                 ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
-                : `前端超时：模型响应超过${timeoutSeconds}秒（5分钟）。本地模型生成长文本可能耗时较长，请检查模型是否仍在运行。`
+                : `前端超时：模型响应超过${timeoutSeconds}秒（10分钟）。本地模型生成长文本可能耗时较长，请检查模型是否仍在运行。`
             )
           );
         }, timeoutMs);
