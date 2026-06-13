@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.11.1-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.11.2-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.11.1 重点优化「生成候选」性能与 UI 提示统一性。后端将候选生成链路拆分为「一次预准备 + 多次轻量采样」，共享预检/auto-fill/prompt/策略结果，并引入候选专用短超时（默认 120s）、本地模型串行执行与失败降级，显著降低幕前 AI 续写等待时间；前端幕前界面彻底移除 `react-hot-toast` 黑色悬浮提示，所有生成状态统一收敛到底部 AI 编排器状态栏与顶部编排器状态区。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
+**最新动态**：v0.11.2 紧急修复幕前 AI 续写长时间无反馈与模型管理删除不生效问题。后端为候选阶段增加整体超时、取消超时错误的重试（避免 120s×重试×候选数叠加到 500s 以上），并在预准备、候选生成、评估各阶段 emit 更细粒度事件；前端修复底部状态栏「系统仍在处理中...」重复追加 bug，并确保「生成候选 1/2」等具体进度不会被 LLM 心跳覆盖。同时修复设置页删除模型后 toast 成功但列表未刷新的状态不一致问题。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
 
 ---
 

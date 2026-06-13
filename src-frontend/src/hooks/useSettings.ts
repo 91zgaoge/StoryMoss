@@ -148,7 +148,11 @@ export function useDeleteModel() {
   return useMutation({
     mutationFn: deleteModel,
     onSuccess: () => {
+      // v0.11.2: 删除模型会同时影响模型列表、活跃模型设置与 Agent 映射，
+      // 必须一并失效，否则会出现"提示已删除但页面仍在"的状态不一致。
       queryClient.invalidateQueries({ queryKey: [MODELS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [SETTINGS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [AGENT_MAPPINGS_KEY] });
       toast.success('模型配置已删除');
     },
     onError: (error: Error) => {

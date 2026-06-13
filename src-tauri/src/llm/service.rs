@@ -490,7 +490,10 @@ impl LlmService {
     /// 判断错误是否可重试（超时/网络/5xx）
     fn is_retriable_error(error: &AppError) -> bool {
         match error {
-            AppError::LlmTimeout { .. } => true,
+            // v0.11.2: 模型响应超时通常是服务端/本地模型无法及时处理，重试只会
+            // 让用户等待更久（候选阶段 120s 超时 × 重试会轻松超过 500s）。
+            // 因此超时错误不再重试，立即反馈给用户。
+            AppError::LlmTimeout { .. } => false,
             AppError::Internal { message, .. } => {
                 let m = message.to_lowercase();
                 m.contains("timeout")

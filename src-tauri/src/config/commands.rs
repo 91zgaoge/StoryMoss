@@ -720,6 +720,7 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
 
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
+    // v0.11.2: 删除成功后必须持久化，不能依赖条件变量；避免"toast 成功但刷新后仍在"
     let mut changed;
 
     // 尝试删除LLM配置
@@ -763,10 +764,18 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
         changed = true;
     }
 
-    // 没有模型时保持 None，避免硬编码 fallback
-    if changed {
-        config.save(&app_dir).map_err(AppError::from)?;
-    }
+    log::info!("[delete_model] removed model {}, changed={}, saving...", id, changed);
+
+    // v0.11.2: 只要走到这里说明删除成功，必须保存配置，不再受 changed 条件限制
+    config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.11.2: 通知 frontstage 刷新模型状态，保持多窗口/多组件数据一致
+    let _ = crate::window::WindowManager::send_to_frontstage(
+        &app_handle,
+        crate::window::FrontstageEvent::DataRefresh {
+            entity: "model_config".to_string(),
+        },
+    );
 
     Ok(())
 }

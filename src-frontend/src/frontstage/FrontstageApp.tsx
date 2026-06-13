@@ -257,6 +257,14 @@ const FrontstageApp: React.FC = () => {
     [showTransientStatus]
   );
 
+  // v0.11.2: 清理状态文案中的时间后缀与兜底提示，避免重复追加
+  const cleanStatusBase = useCallback((prev: string): string => {
+    return prev
+      .replace(/（系统仍在处理中\.\.\.）/g, '')
+      .replace(/\s*\(\d+s\)\s*$/g, '')
+      .trim();
+  }, []);
+
   /** 将细粒度步骤名映射为大阶段提示文案 */
   const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
     const s = stepName.toLowerCase();
@@ -337,9 +345,16 @@ const FrontstageApp: React.FC = () => {
       // 只有大阶段变化时才更新
       if (currentToastPhaseRef.current === phaseKey) return;
       currentToastPhaseRef.current = phaseKey;
-      setGenerationStatus(`${phase.icon} ${phase.text}`);
+      setGenerationStatus(prev => {
+        const base = cleanStatusBase(prev);
+        // v0.11.2: 如果当前状态包含更具体的进度信息（如候选、第N轮、评分等），
+        // 保留具体进度而不是用大阶段文案覆盖，让用户知道后台到底在做什么。
+        const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
+        if (hasSpecificProgress) return prev;
+        return `${phase.icon} ${phase.text}`;
+      });
     },
-    [getMajorPhase]
+    [getMajorPhase, cleanStatusBase]
   );
 
   // v0.7.7: 统一后台活动监听器 — 聚合所有进度事件到 backendActivityStore
@@ -448,7 +463,7 @@ const FrontstageApp: React.FC = () => {
         : 0;
       setGenerationStatus(prev => {
         // 保留原有的状态前缀，只更新后面的时间部分
-        const base = prev.split(' (')[0];
+        const base = cleanStatusBase(prev) || 'AI 正在处理中';
         return `${base} (${elapsed}s)`;
       });
     }, 1000);
@@ -460,7 +475,7 @@ const FrontstageApp: React.FC = () => {
         setGenerationStatus(prev => {
           // 如果已经有模型生成中的提示，不要覆盖
           if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
-          const base = prev.split(' (')[0];
+          const base = cleanStatusBase(prev) || 'AI 正在处理中';
           const elapsed = generationStartTimeRef.current
             ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
             : 0;
@@ -468,7 +483,7 @@ const FrontstageApp: React.FC = () => {
         });
       }
     }, 10000);
-  }, []);
+  }, [cleanStatusBase]);
 
   // 辅助函数：停止运行时长计时器
   const stopElapsedTimer = useCallback(() => {
@@ -853,8 +868,14 @@ const FrontstageApp: React.FC = () => {
           agent_type: p.agent_type,
           message: p.message,
         });
-        // 显示所有阶段，让用户看到完整流程
-        setGenerationStatus(`${p.agent_type}: ${p.message}`);
+        // v0.11.2: Agent 内部阶段不应覆盖更具体的进度（如候选生成）。
+        // 如果当前状态包含具体进度，仅记录阶段；否则显示 Agent 阶段。
+        setGenerationStatus(prev => {
+          const base = cleanStatusBase(prev);
+          const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
+          if (hasSpecificProgress) return prev;
+          return `${p.agent_type}: ${p.message}`;
+        });
         updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten7);
@@ -892,7 +913,16 @@ const FrontstageApp: React.FC = () => {
           updateGenerationPhase(p.pipeline_context.step_name);
         }
 
-        setGenerationStatus(p.message);
+        // v0.11.2: LLM 心跳不应覆盖更具体的阶段进度（如"生成候选 1/2"）。
+        // 如果当前状态包含具体进度，仅更新时间；否则显示 LLM 心跳消息。
+        setGenerationStatus(prev => {
+          const base = cleanStatusBase(prev);
+          const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
+          if (hasSpecificProgress) {
+            return `${base} (${p.elapsed_seconds}s)`;
+          }
+          return p.message;
+        });
       });
       unlisteners.push(unlisten8);
 

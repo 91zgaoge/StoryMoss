@@ -2,6 +2,50 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.2] - 修复 AI 续写超时无反馈与模型删除不生效（2026-06-13）
+
+### 修复：AI 续写长时间无反馈 / 500s+ 无输出
+
+- **后端候选阶段增加整体超时**：`src-tauri/src/agents/orchestrator.rs`
+  - `generate_candidates` 外部包装 `tokio::time::timeout`
+  - 总超时 = `candidate_timeout_seconds × 候选数 + 60s`，不低于 240s
+  - 超过总超时立即返回 `LLM_TIMEOUT`，不再进入 fallback 单轮 300s 链路
+- **超时错误不再重试**：`src-tauri/src/llm/service.rs`
+  - `is_retriable_error` 中 `AppError::LlmTimeout { .. } => false`
+  - 避免「120s 单次超时 × 1 次重试 × 2 候选 × fallback」叠加到 500s 以上
+- **更细粒度的后台进度事件**：`src-tauri/src/agents/orchestrator.rs`
+  - 候选上下文准备完成
+  - 每个候选开始 / 完成 / 失败
+  - 候选质量评估阶段
+  - 失败降级阶段
+
+### 修复：前端状态提示重复与进度不透明
+
+- **修复「系统仍在处理中...」重复追加**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - 新增 `cleanStatusBase` 统一清理时间后缀与兜底提示
+  - `elapsedTimerRef` / `fallbackTimerRef` 都基于清理后的 base 重建文案
+- **保留具体进度，避免 LLM 心跳覆盖**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - `updateGenerationPhase`、`llm-generating-progress`、`agent-stage-update` 处理中，
+    若当前状态包含「候选 / 第 N 轮 / 评分 / 匹配度 / 降级 / 失败 / 准备中」等具体信息，
+    不再被通用大阶段文案覆盖
+
+### 修复：模型删除不生效
+
+- **后端无条件持久化并广播刷新**：`src-tauri/src/config/commands.rs`
+  - `delete_model` 删除成功后无条件调用 `config.save`
+  - 删除后向 frontstage 发送 `DataRefresh { entity: "model_config" }`
+- **前端同时失效相关 queryKey**：`src-frontend/src/hooks/useSettings.ts`
+  - `useDeleteModel` 成功时同时失效 `models`、`settings`、`agent-mappings`
+
+### 验证
+
+- `cargo check --all-features` ✅
+- `cargo test --all-features` ✅ 332 passed
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+
+---
+
 ## [v0.11.1] - 候选生成性能优化与 UI 提示统一（2026-06-13）
 
 ### 性能优化

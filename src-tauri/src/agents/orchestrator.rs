@@ -7,6 +7,7 @@
 //! 幕后运行，幕前只呈现最终结果。
 
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::time::{timeout, Duration};
 
 use super::{
     service::{AgentService, AgentTask, AgentType},
@@ -913,6 +914,51 @@ impl AgentOrchestrator {
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
+        // v0.11.2: 为整个候选阶段设置总超时，避免单次 120s 超时 × 重试 × 候选数 × fallback
+        // 叠加后让用户等待 500s 以上。总超时按"单个候选超时 × 候选数 + 60s 缓冲"计算，
+        // 且不低于 240s，确保正常生成也有足够时间。
+        let total_timeout_seconds = self
+            .config
+            .candidate_timeout_seconds
+            .saturating_mul(count as u64)
+            .saturating_add(60)
+            .max(240);
+
+        match timeout(
+            Duration::from_secs(total_timeout_seconds),
+            self.generate_candidates_inner(task, count),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => {
+                log::warn!(
+                    "[Orchestrator] Candidate generation timed out after {}s for task {}",
+                    total_timeout_seconds,
+                    task.id
+                );
+                self.emit_step_event(
+                    &task.id,
+                    WorkflowStepType::Generation,
+                    None,
+                    None,
+                    Some(&format!(
+                        "候选生成阶段整体超时（{}s），请检查模型服务是否正常",
+                        total_timeout_seconds
+                    )),
+                );
+                Err(AppError::llm_timeout(total_timeout_seconds * 1000))
+            }
+        }
+    }
+
+    /// - 候选1: 0.82 (更保守，接近训练分布)
+    /// - 候选2: 1.0  (更发散，探索性)
+    async fn generate_candidates_inner(
+        &self,
+        task: &AgentTask,
+        count: usize,
+    ) -> Result<(AgentResult, String, String), AppError> {
         let temps = [0.82_f32, 1.0_f32];
 
         log::info!(
@@ -930,6 +976,13 @@ impl AgentOrchestrator {
 
         // 1. 预准备共享上下文：预检、补齐、prompt 构建、策略计算只做一次
         let prepared = self.service.prepare_writer_context(task).await?;
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some("候选上下文准备完成，开始生成..."),
+        );
 
         // 2. 根据目标模型来源决定并发策略
         let is_local = self.service.is_target_model_local(AgentType::Writer);
@@ -974,7 +1027,7 @@ impl AgentOrchestrator {
                     WorkflowStepType::Generation,
                     None,
                     None,
-                    Some(&format!("生成候选 {} / {}", i + 1, count)),
+                    Some(&format!("生成候选 {} / {}（本地模型串行）", i + 1, count)),
                 );
                 let result = self
                     .service
@@ -985,20 +1038,84 @@ impl AgentOrchestrator {
                         retries_override,
                     )
                     .await;
+                if result.is_ok() {
+                    self.emit_step_event(
+                        &task.id,
+                        WorkflowStepType::Generation,
+                        None,
+                        None,
+                        Some(&format!("候选 {} / {} 生成完成", i + 1, count)),
+                    );
+                } else {
+                    self.emit_step_event(
+                        &task.id,
+                        WorkflowStepType::Generation,
+                        None,
+                        None,
+                        Some(&format!(
+                            "候选 {} / {} 生成失败：{}，继续下一个...",
+                            i + 1,
+                            count,
+                            result.as_ref().err().map(|e| e.to_string()).unwrap_or_default()
+                        )),
+                    );
+                }
                 results.push(result);
             }
             results
         } else {
-            futures::future::join_all(candidate_tasks.into_iter().map(|candidate_task| {
-                self.service.execute_writer_prepared(
-                    candidate_task,
-                    prepared.clone(),
-                    timeout_override,
-                    retries_override,
-                )
+            futures::future::join_all(candidate_tasks.into_iter().enumerate().map(|(i, candidate_task)| {
+                let this = self;
+                let prepared = prepared.clone();
+                async move {
+                    this.emit_step_event(
+                        &task.id,
+                        WorkflowStepType::Generation,
+                        None,
+                        None,
+                        Some(&format!("生成候选 {} / {}", i + 1, count)),
+                    );
+                    let result = this.service.execute_writer_prepared(
+                        candidate_task,
+                        prepared,
+                        timeout_override,
+                        retries_override,
+                    ).await;
+                    if result.is_ok() {
+                        this.emit_step_event(
+                            &task.id,
+                            WorkflowStepType::Generation,
+                            None,
+                            None,
+                            Some(&format!("候选 {} / {} 生成完成", i + 1, count)),
+                        );
+                    } else {
+                        this.emit_step_event(
+                            &task.id,
+                            WorkflowStepType::Generation,
+                            None,
+                            None,
+                            Some(&format!(
+                                "候选 {} / {} 生成失败：{}",
+                                i + 1,
+                                count,
+                                result.as_ref().err().map(|e| e.to_string()).unwrap_or_default()
+                            )),
+                        );
+                    }
+                    result
+                }
             }))
             .await
         };
+
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some("正在评估候选质量..."),
+        );
 
         // 获取参考指纹（从预计算或 current_content 提取）
         let reference_fp = task.context.style.style_fingerprint.clone().or_else(|| {

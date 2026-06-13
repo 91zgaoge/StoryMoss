@@ -7603,7 +7603,7 @@ checksum = "e51f1e89f093f99e7432c491c382b88a6860a5adbe6bf02574bf0a08efff1978"
 
 [[package]]
 name = "storyforge"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "argon2",
  "arrow-array",
