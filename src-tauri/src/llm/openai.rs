@@ -13,6 +13,10 @@ pub struct OpenAiAdapter {
     api_base: String,
     default_max_tokens: i32,
     default_temperature: f32,
+    #[allow(dead_code)]
+    timeout_seconds: u64,
+    #[allow(dead_code)]
+    connect_timeout_seconds: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,10 +93,22 @@ impl OpenAiAdapter {
         api_base: Option<String>,
         max_tokens: i32,
         temperature: f32,
+        timeout_seconds: u64,
+        connect_timeout_seconds: u64,
     ) -> Self {
+        let timeout = if timeout_seconds > 0 {
+            Duration::from_secs(timeout_seconds)
+        } else {
+            Duration::from_secs(300)
+        };
+        let connect_timeout = if connect_timeout_seconds > 0 {
+            Duration::from_secs(connect_timeout_seconds)
+        } else {
+            Duration::from_secs(10)
+        };
         let client = Client::builder()
-            .timeout(Duration::from_secs(600))
-            .connect_timeout(Duration::from_secs(10))
+            .timeout(timeout)
+            .connect_timeout(connect_timeout)
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {
@@ -102,6 +118,8 @@ impl OpenAiAdapter {
             api_base: api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             default_max_tokens: max_tokens,
             default_temperature: temperature,
+            timeout_seconds,
+            connect_timeout_seconds,
         }
     }
 
@@ -172,7 +190,13 @@ impl LlmAdapter for OpenAiAdapter {
             return Err(format!("OpenAI API error: {}", error_text).into());
         }
 
-        let openai_resp: OpenAiResponse = response.json().await?;
+        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
+        let bytes = response.bytes().await?;
+        let openai_resp: OpenAiResponse =
+            tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
+                .await
+                .map_err(|e| format!("deserialization task panicked: {}", e))?
+                .map_err(|e| format!("OpenAI response parse error: {}", e))?;
         let content = openai_resp
             .choices
             .first()

@@ -515,12 +515,13 @@ impl LlmService {
     /// 适配器缓存键
     fn adapter_cache_key(profile: &LlmProfile) -> String {
         format!(
-            "{:?}|{}|{:?}|{}|{}",
+            "{:?}|{}|{:?}|{}|{}|{}",
             profile.provider,
             profile.model,
             profile.api_base,
             profile.max_tokens,
-            profile.temperature
+            profile.temperature,
+            profile.timeout_seconds
         )
     }
 
@@ -534,6 +535,9 @@ impl LlmService {
             }
         }
 
+        let timeout_seconds = Self::effective_timeout_seconds(profile);
+        let connect_timeout_seconds = 10u64;
+
         let adapter: Box<dyn super::LlmAdapter> = match profile.provider {
             LlmProvider::OpenAI
             | LlmProvider::Custom
@@ -544,6 +548,8 @@ impl LlmService {
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
+                timeout_seconds,
+                connect_timeout_seconds,
             )),
             LlmProvider::Anthropic => Box::new(AnthropicAdapter::new(
                 profile.api_key.clone(),
@@ -551,6 +557,8 @@ impl LlmService {
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
+                timeout_seconds,
+                connect_timeout_seconds,
             )),
             LlmProvider::Ollama => Box::new(OllamaAdapter::new(
                 profile.api_key.clone(),
@@ -558,6 +566,8 @@ impl LlmService {
                 profile.api_base.clone(),
                 profile.max_tokens,
                 profile.temperature,
+                timeout_seconds,
+                connect_timeout_seconds,
             )),
             _ => {
                 log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
@@ -737,10 +747,8 @@ impl LlmService {
         let heartbeat_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(10));
             let start = std::time::Instant::now();
-            let mut tick_count = 0;
             loop {
                 interval.tick().await;
-                tick_count += 1;
                 let elapsed = start.elapsed().as_secs();
                 let step_prefix_hb = pipeline_ctx_for_heartbeat
                     .as_ref()
@@ -767,9 +775,9 @@ impl LlmService {
                         pipeline_context: pipeline_ctx_for_heartbeat.clone(),
                     },
                 );
-                if tick_count >= 60 {
-                    break;
-                }
+                // v0.11.5: 不再在 600 秒后停止心跳。只要生成仍在继续，
+                // 前端就应该持续收到进度反馈；生成结束时 heartbeat_handle 会被
+                // abort。
             }
         });
 

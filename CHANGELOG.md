@@ -2,6 +2,41 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.5] - 智能创作候选阶段卡顿与进度显示修复（2026-06-12）
+
+### 修复：候选生成阶段长时间卡顿 / 500s 无进展
+
+- **本地候选默认并行、不再串行阻塞**：`src-tauri/src/agents/orchestrator.rs`
+  - 移除本地模型候选串行策略默认 `true`，改为默认并行
+  - 避免候选 1 挂起时阻塞候选 2，导致用户看到“生成候选 1/2”长时间不动
+- **候选阶段单次失败不再重试**：`src-tauri/src/agents/orchestrator.rs`
+  - 候选阶段单个候选超时/失败立即跳过，进入下一个候选或降级单轮生成
+  - 消除“120s 超时 × 2 次 × 多个候选”叠加到 500s 的问题
+- **区分本地/远程候选超时**：`src-tauri/src/agents/orchestrator.rs` / `src-tauri/src/config/settings.rs`
+  - 本地模型：60s/候选；远程模型：120s/候选
+  - 总超时 = 单个超时 × 候选数 + 30s，最低 180s，异常时更快失败
+- **reqwest 客户端超时与 profile 配置一致**：`src-tauri/src/llm/service.rs` / `src-tauri/src/llm/{ollama,openai,anthropic}.rs`
+  - 移除硬编码 600s，改为使用 `LlmProfile.timeout_seconds`
+  - 缓存 key 增加 timeout，避免配置变更后复用旧 adapter
+- **JSON 反序列化隔离到 blocking 线程池**：`src-tauri/src/llm/{ollama,openai,anthropic}.rs`
+  - `response.json()` 改为先 `response.bytes().await` 再 `spawn_blocking` 反序列化
+  - 避免大响应同步解析阻塞 tokio worker
+
+### 修复：前端进度显示 / 取消体验
+
+- **进度条改为不确定动画**：`src-frontend/src/hooks/useBackendActivityListener.ts` / `src-frontend/src/frontstage/components/FrontstageBottomBar.tsx`
+  - Orchestrator / LLM 心跳等无具体百分比阶段不再硬编码 0.3，显示滚动 indeterminate 动画
+- **心跳持续发送不再在 600s 停止**：`src-tauri/src/llm/service.rs`
+  - 移除 `tick_count >= 60` 退出，生成多久就心跳多久
+- **取消按钮真正通知后端**：`src-frontend/src/frontstage/FrontstageApp.tsx` / `src-tauri/src/agents/commands.rs`
+  - 新增 `agent_cancel_all_tasks` 命令并注册到 handlers
+  - 前端取消时调用后端取消所有 Agent 任务，而不只是清理本地状态
+- **超时/取消后清理 backendActivityStore**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - 前端 300s 超时、用户取消、生成失败均调用 `failAllRunning`
+  - 避免状态栏在任务结束后仍显示“系统正在处理中”
+- **前端超时从 600s 缩短到 300s**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - 与后端总超时（本地约 150s / 远程约 270s）保持合理余量
+
 ## [v0.11.4] - 智能创作超时根因根治（2026-06-12）
 
 ### 修复：任何指令都陷入"系统正在处理中..."超时

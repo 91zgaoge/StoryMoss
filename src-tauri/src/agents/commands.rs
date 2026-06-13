@@ -186,6 +186,19 @@ pub async fn agent_cancel_task(task_id: String) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 取消所有正在执行的 Agent 任务（前端“取消生成”兜底）
+#[command]
+pub async fn agent_cancel_all_tasks() -> Result<(), AppError> {
+    let mut handles = TASK_HANDLES.lock().unwrap();
+    let count = handles.len();
+    for (task_id, handle) in handles.drain() {
+        handle.abort();
+        log::info!("[Agent] Task {} aborted via cancel_all", task_id);
+    }
+    log::info!("[Agent] Cancelled {} active task(s)", count);
+    Ok(())
+}
+
 /// 获取Agent执行状态
 #[command]
 pub fn agent_get_status(task_id: String) -> String {

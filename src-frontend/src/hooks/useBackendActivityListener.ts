@@ -140,12 +140,13 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
           message = `质检评分 ${p.score}%`;
         }
-        const progress = p.step_type === '生成' ? 0.3 : p.step_type === '质检' ? 0.6 : 0.9;
+        // v0.11.5: Orchestrator 各阶段没有可量化的百分比，使用不确定进度动画
+        // 代替硬编码 0.3/0.6/0.9，避免用户看到进度条长时间卡在 30%。
         updatePrimary({
           category: 'orchestrator',
           stage: p.step_type,
           message,
-          progress,
+          status: 'running',
         });
       });
       unlistens.push(unlistenOrchestrator);
@@ -232,7 +233,31 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       });
       unlistens.push(unlistenPlanExecutor);
 
-      // ── 7. 流水线完成 / 智能执行完成清理 ──
+      // ── 7. LLM 生成心跳（连接中 / 生成中 / 等待响应）──
+      const unlistenLlmHeartbeat = await listen<{
+        stage: string;
+        message: string;
+        elapsed_seconds: number;
+        model: string;
+        pipeline_context?: {
+          step_name: string;
+          step_number: number;
+          total_steps: number;
+          action: string;
+        };
+      }>('llm-generating-progress', event => {
+        const p = event.payload;
+        // 心跳不携带具体进度，因此不设置 progress，让底部状态栏显示不确定动画。
+        updatePrimary({
+          category: 'agent_stage',
+          stage: p.stage,
+          message: p.message,
+          status: 'running',
+        });
+      });
+      unlistens.push(unlistenLlmHeartbeat);
+
+      // ── 8. 流水线完成 / 智能执行完成清理 ──
       const unlistenPipelineComplete = await listen('pipeline-complete', () => {
         store.clearCompleted(1000);
       });

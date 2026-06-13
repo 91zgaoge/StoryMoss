@@ -17,7 +17,7 @@ export interface BackendActivity {
   category: ActivityCategory;
   stage: string;
   message: string;
-  progress: number; // 0.0 - 1.0
+  progress?: number; // 0.0 - 1.0，undefined 表示不确定进度
   detail?: string;
   startedAt: number;
   updatedAt: number;

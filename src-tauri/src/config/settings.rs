@@ -240,13 +240,21 @@ pub struct AppConfig {
     /// 创作工作流最大迭代次数（默认 2）
     #[serde(default = "default_creation_workflow_max_iterations")]
     pub creation_workflow_max_iterations: u32,
-    /// 候选生成阶段单个候选的 LLM 超时（秒，默认 120）
+    /// 候选生成阶段单个远程候选的 LLM 超时（秒，默认 120）
     #[serde(default = "default_candidate_timeout_seconds")]
     pub candidate_timeout_seconds: u64,
-    /// 候选生成阶段单个候选的最大重试次数（默认 1）
+    /// 候选生成阶段单个本地候选的 LLM 超时（秒，默认 60）
+    #[serde(default = "default_candidate_timeout_local_seconds")]
+    pub candidate_timeout_local_seconds: u64,
+    /// 候选生成阶段单个候选的最大重试次数（默认 0）
+    ///
+    /// 候选阶段本身已生成多个版本，单个候选失败应快速跳过，避免超时叠加。
     #[serde(default = "default_candidate_max_retries")]
     pub candidate_max_retries: u32,
-    /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 true）
+    /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 false）
+    ///
+    /// 串行会导致候选 1 阻塞候选 2，一旦候选 1 挂起，整个阶段无进展。
+    /// 默认并行，配合更短的本地超时（60s）避免排队影响。
     #[serde(default = "default_candidate_local_sequential")]
     pub candidate_local_sequential: bool,
     /// 通用 UI 设置
@@ -318,12 +326,16 @@ fn default_candidate_timeout_seconds() -> u64 {
     120
 }
 
+fn default_candidate_timeout_local_seconds() -> u64 {
+    60
+}
+
 fn default_candidate_max_retries() -> u32 {
-    1
+    0
 }
 
 fn default_candidate_local_sequential() -> bool {
-    true
+    false
 }
 
 fn default_theme() -> String {
@@ -749,6 +761,7 @@ impl Default for AppConfig {
             creation_workflow_review_threshold: 0.75,
             creation_workflow_max_iterations: 2,
             candidate_timeout_seconds: default_candidate_timeout_seconds(),
+            candidate_timeout_local_seconds: default_candidate_timeout_local_seconds(),
             candidate_max_retries: default_candidate_max_retries(),
             candidate_local_sequential: default_candidate_local_sequential(),
             theme: default_theme(),

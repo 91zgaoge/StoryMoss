@@ -57,11 +57,20 @@ pub struct WorkflowConfig {
     /// 用于降低 Full 模式的平均等待时间：当 Inspector 已经给出较高评价时，
     /// 不再强制进行 Writer→Inspector→Rewrite 循环。
     pub skip_rewrite_threshold: f32,
-    /// 候选生成阶段单个候选的 LLM 超时（秒，默认 120）
+    /// 候选生成阶段单个远程候选的 LLM 超时（秒，默认 120）
     pub candidate_timeout_seconds: u64,
-    /// 候选生成阶段单个候选的最大重试次数（默认 1）
+    /// 候选生成阶段单个本地候选的 LLM 超时（秒，默认 60）
+    pub candidate_timeout_local_seconds: u64,
+    /// 候选生成阶段单个候选的最大重试次数（默认 0）
+    ///
+    /// 候选阶段本身已生成多个版本，单个候选失败应快速跳过，不应再重试，
+    /// 否则 120s 超时 × 2 次 × 多个候选会迅速累积到 500s 以上。
     pub candidate_max_retries: u32,
-    /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 true）
+    /// 本地模型是否在候选阶段串行生成（默认 false）
+    ///
+    /// 早期默认 true 是为了避免本地服务端排队，但实际导致候选 1 完全阻塞
+    /// 候选 2，一旦候选 1 超时/挂起，用户就只能空等。改为默认并行，并
+    /// 通过更短的本地超时（60s）来避免排队影响。
     pub candidate_local_sequential: bool,
 }
 
@@ -76,6 +85,7 @@ impl WorkflowConfig {
             narrative_weight: config.narrative_weight,
             skip_rewrite_threshold: config.skip_rewrite_threshold,
             candidate_timeout_seconds: config.candidate_timeout_seconds,
+            candidate_timeout_local_seconds: config.candidate_timeout_local_seconds,
             candidate_max_retries: config.candidate_max_retries,
             candidate_local_sequential: config.candidate_local_sequential,
         }
@@ -92,8 +102,9 @@ impl Default for WorkflowConfig {
             narrative_weight: 0.5,
             skip_rewrite_threshold: 0.90,
             candidate_timeout_seconds: 120,
-            candidate_max_retries: 1,
-            candidate_local_sequential: true,
+            candidate_timeout_local_seconds: 60,
+            candidate_max_retries: 0,
+            candidate_local_sequential: false,
         }
     }
 }
@@ -934,15 +945,18 @@ impl AgentOrchestrator {
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
-        // v0.11.2: 为整个候选阶段设置总超时，避免单次 120s 超时 × 重试 × 候选数 ×
-        // fallback 叠加后让用户等待 500s 以上。总超时按"单个候选超时 × 候选数 +
-        // 60s 缓冲"计算， 且不低于 240s，确保正常生成也有足够时间。
-        let total_timeout_seconds = self
-            .config
-            .candidate_timeout_seconds
+        // v0.11.5: 总超时根据本地/远程分别计算，避免本地模型被远程 120s 拖累；
+        // 缓冲时间从 60s 降到 30s，最小总超时从 240s 降到 180s，确保异常时尽快失败。
+        let is_local = self.service.is_target_model_local(AgentType::Writer);
+        let per_candidate_timeout = if is_local {
+            self.config.candidate_timeout_local_seconds
+        } else {
+            self.config.candidate_timeout_seconds
+        };
+        let total_timeout_seconds = per_candidate_timeout
             .saturating_mul(count as u64)
-            .saturating_add(60)
-            .max(240);
+            .saturating_add(30)
+            .max(180);
 
         match timeout(
             Duration::from_secs(total_timeout_seconds),
@@ -1004,18 +1018,23 @@ impl AgentOrchestrator {
             Some("候选上下文准备完成，开始生成..."),
         );
 
-        // 2. 根据目标模型来源决定并发策略
+        // 2. 根据目标模型来源决定并发策略与单个候选超时
         let is_local = self.service.is_target_model_local(AgentType::Writer);
         let sequential = is_local && self.config.candidate_local_sequential;
-        let timeout_override = Some(self.config.candidate_timeout_seconds);
-        let retries_override = Some(self.config.candidate_max_retries);
+        let per_candidate_timeout = if is_local {
+            self.config.candidate_timeout_local_seconds
+        } else {
+            self.config.candidate_timeout_seconds
+        };
+        let timeout_override = Some(per_candidate_timeout);
+        // 候选阶段不重试：多候选本身就是冗余，重试只会让失败模型反复阻塞。
+        let retries_override = Some(0u32);
 
         log::info!(
-            "[Orchestrator] Candidate strategy: local={}, sequential={}, timeout={}s, retries={}",
+            "[Orchestrator] Candidate strategy: local={}, sequential={}, per_candidate_timeout={}s, retries=0",
             is_local,
             sequential,
-            self.config.candidate_timeout_seconds,
-            self.config.candidate_max_retries
+            per_candidate_timeout
         );
 
         // 3. 构建候选任务列表，仅 temperature 不同
@@ -1344,8 +1363,9 @@ mod tests {
         assert_eq!(config.max_feedback_loops, 2);
         assert!(config.keep_revision_history);
         assert_eq!(config.candidate_timeout_seconds, 120);
-        assert_eq!(config.candidate_max_retries, 1);
-        assert!(config.candidate_local_sequential);
+        assert_eq!(config.candidate_timeout_local_seconds, 60);
+        assert_eq!(config.candidate_max_retries, 0);
+        assert!(!config.candidate_local_sequential);
     }
 
     #[test]

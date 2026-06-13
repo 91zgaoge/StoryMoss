@@ -54,6 +54,7 @@ tauri::generate_handler![
     // Agent commands (仅保留前端有调用的)
     agents::commands::agent_execute_stream,
     agents::commands::agent_cancel_task,
+    agents::commands::agent_cancel_all_tasks,
     agents::commands::auto_write,
     agents::commands::auto_revise,
     // Subscription commands

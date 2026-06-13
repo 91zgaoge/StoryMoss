@@ -105,7 +105,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const hasAnyActivity = isGenerating || !!primaryActivity;
   const displayMessage =
     isGenerating && generationStatus ? generationStatus : primaryActivity?.message || '';
-  const displayProgress = primaryActivity?.progress || 0;
+  const displayProgress = primaryActivity?.progress;
 
   // 从状态文案中分离基础文本与已运行时长，避免文案被时间截断
   const statusMatch = displayMessage.match(/^(.+?)\s*(?:\((\d+)s\))?\s*(.*)$/);
@@ -259,8 +259,8 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 )}
               </span>
 
-              {/* 进度条：有具体进度则显示；本地生成显示不确定动画 */}
-              {displayProgress > 0 ? (
+              {/* 进度条：有具体进度则显示；运行中但无具体进度时显示不确定动画 */}
+              {displayProgress != null && displayProgress > 0 ? (
                 <div
                   className="generation-status-progress"
                   title={`${Math.round(displayProgress * 100)}%`}
@@ -270,7 +270,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                     style={{ width: `${Math.round(displayProgress * 100)}%` }}
                   />
                 </div>
-              ) : isLocalGenerating ? (
+              ) : isLocalGenerating || primaryActivity?.status === 'running' ? (
                 <div className="generation-status-progress indeterminate" title="生成中">
                   <div className="generation-status-progress-bar" />
                 </div>

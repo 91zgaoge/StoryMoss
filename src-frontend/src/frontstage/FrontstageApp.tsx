@@ -1229,17 +1229,18 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      // v0.9.4: orchestrator-step 已改为全局监听，不再在此处注册局部监听器
-      // 续写功能添加600秒超时保护（与后端任务超时一致）
+      // v0.11.5: 前端超时从 600 秒缩短到 300 秒，与后端总超时（本地约 150s / 远程约 270s）
+      // 保持一定余量。超时后主动清理 backendActivityStore，避免状态栏卡死。
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
+          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 300 秒内响应');
           reject(
             new Error(
-              '前端超时：模型响应超过600秒（10分钟）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
+              '前端超时：模型响应超过300秒（5分钟）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
             )
           );
-        }, 600000);
+        }, 300000);
       });
       cancelGenerationRef.current = () => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -1367,6 +1368,15 @@ const FrontstageApp: React.FC = () => {
       } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
         stopElapsedTimer();
+        // v0.11.5: 任何失败/超时都要清理 backendActivityStore，避免状态栏残留
+        useBackendActivityStore
+          .getState()
+          .failAllRunning(
+            error instanceof Error &&
+              (error.message.includes('超时') || error.message.includes('timed out'))
+              ? '模型响应超时'
+              : '生成失败'
+          );
         frontstageLogger.error('Generation request failed', { error });
         const structured = parseStructuredError(error);
         const msg = error instanceof Error ? error.message : String(error);
@@ -1468,6 +1478,12 @@ const FrontstageApp: React.FC = () => {
       cancelGenerationRef.current();
       cancelGenerationRef.current = null;
     }
+    // v0.11.5: 真正通知后端取消所有 Agent / LLM 任务，而不仅是清理前端状态
+    try {
+      await loggedInvoke<unknown>('agent_cancel_all_tasks', {});
+    } catch (e) {
+      frontstageLogger.error('Failed to cancel agent tasks', { error: e });
+    }
     // v0.11.2: 清理所有残留的后台活动，避免取消后状态栏仍显示"系统正在处理中"
     useBackendActivityStore.getState().failAllRunning('用户已取消');
     // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
@@ -1558,7 +1574,8 @@ const FrontstageApp: React.FC = () => {
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
-      const timeoutSeconds = isBootstrap ? 600 : 600;
+      // v0.11.5: 前端超时统一缩短到 300 秒，避免用户空等 10 分钟。
+      const timeoutSeconds = 300;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
@@ -1655,11 +1672,12 @@ const FrontstageApp: React.FC = () => {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           aborted = true;
+          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 300 秒内响应');
           reject(
             new Error(
               isBootstrap
                 ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
-                : `前端超时：模型响应超过${timeoutSeconds}秒（10分钟）。本地模型生成长文本可能耗时较长，请检查模型是否仍在运行。`
+                : `前端超时：模型响应超过${timeoutSeconds}秒（5分钟）。本地模型生成长文本可能耗时较长，请检查模型是否仍在运行。`
             )
           );
         }, timeoutMs);
@@ -1815,6 +1833,16 @@ const FrontstageApp: React.FC = () => {
       } catch (e: any) {
         if (timeoutId) clearTimeout(timeoutId);
         currentToastPhaseRef.current = null;
+        // v0.11.5: 异常时清理 backendActivityStore，避免状态栏卡死
+        useBackendActivityStore
+          .getState()
+          .failAllRunning(
+            e?.message?.includes('超时') ||
+              e?.message?.includes('timed out') ||
+              e?.message?.includes('timeout')
+              ? '模型响应超时'
+              : '执行失败'
+          );
         frontstageLogger.error('Smart execution failed', { error: e });
         const structured = parseStructuredError(e);
         const msg = e?.message || String(e);
