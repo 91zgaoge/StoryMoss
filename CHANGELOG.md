@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.7] - 紧急修复：候选仍串行 + 输入框未打字即自动进入运行进程（2026-06-13）
+
+### 修复：候选生成阶段仍显示“生成候选 1 / 2（本地模型串行）”并挂起 500s
+
+- **强制候选阶段并行，彻底忽略旧配置的串行标志**：`src-tauri/src/agents/orchestrator.rs`
+  - 旧配置持久化可能保存了 `candidate_local_sequential=true`，导致 v0.11.5/v0.11.6 的“默认并行”被覆盖
+  - v0.11.7 直接移除串行分支，代码层强制并行；无论配置如何，候选 1 都不会阻塞候选 2
+- **候选单个超时增加硬上限**：`src-tauri/src/agents/orchestrator.rs`
+  - 本地候选：最多 60s；远程候选：最多 120s
+  - 若用户旧配置保存了 600s 等超大值，直接按硬上限截断，避免失败候选挂死 500s+
+- **候选阶段仍不重试、失败即跳过**：与 v0.11.5 一致，单个候选超时/失败不影响其他候选
+
+### 修复：输入框还没打字就自动进入运行进程 / 输入框被禁用
+
+- **去掉 `get_input_hint` 的 LLM 调用**：`src-tauri/src/commands/orchestrator.rs`
+  - 输入框聚焦、上下箭头切换 ghost hint 时会自动调用 `get_input_hint`
+  - 原实现会调用 LLM 生成建议，产生 `agent-stage-update` 事件并被聚合为后台主活动，导致输入框被禁用
+  - v0.11.7 仅返回规则驱动的候选建议（零后端 LLM 调用），既保留 ghost hint 又不再锁死输入框
+- **保留 v0.11.6 的启动修复**：`spawn_background_tasks` 空实现、`init_workflow_engine` 不再自动恢复并执行上次未完成的 workflow 实例
+
 ## [v0.11.6] - 紧急修复：启动时 capability_evolution 后台挂起 + 版本号遗漏（2026-06-13）
 
 ### 修复：应用启动后未输入任何指令就进入后台进程并卡顿 500s

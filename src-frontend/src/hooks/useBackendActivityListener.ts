@@ -247,13 +247,15 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         };
       }>('llm-generating-progress', event => {
         const p = event.payload;
-        // 心跳不携带具体进度，因此不设置 progress，让底部状态栏显示不确定动画。
-        updatePrimary({
-          category: 'agent_stage',
-          stage: p.stage,
-          message: p.message,
-          status: 'running',
-        });
+        // v0.11.6-hotfix2: 心跳本身不应创建新的主活动，否则输入框自动聚焦时触发的
+        // get_input_hint 等轻量 LLM 调用会把输入框置为禁用状态。只在已有创作活动
+        // 进行时更新文案，避免“还没打字就进入运行进程”。
+        const existing = store.activities.find(
+          a => a.status === 'running' && a.id === PRIMARY_ACTIVITY_ID
+        );
+        if (existing) {
+          store.updateActivity(PRIMARY_ACTIVITY_ID, { message: p.message });
+        }
       });
       unlistens.push(unlistenLlmHeartbeat);
 

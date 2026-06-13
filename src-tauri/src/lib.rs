@@ -423,22 +423,14 @@ fn init_workflow_engine(app: &mut tauri::App, app_handle: tauri::AppHandle) {
     }
     let engine_arc = std::sync::Arc::new(engine);
     scheduler.start_auto_drain(engine_arc.clone(), app_handle.clone());
+    // v0.11.6-hotfix2: 不再在启动时自动恢复并执行之前未完成的 workflow 实例。
+    // 恢复执行会在用户未输入任何指令时就进入后台 LLM 流程，导致输入框被禁用。
     if !restored_instance_ids.is_empty() {
         log::info!(
-            "[WorkflowEngine] Restoring {} pending/running instances to scheduler",
+            "[WorkflowEngine] Found {} pending/running instances from previous session; \
+             skipping auto-restore to avoid blocking UI on startup",
             restored_instance_ids.len()
         );
-        let scheduler_clone = scheduler.clone();
-        tauri::async_runtime::spawn(async move {
-            for instance_id in restored_instance_ids {
-                if let Err(e) = scheduler_clone.schedule_execution(instance_id).await {
-                    log::warn!(
-                        "[WorkflowEngine] Failed to restore instance to scheduler: {}",
-                        e
-                    );
-                }
-            }
-        });
     }
 
     app.manage(engine_arc.clone());

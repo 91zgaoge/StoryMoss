@@ -8,10 +8,13 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.11.6-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.11.7-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.11.6 紧急修复 v0.11.5 引入的启动即进入 `capability_evolution` 后台进程并长时间挂起的问题，同时修复构建产物版本号仍显示 0.11.3 的遗漏。v0.11.5 的候选阶段并行、超时、取消、进度显示等修复已包含在 0.11.6 中。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。
+**最新动态**：v0.11.7 紧急修复两大问题：
+1. **候选生成仍串行挂起**：代码层强制并行并忽略旧配置 `candidate_local_sequential=true`，单个候选超时硬上限本地 60s / 远程 120s，失败候选不再阻塞其他候选；
+2. **还没打字就自动进入运行进程**：`get_input_hint` 移除 LLM 调用，仅返回规则建议，避免聚焦输入框时产生后台活动并禁用输入框。
+同时保留 v0.11.6 的修复：启动时不再自动恢复 workflow 实例、`capability_evolution` 完全禁用。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
 ---
 

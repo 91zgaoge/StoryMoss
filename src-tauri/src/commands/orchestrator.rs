@@ -6,7 +6,6 @@ use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
     error::AppError,
     is_novel_creation_intent, record_ai_operation,
-    router::TaskType,
 };
 
 /// smart_execute 初始上下文加载结果类型别名，降低闭包类型复杂度
@@ -661,7 +660,7 @@ pub async fn smart_execute(
 /// 获取输入栏智能提示 — 由LLM根据当前故事上下文生成建议
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_input_hint(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     current_content: Option<String>,
     pool: State<'_, DbPool>,
 ) -> Result<String, AppError> {
@@ -741,53 +740,18 @@ pub async fn get_input_hint(
         }
     }
 
-    // 尝试用 LLM 生成更个性化的建议
-    let llm_hint = if let Some(ref story) = current_story {
-        let llm_service = crate::llm::LlmService::new(app_handle);
-        let prompt = format!(
-            "你是一个AI写作助手。当前故事：{}，字数：{}，章节数：{}。\
-             请生成一条简短的输入建议（12字以内），告诉用户下一步可以做什么。建议要自然、有创意、\
-             贴合故事。只输出建议内容，不要解释。",
-            story.title,
-            word_count,
-            chapters.len()
-        );
-        match llm_service
-            .generate_for_task(
-                TaskType::Brainstorming,
-                prompt,
-                Some(30),
-                Some(0.7),
-                Some("input_hint"),
-            )
-            .await
-        {
-            Ok(response) => {
-                let hint = response
-                    .content
-                    .trim()
-                    .replace(['"', '\'', '「', '」'], "")
-                    .trim()
-                    .to_string();
-                if !hint.is_empty() && hint.chars().count() <= 20 {
-                    Some(hint)
-                } else {
-                    None
-                }
-            }
-            Err(e) => {
-                log::debug!("[get_input_hint] LLM generation failed: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
+    // v0.11.7-hotfix: 不再调用 LLM 生成输入建议。
+    // 该 LLM 调用会在输入框获得焦点时自动触发，产生 agent-stage-update
+    // 事件并被聚合为
+    // 主后台活动，导致用户还没输入任何文字就进入“运行进程”且输入框被禁用。
+    // 现在仅使用上面的规则候选，返回零成本且不会阻塞 UI。
+    log::debug!(
+        "[get_input_hint] Returning rule-based hint for story={:?}, word_count={}",
+        current_story_id,
+        word_count
+    );
 
-    // 优先返回 LLM 建议，否则返回规则建议
-    if let Some(hint) = llm_hint {
-        Ok(hint)
-    } else if let Some(hint) = candidates.first() {
+    if let Some(hint) = candidates.first() {
         Ok(hint.clone())
     } else {
         Ok("输入指令开始创作".to_string())

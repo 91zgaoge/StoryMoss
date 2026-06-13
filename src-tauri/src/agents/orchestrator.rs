@@ -945,13 +945,18 @@ impl AgentOrchestrator {
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
-        // v0.11.5: 总超时根据本地/远程分别计算，避免本地模型被远程 120s 拖累；
-        // 缓冲时间从 60s 降到 30s，最小总超时从 240s 降到 180s，确保异常时尽快失败。
+        // v0.11.7: 候选阶段超时使用硬上限，忽略用户旧配置里可能保存的 600s 等大值。
+        const MAX_LOCAL_CANDIDATE_TIMEOUT: u64 = 60;
+        const MAX_REMOTE_CANDIDATE_TIMEOUT: u64 = 120;
         let is_local = self.service.is_target_model_local(AgentType::Writer);
         let per_candidate_timeout = if is_local {
-            self.config.candidate_timeout_local_seconds
+            self.config
+                .candidate_timeout_local_seconds
+                .min(MAX_LOCAL_CANDIDATE_TIMEOUT)
         } else {
-            self.config.candidate_timeout_seconds
+            self.config
+                .candidate_timeout_seconds
+                .min(MAX_REMOTE_CANDIDATE_TIMEOUT)
         };
         let total_timeout_seconds = per_candidate_timeout
             .saturating_mul(count as u64)
@@ -1018,22 +1023,29 @@ impl AgentOrchestrator {
             Some("候选上下文准备完成，开始生成..."),
         );
 
-        // 2. 根据目标模型来源决定并发策略与单个候选超时
+        // 2. 候选阶段强制并行：无论用户旧配置是否保存了
+        //    candidate_local_sequential=true，
+        // 都不再走串行分支，避免候选 1 挂起时阻塞候选 2。
+        // 同时给单个候选超时加硬上限，防止旧配置里的 600s 等值让失败候选挂死 500s+。
+        const MAX_LOCAL_CANDIDATE_TIMEOUT: u64 = 60;
+        const MAX_REMOTE_CANDIDATE_TIMEOUT: u64 = 120;
         let is_local = self.service.is_target_model_local(AgentType::Writer);
-        let sequential = is_local && self.config.candidate_local_sequential;
         let per_candidate_timeout = if is_local {
-            self.config.candidate_timeout_local_seconds
+            self.config
+                .candidate_timeout_local_seconds
+                .min(MAX_LOCAL_CANDIDATE_TIMEOUT)
         } else {
-            self.config.candidate_timeout_seconds
+            self.config
+                .candidate_timeout_seconds
+                .min(MAX_REMOTE_CANDIDATE_TIMEOUT)
         };
         let timeout_override = Some(per_candidate_timeout);
         // 候选阶段不重试：多候选本身就是冗余，重试只会让失败模型反复阻塞。
         let retries_override = Some(0u32);
 
         log::info!(
-            "[Orchestrator] Candidate strategy: local={}, sequential={}, per_candidate_timeout={}s, retries=0",
+            "[Orchestrator] Candidate strategy: local={}, parallel=true, per_candidate_timeout={}s, retries=0",
             is_local,
-            sequential,
             per_candidate_timeout
         );
 
@@ -1057,56 +1069,8 @@ impl AgentOrchestrator {
             Some(&format!("生成候选中（共 {} 个）", count)),
         );
 
-        // 4. 执行候选：本地模型默认串行以避免服务端排队；远程模型并行
-        let results: Vec<Result<AgentResult, AppError>> = if sequential {
-            let mut results = Vec::with_capacity(count);
-            for (i, candidate_task) in candidate_tasks.into_iter().enumerate() {
-                self.emit_step_event(
-                    &task.id,
-                    WorkflowStepType::Generation,
-                    None,
-                    None,
-                    Some(&format!("生成候选 {} / {}（本地模型串行）", i + 1, count)),
-                );
-                let result = self
-                    .service
-                    .execute_writer_prepared(
-                        candidate_task,
-                        prepared.clone(),
-                        timeout_override,
-                        retries_override,
-                    )
-                    .await;
-                if result.is_ok() {
-                    self.emit_step_event(
-                        &task.id,
-                        WorkflowStepType::Generation,
-                        None,
-                        None,
-                        Some(&format!("候选 {} / {} 生成完成", i + 1, count)),
-                    );
-                } else {
-                    self.emit_step_event(
-                        &task.id,
-                        WorkflowStepType::Generation,
-                        None,
-                        None,
-                        Some(&format!(
-                            "候选 {} / {} 生成失败：{}，继续下一个...",
-                            i + 1,
-                            count,
-                            result
-                                .as_ref()
-                                .err()
-                                .map(|e| e.to_string())
-                                .unwrap_or_default()
-                        )),
-                    );
-                }
-                results.push(result);
-            }
-            results
-        } else {
+        // 4. 执行候选：强制并行执行
+        let results: Vec<Result<AgentResult, AppError>> =
             futures::future::join_all(candidate_tasks.into_iter().enumerate().map(
                 |(i, candidate_task)| {
                     let this = self;
@@ -1158,8 +1122,7 @@ impl AgentOrchestrator {
                     }
                 },
             ))
-            .await
-        };
+            .await;
 
         self.emit_step_event(
             &task.id,
