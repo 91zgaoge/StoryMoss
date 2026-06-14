@@ -748,8 +748,8 @@ impl LlmService {
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let effective_retries = max_retries_override.unwrap_or(2u32);
 
-        // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层 tokio::time::timeout
-        // 后仍然能保证单候选/整体超时策略生效。
+        // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层
+        // tokio::time::timeout 后仍然能保证单候选/整体超时策略生效。
         let mut profile_for_adapter = profile.clone();
         if let Some(t) = timeout_seconds_override {
             profile_for_adapter.timeout_seconds = t;

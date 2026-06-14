@@ -254,8 +254,9 @@ impl MemoryWriter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_cancel_ingest_token_propagates_to_running_task() {

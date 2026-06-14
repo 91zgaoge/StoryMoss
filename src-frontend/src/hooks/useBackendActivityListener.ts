@@ -19,9 +19,34 @@ const PRIMARY_ACTIVITY_ID = 'ai-primary-activity';
 
 /** 智能创作精确阶段映射（A4-1.7 / C1） */
 const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
-  { phase: '准备上下文', patterns: ['准备上下文', 'preparing_context', 'prepare_context', 'loading_context', '加载上下文', '读取故事', '读取章节'] },
-  { phase: '候选生成', patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选', '生成中', '生成'] },
-  { phase: 'Inspector 审校', patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'] },
+  {
+    phase: '准备上下文',
+    patterns: [
+      '准备上下文',
+      'preparing_context',
+      'prepare_context',
+      'loading_context',
+      '加载上下文',
+      '读取故事',
+      '读取章节',
+    ],
+  },
+  {
+    phase: '候选生成',
+    patterns: [
+      '候选生成',
+      'candidate',
+      'candidates',
+      'generating_candidates',
+      '生成候选',
+      '生成中',
+      '生成',
+    ],
+  },
+  {
+    phase: 'Inspector 审校',
+    patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'],
+  },
   { phase: '改写', patterns: ['改写', 'rewrite', 'rewriting', 'revise', '润色'] },
   { phase: '最终输出', patterns: ['最终输出', 'final_output', 'finalize', '最终', 'final output'] },
   { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },

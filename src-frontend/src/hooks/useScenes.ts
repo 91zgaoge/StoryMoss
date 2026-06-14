@@ -17,11 +17,7 @@ export function useScenes(storyId: string | null) {
   });
 }
 
-export function useScenesPaged(
-  storyId: string | null,
-  page: number,
-  pageSize: number = 5
-) {
+export function useScenesPaged(storyId: string | null, page: number, pageSize: number = 5) {
   return useQuery({
     queryKey: [SCENES_KEY, storyId, { page }],
     queryFn: async () => {

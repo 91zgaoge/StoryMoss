@@ -22,7 +22,9 @@ const pendingTasks = new Map<number, PendingTask>();
 function getWorker(): Worker {
   if (!worker) {
     worker = new TextAnalyzerWorker();
-    worker.onmessage = (event: MessageEvent<{ id: number; result?: PerceptionResult; error?: string }>) => {
+    worker.onmessage = (
+      event: MessageEvent<{ id: number; result?: PerceptionResult; error?: string }>
+    ) => {
       const { id, result, error } = event.data;
       const task = pendingTasks.get(id);
       if (!task) return;

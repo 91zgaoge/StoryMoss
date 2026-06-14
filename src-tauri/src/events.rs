@@ -1,8 +1,9 @@
 //! 统一前端事件通道
 //!
 //! 提供跨模块共享的生成状态事件类型与发射辅助函数，
-//! 将原本分散在 orchestrator-step / agent-stage-update / llm-generating-progress
-//! 等事件中的进度信息聚合为单一的 `generation-status` 事件。
+//! 将原本分散在 orchestrator-step / agent-stage-update /
+//! llm-generating-progress 等事件中的进度信息聚合为单一的 `generation-status`
+//! 事件。
 
 use std::{collections::HashMap, sync::Mutex, time::Instant};
 
@@ -113,10 +114,11 @@ pub fn record_generation_start(task_id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
+
     use tauri::Listener;
+
+    use super::*;
 
     #[test]
     fn test_emit_generation_status_elapsed_and_serialization() {
@@ -147,13 +149,21 @@ mod tests {
         // Give the mock emitter a moment to deliver the event.
         std::thread::sleep(Duration::from_millis(10));
 
-        let event = payload.lock().unwrap().clone().expect("event should be emitted");
+        let event = payload
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("event should be emitted");
         assert_eq!(event.task_id, task_id);
         assert_eq!(event.phase, "generating_candidates");
         assert!((event.progress - 0.42).abs() < f32::EPSILON);
         assert_eq!(event.message, "生成候选中");
         assert_eq!(event.request_id, Some("req-123".to_string()));
-        assert!(event.elapsed_ms >= 50, "elapsed_ms should be at least 50ms, got {}", event.elapsed_ms);
+        assert!(
+            event.elapsed_ms >= 50,
+            "elapsed_ms should be at least 50ms, got {}",
+            event.elapsed_ms
+        );
 
         // Serialization should not include request_id when None.
         let without_req = GenerationStatusEvent {
@@ -165,6 +175,9 @@ mod tests {
             request_id: None,
         };
         let json = serde_json::to_string(&without_req).unwrap();
-        assert!(!json.contains("request_id"), "request_id should be skipped when None");
+        assert!(
+            !json.contains("request_id"),
+            "request_id should be skipped when None"
+        );
     }
 }

@@ -24,7 +24,10 @@ interface GenerationState {
   setIsGenerating: (generating: boolean | ((prev: boolean) => boolean)) => void;
   setGenerationStatus: (status: string | ((prev: string) => string)) => void;
   setOrchestratorStatus: (
-    status: OrchestratorStatus | null | ((prev: OrchestratorStatus | null) => OrchestratorStatus | null)
+    status:
+      | OrchestratorStatus
+      | null
+      | ((prev: OrchestratorStatus | null) => OrchestratorStatus | null)
   ) => void;
   resetGeneration: () => void;
 }
@@ -45,14 +48,18 @@ export const useGenerationStore = create<GenerationState>(set => ({
   setGenerationStatus: status =>
     set(state => ({
       generationStatus:
-        typeof status === 'function' ? (status as (prev: string) => string)(state.generationStatus) : status,
+        typeof status === 'function'
+          ? (status as (prev: string) => string)(state.generationStatus)
+          : status,
     })),
 
   setOrchestratorStatus: status =>
     set(state => ({
       orchestratorStatus:
         typeof status === 'function'
-          ? (status as (prev: OrchestratorStatus | null) => OrchestratorStatus | null)(state.orchestratorStatus)
+          ? (status as (prev: OrchestratorStatus | null) => OrchestratorStatus | null)(
+              state.orchestratorStatus
+            )
           : status,
     })),
 

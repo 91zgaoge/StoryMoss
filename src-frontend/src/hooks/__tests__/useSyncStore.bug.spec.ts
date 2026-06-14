@@ -136,7 +136,9 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
     // B1 修复：all 分支应只发起一次 predicate invalidateQueries，而非多次独立 key 失效
     expect(invalidateQueriesCalls.length).toBe(1);
 
-    const callArg = invalidateQueriesCalls[0][0] as { predicate?: (query: { queryKey: unknown[] }) => boolean };
+    const callArg = invalidateQueriesCalls[0][0] as {
+      predicate?: (query: { queryKey: unknown[] }) => boolean;
+    };
     expect(callArg.predicate).toBeTypeOf('function');
 
     // predicate 应命中该 storyId 下的受控 key
@@ -176,7 +178,9 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
     expect(invalidateQueriesCalls.length).toBe(1);
 
-    const callArg = invalidateQueriesCalls[0][0] as { predicate?: (query: { queryKey: unknown[] }) => boolean };
+    const callArg = invalidateQueriesCalls[0][0] as {
+      predicate?: (query: { queryKey: unknown[] }) => boolean;
+    };
     expect(callArg.predicate).toBeTypeOf('function');
 
     expect(callArg.predicate!({ queryKey: ['scenes', storyId] })).toBe(true);

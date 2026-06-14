@@ -206,10 +206,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   const { fitView } = useReactFlow();
   // C1: 获取当前 viewport 用于视口外裁剪
   const { x, y, zoom } = useViewport();
-  const { width, height } = useStore(
-    s => ({ width: s.width, height: s.height }),
-    shallow
-  );
+  const { width, height } = useStore(s => ({ width: s.width, height: s.height }), shallow);
 
   const filteredEntities = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
@@ -422,9 +419,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
               <p className="text-cinema-gold mt-1">已筛选隐藏 {hiddenCount} 个</p>
             )}
             {lodHiddenCount > 0 && (
-              <p className="text-cinema-gold mt-1">
-                LOD 已折叠 {lodHiddenCount} 个低重要性节点
-              </p>
+              <p className="text-cinema-gold mt-1">LOD 已折叠 {lodHiddenCount} 个低重要性节点</p>
             )}
           </div>
         </Panel>
@@ -520,7 +515,9 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
                   onClick={() => setShowAllNodes(s => !s)}
                   className="w-full py-1.5 text-[11px] font-medium rounded-md border border-cinema-gold/30 bg-cinema-gold/10 text-cinema-gold hover:bg-cinema-gold/20 transition-colors"
                 >
-                  {showAllNodes ? '仅显示高重要性节点' : `显示全部 ${filteredEntities.length} 个节点`}
+                  {showAllNodes
+                    ? '仅显示高重要性节点'
+                    : `显示全部 ${filteredEntities.length} 个节点`}
                 </button>
                 {!showAllNodes && (
                   <p className="text-[10px] text-gray-500 mt-1 text-center">

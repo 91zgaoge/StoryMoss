@@ -21,11 +21,7 @@ export function useChapters(storyId: string | null) {
   });
 }
 
-export function useChaptersPaged(
-  storyId: string | null,
-  page: number,
-  pageSize: number = 3
-) {
+export function useChaptersPaged(storyId: string | null, page: number, pageSize: number = 3) {
   return useQuery<Chapter[]>({
     queryKey: [CHAPTERS_KEY, storyId, { page }],
     queryFn: () =>

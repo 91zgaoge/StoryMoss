@@ -59,9 +59,7 @@ const emptyRelations: Relation[] = [];
 describe('KnowledgeGraphView LOD', () => {
   it('默认只渲染阈值内节点，点击“显示全部”后恢复全部', async () => {
     const entities = generateEntities(250);
-    render(
-      <KnowledgeGraphView entities={entities} relations={emptyRelations} />
-    );
+    render(<KnowledgeGraphView entities={entities} relations={emptyRelations} />);
 
     const nodes = await screen.findAllByTestId('kg-node');
     expect(nodes.length).toBe(200);

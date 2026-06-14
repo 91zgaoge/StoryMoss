@@ -84,9 +84,26 @@ const SCENES_PAGE_SIZE = 5;
 
 // A4-1.7: 智能创作精确阶段映射（组件外常量，避免 hook deps 警告）
 const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
-  { phase: '准备上下文', patterns: ['准备上下文', 'preparing_context', 'prepare_context', 'loading_context', '加载上下文', '读取故事', '读取章节'] },
-  { phase: '候选生成', patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选'] },
-  { phase: 'Inspector 审校', patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'] },
+  {
+    phase: '准备上下文',
+    patterns: [
+      '准备上下文',
+      'preparing_context',
+      'prepare_context',
+      'loading_context',
+      '加载上下文',
+      '读取故事',
+      '读取章节',
+    ],
+  },
+  {
+    phase: '候选生成',
+    patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选'],
+  },
+  {
+    phase: 'Inspector 审校',
+    patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'],
+  },
   { phase: '改写', patterns: ['改写', 'rewrite', 'rewriting', 'revise', '润色'] },
   { phase: '最终输出', patterns: ['最终输出', 'final_output', 'finalize', '最终', 'final output'] },
   { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
@@ -919,7 +936,9 @@ const FrontstageApp: React.FC = () => {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
           const precise = mapPrecisePhase(p.message) || p.message;
-          setGenerationStatus(formatStatusWithElapsed(`${precise} (${p.steps_completed + 1}/${p.total_steps})`));
+          setGenerationStatus(
+            formatStatusWithElapsed(`${precise} (${p.steps_completed + 1}/${p.total_steps})`)
+          );
           updateGenerationPhase(precise);
         } else if (p.status === 'completed') {
           setGenerationStatus(p.message);
@@ -1209,9 +1228,7 @@ const FrontstageApp: React.FC = () => {
             setChapters(prev => {
               const map = new Map(prev.map(c => [c.id, c]));
               map.set(full.id, full);
-              return Array.from(map.values()).sort(
-                (a, b) => a.chapter_number - b.chapter_number
-              );
+              return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
             });
             selectChapter(full);
           }

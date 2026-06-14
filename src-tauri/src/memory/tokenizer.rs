@@ -4,8 +4,9 @@
 //! 提供真实 tokenizer（基于 tiktoken-rs）的 token 计数与截断能力，
 //! 同时保留原有 CJK 二元组分词器用于记忆检索。
 
-use once_cell::sync::Lazy;
 use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
 
 /// CJK分词器（保留：用于记忆检索阶段的 token 搜索）
 ///
@@ -118,7 +119,8 @@ impl Default for CJKTokenizer {
 /// 支持的 tokenizer family
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenizerFamily {
-    /// OpenAI cl100k_base：gpt-4 / gpt-3.5 / text-embedding / DeepSeek / Qwen 等
+    /// OpenAI cl100k_base：gpt-4 / gpt-3.5 / text-embedding / DeepSeek / Qwen
+    /// 等
     Cl100k,
     /// OpenAI p50k_base：text-davinci-003 / 002 / code-davinci-002 等
     P50k,

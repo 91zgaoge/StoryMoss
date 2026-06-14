@@ -241,7 +241,8 @@ impl SceneRepository {
         Ok(scenes)
     }
 
-    /// 分页查询 story 下的场景列表（不返回 content / outline_content / draft_content 等大字段）。
+    /// 分页查询 story 下的场景列表（不返回 content / outline_content /
+    /// draft_content 等大字段）。
     pub fn get_by_story_paged(
         &self,
         story_id: &str,
@@ -342,7 +343,8 @@ impl SceneRepository {
         Ok(count)
     }
 
-    /// 聚合 story 下所有场景 content 字段的总长度（用于总字数统计，避免全量 IPC）。
+    /// 聚合 story 下所有场景 content 字段的总长度（用于总字数统计，避免全量
+    /// IPC）。
     pub fn total_content_length_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
         let conn = self
             .pool
@@ -5815,7 +5817,8 @@ impl ChapterRepository {
         Ok(count)
     }
 
-    /// 聚合 story 下所有章节 content 字段的总长度（用于总字数统计，避免全量 IPC）。
+    /// 聚合 story 下所有章节 content 字段的总长度（用于总字数统计，避免全量
+    /// IPC）。
     pub fn total_content_length_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
         let conn = self
             .pool

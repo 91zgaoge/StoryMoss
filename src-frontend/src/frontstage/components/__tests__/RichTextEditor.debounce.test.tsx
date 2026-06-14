@@ -64,7 +64,9 @@ vi.mock('@tiptap/extension-highlight', () => ({
 vi.mock('../tiptap/AiSuggestionNode', () => ({ AiSuggestionNode: {} }));
 vi.mock('@/frontstage/extensions/SceneDividerNode', () => ({ SceneDividerNode: {} }));
 
-vi.mock('@/utils/cn', () => ({ cn: (...classes: (string | false | undefined)[]) => classes.filter(Boolean).join(' ') }));
+vi.mock('@/utils/cn', () => ({
+  cn: (...classes: (string | false | undefined)[]) => classes.filter(Boolean).join(' '),
+}));
 vi.mock('@/stores/appStore', () => ({
   useAppStore: (selector: (state: { editorConfig: unknown }) => unknown) =>
     selector({ editorConfig: null }),
@@ -112,7 +114,11 @@ describe('RichTextEditor HTML serialization debounce', () => {
     render(<RichTextEditor ref={ref} content="<p>initial</p>" onChange={onChange} />);
 
     expect(capturedOptions).not.toBeNull();
-    const onUpdate = capturedOptions!.onUpdate as ({ editor }: { editor: typeof fakeEditor }) => void;
+    const onUpdate = capturedOptions!.onUpdate as ({
+      editor,
+    }: {
+      editor: typeof fakeEditor;
+    }) => void;
 
     fakeHTML = '<p>updated once</p>';
     onUpdate({ editor: fakeEditor });

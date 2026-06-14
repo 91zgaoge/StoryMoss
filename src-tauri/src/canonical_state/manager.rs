@@ -31,7 +31,8 @@ impl CanonicalStateManager {
         self.get_snapshot_sync(story_id)
     }
 
-    /// 同步版本：供 spawn_blocking 调用，避免在 tokio worker 上执行同步 DB 查询。
+    /// 同步版本：供 spawn_blocking 调用，避免在 tokio worker 上执行同步 DB
+    /// 查询。
     pub fn get_snapshot_sync(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
         self.create_snapshot_sync(story_id)
     }

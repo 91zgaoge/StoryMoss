@@ -62,7 +62,10 @@ describe('asyncTextAnalyzer', () => {
 
     const { analyzeTextAsync } = await import('../asyncTextAnalyzer');
     const controller = new AbortController();
-    const promise = analyzeTextAsync('<p>较长的一段文本内容，用于测试取消逻辑。</p>', controller.signal);
+    const promise = analyzeTextAsync(
+      '<p>较长的一段文本内容，用于测试取消逻辑。</p>',
+      controller.signal
+    );
 
     // 让 microtask 先注册任务并 postMessage
     await Promise.resolve();

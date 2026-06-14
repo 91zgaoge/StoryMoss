@@ -573,7 +573,8 @@ impl StoryContextBuilder {
     /// 策略：
     /// - 系统提示 / instruction 保留固定预留
     /// - story context（世界观、角色、风格等关键设定）优先保留
-    /// - recent scenes / current content 超过预算时，先截断较早场景摘要，再截断当前内容
+    /// - recent scenes / current content
+    ///   超过预算时，先截断较早场景摘要，再截断当前内容
     /// - user input / selected text 仅在仍有剩余预算时保留，否则截断
     fn apply_context_budget(&self, context: &mut AgentContext) {
         let family = self.budget.model_family.as_str();

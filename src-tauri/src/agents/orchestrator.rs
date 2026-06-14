@@ -166,7 +166,8 @@ impl WorkflowStepType {
 }
 
 /// 结构化 generation trace 日志辅助。
-/// v0.11.x (C2): 按 request_id/task_id 聚合各阶段耗时，info 输出总体，debug 输出详细阶段。
+/// v0.11.x (C2): 按 request_id/task_id 聚合各阶段耗时，info 输出总体，debug
+/// 输出详细阶段。
 #[derive(Clone)]
 pub(crate) struct GenerationTrace {
     request_id: String,
@@ -266,7 +267,8 @@ impl AgentOrchestrator {
 
     /// 发射统一生成状态事件 `generation-status`
     ///
-    /// 与 `orchestrator-step` 并存，供新版前端统一消费；旧版事件继续发射以保持兼容。
+    /// 与 `orchestrator-step`
+    /// 并存，供新版前端统一消费；旧版事件继续发射以保持兼容。
     fn emit_generation_status(
         &self,
         task_id: &str,
@@ -369,7 +371,8 @@ impl AgentOrchestrator {
             let app_handle = self.app_handle.clone();
             let request_id = workflow_result.request_id.clone();
 
-            // 注册后台 ingest 取消令牌；用户调用 cancel_generation(request_id) 时可传播取消。
+            // 注册后台 ingest 取消令牌；用户调用 cancel_generation(request_id)
+            // 时可传播取消。
             let parent_token = request_id
                 .as_ref()
                 .map(|req_id| crate::memory::writer::register_ingest_cancel_token(req_id));

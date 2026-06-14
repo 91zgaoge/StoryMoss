@@ -59,7 +59,8 @@ pub struct LanceVectorStore {
     table: Option<Table>,
 }
 
-/// Escape special LIKE pattern characters so user input is treated as literal text.
+/// Escape special LIKE pattern characters so user input is treated as literal
+/// text.
 fn escape_like_pattern(s: &str) -> String {
     // Backslash must be replaced first so we don't double-escape the escapes.
     s.replace('\\', "\\\\")

@@ -18,7 +18,10 @@ export interface BootstrapProgress {
 interface BootstrapState {
   bootstrapProgress: BootstrapProgress | null;
   setBootstrapProgress: (
-    progress: BootstrapProgress | null | ((prev: BootstrapProgress | null) => BootstrapProgress | null)
+    progress:
+      | BootstrapProgress
+      | null
+      | ((prev: BootstrapProgress | null) => BootstrapProgress | null)
   ) => void;
   resetBootstrapProgress: () => void;
 }
@@ -30,7 +33,9 @@ export const useBootstrapStore = create<BootstrapState>(set => ({
     set(state => ({
       bootstrapProgress:
         typeof progress === 'function'
-          ? (progress as (prev: BootstrapProgress | null) => BootstrapProgress | null)(state.bootstrapProgress)
+          ? (progress as (prev: BootstrapProgress | null) => BootstrapProgress | null)(
+              state.bootstrapProgress
+            )
           : progress,
     })),
 
