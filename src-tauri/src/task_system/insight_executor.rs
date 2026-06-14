@@ -15,11 +15,15 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use super::executor::{TaskExecutionContext, TaskExecutor};
-use super::models::{Task, TaskResult, TaskType};
-use crate::db::{ChaseDebtRepository, DbPool, StorySummaryRepository, TextAnnotationRepository};
-use crate::reading_power::ReadingPowerEvaluator;
-use crate::state_sync::events::SyncEvent;
+use super::{
+    executor::{TaskExecutionContext, TaskExecutor},
+    models::{Task, TaskResult, TaskType},
+};
+use crate::{
+    db::{ChaseDebtRepository, DbPool, StorySummaryRepository, TextAnnotationRepository},
+    reading_power::ReadingPowerEvaluator,
+    state_sync::events::SyncEvent,
+};
 
 /// 深度洞察 payload
 #[derive(Debug, Clone, Serialize, Deserialize)]

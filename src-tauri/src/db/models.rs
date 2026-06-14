@@ -346,7 +346,8 @@ pub struct TextAnnotation {
     /// 结构化元数据（JSON），用于 ai_audit 类型存储维度/评分/建议等
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
-    /// 严重程度：high / medium / low（默认 medium），用于前端颜色区分与债务指示器
+    /// 严重程度：high / medium / low（默认
+    /// medium），用于前端颜色区分与债务指示器
     #[serde(default = "default_severity")]
     pub severity: String,
 }

@@ -489,7 +489,8 @@ impl AgentService {
             .cloned()
     }
 
-    /// 借用 LlmService 引用（供 orchestrator 在 TimeSliced 路径直接调用，绕过 execute_writer_raw）
+    /// 借用 LlmService 引用（供 orchestrator 在 TimeSliced 路径直接调用，绕过
+    /// execute_writer_raw）
     pub fn llm_service_ref(&self) -> &LlmService {
         &self.llm_service
     }

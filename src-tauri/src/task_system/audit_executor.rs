@@ -6,19 +6,24 @@
 //! 把发现的问题转化为 inline annotation 回流给用户。
 //!
 //! Phase 0 实证指导：
-//! - memory 维度是最大波动源（S1 差 11 分），issue 优先级 memory > continuity > logic
+//! - memory 维度是最大波动源（S1 差 11 分），issue 优先级 memory > continuity >
+//!   logic
 //! - 段落级 annotation 为主方案（不要求 char 级精确定位）
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use super::executor::{TaskExecutionContext, TaskExecutor};
-use super::models::{Task, TaskResult, TaskType};
-use crate::db::{DbPool, TextAnnotationRepository};
-use crate::llm::LlmService;
-use crate::router::TaskType as RoutingTaskType;
-use crate::state_sync::events::SyncEvent;
+use super::{
+    executor::{TaskExecutionContext, TaskExecutor},
+    models::{Task, TaskResult, TaskType},
+};
+use crate::{
+    db::{DbPool, TextAnnotationRepository},
+    llm::LlmService,
+    router::TaskType as RoutingTaskType,
+    state_sync::events::SyncEvent,
+};
 
 /// 审计任务 payload（从 task.payload_json 反序列化）
 #[derive(Debug, Clone, Serialize, Deserialize)]

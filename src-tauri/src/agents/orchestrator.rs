@@ -30,10 +30,12 @@ pub enum GenerationMode {
     /// 后台异步触发审计（Inspector → annotation 回流）。
     /// 适用于普通生成、auto_write 等追求速度的场景。
     /// 设计依据：docs/plans/2026-06-14-time-sliced-intervention-design.md
-    /// Phase 0 实测：最小约束 vs 全量资产平均差距 7.9%（< 30% 阈值），架构成立。
+    /// Phase 0 实测：最小约束 vs 全量资产平均差距 7.9%（< 30%
+    /// 阈值），架构成立。
     TimeSliced,
     /// 完整模式：Writer → Inspector → Writer 反馈闭环（同步阻塞）
-    /// 适用于向导首场景、Genesis、Planner、Workflow 等明确需要专业同步成品的场景
+    /// 适用于向导首场景、Genesis、Planner、Workflow
+    /// 等明确需要专业同步成品的场景
     Full,
 }
 
@@ -591,16 +593,18 @@ impl AgentOrchestrator {
         })
     }
 
-    /// TimeSliced 模式（分时介入）：最小约束 + 单轮 Writer + 跳过 Inspector/Rewrite。
+    /// TimeSliced 模式（分时介入）：最小约束 + 单轮 Writer + 跳过
+    /// Inspector/Rewrite。
     ///
     /// 设计依据：docs/plans/2026-06-14-time-sliced-intervention-design.md
-    /// 与 Fast 的区别：用 QuickPreflightChecker（仅角色非空），不触发 auto_contract。
-    /// 与 Full 的区别：跳过 Inspector 7 维审计、Rewrite 循环、apply_writing_skills。
-    /// 审计在时间线 2（Phase 2 的 AuditExecutor）异步进行，问题以 annotation 回流。
+    /// 与 Fast 的区别：用 QuickPreflightChecker（仅角色非空），不触发
+    /// auto_contract。 与 Full 的区别：跳过 Inspector 7 维审计、Rewrite
+    /// 循环、apply_writing_skills。 审计在时间线 2（Phase 2 的
+    /// AuditExecutor）异步进行，问题以 annotation 回流。
     ///
-    /// 任务 1.6（做法 B）：用 WriteTimeBundle 构建精简 prompt，直接调 generate_for_task，
-    /// 绕过 execute_writer_raw（及其内嵌的 Full Preflight + auto_contract）。
-    /// Fast/Full 路径完全不受影响。
+    /// 任务 1.6（做法 B）：用 WriteTimeBundle 构建精简 prompt，直接调
+    /// generate_for_task， 绕过 execute_writer_raw（及其内嵌的 Full
+    /// Preflight + auto_contract）。 Fast/Full 路径完全不受影响。
     async fn execute_time_sliced(
         &self,
         task: AgentTask,

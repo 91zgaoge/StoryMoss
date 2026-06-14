@@ -6,16 +6,16 @@
 //! - 最小约束 vs 全量资产平均质量差距仅 7.9%（< 30% 阈值），架构成立。
 //! - S1 玄幻：最小约束反而反超全量（A=110 vs B=99），因为全量 prompt 太长导致
 //!   模型忽略了世界观红线。教训：红线必须最前最突出。
-//! - S3 都市：全量大胜最小约束（B=125 vs A=99，差 26 分），因为都市题材吃风格细节。
-//!   教训：风格片段需按题材自适应纳入。
+//! - S3 都市：全量大胜最小约束（B=125 vs A=99，差 26
+//!   分），因为都市题材吃风格细节。 教训：风格片段需按题材自适应纳入。
 //!
 //! 因此本模块实现两条改进：
 //! 1. 红线突出注入：to_prompt() 输出时红线在最前、加粗强调。
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
-use crate::db::Character;
 use crate::db::{
-    CharacterRepository, DbPool, GenreProfileRepository, SceneRepository, StoryContractRepository,
+    Character, CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
+    StoryContractRepository,
 };
 
 // ==================== 数据结构 ====================
@@ -368,7 +368,8 @@ fn parse_antipatterns(json_str: &Option<String>) -> Vec<String> {
 }
 
 /// 从 contract_json 提取核心红线文本。
-/// 若能解析为 JSON 且含 world_rules/redlines 字段，提取之；否则原文兜底（截断）。
+/// 若能解析为 JSON 且含 world_rules/redlines
+/// 字段，提取之；否则原文兜底（截断）。
 fn extract_redline_text(contract_json: &str) -> String {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(contract_json) {
         // 尝试常见字段名

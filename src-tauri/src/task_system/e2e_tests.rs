@@ -1,15 +1,19 @@
 //! 分时架构端到端集成测试
 //!
-//! 验证三条时间线的关键链路（不含真实 LLM 调用，用内存 DB + 已验证的解析逻辑）：
+//! 验证三条时间线的关键链路（不含真实 LLM 调用，用内存 DB +
+//! 已验证的解析逻辑）：
 //! - 时间线 2：Inspector JSON → 解析 → annotation 创建 → 优先级排序
 //! - 时间线 3：should_trigger 条件判断 → build_report 数据汇总
 
 #[cfg(test)]
 mod tests {
-    use crate::db::connection::create_test_pool;
-    use crate::db::TextAnnotationRepository;
-    use crate::task_system::audit_executor::AuditPayload;
-    use crate::task_system::insight_executor::{InsightExecutor, InsightPayload};
+    use crate::{
+        db::{connection::create_test_pool, TextAnnotationRepository},
+        task_system::{
+            audit_executor::AuditPayload,
+            insight_executor::{InsightExecutor, InsightPayload},
+        },
+    };
 
     // ==================== 时间线 2：annotation 创建链路 ====================
 

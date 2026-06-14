@@ -152,7 +152,8 @@ impl Default for PreflightChecker {
 /// 设计依据：docs/plans/2026-06-14-time-sliced-intervention-design.md 模块 4
 /// 与完整 `PreflightChecker` 的区别：
 /// - 只检查「角色非空」一项（保证 Writer 有基本角色信息可遵循）
-/// - 失败直接返回错误，**不触发 auto_contract**（TimeSliced 追求速度，不花 5 次 LLM 补合同）
+/// - 失败直接返回错误，**不触发 auto_contract**（TimeSliced 追求速度，不花 5 次
+///   LLM 补合同）
 /// - 不检查合同/大纲（那些由后台审计在时间线 2 兜底）
 pub struct QuickPreflightChecker;
 
@@ -267,7 +268,8 @@ mod tests {
 
     /// 验证 QuickPreflightChecker 不触发 auto_contract：
     /// 它没有任何 LLM 调用路径，这里通过确认函数纯同步 DB 查询来保证。
-    /// （auto_contract 只在 agents/service.rs 的 Full 路径触发，本函数不调用它。）
+    /// （auto_contract 只在 agents/service.rs 的 Full
+    /// 路径触发，本函数不调用它。）
     #[tokio::test]
     async fn quick_check_does_not_require_contracts() {
         let pool = create_test_pool().expect("Failed to create test pool");
