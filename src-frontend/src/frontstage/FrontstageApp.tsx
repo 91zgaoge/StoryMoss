@@ -428,6 +428,8 @@ const FrontstageApp: React.FC = () => {
       const isAnyActive = state.getIsAnyActive();
       setIsGenerating(prev => {
         if (prev && !isAnyActive) {
+          // v0.13.2: smart_execute 仍在飞行中则不清空
+          if (smartExecuteInFlightRef.current) return prev;
           stopElapsedTimer();
           setGenerationStatus('');
           return false;
@@ -522,6 +524,12 @@ const FrontstageApp: React.FC = () => {
   const lastGenerationStatusAtRef = useRef<number>(0);
   // v0.13.1: 诊断数据收集——记录最后的原始进度事件和输入，用于超时/失败时弹窗
   const lastProgressEventRef = useRef<Record<string, any> | null>(null);
+  // v0.13.2: 独立诊断计时器（不会被 stopElapsedTimer 清空）
+  const diagnosticStartTimeRef = useRef<number | null>(null);
+  // v0.13.2: 后端是否曾响应过
+  const backendEverRespondedRef = useRef<boolean>(false);
+  // v0.13.2: smart_execute 飞行中标记，防 activityStore 提前清空状态
+  const smartExecuteInFlightRef = useRef<boolean>(false);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
 
@@ -536,9 +544,9 @@ const FrontstageApp: React.FC = () => {
   const captureDiagnosticInfo = useCallback(
     (errorMsg: string) => {
       const now = Date.now();
-      const elapsed = generationStartTimeRef.current
-        ? Math.floor((now - generationStartTimeRef.current) / 1000)
-        : 0;
+      // v0.13.2: 优先用独立ref（不会被 stopElapsedTimer 清空）
+      const diagStart = diagnosticStartTimeRef.current || generationStartTimeRef.current;
+      const elapsed = diagStart ? Math.floor((now - diagStart) / 1000) : 0;
       const timeSinceLastEvent = lastEventTimeRef.current
         ? Math.floor((now - lastEventTimeRef.current) / 1000)
         : 0;
@@ -552,10 +560,13 @@ const FrontstageApp: React.FC = () => {
         当前状态文字: generationStatus || '无',
         '已用时（秒）': String(elapsed),
         '距最后一次进度事件（秒）': String(timeSinceLastEvent),
-        是否收到过后端响应: timeSinceLastEvent < elapsed ? '是' : '否',
+        是否收到过后端响应: backendEverRespondedRef.current ? '是' : '否',
         最后事件类型: lastEvt?.stage || lastEvt?.step_type || '无',
         最后事件消息: lastEvt?.message || lastEvt?.detail || '无',
-        最后事件详情: JSON.stringify(lastEvt || {}, null, 0),
+        最后事件详情: lastEvt ? JSON.stringify(lastEvt).substring(0, 500) : '{}',
+        作品存在: currentStory?.id ? '是' : '否（currentStory 为 null）',
+        后端超时配置: '前端300s / 后端连接10s+生成300s',
+        模型建议: '若本地模型慢，可尝试减少上下文或用量',
         作品ID: currentStory?.id || '无',
         章数: chapters?.length ? String(chapters.length) : '未知',
         场数: scenes?.length ? String(scenes.length) : '未知',
@@ -618,6 +629,8 @@ const FrontstageApp: React.FC = () => {
   const startElapsedTimer = useCallback(() => {
     generationStartTimeRef.current = Date.now();
     lastEventTimeRef.current = Date.now();
+    backendEverRespondedRef.current = true; // v0.13.2
+    diagnosticStartTimeRef.current = Date.now(); // v0.13.2
     scheduleFallbackPrompt();
   }, [scheduleFallbackPrompt]);
 
@@ -633,6 +646,7 @@ const FrontstageApp: React.FC = () => {
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {
     lastEventTimeRef.current = Date.now();
+    backendEverRespondedRef.current = true; // v0.13.2
     scheduleFallbackPrompt();
   }, [scheduleFallbackPrompt]);
 
@@ -1095,6 +1109,12 @@ const FrontstageApp: React.FC = () => {
       }>('llm-generating-progress', event => {
         const p = event.payload;
         updateLastEventTime();
+        lastProgressEventRef.current = {
+          stage: p.stage,
+          message: p.message,
+          elapsed: p.elapsed_seconds,
+          source: 'heartbeat',
+        }; // v0.13.2
         frontstageLogger.debug('[llm-generating-progress]', {
           stage: p.stage,
           message: p.message,
@@ -1602,6 +1622,7 @@ const FrontstageApp: React.FC = () => {
       };
 
       try {
+        smartExecuteInFlightRef.current = true;
         const result = await Promise.race([
           smartExecute({
             user_input: context || '续写',
@@ -1611,6 +1632,7 @@ const FrontstageApp: React.FC = () => {
           timeoutPromise,
         ]);
         if (timeoutId) clearTimeout(timeoutId);
+        smartExecuteInFlightRef.current = false;
 
         setGenerationStatus('质检通过，生成完成');
         setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
@@ -1759,6 +1781,7 @@ const FrontstageApp: React.FC = () => {
           toast.error(`生成失败: ${msg}`);
         }
         // v0.13.1: 弹出诊断卡片，方便用户复制报错信息
+        smartExecuteInFlightRef.current = false;
         captureDiagnosticInfo(msg);
         setIsGenerating(false);
         setGenerationStatus('');
@@ -2059,6 +2082,7 @@ const FrontstageApp: React.FC = () => {
       };
 
       try {
+        smartExecuteInFlightRef.current = true;
         const result = await Promise.race([
           smartExecute({
             user_input: userInput,
@@ -2069,6 +2093,7 @@ const FrontstageApp: React.FC = () => {
         ]);
 
         if (timeoutId) clearTimeout(timeoutId);
+        smartExecuteInFlightRef.current = false;
         if (aborted) {
           stopElapsedTimer();
           setIsGenerating(false);
@@ -2228,6 +2253,7 @@ const FrontstageApp: React.FC = () => {
           toast.error(`执行失败: ${msg}`);
         }
         // v0.13.1: 弹出诊断卡片
+        smartExecuteInFlightRef.current = false;
         captureDiagnosticInfo(msg);
       } finally {
         stopElapsedTimer();
