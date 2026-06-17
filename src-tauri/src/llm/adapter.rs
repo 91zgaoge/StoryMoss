@@ -29,20 +29,59 @@ pub async fn send_with_connection_timeout(
     }
 }
 
-/// 以流式方式读取响应体，每收到一个 chunk 刷新一次生成超时计时器，
-/// 避免本地模型生成慢但仍在输出时被整体超时误杀。
+/// 以流式方式读取响应体。
+///
+/// 超时策略（v0.14.0 三层防护，修复 vllm "连接成功但首字节迟迟不来"半挂问题）：
+/// 1. **首字节超时**：第一个 chunk 使用 `min(generation_timeout, 60s)`，避免
+///    vllm 连接建立后长时间不发任何字节时等满 240s。
+/// 2. **per-chunk 超时**：后续每个 chunk 用 `generation_timeout`，允许本地模型
+///    慢速但持续输出。
+/// 3. **绝对超时**：从开始读取到结束不超过 `generation_timeout * 1.5`，防止
+///    vllm 偶发吐字节反复刷新 per-chunk 计时器导致无限挂起。
 pub async fn read_body_with_generation_timeout(
     response: reqwest::Response,
     generation_timeout: Duration,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut stream = response.bytes_stream();
     let mut chunks: Vec<Vec<u8>> = Vec::new();
+
+    // 绝对截止时间：generation_timeout 的 1.5 倍，作为最后防线
+    let absolute_deadline = tokio::time::Instant::now() + generation_timeout * 3 / 2;
+    // 首字节超时：最多 60 秒，防止服务端连接成功但不响应
+    let first_chunk_timeout = generation_timeout.min(Duration::from_secs(60));
+    let mut first = true;
+
     loop {
-        match timeout(generation_timeout, stream.next()).await {
-            Ok(Some(Ok(bytes))) => chunks.push(bytes.to_vec()),
+        let chunk_timeout = if first {
+            first_chunk_timeout
+        } else {
+            generation_timeout
+        };
+        // 取 per-chunk 超时与绝对截止时间的较早者
+        let effective_deadline = tokio::time::Instant::now()
+            .checked_add(chunk_timeout)
+            .unwrap_or(absolute_deadline)
+            .min(absolute_deadline);
+
+        match tokio::time::timeout_at(effective_deadline, stream.next()).await {
+            Ok(Some(Ok(bytes))) => {
+                chunks.push(bytes.to_vec());
+                first = false;
+            }
             Ok(Some(Err(e))) => return Err(e.into()),
             Ok(None) => break,
-            Err(_) => return Err(GENERATION_TIMEOUT_MARKER.into()),
+            Err(_) => {
+                // 判断是绝对超时还是 per-chunk/首字节超时
+                if tokio::time::Instant::now() >= absolute_deadline {
+                    return Err(format!(
+                        "{} (absolute deadline exceeded after {:?})",
+                        GENERATION_TIMEOUT_MARKER,
+                        generation_timeout * 3 / 2
+                    )
+                    .into());
+                }
+                return Err(GENERATION_TIMEOUT_MARKER.into());
+            }
         }
     }
     Ok(chunks.into_iter().flatten().collect())

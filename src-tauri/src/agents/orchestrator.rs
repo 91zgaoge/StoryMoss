@@ -919,6 +919,28 @@ impl AgentOrchestrator {
                 }
             }
 
+            // v0.14.0: 预算检查——剩余时间不足 30 秒时跳过 Inspector/Rewrite，
+            // 直接返回 Writer 结果，避免在预算耗尽后启动无法完成的 LLM 调用。
+            if remaining_budget_secs() < 30 {
+                log::info!(
+                    "[AgentOrchestrator] Remaining budget {}s < 30s, skipping inspector loop {}",
+                    remaining_budget_secs(),
+                    loop_idx
+                );
+                break;
+            }
+
+            // v0.14.0: 预算检查——剩余时间不足 30 秒时跳过 Inspector/Rewrite，
+            // 直接返回 Writer 结果，避免在预算耗尽后启动无法完成的 LLM 调用。
+            if remaining_budget_secs() < 30 {
+                log::info!(
+                    "[AgentOrchestrator] Remaining budget {}s < 30s, skipping inspector loop {}",
+                    remaining_budget_secs(),
+                    loop_idx
+                );
+                break;
+            }
+
             // 步骤2: Inspector 质检
             self.emit_step_event(
                 &task.id,
@@ -944,7 +966,24 @@ impl AgentOrchestrator {
             };
 
             let inspect_start = std::time::Instant::now();
-            let inspect_result = Box::pin(self.service.execute_task(inspect_task)).await?;
+            // v0.14.0: 激活 Full 模式预算——Inspector 调用受剩余时间约束
+            let inspect_budget = remaining_budget_secs();
+            let inspect_result = match tokio::time::timeout(
+                std::time::Duration::from_secs(inspect_budget),
+                Box::pin(self.service.execute_task(inspect_task)),
+            )
+            .await
+            {
+                Ok(r) => r?,
+                Err(_) => {
+                    log::warn!(
+                        "[Orchestrator] Inspector timed out after {}s (budget exhausted), skipping remaining loops",
+                        inspect_budget
+                    );
+                    // Inspector 超时：用当前内容作为最终结果，跳过后续改写
+                    break;
+                }
+            };
             trace.log_phase(
                 "inspector",
                 inspect_start.elapsed().as_millis(),
@@ -1105,7 +1144,24 @@ impl AgentOrchestrator {
             };
 
             let rewrite_start = std::time::Instant::now();
-            let rewrite_result = Box::pin(self.service.execute_task(rewrite_task)).await?;
+            // v0.14.0: Rewrite 同样受剩余时间预算约束
+            let rewrite_budget = remaining_budget_secs();
+            let rewrite_result = match tokio::time::timeout(
+                std::time::Duration::from_secs(rewrite_budget),
+                Box::pin(self.service.execute_task(rewrite_task)),
+            )
+            .await
+            {
+                Ok(r) => r?,
+                Err(_) => {
+                    log::warn!(
+                        "[Orchestrator] Rewrite timed out after {}s (budget exhausted), keeping current content",
+                        rewrite_budget
+                    );
+                    // Rewrite 超时：保留当前内容，跳过后续循环
+                    break;
+                }
+            };
             trace.log_phase(
                 "rewrite",
                 rewrite_start.elapsed().as_millis(),

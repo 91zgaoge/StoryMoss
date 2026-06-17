@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { loggedInvoke } from '@/services/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { X } from 'lucide-react';
 import {
@@ -585,7 +586,7 @@ const FrontstageApp: React.FC = () => {
         最后事件消息: lastEvt?.message || lastEvt?.detail || '无',
         最后事件详情: lastEvt ? JSON.stringify(lastEvt).substring(0, 500) : '{}',
         作品存在: currentStory?.id ? '是' : '否（currentStory 为 null）',
-        后端超时配置: '前端300s / 后端连接10s+生成300s',
+        后端超时配置: '前端200s / 后端smart_execute整体180s / LLM首字节60s+绝对360s',
         模型建议: '若本地模型慢，可尝试减少上下文或用量',
         作品ID: currentStory?.id || '无',
         章数: chapters?.length ? String(chapters.length) : '未知',
@@ -1633,18 +1634,22 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      // v0.13.4: 前端超时从 300 秒延长到 330 秒，为后端 240 秒 LLM 超时 +
-      // 上下文准备预留余量，避免后端尚未返回时前端就先超时。
+      // v0.14.0: 前端超时从 330 秒降至 200 秒，后端 smart_execute 整体超时为 180 秒，
+      // 前端 200 秒确保在后端超时后才触发，避免前端先于后端退出导致无法收到后端错误。
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 330 秒内响应');
+          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 200 秒内响应');
+          // v0.14.0: 前端超时时通知后端取消所有进行中的 LLM 生成（best-effort）
+          invoke('llm_cancel_all_generations').catch(() => {
+            /* best-effort，忽略取消失败 */
+          });
           reject(
             new Error(
-              '前端超时：模型响应超过330秒（5分30秒）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
+              '前端超时：模型响应超过200秒。后端 smart_execute 整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。'
             )
           );
-        }, 330000);
+        }, 200000);
       });
       cancelGenerationRef.current = () => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -2003,8 +2008,9 @@ const FrontstageApp: React.FC = () => {
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
-      // v0.13.4: 前端超时统一延长到 330 秒，与后端 240 秒 LLM 超时保持余量。
-      const timeoutSeconds = 330;
+      // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。
+      // 前端 200 秒确保在后端超时后才触发，避免前端先于后端退出。
+      const timeoutSeconds = 200;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
@@ -2101,12 +2107,18 @@ const FrontstageApp: React.FC = () => {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           aborted = true;
-          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 300 秒内响应');
+          useBackendActivityStore
+            .getState()
+            .failAllRunning(`前端超时：模型未在 ${timeoutSeconds} 秒内响应`);
+          // v0.14.0: 前端超时时通知后端取消所有进行中的 LLM 生成（best-effort）
+          invoke('llm_cancel_all_generations').catch(() => {
+            /* best-effort，忽略取消失败 */
+          });
           reject(
             new Error(
               isBootstrap
-                ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
-                : `前端超时：模型响应超过${timeoutSeconds}秒（5分钟）。本地模型生成长文本可能耗时较长，请检查模型是否仍在运行。`
+                ? `前端超时：模型响应超过${timeoutSeconds}秒。创建新小说需要多次LLM调用，后端整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
+                : `前端超时：模型响应超过${timeoutSeconds}秒。后端 smart_execute 整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
             )
           );
         }, timeoutMs);

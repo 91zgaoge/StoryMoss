@@ -24,6 +24,9 @@ pub async fn check_preflight(
 }
 
 /// 智能执行命令 - 新一代意图理解与执行入口
+///
+/// v0.14.0: 外层包裹 180 秒整体超时，确保任何环节卡死都能快速失败。
+/// 超时时主动取消所有进行中的 LLM 生成，避免孤儿任务继续占用模型资源。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn smart_execute(
     user_input: String,
@@ -32,10 +35,61 @@ pub async fn smart_execute(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
+    const SMART_EXECUTE_TOTAL_TIMEOUT_SECS: u64 = 180;
+    let pool_inner = pool.inner().clone();
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(SMART_EXECUTE_TOTAL_TIMEOUT_SECS),
+        smart_execute_inner(
+            user_input,
+            current_content,
+            style_weight,
+            pool_inner,
+            app_handle.clone(),
+        ),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            log::error!(
+                "[smart_execute] 整体超时（{}秒），正在取消所有进行中的 LLM 生成",
+                SMART_EXECUTE_TOTAL_TIMEOUT_SECS
+            );
+            // 取消所有进行中的 LLM 生成，避免孤儿任务
+            let llm = crate::llm::LlmService::new(app_handle.clone());
+            llm.cancel_all_generations();
+            // 清理后台活动状态
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "smart-execute-progress",
+                crate::planner::SmartExecuteProgress {
+                    stage: "timeout".to_string(),
+                    message: format!(
+                        "智能创作整体超时（{}秒），已自动取消。请检查模型服务是否正常运行。",
+                        SMART_EXECUTE_TOTAL_TIMEOUT_SECS
+                    ),
+                    step_number: 0,
+                    total_steps: 0,
+                },
+            );
+            Err(AppError::llm_timeout(
+                SMART_EXECUTE_TOTAL_TIMEOUT_SECS * 1000,
+            ))
+        }
+    }
+}
+
+/// smart_execute 内部实现（无整体超时，由外层 smart_execute 包裹）
+async fn smart_execute_inner(
+    user_input: String,
+    current_content: Option<String>,
+    style_weight: Option<i32>,
+    pool: crate::db::DbPool,
+    app_handle: AppHandle,
+) -> Result<crate::planner::PlanExecutionResult, AppError> {
     let style_weight = style_weight.unwrap_or(50);
     use tauri::Emitter;
-
-    let pool = pool.inner().clone();
 
     // 辅助函数：发送 smart_execute 整体进度事件
     let app_handle_for_progress = app_handle.clone();
@@ -506,15 +560,18 @@ pub async fn smart_execute(
         let t4 = std::time::Instant::now();
 
         // 风格DNA / 风格混合
+        // v0.14.0: spawn_blocking 包裹同步 DB 查询
         let style_dna_info = {
             use crate::{
                 creative_engine::style::blend::StyleBlendConfig,
                 db::repositories::StoryStyleConfigRepository,
             };
 
-            // 优先检查混合配置
-            let blend_info = if let Some(ref story) = current_story {
-                let blend_repo = StoryStyleConfigRepository::new(pool.clone());
+            let pool_for_style = pool.clone();
+            let story_for_style = current_story.clone();
+            let blend_info = tokio::task::spawn_blocking(move || -> Option<String> {
+                let story = story_for_style.as_ref()?;
+                let blend_repo = StoryStyleConfigRepository::new(pool_for_style);
                 if let Ok(Some(config)) = blend_repo.get_active_by_story(&story.id) {
                     if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json)
                     {
@@ -531,9 +588,9 @@ pub async fn smart_execute(
                 } else {
                     None
                 }
-            } else {
-                None
-            };
+            })
+            .await
+            .unwrap_or(None);
 
             // 回退到单一风格DNA
             if blend_info.is_some() {
@@ -616,7 +673,14 @@ pub async fn smart_execute(
     let prev_content_for_record = current_content_preview.clone();
 
     // v0.10.0: 构建当前故事的创作策略上下文
-    let selected_strategy = build_selected_strategy(&current_story, &pool);
+    // v0.14.0: spawn_blocking 包裹同步 DB 查询
+    let strategy_story = current_story.clone();
+    let strategy_pool = pool.clone();
+    let selected_strategy = tokio::task::spawn_blocking(move || {
+        build_selected_strategy(&strategy_story, &strategy_pool)
+    })
+    .await
+    .unwrap_or(None);
 
     let plan_context = crate::planner::PlanContext {
         current_story_id,

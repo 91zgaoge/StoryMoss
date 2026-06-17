@@ -1536,6 +1536,35 @@ impl LlmService {
         crate::memory::writer::cancel_ingest_token(request_id);
     }
 
+    /// v0.14.0: 取消所有进行中的 LLM 生成。
+    ///
+    /// 在 `smart_execute` 整体超时或前端超时时调用，确保不会留下孤儿 LLM 任务
+    /// 继续占用模型服务端资源。遍历所有已注册的 `cancel_senders` 发送取消信号。
+    pub fn cancel_all_generations(&self) {
+        let mut senders = self.cancel_senders.lock().unwrap();
+        let count = senders.len();
+        if count == 0 {
+            return;
+        }
+        log::warn!(
+            "[LLM] Cancelling all {} in-flight generation(s) due to timeout/cancel",
+            count
+        );
+        for (request_id, opt_sender) in senders.iter_mut() {
+            // 标记为已取消
+            self.cancelled_requests
+                .lock()
+                .unwrap()
+                .insert(request_id.clone());
+            if let Some(sender) = opt_sender.take() {
+                let _ = sender.try_send(());
+            }
+            // 传播取消到后台 ingest
+            crate::memory::writer::cancel_ingest_token(request_id);
+        }
+        senders.clear();
+    }
+
     /// 检查指定 request_id 是否已被请求取消
     pub fn is_cancelled(&self, request_id: &str) -> bool {
         self.cancelled_requests.lock().unwrap().contains(request_id)

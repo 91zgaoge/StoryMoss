@@ -47,6 +47,7 @@ tauri::generate_handler![
     llm::commands::llm_generate,
     llm::commands::llm_generate_stream,
     llm::commands::llm_cancel_generation,
+    llm::commands::llm_cancel_all_generations,
     // Intent commands
     commands::intent::parse_intent,
     commands::intent::execute_intent,

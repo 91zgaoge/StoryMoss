@@ -320,13 +320,24 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       }>('plan-executor-step', event => {
         const p = event.payload;
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
+        // v0.14.0: 当收到 completed 时正常标记完成。
+        // 当收到 failed 时，保持 running 状态，不立即标记为 failed。
+        // 原因：failed 事件可能在 invoke reject 之前到达，如果此时将 activity
+        // 标记为 failed 会导致 getIsAnyActive()=false，可能在 smartExecuteInFlightRef
+        // 被清空后触发 subscribe 回调清空 isGenerating，但诊断卡片还没弹出。
+        // 保持 running 让 catch 块中的 failAllRunning 来处理最终状态。
+        const status =
+          p.status === 'completed'
+            ? 'completed'
+            : p.status === 'failed'
+              ? 'running' // 保持 running，由 catch 块处理
+              : 'running';
         updatePrimary({
           category: 'plan_executor',
           stage: p.step_name,
           message: p.message,
           progress,
-          status:
-            p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'running',
+          status,
         });
       });
       unlistens.push(unlistenPlanExecutor);

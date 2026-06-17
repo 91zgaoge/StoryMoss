@@ -289,9 +289,30 @@ impl PlanExecutor {
                     };
 
                     let step_start = std::time::Instant::now();
-                    let result = self
-                        .execute_step(&step, &resolved_params, plan_context)
-                        .await;
+                    // v0.14.0: 单步超时 90 秒，防止某个 capability 卡死拖垮整个计划。
+                    // 超时记为 step failed 但不中断后续批次（保持容错语义）。
+                    const STEP_TIMEOUT_SECS: u64 = 90;
+                    let result = match tokio::time::timeout(
+                        std::time::Duration::from_secs(STEP_TIMEOUT_SECS),
+                        self.execute_step(&step, &resolved_params, plan_context),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => {
+                            log::error!(
+                                "[PlanExecutor] Step {} ({}) timed out after {}s",
+                                step.step_id,
+                                step.capability_id,
+                                STEP_TIMEOUT_SECS
+                            );
+                            Err(AppError::internal(format!(
+                                "步骤 {} 超时（{}秒）",
+                                Self::capability_display_name(&step.capability_id),
+                                STEP_TIMEOUT_SECS
+                            )))
+                        }
+                    };
                     let step_duration = step_start.elapsed().as_millis() as u64;
 
                     match &result {

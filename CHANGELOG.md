@@ -2,6 +2,74 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.14.2] - 智能创作超时退出根因修复：多层超时防线（2026-06-17）
+
+### 核心问题
+
+智能创作（`smart_execute`）在"准备上下文"阶段长时间延时后退出且不弹诊断卡片，导致用户无法判断失败原因。经全面检视，根因是**多层超时缺失的系统性问题**：
+
+- 后端 `smart_execute` 无整体超时，可能无限等待
+- LLM 生成超时按 chunk 刷新，vllm "连接成功但首字节迟迟不来"时可挂满 240s 甚至更久
+- Full 模式 270s 预算是声明但从未调用的**死代码**
+- 准备上下文阶段的同步 DB 调用阻塞 tokio worker，可能饿死心跳
+- 前端 330s 超时远长于后端实际需要的处理时间，用户体验差
+
+### 修复内容（快速失败优先策略）
+
+#### 第一层：后端 smart_execute 整体超时（P0）
+- `smart_execute` 函数体提取为 `smart_execute_inner`，外层包裹 **180 秒** `tokio::time::timeout`
+- 超时时主动调用 `LlmService::cancel_all_generations()` 取消所有进行中 LLM 生成，避免孤儿任务
+- 超时时发射 `smart-execute-progress` timeout 事件通知前端
+
+#### 第二层：每步骤 + 每阶段超时（P0）
+- `PlanExecutor::execute_step` 单步超时 **90 秒**，超时记为 step failed 但不中断后续批次（保持容错语义）
+- 激活 Full 模式预算死代码：Inspector/Rewrite 调用受 `remaining_budget_secs()` 约束
+- Inspector 循环开头增加预算检查：剩余时间 <30s 时跳过质检，直接返回 Writer 结果
+- Inspector/Rewrite 各自用 `tokio::time::timeout` 包裹，超时 break 保留当前内容
+
+#### 第三层：修复 LLM 生成超时（P0 - 防止 vllm 半挂）
+- `read_body_with_generation_timeout` 增加**首字节超时**：首个 chunk 使用 `min(generation_timeout, 60s)`
+- 增加**绝对超时**：从开始读取到结束不超过 `generation_timeout * 1.5`
+- per-chunk 超时保持不变，支持本地模型慢速但持续输出
+
+#### 第四层：准备上下文阶段 spawn_blocking（P1）
+- `build_agent_context` 中 `CanonicalStateManager::get_snapshot_sync`（多表聚合）用 `spawn_blocking` 包裹
+- `ForeshadowingTracker::get_writing_hints` 和 `StoryRepository::get_by_id` 同样包裹
+- `smart_execute` Step 4 风格 DNA 查询和 `build_selected_strategy` 用 `spawn_blocking` 包裹
+- 消除同步 DB 阻塞 tokio worker 导致心跳饿死的风险
+
+#### 第五层：前端超时与诊断卡片完善（P1）
+- 前端超时从 330s 降至 **200s**（后端 180s + 20s 余量），确保前端总在后端之后超时
+- 前端超时触发时调用 `llm_cancel_all_generations` 通知后端取消（best-effort）
+- 新增 `llm_cancel_all_generations` Tauri 命令并注册到 invoke handler
+- `useBackendActivityListener`：`plan-executor-step` 收到 `failed` 状态时保持 activity 为 `running`，避免在 invoke reject 到达前清空 isGenerating 导致安全网误判
+
+### 超时值汇总
+
+| 环节 | 修复前 | 修复后 |
+|------|--------|--------|
+| smart_execute 整体 | 无限 | 180s |
+| PlanExecutor 单步 | 无限 | 90s |
+| Full 模式 Inspector | 240s×2重试（死代码预算未生效） | remaining_budget_secs() |
+| Full 模式 Rewrite | 240s×2重试 | remaining_budget_secs() |
+| LLM 首字节 | 240s（等满 generation_timeout） | min(240s, 60s) = 60s |
+| LLM 绝对上限 | 无（chunk 刷新可无限） | generation_timeout × 1.5 = 360s |
+| 前端超时 | 330s | 200s |
+
+### 预期效果
+
+- **最坏情况**：从"无限等待"变为"最多 200s 后快速失败并弹诊断卡片"
+- **vllm 半挂**：从"等满 240s 才超时"变为"首字节 60s 超时"
+- **准备上下文卡住**：从"无进度无超时"变为"180s 整体兜底"
+- **正常使用**：不受影响（正常 vllm 响应 3-10s，远低于超时阈值）
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 392/392 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `NODE_ENV=test npx vitest run` ✅ 126 passed / 3 skipped
+- `cargo +nightly fmt` ✅ 通过
+
 ## [v0.14.1] - 后台设置即时更新重构：统一状态层与乐观更新（2026-06-17）
 
 ### 统一后台设置状态层

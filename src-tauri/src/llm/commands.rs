@@ -102,6 +102,16 @@ pub async fn llm_cancel_generation(
     Ok(())
 }
 
+/// v0.14.0: 取消所有进行中的 LLM 生成。
+///
+/// 在前端超时或用户主动取消时调用，确保不会留下孤儿 LLM 任务。
+#[command(rename_all = "snake_case")]
+pub async fn llm_cancel_all_generations(app_handle: AppHandle) -> Result<(), AppError> {
+    let service = LlmService::new(app_handle);
+    service.cancel_all_generations();
+    Ok(())
+}
+
 /// 初始化LLM服务（在应用启动时调用）
 #[command]
 pub fn init_llm(app_handle: AppHandle) -> Result<(), AppError> {

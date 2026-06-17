@@ -1245,10 +1245,18 @@ pub(crate) async fn build_agent_context(
     };
 
     // 注入未解决的伏笔提示到世界观规则中
+    // v0.14.0: spawn_blocking 包裹同步 DB，避免阻塞 tokio worker
     {
-        let tracker =
-            crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.inner().clone());
-        match tracker.get_writing_hints(&story_id, 5) {
+        let pool_for_hints = pool.inner().clone();
+        let story_id_for_hints = story_id.clone();
+        let hints = tokio::task::spawn_blocking(move || {
+            let tracker =
+                crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool_for_hints);
+            tracker.get_writing_hints(&story_id_for_hints, 5)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("foreshadowing hints task failed: {}", e)))?;
+        match hints {
             Ok(hints) if !hints.is_empty() => {
                 let hints_text = format!("\n\n【伏笔提醒】\n{}", hints.join("\n"));
                 context.world.world_rules =
@@ -1301,9 +1309,17 @@ pub(crate) async fn build_agent_context(
     }
 
     // 注入 story 的 style_dna_id
+    // v0.14.0: spawn_blocking 包裹同步 DB
     {
-        let story_repo = crate::db::repositories::StoryRepository::new(pool.inner().clone());
-        if let Ok(Some(story)) = story_repo.get_by_id(&story_id) {
+        let pool_for_story = pool.inner().clone();
+        let story_id_for_story = story_id.clone();
+        let story_opt = tokio::task::spawn_blocking(move || {
+            let story_repo = crate::db::repositories::StoryRepository::new(pool_for_story);
+            story_repo.get_by_id(&story_id_for_story)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("story lookup task failed: {}", e)))?;
+        if let Ok(Some(story)) = story_opt {
             context.style.style_dna_id = story.style_dna_id;
             if context.style.style_dna_id.is_some() {
                 log::info!(
@@ -1325,9 +1341,17 @@ pub(crate) async fn build_agent_context(
     }
 
     // 注入规范状态快照
+    // v0.14.0: spawn_blocking 包裹多表聚合同步查询
     {
-        let cs_manager = crate::canonical_state::CanonicalStateManager::new(pool.inner().clone());
-        match cs_manager.get_snapshot(&story_id).await {
+        let pool_for_snapshot = pool.inner().clone();
+        let story_id_for_snapshot = story_id.clone();
+        let snapshot_result = tokio::task::spawn_blocking(move || {
+            let cs_manager = crate::canonical_state::CanonicalStateManager::new(pool_for_snapshot);
+            cs_manager.get_snapshot_sync(&story_id_for_snapshot)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("canonical snapshot task failed: {}", e)))?;
+        match snapshot_result {
             Ok(snapshot) => {
                 // 追加世界观事实和伏笔到 world_rules
                 let mut world_parts = Vec::new();
