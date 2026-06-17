@@ -155,13 +155,15 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               {gatewayModels.length === 0 ? (
                 <div className="model-status-dot status-connecting" />
               ) : (
-                gatewayModels.slice(0, 5).map(m => (
-                  <div
-                    key={m.model_id}
-                    className={`model-status-dot ${statusClass(m.status)}`}
-                    title={`${m.model_name}: ${statusText(m.status)}`}
-                  />
-                ))
+                gatewayModels
+                  .slice(0, 5)
+                  .map(m => (
+                    <div
+                      key={m.model_id}
+                      className={`model-status-dot ${statusClass(m.status)}`}
+                      title={`${m.model_name}: ${statusText(m.status)}`}
+                    />
+                  ))
               )}
               {gatewayModels.length > 5 && (
                 <span className="model-status-more">+{gatewayModels.length - 5}</span>
