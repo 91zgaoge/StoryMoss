@@ -574,7 +574,7 @@ const FrontstageApp: React.FC = () => {
         编辑器字数: editorRef.current?.getText()?.length
           ? String(editorRef.current.getText().length)
           : '未知',
-        模型是否在运行: '请检查 Ollama / API 服务状态',
+        模型是否在运行: '请检查模型服务（vllm/Ollama/OpenAI）是否正常运行',
         错误信息: errorMsg,
         提示: '请复制以上信息到 GitHub Issue 或发给开发者排查',
       };
@@ -610,19 +610,28 @@ const FrontstageApp: React.FC = () => {
     return Date.now() - lastGenerationStatusAtRef.current < 1000;
   }, []);
 
-  // A4-1.9: 备用提示使用单次 setTimeout，由事件触发时重置，避免周期性 setInterval
+  // v0.13.2: 前端自救计时器——当后端心跳停止时，前端自主更新已用时
+  // 每次调用先清除旧定时器，10秒后检查；若仍无新事件则更新状态并再次调度
   const scheduleFallbackPrompt = useCallback(() => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-    fallbackTimerRef.current = setTimeout(() => {
+    const tick = () => {
       const sinceLastEvent = Date.now() - lastEventTimeRef.current;
+      const totalElapsed = generationStartTimeRef.current
+        ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
+        : 0;
       if (sinceLastEvent > 10000) {
         setGenerationStatus(prev => {
           // 如果已经有模型生成中的提示，不要覆盖
           if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
-          return formatStatusWithElapsed('AI 正在处理中（系统仍在处理中...）');
+          return formatStatusWithElapsed(
+            `AI 正在深度思考中...（已用时 ${totalElapsed} 秒，距上次响应 ${sinceLastEvent} 秒）`
+          );
         });
       }
-    }, 10000);
+      // v0.13.2: 自我重调度——每 10 秒更新一次，直到 stopElapsedTimer 清除
+      fallbackTimerRef.current = setTimeout(tick, 10000);
+    };
+    fallbackTimerRef.current = setTimeout(tick, 10000);
   }, [formatStatusWithElapsed]);
 
   // 辅助函数：启动运行时长计时器

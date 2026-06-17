@@ -840,16 +840,31 @@ impl LlmService {
                         step_prefix_hb, label_owned, elapsed
                     )
                 };
-                let _ = app_handle.emit(
+                let emit_result = app_handle.emit(
                     "llm-generating-progress",
                     LlmGeneratingProgress {
                         stage: "generating".to_string(),
-                        message,
+                        message: message.clone(),
                         elapsed_seconds: elapsed,
                         model: model.clone(),
                         pipeline_context: pipeline_ctx_for_heartbeat.clone(),
                     },
                 );
+                // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
+                // 如果 emit 失败（如序列化错误），同步记录错误原因
+                if let Err(e) = &emit_result {
+                    log::warn!(
+                        "[Heartbeat] emit FAILED after {}s: {}",
+                        elapsed,
+                        e
+                    );
+                } else {
+                    log::warn!(
+                        "[Heartbeat] fired: elapsed={}s msg=\"{}\"",
+                        elapsed,
+                        message
+                    );
+                }
                 // v0.11.5: 不再在 600 秒后停止心跳。只要生成仍在继续，
                 // 前端就应该持续收到进度反馈；生成结束时 heartbeat_handle 会被
                 // abort。
