@@ -853,11 +853,7 @@ impl LlmService {
                 // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
                 // 如果 emit 失败（如序列化错误），同步记录错误原因
                 if let Err(e) = &emit_result {
-                    log::warn!(
-                        "[Heartbeat] emit FAILED after {}s: {}",
-                        elapsed,
-                        e
-                    );
+                    log::warn!("[Heartbeat] emit FAILED after {}s: {}", elapsed, e);
                 } else {
                     log::warn!(
                         "[Heartbeat] fired: elapsed={}s msg=\"{}\"",
