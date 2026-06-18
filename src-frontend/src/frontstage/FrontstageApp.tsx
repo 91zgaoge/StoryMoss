@@ -1138,6 +1138,10 @@ const FrontstageApp: React.FC = () => {
         };
       }>('llm-generating-progress', event => {
         const p = event.payload;
+        // v0.14.4: 心跳事件必须依赖 isGenerating，避免后台静默调用误触发状态栏
+        if (!isGenerating && !smartExecuteInFlightRef.current) {
+          return;
+        }
         updateLastEventTime();
         lastProgressEventRef.current = {
           stage: p.stage,

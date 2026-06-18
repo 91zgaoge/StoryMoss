@@ -2,6 +2,78 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.14.4] - 修复"应用启动后自动进入生成进程"假象（2026-06-18）
+
+### 问题
+
+用户反馈：v0.14.3 安装版应用一启动就自动进入"最终输出"或类似生成进程的状态栏显示，实际上用户并未发起任何生成请求。
+
+### 根因
+
+应用启动时 `GatewayScheduler::start_periodic_probe`（src-tauri/src/model_gateway/scheduler.rs:47）会自动对所有已配置模型发起健康探测：
+
+```
+[GatewayScheduler] 启动时全量探测 2 个模型
+[LLM] Starting sync generation with profile=Qwen3.5-27B-Uncensored-Q4_K_M prompt_len=33
+```
+
+`probe_model` 通过 `LlmService::generate_with_profile_and_request_id` 调用，该路径会：
+1. 启动 10 秒间隔的心跳任务，发射 `llm-generating-progress` 事件
+2. 发射 `connecting` / `sent` / `completed` / `error` 阶段事件
+
+前端 `FrontstageApp.tsx` 的 `llm-generating-progress` 监听器**无条件**调用 `setGenerationStatus(...)`，把 "AI 正在深度思考中..." 文案显示在状态栏，让用户误以为创作任务正在运行。
+
+类似问题：`get_input_hint`（输入框提示）、`detect_intent`（意图识别）等轻量后台 LLM 调用也会触发同样假象。
+
+### 修复
+
+#### 后端：`is_silent_background` 标识 + 全路径跳过
+
+**文件**：`src-tauri/src/llm/service.rs:826-832`
+
+在 `execute_generation` 中识别静默后台调用：
+```rust
+let is_silent_background = matches!(
+    label,
+    "model_gateway_probe" | "input_hint" | "intent_detection"
+);
+```
+
+对静默调用：
+- **跳过心跳任务**：`heartbeat_handle` 改为空闭包（保留 abort handle 接口）
+- **跳过 emit_llm_progress**：connecting / sent / completed / error 全部跳过
+- 行为透明，仅日志记录，前端零打扰
+
+#### 前端：兜底防护
+
+**文件**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+
+`llm-generating-progress` 监听器加入早返回：
+```typescript
+if (!isGenerating && !smartExecuteInFlightRef.current) {
+  return;  // 用户未发起生成，忽略心跳事件
+}
+```
+
+防止未来其他后台调用通道再次触发同样假象。
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `NODE_ENV=test npx vitest run` ✅ 126/126 通过
+- `cargo +nightly fmt` ✅ 通过
+
+### 预期效果
+
+| 场景 | 修复前 | 修复后 |
+|------|-------|-------|
+| 应用启动 | 状态栏显示"AI 正在深度思考中..."假象 | 状态栏静默 ✅ |
+| 启动健康探测 | 触发心跳事件被前端误显示 | 后台静默完成 ✅ |
+| 用户主动续写 | 正常显示生成进度 | 正常显示（无回归）✅ |
+| 用户主动重写 | 正常显示生成进度 | 正常显示（无回归）✅ |
+
 ## [v0.14.3] - 智能创作生成内容根因修复——场景智能路由（2026-06-17）
 
 ### 真正的根本症结（v0.14.2 超时防线之上）

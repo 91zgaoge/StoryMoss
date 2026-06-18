@@ -824,6 +824,12 @@ impl LlmService {
         };
 
         let label = context_label.unwrap_or("");
+        // v0.14.4: 识别后台静默调用（如模型健康探测），跳过心跳发射避免误导前端
+        // 模型探测在应用启动时自动触发，不应让前端误以为用户的生成任务正在进行
+        let is_silent_background = matches!(
+            label,
+            "model_gateway_probe" | "input_hint" | "intent_detection"
+        );
         let step_prefix = pipeline_ref
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
             .unwrap_or_default();
@@ -844,77 +850,89 @@ impl LlmService {
             format!("{}{} 完成", step_prefix, label)
         };
 
-        self.emit_llm_progress(
-            "connecting",
-            &connecting_msg,
-            0,
-            &model_name,
-            pipeline_ref,
-            request_id.as_deref(),
-        );
+        if !is_silent_background {
+            self.emit_llm_progress(
+                "connecting",
+                &connecting_msg,
+                0,
+                &model_name,
+                pipeline_ref,
+                request_id.as_deref(),
+            );
+        }
 
         // 启动心跳任务
+        // v0.14.4: 后台静默调用（如 model_gateway_probe）跳过心跳，
+        // 避免应用启动时探测请求误触发前端"AI 正在深度思考中..."状态栏
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
         let label_owned = label.to_string();
         let pipeline_ctx_for_heartbeat = pipeline_ctx.clone();
-        let heartbeat_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-            let start = std::time::Instant::now();
-            loop {
-                interval.tick().await;
-                let elapsed = start.elapsed().as_secs();
-                let step_prefix_hb = pipeline_ctx_for_heartbeat
-                    .as_ref()
-                    .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
-                    .unwrap_or_default();
-                let message = if label_owned.is_empty() {
-                    format!(
-                        "{}AI 正在深度思考中...（已等待 {} 秒）",
-                        step_prefix_hb, elapsed
-                    )
-                } else {
-                    format!(
-                        "{}正在{}...（已等待 {} 秒）",
-                        step_prefix_hb, label_owned, elapsed
-                    )
-                };
-                let emit_result = app_handle.emit(
-                    "llm-generating-progress",
-                    LlmGeneratingProgress {
-                        stage: "generating".to_string(),
-                        message: message.clone(),
-                        elapsed_seconds: elapsed,
-                        model: model.clone(),
-                        pipeline_context: pipeline_ctx_for_heartbeat.clone(),
-                    },
-                );
-                // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
-                // 如果 emit 失败（如序列化错误），同步记录错误原因
-                if let Err(e) = &emit_result {
-                    log::warn!("[Heartbeat] emit FAILED after {}s: {}", elapsed, e);
-                } else {
-                    log::warn!(
-                        "[Heartbeat] fired: elapsed={}s msg=\"{}\"",
-                        elapsed,
-                        message
+        let heartbeat_handle = if is_silent_background {
+            tokio::spawn(async {
+                // 静默调用：不发心跳
+            })
+        } else {
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                let start = std::time::Instant::now();
+                loop {
+                    interval.tick().await;
+                    let elapsed = start.elapsed().as_secs();
+                    let step_prefix_hb = pipeline_ctx_for_heartbeat
+                        .as_ref()
+                        .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
+                        .unwrap_or_default();
+                    let message = if label_owned.is_empty() {
+                        format!(
+                            "{}AI 正在深度思考中...（已等待 {} 秒）",
+                            step_prefix_hb, elapsed
+                        )
+                    } else {
+                        format!(
+                            "{}正在{}...（已等待 {} 秒）",
+                            step_prefix_hb, label_owned, elapsed
+                        )
+                    };
+                    let emit_result = app_handle.emit(
+                        "llm-generating-progress",
+                        LlmGeneratingProgress {
+                            stage: "generating".to_string(),
+                            message: message.clone(),
+                            elapsed_seconds: elapsed,
+                            model: model.clone(),
+                            pipeline_context: pipeline_ctx_for_heartbeat.clone(),
+                        },
                     );
+                    // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
+                    // 如果 emit 失败（如序列化错误），同步记录错误原因
+                    if let Err(e) = &emit_result {
+                        log::warn!("[Heartbeat] emit FAILED after {}s: {}", elapsed, e);
+                    } else {
+                        log::warn!(
+                            "[Heartbeat] fired: elapsed={}s msg=\"{}\"",
+                            elapsed,
+                            message
+                        );
+                    }
+                    // v0.11.5: 不再在 600 秒后停止心跳。只要生成仍在继续，
+                    // 前端就应该持续收到进度反馈；生成结束时 heartbeat_handle
+                    // 会被 abort。
                 }
-                // v0.11.5: 不再在 600 秒后停止心跳。只要生成仍在继续，
-                // 前端就应该持续收到进度反馈；生成结束时 heartbeat_handle 会被
-                // abort。
-            }
-        });
+            })
+        };
         let _heartbeat_guard = AbortOnDrop(heartbeat_handle.abort_handle());
 
-        self.emit_llm_progress(
-            "sent",
-            &sent_msg,
-            0,
-            &model_name,
-            pipeline_ref,
-            request_id.as_deref(),
-        );
+        if !is_silent_background {
+            self.emit_llm_progress(
+                "sent",
+                &sent_msg,
+                0,
+                &model_name,
+                pipeline_ref,
+                request_id.as_deref(),
+            );
+        }
 
         // Wave 1: 注册取消通道（同步生成也支持取消）
         let request_id = request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1017,14 +1035,16 @@ impl LlmService {
                     duration_ms: duration,
                     error: None,
                 });
-                self.emit_llm_progress(
-                    "completed",
-                    &completed_msg,
-                    0,
-                    &model_name,
-                    pipeline_ref,
-                    Some(request_id.as_str()),
-                );
+                if !is_silent_background {
+                    self.emit_llm_progress(
+                        "completed",
+                        &completed_msg,
+                        0,
+                        &model_name,
+                        pipeline_ref,
+                        Some(request_id.as_str()),
+                    );
+                }
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
@@ -1044,14 +1064,16 @@ impl LlmService {
                     duration_ms: duration,
                     error: Some(&e),
                 });
-                self.emit_llm_progress(
-                    "error",
-                    &e.to_string(),
-                    if is_timeout { 600 } else { 0 },
-                    &model_name,
-                    pipeline_ref,
-                    Some(request_id.as_str()),
-                );
+                if !is_silent_background {
+                    self.emit_llm_progress(
+                        "error",
+                        &e.to_string(),
+                        if is_timeout { 600 } else { 0 },
+                        &model_name,
+                        pipeline_ref,
+                        Some(request_id.as_str()),
+                    );
+                }
                 (request_id.clone(), Err(e))
             }
         }
