@@ -103,11 +103,11 @@ const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
     patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选'],
   },
   {
-    phase: 'Inspector 审校',
-    patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'],
+    phase: '内容审校',
+    patterns: ['内容审校', 'inspector', '质检', 'inspecting', 'inspect', 'inspection', 'review', '审校'],
   },
-  { phase: '改写', patterns: ['改写', 'rewrite', 'rewriting', 'revise', '润色'] },
-  { phase: '最终输出', patterns: ['最终输出', 'final_output', 'finalize', '最终', 'final output'] },
+  { phase: '改写', patterns: ['改写', '润色改写', 'rewrite', 'rewriting', 'revise', '润色'] },
+  { phase: '最终输出', patterns: ['最终输出', '已完成', 'final_output', 'finalize', '最终', 'final output'] },
   { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
 ];
 
@@ -320,8 +320,8 @@ const FrontstageApp: React.FC = () => {
     if (s.includes('候选生成')) {
       return { icon: '✍️', text: '候选生成...' };
     }
-    if (s.includes('inspector 审校') || s.includes('审校')) {
-      return { icon: '🔍', text: 'Inspector 审校...' };
+    if (s.includes('内容审校') || s.includes('审校')) {
+      return { icon: '🔍', text: '内容审校...' };
     }
     if (s.includes('改写')) {
       return { icon: '✏️', text: '改写...' };
@@ -383,7 +383,7 @@ const FrontstageApp: React.FC = () => {
     if (
       s.includes('分析故事上下文') ||
       s.includes('生成执行计划') ||
-      s.includes('planning') ||
+      
       s.includes('context')
     ) {
       return { icon: '🧠', text: '正在规划创作步骤...' };

@@ -29,15 +29,15 @@ pub enum GenerationPhase {
 impl GenerationPhase {
     pub fn as_str(&self) -> &'static str {
         match self {
-            GenerationPhase::PreparingContext => "preparing_context",
-            GenerationPhase::GeneratingCandidates => "generating_candidates",
-            GenerationPhase::Inspecting => "inspecting",
-            GenerationPhase::Rewriting => "rewriting",
-            GenerationPhase::FinalOutput => "final_output",
-            GenerationPhase::SavingMemory => "saving_memory",
-            GenerationPhase::Completed => "completed",
-            GenerationPhase::Error => "error",
-            GenerationPhase::Cancelled => "cancelled",
+            GenerationPhase::PreparingContext => "准备上下文",
+            GenerationPhase::GeneratingCandidates => "候选生成",
+            GenerationPhase::Inspecting => "内容审校",
+            GenerationPhase::Rewriting => "润色改写",
+            GenerationPhase::FinalOutput => "最终输出",
+            GenerationPhase::SavingMemory => "保存记忆",
+            GenerationPhase::Completed => "已完成",
+            GenerationPhase::Error => "出错",
+            GenerationPhase::Cancelled => "已取消",
         }
     }
 }
@@ -155,7 +155,7 @@ mod tests {
             .clone()
             .expect("event should be emitted");
         assert_eq!(event.task_id, task_id);
-        assert_eq!(event.phase, "generating_candidates");
+        assert_eq!(event.phase, "候选生成");
         assert!((event.progress - 0.42).abs() < f32::EPSILON);
         assert_eq!(event.message, "生成候选中");
         assert_eq!(event.request_id, Some("req-123".to_string()));
