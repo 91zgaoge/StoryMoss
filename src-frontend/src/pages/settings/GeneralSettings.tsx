@@ -8,6 +8,9 @@ import {
   RefreshCw,
   Download,
   PenTool,
+  SlidersHorizontal,
+  Clock,
+  FileText,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -527,6 +530,299 @@ export function GeneralSettings() {
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* v0.16.0 创作参数微调 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <SlidersHorizontal className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">创作参数</h3>
+              <p className="text-sm text-gray-500">
+                调整 AI 生成的行为倾向，数值越高 AI 越严格遵循对应规则
+              </p>
+            </div>
+          </div>
+          <div className="space-y-5">
+            {/* 跳过改写阈值 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-300">
+                  跳过改写{' '}
+                  <span className="text-xs text-gray-500">
+                    — AI 对生成结果满意时直接跳过质检改写
+                  </span>
+                </span>
+                <span className="text-cinema-gold font-mono font-bold">
+                  {settings?.skip_rewrite_threshold ?? 0.9}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={0.99}
+                step={0.01}
+                value={settings?.skip_rewrite_threshold ?? 0.9}
+                onChange={e =>
+                  debouncedUpdateSettings({ skip_rewrite_threshold: Number(e.target.value) })
+                }
+                className="w-full accent-cinema-gold"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                调低 = 更严格（每次都质检），调高 = 更宽松（结果满意就直接用，快）
+              </p>
+            </div>
+            {/* 风格权重 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-300">
+                  风格权重{' '}
+                  <span className="text-xs text-gray-500">— 文风一致性在 AI 决策中的占比</span>
+                </span>
+                <span className="text-cinema-gold font-mono font-bold">
+                  {settings?.style_weight ?? 0.5}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings?.style_weight ?? 0.5}
+                onChange={e => debouncedUpdateSettings({ style_weight: Number(e.target.value) })}
+                className="w-full accent-cinema-gold"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                调高 = 严格遵循既定文风，调低 = 允许 AI 自由发挥
+              </p>
+            </div>
+            {/* 叙事权重 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-300">
+                  叙事权重{' '}
+                  <span className="text-xs text-gray-500">— 情节连贯性在 AI 决策中的占比</span>
+                </span>
+                <span className="text-cinema-gold font-mono font-bold">
+                  {settings?.narrative_weight ?? 0.5}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings?.narrative_weight ?? 0.5}
+                onChange={e =>
+                  debouncedUpdateSettings({ narrative_weight: Number(e.target.value) })
+                }
+                className="w-full accent-cinema-gold"
+              />
+              <p className="text-xs text-gray-500 mt-1">调高 = 更注重前后文衔接，调低 = 允许跳脱</p>
+            </div>
+            {/* 上下文预算 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-300">
+                  上下文预算{' '}
+                  <span className="text-xs text-gray-500">— 每次生成时喂给 AI 的历史文本量</span>
+                </span>
+                <span className="text-cinema-gold font-mono font-bold">
+                  {settings?.context_budget_ratio ?? 0.8}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.2}
+                max={1.0}
+                step={0.05}
+                value={settings?.context_budget_ratio ?? 0.8}
+                onChange={e =>
+                  debouncedUpdateSettings({ context_budget_ratio: Number(e.target.value) })
+                }
+                className="w-full accent-cinema-gold"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                调低 = 速度快但可能上下文不足，调高 = 更准确但处理速度慢
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* v0.16.0 超时设置 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <Clock className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">超时设置</h3>
+              <p className="text-sm text-gray-500">
+                模型连接与生成各阶段的等待时间上限。自托管模型建议调高，云端 API 可调低
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 连接超时 */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                连接超时（秒）
+                <span className="text-gray-600 ml-1">— 与模型服务端建立网络连接的最大等待时间</span>
+              </label>
+              <input
+                type="number"
+                min={5}
+                max={120}
+                value={settings?.llm_connect_timeout_secs ?? 30}
+                onChange={e =>
+                  debouncedUpdateSettings({ llm_connect_timeout_secs: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                自托管模型（vllm/Ollama）建议 30，云端 API 建议 10
+              </p>
+            </div>
+            {/* 首字节超时 */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                首字节超时（秒）
+                <span className="text-gray-600 ml-1">
+                  — 发送请求后等待 AI 开始输出第一个字的时间
+                </span>
+              </label>
+              <input
+                type="number"
+                min={10}
+                max={300}
+                value={settings?.llm_first_chunk_timeout_secs ?? 60}
+                onChange={e =>
+                  debouncedUpdateSettings({ llm_first_chunk_timeout_secs: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                模型冷启动（加载到显存）可能需要更长时间，可调至 120
+              </p>
+            </div>
+            {/* 单步超时 */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                单步超时（秒）
+                <span className="text-gray-600 ml-1">
+                  — 单个写作步骤（如质检、改写）的最大执行时间
+                </span>
+              </label>
+              <input
+                type="number"
+                min={10}
+                max={300}
+                value={settings?.executor_step_timeout_secs ?? 90}
+                onChange={e =>
+                  debouncedUpdateSettings({ executor_step_timeout_secs: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">单步超时应小于总超时，默认 90 秒</p>
+            </div>
+            {/* 生成总超时 */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                生成总超时（秒）
+                <span className="text-gray-600 ml-1">— 从开始创作到必须返回结果的总时间上限</span>
+              </label>
+              <input
+                type="number"
+                min={30}
+                max={600}
+                value={settings?.smart_execute_total_timeout_secs ?? 180}
+                onChange={e =>
+                  debouncedUpdateSettings({
+                    smart_execute_total_timeout_secs: Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                慢模型建议 300，快模型可设 120。应大于所有单步超时
+              </p>
+            </div>
+            {/* 前端超时 */}
+            <div className="md:col-span-2">
+              <label className="block text-xs text-gray-400 mb-1">
+                前端超时（秒）
+                <span className="text-gray-600 ml-1">
+                  — 界面等待后端响应的最长时间，超过此值弹出诊断卡片
+                </span>
+              </label>
+              <input
+                type="number"
+                min={30}
+                max={900}
+                value={settings?.frontend_timeout_secs ?? 200}
+                onChange={e =>
+                  debouncedUpdateSettings({ frontend_timeout_secs: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                应大于后端总超时（留 20-30 秒余量），默认 200
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* v0.16.0 提示词覆盖 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <FileText className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">提示词覆盖</h3>
+              <p className="text-sm text-gray-500">
+                覆盖内置的 AI 提示词模板。留空则使用默认提示词，填入内容后生效
+              </p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                Writer 系统提示词{' '}
+                <span className="text-gray-600">— AI 写作助手的基础角色设定与行为准则</span>
+              </label>
+              <textarea
+                rows={4}
+                value={settings?.writer_system_prompt_override ?? ''}
+                onChange={e =>
+                  debouncedUpdateSettings({ writer_system_prompt_override: e.target.value })
+                }
+                placeholder="默认：你是一位专业的小说创作助手，擅长中文写作..."
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm resize-y font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                模型探测提示词{' '}
+                <span className="text-gray-600">— 检测模型是否正常运行的测试用语</span>
+              </label>
+              <textarea
+                rows={2}
+                value={settings?.probe_prompt_override ?? ''}
+                onChange={e => debouncedUpdateSettings({ probe_prompt_override: e.target.value })}
+                placeholder="默认：Respond with exactly the word OK."
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm resize-y font-mono"
+              />
             </div>
           </div>
         </CardContent>
