@@ -2,9 +2,7 @@
 
 use tauri::{command, AppHandle, Manager, State};
 
-use crate::db::DbPool;
-use crate::error::AppError;
-use crate::prompts::registry;
+use crate::{db::DbPool, error::AppError, prompts::registry};
 
 /// 列出所有内置 prompt（含 override 状态）
 #[command(rename_all = "snake_case")]

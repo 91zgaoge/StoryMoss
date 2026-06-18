@@ -421,7 +421,8 @@ mod tests {
 
     #[test]
     fn new_dimensions_v17_priority_within_existing_range() {
-        // 新维度应介于既有 high/medium/low 之间，不破坏 memory > continuity > others 的总序
+        // 新维度应介于既有 high/medium/low 之间，不破坏 memory > continuity > others
+        // 的总序
         assert!(dimension_priority("memory") > dimension_priority("payoff"));
         assert!(dimension_priority("payoff") >= dimension_priority("character"));
         assert!(dimension_priority("aftertaste") >= dimension_priority("style"));

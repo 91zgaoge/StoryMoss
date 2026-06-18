@@ -1,10 +1,10 @@
 //! v0.17.1 PromptRegistry —— 全局提示词注册表
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::db::DbPool;
-use crate::error::AppError;
+use serde::{Deserialize, Serialize};
+
+use crate::{db::DbPool, error::AppError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PromptCategory {

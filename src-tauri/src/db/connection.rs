@@ -3330,10 +3330,11 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     }
 
     // Migration 93: v0.17.1 提示词注册表 —— 用户对内置提示词的覆盖
-    // 目的：把分散在 prompts/engine.rs / llm/prompt.rs / task_system/audit_executor.rs
-    // 的硬编码 prompt 全部抽取到一个可在前端编辑的注册表。
-    // 表结构：prompt_id 是 PromptRegistry 中的稳定 ID（如 "writer_system"），
-    // overridden_content 是用户自定义版本；为空则回退到内置默认值。
+    // 目的：把分散在 prompts/engine.rs / llm/prompt.rs /
+    // task_system/audit_executor.rs 的硬编码 prompt
+    // 全部抽取到一个可在前端编辑的注册表。 表结构：prompt_id 是 PromptRegistry
+    // 中的稳定 ID（如 "writer_system"）， overridden_content
+    // 是用户自定义版本；为空则回退到内置默认值。
     if current_version < 93 {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS prompt_overrides (

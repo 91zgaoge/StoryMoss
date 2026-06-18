@@ -3,11 +3,13 @@
 //! v0.17.1：完全后台决定，不打扰用户创作流。
 
 use super::SelectedStrategy;
-use crate::creative_engine::{
-    beat_cards::builtin_beat_cards, pressure_relationships::builtin_pressure_relationships,
-    story_engines::builtin_story_engines,
+use crate::{
+    creative_engine::{
+        beat_cards::builtin_beat_cards, pressure_relationships::builtin_pressure_relationships,
+        story_engines::builtin_story_engines,
+    },
+    intent::InputClarity,
 };
-use crate::intent::InputClarity;
 
 /// 基于题材规范名 + 输入清晰度透明补全四元组（不调 LLM，纯启发式 + 资产匹配）。
 pub fn infer_narrative_quartet(
@@ -252,8 +254,8 @@ mod tests {
     }
 }
 
-/// 把 SelectedStrategy 中的中文叙事四元组（含桥段卡）渲染为 LLM 可读的 JSON 片段，
-/// 供 Writer prompt 在末尾追加。
+/// 把 SelectedStrategy 中的中文叙事四元组（含桥段卡）渲染为 LLM 可读的 JSON
+/// 片段， 供 Writer prompt 在末尾追加。
 ///
 /// 输出格式（含 builtin 资产的标题与功能描述）：
 /// ```json

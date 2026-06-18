@@ -2894,11 +2894,13 @@ pub fn get_available_agents() -> Vec<(AgentType, String, String)> {
     ]
 }
 
-/// 把 `narrative_quartet` JSON 渲染为 Writer prompt 注入片段（v0.17.1 中文叙事增强）。
+/// 把 `narrative_quartet` JSON 渲染为 Writer prompt 注入片段（v0.17.1
+/// 中文叙事增强）。
 ///
-/// 该 JSON 结构由 `strategy::quartet_inference::serialize_quartet_for_prompt` 生成，
-/// 包含主情绪 / 高压关系 / 冲突场 / 剧情引擎 / 桥段卡五要素。本函数用中文标题
-/// 与重点标记把它渲染成 Writer 可读的提示，避免重复传递大段 JSON。
+/// 该 JSON 结构由 `strategy::quartet_inference::serialize_quartet_for_prompt`
+/// 生成， 包含主情绪 / 高压关系 / 冲突场 / 剧情引擎 /
+/// 桥段卡五要素。本函数用中文标题 与重点标记把它渲染成 Writer
+/// 可读的提示，避免重复传递大段 JSON。
 fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<String> {
     let obj = quartet.as_object()?;
     if obj.is_empty() {

@@ -2,7 +2,8 @@
 //!
 //! 设计目的：在场景/章节开篇的前 200 字内，检查是否同时满足核心要素：
 //! 1. 题材一致性（与 GenreProfile.canonical_name 的 reader_promise 对齐）
-//! 2. 危险（danger）/ 羞辱（humiliation）/ 失去（loss）/ 谜题（puzzle）至少出现一项
+//! 2. 危险（danger）/ 羞辱（humiliation）/ 失去（loss）/
+//!    谜题（puzzle）至少出现一项
 //! 3. 物理锚点（physical anchor）：具体可视化的人/地/物
 //!
 //! v0.17.1 阶段说明：
@@ -60,8 +61,9 @@ impl OpeningClarityGate {
 
     /// 评估开篇清晰度。骨架阶段使用关键词启发式，不调用 LLM。
     ///
-    /// `genre_canonical` 是 GenreProfile 的 canonical_name（例如「都市·赘婿·扮猪吃虎」），
-    /// 当 None 时跳过 GenreSignal 检查。
+    /// `genre_canonical` 是 GenreProfile 的
+    /// canonical_name（例如「都市·赘婿·扮猪吃虎」）， 当 None 时跳过
+    /// GenreSignal 检查。
     pub fn evaluate(
         &self,
         opening_text: &str,
@@ -137,7 +139,8 @@ impl OpeningClarityGate {
             misses.push(OpeningElement::Puzzle);
         }
 
-        // 5. PhysicalAnchor — 至少有一个具体名词锚定（粗略：包含「：」「。」之外的句号且字数≥40）
+        // 5. PhysicalAnchor —
+        //    至少有一个具体名词锚定（粗略：包含「：」「。」之外的句号且字数≥40）
         if snippet.chars().count() >= 40 {
             hits.push(OpeningElement::PhysicalAnchor);
         } else {

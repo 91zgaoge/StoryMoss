@@ -263,8 +263,8 @@ pub struct IntentExecutionResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InputClarity {
-    /// 模糊输入：仅含题材或非常笼统的指令（"写一篇修仙打脸"/"我要写小说"/"续写"）
-    /// → 后端透明补全四元组并注入 Writer prompt
+    /// 模糊输入：仅含题材或非常笼统的指令（"写一篇修仙打脸"/"我要写小说"/"续写"
+    /// ） → 后端透明补全四元组并注入 Writer prompt
     Vague,
     /// 含部分故事元素：题材 + 主角设定 / 题材 + 钩子 / 题材 + 情境
     /// → 后端补全 1-2 项缺失维度
@@ -307,7 +307,8 @@ pub fn detect_input_clarity(user_input: &str) -> InputClarity {
         return InputClarity::Vague;
     }
 
-    // 故事元素信号词（出现 ≥3 个 = WithFullConcept；1-2 个 = WithSeed；0 个 = Vague）
+    // 故事元素信号词（出现 ≥3 个 = WithFullConcept；1-2 个 = WithSeed；0 个 =
+    // Vague）
     const ELEMENT_SIGNALS: &[&str] = &[
         // 角色信号
         "主角", "他", "她", "我", "弟子", "少年", "少女", "青年", "女主", "男主",
