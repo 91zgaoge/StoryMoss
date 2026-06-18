@@ -1,11 +1,53 @@
-# StoryForge (草苔) v0.16.2 项目完成状态
+# StoryForge (草苔) v0.17.0 项目完成状态
 
-> 最后更新: 2026-06-18（v0.16.2 修复后台审计 LLM 调用误导前端假超时）
+> 最后更新: 2026-06-19（v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套（2026-06-19）
+
+业界共识级的四类中文叙事创作资产，已接入 AssetKind 体系并由现有 StrategySelector LLM 路由自动使用。
+
+| 资产 | 数量 | 模块 | 用途 |
+|------|------|------|------|
+| 经典桥段卡 (BeatCard) | 31 张 / 7 大类 | `creative_engine/beat_cards/` | LLM 在大纲与正文阶段挑选 1-2 张作骨架 |
+| 剧情引擎 (StoryEngine) | 21 种 | `creative_engine/story_engines/` | 可组合 2-4 个正交叙事动力 |
+| 高压关系 (PressureRelationship) | 13 种 | `creative_engine/pressure_relationships/` | 冲突放大器，自带张力 |
+| 体裁读者承诺 (reader_promise) | 43 个映射 | `creative_engine/reader_promise.rs` | 9 种基础情绪 + 衍生爽点，写入 GenreProfile |
+
+#### 架构升级
+
+| 变更 | 文件 | 说明 |
+|------|------|------|
+| AssetKind +3 变体 | `strategy/models.rs` | BeatCard / StoryEngine / PressureRelationship 与现有 8 种资产同构 |
+| SelectedStrategy +5 字段 | `strategy/models.rs` | emotional_payoff / pressure_relationship_id / conflict_arena / story_engine_ids / beat_card_ids |
+| StrategyOverrides 同步扩展 | `strategy/models.rs` | 支持 UI 锁定四元组取值 |
+| asset_catalog 工厂函数 | `strategy/asset_catalog.rs` | beat_card_assets / story_engine_assets / pressure_relationship_assets 自动并入 load_assets_with_genre_profiles |
+
+#### 数据库迁移
+
+Migration 92（V092__中文叙事增强）：`genre_profiles.reader_promise` 字段（带列存在性检查）+ 三张新表 `beat_cards` / `story_engines` / `pressure_relationships` + 索引。
+
+#### 启动期 seed 回填
+
+`lib.rs` 在 genre seed 块加入 reader_promise 回填——已设置值不会被覆盖。
+
+#### 质量门禁
+
+| 检查项 | 状态 |
+|--------|------|
+| `cargo check` | ✅ 通过 |
+| `cargo test --lib` | ✅ 357 passed（v0.16.2 基线 344 + 新增 13）零回归 |
+| `npx tsc --noEmit` | ✅ 通过 |
+
+#### 下一步迭代
+
+- **v0.17.1**：智能后台预访谈——输入清晰度检测 + LLM 自动选四元组并注入 Writer prompt
+- **v0.17.2**：反 AI 味自动改写闸 + 开篇清晰度门 + 11 维质量门
+- **v0.17.3**：在世作家风格信号翻译（living-author guard）
 
 ### v0.16.2 修复后台审计（AuditExecutor）LLM 调用误导前端假超时（2026-06-18）
 

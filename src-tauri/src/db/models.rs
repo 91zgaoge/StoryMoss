@@ -1332,6 +1332,10 @@ pub struct GenreProfile {
     pub anti_patterns_json: Option<String>,
     pub reference_tables_json: Option<String>,
     pub typical_structure_json: Option<String>,
+    /// v0.17.0：读者主情绪承诺（爽 / 甜 / 虐 / 恨 / 惊 / 燃 / 怕 / 痛 / 治愈
+    /// 等多选逗号分隔）
+    #[serde(default)]
+    pub reader_promise: Option<String>,
     pub is_builtin: bool,
     pub created_at: DateTime<Local>,
 }

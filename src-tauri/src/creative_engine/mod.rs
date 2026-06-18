@@ -4,12 +4,16 @@
 //! 所有模块在幕后运行，为 Agent 提供真实、完整的创作上下文。
 
 pub mod adaptive;
+pub mod beat_cards;
 pub mod cascade_rewriter;
 pub mod context_builder;
 pub mod continuity;
 pub mod foreshadowing;
 pub mod methodology;
 pub mod payoff_ledger;
+pub mod pressure_relationships;
+pub mod reader_promise;
+pub mod story_engines;
 pub mod style;
 pub mod workflow;
 pub mod write_time_bundle;

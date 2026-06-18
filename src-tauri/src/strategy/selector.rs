@@ -129,6 +129,20 @@ fn merge_strategies(a: SelectedStrategy, b: SelectedStrategy) -> SelectedStrateg
         } else {
             b.parameters
         },
+        // v0.17.0 中文叙事增强字段：LLM 输出（b）优先，fallback 到种子（a）
+        emotional_payoff: b.emotional_payoff.or(a.emotional_payoff),
+        pressure_relationship_id: b.pressure_relationship_id.or(a.pressure_relationship_id),
+        conflict_arena: b.conflict_arena.or(a.conflict_arena),
+        story_engine_ids: if b.story_engine_ids.is_empty() {
+            a.story_engine_ids
+        } else {
+            b.story_engine_ids
+        },
+        beat_card_ids: if b.beat_card_ids.is_empty() {
+            a.beat_card_ids
+        } else {
+            b.beat_card_ids
+        },
     }
 }
 
@@ -263,6 +277,7 @@ mod tests {
             anti_patterns_json: Some("[]".to_string()),
             reference_tables_json: None,
             typical_structure_json: None,
+            reader_promise: Some("怕,燃,生存压迫".to_string()),
             is_builtin: true,
             created_at: chrono::Local::now(),
         };

@@ -227,7 +227,7 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                         // 仅当不存在时才插入，避免覆盖用户自定义修改
                         match repo.get_by_name(genre_name) {
                             Ok(None) => {
-                                let _ = repo.create(
+                                let created = repo.create(
                                     genre_name,
                                     canonical_name,
                                     aliases_json.as_deref(),
@@ -237,6 +237,16 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                     reference_tables_json,
                                     typical_structure_json.as_deref(),
                                 );
+                                // v0.17.0: 回填读者主情绪承诺
+                                if let Ok(profile) = created {
+                                    if let Some(promise) =
+                                        crate::creative_engine::reader_promise::reader_promise_for(
+                                            canonical_name,
+                                        )
+                                    {
+                                        let _ = repo.set_reader_promise(&profile.id, Some(promise));
+                                    }
+                                }
                             }
                             Ok(Some(existing)) => {
                                 // 对已有内置体裁，仅当 typical_structure_json 缺失时回填，
@@ -255,6 +265,19 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                         reference_tables_json,
                                         typical_structure_json.as_deref(),
                                     );
+                                }
+                                // v0.17.0: 若 reader_promise 缺失则回填（不覆盖用户已设置的值）
+                                if existing.reader_promise.is_none()
+                                    || existing.reader_promise.as_deref() == Some("")
+                                {
+                                    if let Some(promise) =
+                                        crate::creative_engine::reader_promise::reader_promise_for(
+                                            canonical_name,
+                                        )
+                                    {
+                                        let _ =
+                                            repo.set_reader_promise(&existing.id, Some(promise));
+                                    }
                                 }
                             }
                             Err(e) => {

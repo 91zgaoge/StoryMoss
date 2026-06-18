@@ -1164,6 +1164,7 @@ impl GenreProfileRepository {
             anti_patterns_json: anti_patterns_json.map(|s| s.to_string()),
             reference_tables_json: reference_tables_json.map(|s| s.to_string()),
             typical_structure_json: typical_structure_json.map(|s| s.to_string()),
+            reader_promise: None,
             is_builtin: true,
             created_at: now,
         })
@@ -1178,7 +1179,7 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at FROM genre_profiles ORDER BY genre_name",
+             created_at, reader_promise FROM genre_profiles ORDER BY genre_name",
         )?;
 
         let profiles = stmt
@@ -1196,6 +1197,7 @@ impl GenreProfileRepository {
                     typical_structure_json: row.get(8)?,
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    reader_promise: row.get(11).ok(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1212,7 +1214,7 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at FROM genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
+             created_at, reader_promise FROM genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
         )?;
 
         let profile = stmt
@@ -1230,6 +1232,7 @@ impl GenreProfileRepository {
                     typical_structure_json: row.get(8)?,
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    reader_promise: row.get(11).ok(),
                 })
             })
             .optional()?;
@@ -1246,7 +1249,7 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at FROM genre_profiles WHERE id = ?1 LIMIT 1",
+             created_at, reader_promise FROM genre_profiles WHERE id = ?1 LIMIT 1",
         )?;
 
         let profile = stmt
@@ -1264,6 +1267,7 @@ impl GenreProfileRepository {
                     typical_structure_json: row.get(8)?,
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    reader_promise: row.get(11).ok(),
                 })
             })
             .optional()?;
@@ -1313,5 +1317,22 @@ impl GenreProfileRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         conn.execute("DELETE FROM genre_profiles WHERE id = ?1", [id])
+    }
+
+    /// v0.17.0：单独写入读者主情绪承诺字段（爽 / 甜 / 虐 / 恨 / 惊 / 燃 等）。
+    /// 保持现有 create / update API 兼容，新字段通过专用接口设置。
+    pub fn set_reader_promise(
+        &self,
+        id: &str,
+        reader_promise: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE genre_profiles SET reader_promise = ?2 WHERE id = ?1",
+            params![id, reader_promise],
+        )
     }
 }

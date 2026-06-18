@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.16.2
+- **版本**: v0.17.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,15 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套** (2026-06-19) — 引入业界共识级的四类中文叙事创作资产，与既有的方法论 / 体裁画像 / Style DNA 三轴互补：
+    - **31 张经典桥段卡**：`creative_engine/beat_cards/`（mod.rs + registry.rs），分 7 大类——跌落与回归 / 公开证明与打脸 / 身份与识别 / 悬疑与真相重构 / 情感拉扯 / 制度与规则压力 / 后台视角与组织讽刺。每张卡含可复用功能 / 何时使用 / 重构提示 / 反例 / 标签五要素，全部使用通用化中文，不绑定特定作品。
+    - **21 种剧情引擎**：`creative_engine/story_engines/mod.rs`，正交叙事动力库可组合 2-4 个。每种引擎含核心 payoff / 最佳收束 / 反例 / 适合搭配。
+    - **13 种高压关系**：`creative_engine/pressure_relationships/mod.rs`，冲突放大器（真假继承人 / 师徒宗门 / 后台执行者与台前英雄 等）。
+    - **体裁读者承诺**：`creative_engine/reader_promise.rs` + Migration 92 `genre_profiles.reader_promise` 字段，9 种基础情绪（爽 / 甜 / 虐 / 恨 / 惊 / 燃 / 怕 / 痛 / 治愈）+ 衍生爽点。43 个内置体裁全部映射，启动期回填，已设置值不会被覆盖。
+    - **架构升级**：`AssetKind` +3 变体（BeatCard / StoryEngine / PressureRelationship）；`SelectedStrategy` +5 字段（emotional_payoff / pressure_relationship_id / conflict_arena / story_engine_ids / beat_card_ids）；`StrategyOverrides` 同步扩展支持 UI 锁定；`strategy/asset_catalog.rs` 新增 3 个工厂函数自动并入资产路由。
+    - **下一步迭代**：v0.17.1（智能后台预访谈 LLM prompt 扩四元组）/ v0.17.2（反 AI 味自动改写闸 + 开篇清晰度门 + 11 维质量门）/ v0.17.3（在世作家风格信号翻译）。
+    - **验证**：`cargo check` 零错误，`cargo test --lib` 357 passed（基线 344 + 新增 13）零回归，`npx tsc --noEmit` 零错误。
 
   - **v0.16.2 修复后台审计（AuditExecutor）LLM 调用误导前端假超时** (2026-06-18) — 用户输入"写第二章"后诊断卡弹出"最终输出 / async-audit-inspector 完成"：TimeSliced 模式正文生成后 spawn 的 `AuditExecutor` 未列入 silent 白名单，其 `emit_llm_progress` 覆盖了主流程的 "已完成" 事件，让前端误以为主流程仍在跑，最终 200s 假超时。关键变更：
     - **后端扩展 silent_background**：`async-audit-inspector` / `async-insight` / `async-deep-insight` / `background-summary` 纳入静默白名单，跳过 emit_llm_progress 与心跳
@@ -717,7 +726,7 @@ node scripts/cdp-inspect.js
 
 ---
 
-*最后更新: 2026-06-18 - v0.16.2 修复后台审计 LLM 调用误导前端假超时*
+*最后更新: 2026-06-19 - v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套*
 
 - **v5.3.0 叙事元素模型重构** (2026-05-02) — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构
   - **统一数据模型**: 新建 `narrative/` 模块 — `CharacterElement/SceneElement` 等 + `ElementSource` 枚举区分 Generated/Extracted/UserCreated/Imported

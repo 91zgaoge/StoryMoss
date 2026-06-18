@@ -8,12 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.16.2-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.17.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.16.2 修复后台审计 LLM 调用误导前端假超时。用户输入"写第二章"后 TimeSliced 正文生成完成，但后台 `AuditExecutor` 未列入静默白名单，其 `emit_llm_progress` 覆盖了主流程的 "已完成" 事件，让前端误以为主流程仍在运行，最终 200s 假超时。现已将 `async-audit-inspector` / `async-insight` 等后台 label 纳入 silent 白名单，前端新增 `mainGenerationCompletedRef` 兜底防护。E2E 测试 7/7 通过，智能创作续写 1226 字稳定生成。
+**最新动态**：v0.17.0 中文叙事增强四件套——31 张经典桥段卡（跌落归来 / 拍卖鉴宝 / 庭审翻案 / 低估识别 / 多视角重述 / 后台视角 等 7 大类）、21 种剧情引擎（隐藏身份 / 重生回溯 / 公开舞台 / 物证关键 等可正交组合 2-4 个）、13 种高压关系（真假继承人 / 师徒宗门 / 后台执行者与台前英雄 等冲突放大器）、43 个体裁的读者主情绪承诺（爽 / 甜 / 虐 / 恨 / 惊 / 燃 / 怕 / 痛 / 治愈）。所有资产已接入 AssetKind 体系，由现有 StrategySelector LLM 路由自动选用。`cargo test` 357 passed 零回归。
 
-> **上一版**：v0.16.1 修复"距上次响应 80006 秒"计数 bug；v0.16.0 智能创作参数全面可配置（前端设置界面新增 3 张卡片）；v0.15.0 模型网关智能调度器（Capability Profile + TaskClassifier + 3D 评分路由）；v0.14.3 场景智能路由（续写从必超时变为 30-60s 稳定生成）。
+> **上一版**：v0.16.2 修复后台审计 LLM 调用误导前端假超时；v0.16.0 智能创作参数全面可配置；v0.15.0 模型网关智能调度器；v0.14.3 场景智能路由（续写从必超时变为 30-60s 稳定生成）。
 
 > 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
 

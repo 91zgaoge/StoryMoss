@@ -6,7 +6,10 @@
 use super::models::{AssetKind, SelectableAsset};
 use crate::{
     creative_engine::{
+        beat_cards::{builtin_beat_cards, BeatCard},
         methodology::{MethodologyEngine, MethodologyType},
+        pressure_relationships::{builtin_pressure_relationships, PressureRelationship},
+        story_engines::{builtin_story_engines, StoryEngine},
         style::{classic_styles::get_builtin_styles, dna::StyleDNA},
     },
     db::GenreProfile,
@@ -116,6 +119,7 @@ pub fn genre_profile_assets(profiles: &[GenreProfile]) -> Vec<SelectableAsset> {
                     "anti_patterns": profile.anti_patterns_json.as_deref().and_then(|s| serde_json::from_str::<Vec<String>>(s).ok()).unwrap_or_default(),
                     "reference_tables": profile.reference_tables_json,
                     "typical_structure": typical_structure,
+                    "reader_promise": profile.reader_promise,
                 }),
                 metadata: {
                     let mut m = std::collections::HashMap::new();
@@ -252,6 +256,92 @@ pub fn skill_assets(skills: &[Skill]) -> Vec<SelectableAsset> {
         .collect()
 }
 
+/// 把桥段卡转换为可选择资产（v0.17.0 中文叙事增强）
+pub fn beat_card_assets() -> Vec<SelectableAsset> {
+    builtin_beat_cards()
+        .into_iter()
+        .map(beat_card_to_asset)
+        .collect()
+}
+
+fn beat_card_to_asset(card: BeatCard) -> SelectableAsset {
+    SelectableAsset {
+        id: card.id.clone(),
+        kind: AssetKind::BeatCard,
+        name: card.name.clone(),
+        description: card.function.clone(),
+        when_to_use: format!("{} | 重构提示：{}", card.when_to_use, card.remix_hint),
+        input_description: Some("故事题材、主角概念、当前章节定位".to_string()),
+        output_description: Some("用于大纲与正文的叙事骨架，可单独或组合使用".to_string()),
+        payload: serde_json::to_value(&card).unwrap_or_default(),
+        metadata: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "category".to_string(),
+                serde_json::Value::String(card.category.label().to_string()),
+            );
+            m.insert(
+                "avoid".to_string(),
+                serde_json::Value::String(card.avoid.clone()),
+            );
+            m
+        },
+    }
+}
+
+/// 把剧情引擎转换为可选择资产（v0.17.0 中文叙事增强）
+pub fn story_engine_assets() -> Vec<SelectableAsset> {
+    builtin_story_engines()
+        .into_iter()
+        .map(story_engine_to_asset)
+        .collect()
+}
+
+fn story_engine_to_asset(engine: StoryEngine) -> SelectableAsset {
+    SelectableAsset {
+        id: engine.id.clone(),
+        kind: AssetKind::StoryEngine,
+        name: engine.name.clone(),
+        description: engine.payoff.clone(),
+        when_to_use: format!("最佳收束：{} | 反例：{}", engine.best_payoff, engine.avoid),
+        input_description: Some("故事题材、主情绪与已选高压关系".to_string()),
+        output_description: Some("叙事动力：可与其他 1-3 个引擎正交组合".to_string()),
+        payload: serde_json::to_value(&engine).unwrap_or_default(),
+        metadata: {
+            let mut m = std::collections::HashMap::new();
+            if !engine.pairs_well_with.is_empty() {
+                m.insert(
+                    "pairs_well_with".to_string(),
+                    serde_json::to_value(&engine.pairs_well_with).unwrap_or_default(),
+                );
+            }
+            m
+        },
+    }
+}
+
+/// 把高压关系转换为可选择资产（v0.17.0 中文叙事增强）
+pub fn pressure_relationship_assets() -> Vec<SelectableAsset> {
+    builtin_pressure_relationships()
+        .into_iter()
+        .map(pressure_relationship_to_asset)
+        .collect()
+}
+
+fn pressure_relationship_to_asset(rel: PressureRelationship) -> SelectableAsset {
+    SelectableAsset {
+        id: rel.id.clone(),
+        kind: AssetKind::PressureRelationship,
+        name: rel.name.clone(),
+        description: rel.pressure_source.clone(),
+        when_to_use: format!("适合搭配的引擎/桥段：{}", rel.works_with.join(", ")),
+        input_description: Some("主角与对手的关系定位".to_string()),
+        output_description: Some("结构化高压关系，自带冲突放大机制".to_string()),
+        payload: serde_json::to_value(&rel).unwrap_or_default(),
+        metadata: Default::default(),
+    }
+}
+
 /// 从仓库加载 genre profiles 并构建资产列表
 pub fn load_assets_with_genre_profiles(
     repo: &crate::db::GenreProfileRepository,
@@ -261,6 +351,10 @@ pub fn load_assets_with_genre_profiles(
     assets.extend(methodology_assets());
     assets.extend(genre_profile_assets(&profiles));
     assets.extend(style_dna_assets());
+    // v0.17.0 中文叙事增强资产
+    assets.extend(beat_card_assets());
+    assets.extend(story_engine_assets());
+    assets.extend(pressure_relationship_assets());
     Ok(assets)
 }
 
@@ -302,6 +396,7 @@ mod tests {
             typical_structure_json: Some(
                 "[{\"title\": \"末日降临\", \"description\": \"...\"}]".to_string(),
             ),
+            reader_promise: Some("怕,燃,生存压迫".to_string()),
             is_builtin: true,
             created_at: chrono::Local::now(),
         };
@@ -375,7 +470,9 @@ mod tests {
         );
 
         let assets = load_all_assets(&repo, &[]).unwrap();
-        assert!(assets.len() >= 5 + 1 + 52); // methodologies + genre profile + style dnas
+        // v0.17.0 新增：beat_cards (>=30) + story_engines (21) + pressure_relationships
+        // (13)
+        assert!(assets.len() >= 5 + 1 + 52 + 30 + 21 + 13);
         assert!(assets.iter().any(|a| a.name == "测试体裁"));
     }
 }

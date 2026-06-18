@@ -26,6 +26,12 @@ pub enum AssetKind {
     StyleDna,
     /// 工作流模板
     Workflow,
+    /// 经典桥段卡（v0.17.0：30+ 张可复用叙事功能模板）
+    BeatCard,
+    /// 剧情引擎（v0.17.0：21 种正交叙事动力）
+    StoryEngine,
+    /// 高压关系（v0.17.0：13 种角色对位关系，冲突放大器）
+    PressureRelationship,
 }
 
 impl std::fmt::Display for AssetKind {
@@ -39,6 +45,9 @@ impl std::fmt::Display for AssetKind {
             AssetKind::GenreProfile => "genre_profile",
             AssetKind::StyleDna => "style_dna",
             AssetKind::Workflow => "workflow",
+            AssetKind::BeatCard => "beat_card",
+            AssetKind::StoryEngine => "story_engine",
+            AssetKind::PressureRelationship => "pressure_relationship",
         };
         write!(f, "{}", s)
     }
@@ -131,6 +140,23 @@ pub struct SelectedStrategy {
     pub workflow_id: Option<String>,
     /// 对其他创作参数的覆盖建议
     pub parameters: HashMap<String, serde_json::Value>,
+
+    // ==================== v0.17.0 中文叙事增强 ====================
+    /// 主情绪 / 读者爽点承诺（爽 / 甜 / 虐 / 恨 / 惊 / 燃 / 怕 / 痛 / 治愈 等）
+    #[serde(default)]
+    pub emotional_payoff: Option<String>,
+    /// 高压关系 ID（不带前缀，13 选 1）
+    #[serde(default)]
+    pub pressure_relationship_id: Option<String>,
+    /// 冲突场（公开审查 / 拍卖 / 法庭 / 家宴 / 直播 / 私密 等）
+    #[serde(default)]
+    pub conflict_arena: Option<String>,
+    /// 选中的剧情引擎 ID 列表（建议 2-4 个，正交组合）
+    #[serde(default)]
+    pub story_engine_ids: Vec<String>,
+    /// 选中的桥段卡 ID 列表（建议 1-2 张作骨架）
+    #[serde(default)]
+    pub beat_card_ids: Vec<String>,
 }
 
 impl Default for SelectedStrategy {
@@ -143,6 +169,11 @@ impl Default for SelectedStrategy {
             skill_ids: Vec::new(),
             workflow_id: None,
             parameters: HashMap::new(),
+            emotional_payoff: None,
+            pressure_relationship_id: None,
+            conflict_arena: None,
+            story_engine_ids: Vec::new(),
+            beat_card_ids: Vec::new(),
         }
     }
 }
@@ -162,6 +193,22 @@ impl SelectedStrategy {
         if !overrides.skill_ids.is_empty() {
             self.skill_ids = overrides.skill_ids.clone();
         }
+        // v0.17.0 中文叙事增强字段：用户锁定值优先
+        if let Some(payoff) = &overrides.emotional_payoff {
+            self.emotional_payoff = Some(payoff.clone());
+        }
+        if let Some(rel) = &overrides.pressure_relationship_id {
+            self.pressure_relationship_id = Some(rel.clone());
+        }
+        if let Some(arena) = &overrides.conflict_arena {
+            self.conflict_arena = Some(arena.clone());
+        }
+        if !overrides.story_engine_ids.is_empty() {
+            self.story_engine_ids = overrides.story_engine_ids.clone();
+        }
+        if !overrides.beat_card_ids.is_empty() {
+            self.beat_card_ids = overrides.beat_card_ids.clone();
+        }
     }
 }
 
@@ -172,4 +219,15 @@ pub struct StrategyOverrides {
     pub methodology_id: Option<String>,
     pub style_dna_ids: Vec<String>,
     pub skill_ids: Vec<String>,
+    // v0.17.0 中文叙事增强：允许用户在 UI 中锁定四元组取值
+    #[serde(default)]
+    pub emotional_payoff: Option<String>,
+    #[serde(default)]
+    pub pressure_relationship_id: Option<String>,
+    #[serde(default)]
+    pub conflict_arena: Option<String>,
+    #[serde(default)]
+    pub story_engine_ids: Vec<String>,
+    #[serde(default)]
+    pub beat_card_ids: Vec<String>,
 }

@@ -2,6 +2,74 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.17.0] - 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套（2026-06-19）
+
+### 新增功能
+
+v0.17.0 是中文叙事能力的一次系统性升级，引入业界共识级的四类创作资产，与既有的方法论 / 体裁画像 / Style DNA 三轴互补，让模型在创作前能够同时考虑「叙事动力 + 关系张力 + 读者爽点」。
+
+#### 1. 31 张经典桥段卡（Beat Cards）
+
+**文件**：`src-tauri/src/creative_engine/beat_cards/`（mod.rs + registry.rs）
+
+把流传已久的戏剧 / 章回 / 中文网文桥段抽象为「可复用功能 + 重构提示」的 31 张卡，分 7 大类：
+
+| 类别 | 数量 | 代表卡片 |
+|------|------|----------|
+| 跌落与回归 | 4 | 跌落归来式 / 弱者挑战式 / 长线复仇式 / 守住尊严式 |
+| 公开证明与打脸 | 4 | 拍卖鉴宝式 / 庭审翻案式 / 规则破解式 / 话语权反转式 |
+| 身份与识别 | 5 | 低估识别式 / 身份互换式 / 失忆识身式 / 藏锋入禁式 / 失位继承式 |
+| 悬疑与真相重构 | 5 | 多视角重述式 / 前提反转式 / 线索错序式 / 细节翻案式 / 无心证物式 |
+| 情感拉扯 | 4 | 误判与重识式 / 冷面伤痕式 / 迟来认知式 / 护卫秘恋式 |
+| 制度与规则压力 | 5 | 制度夹缝式 / 团队劫案式 / 荒诞规则式 / 崩盘先知式 / 倒计时生存式 |
+| 后台视角与组织讽刺 | 4 | 后台视角式 / 表里错位式 / 继任考验式 / 档案链揭露式 |
+
+每张卡含五要素：可复用功能 / 何时使用 / 重构提示 / 反例 / 标签。所有卡片名称与描述使用通用化中文，不绑定特定作品。
+
+#### 2. 21 种剧情引擎（Story Engines）
+
+**文件**：`src-tauri/src/creative_engine/story_engines/mod.rs`
+
+正交叙事动力库，可组合 2-4 个使用：隐藏身份 / 重生回溯 / 契约绑定 / 错认身份 / 双强博弈 / 成长阶梯 / 公开舞台 / 竞价鉴价 / 试炼评测 / 阴谋线索链 / 封印记忆 / 禁忌交易 / 敌人庇护 / 阶层错位 / 规则漏洞 / 外行仪式障 / 物证关键 / 强制低谷 / 后台任务视角 / 利益相关碰撞 / 程序倒计时。
+
+#### 3. 13 种高压关系（Pressure Relationships）
+
+**文件**：`src-tauri/src/creative_engine/pressure_relationships/mod.rs`
+
+冲突放大器：真假继承人 / 前夫前妻 / 替身白月光 / 赘婿与岳家 / 师徒宗门 / 上位者与外来者 / 后台执行者与台前英雄 / 继任者与守门人 / 救命恩人与错认者 / 仇人合作者 / 债主与欠债人 / 亲人继亲 / 护卫与被护者。
+
+#### 4. 体裁读者承诺（Reader Promise）
+
+**文件**：`src-tauri/src/creative_engine/reader_promise.rs` + Migration 92
+
+`genre_profiles.reader_promise` 字段：用 9 种基础情绪（爽 / 甜 / 虐 / 恨 / 惊 / 燃 / 怕 / 痛 / 治愈）+ 衍生爽点描述每个体裁的核心读者期待。43 个内置体裁全部映射 reader_promise，启动期回填，已设置值不会被覆盖。
+
+### 资产架构升级
+
+- **AssetKind 扩展（+3 变体）**：BeatCard / StoryEngine / PressureRelationship
+- **SelectedStrategy 扩展（+5 字段）**：emotional_payoff / pressure_relationship_id / conflict_arena / story_engine_ids / beat_card_ids
+- **StrategyOverrides 同步扩展**：用户可在 UI 中锁定四元组取值
+- **strategy/asset_catalog.rs**：新增 3 个工厂函数 + 自动并入 load_assets_with_genre_profiles —— 既有 StrategySelector 的 LLM 路由立即对新资产生效
+
+### 数据库迁移
+
+Migration 92（V092__中文叙事增强）：
+- `genre_profiles.reader_promise` 字段（带列存在性检查，幂等）
+- 三张新表：`beat_cards` / `story_engines` / `pressure_relationships`
+- 索引：`category` / `is_builtin`
+
+### 下一步迭代（v0.17.1+）
+
+- **v0.17.1**：智能后台预访谈 —— 输入清晰度检测 + LLM 自动选四元组并注入 Writer prompt
+- **v0.17.2**：反 AI 味自动改写闸 + 开篇清晰度门 + 11 维质量门
+- **v0.17.3**：在世作家风格信号翻译（living-author guard）
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **357 passed**（v0.16.2 基线 344 + 新增 13）零回归
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.16.2] - 修复后台审计（AuditExecutor）LLM 调用误导前端假超时（2026-06-18）
 
 ### 问题
