@@ -1,11 +1,69 @@
-# StoryForge (草苔) v0.17.0 项目完成状态
+# StoryForge (草苔) v0.17.1 项目完成状态
 
-> 最后更新: 2026-06-19（v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套）
+> 最后更新: 2026-06-19（v0.17.1 提示词注册表 + 超时设置保存修复 + 健康报告刷新修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.17.1 提示词注册表系统 + 超时设置保存修复 + 模型健康报告刷新修复（2026-06-19）
+
+#### 提示词注册表（Prompt Registry）
+
+将 8 个核心硬编码提示词提取为可在幕后设置页面中显式查看、编辑和重置的注册表项。
+
+| 提示词 | 类别 | 用途 | 变量 |
+|--------|------|------|------|
+| `writer_system` | 写作 | Writer Agent 系统提示词 | genre, style_dna, writing_strategy, methodology, tone, world_rules, foreshadowings, character_states, target_length, scene_contract, anti_ai_guidelines |
+| `writer_continue` | 写作 | 续写用户提示词 | genre, style_dna, current_content, scene_structure, instruction, target_length |
+| `writer_rewrite` | 写作 | 重写用户提示词 | genre, style_dna, selected_text, context, instruction, target_length |
+| `inspector_system` | 审校 | Inspector Agent 系统提示词 | genre, style_dna, audit_dimensions, target_length |
+| `outline_planner` | 规划 | 大纲规划提示词 | genre, style_dna, story_summary, chapter_count, target_length |
+| `probe_model` | 探测 | 模型网关探测提示词 | — |
+| `intent_detection` | 探测 | 意图识别系统提示词 | — |
+| `input_hint` | 探测 | 输入提示系统提示词 | — |
+
+#### 架构
+
+| 变更 | 文件 | 说明 |
+|------|------|------|
+| 内置提示词源 | `prompts/registry.rs` | `builtin_prompts()` 返回 8 个 `BuiltinPrompt`，含 `default` 闭包生成默认内容 |
+| 数据库持久化 | `db/migrations/V093__` | `prompt_overrides` 表（id/content/updated_at） |
+| 解析层 | `prompts/registry.rs` | `resolve_prompt()` 先查 DB 覆盖 → 回退到 built-in default；`resolve_prompt_default()` 仅 built-in |
+| AgentService 接入 | `agents/service.rs` | 新增 `resolve_prompt(&self, id)` 方法，所有 `build_*_prompt` 统一调用 |
+| 模型网关接入 | `model_gateway/executor.rs` | `probe_model()` 三层解析：PromptRegistry → AppConfig.probe_prompt_override → 硬编码默认 |
+| IPC 命令 | `prompts/commands.rs` | 4 个命令：list / save_override / reset_override / resolve_content |
+| 前端面板 | `settings/PromptsPanel.tsx` | 分类折叠面板 + 变量标签 + 编辑区 + 保存/重置按钮 |
+
+#### 质量门禁
+
+| 检查项 | 状态 |
+|--------|------|
+| `cargo check` | ✅ 通过 |
+| `cargo test --lib` | ✅ 392/392 通过 |
+| `npx tsc --noEmit` | ✅ 通过 |
+
+#### 生产 Bug 修复
+
+| Bug | 根因 | 修复 |
+|-----|------|------|
+| 后台设置页超时参数无法保存 | `AppSettingsData` 结构体无 `#[serde(default)]`，且缺少 13 个 v0.16.0 新增字段 → IPC 反序列化失败 | ① 后端：所有字段加 `#[serde(default)]`，补全 13 个 `Option<T>` 字段；② 前端：`mutationFn` 从发送 patch 改为读取缓存合并完整对象后发送 |
+| 模型健康报告数据不刷新 | React Query 默认 `staleTime: 5min` + `gcTime: 5min`，缓存优先返回旧数据 | `staleTime: 0, gcTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: true`；同时扩展 `ModelHealthReport` 结构体添加 `total_calls`/`last_called_at`/`generated_at` 元数据 |
+
+#### 骨架预埋（v0.17.2 将连接）
+
+| 模块 | 文件 | 状态 |
+|------|------|------|
+| 反 AI 味改写闸 | `anti_ai/rewriter.rs` | 骨架：`should_trigger()` + `rewrite()` 签名，待接入 LLM 调用 |
+| 开篇清晰度门 | `audit/opening_clarity.rs` | 骨架：`evaluate()` + `signal_for_genre()` + 5 种体裁信号，待接入 Pipeline |
+| 在世作家风格守卫 | `creative_engine/style/living_author_guard.rs` | 完成：41 位黑名单 + `sanitize_style_brief()` + 风格滑块映射，已接入 `build_writer_prompt` |
+| 审计维度 7→11 | `task_system/audit_executor.rs` | 完成：新增 语气一致性 / 对话自然度 / 信息密度 / 场景节奏感 4 维度 |
+
+#### 下一步迭代
+
+- **v0.17.2**：200s 假超时修复（frontend_timeout_secs 200→240 / executor_step_timeout_secs 90→60）+ 反 AI 改写闸接入 LLM + 开篇清晰度门接入 Pipeline
+- **v0.17.3**：方法论提示词（雪花法/场景节拍/英雄之旅）纳入注册表 + 叙事事件提取提示词纳入注册表
 
 ### v0.17.0 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套（2026-06-19）
 
@@ -197,8 +255,8 @@ Migration 92（V092__中文叙事增强）：`genre_profiles.reader_promise` 字
 
 | 指标 | 数值 |
 |------|------|
-| 当前版本 | v0.16.2 |
-| 最近发布 | 2026-06-18 |
+| 当前版本 | v0.17.1 |
+| 最近发布 | 2026-06-19 |
 | Rust 测试 | 392/392 通过 |
 | 前端测试 | 126/126 通过 |
 | E2E 测试 | 7/7 通过 |
