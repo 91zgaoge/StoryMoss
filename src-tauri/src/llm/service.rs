@@ -617,7 +617,7 @@ impl LlmService {
         }
 
         let timeout_seconds = Self::effective_timeout_seconds(profile);
-        let connect_timeout_seconds = 10u64;
+        let connect_timeout_seconds = 30u64;
 
         let adapter: Box<dyn super::LlmAdapter> = match profile.provider {
             LlmProvider::OpenAI
@@ -946,7 +946,7 @@ impl LlmService {
         let timeout_seconds =
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let max_retries = max_retries_override.unwrap_or(2u32);
-        let connect_timeout_seconds = 10u64;
+        let connect_timeout_seconds = 30u64;
 
         // v0.11.8: 超时与重试策略
         // - adapter.generate 内部已拆分连接超时（10s）与生成超时（timeout_seconds），
