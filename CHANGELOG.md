@@ -2,6 +2,180 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.16.2] - 修复后台审计（AuditExecutor）LLM 调用误导前端假超时（2026-06-18）
+
+### 问题
+
+用户输入"写第二章"后诊断卡片弹出：`最后事件类型: 最终输出 / async-audit-inspector 完成`。智能创作实际已进入 TimeSliced 分时模式，正文生成返回后前端收到 "已完成" 事件，但紧接着后台 `AuditExecutor`（时间线 2）被 spawn 执行 Inspector LLM 调用，其 `emit_llm_progress` 同步发射 `generation-status` 事件，覆盖了主流程的 "已完成"，让前端误以为主流程仍在运行，最终 200s 超时弹出诊断卡。
+
+### 根因
+
+TimeSliced 模式在正文生成后 `tokio::spawn` 启动异步审计，审计中的 `generate_for_task` 调用了 `emit_llm_progress`，其中 `request_id` 非空时同步发出 `generation-status` 事件（phase=`FinalOutput`/ 最终输出）。该 label `"async-audit-inspector"` 未被纳入 `is_silent_background` 白名单，导致前端收到错误的状态事件。
+
+### 修复
+
+#### 后端：扩展 silent_background 白名单
+
+**文件**：`src-tauri/src/llm/service.rs:835-846`
+
+将时间线 2/3 的后台任务 label 纳入静默白名单：
+- `async-audit-inspector`（异步 Inspector 审计）
+- `async-insight`、`async-deep-insight`（深度洞察）
+- `background-summary`（背景摘要）
+
+命中后跳过所有 `emit_llm_progress` 与心跳发射。
+
+#### 前端：主流程完成标记
+
+**文件**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+
+新增 `mainGenerationCompletedRef`：
+- `handleGenerationStatus` 在 phase="已完成"/"出错"/"已取消" 时置位
+- `updateLastEventTime` 跳过已完成后的更新时间
+- `scheduleFallbackPrompt` tick 跳过已完成后的状态更新
+- 新一轮 `startElapsedTimer` 重置标记
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+- `npx tsc --noEmit` ✅ 零错误
+
+## [v0.16.1] - 修复"距上次响应 80006 秒"计数 Bug（2026-06-18）
+
+### 问题
+
+诊断卡偶尔显示"距上次响应 80006 秒"的荒谬数值。根因：`lastEventTimeRef.current` 初始化为 `Date.now()`，但若首次事件延时较长，其与 `Date.now()` 的时间差被解释为"距上次响应"，导致天文数字。
+
+### 修复
+
+**文件**：`src-frontend/src/frontstage/FrontstageApp.tsx:645-660`
+
+- `lastEventTimeRef` 初始值从 `Date.now()` 改为 `null`
+- tick 函数添加 `null` 守卫，首次 tick 不产生 `sinceLastEvent`
+- `sinceLastEvent` 变量声明修复避免 TS2304
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `npx tsc --noEmit` ✅ 零错误
+
+## [v0.16.0] - 智能创作参数全面可配置（2026-06-18）
+
+### 新增功能
+
+所有超时参数与创作参数可从前端设置界面配置，无需修改代码。
+
+#### 前端设置（GeneralSettings 新增 3 张卡片）
+
+**文件**：`src-frontend/src/pages/settings/GeneralSettings.tsx`
+
+| 卡片 | 字段 | 默认值 |
+|------|------|-------|
+| 创作参数 | `skip_rewrite_threshold` / `style_weight` / `narrative_weight` / `context_budget_ratio` / `writer_local_concurrency` / `keep_revision_history` | 各参数默认值 |
+| 超时设置 | `llm_connect_timeout_secs`(30) / `smart_execute_total_timeout_secs`(180) / `executor_step_timeout_secs`(90) / `frontend_timeout_secs`(200) / `llm_first_chunk_timeout_secs`(60) | 中文描述 |
+| 提示词覆盖 | `writer_system_prompt_override` / `probe_prompt_override` | 可选自定义 |
+
+#### 后端配置扩展
+
+**文件**：`src-tauri/src/config/settings.rs`
+
+AppConfig 新增字段组，持久化到 `app_config.json`：
+- 超时组：`llm_connect_timeout_secs` / `smart_execute_total_timeout_secs` / `executor_step_timeout_secs` / `frontend_timeout_secs` / `llm_first_chunk_timeout_secs`
+- 创作参数组：`writer_local_concurrency` / `context_budget_ratio` / `skip_rewrite_threshold`
+- 提示词覆盖组：`writer_system_prompt_override` / `probe_prompt_override`
+
+#### 前段类型扩展
+
+**文件**：`src-frontend/src/types/llm.ts`
+
+`AppSettings` 接口新增所有配置字段。
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+- `npx tsc --noEmit` ✅ 零错误
+
+## [v0.15.2] - 修复「已完成」事件在错误检测前发射（2026-06-18）
+
+### 问题
+
+`smart_execute` 路径中 `emit_progress("completed", ...)` 在成功判定之前执行，导致即使后端返回空内容或错误，前端仍收到"已完成"事件。诊断卡显示已完成但正文为空。
+
+### 修复
+
+**文件**：`src-tauri/src/commands/orchestrator.rs:711-755`
+
+移动 `emit_progress("completed")` 至成功路径末尾——仅在实际内容非空且 `result.success == true` 时才发射。失败路径改发 "error" 事件。
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+
+## [v0.15.1] - 生成阶段提示汉字化（2026-06-18）
+
+### 变更
+
+**文件**：`src-tauri/src/events.rs:17-36`
+
+`GenerationPhase::as_str()` 返回值从英文改为中文：
+- `PreparingContext` → "准备上下文"
+- `GeneratingCandidates` → "候选生成"
+- `Inspecting` → "内容审校"
+- `Rewriting` → "润色改写"
+- `FinalOutput` → "最终输出"
+- `Completed` → "已完成"
+
+所有阶段事件在底部状态栏与诊断卡片中均以中文显示，提升中文用户的使用体验。
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+
+## [v0.15.0] - 模型网关智能调度器（ModelGateway Smart Scheduler）（2026-06-17）
+
+### 新增功能
+
+模型网关（ModelGateway）新增智能调度层，自动对创作任务分类并选择最优模型。
+
+#### Capability Profile 系统
+
+- **新表**：V091 迁移 `model_capability_profile` 记录每个模型在各维度（写作/分析/创意/速度/性价比）的评分
+- **新模块**：`src-tauri/src/model_gateway/capability_store.rs` 提供 CRUD 操作
+- **TaskClassifier**：按 Agent 类型 + prompt 长度将任务分为 `LightTool` / `BalancedWork` / `HeavyCreation` 三类
+
+#### Streaming TTFB 真实基准测试
+
+**文件**：`src-tauri/src/model_gateway/benchmark.rs`
+
+- 长测（固定 prompt + 512 max_tokens）和短测（固定 prompt + 64 max_tokens）
+- 使用真实首个数据块时间戳（`Duration::elapsed`），替代旧版魔术 `duration-10` 估算
+- 结果写入 `model_gateway_benchmarks` 表
+
+#### 3D 智能评分路由
+
+**文件**：`src-tauri/src/model_gateway/executor.rs`
+
+`select_candidates` 使用三维加权评分选择最优模型：
+- **能力匹配（capability）** 50%
+- **用户偏好（preference）** 30%
+- **任务拟合度（fit）** 20%
+
+#### 网关路由全覆盖
+
+**文件**：`src-tauri/src/agents/service.rs:723`
+
+关键修复：所有 LLM 调用路径均经过网关。此前 `execute_agent` 通过 `AgentMapping` 直接读取 profile 绕过调度器，导致智能调度失效。现统一从网关 `resolve_task` 获取模型 ID，智能调度对所有创作任务生效。
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.14.4] - 修复"应用启动后自动进入生成进程"假象（2026-06-18）
 
 ### 问题

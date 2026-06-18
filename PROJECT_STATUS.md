@@ -1,20 +1,24 @@
-# StoryForge (草苔) v0.13.3 项目完成状态
+# StoryForge (草苔) v0.16.2 项目完成状态
 
-> 最后更新: 2026-06-17（v0.13.3 + 诊断卡片安全网）
+> 最后更新: 2026-06-18（v0.16.2 修复后台审计 LLM 调用误导前端假超时）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
 
-### v0.13.3 诊断卡片安全网：修复「准备上下文」退出未弹诊断卡片（2026-06-17）
+### v0.16.2 修复后台审计（AuditExecutor）LLM 调用误导前端假超时（2026-06-18）
 
-| 功能 | 状态 | 说明 |
+**问题**：用户在第一章内容已存在时输入"写第二章"，诊断卡片弹出显示 `最后事件类型: 最终输出 / async-audit-inspector 完成`、200s 前端超时。
+
+**根因**：TimeSliced 模式正文生成后 spawn 的 AuditExecutor 调用 `generate_for_task(label="async-audit-inspector")`，该 label 未纳入 silent 白名单，`emit_llm_progress` 同步发射 `generation-status`（phase=FinalOutput/"最终输出"），覆盖主流程的 "已完成"，前端误以为主流程仍在运行。
+
+**修复**：
+
+| 修复 | 文件 | 说明 |
 |------|------|------|
-| 诊断卡片全局安全网 | ✅ | `smartExecuteNeedDiagnosticRef` + `isGenerating` 监听，异常结束兜底弹窗 |
-| 用户取消识别 | ✅ | `lastGenerationCancelledRef` 避免取消后误弹诊断卡片 |
-| 成功路径空内容诊断 | ✅ | `final_content` 为空 / `success: false` 时立即 `captureDiagnosticInfo` |
-| 后端响应判定修复 | ✅ | `startElapsedTimer` 不再启动即标记为已响应 |
+| 后端 silent_background 扩展 | `llm/service.rs:835` | `async-audit-inspector` / `async-insight` / `async-deep-insight` / `background-summary` 纳入静默白名单 |
+| 前端 mainGenerationCompletedRef | `FrontstageApp.tsx` | "已完成"/"出错"/"已取消"时置位，后续后台 events 不再重置计时、不再触发 tick |
 
 #### 质量门禁
 | 检查项 | 状态 |
@@ -22,42 +26,157 @@
 | `cargo check` | ✅ 通过 |
 | `cargo test --lib` | ✅ 392/392 通过 |
 | `npx tsc --noEmit` | ✅ 通过 |
-| `NODE_ENV=test npx vitest run` | ✅ 126/126 passed |
 
-### v0.13.2 诊断卡片增强 + 前端自救计时器 + 心跳日志（2026-06-17）
+### v0.16.1 修复"距上次响应 80006 秒"计数 Bug（2026-06-18）
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| 诊断卡片版本号 | ✅ | 注入 `__STORYFORGE_VERSION__`，不再显示 unknown |
-| 诊断已用时修复 | ✅ | 独立 `diagnosticStartTimeRef`，不被意外清空 |
-| 后端响应判定 | ✅ | `backendEverRespondedRef` 精确追踪 |
-| 新诊断字段 | ✅ | 作品存在、后端超时配置、模型建议 |
-| 心跳接入诊断 | ✅ | `llm-generating-progress` 记录到 `lastProgressEventRef` |
-| 后端心跳日志 | ✅ | `log::warn!` 级别输出，确认心跳是否运行 |
-| 前端自救计时器 | ✅ | 自我循环，每 10s 更新已用时，心跳中断也不沉默 |
-| 去 Ollama 化 | ✅ | 诊断提示改为通用「vllm/Ollama/OpenAI」 |
-| smartExecuteInFlightRef | ✅ | 防止 activityStore 提前清空生成状态 |
+| lastEventTimeRef 空值修复 | ✅ | 初始 `Date.now()` → `null`，tick null guard |
+| sinceLastEvent 变量修复 | ✅ | TS2304 修复 |
 
-#### 质量门禁
-| 检查项 | 状态 |
-|--------|------|
-| `cargo check` | ✅ 通过 |
-| `cargo +nightly fmt --check` | ✅ 通过 |
-| `npx tsc --noEmit` | ✅ 通过 |
-| `npx prettier --check` | ✅ 通过 |
-| `npm run build` | ✅ 通过 |
-| `NODE_ENV=test npx vitest run` | ✅ 126/126 passed |
+### v0.16.0 智能创作参数全面可配置（2026-06-18）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| GeneralSettings 新增 3 卡片 | ✅ | 创作参数 / 超时设置 / 提示词覆盖，全部中文说明 |
+| AppConfig 扩展 | ✅ | 所有超时 + 创作参数 + prompt override 字段 |
+| AppSettings 接口同步 | ✅ | 前端 types/llm.ts 同步更新 |
+
+### v0.15.2 修复"已完成"事件在错误检测前发射（2026-06-18）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| emit_progress 移后 | ✅ | 仅在实际成功时才发 "completed"，错误路径改发 "error" |
+
+### v0.15.1 生成阶段提示汉字化（2026-06-18）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| GenerationPhase::as_str() 汉字化 | ✅ | 准备上下文 / 候选生成 / 内容审校 / 润色改写 / 最终输出 / 已完成 |
+
+### v0.15.0 模型网关智能调度器（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Capability Profile 系统 | ✅ | `model_capability_profile` 表 + CRUD（capability_store.rs） |
+| Streaming TTFB 基准测试 | ✅ | 长短两种 benchmark，真实首块时间戳 |
+| TaskClassifier | ✅ | LightTool / BalancedWork / HeavyCreation 三级分类 |
+| 3D 智能评分路由 | ✅ | 能力 50% + 偏好 30% + 拟合 20% 加权选模 |
+| 网关路由全覆盖 | ✅ | agents/service.rs 所有 LLM 调用经网关（原 mapping 路径旁路已修复） |
+
+### v0.14.4 修复"应用启动后自动进入生成进程"假象（2026-06-18）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| is_silent_background | ✅ | model_gateway_probe / input_hint / intent_detection 跳过心跳与 emit |
+| 前端 isGenerating 守卫 | ✅ | `llm-generating-progress` 监听器早返回 |
+
+### v0.14.3 智能创作生成内容根因修复——场景智能路由（2026-06-17）
+
+**根因**：`smart_execute` 路径（`PlanExecutor::execute_writer`）写死 `GenerationMode::Full`，导致每次续写最多 5 次同步 LLM 调用（250-335s），**必然超时 180s/200s 防线**。
+
+**设计文档实施遗漏**：`docs/plans/2026-06-14-time-sliced-intervention-design.md:456` 明确指定默认 TimeSliced，但只改了任务系统入口，漏改了 `smart_execute` 实际路径。
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 场景智能路由 | ✅ | 续写/新章 → TimeSliced（30-60s）；重写选中 → Full |
+| AppConfig.generation_mode | ✅ | auto/time_sliced/fast/full 前端可配置 |
+| 超时优化 | ✅ | DEFAULT_TIMEOUT 240→120, max_tokens 8192→2500 |
+
+### v0.14.2 智能创作超时退出根因修复：多层超时防线（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| smart_execute 整体 180s 超时 | ✅ | `tokio::time::timeout` + cancel_all_generations |
+| PlanExecutor 单步 90s 超时 | ✅ | 超时标记 fail 不中断 |
+| LLM 首字节 60s + 绝对 1.5x 超时 | ✅ | 修复 vllm 半挂 |
+| 同步 DB spawn_blocking | ✅ | build_agent_context / 风格查询 / strategy |
+| 前端超时 200s（后端 180s 后） | ✅ | 后端先超时，前端兜底 |
+| Full 模式预算约束 | ✅ | Inspector/Rewrite <30s 跳过 |
+
+### v0.14.1 后台设置即时更新重构：统一状态层与乐观更新（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| SettingsContext + useSettingsContext | ✅ | TanStack Query 统一状态层 |
+| 乐观更新 + 回滚 | ✅ | 所有写操作 onMutate/onError/onSettled |
+| 组件简化 | ✅ | GeneralSettings / UnifiedModelManager / AgentConfig 移除本地 useState |
+
+### v0.14.0 模型网关（Model Gateway）：自动路由、健康探测与多模型状态栏（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| ModelGateway 模块 | ✅ | 统一模型调度入口 |
+| 健康探测 | ✅ | 定时 + 连接测试可视化步骤 |
+| 多模型状态栏 | ✅ | 幕前幕后统一状态指示 |
+| temperature 精度修复 | ✅ | 序列化规范化 |
+
+### v0.13.3 诊断卡片安全网（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 诊断卡片全局安全网 | ✅ | 异常结束兜底弹窗 |
+| 用户取消识别 | ✅ | lastGenerationCancelledRef |
+| 空内容/失败诊断 | ✅ | 成功路径空内容主动调 captureDiagnosticInfo |
+
+### v0.13.2 诊断卡片增强 + 前端自救计时器（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 诊断卡片版本号 | ✅ | 注入 __STORYFORGE_VERSION__ |
+| 已用时修复 | ✅ | 独立 diagnosticStartTimeRef |
+| 后端响应判定 | ✅ | backendEverRespondedRef |
+| 前端自救计时器 | ✅ | 10s 自循环，心跳中断不沉默 |
+| 去 Ollama 化 | ✅ | 通用「vllm/Ollama/OpenAI」|
 
 ### v0.13.1 修复智能创作卡死在「准备上下文」阶段（2026-06-15）
 
-**根因**：能力进化反馈环 `evolve_capability_descriptions` 未清洗 LLM `<think>` 思考链，被污染的 `when_to_use` 描述注入 PlanGenerator prompt，导致计划生成 LLM 卡死、前端 300s 超时退出。
+**根因**：能力进化反馈环未清洗 LLM `<think>` 思考链，污染 PlanGenerator prompt。
 
-**修复（三层防御）**：
-- 写入清洗：`sanitize_evolved_description()`（`capabilities/evolution.rs`）剥离 `<think>` 标签 + 300 字符上限 + 5 个单测
-- 加载防御：`load_evolved_descriptions`（`capabilities/mod.rs`）过滤污染条目
-- 数据清理：用户机器 `evolved_descriptions.json` 已重置为 `{}`
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 写入清洗 | ✅ | sanitize_evolved_description() + 5 单测 |
+| 加载防御 | ✅ | 过滤含 `<think>` 条目 |
+| 数据清理 | ✅ | evolved_descriptions.json 已重置 |
 
-**验证**：`cargo check` 零错误；`cargo test --lib` 392/392 通过（零回归）
+### v0.13.0 分时介入架构（2026-06-14）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| WriteTimeBundle（时间线 1） | ✅ | 最小约束 15s 出正文 |
+| AuditExecutor（时间线 2） | ✅ | 后台 7 维 Inspector + inline annotation |
+| InsightExecutor（时间线 3） | ✅ | 追读力债务 + 标注盘点 + 健康报告 |
+| 债务指示器 | ✅ | 实时标注数，超阈值红色警告 |
+| Phase 0 实证 | ✅ | 最小约束 vs 全量资产差距仅 7.9% |
+
+---
+
+## 📊 综合仪表盘
+
+| 指标 | 数值 |
+|------|------|
+| 当前版本 | v0.16.2 |
+| 最近发布 | 2026-06-18 |
+| Rust 测试 | 392/392 通过 |
+| 前端测试 | 126/126 通过 |
+| E2E 测试 | 7/7 通过 |
+| cargo check | 零错误 |
+| tsc --noEmit | 零错误 |
+| 构建平台 | macOS (.dmg) + Windows (.exe/.msi) + Linux (.AppImage/.deb) |
+
+---
+
+## 🎯 智能创作成熟度模型
+
+| 层级 | 状态 | 版本 | 说明 |
+|------|------|------|------|
+| L0: 超时退出（不可用） | ❌ | < v0.14.3 | 续写必超时 250-335s |
+| L1: 能生成（30-90s） | ✅ | v0.14.3 | 场景路由 TimeSliced |
+| L2: 能稳定生成（不超时） | ✅ | v0.14.2 | 五层超时防线 |
+| L3: 能感知状态（诊断卡片） | ✅ | v0.13.2-3 | 安全网 + 诊断增强 |
+| L4: 后台不干扰主流程 | ✅ | v0.14.4 + v0.16.2 | silent_background + mainGenerationCompletedRef |
+| L5: 参数全可配置 | ✅ | v0.16.0 | 前端设置所有超时/创作参数 |
+| L6: 智能模型路由 | ✅ | v0.15.0 | Capability Profile + TaskClassifier + 3D 评分 |
 
 ### v0.12.0 智能创作性能全面重构（2026-06-14）
 

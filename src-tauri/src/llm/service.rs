@@ -832,9 +832,19 @@ impl LlmService {
         let label = context_label.unwrap_or("");
         // v0.14.4: 识别后台静默调用（如模型健康探测），跳过心跳发射避免误导前端
         // 模型探测在应用启动时自动触发，不应让前端误以为用户的生成任务正在进行
+        // v0.16.2: 时间线 2/3 的后台审计与洞察 LLM 调用同样静默——主流程已发出
+        // GenerationPhase::Completed，若它们继续 emit 普通 progress event
+        // 会让前端误以为主流程仍在跑（实测「写第二章」场景下被这些后台事件
+        // 拖到 200s 假超时）。
         let is_silent_background = matches!(
             label,
-            "model_gateway_probe" | "input_hint" | "intent_detection"
+            "model_gateway_probe"
+                | "input_hint"
+                | "intent_detection"
+                | "async-audit-inspector"
+                | "async-insight"
+                | "async-deep-insight"
+                | "background-summary"
         );
         let step_prefix = pipeline_ref
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))

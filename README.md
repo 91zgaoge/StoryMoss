@@ -8,12 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.14.1-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.16.2-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.14.1 后台设置即时更新重构。引入 `SettingsProvider` 统一状态层，将通用设置、模型管理、Agent 映射、创作方法论的本地 state 全部改为直接受控于 TanStack Query 缓存；所有写操作内置乐观更新、失败自动回滚与统一缓存失效，确保后台界面任何设置变更都能在 100ms 内同步到页面所有相关位置，消除旧值残留与状态漂移。
+**最新动态**：v0.16.2 修复后台审计 LLM 调用误导前端假超时。用户输入"写第二章"后 TimeSliced 正文生成完成，但后台 `AuditExecutor` 未列入静默白名单，其 `emit_llm_progress` 覆盖了主流程的 "已完成" 事件，让前端误以为主流程仍在运行，最终 200s 假超时。现已将 `async-audit-inspector` / `async-insight` 等后台 label 纳入 silent 白名单，前端新增 `mainGenerationCompletedRef` 兜底防护。E2E 测试 7/7 通过，智能创作续写 1226 字稳定生成。
 
-> **上一版**：v0.14.0 模型网关，v0.13.3 诊断卡片安全网。修复「智能创作在『准备上下文』阶段长时间延时后退出，但未弹出诊断卡片」的问题：新增全局安全网监听 `isGenerating` 状态转换，任何非用户取消的异常结束都兜底弹出诊断卡片；同时在成功路径中的空内容 / `success: false` 等静默退出路径也主动弹出诊断卡片，并修正了「后端是否响应过」的判定逻辑。
+> **上一版**：v0.16.1 修复"距上次响应 80006 秒"计数 bug；v0.16.0 智能创作参数全面可配置（前端设置界面新增 3 张卡片）；v0.15.0 模型网关智能调度器（Capability Profile + TaskClassifier + 3D 评分路由）；v0.14.3 场景智能路由（续写从必超时变为 30-60s 稳定生成）。
 
 > 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
 

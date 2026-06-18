@@ -556,6 +556,10 @@ const FrontstageApp: React.FC = () => {
   const smartExecuteInFlightRef = useRef<boolean>(false);
   // v0.13.3: 安全网——标记本次 smart_execute 是否仍需要诊断卡片兜底
   const smartExecuteNeedDiagnosticRef = useRef<boolean>(false);
+  // v0.16.2: 主流程已收到"已完成/出错/已取消"——后续后台任务（audit/insight）的
+  // progress event 不应再更新 lastEventTimeRef，否则会重置"距上次响应"计时，
+  // 让前端在主流程已结束后仍 200s 后报假超时（写第二章场景实测）。
+  const mainGenerationCompletedRef = useRef<boolean>(false);
   // v0.13.3: 用户主动取消时跳过安全网诊断
   const lastGenerationCancelledRef = useRef<boolean>(false);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
@@ -643,6 +647,8 @@ const FrontstageApp: React.FC = () => {
   const scheduleFallbackPrompt = useCallback(() => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     const tick = () => {
+      // v0.16.2: 主流程已结束则停止 tick（不再显示 "AI 正在深度思考中..."）
+      if (mainGenerationCompletedRef.current) return;
       if (!lastEventTimeRef.current || !generationStartTimeRef.current) return;
       const sinceLastEvent = Math.floor((Date.now() - lastEventTimeRef.current) / 1000);
       const totalElapsed = Math.floor((Date.now() - generationStartTimeRef.current) / 1000);
@@ -667,6 +673,8 @@ const FrontstageApp: React.FC = () => {
     lastEventTimeRef.current = Date.now();
     // v0.13.3: 不要在启动时就认为后端已响应，应等真正收到事件后再标记
     diagnosticStartTimeRef.current = Date.now(); // v0.13.2
+    // v0.16.2: 新一轮生成开始，重置主流程完成标记
+    mainGenerationCompletedRef.current = false;
     scheduleFallbackPrompt();
   }, [scheduleFallbackPrompt]);
 
@@ -681,6 +689,9 @@ const FrontstageApp: React.FC = () => {
 
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {
+    // v0.16.2: 主流程已结束后忽略后台 audit/insight 的 progress event，
+    // 避免重置 sinceLastEvent 导致 200s 假超时。
+    if (mainGenerationCompletedRef.current) return;
     lastEventTimeRef.current = Date.now();
     backendEverRespondedRef.current = true; // v0.13.2
     scheduleFallbackPrompt();
@@ -698,6 +709,13 @@ const FrontstageApp: React.FC = () => {
     }) => {
       lastProgressEventRef.current = { stage: p.phase, message: p.message, step: p.progress };
       lastGenerationStatusAtRef.current = Date.now();
+      // v0.16.2: 主流程结束阶段（已完成/出错/已取消）后，标记 ref 让后续后台
+      // progress event 不再触发 sinceLastEvent 重置。
+      const isTerminal =
+        p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
+      if (isTerminal) {
+        mainGenerationCompletedRef.current = true;
+      }
       updateLastEventTime();
       const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
       const message = precise || p.message;
