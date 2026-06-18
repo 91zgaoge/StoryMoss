@@ -2014,7 +2014,8 @@ const FrontstageApp: React.FC = () => {
       const isBootstrap = isNovelCreationIntent(userInput);
       // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。
       // 前端 200 秒确保在后端超时后才触发，避免前端先于后端退出。
-      const timeoutSeconds = 200;
+      // v0.15.5: 从设置读取，默认 200s
+      const timeoutSeconds = settings?.frontend_timeout_secs ?? 200;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐

@@ -35,11 +35,17 @@ pub async fn smart_execute(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
-    const SMART_EXECUTE_TOTAL_TIMEOUT_SECS: u64 = 180;
+    // v0.15.5: 从 AppConfig 读取硬超时，默认 180s
+    let smart_execute_timeout = crate::get_pool()
+        .and_then(|_| {
+            crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default()).ok()
+        })
+        .map(|c| c.smart_execute_total_timeout_secs)
+        .unwrap_or(180u64);
     let pool_inner = pool.inner().clone();
 
     match tokio::time::timeout(
-        std::time::Duration::from_secs(SMART_EXECUTE_TOTAL_TIMEOUT_SECS),
+        std::time::Duration::from_secs(smart_execute_timeout),
         smart_execute_inner(
             user_input,
             current_content,
@@ -54,7 +60,7 @@ pub async fn smart_execute(
         Err(_) => {
             log::error!(
                 "[smart_execute] 整体超时（{}秒），正在取消所有进行中的 LLM 生成",
-                SMART_EXECUTE_TOTAL_TIMEOUT_SECS
+                smart_execute_timeout
             );
             // 取消所有进行中的 LLM 生成，避免孤儿任务
             let llm = crate::llm::LlmService::new(app_handle.clone());
@@ -67,15 +73,13 @@ pub async fn smart_execute(
                     stage: "timeout".to_string(),
                     message: format!(
                         "智能创作整体超时（{}秒），已自动取消。请检查模型服务是否正常运行。",
-                        SMART_EXECUTE_TOTAL_TIMEOUT_SECS
+                        smart_execute_timeout
                     ),
                     step_number: 0,
                     total_steps: 0,
                 },
             );
-            Err(AppError::llm_timeout(
-                SMART_EXECUTE_TOTAL_TIMEOUT_SECS * 1000,
-            ))
+            Err(AppError::llm_timeout(smart_execute_timeout * 1000))
         }
     }
 }

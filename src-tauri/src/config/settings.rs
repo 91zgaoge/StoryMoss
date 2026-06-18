@@ -331,6 +331,17 @@ pub struct AppConfig {
     /// - full: 强制 Full 模式（Writer + Inspector + Rewrite 闭环）
     #[serde(default = "default_generation_mode")]
     pub generation_mode: String,
+    /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）
+    #[serde(default = "default_llm_connect_timeout")]
+    pub llm_connect_timeout_secs: u64,
+    #[serde(default = "default_smart_execute_timeout")]
+    pub smart_execute_total_timeout_secs: u64,
+    #[serde(default = "default_executor_step_timeout")]
+    pub executor_step_timeout_secs: u64,
+    #[serde(default = "default_frontend_timeout")]
+    pub frontend_timeout_secs: u64,
+    #[serde(default = "default_llm_first_chunk_timeout")]
+    pub llm_first_chunk_timeout_secs: u64,
     /// OAuth 客户端配置
     #[serde(default)]
     pub auth_clients: Option<HashMap<String, crate::auth::OAuthClientConfig>>,
@@ -338,6 +349,22 @@ pub struct AppConfig {
 
 fn default_generation_mode() -> String {
     "auto".to_string()
+}
+
+fn default_llm_connect_timeout() -> u64 {
+    30
+}
+fn default_smart_execute_timeout() -> u64 {
+    180
+}
+fn default_executor_step_timeout() -> u64 {
+    90
+}
+fn default_frontend_timeout() -> u64 {
+    200
+}
+fn default_llm_first_chunk_timeout() -> u64 {
+    60
 }
 
 fn default_rewrite_threshold() -> f32 {
@@ -982,6 +1009,11 @@ impl Default for AppConfig {
             store_api_keys_securely: default_store_api_keys_securely(),
             writing_strategy: WritingStrategy::default(),
             generation_mode: default_generation_mode(),
+            llm_connect_timeout_secs: default_llm_connect_timeout(),
+            smart_execute_total_timeout_secs: default_smart_execute_timeout(),
+            executor_step_timeout_secs: default_executor_step_timeout(),
+            frontend_timeout_secs: default_frontend_timeout(),
+            llm_first_chunk_timeout_secs: default_llm_first_chunk_timeout(),
             auth_clients: Default::default(),
         }
     }

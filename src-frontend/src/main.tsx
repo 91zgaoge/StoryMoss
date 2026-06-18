@@ -9,7 +9,7 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 import './index.css';
 
 // 注入版本号供诊断使用
-(window as any).__STORYFORGE_VERSION__ = '0.15.4';
+(window as any).__STORYFORGE_VERSION__ = '0.16.0';
 
 const queryClient = new QueryClient({
   defaultOptions: {

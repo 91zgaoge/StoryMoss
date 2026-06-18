@@ -291,9 +291,10 @@ impl PlanExecutor {
                     let step_start = std::time::Instant::now();
                     // v0.14.0: 单步超时 90 秒，防止某个 capability 卡死拖垮整个计划。
                     // 超时记为 step failed 但不中断后续批次（保持容错语义）。
-                    const STEP_TIMEOUT_SECS: u64 = 90;
+                    // v0.15.5: 从 AppConfig 读取，默认 90s
+                    let step_timeout_secs = crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default()).ok().map(|c| c.executor_step_timeout_secs).unwrap_or(90u64);
                     let result = match tokio::time::timeout(
-                        std::time::Duration::from_secs(STEP_TIMEOUT_SECS),
+                        std::time::Duration::from_secs(step_timeout_secs),
                         self.execute_step(&step, &resolved_params, plan_context),
                     )
                     .await
@@ -304,12 +305,12 @@ impl PlanExecutor {
                                 "[PlanExecutor] Step {} ({}) timed out after {}s",
                                 step.step_id,
                                 step.capability_id,
-                                STEP_TIMEOUT_SECS
+                                step_timeout_secs
                             );
                             Err(AppError::internal(format!(
                                 "步骤 {} 超时（{}秒）",
                                 Self::capability_display_name(&step.capability_id),
-                                STEP_TIMEOUT_SECS
+                                step_timeout_secs
                             )))
                         }
                     };

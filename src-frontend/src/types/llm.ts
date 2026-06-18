@@ -290,12 +290,37 @@ export interface AppSettings {
   // 写作策略配置
   writing_strategy: WritingStrategy;
 
+  // v0.16.0: 创作参数微调（已存在于 AppConfig，现在前端可修改）
+  skip_rewrite_threshold?: number;
+  style_weight?: number;
+  narrative_weight?: number;
+  context_budget_ratio?: number;
+  writer_local_concurrency?: number;
+  keep_revision_history?: boolean;
+  creation_workflow_review_threshold?: number;
+  creation_workflow_max_iterations?: number;
+
   // v0.14.3: AI 生成模式
   // - 'auto': 场景智能路由（续写 TimeSliced，重写 Full）— 推荐
   // - 'time_sliced': 强制分时模式（最快，单次 LLM 调用，30-60s）
   // - 'fast': 强制 Fast 模式（单次 LLM + 风格技能，约 60s）
   // - 'full': 强制 Full 模式（Writer + Inspector + Rewrite 闭环，2-5 分钟）
   generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full';
+
+  // v0.15.5: 超时配置
+  llm_connect_timeout_secs?: number;
+  smart_execute_total_timeout_secs?: number;
+  executor_step_timeout_secs?: number;
+  frontend_timeout_secs?: number;
+  llm_first_chunk_timeout_secs?: number;
+
+  // v0.16.0: 创作参数微调
+  skip_rewrite_threshold?: number;
+  style_weight?: number;
+  narrative_weight?: number;
+  context_budget_ratio?: number;
+  writer_local_concurrency?: number;
+  keep_revision_history?: boolean;
 }
 
 export interface WritingStrategy {
