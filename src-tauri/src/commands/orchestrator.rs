@@ -715,21 +715,24 @@ async fn smart_execute_inner(
     let result = executor
         .execute_with_context(&plan_context)
         .await
-        .map_err(|e| AppError::internal(format!("[smart_execute] Plan execution failed: {}", e)))?;
+        .map_err(|e| {
+            emit_progress("error", &format!("计划执行失败: {}", e), 5, 5);
+            AppError::internal(format!("[smart_execute] Plan execution failed: {}", e))
+        })?;
     log::info!(
         "[smart_execute] STEP 5/5 done in {:?}, total elapsed: {:?}",
         t5.elapsed(),
         t1.elapsed()
     );
-    emit_progress("completed", "创作计划执行完成", 5, 5);
-
-    // 如果计划执行失败（所有步骤都失败或没有内容/空内容），返回错误
+    // v0.15.2: 仅在实际成功时才发 completed，失败时发 error
+    // 修复 v0.15.0/v0.15.1 中"已完成"事件在失败前就发射的 bug
     let is_empty_content = result
         .final_content
         .as_ref()
         .map(|s| s.trim().is_empty())
         .unwrap_or(true);
     if !result.success || is_empty_content {
+        emit_progress("error", "创作计划未能生成有效内容", 5, 5);
         // 优先透传底层错误（如 LLM_TIMEOUT），让前端能展示"检查模型"等恢复动作
         if let Some(ref err) = result.error {
             return Err(err.clone());
@@ -747,6 +750,9 @@ async fn smart_execute_inner(
         };
         return Err(AppError::internal(error_msg));
     }
+
+    // 仅在真正成功时发射完成事件
+    emit_progress("completed", "创作计划执行完成", 5, 5);
 
     // Record AI operation for non-bootstrap generation
     if let Some(ref story_id) = story_id_for_record {
