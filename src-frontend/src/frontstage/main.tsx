@@ -11,7 +11,7 @@ import FrontstageApp from './FrontstageApp';
 import './styles/frontstage.css';
 
 // 注入版本号供诊断卡片使用
-(window as any).__STORYFORGE_VERSION__ = '0.15.0-alpha';
+(window as any).__STORYFORGE_VERSION__ = '0.15.0-beta';
 
 // React Query client
 const queryClient = new QueryClient({

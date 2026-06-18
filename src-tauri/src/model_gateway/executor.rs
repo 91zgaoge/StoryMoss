@@ -40,7 +40,7 @@ impl GatewayExecutor {
         self.probe_engine.registry()
     }
 
-    /// 选择候选模型链（结合健康权重）
+    /// 选择候选模型链（v0.15.0 三维打分：算力 50% + 偏好 30% + 适配 20%）
     pub fn select_candidates(
         &self,
         request: &GatewayRequest,
@@ -59,23 +59,16 @@ impl GatewayExecutor {
             .iter()
             .filter_map(|c| self.registry.get(&c.model_id).map(|m| (c.score, m)))
             .map(|(base_score, m)| {
-                let mut score = base_score + 0.0; // v0.15.0: deprecated, replaced by 3D scoring
-
-                // 健康权重
+                let mut score = base_score;
+                // v0.15.0 三维打分
+                // 健康状态约束
                 if let Some(ref h) = health {
                     if let Some(snapshot) = h.get(&m.id) {
                         match snapshot.status {
                             super::types::HealthStatus::Unhealthy => score -= 1000.0,
-                            super::types::HealthStatus::Degraded => score -= 50.0,
-                            super::types::HealthStatus::Healthy => {
-                                if let Some(tps) = snapshot.tps {
-                                    score += (tps / 100.0).min(20.0);
-                                }
-                            }
+                            super::types::HealthStatus::Degraded => score -= 20.0,
+                            super::types::HealthStatus::Unknown => score *= 0.5,
                             _ => {}
-                        }
-                        if let Some(ttfb) = snapshot.ttfb_ms {
-                            score -= (ttfb as f64 / 1000.0).min(30.0);
                         }
                     }
                 }
