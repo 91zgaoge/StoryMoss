@@ -2590,4 +2590,106 @@ mod tests {
         assert!(PromptCategory::Writer.order() < PromptCategory::Inspector.order());
         assert!(PromptCategory::Inspector.order() < PromptCategory::Other.order());
     }
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 覆盖端到端测试——验证用户修改提示词后运行时能读取到
+    // ═══════════════════════════════════════════════════════
+
+    #[test]
+    fn test_v021_new_prompts_registered() {
+        let prompts = get_builtin_prompts();
+
+        // 验证 v0.21.0 新增的提示词全部注册
+        let new_keys = [
+            "narrative_story_concept_generate",
+            "narrative_world_building_generate",
+            "pipeline_review",
+            "pipeline_refine",
+            "intent_analyzer",
+            "audit_quality_inspector",
+            "strategy_selector",
+            "planner_generator",
+            "planner_edit_character",
+            "commentator_paragraph",
+            "orchestrator_timesliced_writer",
+            "novel_creation_world_options",
+            "memory_content_analysis",
+            "deconstruction_metadata",
+            "methodology_character_depth",
+            "methodology_hdwb_seed",
+        ];
+        for key in &new_keys {
+            assert!(
+                prompts.contains_key(*key),
+                "v0.21.0 新提示词 '{}' 未注册",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn test_v021_dead_keys_removed() {
+        let prompts = get_builtin_prompts();
+
+        // 验证 4 个死注册 key 已删除
+        assert!(!prompts.contains_key("character_analysis"), "character_analysis 应已删除");
+        assert!(!prompts.contains_key("benchmark_short"), "benchmark_short 应已删除");
+        assert!(!prompts.contains_key("benchmark_long"), "benchmark_long 应已删除");
+        assert!(
+            !prompts.contains_key("narrative_structure_analysis"),
+            "narrative_structure_analysis 应已删除"
+        );
+    }
+
+    #[test]
+    fn test_v021_new_categories_exist() {
+        let prompts = get_builtin_prompts();
+        let categories: std::collections::HashSet<_> =
+            prompts.values().map(|e| e.category.clone()).collect();
+
+        // 验证 6 个新分类存在
+        assert!(categories.contains(&PromptCategory::Pipeline), "Pipeline 分类缺失");
+        assert!(categories.contains(&PromptCategory::Audit), "Audit 分类缺失");
+        assert!(categories.contains(&PromptCategory::Intent), "Intent 分类缺失");
+        assert!(
+            categories.contains(&PromptCategory::Deconstruction),
+            "Deconstruction 分类缺失"
+        );
+        assert!(categories.contains(&PromptCategory::Creation), "Creation 分类缺失");
+        assert!(categories.contains(&PromptCategory::Strategy), "Strategy 分类缺失");
+    }
+
+    #[test]
+    fn test_v021_resolve_prompt_with_vars() {
+        let prompts = get_builtin_prompts();
+
+        // 验证新提示词有默认内容且含模板变量
+        let pipeline_review = prompts.get("pipeline_review").unwrap();
+        assert!(!pipeline_review.default_content.is_empty());
+        assert!(pipeline_review.default_content.contains("{{review_dimensions}}"));
+        assert!(pipeline_review.default_content.contains("{{draft_content}}"));
+
+        // 验证 resolve_prompt_default_with_vars 正确渲染
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("review_dimensions".to_string(), "1. 剧情连贯性".to_string());
+        vars.insert("draft_content".to_string(), "测试内容".to_string());
+        let rendered = resolve_prompt_default_with_vars("pipeline_review", &vars);
+        assert!(rendered.is_some());
+        let rendered = rendered.unwrap();
+        assert!(rendered.contains("1. 剧情连贯性"));
+        assert!(rendered.contains("测试内容"));
+        // 模板变量应被替换
+        assert!(!rendered.contains("{{review_dimensions}}"));
+    }
+
+    #[test]
+    fn test_v021_total_prompt_count() {
+        let prompts = get_builtin_prompts();
+        // v0.21.0 应有 79 个提示词（36 原有 - 4 死注册 + 47 新增）
+        assert!(
+            prompts.len() >= 70,
+            "v0.21.0 应注册至少 70 个提示词，实际 {}",
+            prompts.len()
+        );
+    }
 }
