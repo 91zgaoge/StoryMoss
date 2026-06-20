@@ -8,19 +8,17 @@ use crate::error::AppError;
 
 use super::{
     graph::IntentionGraphRepository,
-    models::{ExecutionGraph, ExecutionGraphStatus},
+    models::ExecutionGraph,
 };
 
 /// 查询意图图诊断信息
+///
+/// 复用 setup 阶段注册的 IntentionGraphRepository（共享预热缓存）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_intention_graph_diagnostics(
     app_handle: AppHandle,
 ) -> Result<IntentionGraphDiagnostics, AppError> {
-    let pool = app_handle
-        .state::<crate::db::DbPool>()
-        .inner()
-        .clone();
-    let repo = IntentionGraphRepository::new(pool);
+    let repo = get_repo(&app_handle)?;
 
     let stats = repo.get_statistics()?;
     let recent_graphs = repo.get_recent_executions(10)?;
@@ -45,12 +43,7 @@ pub async fn get_execution_graph_detail(
     app_handle: AppHandle,
     graph_id: String,
 ) -> Result<Option<ExecutionGraph>, AppError> {
-    let pool = app_handle
-        .state::<crate::db::DbPool>()
-        .inner()
-        .clone();
-    let repo = IntentionGraphRepository::new(pool);
-
+    let repo = get_repo(&app_handle)?;
     repo.get_execution_graph(&graph_id)
 }
 
@@ -71,4 +64,12 @@ pub struct ExecutionSummary {
     pub user_input: String,
     pub status: String,
     pub created_at: String,
+}
+
+/// 获取共享的 IntentionGraphRepository（setup 阶段注册）
+fn get_repo(app_handle: &AppHandle) -> Result<IntentionGraphRepository, AppError> {
+    app_handle
+        .try_state::<IntentionGraphRepository>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| AppError::internal("IntentionGraphRepository not initialized".to_string()))
 }

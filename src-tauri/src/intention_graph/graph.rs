@@ -148,6 +148,7 @@ impl Default for InMemoryGraphCache {
 // ==================== SQLite 存储层 ====================
 
 /// 意图图 SQLite Repository
+#[derive(Clone)]
 pub struct IntentionGraphRepository {
     pool: DbPool,
     cache: Arc<InMemoryGraphCache>,

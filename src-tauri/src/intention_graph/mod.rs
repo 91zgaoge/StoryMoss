@@ -24,6 +24,7 @@ pub mod tests;
 
 pub use asset_sync::{AssetSyncEngine, SyncStats};
 pub use builder::{IntentSynthesisPipeline, SynthesizedQuery};
+#[allow(unused_imports)]
 pub use commands::{get_execution_graph_detail, get_intention_graph_diagnostics};
 pub use context::IntentContext;
 pub use models::{
@@ -32,5 +33,6 @@ pub use models::{
     IntentionNode, IntentSynthesisResult, IntentType, serialize_embedding,
 };
 pub use planner::IntentionGraphPlanner;
+#[allow(unused_imports)]
 pub use reactor::{DynamicReactor, ReActAction};
 pub use scorer::GraphScorer;

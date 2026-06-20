@@ -212,8 +212,8 @@ impl IntentionGraphPlanner {
         }
         intent_context.add_input(context.user_input.clone());
 
-        // 使用 rule-based 合成（非阻塞，无需 await）
-        let result = pipeline.synthesize_full(&context.user_input, &intent_context)?;
+        // v0.20.1: LLM 增强合成（失败时内部回退到规则匹配）
+        let result = pipeline.synthesize_full(&context.user_input, &intent_context).await?;
         Ok(result)
     }
 
@@ -280,7 +280,7 @@ impl IntentionGraphPlanner {
         steps.extend(agent_steps.clone());
 
         // 技能步骤添加对前一个 Agent 的依赖
-        for (i, mut skill_step) in skill_steps.into_iter().enumerate() {
+        for (_idx, mut skill_step) in skill_steps.into_iter().enumerate() {
             if !agent_steps.is_empty() {
                 let last_agent = &agent_steps[agent_steps.len() - 1];
                 skill_step.depends_on.push(last_agent.step_id.clone());
@@ -412,15 +412,28 @@ impl IntentionGraphPlanner {
     ///
     /// 这是 SING 动态执行的核心：计划不是静态的，而是在执行过程中
     /// 根据输出动态发现新意图和资产。
-    pub async fn execute_with_react(
+    /// 将 ExecutionPlan 转换为 ExecutionGraph 并运行动态 ReAct 循环
+    ///
+    /// 这是 SING 动态执行的核心：计划不是静态的，而是在执行过程中
+    /// 根据输出动态发现新意图和资产。
+    ///
+    /// v0.20.1: `invoke_fn` 回调让每个 Invoke 动作真正执行对应的 PlanStep，
+    /// 而非硬编码假输出。执行图在循环结束后持久化到数据库供诊断面板查询。
+    pub async fn execute_with_react<F, Fut>(
         &self,
         plan: &ExecutionPlan,
         request_id: &str,
-    ) -> Result<(Vec<ReActAction>, serde_json::Value), AppError> {
+        story_id: Option<&str>,
+        invoke_fn: F,
+    ) -> Result<(Vec<ReActAction>, serde_json::Value), AppError>
+    where
+        F: Fn(&str, &serde_json::Value) -> Fut,
+        Fut: std::future::Future<Output = Result<serde_json::Value, AppError>>,
+    {
         let mut graph = ExecutionGraph {
             id: format!("eg_{}", request_id),
             request_id: request_id.to_string(),
-            story_id: None,
+            story_id: story_id.map(|s| s.to_string()),
             user_input: plan.understanding.clone(),
             root_intention_id: None,
             status: ExecutionGraphStatus::Building,
@@ -435,8 +448,7 @@ impl IntentionGraphPlanner {
         let mut nodes: Vec<ExecutionNode> = plan
             .steps
             .iter()
-            .enumerate()
-            .map(|(i, step)| ExecutionNode {
+            .map(|step| ExecutionNode {
                 id: step.step_id.clone(),
                 graph_id: graph.id.clone(),
                 intention_id: Some(step.capability_id.clone()),
@@ -459,19 +471,41 @@ impl IntentionGraphPlanner {
         let reactor = DynamicReactor::new(20, 50);
         let mut actions = Vec::new();
         let mut iteration = 0;
+        let start = std::time::Instant::now();
 
         loop {
             let (action, should_continue) = reactor.step(&mut graph, &mut nodes, iteration)?;
             actions.push(action.clone());
 
             match &action {
-                ReActAction::Invoke { node_id, .. } => {
+                ReActAction::Invoke { node_id, parameters } => {
                     log::info!("[IntentionGraphPlanner] ReAct Invoke: {}", node_id);
-                    // 标记节点为已完成（实际执行由 PlanExecutor 处理）
+                    let node_start = std::time::Instant::now();
+
+                    // v0.20.1: 真正执行步骤——调用 invoke_fn 回调
+                    let exec_result = invoke_fn(node_id, parameters).await;
                     if let Some(node) = nodes.iter_mut().find(|n| n.id == *node_id) {
-                        node.status = ExecutionNodeStatus::Completed;
-                        node.outputs = Some(serde_json::json!({"status": "executed"}));
-                        node.completed_at = Some(chrono::Local::now());
+                        match exec_result {
+                            Ok(outputs) => {
+                                node.status = ExecutionNodeStatus::Completed;
+                                node.outputs = Some(outputs);
+                                node.execution_time_ms =
+                                    Some(node_start.elapsed().as_millis() as i64);
+                                node.completed_at = Some(chrono::Local::now());
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[IntentionGraphPlanner] Step {} failed: {}",
+                                    node_id,
+                                    e
+                                );
+                                node.status = ExecutionNodeStatus::Failed;
+                                node.outputs = Some(serde_json::json!({
+                                    "error": e.to_string()
+                                }));
+                                node.completed_at = Some(chrono::Local::now());
+                            }
+                        }
                     }
                 }
                 ReActAction::Discover { source_node_id, reason } => {
@@ -499,6 +533,25 @@ impl IntentionGraphPlanner {
         }
 
         let final_outputs = reactor.aggregate_outputs(&nodes);
+
+        // v0.20.1: 持久化执行图到数据库，供前端诊断面板查询
+        graph.status = ExecutionGraphStatus::Completed;
+        graph.completed_at = Some(chrono::Local::now());
+        graph.execution_time_ms = Some(start.elapsed().as_millis() as i64);
+        graph.result_json = Some(serde_json::to_string(&final_outputs).unwrap_or_default());
+
+        if let Some(ref repo) = self.graph_repo {
+            if let Err(e) = repo.create_execution_graph(&graph) {
+                log::warn!("[IntentionGraphPlanner] Failed to persist execution graph: {}", e);
+            }
+            // 持久化执行节点
+            for node in &nodes {
+                if let Err(e) = repo.create_execution_node(node) {
+                    log::warn!("[IntentionGraphPlanner] Failed to persist node {}: {}", node.id, e);
+                }
+            }
+        }
+
         Ok((actions, final_outputs))
     }
 
@@ -535,15 +588,22 @@ impl IntentionGraphPlanner {
 
 impl IntentionGraphPlanner {
     /// 从 AppHandle 和数据库连接创建规划器
+    ///
+    /// 优先复用 lib.rs setup 阶段注册的 IntentionGraphRepository（共享预热缓存），
+    /// 若不可用则降级为新建（空缓存，查询将回查 SQLite）。
     pub fn from_app_handle(app_handle: AppHandle) -> Result<Self, AppError> {
         let llm_service = LlmService::new(app_handle.clone());
         let mut planner = Self::new(llm_service, Some(app_handle.clone()));
 
-        // 尝试初始化图存储
-        if let Some(pool_state) = app_handle.try_state::<crate::db::DbPool>() {
+        // 优先复用 setup 阶段注册的 repository（共享预热 cache）
+        if let Some(repo_state) = app_handle.try_state::<IntentionGraphRepository>() {
+            planner = planner.with_graph_repo(repo_state.inner().clone());
+        } else if let Some(pool_state) = app_handle.try_state::<crate::db::DbPool>() {
+            // 降级：DbPool 可用但意图图未注册（理论上不会发生，setup 总会注册）
             let pool = pool_state.inner().clone();
             let graph_repo = IntentionGraphRepository::new(pool);
             planner = planner.with_graph_repo(graph_repo);
+            log::warn!("[IntentionGraphPlanner] IntentionGraphRepository not managed, created new instance (cache not warmed)");
         } else {
             log::warn!("[IntentionGraphPlanner] DbPool not available, intention graph disabled");
         }

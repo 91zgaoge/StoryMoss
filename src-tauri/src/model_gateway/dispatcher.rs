@@ -23,7 +23,17 @@ impl TaskClassifier {
     }
 
     /// 根据 GatewayRequest 判定任务复杂度类别（v0.15.0 核心）
+    ///
+    /// v0.20.1: 若请求携带 SING 意图（intent_verb + intent_object），
+    /// 优先使用 `classify_by_intention` 进行意图感知分类，实现从用户意图
+    /// 到模型复杂度的精确映射。否则回退到 TaskType + agent_id 分类。
     pub fn classify_task(req: &GatewayRequest) -> TaskClass {
+        // v0.20.1: SING 意图感知优先
+        let intent_verb = req.intent_verb.as_ref();
+        let intent_object = req.intent_object.as_ref();
+        if let (Some(verb), Some(object)) = (intent_verb, intent_object) {
+            return Self::classify_by_intention(verb.as_str(), object.as_str());
+        }
         let base = Self::classify_by_type(&req.task, &req.agent_id);
         Self::upgrade_by_size(base, req.estimated_input_tokens, req.max_tokens)
     }

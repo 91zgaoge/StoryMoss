@@ -109,6 +109,15 @@ pub struct GatewayRequest {
     /// 最大重试覆盖（可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_retries_override: Option<u32>,
+    /// v0.20.1: SING 意图动词（如 "generate"、"enhance"、"inspect"）
+    ///
+    /// 由 IntentionGraphPlanner 合成意图后注入，使模型网关能按意图分类路由。
+    /// None 时回退到 TaskType + agent_id 分类。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub intent_verb: Option<String>,
+    /// v0.20.1: SING 意图宾语（如 "prose"、"style"、"character"）
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub intent_object: Option<String>,
 }
 
 /// 网关层对路由决策的扩展：RoutingDecision 已包含候选链

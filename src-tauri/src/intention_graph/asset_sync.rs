@@ -141,7 +141,9 @@ impl AssetSyncEngine {
         for intent_text in intents {
             let parts: Vec<&str> = intent_text.splitn(2, ' ').collect();
             if parts.len() == 2 {
-                let intention = IntentionNode::atomic(parts[0], parts[1], &cap.when_to_use);
+                let mut intention = IntentionNode::atomic(parts[0], parts[1], &cap.when_to_use);
+                // v0.20.1: 为意图节点生成嵌入，使语义相似度匹配生效
+                intention.embedding = generate_embedding(&intention.description);
                 self.repo.create_intention(&intention)?;
 
                 // 建立意图 -> 资产边
@@ -181,7 +183,9 @@ impl AssetSyncEngine {
         for intent_text in default_intents {
             let parts: Vec<&str> = intent_text.splitn(2, ' ').collect();
             if parts.len() == 2 {
-                let intention = IntentionNode::atomic(parts[0], parts[1], &asset.description);
+                let mut intention = IntentionNode::atomic(parts[0], parts[1], &asset.description);
+                // v0.20.1: 为意图节点生成嵌入
+                intention.embedding = generate_embedding(&intention.description);
                 // 使用 UPSERT，避免重复创建
                 let _ = self.repo.create_intention(&intention);
 
@@ -216,7 +220,9 @@ impl AssetSyncEngine {
             for intent_text in intents {
                 let parts: Vec<&str> = intent_text.splitn(2, ' ').collect();
                 if parts.len() == 2 {
-                    let intention = IntentionNode::atomic(parts[0], parts[1], &agent.description);
+                    let mut intention = IntentionNode::atomic(parts[0], parts[1], &agent.description);
+                    // v0.20.1: 为意图节点生成嵌入
+                    intention.embedding = generate_embedding(&intention.description);
                     let _ = self.repo.create_intention(&intention);
 
                     let edge = IntentionAssetEdge {
@@ -277,6 +283,9 @@ fn capability_to_asset_node(cap: &Capability) -> AssetNode {
 
     let mut node = AssetNode::new(asset_type, &cap.name, &cap.description, Some(&cap.id));
     node.metadata = Some(serde_json::to_value(metadata).unwrap_or_default());
+    // v0.20.1: 生成语义嵌入，使 discover_tool_level 的描述匹配走余弦相似度
+    // 而非回退到 Jaccard 词重叠（修复审计报告 P1-4）
+    node.embedding = generate_embedding(&cap.description);
     node
 }
 
@@ -302,12 +311,14 @@ fn selectable_asset_to_asset_node(asset: &SelectableAsset) -> AssetNode {
         "output_description": asset.output_description,
         "payload": asset.payload,
     }));
+    // v0.20.1: 生成语义嵌入（修复审计报告 P1-4）
+    node.embedding = generate_embedding(&asset.description);
     node
 }
 
 /// 内置 Agent 资产定义
 fn builtin_agents() -> Vec<AssetNode> {
-    vec![
+    let mut agents = vec![
         AssetNode::new(
             AssetType::Agent,
             "writer",
@@ -332,12 +343,17 @@ fn builtin_agents() -> Vec<AssetNode> {
             "检查文本是否符合目标 Style DNA 的量化指标",
             Some("agent_style_checker"),
         ),
-    ]
+    ];
+    // v0.20.1: 为内置 Agent 生成语义嵌入
+    for agent in &mut agents {
+        agent.embedding = generate_embedding(&agent.description);
+    }
+    agents
 }
 
 /// 内置系统命令资产定义
 fn builtin_system_commands() -> Vec<AssetNode> {
-    vec![
+    let mut commands = vec![
         AssetNode::new(
             AssetType::SystemCommand,
             "create_chapter",
@@ -362,7 +378,12 @@ fn builtin_system_commands() -> Vec<AssetNode> {
             "将内容提取到知识图谱和向量索引",
             Some("cmd_ingest_content"),
         ),
-    ]
+    ];
+    // v0.20.1: 为内置系统命令生成语义嵌入
+    for cmd in &mut commands {
+        cmd.embedding = generate_embedding(&cmd.description);
+    }
+    commands
 }
 
 /// 从描述文本中提取意图关键词（简单启发式）
@@ -403,4 +424,24 @@ fn extract_intentions_from_description(description: &str) -> Vec<String> {
     intentions.dedup();
 
     intentions
+}
+
+/// 为文本生成语义嵌入向量
+///
+/// v0.20.1: 修复审计报告 P1-4——此前 AssetSyncEngine 不生成嵌入，
+/// 导致 discover_tool_level 的描述匹配退化为 Jaccard 词重叠。
+///
+/// 优先使用全局嵌入 provider（Ollama/OpenAI），失败时 graceful fallback
+/// 到本地 FNV-1a 哈希（embed_text 内部已处理）。
+fn generate_embedding(text: &str) -> Option<Vec<f32>> {
+    match crate::embeddings::embed_text(text) {
+        Ok(emb) => Some(emb),
+        Err(e) => {
+            log::debug!(
+                "[AssetSyncEngine] 嵌入生成失败（降级为 None，描述匹配将回退到文本相似度）: {}",
+                e
+            );
+            None
+        }
+    }
 }

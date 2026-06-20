@@ -414,6 +414,8 @@ impl LlmService {
             context_label: context_label.map(|s| s.to_string()),
             timeout_seconds_override,
             max_retries_override,
+            intent_verb: None,
+            intent_object: None,
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => return (req_id, Ok(resp)),

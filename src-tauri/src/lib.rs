@@ -666,6 +666,55 @@ pub fn run() {
                 log::warn!("[CapabilityRegistry] BUILTIN_MCP_SERVER busy, skip auto-register");
             }
 
+            // v0.20.1: 初始化 SING 意图图——将 CapabilityRegistry 和
+            // SelectableAsset 同步到意图-资产异构图。
+            // 修复审计报告 P0-1：此前 AssetSyncEngine 从未被调用，导致 6 张意图图表
+            // 永远为空，discover_server_level 返回空，generate_plan 静默回退。
+            if let Some(pool) = get_pool() {
+                let ig_repo = intention_graph::graph::IntentionGraphRepository::new(
+                    pool.clone(),
+                );
+                let sync_engine =
+                    intention_graph::asset_sync::AssetSyncEngine::new(ig_repo.clone());
+
+                // 收集已注册的 SelectableAsset（与上面 CapabilityRegistry 同源）
+                let genre_repo = db::GenreProfileRepository::new(pool.clone());
+                let skills = SKILL_MANAGER
+                    .get()
+                    .map(|m| m.lock().unwrap().get_all_skills())
+                    .unwrap_or_default();
+                let selectable_assets =
+                    strategy::load_all_assets(&genre_repo, &skills).unwrap_or_default();
+
+                match sync_engine.full_initialize(
+                    &capabilities::get_capability_registry(),
+                    &selectable_assets,
+                ) {
+                    Ok(stats) => {
+                        log::info!(
+                            "[IntentionGraph] 初始化完成: {} 能力, {} 可选资产, {} Agent, {} 系统命令, {} 资产边",
+                            stats.capabilities,
+                            stats.selectable_assets,
+                            stats.agents,
+                            stats.system_commands,
+                            stats.asset_edges
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("[IntentionGraph] 资产同步失败（意图图路径将降级到 PlanGenerator）: {}", e);
+                    }
+                }
+
+                // 预热内存缓存（加载所有意图/资产/边到内存加速查询）
+                if let Err(e) = ig_repo.warm_up_cache() {
+                    log::warn!("[IntentionGraph] warm_up_cache 失败: {}", e);
+                }
+
+                // 注册为 Tauri state，供 IntentionGraphPlanner::from_app_handle 复用
+                // （复用同一 cache 实例，避免每次请求重建图缓存）
+                app.manage(ig_repo);
+            }
+
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
             match config::AppConfig::load(&app_dir) {

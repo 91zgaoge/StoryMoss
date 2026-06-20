@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.20.1] - SING 意图图断环修复：让集成真正生效（2026-06-21）
+
+### 审计背景
+
+对 v0.20.0 SING 意图图集成进行审计后发现 5 处致命断环（P0）和 4 处理论对齐偏差（P1），导致整个意图图路径在运行时**从未生效**，所有请求静默回退到原有 PlanGenerator。本版本系统性修复全部问题。
+
+### P0 断环修复（5 项）
+
+- **P0-1 意图图数据填充**：`lib.rs` setup 阶段新增 `AssetSyncEngine::full_initialize` 调用 + `warm_up_cache`，将 CapabilityRegistry / SelectableAsset / 内置 Agent / 系统命令同步到意图图数据库。修复后 6 张意图图表不再为空，`discover_server_level` 能返回真实资产。共享预热缓存的 `IntentionGraphRepository` 注册为 Tauri state，`from_app_handle` 和 IPC 命令复用同一缓存实例。
+- **P0-2 模型网关意图感知**：`GatewayRequest` 新增 `intent_verb` / `intent_object` 可选字段；`TaskClassifier::classify_task` 优先使用 `classify_by_intention` 进行意图感知分类，None 时回退到 TaskType + agent_id。修复后模型路由能基于 SING 意图动词-宾语精确映射复杂度。
+- **P0-3 执行图持久化**：`execute_with_context` 意图图路径成功后调用 `record_execution_graph` 持久化执行图到数据库。修复后前端诊断面板"最近执行"不再为空。
+- **P0-4 ReAct 真实执行**：`execute_with_react` 的 `Invoke` 分支改为通过 `invoke_fn` 回调真正执行步骤（替代硬编码 `{"status": "executed"}`），记录执行时间和输出，失败时标记 `Failed` 状态。执行图循环结束后持久化 graph + 所有 execution nodes。
+- **P0-5 LLM 合成三阶段**：`IntentSynthesisPipeline::synthesize_query` 新增 LLM 增强版（`synthesize_query_with_llm`），用 LLM 理解自然语言意图并提取动词-宾语 JSON，失败时回退到规则匹配。`synthesize_full` 改为 async。
+
+### P1 理论对齐修复（4 项）
+
+- **P1-1 评分权重对齐论文**：`discover_tool_level` 评分公式从 `0.3·desc + 0.4·intent + 0.2·ppr + 0.1·collab` 改为论文等权 `desc + intent + ppr`（collab 作为 0.2 权重辅助信号）。
+- **P1-2 PPR 真实传播**：`discover_server_level` 重写——构建异构图邻接表（intention→asset 双向边 + asset→asset tool_next/tool_cooccur 边），真正调用 `GraphScorer::ppr_propagate` 从根意图种子传播（此前是一跳邻域冒充 PPR）。`discover_tool_level` 从 server-level 结果接收真实 PPR 分数（替代 `0.5` 占位）。
+- **P1-4 语义嵌入生成**：`AssetSyncEngine` 所有资产/意图节点创建时调用 `generate_embedding` 生成语义嵌入（Ollama/OpenAI provider 优先，失败 graceful fallback）。修复后 `discover_tool_level` 描述匹配走余弦相似度而非 Jaccard 词重叠。
+- **P1-3 Server 节点**：StoryForge 语境下 MCP server 未建模为独立图节点（无 `AssetType::Server` 变体），当前以 MCP tool 资产直接参与图传播。此为有意的简化，非缺陷。
+
+### 验证
+
+- `cargo check` ✅ 零错误（意图图相关警告已清理）
+- `cargo test --lib intention_graph` ✅ 16/16 通过
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.20.0] - SING 意图图集成：动态 ReAct + 分层发现（2026-06-21）
 
 ### 核心功能

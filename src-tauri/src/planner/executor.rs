@@ -111,6 +111,21 @@ impl PlanExecutor {
                         plan.steps.len(),
                         plan.understanding
                     );
+
+                    // v0.20.1: 持久化执行图到意图图数据库，供前端诊断面板查询。
+                    // 修复审计报告 P0-3：此前 record_execution_graph 从未被调用，
+                    // 导致诊断面板"最近执行"永远为空。
+                    let request_id = Uuid::new_v4().to_string();
+                    if let Err(e) = ig_planner.record_execution_graph(
+                        &request_id,
+                        context.current_story_id.as_deref(),
+                        &context.user_input,
+                        None,
+                        &serde_json::to_string(&plan).unwrap_or_default(),
+                    ).await {
+                        log::warn!("[PlanExecutor] Failed to record execution graph: {}", e);
+                    }
+
                     plan
                 }
                 Err(e) => {
