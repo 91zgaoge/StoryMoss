@@ -168,15 +168,27 @@ fn build_refine_prompt(
     _writing_style: Option<&str>,
     user_prompt: Option<&str>,
 ) -> String {
-    let mut prompt = format!(
-        "# 修稿专家\n\n你是一位资深小说编辑和文字大师。请对以下章节进行深度润色，提升其文学品质。\\
-         n\n## 修稿要求\n1. 修正语法错误、错别字、标点问题\n2. 优化句式，增强画面感和节奏感\n3. \
-         保持角色人设一致性\n4. 确保剧情逻辑通顺\n5. {}\n\n",
-        user_prompt.unwrap_or("请保持原有风格，只做必要的润色和优化。")
+    // v0.21.0: 系统提示词从 PromptRegistry 读取（支持用户覆盖）
+    let mut vars = std::collections::HashMap::new();
+    vars.insert(
+        "review_feedback".to_string(),
+        user_prompt.unwrap_or("请保持原有风格，只做必要的润色和优化。").to_string(),
     );
+    vars.insert("draft_content".to_string(), draft_content.to_string());
 
+    let mut prompt = if let Some(pool) = crate::get_pool() {
+        let tpl = crate::prompts::registry::resolve_prompt(&pool, "pipeline_refine")
+            .unwrap_or_else(|_| default_refine_prompt().to_string());
+        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+    } else {
+        let tpl = crate::prompts::registry::resolve_prompt_default("pipeline_refine")
+            .unwrap_or_else(|| default_refine_prompt().to_string());
+        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+    };
+
+    // 追加动态上下文（蓝图、角色信息）
     if let Some(bp) = blueprint {
-        prompt.push_str("## 本章蓝图\n");
+        prompt.push_str("\n## 本章蓝图\n");
         if let Some(role) = &bp.role {
             prompt.push_str(&format!("- 章节角色：{}\n", role));
         }
@@ -197,18 +209,32 @@ fn build_refine_prompt(
 
     if !characters.is_empty() {
         let names: Vec<String> = characters.iter().map(|c| c.name.clone()).collect();
-        prompt.push_str(&format!("## 出场角色\n{}\n\n", names.join(", ")));
+        prompt.push_str(&format!("## 出场角色\n{}\n", names.join(", ")));
     }
 
-    prompt.push_str("## 待修稿内容\n```\n");
-    prompt.push_str(draft_content);
-    prompt.push_str(
-        "\n```\n\n## \
-         输出要求\n直接输出修稿后的完整正文，不要解释修改原因，不要添加任何评论或分析。\
-         如果内容已经完美，可以原样返回。",
-    );
-
     prompt
+}
+
+/// 修稿系统提示词内置默认
+fn default_refine_prompt() -> &'static str {
+    r#"# 修稿专家
+
+你是一位资深小说编辑和文字大师。请对以下章节进行深度润色，提升其文学品质。
+
+## 修稿要求
+1. 修正语法错误、错别字、标点问题
+2. 优化句式，增强画面感和节奏感
+3. 保持角色人设一致性
+4. 确保剧情逻辑通顺
+5. {{review_feedback}}
+
+## 待修稿内容
+```
+{{draft_content}}
+```
+
+## 输出要求
+直接输出修稿后的完整正文，不要解释修改原因。如果内容已经完美，可以原样返回。"#
 }
 
 /// 计算两段文本的差异比例（简化版：基于行/字符差异）

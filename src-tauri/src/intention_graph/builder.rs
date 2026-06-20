@@ -26,6 +26,25 @@ impl IntentSynthesisPipeline {
         Self { llm_service }
     }
 
+    /// v0.21.0: 意图分析器内置默认提示词（registry 不可用时的最终回退）
+    fn default_intent_prompt() -> &'static str {
+        r#"你是一个意图分析器。分析用户的创作指令，提取核心意图。
+
+输出严格的 JSON 格式：
+{"verb": "<动词>", "object": "<宾语>", "confidence": <0.0-1.0>}
+
+动词必须是以下之一：generate, write, create, enhance, polish, revise, edit, inspect, check, analyze, plan, outline, structure, manage, update, query, search, fetch
+宾语必须是以下之一：prose, content, chapter, scene, story, style, character, world, outline, structure, quality, data, plot
+
+示例：
+- "续写" → {"verb": "generate", "object": "prose", "confidence": 0.9}
+- "润色这段文字" → {"verb": "enhance", "object": "style", "confidence": 0.85}
+- "检查角色一致性" → {"verb": "inspect", "object": "quality", "confidence": 0.8}
+- "修改主角设定" → {"verb": "manage", "object": "character", "confidence": 0.85}
+
+只输出 JSON，不要其他文字。"#
+    }
+
     /// 阶段一：Query Synthesis
     ///
     /// v0.20.1: 优先使用 LLM 理解用户自然语言意图，提取主意图动词-宾语。
@@ -61,21 +80,17 @@ impl IntentSynthesisPipeline {
         user_input: &str,
         _context: &IntentContext,
     ) -> Result<SynthesizedQuery, AppError> {
-        let system_prompt = r#"你是一个意图分析器。分析用户的创作指令，提取核心意图。
-
-输出严格的 JSON 格式：
-{"verb": "<动词>", "object": "<宾语>", "confidence": <0.0-1.0>}
-
-动词必须是以下之一：generate, write, create, enhance, polish, revise, edit, inspect, check, analyze, plan, outline, structure, manage, update, query, search, fetch
-宾语必须是以下之一：prose, content, chapter, scene, story, style, character, world, outline, structure, quality, data, plot
-
-示例：
-- "续写" → {"verb": "generate", "object": "prose", "confidence": 0.9}
-- "润色这段文字" → {"verb": "enhance", "object": "style", "confidence": 0.85}
-- "检查角色一致性" → {"verb": "inspect", "object": "quality", "confidence": 0.8}
-- "修改主角设定" → {"verb": "manage", "object": "character", "confidence": 0.85}
-
-只输出 JSON，不要其他文字。"#;
+        // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖），回退到内置默认
+        let system_prompt = if let Some(pool) = crate::get_pool() {
+            crate::prompts::registry::resolve_prompt(&pool, "intent_analyzer")
+                .unwrap_or_else(|_| {
+                    crate::prompts::registry::resolve_prompt_default("intent_analyzer")
+                        .unwrap_or_else(|| Self::default_intent_prompt().to_string())
+                })
+        } else {
+            crate::prompts::registry::resolve_prompt_default("intent_analyzer")
+                .unwrap_or_else(|| Self::default_intent_prompt().to_string())
+        };
 
         let user_prompt = format!(
             "{}\n\n用户指令：{}",

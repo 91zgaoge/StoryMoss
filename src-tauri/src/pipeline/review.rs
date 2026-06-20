@@ -186,11 +186,16 @@ fn build_review_prompt(
     review_focus: Option<&str>,
     config: &PipelineConfig,
 ) -> String {
-    let mut prompt = "# 审稿专家\n\n你是一位挑剔的读者、资深编辑和小说评论家。\
-                      请对以下章节进行全方位的质量评审。\n\n## 评审维度\n请对以下每个维度给出 \
-                      0-100 的评分和具体评价：\n"
-        .to_string();
+    // v0.21.0: 系统提示词骨架从 PromptRegistry 读取（支持用户覆盖）
+    let mut prompt = if let Some(pool) = crate::get_pool() {
+        crate::prompts::registry::resolve_prompt(&pool, "pipeline_review")
+            .unwrap_or_else(|_| default_review_system_prompt().to_string())
+    } else {
+        default_review_system_prompt().to_string()
+    };
 
+    // 构建评审维度描述（动态部分，保留在代码中）
+    let mut review_dimensions = String::new();
     for (i, dim) in config.review_dimensions.iter().enumerate() {
         let desc = match dim.as_str() {
             "continuity" => "与前文是否矛盾？伏笔是否呼应？时间线是否一致？",
@@ -201,9 +206,16 @@ fn build_review_prompt(
             "style" => "描写是否生动？对白是否自然？画面感强不强？",
             _ => "",
         };
-        prompt.push_str(&format!("{}. **{}**: {}\n", i + 1, dim, desc));
+        review_dimensions.push_str(&format!("{}. **{}**: {}\n", i + 1, dim, desc));
     }
 
+    // 渲染模板变量
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("review_dimensions".to_string(), review_dimensions);
+    vars.insert("draft_content".to_string(), draft_content.to_string());
+    prompt = crate::prompts::engine::TemplateEngine::render_with_conditions(&prompt, &vars);
+
+    // 追加动态上下文信息（非模板部分）
     if let Some(focus) = review_focus {
         prompt.push_str(&format!("\n## 审稿侧重点\n{}\n", focus));
     }
@@ -225,18 +237,38 @@ fn build_review_prompt(
         prompt.push('\n');
     }
 
-    prompt.push_str("\n## 待审稿内容\n```\n");
-    prompt.push_str(draft_content);
-    prompt.push_str(
-        "\n```\n\n## 输出格式（严格 JSON）\n```json\n{\n  \"overall_score\": 85,\n  \
-         \"dimensions\": [\n    {\"name\": \"剧情连贯性\", \"score\": 90, \"comment\": \"...\"}\n  \
-         ],\n  \"issues\": [\n    {\"severity\": \"high\", \"dimension\": \"角色一致性\", \
-         \"description\": \"...\", \"suggestion\": \"...\"}\n  ],\n  \"summary\": \
-         \"总体评价...\"\n}\n```\n\n注意：overall_score 是综合评分（0-100）；issues \
-         数组可以为空；severity 只能是 critical / high / medium / low。",
-    );
-
     prompt
+}
+
+/// 审稿系统提示词内置默认（registry 不可用时的回退）
+fn default_review_system_prompt() -> &'static str {
+    r#"# 审稿专家
+
+你是一位挑剔的读者、资深编辑和小说评论家。请对以下章节进行全方位的质量评审。
+
+## 评审维度
+请对以下每个维度给出 0-100 的评分和具体评价：
+{{review_dimensions}}
+
+## 待审稿内容
+```
+{{draft_content}}
+```
+
+## 输出格式（严格 JSON）
+```json
+{
+  "overall_score": 85,
+  "dimensions": [
+    {"name": "维度名", "score": 90, "comment": "评价"}
+  ],
+  "issues": [
+    {"severity": "high", "dimension": "维度", "description": "问题描述", "suggestion": "建议"}
+  ],
+  "summary": "总体评价"
+}
+```
+注意：overall_score 是综合评分（0-100）；issues 数组可以为空；severity 只能是 critical / high / medium / low。"#
 }
 
 /// 解析审稿 JSON（容错）

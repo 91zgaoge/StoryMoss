@@ -170,15 +170,22 @@ async fn run_chapter_notes(
         draft_content
     };
 
-    let prompt = format!(
-        r#"请阅读以下小说章节内容，提取核心剧情要点（3-5条）。每条要点用一句话概括，使用中文。
-
-章节内容：
-{}
-
-请仅输出要点列表，每条一行，以"- "开头。不要输出任何额外解释。"#,
-        content_preview
-    );
+    // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖）
+    let prompt = {
+        let tpl = if let Some(pool) = crate::get_pool() {
+            crate::prompts::registry::resolve_prompt(&pool, "pipeline_post_process_plot")
+                .unwrap_or_else(|_| {
+                    crate::prompts::registry::resolve_prompt_default("pipeline_post_process_plot")
+                        .unwrap_or_else(|| default_plot_extraction_prompt().to_string())
+                })
+        } else {
+            crate::prompts::registry::resolve_prompt_default("pipeline_post_process_plot")
+                .unwrap_or_else(|| default_plot_extraction_prompt().to_string())
+        };
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("content".to_string(), content_preview.to_string());
+        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+    };
 
     let notes = match llm_service
         .generate_for_task(
@@ -272,36 +279,22 @@ async fn run_character_cards(
     }
     let char_context = char_context_parts.join("\n");
 
-    let prompt = format!(
-        r#"你是一位专业的小说角色状态追踪器。请根据以下小说章节内容，分析每个出场角色的状态变化。
-
-角色档案（含当前状态）：
-{}
-
-本章内容（第{}章）：
-{}
-
-请严格按以下 JSON 格式输出每个角色的状态更新。只有状态确实发生变化的角色才需要包含在输出中。如果没有变化，输出空数组 []。
-
-输出格式示例：
-[
-  {{
-    "character_name": "角色名",
-    "location": "新位置（如有变化）",
-    "physical_state": "新的身体状态（如有变化）",
-    "mental_state": "新的心理状态（如有变化）",
-    "key_items": "新的持有物品（如有变化）",
-    "recent_events": "本章发生的关键事件（1-2句）"
-  }}
-]
-
-要求：
-1. 只输出 JSON 数组，不要任何额外文字
-2. 只包含状态确实发生变化的角色
-3. recent_events 必须概括角色在本章经历的关键事件
-4. 如果某个字段没有变化，不要包含该字段或设为 null"#,
-        char_context, chapter_number, content_preview
-    );
+    // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖）
+    let prompt = {
+        let tpl = if let Some(pool) = crate::get_pool() {
+            crate::prompts::registry::resolve_prompt(&pool, "pipeline_post_process_character_state")
+                .unwrap_or_else(|_| {
+                    crate::prompts::registry::resolve_prompt_default("pipeline_post_process_character_state")
+                        .unwrap_or_else(|| default_character_state_prompt().to_string())
+                })
+        } else {
+            crate::prompts::registry::resolve_prompt_default("pipeline_post_process_character_state")
+                .unwrap_or_else(|| default_character_state_prompt().to_string())
+        };
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("content".to_string(), content_preview.to_string());
+        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+    };
 
     let mut updated_count = 0;
 
@@ -513,4 +506,42 @@ async fn run_style_analysis(
     }
 
     Ok(())
+}
+
+/// v0.21.0: 剧情要点提取内置默认提示词
+fn default_plot_extraction_prompt() -> &'static str {
+    r#"请阅读以下小说章节内容，提取核心剧情要点（3-5条）。每条要点用一句话概括，使用中文。
+
+章节内容：
+{{content}}
+
+请仅输出要点列表，每条一行，以"- "开头。不要输出任何额外解释。"#
+}
+
+/// v0.21.0: 角色状态追踪内置默认提示词
+fn default_character_state_prompt() -> &'static str {
+    r#"你是一位专业的小说角色状态追踪器。请根据以下小说章节内容，分析每个出场角色的状态变化。
+
+章节内容：
+{{content}}
+
+请严格按以下 JSON 格式输出每个角色的状态更新。只有状态确实发生变化的角色才需要包含在输出中。如果没有变化，输出空数组 []。
+
+输出格式示例：
+[
+  {
+    "character_name": "角色名",
+    "location": "新位置（如有变化）",
+    "physical_state": "新的身体状态（如有变化）",
+    "mental_state": "新的心理状态（如有变化）",
+    "key_items": "新的持有物品（如有变化）",
+    "recent_events": "本章发生的关键事件（1-2句）"
+  }
+]
+
+要求：
+1. 只输出 JSON 数组，不要任何额外文字
+2. 只包含状态确实发生变化的角色
+3. recent_events 必须概括角色在本章经历的关键事件
+4. 如果某个字段没有变化，不要包含该字段或设为 null"#
 }

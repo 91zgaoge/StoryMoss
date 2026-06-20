@@ -41,6 +41,13 @@ pub enum PromptCategory {
     Character,   // 角色相关
     // 叙事与结构
     Narrative,   // 叙事结构/事件提取
+    // v0.21.0: 新增分类——覆盖此前旁路 registry 的硬编码提示词
+    Pipeline,       // 审稿/修稿/后处理流水线
+    Audit,          // 质量审计
+    Intent,         // 意图解析（SING/旧版）
+    Deconstruction, // 拆书分析
+    Creation,       // 创世流程（Genesis）
+    Strategy,       // 创作策略选择
     // 其他
     Other,
 }
@@ -62,6 +69,12 @@ impl PromptCategory {
             Self::World => "世界观与场景",
             Self::Character => "角色",
             Self::Narrative => "叙事结构",
+            Self::Pipeline => "流水线",
+            Self::Audit => "质量审计",
+            Self::Intent => "意图解析",
+            Self::Deconstruction => "拆书分析",
+            Self::Creation => "创世流程",
+            Self::Strategy => "策略选择",
             Self::Other => "其他",
         }
     }
@@ -82,6 +95,18 @@ impl PromptCategory {
             Self::World => "世界观构建、场景设计",
             Self::Character => "角色塑造、声音一致性",
             Self::Narrative => "叙事事件提取、结构分析",
+            Self::Pipeline => "审稿、修稿、后处理流水线提示词",
+            Self::Audit => "11 维度质量审计",
+            Self::Intent => "用户创作意图解析（SING 意图合成、旧版意图识别）",
+            Self::Deconstruction => "小说拆书分析（元数据/角色/章节/故事线提取）",
+            Self::Creation => "创世流程（Genesis）提示词——故事概念/世界观/角色/场景/大纲/伏笔",
+            Self::Strategy => "创作策略选择、资产选择",
+            Self::Pipeline => "审稿、修稿、后处理流水线提示词",
+            Self::Audit => "11 维度质量审计、深度评估",
+            Self::Intent => "用户意图解析（SING 意图合成、旧版意图路由）",
+            Self::Deconstruction => "小说拆书：元数据/角色/章节/故事线提取",
+            Self::Creation => "创世流程：故事概念/世界观/角色/场景/大纲/伏笔/故事线",
+            Self::Strategy => "创作策略选择、资产选择策略",
             Self::Other => "其他辅助提示词",
         }
     }
@@ -102,7 +127,13 @@ impl PromptCategory {
             Self::Knowledge => 11,
             Self::Probe => 12,
             Self::System => 13,
-            Self::Other => 14,
+            Self::Pipeline => 14,
+            Self::Audit => 15,
+            Self::Intent => 16,
+            Self::Deconstruction => 17,
+            Self::Creation => 18,
+            Self::Strategy => 19,
+            Self::Other => 20,
         }
     }
 }
@@ -1186,6 +1217,1127 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
         },
     );
 
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 创世流程 (Creation) — 从 narrative/prompts.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    macro_rules! reg_creation {
+        ($id:expr, $name:expr, $desc:expr, $content:expr, $vars:expr) => {
+            m.insert(
+                $id.to_string(),
+                PromptEntry {
+                    id: $id.to_string(),
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    category: PromptCategory::Creation,
+                    default_content: $content.to_string(),
+                    current_content: String::new(),
+                    is_overridden: false,
+                    variables: $vars,
+                },
+            );
+        };
+    }
+
+    reg_creation!(
+        "narrative_story_concept_generate",
+        "创世-故事概念生成",
+        "Bootstrap 第1步：根据用户创意生成故事概念（标题/题材/基调/节奏/主题）",
+        r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整的故事概念。
+
+用户输入："{{user_input}}"
+
+请用 JSON 格式回复：
+{
+  "title": "故事标题（有吸引力的中文标题）",
+  "description": "一句话简介（30-50字）",
+  "genre": "题材（如：都市玄幻、科幻、悬疑、古言）",
+  "tone": "文风基调（如：热血、暗黑、轻松、沉重）",
+  "pacing": "叙事节奏（如：快节奏、慢热、跌宕起伏）",
+  "themes": ["主题1", "主题2"],
+  "target_length": "预计篇幅（如：中篇30万字、长篇100万字）"
+}
+
+要求：
+1. 标题要有吸引力，避免俗套
+2. 简介要概括核心冲突和卖点
+3. 题材必须严格遵循用户输入中的要求
+4. 只输出 JSON"#,
+        vec!["user_input".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_world_building_generate",
+        "创世-世界观构建",
+        "Bootstrap 第2步：生成世界观设定（世界规则/历史/文化/地理）",
+        r#"你是一位世界观架构师。请基于以下故事概念，构建完整的世界观设定。
+
+故事标题：{{story_title}}
+题材：{{genre}}
+故事概念：{{story_description}}
+
+请用 JSON 格式回复：
+{
+  "world_rules": ["世界规则1", "世界规则2"],
+  "history": "历史背景概述",
+  "culture": "文化与社会结构",
+  "geography": "地理与环境",
+  "power_system": "力量/科技体系（如适用）"
+}
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "genre".to_string(), "story_description".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_outline_generate",
+        "创世-大纲生成",
+        "Bootstrap 第3步：生成三幕结构大纲",
+        r#"你是一位资深故事架构师。请基于以下设定，设计三幕结构的故事大纲。
+
+故事标题：{{story_title}}
+题材：{{genre}}
+世界观摘要：{{world_summary}}
+
+请用 JSON 格式回复：
+{
+  "acts": [
+    {
+      "act_number": 1,
+      "title": "第一幕标题",
+      "summary": "本幕摘要",
+      "key_events": ["关键事件1", "关键事件2"],
+      "estimated_scenes": 5
+    }
+  ]
+}
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "genre".to_string(), "world_summary".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_character_generate",
+        "创世-角色生成",
+        "Bootstrap 第4步：生成角色设定（性格/外貌/背景/动机）",
+        r#"你是一位角色设计师。请基于以下设定，创建主要角色。
+
+故事标题：{{story_title}}
+题材：{{genre}}
+大纲摘要：{{outline_summary}}
+
+请用 JSON 格式回复：
+{
+  "characters": [
+    {
+      "name": "角色名",
+      "role": "主角/配角/反派",
+      "personality": "性格特征",
+      "appearance": "外貌描写",
+      "background": "背景故事",
+      "motivation": "核心动机",
+      "goals": ["目标1", "目标2"]
+    }
+  ]
+}
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "genre".to_string(), "outline_summary".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_scene_generate",
+        "创世-场景生成",
+        "Bootstrap 第5步：生成场景规划",
+        r#"你是一位大纲规划师。请基于以下设定，规划第一章的场景结构。
+
+故事标题：{{story_title}}
+题材：{{genre}}
+角色列表：{{characters}}
+大纲摘要：{{outline_summary}}
+
+请用 JSON 格式回复：
+{
+  "scenes": [
+    {
+      "title": "场景标题",
+      "setting": "时间地点",
+      "characters_present": ["出场角色"],
+      "conflict": "本场景冲突",
+      "purpose": "叙事目的",
+      "atmosphere": "氛围描写"
+    }
+  ]
+}
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "genre".to_string(), "characters".to_string(), "outline_summary".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_foreshadowing_generate",
+        "创世-伏笔生成",
+        "Bootstrap 第6步：识别并埋设伏笔",
+        r#"你是一位资深编剧。请基于以下设定，设计3-5个核心伏笔。
+
+故事标题：{{story_title}}
+题材：{{genre}}
+大纲摘要：{{outline_summary}}
+场景列表：{{scenes}}
+
+请用 JSON 格式回复：
+{
+  "foreshadowings": [
+    {
+      "description": "伏笔描述",
+      "setup_scene": "埋设场景",
+      "payoff_hint": "回收提示",
+      "importance": "high/medium/low"
+    }
+  ]
+}
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "genre".to_string(), "outline_summary".to_string(), "scenes".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_story_concept_extract",
+        "拆书-故事概念提取",
+        "AnalysisPipeline：从小说文本提取故事基本信息",
+        r#"你是一位资深小说编辑。请从以下小说文本中，提取故事的基本信息。
+
+文本片段：
+{{text}}
+
+请用 JSON 格式回复：
+{
+  "title": "故事标题",
+  "description": "一句话简介",
+  "genre": "题材",
+  "tone": "文风基调",
+  "pacing": "叙事节奏"
+}
+只输出 JSON。"#,
+        vec!["text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_world_building_extract",
+        "拆书-世界观提取",
+        "AnalysisPipeline：从小说文本提取世界观设定",
+        r#"你是一位世界观架构师。请从以下小说文本中，提取世界观设定。
+
+标题：{{title}}
+题材：{{genre}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 world_rules/history/culture/geography 字段。
+只输出 JSON。"#,
+        vec!["title".to_string(), "genre".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_character_extract",
+        "拆书-角色提取",
+        "AnalysisPipeline：从小说文本提取角色信息",
+        r#"你是一位角色设计师。请从以下小说文本中，提取所有角色信息。
+
+标题：{{title}}
+题材：{{genre}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 characters 数组，每个角色含 name/role/personality/appearance/background/motivation。
+只输出 JSON。"#,
+        vec!["title".to_string(), "genre".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_scene_extract",
+        "拆书-场景提取",
+        "AnalysisPipeline：从小说文本提取场景信息",
+        r#"你是一位大纲规划师。请从以下小说文本中，提取场景结构。
+
+标题：{{title}}
+题材：{{genre}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 scenes 数组。
+只输出 JSON。"#,
+        vec!["title".to_string(), "genre".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_outline_extract",
+        "拆书-大纲提取",
+        "AnalysisPipeline：从小说文本提取故事大纲",
+        r#"你是一位资深故事架构师。请从以下小说文本中，推断故事大纲。
+
+标题：{{title}}
+题材：{{genre}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 acts 数组（三幕结构）。
+只输出 JSON。"#,
+        vec!["title".to_string(), "genre".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_foreshadowing_extract",
+        "拆书-伏笔提取",
+        "AnalysisPipeline：从小说文本识别伏笔",
+        r#"你是一位资深编剧。请从以下小说文本中，识别已有的伏笔。
+
+标题：{{title}}
+题材：{{genre}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 foreshadowings 数组。
+只输出 JSON。"#,
+        vec!["title".to_string(), "genre".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_story_arc_extract",
+        "拆书-故事线提取",
+        "AnalysisPipeline：从小说文本提取故事线/弧光",
+        r#"你是一位故事结构专家。请从以下小说文本中，提取故事线。
+
+标题：{{title}}
+文本片段：
+{{text}}
+
+请用 JSON 格式回复，包含 story_arcs 数组，每个弧光含 title/summary/key_events。
+只输出 JSON。"#,
+        vec!["title".to_string(), "text".to_string()]
+    );
+
+    reg_creation!(
+        "narrative_story_arc_generate",
+        "创世-故事线生成",
+        "Bootstrap：生成故事线/弧光",
+        r#"你是一位故事结构专家。请基于以下设定，设计故事线。
+
+故事标题：{{story_title}}
+大纲摘要：{{outline_summary}}
+
+请用 JSON 格式回复，包含 story_arcs 数组。
+只输出 JSON。"#,
+        vec!["story_title".to_string(), "outline_summary".to_string()]
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 流水线 (Pipeline) — 从 pipeline/*.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    macro_rules! reg_pipeline {
+        ($id:expr, $name:expr, $desc:expr, $content:expr, $vars:expr) => {
+            m.insert(
+                $id.to_string(),
+                PromptEntry {
+                    id: $id.to_string(),
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    category: PromptCategory::Pipeline,
+                    default_content: $content.to_string(),
+                    current_content: String::new(),
+                    is_overridden: false,
+                    variables: $vars,
+                },
+            );
+        };
+    }
+
+    reg_pipeline!(
+        "pipeline_review",
+        "审稿专家",
+        "Pipeline 审稿阶段：对章节进行全方位质量评审（多维度评分+问题清单）",
+        r#"# 审稿专家
+
+你是一位挑剔的读者、资深编辑和小说评论家。请对以下章节进行全方位的质量评审。
+
+## 评审维度
+请对以下每个维度给出 0-100 的评分和具体评价：
+{{review_dimensions}}
+
+## 待审稿内容
+```
+{{draft_content}}
+```
+
+## 输出格式（严格 JSON）
+```json
+{
+  "overall_score": 85,
+  "dimensions": [
+    {"name": "维度名", "score": 90, "comment": "评价"}
+  ],
+  "issues": [
+    {"severity": "high", "dimension": "维度", "description": "问题描述", "suggestion": "修改建议"}
+  ],
+  "summary": "总体评价"
+}
+```
+只输出 JSON。"#,
+        vec!["review_dimensions".to_string(), "draft_content".to_string()]
+    );
+
+    reg_pipeline!(
+        "pipeline_refine",
+        "修稿专家",
+        "Pipeline 修稿阶段：根据审稿反馈对章节进行深度润色",
+        r#"# 修稿专家
+
+你是一位资深小说编辑和文字大师。请对以下章节进行深度润色。
+
+## 审稿反馈
+{{review_feedback}}
+
+## 原文
+```
+{{draft_content}}
+```
+
+## 润色要求
+1. 修正审稿指出的问题
+2. 提升文字表现力和文学性
+3. 保持原文情节和角色不变
+4. 只输出润色后的正文
+
+请直接输出修改后的小说正文，不要添加解释。"#,
+        vec!["review_feedback".to_string(), "draft_content".to_string()]
+    );
+
+    reg_pipeline!(
+        "pipeline_post_process_plot",
+        "后处理-剧情要点提取",
+        "Pipeline 后处理：从章节内容提取剧情要点",
+        r#"请基于以下场景正文，提取故事的核心要素。只提取正文中明确出现或强烈暗示的信息，不要推测。
+
+场景正文：
+{{content}}
+
+请用 JSON 格式回复：
+{
+  "key_events": ["关键事件1", "关键事件2"],
+  "character_changes": [{"character": "角色名", "change": "状态变化"}],
+  "new_information": ["新信息1"]
+}
+只输出 JSON。"#,
+        vec!["content".to_string()]
+    );
+
+    reg_pipeline!(
+        "pipeline_post_process_character_state",
+        "后处理-角色状态追踪",
+        "Pipeline 后处理：追踪角色状态变化",
+        r#"你是一位专业的小说角色状态追踪器。请根据以下小说章节内容，分析每个出场角色的状态变化。
+
+章节内容：
+{{content}}
+
+请用 JSON 格式回复：
+{
+  "character_states": [
+    {
+      "character": "角色名",
+      "location": "当前位置",
+      "emotion": "情感状态",
+      "status": "物理状态（健康/受伤/死亡等）",
+      "relationships_changed": "关系变化描述"
+    }
+  ]
+}
+只输出 JSON。"#,
+        vec!["content".to_string()]
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 意图解析 (Intent) — 从 intention_graph/builder.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "intent_analyzer".to_string(),
+        PromptEntry {
+            id: "intent_analyzer".to_string(),
+            name: "SING 意图分析器".to_string(),
+            description: "IntentionGraphPlanner 意图合成：从用户创作指令提取动词-宾语-置信度".to_string(),
+            category: PromptCategory::Intent,
+            default_content: r#"你是一个意图分析器。分析用户的创作指令，提取核心意图。
+
+输出严格的 JSON 格式：
+{"verb": "<动词>", "object": "<宾语>", "confidence": <0.0-1.0>}
+
+动词必须是以下之一：generate, write, create, enhance, polish, revise, edit, inspect, check, analyze, plan, outline, structure, manage, update, query, search, fetch
+宾语必须是以下之一：prose, content, chapter, scene, story, style, character, world, outline, structure, quality, data, plot
+
+示例：
+- "续写" → {"verb": "generate", "object": "prose", "confidence": 0.9}
+- "润色这段文字" → {"verb": "enhance", "object": "style", "confidence": 0.85}
+- "检查角色一致性" → {"verb": "inspect", "object": "quality", "confidence": 0.8}
+- "修改主角设定" → {"verb": "manage", "object": "character", "confidence": 0.85}
+
+只输出 JSON，不要其他文字。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![],
+        },
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 质量审计 (Audit) — 从 task_system/audit_executor.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "audit_quality_inspector".to_string(),
+        PromptEntry {
+            id: "audit_quality_inspector".to_string(),
+            name: "11 维度质量审计".to_string(),
+            description: "AuditExecutor 后台审计：对正文进行 11 维度质量审计".to_string(),
+            category: PromptCategory::Audit,
+            default_content: r#"你是一名严苛的专业小说编辑。请对以下正文片段进行 11 维度质量审计。
+
+正文片段：
+{{content}}
+
+请对以下 11 个维度逐一评分（0-100）并给出具体评价：
+1. 剧情连贯性（与前文是否矛盾）
+2. 逻辑合理性（因果/动机/世界观一致性）
+3. 角色一致性（人设/能力/位置/情感）
+4. 伏笔处理（埋设/回收/呼应）
+5. 叙事节奏（张弛/拖沓/跳跃）
+6. 文字风格（描写/对白/画面感）
+7. 情感深度（感染力/共鸣）
+8. 冲突张力（戏剧性/悬念）
+9. 场景构建（环境/氛围/沉浸感）
+10. 主题表达（思想深度/隐喻）
+11. 可读性（流畅度/信息密度）
+
+请用 JSON 格式回复：
+{
+  "overall_score": 85,
+  "dimensions": [
+    {"name": "维度名", "score": 90, "comment": "评价", "issues": ["问题1"]}
+  ],
+  "critical_issues": ["严重问题1"],
+  "suggestions": ["改进建议1"]
+}
+只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["content".to_string()],
+        },
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 策略选择 (Strategy) — 从 strategy/selector.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "strategy_selector".to_string(),
+        PromptEntry {
+            id: "strategy_selector".to_string(),
+            name: "创作策略选择器".to_string(),
+            description: "StrategySelector：根据故事上下文选择最优创作策略和资产组合".to_string(),
+            category: PromptCategory::Strategy,
+            default_content: r#"You are a creative strategy selector for a Chinese web-novel writing assistant.
+
+Based on the story context, select the optimal creative strategy.
+
+Story context:
+{{context}}
+
+Available strategies and assets:
+{{available_assets}}
+
+Please respond in JSON:
+{
+  "selected_strategy": "strategy_name",
+  "reasoning": "选择理由",
+  "asset_combination": ["asset1", "asset2"],
+  "parameters": {
+    "temperature": 0.8,
+    "max_tokens": 2500
+  }
+}
+Output JSON only."#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["context".to_string(), "available_assets".to_string()],
+        },
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 拆书分析 (Deconstruction) — 从 book_deconstruction/analyzer.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    macro_rules! reg_deconstruction {
+        ($id:expr, $name:expr, $desc:expr, $content:expr, $vars:expr) => {
+            m.insert(
+                $id.to_string(),
+                PromptEntry {
+                    id: $id.to_string(),
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    category: PromptCategory::Deconstruction,
+                    default_content: $content.to_string(),
+                    current_content: String::new(),
+                    is_overridden: false,
+                    variables: $vars,
+                },
+            );
+        };
+    }
+
+    reg_deconstruction!(
+        "deconstruction_metadata",
+        "拆书-元数据提取",
+        "从小说开头提取基本信息（标题/作者/题材/字数）",
+        r#"请分析以下小说开头，提取基本信息。只输出 JSON。
+{
+  "title": "书名",
+  "author": "作者（如能识别）",
+  "genre": "题材",
+  "language": "语言",
+  "estimated_length": "预估总字数"
+}
+
+小说开头：
+{{text}}"#,
+        vec!["text".to_string()]
+    );
+
+    reg_deconstruction!(
+        "deconstruction_world_building",
+        "拆书-世界观提取",
+        "从小说章节提取世界观设定",
+        r#"请分析以下小说章节，提取世界观设定。只输出 JSON。
+{
+  "world_rules": ["规则1"],
+  "history": "历史背景",
+  "culture": "文化设定",
+  "geography": "地理设定"
+}
+
+小说章节：
+{{text}}"#,
+        vec!["text".to_string()]
+    );
+
+    reg_deconstruction!(
+        "deconstruction_characters",
+        "拆书-角色提取",
+        "从小说章节提取所有出现的人物角色",
+        r#"请分析以下小说章节，提取所有出现的人物角色。只输出 JSON。
+{
+  "characters": [
+    {"name": "角色名", "role": "主角/配角/反派", "personality": "性格", "appearance": "外貌", "background": "背景"}
+  ]
+}
+
+小说章节：
+{{text}}"#,
+        vec!["text".to_string()]
+    );
+
+    reg_deconstruction!(
+        "deconstruction_chapter_summary",
+        "拆书-章节总结",
+        "总结小说章节的情节要点",
+        r#"请总结以下小说章节的情节要点。只输出 JSON。
+{
+  "chapter_title": "章节标题（如有）",
+  "summary": "章节摘要（100-200字）",
+  "key_events": ["关键事件1", "关键事件2"],
+  "cliffhanger": "章末悬念（如有）"
+}
+
+小说章节：
+{{text}}"#,
+        vec!["text".to_string()]
+    );
+
+    reg_deconstruction!(
+        "deconstruction_story_arc",
+        "拆书-故事线提取",
+        "从多章节内容提取故事线和情节发展",
+        r#"请基于以下多章节内容，提取故事线和情节发展。只输出 JSON。
+{
+  "story_arcs": [
+    {"title": "故事线标题", "start_chapter": 1, "summary": "故事线摘要", "resolution": "解决方式（未解决/已解决）"}
+  ]
+}
+
+章节内容：
+{{text}}"#,
+        vec!["text".to_string()]
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: PlanGenerator + 编辑器 — 从 planner/*.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "planner_generator".to_string(),
+        PromptEntry {
+            id: "planner_generator".to_string(),
+            name: "PlanGenerator 计划生成器".to_string(),
+            description: "PlanGenerator：根据用户输入+能力清单生成执行计划（21条规则）".to_string(),
+            category: PromptCategory::Planner,
+            default_content: r#"You are an intelligent orchestrator for a creative writing application.
+
+Your task is to analyze the user's request and generate an execution plan using the available capabilities.
+
+## Available Capabilities
+{{capabilities}}
+
+## User Request
+{{user_input}}
+
+## Story Context
+{{story_context}}
+
+## Rules
+1. Understand the user's intent from natural language
+2. Select appropriate capabilities from the list above
+3. Generate a step-by-step execution plan
+4. Each step should have clear inputs and expected outputs
+5. Steps can depend on previous steps' outputs
+6. Prefer fewer, high-impact steps over many trivial ones
+7. For writing tasks, always include quality inspection
+8. For revision tasks, include style checking
+9. Consider story context (characters, world, foreshadowing)
+10. Use MCP tools when external information is needed
+11. Use skills when style/character/emotion enhancement is needed
+12. Respect methodology settings (snowflake/hero journey/scene structure)
+13. Inject writing strategy constraints
+14. Consider narrative phase detection
+15. Check foreshadowing tracking
+16. Manage character consistency
+17. Update knowledge graph after content changes
+18. Trigger ingest pipeline after writing
+19. Handle bootstrap (new story creation) specially
+20. Support time-sliced generation mode
+21. Fall back gracefully when capabilities are unavailable
+
+## Output Format (strict JSON)
+{
+  "understanding": "对用户意图的理解",
+  "steps": [
+    {
+      "step_id": "step_1",
+      "capability_id": "capability_name",
+      "parameters": {},
+      "depends_on": [],
+      "description": "步骤描述"
+    }
+  ]
+}
+Output JSON only."#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["capabilities".to_string(), "user_input".to_string(), "story_context".to_string()],
+        },
+    );
+
+    m.insert(
+        "planner_edit_character".to_string(),
+        PromptEntry {
+            id: "planner_edit_character".to_string(),
+            name: "角色属性编辑".to_string(),
+            description: "PlanExecutor：根据用户修改要求为角色生成新属性值".to_string(),
+            category: PromptCategory::Character,
+            default_content: r#"你是一位角色编辑助手。请根据用户的修改要求，为角色生成新的属性值。
+
+角色名：{{character_name}}
+当前属性：{{current_attributes}}
+用户要求：{{user_request}}
+
+请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["character_name".to_string(), "current_attributes".to_string(), "user_request".to_string()],
+        },
+    );
+
+    m.insert(
+        "planner_edit_world".to_string(),
+        PromptEntry {
+            id: "planner_edit_world".to_string(),
+            name: "世界观编辑".to_string(),
+            description: "PlanExecutor：根据用户修改要求生成新的世界观设定".to_string(),
+            category: PromptCategory::World,
+            default_content: r#"你是一位世界观编辑助手。请根据用户的修改要求，生成新的世界观设定。
+
+当前世界观：{{current_world}}
+用户要求：{{user_request}}
+
+请用 JSON 格式回复更新后的世界观设定。只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["current_world".to_string(), "user_request".to_string()],
+        },
+    );
+
+    m.insert(
+        "planner_edit_scene".to_string(),
+        PromptEntry {
+            id: "planner_edit_scene".to_string(),
+            name: "场景编辑".to_string(),
+            description: "PlanExecutor：根据用户修改要求生成新的场景属性".to_string(),
+            category: PromptCategory::World,
+            default_content: r#"你是一位场景编辑助手。请根据用户的修改要求，生成新的场景属性。
+
+当前场景：{{current_scene}}
+用户要求：{{user_request}}
+
+请用 JSON 格式回复更新后的场景属性。只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["current_scene".to_string(), "user_request".to_string()],
+        },
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: Agents — 从 agents/*.rs 接入旁路提示词
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "commentator_paragraph".to_string(),
+        PromptEntry {
+            id: "commentator_paragraph".to_string(),
+            name: "段落评点（金圣叹式）".to_string(),
+            description: "agents/commentator.rs：对单个小说段落进行金圣叹风格评点".to_string(),
+            category: PromptCategory::Commentator,
+            default_content: r#"你是一位中国古典小说评点家，风格类似金圣叹。请对以下小说段落进行简短点评。
+
+段落内容：
+{{paragraph}}
+
+要求：
+1. 点评要精炼，1-3句话
+2. 可点评遣词造句、人物刻画、情节设计、意境营造
+3. 用古典文风，但不要晦涩
+4. 以「※」开头
+
+请直接输出评点内容。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["paragraph".to_string()],
+        },
+    );
+
+    m.insert(
+        "orchestrator_timesliced_writer".to_string(),
+        PromptEntry {
+            id: "orchestrator_timesliced_writer".to_string(),
+            name: "TimeSliced Writer 正文生成".to_string(),
+            description: "AgentOrchestrator：时分模式下单次 Writer 正文生成（800-1500字）".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。
+
+故事上下文：
+{{context}}
+
+写作指令：
+{{instruction}}
+
+要求：
+1. 只输出小说正文
+2. 保持与已有内容的自然衔接
+3. 符合角色性格和世界观设定"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["context".to_string(), "instruction".to_string()],
+        },
+    );
+
+    macro_rules! reg_creation_agent {
+        ($id:expr, $name:expr, $desc:expr, $content:expr) => {
+            m.insert(
+                $id.to_string(),
+                PromptEntry {
+                    id: $id.to_string(),
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    category: PromptCategory::Creation,
+                    default_content: $content.to_string(),
+                    current_content: String::new(),
+                    is_overridden: false,
+                    variables: vec!["count".to_string(), "input".to_string()],
+                },
+            );
+        };
+    }
+
+    reg_creation_agent!(
+        "novel_creation_world_options",
+        "创世向导-世界观选项",
+        "NovelCreationAgent：生成多个世界观概念供用户选择",
+        r#"作为一位资深世界观设计师，请基于以下用户输入，创建{{count}}个独特的世界观概念。
+
+用户输入：{{input}}
+
+请用 JSON 格式回复，包含 concepts 数组。只输出 JSON。"#
+    );
+
+    reg_creation_agent!(
+        "novel_creation_character_roster",
+        "创世向导-角色谱生成",
+        "NovelCreationAgent：生成多组角色配置供用户选择",
+        r#"作为一位角色设计专家，请基于以下世界观，创建{{count}}组不同的角色配置。
+
+世界观：{{input}}
+
+请用 JSON 格式回复，包含 rosters 数组。只输出 JSON。"#
+    );
+
+    reg_creation_agent!(
+        "novel_creation_writing_style",
+        "创世向导-文字风格",
+        "NovelCreationAgent：生成多种文字风格供用户选择",
+        r#"作为一位资深文学编辑，请基于以下小说类型和世界观，创建{{count}}种不同的文字风格。
+
+类型与世界观：{{input}}
+
+请用 JSON 格式回复，包含 styles 数组。只输出 JSON。"#
+    );
+
+    reg_creation_agent!(
+        "novel_creation_opening_scene",
+        "创世向导-开场场景",
+        "NovelCreationAgent：设计开场场景",
+        r#"作为一位场景设计专家，请基于以下设定，设计一个开场场景。
+
+设定：{{input}}
+
+请用 JSON 格式回复场景详情。只输出 JSON。"#
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 记忆 (Memory) — 从 memory/ingest.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "memory_content_analysis".to_string(),
+        PromptEntry {
+            id: "memory_content_analysis".to_string(),
+            name: "小说内容结构化分析".to_string(),
+            description: "IngestPipeline：深入分析小说内容，提取结构化信息".to_string(),
+            category: PromptCategory::Memory,
+            default_content: r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
+
+小说内容：
+{{content}}
+
+请用 JSON 格式回复：
+{
+  "entities": [{"name": "实体名", "type": "类型", "description": "描述"}],
+  "relations": [{"source": "实体1", "target": "实体2", "relation": "关系"}],
+  "events": [{"description": "事件描述", "participants": ["参与者"]}],
+  "summary": "内容摘要"
+}
+只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["content".to_string()],
+        },
+    );
+
+    m.insert(
+        "memory_knowledge_generation".to_string(),
+        PromptEntry {
+            id: "memory_knowledge_generation".to_string(),
+            name: "知识库条目生成".to_string(),
+            description: "IngestPipeline：从内容生成知识图谱条目".to_string(),
+            category: PromptCategory::Knowledge,
+            default_content: r#"请从以下小说内容中提取知识图谱条目。
+
+内容：
+{{content}}
+
+请用 JSON 格式回复：
+{
+  "entities": [{"id": "实体ID", "name": "名称", "type": "类型", "properties": {}}],
+  "relations": [{"source": "实体ID", "target": "实体ID", "type": "关系类型", "weight": 1.0}]
+}
+只输出 JSON。"#.to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["content".to_string()],
+        },
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 创作方法论 (Methodology) — 从 creative_engine/methodology/*.rs 接入
+    // ═══════════════════════════════════════════════════════
+
+    macro_rules! reg_methodology {
+        ($id:expr, $name:expr, $desc:expr, $content:expr, $vars:expr) => {
+            m.insert(
+                $id.to_string(),
+                PromptEntry {
+                    id: $id.to_string(),
+                    name: $name.to_string(),
+                    description: $desc.to_string(),
+                    category: PromptCategory::Methodology,
+                    default_content: $content.to_string(),
+                    current_content: String::new(),
+                    is_overridden: false,
+                    variables: $vars,
+                },
+            );
+        };
+    }
+
+    reg_methodology!(
+        "methodology_character_depth",
+        "人物深度六维模型",
+        "MethodologyEngine：人物深度 system_prompt_extension（六维度塑造角色）",
+        r#"你必须遵循人物深度模型塑造角色：
+
+每个主要角色必须有以下六个维度的刻画：
+1. 外在特征——外貌、习惯动作、标志性物品
+2. 内在性格—— temperament、决策风格、价值取向
+3. 社会关系——与他人的互动模式、社会角色
+4. 心理动机——核心欲望、恐惧、执念
+5. 成长弧光——起点状态、转变契机、终点状态
+6. 矛盾张力——角色内在矛盾、外在冲突
+
+写作时自然融入这六个维度，不要生硬罗列。"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_character_analysis",
+        "人物深度-角色分析格式",
+        "MethodologyEngine：角色分析输出格式",
+        r#"在续写内容之后，请用以下格式标注角色深度：
+【角色深度标注】
+角色名：
+- 外在特征：...
+- 内在性格：...
+- 社会关系：...
+- 心理动机：...
+- 成长弧光：...
+- 矛盾张力：..."#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_hero_journey",
+        "英雄之旅结构",
+        "MethodologyEngine：英雄之旅 12 阶段 system_prompt_extension",
+        r#"你正在使用英雄之旅结构进行创作。
+
+英雄之旅包含 12 个阶段：
+1. 平凡世界  2. 冒险召唤  3. 拒绝召唤  4. 导师指引
+5. 跨越门槛  6. 敌人盟友  7. 接近深渊  8. 严峻考验
+9. 获得奖赏  10. 归途  11. 复活  12. 带着灵药归来
+
+当前阶段：{{current_stage}}
+请在续写内容中体现该阶段的要素。"#,
+        vec!["current_stage".to_string()]
+    );
+
+    reg_methodology!(
+        "methodology_scene_structure",
+        "场景结构规范",
+        "MethodologyEngine：场景结构 system_prompt_extension（两种场景类型）",
+        r#"你必须遵循场景结构规范进行写作：
+
+每个场景必须是以下两种类型之一：
+1. 动作场景——以外部冲突为主，快节奏，短句为主
+2. 反应场景——以内心活动为主，慢节奏，允许长句和细腻描写
+
+场景结构：
+- 场景目标（角色想达成什么）
+- 冲突（阻碍目标的力量）
+- 灾难/决定（场景结果，推动到下一场景）"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_scene_self_check",
+        "场景结构自检格式",
+        "MethodologyEngine：场景结构标注 output_schema",
+        r#"在续写内容之后，请用以下格式标注场景结构：
+
+【场景结构自检】
+场景类型：动作/反应
+场景目标：...
+冲突：...
+结果：...（灾难/决定）"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_hdwb_seed",
+        "高密度世界构建-最小世界种子",
+        "MethodologyEngine：高密度世界构建第1阶段",
+        r#"高密度世界构建法 - 第1阶段：最小世界种子
+
+请用最精炼的语言（200字以内）描述这个世界的核心：
+- 一条不可动摇的物理/魔法法则
+- 一个决定性的社会结构
+- 一个持续存在的核心矛盾
+这个种子将作为后续扩张的基础。"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_hdwb_expansion",
+        "高密度世界构建-状态网扩张",
+        "MethodologyEngine：高密度世界构建第2阶段",
+        r#"高密度世界构建法 - 第2阶段：状态网扩张
+
+基于最小世界种子，扩展出相互关联的状态网络：
+- 社会状态（阶层/权力/资源分配）
+- 生态状态（环境/物种/资源）
+- 技术状态（科技/魔法水平/限制）
+每个状态必须与种子矛盾有因果关系。"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_hdwb_convergence",
+        "高密度世界构建-多线交织",
+        "MethodologyEngine：高密度世界构建第3阶段",
+        r#"高密度世界构建法 - 第3阶段：多线交织与回流
+
+将状态网中的多条线索交织，确保：
+- 每条线索都有闭环（起因→发展→结果）
+- 线索之间有交叉点（共享节点）
+- 核心矛盾在交织中被强化而非稀释"#,
+        vec![]
+    );
+
+    reg_methodology!(
+        "methodology_hdwb_iteration",
+        "高密度世界构建-密度迭代",
+        "MethodologyEngine：高密度世界构建第4阶段",
+        r#"高密度世界构建法 - 第4阶段：密度迭代与克制
+
+检查世界构建的密度：
+1. 删除对故事无贡献的设定（克制原则）
+2. 强化与核心矛盾直接相关的设定（密度原则）
+3. 确保每个设定至少在一个场景中被使用
+密度不是堆砌，而是每个元素都有叙事功能。"#,
+        vec![]
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.21.0: 删除 4 个死注册 key
+    // ═══════════════════════════════════════════════════════
+    // character_analysis / benchmark_short / benchmark_long / narrative_structure_analysis
+    // 这些 key 从未被 resolve_prompt 调用，保留只会误导用户以为可覆盖
+    // → 直接从注册表中移除（下方 m.remove）
+
+    m.remove("character_analysis");
+    m.remove("benchmark_short");
+    m.remove("benchmark_long");
+    m.remove("narrative_structure_analysis");
+
     m
 }
 
@@ -1247,6 +2399,32 @@ pub fn resolve_prompt_default(prompt_id: &str) -> Option<String> {
     get_builtin_prompts()
         .get(prompt_id)
         .map(|e| e.default_content.clone())
+}
+
+/// v0.21.0: 解析提示词并渲染模板变量（一步到位）
+///
+/// 1. 从 DB 读取用户覆盖（或内置默认）
+/// 2. 用 TemplateEngine 渲染 `{{var}}` 和 `{{#if}}` 模板语法
+///
+/// 失败时回退到内置默认（不渲染），确保零回归。
+pub fn resolve_prompt_with_vars(
+    pool: &DbPool,
+    prompt_id: &str,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<String, AppError> {
+    let template = resolve_prompt(pool, prompt_id)?;
+    Ok(crate::prompts::engine::TemplateEngine::render_with_conditions(&template, vars))
+}
+
+/// v0.21.0: 无 DB 连接时的模板渲染回退（用于测试或启动早期）
+pub fn resolve_prompt_default_with_vars(
+    prompt_id: &str,
+    vars: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let template = resolve_prompt_default(prompt_id)?;
+    Some(crate::prompts::engine::TemplateEngine::render_with_conditions(
+        &template, vars,
+    ))
 }
 
 /// 保存提示词覆盖

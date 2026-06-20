@@ -59,12 +59,20 @@ impl SnowflakeStep {
             SnowflakeStep::Revision => "methodology_snowflake_step10",
         };
 
-        // v0.19.0: 优先从 PromptRegistry 读取
+        // v0.21.0: 优先从 PromptRegistry 读取（含用户 DB 覆盖）
+        // 修复审计报告：此前用 resolve_prompt_default 旁路了 DB 覆盖
+        if let Some(pool) = crate::get_pool() {
+            if let Ok(content) = crate::prompts::registry::resolve_prompt(&pool, prompt_id) {
+                return content;
+            }
+        }
+
+        // 回退到内置默认（无 DB 连接时）
         if let Some(content) = crate::prompts::registry::resolve_prompt_default(prompt_id) {
             return content;
         }
 
-        // fallback 到硬编码
+        // 最终 fallback 到硬编码
         self.fallback_prompt_instruction().to_string()
     }
 
