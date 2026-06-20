@@ -1569,28 +1569,14 @@ impl AgentService {
             0.1,
         );
 
+        // P2-2: 改用 PromptRegistry 模板（commentator_system），
+        // 让前端"提示词覆盖"功能对评点家生效（审计报告发现 4.2.2）。
         let ctx = &task.context;
-        let prompt = format!(
-            r#"你是一位中国古典小说评点家，风格类似金圣叹。请对以下小说段落进行简短点评。
-
-【作品信息】
-标题: {}
-题材: {}
-
-【待评段落】
-{}
-
-【点评要求】
-1. 用古典文人评点的口吻，简洁有力，每段不超过60字
-2. 可点评：文笔、结构、人物、伏笔、情感、节奏
-3. 语气可带几分机锋，但不可刻薄伤人
-4. 直接输出 JSON 数组，格式：[{{"paragraph_index": 0, "commentary": "...", "tone": "insightful"}}]
-5. tone 可选：insightful / witty / emotional / critical
-6. 如果没有值得点评之处， commentary 可为空字符串
-
-请直接输出 JSON，不要添加 markdown 代码块标记。"#,
-            ctx.story.story_title, ctx.story.genre, task.input
-        );
+        let commentator_tpl = self.resolve_prompt("commentator_system");
+        let prompt = commentator_tpl
+            .replace("{{story_title}}", &ctx.story.story_title)
+            .replace("{{genre}}", &ctx.story.genre)
+            .replace("{{text}}", &task.input);
 
         self.emit_event(
             &task.id,
@@ -1980,16 +1966,18 @@ impl AgentService {
                 }
             }
             tokio::task::yield_now().await;
+        } // end is_pro (方法论保持 Pro-only)
 
-            // 注入风格（混合优先，单一 DNA 回退，仅专业版）
-            // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
-            emit_and_yield("正在加载风格 DNA...", 0.175);
-            if let Some(ref extension) = ctx.style.style_dna_extension {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(extension);
-            } else if let Some(ref blend) = ctx.style.style_blend {
-                // v0.9.7: 从全局只读缓存中批量查找风格 DNA，避免为每个 component
-                // 单独创建 Repository 并查询。
+        // P3-1: 风格 DNA / 混合 —— 重构分层：
+        // - Free 用户：可用单一 StyleDNA（基础风格一致性）
+        // - Pro 用户：额外可用 StyleBlend（多风格融合）
+        emit_and_yield("正在加载风格 DNA...", 0.175);
+        if let Some(ref extension) = ctx.style.style_dna_extension {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(extension);
+        } else if let Some(ref blend) = ctx.style.style_blend {
+            // StyleBlend（多风格融合）仍为 Pro-only
+            if is_pro {
                 use crate::creative_engine::style::dna::StyleDNA;
 
                 let dnas: Vec<StyleDNA> = match writer_style_dnas(&self.app_handle).await {
@@ -2017,69 +2005,72 @@ impl AgentService {
                         system_prompt.push_str(&extension);
                     }
                 }
-            } else if let Some(ref style_id) = ctx.style.style_dna_id {
-                use crate::creative_engine::style::dna::StyleDNA;
+            }
+        } else if let Some(ref style_id) = ctx.style.style_dna_id {
+            // 单一 StyleDNA 对所有用户可用（P3-1: Free 也能享受基础风格约束）
+            use crate::creative_engine::style::dna::StyleDNA;
 
-                if let Ok(cache) = writer_style_dnas(&self.app_handle).await {
-                    if let Some(db_dna) = cache.get(style_id) {
-                        if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                            let extension = dna.to_prompt_extension();
-                            if !extension.is_empty() {
-                                system_prompt.push_str("\n\n");
-                                system_prompt.push_str(&extension);
-                            }
+            if let Ok(cache) = writer_style_dnas(&self.app_handle).await {
+                if let Some(db_dna) = cache.get(style_id) {
+                    if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                        let extension = dna.to_prompt_extension();
+                        if !extension.is_empty() {
+                            system_prompt.push_str("\n\n");
+                            system_prompt.push_str(&extension);
                         }
                     }
                 }
             }
-            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
 
-            // 注入写作风格详细设定（所有用户可用）
-            emit_and_yield("正在加载写作风格设定...", 0.177);
-            let mut style_detail_lines = Vec::new();
-            if let Some(ref name) = ctx.style.writing_style_name {
-                style_detail_lines.push(format!("风格名称: {}", name));
-            }
-            if let Some(ref desc) = ctx.style.writing_style_description {
-                style_detail_lines.push(format!("风格描述: {}", desc));
-            }
-            if let Some(ref vocab) = ctx.style.writing_style_vocabulary_level {
-                style_detail_lines.push(format!("词汇层级: {}", vocab));
-            }
-            if let Some(ref sentence) = ctx.style.writing_style_sentence_structure {
-                style_detail_lines.push(format!("句式结构: {}", sentence));
-            }
-            if let Some(ref rules) = ctx.style.writing_style_custom_rules {
-                if !rules.is_empty() {
-                    style_detail_lines.push("自定义规则:".to_string());
-                    for rule in rules.lines() {
-                        if !rule.trim().is_empty() {
-                            style_detail_lines.push(format!("- {}", rule.trim()));
-                        }
+        // 注入写作风格详细设定（P3-1: 所有用户可用，移出 is_pro 守卫）
+        emit_and_yield("正在加载写作风格设定...", 0.177);
+        let mut style_detail_lines = Vec::new();
+        if let Some(ref name) = ctx.style.writing_style_name {
+            style_detail_lines.push(format!("风格名称: {}", name));
+        }
+        if let Some(ref desc) = ctx.style.writing_style_description {
+            style_detail_lines.push(format!("风格描述: {}", desc));
+        }
+        if let Some(ref vocab) = ctx.style.writing_style_vocabulary_level {
+            style_detail_lines.push(format!("词汇层级: {}", vocab));
+        }
+        if let Some(ref sentence) = ctx.style.writing_style_sentence_structure {
+            style_detail_lines.push(format!("句式结构: {}", sentence));
+        }
+        if let Some(ref rules) = ctx.style.writing_style_custom_rules {
+            if !rules.is_empty() {
+                style_detail_lines.push("自定义规则:".to_string());
+                for rule in rules.lines() {
+                    if !rule.trim().is_empty() {
+                        style_detail_lines.push(format!("- {}", rule.trim()));
                     }
                 }
             }
-            if !style_detail_lines.is_empty() {
-                system_prompt.push_str("\n\n【写作风格约束】\n");
-                for line in style_detail_lines {
-                    system_prompt.push_str(&line);
-                    system_prompt.push('\n');
-                }
+        }
+        if !style_detail_lines.is_empty() {
+            system_prompt.push_str("\n\n【写作风格约束】\n");
+            for line in style_detail_lines {
+                system_prompt.push_str(&line);
+                system_prompt.push('\n');
             }
-            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
 
-            // 注入作品简介
-            if let Some(ref desc) = ctx.story.description {
-                if !desc.is_empty() {
-                    system_prompt.push_str("\n\n【作品简介】\n");
-                    system_prompt.push_str(desc);
-                    system_prompt.push('\n');
-                }
+        // 注入作品简介（P3-1: 所有用户可用，移出 is_pro 守卫）
+        if let Some(ref desc) = ctx.story.description {
+            if !desc.is_empty() {
+                system_prompt.push_str("\n\n【作品简介】\n");
+                system_prompt.push_str(desc);
+                system_prompt.push('\n');
             }
-            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
 
-            // 注入个性化偏好（自适应学习，仅专业版）
-            // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
+        // 注入个性化偏好（自适应学习，仅专业版）
+        // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
+        if is_pro {
             emit_and_yield("正在加载个性化偏好...", 0.18);
             if let Some(ref extension) = ctx.story.personalizer_extension {
                 system_prompt.push_str("\n\n");
@@ -2324,7 +2315,74 @@ impl AgentService {
         let inspector_tpl = self.resolve_prompt("inspector_system");
         let system_prompt = TemplateEngine::render_with_conditions(&inspector_tpl, &vars);
 
-        format!("{}\n\n【待检查内容】\n{}", system_prompt, task.input)
+        // P1-3（审计报告发现 4.5.4）：此前 Inspector 是"半盲"的——
+        // 只看 title/genre/characters/content，不看世界观/伏笔/风格，
+        // 无法对照设定检查。现在注入关键设定摘要，让 Inspector 能报告
+        // "伏笔 X 在本章未推进""角色行为违反世界规则 Y"等具体问题。
+        let mut context_sections: Vec<String> = vec![];
+
+        // 世界观规则
+        if let Some(ref rules) = ctx.world.world_rules {
+            if !rules.is_empty() {
+                context_sections.push(format!("【世界观规则（检查内容是否违反）】\n{}", rules));
+            }
+        }
+
+        // 规范状态快照（伏笔 + 叙事阶段）——P3-3: 使用统一资产注入网关
+        if let Some(pool) = crate::get_pool() {
+            let snapshot = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
+                &pool,
+                &ctx.story.story_id,
+                ctx.style.style_dna_id.as_deref(),
+            );
+            if let Some(ref snap) = snapshot.canonical {
+                if !snap.story_context.pending_payoffs.is_empty() {
+                    let payoffs: Vec<String> = snap
+                        .story_context
+                        .pending_payoffs
+                        .iter()
+                        .take(3)
+                        .map(|p| format!("  - {}", p.content))
+                        .collect();
+                    context_sections.push(format!(
+                        "【待回收伏笔（检查本章是否推进或回收）】\n{}",
+                        payoffs.join("\n")
+                    ));
+                }
+                if !snap.story_context.overdue_payoffs.is_empty() {
+                    let overdue: Vec<String> = snap
+                        .story_context
+                        .overdue_payoffs
+                        .iter()
+                        .take(2)
+                        .map(|p| format!("  ⚠️ {}", p.content))
+                        .collect();
+                    context_sections.push(format!(
+                        "【逾期伏笔（重点检查是否已回收）】\n{}",
+                        overdue.join("\n")
+                    ));
+                }
+                context_sections.push(format!("【当前叙事阶段】{}", snap.narrative_phase));
+            }
+        }
+
+        // 风格 DNA 摘要（若有）
+        if let Some(ref ext) = ctx.style.style_dna_extension {
+            if !ext.is_empty() {
+                context_sections.push(format!("【目标风格约束（检查风格一致性）】\n{}", ext));
+            }
+        }
+
+        let context_block = if context_sections.is_empty() {
+            String::new()
+        } else {
+            format!("\n\n{}", context_sections.join("\n\n"))
+        };
+
+        format!(
+            "{}{}\n\n【待检查内容】\n{}",
+            system_prompt, context_block, task.input
+        )
     }
 
     fn build_outline_prompt(&self, task: &AgentTask) -> String {
@@ -2901,7 +2959,7 @@ pub fn get_available_agents() -> Vec<(AgentType, String, String)> {
 /// 生成， 包含主情绪 / 高压关系 / 冲突场 / 剧情引擎 /
 /// 桥段卡五要素。本函数用中文标题 与重点标记把它渲染成 Writer
 /// 可读的提示，避免重复传递大段 JSON。
-fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<String> {
+pub(crate) fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<String> {
     let obj = quartet.as_object()?;
     if obj.is_empty() {
         return None;
@@ -2925,10 +2983,18 @@ fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<Strin
             .get("pressure_source")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let works_with = rel
+            .get("works_with")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
         s.push_str(&format!(
             "• 高压关系：{}（自带压力来源 — {}）\n",
             name, pressure
         ));
+        if !works_with.is_empty() {
+            s.push_str(&format!("    适合搭配：{}\n", works_with));
+        }
     }
 
     if let Some(engines) = obj.get("story_engines").and_then(|v| v.as_array()) {
@@ -2939,10 +3005,18 @@ fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<Strin
                 let payoff = e.get("payoff").and_then(|v| v.as_str()).unwrap_or("");
                 let best = e.get("best_payoff").and_then(|v| v.as_str()).unwrap_or("");
                 let avoid = e.get("avoid").and_then(|v| v.as_str()).unwrap_or("");
+                let pairs = e
+                    .get("pairs_well_with")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("");
                 s.push_str(&format!(
                     "    - {}：{} | 最佳收束：{} | 反例：{}\n",
                     name, payoff, best, avoid
                 ));
+                if !pairs.is_empty() {
+                    s.push_str(&format!("      适合叠加：{}\n", pairs));
+                }
             }
         }
     }
@@ -2952,13 +3026,31 @@ fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<Strin
             s.push_str("• 桥段卡（建议借用其叙事功能，但用本作设定重写）：\n");
             for c in cards {
                 let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let category = c
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("");
                 let func = c.get("function").and_then(|v| v.as_str()).unwrap_or("");
+                let when = c
+                    .get("when_to_use")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("");
                 let remix = c.get("remix_hint").and_then(|v| v.as_str()).unwrap_or("");
                 let avoid = c.get("avoid").and_then(|v| v.as_str()).unwrap_or("");
+                let name_with_cat = if category.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{} [{}]", name, category)
+                };
                 s.push_str(&format!(
                     "    - {}：{} | 重构提示：{} | 反例：{}\n",
-                    name, func, remix, avoid
+                    name_with_cat, func, remix, avoid
                 ));
+                if !when.is_empty() {
+                    s.push_str(&format!("      适用：{}\n", when));
+                }
             }
         }
     }

@@ -674,6 +674,18 @@ impl AgentOrchestrator {
             Some("write-time-bundle spawn_blocking"),
         );
 
+        // P1-1: 从 task.parameters 提取叙事四元组，注入 TimeSliced 路径。
+        // 此前 TimeSliced 绕过 build_writer_prompt，四元组虽已序列化进 parameters
+        // 却被忽略。现在接通，让 v0.17 核心资产在默认续写路径生效。
+        let mut bundle = bundle;
+        if let Some(quartet_val) = task.parameters.get("narrative_quartet") {
+            if let Some(rendered) =
+                crate::agents::service::render_narrative_quartet_section(quartet_val)
+            {
+                bundle.narrative_quartet = Some(rendered);
+            }
+        }
+
         // 构建精简 prompt：bundle 约束 + 用户指令
         let bundle_prompt = bundle.to_prompt();
         let user_instruction = if task.input.trim().is_empty() {
@@ -1309,7 +1321,140 @@ impl AgentOrchestrator {
             Err(e) => log::warn!("[AgentOrchestrator] style_enhancer skill failed: {}", e),
         }
 
+        // P1-2: 接通 3 个此前休眠的内置技能（审计报告发现 4.1.1）。
+        // 按场景智能激活，避免对每段文本无差别调用（影响速度/成本）。
+
+        // 3. 角色语音校准——当内容含密集对话时触发
+        if Self::should_apply_character_voice(&result) {
+            let voice_params = std::collections::HashMap::from([
+                (
+                    "content".to_string(),
+                    serde_json::Value::String(result.clone()),
+                ),
+                (
+                    "story_id".to_string(),
+                    serde_json::Value::String(context.story.story_id.clone()),
+                ),
+            ]);
+            match skill_manager
+                .execute_skill("builtin.character_voice", context, voice_params)
+                .await
+            {
+                Ok(skill_result) => {
+                    if skill_result.success {
+                        if let Some(rewritten) =
+                            skill_result.data.get("content").and_then(|v| v.as_str())
+                        {
+                            if !rewritten.trim().is_empty() {
+                                result = rewritten.to_string();
+                            }
+                        }
+                    }
+                }
+                Err(e) => log::warn!("[AgentOrchestrator] character_voice skill failed: {}", e),
+            }
+        }
+
+        // 4. 情节反转增强——当叙事阶段处于转折点时触发
+        if Self::should_apply_plot_twist(context) {
+            let twist_params = std::collections::HashMap::from([(
+                "content".to_string(),
+                serde_json::Value::String(result.clone()),
+            )]);
+            match skill_manager
+                .execute_skill("builtin.plot_twist", context, twist_params)
+                .await
+            {
+                Ok(skill_result) => {
+                    if skill_result.success {
+                        if let Some(rewritten) =
+                            skill_result.data.get("content").and_then(|v| v.as_str())
+                        {
+                            if !rewritten.trim().is_empty() {
+                                result = rewritten.to_string();
+                            }
+                        }
+                    }
+                }
+                Err(e) => log::warn!("[AgentOrchestrator] plot_twist skill failed: {}", e),
+            }
+        }
+
+        // 5. 文本排版——当内容含明显排版问题时触发
+        if Self::should_apply_text_formatter(&result) {
+            let fmt_params = std::collections::HashMap::from([(
+                "content".to_string(),
+                serde_json::Value::String(result.clone()),
+            )]);
+            match skill_manager
+                .execute_skill("builtin.text_formatter", context, fmt_params)
+                .await
+            {
+                Ok(skill_result) => {
+                    if skill_result.success {
+                        if let Some(rewritten) =
+                            skill_result.data.get("content").and_then(|v| v.as_str())
+                        {
+                            if !rewritten.trim().is_empty() {
+                                result = rewritten.to_string();
+                            }
+                        }
+                    }
+                }
+                Err(e) => log::warn!("[AgentOrchestrator] text_formatter skill failed: {}", e),
+            }
+        }
+
         result
+    }
+
+    /// P1-2: 判断是否应调用 character_voice 技能——内容含密集对话时触发。
+    /// 启发式：引号对数 >= 3 视为对话密集。
+    fn should_apply_character_voice(content: &str) -> bool {
+        let quote_pairs = content
+            .chars()
+            .filter(|&c| c == '"' || c == '\u{201C}' || c == '\u{201D}')
+            .count();
+        quote_pairs >= 6 // 每对 2 个引号，>=3 对
+    }
+
+    /// P1-2: 判断是否应调用 plot_twist 技能——叙事阶段处于转折点时触发。
+    /// 当规范状态快照的叙事阶段为 Climax 或 Falling（高潮/回落）时，
+    /// 或当前场景标记为关键转折时，激活反转增强。
+    fn should_apply_plot_twist(context: &crate::agents::AgentContext) -> bool {
+        // 检查 narrative_structure 中的 dramatic_function 是否标记转折
+        if let Some(ref structure) = context.narrative.narrative_structure {
+            let func = &structure.dramatic_function;
+            let f = func.to_lowercase();
+            if f.contains("转折") || f.contains("高潮") || f.contains("反转") {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// P1-2: 判断是否应调用 text_formatter 技能——内容含明显排版问题时触发。
+    /// 启发式：连续空行 >= 2 处，或单行过长（>500 字无换行）。
+    fn should_apply_text_formatter(content: &str) -> bool {
+        // 连续空行检测
+        let mut blank_streak = 0u32;
+        let mut excessive_blanks = false;
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                blank_streak += 1;
+                if blank_streak >= 2 {
+                    excessive_blanks = true;
+                    break;
+                }
+            } else {
+                blank_streak = 0;
+            }
+        }
+        if excessive_blanks {
+            return true;
+        }
+        // 单行过长检测（无换行的超长段落）
+        content.split('\n').any(|l| l.chars().count() > 500)
     }
 
     /// 从 Inspector JSON 响应中解析风格分析（v0.7.8）和记忆分析（v0.8.0）

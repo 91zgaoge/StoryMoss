@@ -18,7 +18,6 @@ mod db;
 pub(crate) mod embeddings;
 mod error;
 mod events;
-mod evolution;
 mod export;
 mod intent;
 mod knowledge_base;
@@ -36,7 +35,6 @@ mod revision_commands;
 mod router;
 mod scene_commands;
 mod skills;
-mod state; // RESERVED: runtime story state manager (Phase 4)
 mod state_sync;
 mod story_system;
 mod strategy;
@@ -640,6 +638,30 @@ pub fn run() {
                         log::warn!("[CapabilityRegistry] Failed to load creative assets: {}", e);
                     }
                 }
+            }
+
+            // 将内置 MCP 工具（filesystem/text_processing/web_search）自动注册到
+            // CapabilityRegistry，接通审计报告 P0-3：此前内置 MCP 工具只注册了
+            // handler（BUILTIN_MCP_SERVER），未注册进 CapabilityRegistry，
+            // 导致 PlanGenerator 输出的 mcp.builtin.* 步骤被验证器丢弃。
+            // setup 为同步上下文，使用 try_lock（Lazy 初始化已同步完成注册）。
+            if let Ok(builtin_server) = BUILTIN_MCP_SERVER.try_lock() {
+                let tools = builtin_server.get_tools();
+                if !tools.is_empty() {
+                    let mut registry = capabilities::get_capability_registry();
+                    let mut count = 0;
+                    for tool in &tools {
+                        let cap = capabilities::Capability::from_mcp_tool("builtin", tool);
+                        registry.register(cap);
+                        count += 1;
+                    }
+                    log::info!(
+                        "[CapabilityRegistry] Registered {} built-in MCP tools",
+                        count
+                    );
+                }
+            } else {
+                log::warn!("[CapabilityRegistry] BUILTIN_MCP_SERVER busy, skip auto-register");
             }
 
             // Initialize embedding model

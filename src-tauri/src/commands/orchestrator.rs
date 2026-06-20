@@ -900,16 +900,46 @@ fn build_selected_strategy(
     input_clarity: crate::intent::InputClarity,
 ) -> Option<crate::strategy::SelectedStrategy> {
     let story = current_story.as_ref()?;
+
+    // P3-2: 当 story 未显式设定资产时，尝试按题材自动匹配 GenreProfile，
+    // 让四元组推断能生效（审计报告发现 4.2.4：此前直接返回 None，
+    // 导致未在 story 上配置资产的用户无法享受四元组增强）。
+    let mut auto_genre_profile_id: Option<String> = None;
+    let mut auto_canonical_name: Option<String> = None;
+    let mut auto_reader_promise: Option<String> = None;
     if story.genre_profile_id.is_none()
         && story.methodology_id.is_none()
         && story.style_dna_id.is_none()
     {
-        return None;
+        // 尝试按 story.genre 匹配 GenreProfile（纯 DB 查询，不调 LLM，无延迟）
+        if let Some(ref genre) = story.genre {
+            if !genre.trim().is_empty() {
+                let repo = crate::db::GenreProfileRepository::new(pool.clone());
+                if let Ok(Some(profile)) = repo.get_by_name(genre) {
+                    auto_genre_profile_id = Some(profile.id.clone());
+                    auto_canonical_name = Some(profile.canonical_name.clone());
+                    auto_reader_promise = profile.reader_promise.clone();
+                    log::info!(
+                        "[build_selected_strategy] 自动匹配题材画像: {} → {}",
+                        genre,
+                        profile.canonical_name
+                    );
+                }
+            }
+        }
+        // 若仍未匹配到，则确实无可用资产
+        if auto_genre_profile_id.is_none() {
+            return None;
+        }
     }
 
     let mut rationale_parts = Vec::new();
     let mut strategy = crate::strategy::SelectedStrategy::default();
-    strategy.genre_profile_id = story.genre_profile_id.clone();
+    // 优先使用 story 显式设定，回退自动匹配
+    strategy.genre_profile_id = story
+        .genre_profile_id
+        .clone()
+        .or_else(|| auto_genre_profile_id.clone());
     strategy.methodology_id = story.methodology_id.clone();
     if let Some(ref dna_id) = story.style_dna_id {
         strategy.style_dna_ids.push(dna_id.clone());
@@ -920,7 +950,7 @@ fn build_selected_strategy(
     let mut canonical_name: Option<String> = None;
     let mut reader_promise: Option<String> = None;
 
-    if let Some(ref profile_id) = story.genre_profile_id {
+    if let Some(ref profile_id) = strategy.genre_profile_id {
         let repo = crate::db::GenreProfileRepository::new(pool.clone());
         if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
             rationale_parts.push(format!("体裁画像：{}", profile.genre_name));
@@ -929,6 +959,11 @@ fn build_selected_strategy(
         } else {
             rationale_parts.push(format!("体裁画像 ID：{}", profile_id));
         }
+    }
+    // 若自动匹配已取到 canonical_name，优先使用（避免重复查询）
+    if canonical_name.is_none() {
+        canonical_name = auto_canonical_name.take();
+        reader_promise = auto_reader_promise.take();
     }
     if let Some(ref methodology_id) = story.methodology_id {
         rationale_parts.push(format!("方法论：{}", methodology_id));

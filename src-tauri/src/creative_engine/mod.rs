@@ -4,6 +4,7 @@
 //! 所有模块在幕后运行，为 Agent 提供真实、完整的创作上下文。
 
 pub mod adaptive;
+pub mod asset_snapshot;
 pub mod beat_cards;
 pub mod cascade_rewriter;
 pub mod context_builder;

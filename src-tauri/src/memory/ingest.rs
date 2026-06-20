@@ -267,6 +267,19 @@ impl IngestPipeline {
         // Step 1: 分析阶段 — 实体、关系、情感、伏笔、主题
         let analysis = self.analyze_content(content, cancel).await?;
 
+        // Step 1b: 将分析出的伏笔持久化到 foreshadowing_tracker，
+        // 接通"续写中隐含埋设伏笔 → 自动追踪 → 后续续写提醒回收"闭环。
+        if let Err(e) = self.persist_foreshadowings(&analysis.foreshadowing, content) {
+            log::warn!("[Ingest] 保存伏笔失败: {}", e);
+        }
+
+        // Step 1c: 将角色实体的位置/情绪状态写入 character_states，
+        // 接通审计报告 P0-2：此前 character_states 表运行时为空，
+        // 导致 build_writer_prompt 的【角色当前状态】段永远为空。
+        if let Err(e) = self.persist_character_states(&analysis.entities, content) {
+            log::warn!("[Ingest] 保存角色状态失败: {}", e);
+        }
+
         // Step 2: 生成阶段 — 结构化知识档案
         let knowledge = self.generate_knowledge(&analysis, cancel).await?;
 
@@ -900,6 +913,176 @@ impl IngestPipeline {
         Ok(())
     }
 
+    /// 将分析阶段提取的伏笔持久化到 foreshadowing_tracker。
+    ///
+    /// 接通审计报告 P0-1：续写中隐含埋设的伏笔此前只在内存中分析，
+    /// 从不写入 foreshadowing_tracker，导致回收账本不完整、
+    /// 后续续写的"待回收/逾期伏笔"提示会漏报。
+    ///
+    /// 仅注册 type_=setup 的伏笔（status=setup）。
+    /// payoff 类型表示此处回收了既有伏笔，需按 related_to 模糊匹配既有记录
+    /// 再 mark_payoff，但匹配不可靠，故暂不自动回收，留给用户/审计确认。
+    /// 按 (story_id, content) 去重，防止同一伏笔重复登记。
+    fn persist_foreshadowings(
+        &self,
+        foreshadowings: &[Foreshadowing],
+        content: &IngestContent,
+    ) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        if foreshadowings.is_empty() {
+            return Ok(());
+        }
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut registered = 0usize;
+        for fs in foreshadowings {
+            // 仅追踪"埋下"型伏笔
+            if fs.type_ != "setup" {
+                continue;
+            }
+            let trimmed = fs.content.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // 去重：同一 story 下已有相同 content 的 setup 伏笔则跳过
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM foreshadowing_tracker \
+                     WHERE story_id = ?1 AND content = ?2 AND status = 'setup'",
+                    params![&content.story_id, trimmed],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if exists {
+                continue;
+            }
+
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Local::now().to_rfc3339();
+            // importance 默认 5（中等），无 LLM 显式重要性评分时保守取值
+            let importance = 5_i32;
+            conn.execute(
+                "INSERT INTO foreshadowing_tracker \
+                 (id, story_id, content, setup_scene_id, status, importance, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, 'setup', ?5, ?6)",
+                params![
+                    &id,
+                    &content.story_id,
+                    trimmed,
+                    content.scene_id.as_ref().map(|s| s.as_str()),
+                    importance,
+                    now,
+                ],
+            )?;
+            registered += 1;
+        }
+
+        if registered > 0 {
+            log::info!(
+                "[Ingest] 自动登记 {} 条伏笔到 foreshadowing_tracker (story_id={})",
+                registered,
+                content.story_id
+            );
+        }
+        Ok(())
+    }
+
+    /// 将分析阶段提取的 Character 实体属性写入 character_states 表。
+    ///
+    /// 接通审计报告 P0-2：此前 character_states
+    /// 表运行时为空（有人读、无人写）， 导致 build_writer_prompt
+    /// 的【角色当前状态】段永远为空， 续写 LLM 看不到角色当前的位置/情绪/
+    /// 目标。
+    ///
+    /// 从 AnalyzedEntity.attributes（serde_json::Value 对象）中提取
+    /// location/mood/emotion/goal 等字段，按角色名匹配 characters 表得到
+    /// character_id， 再 INSERT OR REPLACE 到 character_states。
+    fn persist_character_states(
+        &self,
+        entities: &[AnalyzedEntity],
+        content: &IngestContent,
+    ) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        let characters: Vec<AnalyzedEntity> = entities
+            .iter()
+            .filter(|e| e.entity_type.eq_ignore_ascii_case("Character"))
+            .cloned()
+            .collect();
+        if characters.is_empty() {
+            return Ok(());
+        }
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut updated = 0usize;
+        let now = chrono::Local::now().to_rfc3339();
+        for ch in &characters {
+            let name = ch.name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            // 按名称匹配 characters 表，得到 character_id
+            let character_id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2",
+                    params![&content.story_id, name],
+                    |row| row.get(0),
+                )
+                .ok();
+            let Some(character_id) = character_id else {
+                continue; // 实体名未在 characters 表登记，跳过
+            };
+
+            // 从 attributes JSON 提取位置/情绪/目标
+            let attrs = &ch.attributes;
+            let location = json_str_field(attrs, &["location", "current_location", "位置"]);
+            let emotion = json_str_field(attrs, &["mood", "emotion", "current_emotion", "情绪"]);
+            let goal = json_str_field(attrs, &["goal", "active_goal", "目标"]);
+
+            // INSERT OR REPLACE：保留既有 secrets/arc_progress（COALESCE 回填）
+            conn.execute(
+                "INSERT OR REPLACE INTO character_states (
+                    id, story_id, character_id, current_location, current_emotion,
+                    active_goal, secrets_known, secrets_unknown, arc_progress, last_updated
+                ) VALUES (
+                    COALESCE((SELECT id FROM character_states WHERE character_id = ?1), ?2),
+                    ?3, ?1, ?4, ?5, ?6,
+                    COALESCE((SELECT secrets_known FROM character_states WHERE character_id = ?1), '[]'),
+                    COALESCE((SELECT secrets_unknown FROM character_states WHERE character_id = ?1), '[]'),
+                    COALESCE((SELECT arc_progress FROM character_states WHERE character_id = ?1), 0.0),
+                    ?7
+                )",
+                params![
+                    &character_id,
+                    uuid::Uuid::new_v4().to_string(),
+                    &content.story_id,
+                    location,
+                    emotion,
+                    goal,
+                    now,
+                ],
+            )?;
+            updated += 1;
+        }
+
+        if updated > 0 {
+            log::info!(
+                "[Ingest] 更新 {} 个角色状态到 character_states (story_id={})",
+                updated,
+                content.story_id
+            );
+        }
+        Ok(())
+    }
+
     /// 转换为数据库实体模型，并生成嵌入向量
     fn convert_entities(&self, profiles: &[EntityProfile], content: &IngestContent) -> Vec<Entity> {
         profiles
@@ -1109,6 +1292,24 @@ fn merge_json_objects(base: &serde_json::Value, overlay: &serde_json::Value) -> 
         }
         _ => overlay.clone(),
     }
+}
+
+/// 从 JSON 对象中按候选键名提取第一个非空字符串值。
+/// 用于从 AnalyzedEntity.attributes 提取 location/mood/goal 等字段，
+/// 兼容 LLM 返回的不同键名拼写。
+fn json_str_field(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    let obj = value.as_object()?;
+    for key in keys {
+        if let Some(v) = obj.get(*key) {
+            if let Some(s) = v.as_str() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// 验证 ContentAnalysis 的结构有效性

@@ -3350,6 +3350,20 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 93)?;
     }
 
+    // Migration 94: 删除从未使用的死表
+    // beat_cards / story_engines / pressure_relationships 由 Migration 92 创建，
+    // 但全仓无任何 INSERT 或 SELECT——资产数据只存在于内存的 builtin_*() 函数。
+    // 审计报告 P2-3：删除死 schema，避免维护空表与混淆。
+    // 若未来需要用户自定义条目，可重新创建并实现完整 Repository + IPC。
+    if current_version < 94 {
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS beat_cards;
+             DROP TABLE IF EXISTS story_engines;
+             DROP TABLE IF EXISTS pressure_relationships;",
+        )?;
+        record_migration(conn, 94)?;
+    }
+
     Ok(())
 }
 

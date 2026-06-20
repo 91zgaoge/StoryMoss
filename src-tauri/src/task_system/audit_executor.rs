@@ -170,6 +170,26 @@ impl AuditExecutor {
                 );
             }
         }
+
+        // P1-4: 若发现 high 严重性问题，发射 AuditRewriteSuggested 事件，
+        // 让前端提示用户是否自动修订。保持用户控制权——不静默改文。
+        let high_issues: Vec<String> = issues
+            .iter()
+            .filter(|i| i.severity.to_lowercase() == "high")
+            .map(|i| format!("【{}】{}", dimension_label(&i.dimension), i.description))
+            .collect();
+        if !high_issues.is_empty() {
+            let _ = self.app_handle.emit(
+                "sync-event",
+                SyncEvent::AuditRewriteSuggested {
+                    story_id: payload.story_id.clone(),
+                    scene_id: payload.scene_id.clone(),
+                    chapter_id: payload.chapter_id.clone(),
+                    issues: high_issues,
+                },
+            );
+        }
+
         Ok(created)
     }
 }

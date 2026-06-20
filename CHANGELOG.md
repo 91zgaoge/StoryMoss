@@ -2,6 +2,54 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.18.0] - 后台资产深度审计 × 智能创作流程全面优化（2026-06-20）
+
+### 审计背景
+
+对后台资产（技能/能力/方法论/提示词/风格/网文资产/状态/记忆）与智能创作流程的关联进行了全面深度审计，发现核心矛盾：**默认续写路径（TimeSliced）绕过约 90% 后台资产**，用户最高频操作落在资产最稀薄的路径上。此外存在多处"建好但未接通"的断环和死代码。本版本系统性修复全部问题（P0-P3 共 14 项）。
+
+### P0 断环修复（4 项）
+
+- **P0-1 ingest→伏笔自动追踪闭环**：`IngestPipeline::run_ingest` 新增 `persist_foreshadowings`，将分析阶段提取的 setup 型伏笔按 (story_id, content) 去重后写入 `foreshadowing_tracker`。此前续写中隐含埋设的伏笔永不被追踪，回收账本不完整。
+- **P0-2 character_states 写入闭环**：`IngestPipeline` 新增 `persist_character_states`，从 Character 实体 attributes 提取 location/mood/goal，按名称匹配 characters 表后 INSERT OR REPLACE 到 `character_states`（保留既有 secrets/arc_progress）。此前 `【角色当前状态】` prompt 段永远为空。
+- **P0-3 内置 MCP 工具自动注册进 CapabilityRegistry**：`lib.rs` setup 阶段用 `try_lock` 读取 `BUILTIN_MCP_SERVER` 工具，对每个调 `Capability::from_mcp_tool("builtin", tool)` + `registry.register`。此前 PlanGenerator 输出的 `mcp.builtin.*` 步骤被验证器丢弃。
+- **P0-4 四元组资产内容完整展开**：`serialize_quartet_for_prompt` 增加 category/when_to_use（beat_cards）、pairs_well_with（engines）、works_with（pressure_relationships）；`render_narrative_quartet_section` 同步渲染新字段。此前只渲染 ID/名称。
+
+### P1 核心优化（4 项）
+
+- **P1-1 TimeSliced 接入精选资产子集（核心）**：`WriteTimeBundle` 扩展 5 个新字段（叙事阶段、待回收伏笔 top3、逾期伏笔 top1、主导风格摘要、叙事四元组）；`load_sync` 经 `CreativeAssetSnapshot` 加载规范状态快照 + StyleDNA 摘要；`to_prompt` 渲染 5 个新 section；`execute_time_sliced` 从 task.parameters 提取四元组注入 bundle。**解决"资产黑洞"——默认续写路径现在能感知伏笔状态、叙事阶段、风格约束和四元组。**
+- **P1-2 接通 3 个休眠技能**：`apply_writing_skills` 新增场景智能激活——`character_voice`（引号密度≥3 对触发）、`plot_twist`（叙事阶段为转折/高潮时触发）、`text_formatter`（连续空行或超长行触发）。此前这三个技能已注册但创作流从不调用。
+- **P1-3 Full 模式 Inspector 接入全量上下文**：`build_inspector_prompt` 注入世界观规则、待回收/逾期伏笔（经 CreativeAssetSnapshot）、叙事阶段、风格 DNA 约束。此前 Inspector 是"半盲"的，只看 title/genre/characters/content，无法对照设定检查。
+- **P1-4 审计触发自动 Rewrite 建议**：新增 `SyncEvent::AuditRewriteSuggested` 事件变体；`AuditExecutor` 发现 high 严重性问题时发射事件，前端可提示用户是否修订（保持用户控制权，不静默改文）。
+
+### P2 死代码清理（3 项）
+
+- **P2-1 删除死代码**：删除 `prompts/methodologies/`（雪花/英雄/场景旧实现，与 `creative_engine/methodology/` 重复）、`prompts/evolver.rs`（PromptEvolver，零调用方）、`state/`（StoryStateManager，标注 RESERVED 已久）、`evolution/`（EvolutionReviewer/Analyzer/Updater，零调用方）；`prompts/mod.rs` 移除 PromptManager + PromptTemplateDef。共删除 5 个目录/文件 + 4 个 mod 声明。
+- **P2-2 消除 prompt 旁路**：`execute_commentator` 改用 `resolve_prompt("commentator_system")` 模板（支持前端"提示词覆盖"功能生效）。此前评点家用内联硬编码 prompt，前端覆盖无效。
+- **P2-3 删除死表**：Migration 94 `DROP TABLE IF EXISTS beat_cards/story_engines/pressure_relationships`（Migration 92 创建但从未读写，资产仅存内存 `builtin_*()`）。
+
+### P3 架构性优化（3 项）
+
+- **P3-1 Pro/Free 资产边界精细化分层**：`build_writer_prompt` 重构——单一 StyleDNA 移出 `is_pro`（Free 可用）、写作风格设定 + 作品简介移出 `is_pro`（所有用户可用）、StyleBlend + 方法论 + 个性化保持 Pro-only。此前 `if is_pro` 一刀切挡住六类资产。
+- **P3-2 启用资产自动匹配**：`build_selected_strategy` 当 story 未显式设定资产时，按 `story.genre` 自动匹配 GenreProfile（纯 DB 查询，无 LLM 延迟），让四元组推断对未配置资产的用户也能生效。
+- **P3-3 统一资产注入网关**：新建 `creative_engine/asset_snapshot.rs`（`CreativeAssetSnapshot` 统一加载器），`WriteTimeBundle::load_sync` 和 `build_inspector_prompt` 均改用该网关，消除重复的规范状态/风格 DNA 加载逻辑。
+
+### CI 修复
+
+- **修复 48 个测试失败**：删除 `migrations/` 目录中重复的 V092/V093 SQL 文件——它们与 `run_migrations` 函数中的内联 Migration 92/93 重复，导致 `MigrationRunner::run()` 先运行 SQL 文件将 `current_version` 提升到 93，使 `run_migrations` 中的 Migration 28-91 全部跳过（`genre_profile_id` 列、`character_relationships` 表等不创建）。
+
+### 文档
+
+- 新增 `docs/AUDIT_后台资产与智能创作流程.md`——完整审计报告（资产清单、可达性矩阵、逐域发现、根因分析、优化方案）
+- 新增 `docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md`——智能创作流程 × 后台资产权威参考文档
+
+### 验证
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **444/444** 通过（零回归）
+- `npx tsc --noEmit` ✅ 零错误
+- `cargo +nightly fmt -- --check` ✅ 通过
+
 ## [v0.17.1] - 智能后台预访谈 + Anti-AI 改写闸 + 在世作者保护 + 提示词注册表 + 关键 Bug 修复（2026-06-19）
 
 ### 关键 Bug 修复

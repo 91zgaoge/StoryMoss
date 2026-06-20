@@ -46,6 +46,7 @@ impl StateSync {
             SyncEvent::DataRefresh { .. } => "data-refresh",
             SyncEvent::SubscriptionChanged { .. } => "subscription-changed",
             SyncEvent::PayoffOverdue { .. } => "payoff-overdue",
+            SyncEvent::AuditRewriteSuggested { .. } => "audit-rewrite-suggested",
         };
 
         // 发射到通用频道 `sync-event`

@@ -300,11 +300,18 @@ pub fn serialize_quartet_for_prompt(
             .into_iter()
             .find(|r| r.id == rid)
         {
+            // P0-4: 完整展开资产 payload，不再只传 name/pressure_source
+            let works_with = if rel.works_with.is_empty() {
+                String::new()
+            } else {
+                rel.works_with.join("、")
+            };
             out.insert(
                 "pressure_relationship".to_string(),
                 serde_json::json!({
                     "name": rel.name,
                     "pressure_source": rel.pressure_source,
+                    "works_with": works_with,
                 }),
             );
         }
@@ -316,11 +323,18 @@ pub fn serialize_quartet_for_prompt(
             .iter()
             .filter_map(|id| engines.iter().find(|e| &e.id == id))
             .map(|e| {
+                // P0-4: 增加 pairs_well_with 帮助作者正交组合引擎
+                let pairs = if e.pairs_well_with.is_empty() {
+                    String::new()
+                } else {
+                    e.pairs_well_with.join("、")
+                };
                 serde_json::json!({
                     "name": e.name,
                     "payoff": e.payoff,
                     "best_payoff": e.best_payoff,
                     "avoid": e.avoid,
+                    "pairs_well_with": pairs,
                 })
             })
             .collect();
@@ -338,9 +352,12 @@ pub fn serialize_quartet_for_prompt(
             .iter()
             .filter_map(|id| cards.iter().find(|c| &c.id == id))
             .map(|c| {
+                // P0-4: 增加 category 标签与 when_to_use 适用场景
                 serde_json::json!({
                     "name": c.name,
+                    "category": c.category.label(),
                     "function": c.function,
+                    "when_to_use": c.when_to_use,
                     "remix_hint": c.remix_hint,
                     "avoid": c.avoid,
                 })

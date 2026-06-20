@@ -13,17 +13,24 @@
 //! 1. 红线突出注入：to_prompt() 输出时红线在最前、加粗强调。
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
-use crate::db::{
-    Character, CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
-    StoryContractRepository,
+use crate::{
+    creative_engine::asset_snapshot::CreativeAssetSnapshot,
+    db::{
+        Character, CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
+        StoryContractRepository, StyleDnaRepository,
+    },
 };
 
 // ==================== 数据结构 ====================
 
 /// 写作时刻的最小约束包。
 ///
-/// 只含"一次写对基本盘"必需的资产。审计用资产（Inspector/伏笔/记忆比对）
+/// 只含"一次写对基本盘"必需的资产。审计用资产（Inspector/记忆比对）
 /// 不在此处——它们在时间线 2（AuditExecutor）异步加载。
+///
+/// P1-1（审计报告）：在保持速度优先的前提下，接入精选资产子集，
+/// 解决 TimeSliced "资产黑洞"问题——伏笔状态、叙事阶段、主导风格摘要、
+/// 叙事四元组此前在默认续写路径完全不进入 LLM prompt。
 pub struct WriteTimeBundle {
     /// 合同红线：MASTER_SETTING 核心世界观约束
     pub contract_redlines: Option<String>,
@@ -39,6 +46,16 @@ pub struct WriteTimeBundle {
     pub story_meta: StoryMeta,
     /// 题材分类（决定 style_slice 是否纳入）
     pub genre_category: GenreCategory,
+    /// P1-1: 叙事阶段指导（一行，来自 CanonicalStateManager）
+    pub narrative_phase_guidance: Option<String>,
+    /// P1-1: 待回收伏笔（top 3，每条一行）
+    pub pending_foreshadowings: Vec<String>,
+    /// P1-1: 逾期伏笔（top 1，每条一行，带警告）
+    pub overdue_foreshadowings: Vec<String>,
+    /// P1-1: 主导风格一句话摘要（来自 StyleDNA，全题材纳入）
+    pub style_dna_summary: Option<String>,
+    /// P1-1: 叙事四元组渲染文本（来自 task.parameters，由调用方设置）
+    pub narrative_quartet: Option<String>,
 }
 
 pub struct CoreCharacter {
@@ -229,6 +246,16 @@ impl WriteTimeBundle {
             None
         };
 
+        // P1-1: 精选资产子集——解决 TimeSliced "资产黑洞"
+        // P3-3: 使用统一资产注入网关 CreativeAssetSnapshot，消除重复加载逻辑。
+        let snapshot =
+            CreativeAssetSnapshot::load_sync(pool, story_id, story.style_dna_id.as_deref());
+
+        let narrative_phase_guidance = snapshot.narrative_phase_guidance();
+        let pending_foreshadowings = snapshot.pending_foreshadowings(3);
+        let overdue_foreshadowings = snapshot.overdue_foreshadowings(1);
+        let style_dna_summary = snapshot.style_dna_summary;
+
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
@@ -237,6 +264,11 @@ impl WriteTimeBundle {
             style_slice,
             story_meta,
             genre_category,
+            narrative_phase_guidance,
+            pending_foreshadowings,
+            overdue_foreshadowings,
+            style_dna_summary,
+            narrative_quartet: None, // 由调用方（orchestrator）从 task.parameters 设置
         })
     }
 
@@ -330,6 +362,50 @@ impl WriteTimeBundle {
         // ⑤ 风格片段（题材自适应，仅 RealismEmotional/Mystery 纳入）
         if let Some(ref style) = self.style_slice {
             sections.push(format!("【风格指引】\n{}", style));
+        }
+
+        // P1-1 精选资产子集：以下 4 项此前在 TimeSliced 路径完全不进入 prompt，
+        // 现在以压缩形式注入（每项 1-3 行），解决"资产黑洞"。
+
+        // ⑥ 叙事阶段指导（一行）
+        if let Some(ref phase) = self.narrative_phase_guidance {
+            sections.push(format!("【叙事阶段】\n{}", phase));
+        }
+
+        // ⑦ 待回收伏笔（top 3）
+        if !self.pending_foreshadowings.is_empty() {
+            let lines: Vec<String> = self
+                .pending_foreshadowings
+                .iter()
+                .map(|f| format!("  - {}", f))
+                .collect();
+            sections.push(format!(
+                "【待回收伏笔（请在续写中适时推进）】\n{}",
+                lines.join("\n")
+            ));
+        }
+
+        // ⑧ 逾期伏笔（top 1，带警告）
+        if !self.overdue_foreshadowings.is_empty() {
+            let lines: Vec<String> = self
+                .overdue_foreshadowings
+                .iter()
+                .map(|f| format!("  ⚠️ {}", f))
+                .collect();
+            sections.push(format!(
+                "【⚠️ 逾期伏笔——请在续写中优先回收】\n{}",
+                lines.join("\n")
+            ));
+        }
+
+        // ⑨ 主导风格一句话摘要（全题材，非完整六维 DNA）
+        if let Some(ref summary) = self.style_dna_summary {
+            sections.push(format!("【主导风格】{}", summary));
+        }
+
+        // ⑩ 叙事四元组（来自 task.parameters，由 orchestrator 设置）
+        if let Some(ref quartet) = self.narrative_quartet {
+            sections.push(quartet.clone());
         }
 
         sections.join("\n\n")
@@ -547,6 +623,11 @@ mod tests {
                 description: None,
             },
             genre_category: GenreCategory::Speculative,
+            narrative_phase_guidance: None,
+            pending_foreshadowings: vec![],
+            overdue_foreshadowings: vec![],
+            style_dna_summary: None,
+            narrative_quartet: None,
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);

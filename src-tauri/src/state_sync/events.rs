@@ -165,6 +165,16 @@ pub enum SyncEvent {
         count: usize,
         item_titles: Vec<String>,
     },
+
+    /// P1-4: 异步审计发现 high 严重性问题时，请求前端提示用户是否自动修订。
+    /// 保持用户控制权——不静默改文，仅提示。
+    AuditRewriteSuggested {
+        story_id: String,
+        scene_id: Option<String>,
+        chapter_id: Option<String>,
+        /// high 严重性问题描述摘要（用于前端弹窗展示）
+        issues: Vec<String>,
+    },
 }
 
 impl SyncEvent {
@@ -202,6 +212,7 @@ impl SyncEvent {
             SyncEvent::DataRefresh { resource_type, .. } => resource_type.as_str(),
             SyncEvent::SubscriptionChanged { .. } => "subscription",
             SyncEvent::PayoffOverdue { .. } => "payoffOverdue",
+            SyncEvent::AuditRewriteSuggested { .. } => "auditRewrite",
         }
     }
 
@@ -237,6 +248,7 @@ impl SyncEvent {
             SyncEvent::DataRefresh { story_id, .. } => story_id.as_ref(),
             SyncEvent::SubscriptionChanged { .. } => None,
             SyncEvent::PayoffOverdue { story_id, .. } => Some(story_id),
+            SyncEvent::AuditRewriteSuggested { story_id, .. } => Some(story_id),
         }
     }
 }
