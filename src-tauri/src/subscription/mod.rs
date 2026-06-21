@@ -10,36 +10,7 @@ use crate::{db::DbPool, error::AppError};
 
 pub mod commands;
 
-/// 订阅层级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SubscriptionTier {
-    Free,
-    Pro,
-    Enterprise,
-}
-
-impl std::fmt::Display for SubscriptionTier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SubscriptionTier::Free => write!(f, "free"),
-            SubscriptionTier::Pro => write!(f, "pro"),
-            SubscriptionTier::Enterprise => write!(f, "enterprise"),
-        }
-    }
-}
-
-impl std::str::FromStr for SubscriptionTier {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "free" => Ok(SubscriptionTier::Free),
-            "pro" => Ok(SubscriptionTier::Pro),
-            "enterprise" => Ok(SubscriptionTier::Enterprise),
-            _ => Err(format!("Unknown subscription tier: {}", s)),
-        }
-    }
-}
+pub use crate::domain::subscription::SubscriptionTier;
 
 /// 订阅状态
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -9,13 +9,15 @@
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::{timeout, Duration};
 
-use super::{
-    service::{AgentService, AgentTask, AgentType},
-    AgentResult,
-};
+use super::service::{AgentService, AgentTask};
 use crate::{
-    creative_engine::style::{StyleChecker, StyleDNA},
+    creative_engine::style::StyleChecker,
     db::{repositories::StyleDnaRepository, DbPool},
+    domain::{
+        agent_context::AgentContext,
+        agent_types::{AgentResult, AgentType},
+        style::StyleDNA,
+    },
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
 };
@@ -37,6 +39,14 @@ pub enum GenerationMode {
     /// 适用于向导首场景、Genesis、Planner、Workflow
     /// 等明确需要专业同步成品的场景
     Full,
+    /// 三击模式（TriShot）：弹性 2~3 次 LLM 生成正文，其余资产任务下沉后台。
+    ///
+    /// 关键路径：Call 1 最快模型选资产+合成提示词 → Call 2(可选) 精修提示词
+    /// → Call 3 Writer 生成。质检/改写/入库/洞察全部 spawn 后台静默执行。
+    ///
+    /// 设计依据：docs/plans/2026-06-21-trishot-pipeline-design.md
+    /// 适用于默认续写/改写/新场景等追求「速度+资产覆盖」平衡的场景。
+    TriShot,
 }
 
 impl GenerationMode {
@@ -45,6 +55,7 @@ impl GenerationMode {
             GenerationMode::Fast => "快速",
             GenerationMode::TimeSliced => "分时",
             GenerationMode::Full => "完整",
+            GenerationMode::TriShot => "三击",
         }
     }
 }
@@ -323,7 +334,7 @@ impl AgentOrchestrator {
                 let input = task.input.clone();
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, input);
+                    let context = AgentContext::minimal(story_id, input);
                     let data = serde_json::json!({ "chapter_number": chapter_number });
                     let _ = skill_manager
                         .execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data)
@@ -343,6 +354,7 @@ impl AgentOrchestrator {
             GenerationMode::Fast => self.execute_fast(task.clone(), &trace).await,
             GenerationMode::TimeSliced => self.execute_time_sliced(task.clone(), &trace).await,
             GenerationMode::Full => self.execute_full(task.clone(), &trace).await,
+            GenerationMode::TriShot => self.execute_trishot(task.clone(), &trace).await,
         };
 
         trace.log_total(
@@ -491,7 +503,7 @@ impl AgentOrchestrator {
                     let score_val = workflow_result.final_score;
                     let skill_manager = skill_manager.clone();
                     tauri::async_runtime::spawn(async move {
-                        let context = crate::agents::AgentContext::minimal(story_id, content);
+                        let context = AgentContext::minimal(story_id, content);
                         let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
                         let _ = skill_manager
                             .execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data)
@@ -657,6 +669,19 @@ impl AgentOrchestrator {
         let story_id = task.context.story.story_id.clone();
         let chapter_number = task.context.narrative.chapter_number as i32;
         let pool_clone = pool.inner().clone();
+        let secondary_genre_profile_ids: Option<Vec<String>> = task
+            .parameters
+            .get("secondary_genre_profile_ids")
+            .and_then(|v| {
+                v.as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .or_else(|| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
+            })
+            .filter(|ids: &Vec<String>| !ids.is_empty());
         let bundle_start = std::time::Instant::now();
         let bundle = tokio::task::spawn_blocking(move || {
             crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
@@ -664,6 +689,7 @@ impl AgentOrchestrator {
                 &story_id,
                 chapter_number,
                 None, // style_slice_override：任务 1.6 暂不接入 StyleDna，留空
+                secondary_genre_profile_ids,
             )
         })
         .await
@@ -866,6 +892,383 @@ impl AgentOrchestrator {
                 insight_chapter,
                 insight_handle,
             )
+        })
+        .await
+        .ok()
+        .map(|(should, ipool, istory, ichapter, ihandle)| {
+            if should {
+                tokio::spawn(async move {
+                    let executor = crate::task_system::insight_executor::InsightExecutor {
+                        pool: ipool,
+                        app_handle: ihandle,
+                    };
+                    executor
+                        .run_insight(crate::task_system::insight_executor::InsightPayload {
+                            story_id: istory,
+                            chapter_number: ichapter,
+                            trend_window: 5,
+                        })
+                        .await;
+                });
+            }
+        });
+
+        Ok(WorkflowResult {
+            final_content: content,
+            final_score: 1.0,
+            style_score: 0.0,
+            narrative_score: 0.0,
+            drift_details: Vec::new(),
+            steps,
+            was_rewritten: false,
+            rewrite_count: 0,
+            request_id: Some(request_id),
+        })
+    }
+
+    /// 三击模式（TriShot）：弹性 2~3 次 LLM 生成正文。
+    ///
+    /// 关键路径：Call 1 最快模型选资产+合成提示词 → Call 2(可选) 精修提示词
+    /// → Call 3 Writer 生成。质检/改写/入库/洞察全部 spawn 后台静默执行。
+    ///
+    /// 设计依据：docs/plans/2026-06-21-trishot-pipeline-design.md
+    async fn execute_trishot(
+        &self,
+        task: AgentTask,
+        trace: &GenerationTrace,
+    ) -> Result<WorkflowResult, AppError> {
+        log::info!("[TriShot] execute_trishot START task={}", task.id);
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some("三击模式：智能合成提示词，2~3 次生成"),
+        );
+
+        // ===== Phase 0: QuickPreflight + 加载 WriteTimeBundle（复用 TimeSliced 逻辑）=====
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.05,
+            "快速预检并加载写作约束...",
+            None,
+        );
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let quick_check = crate::story_system::preflight::QuickPreflightChecker::check(
+            pool.inner(),
+            &task.context.story.story_id,
+        )
+        .await;
+        if !quick_check.ready {
+            return Err(AppError::preflight_failed(
+                "三击模式预检未通过（缺少角色）",
+                quick_check.blocking_issues,
+            ));
+        }
+
+        let story_id = task.context.story.story_id.clone();
+        let chapter_number = task.context.narrative.chapter_number as i32;
+        let pool_clone = pool.inner().clone();
+        let secondary_genre_profile_ids: Option<Vec<String>> = task
+            .parameters
+            .get("secondary_genre_profile_ids")
+            .and_then(|v| {
+                v.as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .or_else(|| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
+            })
+            .filter(|ids: &Vec<String>| !ids.is_empty());
+
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.1,
+            "加载写作约束包...",
+            None,
+        );
+
+        let bundle_start = std::time::Instant::now();
+        let mut bundle = tokio::task::spawn_blocking(move || {
+            crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+                &pool_clone,
+                &story_id,
+                chapter_number,
+                None,
+                secondary_genre_profile_ids,
+            )
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("[TriShot] bundle 加载失败: {}", e)))??;
+        trace.log_phase("bundle_load", bundle_start.elapsed().as_millis(), Some("write-time-bundle"));
+
+        // 注入叙事四元组
+        if let Some(quartet_val) = task.parameters.get("narrative_quartet") {
+            if let Some(rendered) =
+                crate::agents::service::render_narrative_quartet_section(quartet_val)
+            {
+                bundle.narrative_quartet = Some(rendered);
+            }
+        }
+
+        // 当前尾部预览（用于 Call 1 判断改写场景）
+        let current_content_preview = task
+            .parameters
+            .get("current_content")
+            .and_then(|v| v.as_str());
+
+        // 用户指令
+        let user_instruction = if task.input.trim().is_empty() {
+            "请续写下一段正文。".to_string()
+        } else {
+            task.input.clone()
+        };
+
+        // 构造资产清单
+        let manifest =
+            crate::creative_engine::prompt_synthesis::manifest::AssetManifest::build(&bundle);
+        // 本地拼接（Call 1 失败回退）
+        let bundle_prompt = bundle.to_prompt();
+
+        // ===== Phase 1 / Call 1: 路由合成器（最快模型）=====
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.15,
+            "智能合成提示词（最快模型选资产）...",
+            None,
+        );
+
+        let t_synth = std::time::Instant::now();
+        let synthesis = crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
+            self.app_handle.clone(),
+            &user_instruction,
+            current_content_preview,
+            &manifest,
+            &bundle_prompt,
+        )
+        .await;
+        trace.log_phase("call1_synthesize", t_synth.elapsed().as_millis(), Some(&format!(
+            "intent={} selected={} confidence={:.2} fallback={}",
+            synthesis.intent,
+            synthesis.selected_asset_ids.len(),
+            synthesis.confidence,
+            synthesis.is_fallback,
+        )));
+
+        log::info!(
+            "[TriShot] Call 1 完成: intent={}, selected_assets={}, confidence={:.2}, needs_refinement={}, fallback={}",
+            synthesis.intent,
+            synthesis.selected_asset_ids.len(),
+            synthesis.confidence,
+            synthesis.needs_refinement,
+            synthesis.is_fallback,
+        );
+
+        let mut final_prompt = synthesis.synthesized_prompt.clone();
+
+        // ===== Phase 2 / Call 2: 精修器（可选，仅 needs_refinement && 预算够）=====
+        if synthesis.needs_refinement && !synthesis.is_fallback {
+            // 预算守卫：估算剩余时间，不够跳过 Call 2
+            let elapsed = t_synth.elapsed().as_secs();
+            let total_budget: u64 = 180; // smart_execute 伞保护
+            let writer_min_estimate: u64 = 60; // Call 3 最少预留
+            if elapsed + 30 + writer_min_estimate > total_budget {
+                log::info!(
+                    "[TriShot] 预算守卫跳过 Call 2（elapsed={}s, budget={}s）",
+                    elapsed,
+                    total_budget
+                );
+            } else {
+                self.emit_generation_status(
+                    &task.id,
+                    GenerationPhase::PreparingContext,
+                    0.35,
+                    "精修提示词...",
+                    None,
+                );
+
+                let t_refine = std::time::Instant::now();
+                let refined = crate::creative_engine::prompt_synthesis::refiner::PromptRefiner::refine(
+                    self.app_handle.clone(),
+                    &synthesis.synthesized_prompt,
+                    synthesis.refinement_focus.as_deref(),
+                    &bundle.story_meta.title,
+                    bundle.story_meta.genre.as_deref(),
+                    bundle.story_meta.tone.as_deref(),
+                )
+                .await;
+                trace.log_phase("call2_refine", t_refine.elapsed().as_millis(), Some(&format!(
+                    "chars: {}→{}",
+                    synthesis.synthesized_prompt.chars().count(),
+                    refined.chars().count(),
+                )));
+                final_prompt = refined;
+            }
+        }
+
+        // ===== Phase 3 / Call 3: Writer 生成 =====
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::GeneratingCandidates,
+            0.5,
+            "正在生成内容...",
+            None,
+        );
+
+        let writer_start = std::time::Instant::now();
+        let is_local = self.service.is_target_model_local(AgentType::Writer);
+        let _writer_permit = self
+            .service
+            .llm_service_ref()
+            .acquire_writer_permit(is_local)
+            .await?;
+        // 直接调用 LlmService::generate_for_task（复用 TimeSliced 路径风格）
+        let gen_response = self
+            .service
+            .llm_service_ref()
+            .generate_for_task(
+                crate::router::TaskType::CreativeWriting,
+                final_prompt,
+                Some(2048),
+                Some(0.75),
+                Some("trishot-writer"),
+            )
+            .await?;
+        trace.log_phase(
+            "call3_writer",
+            writer_start.elapsed().as_millis(),
+            Some("trishot writer generate_for_task"),
+        );
+
+        let content = gen_response.content;
+        let request_id = gen_response.model.clone();
+
+        // 句长偏差检测（复用 TimeSliced 逻辑）
+        let mut style_suggestions = vec![];
+        if let Some(ref dna_ext) = bundle.style_dna_extension {
+            for line in dna_ext.lines() {
+                if line.contains("平均句长") {
+                    if let Some(target_str) = line.split(':').nth(1) {
+                        if let Ok(target_len) = target_str
+                            .trim()
+                            .chars()
+                            .take_while(|c| c.is_ascii_digit())
+                            .collect::<String>()
+                            .parse::<u32>()
+                        {
+                            let sents: Vec<&str> = content
+                                .split(|c| c == '。' || c == '！' || c == '？' || c == '\n')
+                                .filter(|s| !s.trim().is_empty())
+                                .collect();
+                            if !sents.is_empty() {
+                                let actual_len = sents.iter().map(|s| s.chars().count()).sum::<usize>()
+                                    as u32 / sents.len() as u32;
+                                let deviation = if target_len > 0 {
+                                    (actual_len as f32 - target_len as f32).abs()
+                                        / target_len as f32
+                                } else {
+                                    0.0
+                                };
+                                if deviation > 0.3 {
+                                    style_suggestions.push(format!(
+                                        "句长偏差较大（目标{}字,实际{}字，偏差{:.0}%），建议下一轮微调",
+                                        target_len, actual_len, deviation * 100.0
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        let steps = vec![WorkflowStepResult {
+            step_type: WorkflowStepType::Generation,
+            agent_type: AgentType::Writer,
+            content: content.clone(),
+            score: None,
+            suggestions: style_suggestions,
+        }];
+
+        // 返回内容给用户
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::Completed,
+            1.0,
+            "三击生成完成",
+            Some(request_id.clone()),
+        );
+
+        // ===== Phase 4: 后台 agent（全部静默，0 LLM 在关键路径）=====
+
+        // BGP-1: 后台异步审计
+        let audit_content = content.clone();
+        let audit_story_id = task.context.story.story_id.clone();
+        let audit_pool = pool.inner().clone();
+        let audit_handle = self.app_handle.clone();
+        let audit_chapter_number = task.context.narrative.chapter_number as i32;
+        let audit_story_title = bundle.story_meta.title.clone();
+        let audit_genre = bundle.story_meta.genre.clone();
+        tokio::spawn(async move {
+            let executor = crate::task_system::audit_executor::AuditExecutor {
+                pool: audit_pool,
+                app_handle: audit_handle,
+            };
+            // TODO: Phase 4 链式 spawn AutoRewriteExecutor（审计完成后按严重度分流）
+            executor
+                .run_audit(crate::task_system::audit_executor::AuditPayload {
+                    story_id: audit_story_id,
+                    scene_id: None,
+                    chapter_id: None,
+                    chapter_number: audit_chapter_number,
+                    content: audit_content,
+                    story_title: Some(audit_story_title),
+                    genre: audit_genre,
+                })
+                .await;
+        });
+
+        // BGP-3: 后台入库（补 smart_execute 路径缺口）
+        let ingest_content_text = content.clone();
+        let ingest_story_id = task.context.story.story_id.clone();
+        let ingest_app_handle = self.app_handle.clone();
+        let ingest_pool = pool.inner().clone();
+        tokio::spawn(async move {
+            let llm_service = crate::llm::LlmService::new(ingest_app_handle.clone());
+            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+                .with_pool(ingest_pool.clone())
+                .with_app_handle(ingest_app_handle);
+            let ingest_content = crate::memory::ingest::IngestContent {
+                text: ingest_content_text,
+                source: "tri_shot".to_string(),
+                story_id: ingest_story_id.clone(),
+                scene_id: None,
+            };
+            if let Err(e) = pipeline.ingest(&ingest_content).await {
+                log::warn!("[TriShot] 后台 ingest 失败: {}", e);
+            }
+        });
+
+        // BGP-4: 条件触发深度洞察
+        let insight_pool = pool.inner().clone();
+        let insight_story_id = task.context.story.story_id.clone();
+        let insight_chapter = task.context.narrative.chapter_number as i32;
+        let insight_handle = self.app_handle.clone();
+        tokio::task::spawn_blocking(move || {
+            let should = crate::task_system::insight_executor::InsightExecutor::should_trigger(
+                &insight_pool,
+                &insight_story_id,
+                insight_chapter,
+                5,
+            );
+            (should, insight_pool, insight_story_id, insight_chapter, insight_handle)
         })
         .await
         .ok()
@@ -1310,11 +1713,7 @@ impl AgentOrchestrator {
     }
 
     /// v0.9.6: 在 Writer 输出后自动调用内置增强技能（情感节奏 + 文风润色）
-    async fn apply_writing_skills(
-        &self,
-        context: &crate::agents::AgentContext,
-        content: &str,
-    ) -> String {
+    async fn apply_writing_skills(&self, context: &AgentContext, content: &str) -> String {
         let Some(manager) = crate::SKILL_MANAGER.get() else {
             return content.to_string();
         };
@@ -1487,7 +1886,7 @@ impl AgentOrchestrator {
     /// P1-2: 判断是否应调用 plot_twist 技能——叙事阶段处于转折点时触发。
     /// 当规范状态快照的叙事阶段为 Climax 或 Falling（高潮/回落）时，
     /// 或当前场景标记为关键转折时，激活反转增强。
-    fn should_apply_plot_twist(context: &crate::agents::AgentContext) -> bool {
+    fn should_apply_plot_twist(context: &AgentContext) -> bool {
         // 检查 narrative_structure 中的 dramatic_function 是否标记转折
         if let Some(ref structure) = context.narrative.narrative_structure {
             let func = &structure.dramatic_function;
@@ -1996,11 +2395,7 @@ impl AgentOrchestrator {
                         cleaned
                     };
                     if cleaned.len() > 50 {
-                        Some(
-                            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
-                                cleaned,
-                            ),
-                        )
+                        Some(crate::domain::style::StyleFingerprint::from_text(cleaned))
                     } else {
                         None
                     }
@@ -2079,10 +2474,9 @@ impl AgentOrchestrator {
     /// 用风格指纹对候选文本打分（0-1，越高越匹配）
     fn score_candidate_style(
         text: &str,
-        reference: &crate::creative_engine::style::fingerprint::StyleFingerprint,
+        reference: &crate::domain::style::StyleFingerprint,
     ) -> f32 {
-        let candidate =
-            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(text);
+        let candidate = crate::domain::style::StyleFingerprint::from_text(text);
 
         // 句长匹配度 (0-1)
         let len_match = if reference.syntax.avg_sentence_length > 0.0 {
@@ -2175,6 +2569,19 @@ mod tests {
         assert_eq!(config.candidate_timeout_local_seconds, 60);
         assert_eq!(config.candidate_max_retries, 0);
         assert!(!config.candidate_local_sequential);
+    }
+
+    #[test]
+    fn test_generation_mode_trishot_variant() {
+        // v0.23: TriShot 模式与现有三模式并存，确保枚举可构造且 name 正确
+        assert_eq!(GenerationMode::Fast.name(), "快速");
+        assert_eq!(GenerationMode::TimeSliced.name(), "分时");
+        assert_eq!(GenerationMode::Full.name(), "完整");
+        assert_eq!(GenerationMode::TriShot.name(), "三击");
+        // 确保四种模式互不相等
+        assert_ne!(GenerationMode::TriShot, GenerationMode::TimeSliced);
+        assert_ne!(GenerationMode::TriShot, GenerationMode::Full);
+        assert_ne!(GenerationMode::TriShot, GenerationMode::Fast);
     }
 
     #[test]

@@ -27,15 +27,34 @@ impl TaskClassifier {
     /// v0.20.1: 若请求携带 SING 意图（intent_verb + intent_object），
     /// 优先使用 `classify_by_intention` 进行意图感知分类，实现从用户意图
     /// 到模型复杂度的精确映射。否则回退到 TaskType + agent_id 分类。
+    ///
+    /// Phase 2/3: 同时参考意图图发现的 asset_tags 做二次校准：
+    /// - 外部工具 / 系统命令类标签 → 轻量工具
+    /// - 明确创作类标签 → 重型创作
     pub fn classify_task(req: &GatewayRequest) -> TaskClass {
         // v0.20.1: SING 意图感知优先
         let intent_verb = req.intent_verb.as_ref();
         let intent_object = req.intent_object.as_ref();
-        if let (Some(verb), Some(object)) = (intent_verb, intent_object) {
-            return Self::classify_by_intention(verb.as_str(), object.as_str());
+        let base = if let (Some(verb), Some(object)) = (intent_verb, intent_object) {
+            Self::classify_by_intention(verb.as_str(), object.as_str())
+        } else {
+            let base = Self::classify_by_type(&req.task, &req.agent_id);
+            Self::upgrade_by_size(base, req.estimated_input_tokens, req.max_tokens)
+        };
+
+        // Phase 2/3: 资产标签校准（仅在标签强烈暗示不同类别时覆盖）
+        Self::adjust_by_asset_tags(base, &req.asset_tags)
+    }
+
+    fn adjust_by_asset_tags(base: TaskClass, tags: &[String]) -> TaskClass {
+        let tag_set: std::collections::HashSet<&str> = tags.iter().map(|s| s.as_str()).collect();
+        if tag_set.contains("mcp_tool") || tag_set.contains("system_command") {
+            return TaskClass::LightTool;
         }
-        let base = Self::classify_by_type(&req.task, &req.agent_id);
-        Self::upgrade_by_size(base, req.estimated_input_tokens, req.max_tokens)
+        if tag_set.contains("genre_profile") || tag_set.contains("creative_writing") {
+            return TaskClass::HeavyCreation;
+        }
+        base
     }
 
     /// v0.19.0: 基于 SING 意图图的任务分类
@@ -128,6 +147,7 @@ impl TaskClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::router::Priority;
 
     #[test]
     fn test_classify_by_intention_verbs() {
@@ -229,5 +249,53 @@ mod tests {
             TaskClassifier::classify_by_intention("Enhance", "Style"),
             TaskClass::BalancedWork
         );
+    }
+
+    #[test]
+    fn test_adjust_by_asset_tags() {
+        assert_eq!(
+            TaskClassifier::adjust_by_asset_tags(
+                TaskClass::BalancedWork,
+                &["mcp_tool".to_string()]
+            ),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::adjust_by_asset_tags(
+                TaskClass::LightTool,
+                &["genre_profile".to_string()]
+            ),
+            TaskClass::HeavyCreation
+        );
+        assert_eq!(
+            TaskClassifier::adjust_by_asset_tags(TaskClass::HeavyCreation, &["other".to_string()]),
+            TaskClass::HeavyCreation
+        );
+    }
+
+    #[test]
+    fn test_classify_task_considers_asset_tags() {
+        let req = GatewayRequest {
+            prompt: "test".to_string(),
+            agent_id: "writer".to_string(),
+            task: TaskType::CreativeWriting,
+            complexity: None,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::Low,
+            estimated_input_tokens: 0,
+            max_tokens: None,
+            temperature: None,
+            stream: false,
+            request_id: "r1".to_string(),
+            context_label: None,
+            timeout_seconds_override: None,
+            max_retries_override: None,
+            intent_verb: Some("generate".to_string()),
+            intent_object: Some("prose".to_string()),
+            asset_tags: vec!["mcp_tool".to_string()],
+            discovered_asset_ids: vec![],
+        };
+        // 即使意图是 generate prose，mcp_tool 标签也应将其降级为 LightTool
+        assert_eq!(TaskClassifier::classify_task(&req), TaskClass::LightTool);
     }
 }

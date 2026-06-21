@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::OnceCell;
 
-use super::{Agent, AgentContext, AgentResult};
+use super::Agent;
+use crate::domain::agent_context::AgentContext;
+pub use crate::domain::agent_types::{AgentResult, AgentTask, AgentType};
 use crate::{
     config::settings::AppConfig,
     error::AppError,
@@ -98,73 +100,6 @@ async fn writer_style_dnas(
             Ok::<_, AppError>(Arc::new(dnas))
         })
         .await
-}
-
-/// Agent类型
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentType {
-    Writer,             // 写作助手
-    Inspector,          // 质检员
-    OutlinePlanner,     // 大纲规划师
-    StyleMimic,         // 风格模仿师
-    PlotAnalyzer,       // 情节分析师
-    MemoryCompressor,   // 记忆压缩师
-    Commentator,        // 古典评点家
-    KnowledgeDistiller, // 知识蒸馏师
-}
-
-impl AgentType {
-    pub fn name(&self) -> &'static str {
-        match self {
-            AgentType::Writer => "写作助手",
-            AgentType::Inspector => "质检员",
-            AgentType::OutlinePlanner => "大纲规划师",
-            AgentType::StyleMimic => "风格模仿师",
-            AgentType::PlotAnalyzer => "情节分析师",
-            AgentType::MemoryCompressor => "记忆压缩师",
-            AgentType::Commentator => "古典评点家",
-            AgentType::KnowledgeDistiller => "知识蒸馏师",
-        }
-    }
-
-    pub fn agent_id(&self) -> &'static str {
-        match self {
-            AgentType::Writer => "writer",
-            AgentType::Inspector => "inspector",
-            AgentType::OutlinePlanner => "outline_planner",
-            AgentType::StyleMimic => "style_mimic",
-            AgentType::PlotAnalyzer => "plot_analyzer",
-            AgentType::MemoryCompressor => "memory_compressor",
-            AgentType::Commentator => "commentator",
-            AgentType::KnowledgeDistiller => "knowledge_distiller",
-        }
-    }
-
-    pub fn description(&self) -> &'static str {
-        match self {
-            AgentType::Writer => "根据上下文生成或改写章节内容",
-            AgentType::Inspector => "检查内容质量、逻辑连贯性、人物一致性",
-            AgentType::OutlinePlanner => "设计故事大纲、章节结构",
-            AgentType::StyleMimic => "分析并模仿特定文风",
-            AgentType::PlotAnalyzer => "分析情节复杂度、检测漏洞",
-            AgentType::MemoryCompressor => "将详细内容压缩为高层记忆摘要",
-            AgentType::Commentator => "以金圣叹风格对小说段落进行实时文学点评",
-            AgentType::KnowledgeDistiller => "将知识图谱蒸馏为高层故事摘要与世界观总结",
-        }
-    }
-}
-
-/// Agent任务
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTask {
-    pub id: String,
-    pub agent_type: AgentType,
-    pub context: AgentContext,
-    pub input: String,
-    pub parameters: HashMap<String, serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tier: Option<SubscriptionTier>,
 }
 
 /// Agent执行事件
@@ -717,6 +652,26 @@ impl AgentService {
             _ => (None, None),
         };
 
+        // Phase 2/3: 从 AgentTask.parameters 中提取意图图资产标签与资产 ID
+        let asset_tags = task
+            .parameters
+            .get("asset_tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            });
+        let discovered_asset_ids = task
+            .parameters
+            .get("discovered_asset_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            });
+
         log::info!(
             "[AgentService] generate_for_agent_with_options: agent={:?}, story_id={}, prompt_len={}, max_tokens={:?}, temperature={:?}",
             agent_type,
@@ -804,6 +759,8 @@ impl AgentService {
                         max_retries_override,
                         intent_verb,
                         intent_object,
+                        asset_tags.clone(),
+                        discovered_asset_ids.clone(),
                     )
                     .await;
                 (rid, result?)
@@ -839,6 +796,8 @@ impl AgentService {
                     max_retries_override,
                     intent_verb,
                     intent_object,
+                    asset_tags.clone(),
+                    discovered_asset_ids.clone(),
                 )
                 .await;
             (rid, result?)
@@ -1101,7 +1060,39 @@ impl AgentService {
             "正在构建写作提示词...",
             0.15,
         );
-        let prompt = self.build_writer_prompt(task, tier).await;
+        // Phase 3.1: 加载 WriteTimeBundle 以获取参考场景 few-shots 等同步资产。
+        // bundle 后续同时供 build_writer_prompt 注入参考场景段落。
+        let story_id_for_bundle = task.context.story.story_id.clone();
+        let chapter_number_for_bundle = task.context.narrative.chapter_number as i32;
+        let pool_for_bundle = pool.inner().clone();
+        let secondary_genre_profile_ids: Option<Vec<String>> = task
+            .parameters
+            .get("secondary_genre_profile_ids")
+            .and_then(|v| {
+                v.as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .or_else(|| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
+            })
+            .filter(|ids: &Vec<String>| !ids.is_empty());
+        let bundle = tokio::task::spawn_blocking(move || {
+            crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+                &pool_for_bundle,
+                &story_id_for_bundle,
+                chapter_number_for_bundle,
+                None,
+                secondary_genre_profile_ids,
+            )
+        })
+        .await
+        .map_err(|e| {
+            AppError::internal(format!("[build_writer_prompt] bundle 加载任务失败: {}", e))
+        })??;
+
+        let prompt = self.build_writer_prompt(task, tier, &bundle).await;
         self.emit_event(
             &task.id,
             task.agent_type,
@@ -1387,8 +1378,7 @@ impl AgentService {
 
         // v0.7.8: 风格一致性快速检查（ fingerprint 存在时）
         if let Some(ref fingerprint) = task.context.style.style_fingerprint {
-            let style_check =
-                crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&content);
+            let style_check = crate::domain::style::StyleFingerprint::from_text(&content);
             let len_diff = (style_check.syntax.avg_sentence_length
                 - fingerprint.syntax.avg_sentence_length)
                 .abs();
@@ -1724,7 +1714,12 @@ impl AgentService {
 
     // ==================== 提示词构建（模板化） ====================
 
-    async fn build_writer_prompt(&self, task: &AgentTask, tier: SubscriptionTier) -> String {
+    async fn build_writer_prompt(
+        &self,
+        task: &AgentTask,
+        tier: SubscriptionTier,
+        bundle: &crate::creative_engine::write_time_bundle::WriteTimeBundle,
+    ) -> String {
         use std::collections::HashMap;
 
         use crate::prompts::TemplateEngine;
@@ -1797,6 +1792,13 @@ impl AgentService {
             ctx.format_narrative_structure(),
         );
         vars.insert(
+            "narrative_event_history".to_string(),
+            ctx.narrative
+                .narrative_event_history
+                .clone()
+                .unwrap_or_else(|| "（暂无数据）".to_string()),
+        );
+        vars.insert(
             "current_content".to_string(),
             ctx.narrative
                 .current_content
@@ -1834,6 +1836,19 @@ impl AgentService {
         // v0.17.1: 通过 PromptRegistry 读取，支持用户在前端覆盖
         let writer_system_tpl = self.resolve_prompt("writer_system");
         let mut system_prompt = TemplateEngine::render_with_conditions(&writer_system_tpl, &vars);
+        tokio::task::yield_now().await;
+
+        // v0.22.5: 注入叙事事件历史（节奏/情绪一致性参考）
+        if let Some(ref event_history) = ctx.narrative.narrative_event_history {
+            let mut eh_vars = HashMap::new();
+            eh_vars.insert("event_history".to_string(), event_history.clone());
+            let eh_template = self.resolve_prompt("writer_narrative_event_history");
+            let eh_section = TemplateEngine::render_with_conditions(&eh_template, &eh_vars);
+            if !eh_section.trim().is_empty() {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(&eh_section);
+            }
+        }
         tokio::task::yield_now().await;
 
         // 注入写作策略约束
@@ -1937,8 +1952,9 @@ impl AgentService {
         if is_pro {
             emit_and_yield("正在加载创作方法论...", 0.17);
             if let Some(ref method_id) = ctx.world.methodology_id {
-                use crate::creative_engine::methodology::{
-                    MethodologyConfig, MethodologyEngine, MethodologyType,
+                use crate::{
+                    creative_engine::methodology::MethodologyEngine,
+                    domain::methodology::{MethodologyConfig, MethodologyType},
                 };
                 let method_type = match method_id.as_str() {
                     "snowflake" => Some(MethodologyType::Snowflake),
@@ -1965,6 +1981,89 @@ impl AgentService {
             tokio::task::yield_now().await;
         } // end is_pro (方法论保持 Pro-only)
 
+        // v0.22.5: 注入 Story System 运行时合同约束
+        emit_and_yield("正在加载故事合同约束...", 0.172);
+        if let Some(ref runtime_contract) = ctx.runtime_contract {
+            let contract_vars = runtime_contract.to_constraint_vars();
+            let contract_template = self.resolve_prompt("writer_contract_constraints");
+            let contract_section =
+                TemplateEngine::render_with_conditions(&contract_template, &contract_vars);
+            if !contract_section.trim().is_empty() {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(&contract_section);
+            }
+        }
+        tokio::task::yield_now().await;
+
+        // v0.22.5: Phase C - 注入追读力债务与本章追读力目标
+        emit_and_yield("正在加载追读力目标...", 0.173);
+        let mut debt_vars = HashMap::new();
+        debt_vars.insert(
+            "debt_count".to_string(),
+            task.parameters
+                .get("chase_debt_count")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0")
+                .to_string(),
+        );
+        debt_vars.insert(
+            "debts".to_string(),
+            task.parameters
+                .get("chase_debts")
+                .and_then(|v| v.as_str())
+                .unwrap_or("无")
+                .to_string(),
+        );
+        let chase_debt_template = self.resolve_prompt("writer_chase_debt");
+        let chase_debt_section =
+            TemplateEngine::render_with_conditions(&chase_debt_template, &debt_vars);
+        if !chase_debt_section.trim().is_empty() {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&chase_debt_section);
+        }
+
+        let mut goal_vars = HashMap::new();
+        goal_vars.insert(
+            "hook_type".to_string(),
+            task.parameters
+                .get("reading_power_hook_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("（未指定）")
+                .to_string(),
+        );
+        goal_vars.insert(
+            "hook_strength".to_string(),
+            task.parameters
+                .get("reading_power_hook_strength")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium")
+                .to_string(),
+        );
+        goal_vars.insert(
+            "foreshadowing_list".to_string(),
+            task.parameters
+                .get("reading_power_foreshadowing_list")
+                .and_then(|v| v.as_str())
+                .unwrap_or("无")
+                .to_string(),
+        );
+        goal_vars.insert(
+            "micropayoff_count".to_string(),
+            task.parameters
+                .get("reading_power_micropayoff_count")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1-2")
+                .to_string(),
+        );
+        let reading_power_template = self.resolve_prompt("writer_reading_power_goal");
+        let reading_power_section =
+            TemplateEngine::render_with_conditions(&reading_power_template, &goal_vars);
+        if !reading_power_section.trim().is_empty() {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&reading_power_section);
+        }
+        tokio::task::yield_now().await;
+
         // P3-1: 风格 DNA / 混合 —— 重构分层：
         // - Free 用户：可用单一 StyleDNA（基础风格一致性）
         // - Pro 用户：额外可用 StyleBlend（多风格融合）
@@ -1975,7 +2074,7 @@ impl AgentService {
         } else if let Some(ref blend) = ctx.style.style_blend {
             // StyleBlend（多风格融合）仍为 Pro-only
             if is_pro {
-                use crate::creative_engine::style::dna::StyleDNA;
+                use crate::domain::style::StyleDNA;
 
                 let dnas: Vec<StyleDNA> = match writer_style_dnas(&self.app_handle).await {
                     Ok(cache) => blend
@@ -2005,7 +2104,7 @@ impl AgentService {
             }
         } else if let Some(ref style_id) = ctx.style.style_dna_id {
             // 单一 StyleDNA 对所有用户可用（P3-1: Free 也能享受基础风格约束）
-            use crate::creative_engine::style::dna::StyleDNA;
+            use crate::domain::style::StyleDNA;
 
             if let Ok(cache) = writer_style_dnas(&self.app_handle).await {
                 if let Some(db_dna) = cache.get(style_id) {
@@ -2124,10 +2223,7 @@ impl AgentService {
                 cleaned
             };
             if cleaned.len() > 100 && cleaned != "无" {
-                let fingerprint =
-                    crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
-                        cleaned,
-                    );
+                let fingerprint = crate::domain::style::StyleFingerprint::from_text(cleaned);
                 let section = fingerprint.to_prompt_section();
                 if !section.is_empty() {
                     Some(section)
@@ -2243,6 +2339,18 @@ impl AgentService {
                 }
                 tokio::task::yield_now().await;
             }
+        }
+
+        // Phase 3.1: 注入参考场景 few-shots（来自关联拆书）
+        if !bundle.reference_scene_fewshots.is_empty() {
+            emit_and_yield("正在注入参考场景 few-shots...", 0.193);
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(
+                &crate::creative_engine::write_time_bundle::WriteTimeBundle::render_reference_scene_fewshots(
+                    &bundle.reference_scene_fewshots,
+                ),
+            );
+            tokio::task::yield_now().await;
         }
 
         emit_and_yield("正在组装最终提示词...", 0.195);
@@ -2370,73 +2478,6 @@ impl AgentService {
             }
         }
 
-        // v0.22.0: Inspector 全资产注入（Phase B）
-        // 体裁画像策略
-        if let Some(pool) = crate::get_pool() {
-            if let Some(ref gpid) = ctx.story.genre_profile_id {
-                if !gpid.is_empty() {
-                    let genre_repo = crate::db::GenreProfileRepository::new(pool.clone());
-                    if let Ok(Some(profile)) = genre_repo.get_by_id(gpid) {
-                        let mut parts = vec![];
-                        if let Some(ref tone) = profile.core_tone {
-                            parts.push(format!("基调：{}", tone));
-                        }
-                        if let Some(ref pacing) = profile.pacing_strategy {
-                            parts.push(format!("节奏：{}", pacing));
-                        }
-                        if !parts.is_empty() {
-                            context_sections.push(format!(
-                                "【体裁画像（检查题材套路合规）】\n{}",
-                                parts.join("\n")
-                            ));
-                        }
-                    }
-                }
-            }
-            // 角色状态 + 活跃冲突
-            let snap = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
-                &pool,
-                &ctx.story.story_id,
-                ctx.style.style_dna_id.as_deref(),
-            );
-            if let Some(ref canonical) = snap.canonical {
-                if !canonical.character_states.is_empty() {
-                    let states: Vec<String> = canonical
-                        .character_states
-                        .iter()
-                        .take(5)
-                        .map(|cs| {
-                            format!(
-                                "- {}: 位置={}, 情绪={}",
-                                cs.name,
-                                cs.current_location.as_deref().unwrap_or("未知"),
-                                cs.current_emotion.as_deref().unwrap_or("未知")
-                            )
-                        })
-                        .collect();
-                    context_sections
-                        .push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
-                }
-                if !canonical.story_context.active_conflicts.is_empty() {
-                    let cf: Vec<String> = canonical
-                        .story_context
-                        .active_conflicts
-                        .iter()
-                        .take(3)
-                        .map(|c| {
-                            format!(
-                                "  - {} ({}: {})",
-                                c.conflict_type,
-                                c.parties.join(", "),
-                                c.stakes
-                            )
-                        })
-                        .collect();
-                    context_sections
-                        .push(format!("【活跃冲突（检查是否推进）】\n{}", cf.join("\n")));
-                }
-            }
-        }
         // 方法论约束
         if let Some(ref mid) = ctx.world.methodology_id {
             if !mid.is_empty() {
@@ -2448,7 +2489,15 @@ impl AgentService {
                     "hero_journey" => Some("methodology_hero_journey".to_string()),
                     "scene_structure" => Some("methodology_scene_structure".to_string()),
                     "character_depth" => Some("methodology_character_depth".to_string()),
-                    "high_density_world_building" => Some("methodology_hdwb_seed".to_string()),
+                    "high_density_world_building" => Some(
+                        match step {
+                            "2" | "expansion" => "methodology_hdwb_expansion",
+                            "3" | "convergence" => "methodology_hdwb_convergence",
+                            "4" | "iteration" => "methodology_hdwb_iteration",
+                            _ => "methodology_hdwb_seed",
+                        }
+                        .to_string(),
+                    ),
                     _ => None,
                 };
                 if let Some(ref pid) = prompt_id {
@@ -2458,7 +2507,15 @@ impl AgentService {
                             "hero_journey" => "英雄之旅".to_string(),
                             "scene_structure" => "场景结构".to_string(),
                             "character_depth" => "人物深度".to_string(),
-                            "high_density_world_building" => "高密度世界构建".to_string(),
+                            "high_density_world_building" => {
+                                let phase_label = match step {
+                                    "2" | "expansion" => "状态网扩张",
+                                    "3" | "convergence" => "多线交织",
+                                    "4" | "iteration" => "密度迭代",
+                                    _ => "最小世界种子",
+                                };
+                                format!("高密度世界构建-{}", phase_label)
+                            }
                             _ => mid.clone(),
                         };
                         context_sections.push(format!(
@@ -2475,6 +2532,28 @@ impl AgentService {
                 if !q_str.is_empty() {
                     context_sections.push(format!("【叙事四元组】\n{}", q_str));
                 }
+            }
+        }
+
+        // v0.22.5: Inspector 合同合规检查
+        if let Some(ref runtime_contract) = ctx.runtime_contract {
+            let contract_vars = runtime_contract.to_constraint_vars();
+            let contract_template = self.resolve_prompt("inspector_contract_compliance");
+            let contract_section =
+                TemplateEngine::render_with_conditions(&contract_template, &contract_vars);
+            if !contract_section.trim().is_empty() {
+                context_sections.push(contract_section);
+            }
+        }
+
+        // v0.22.5: Inspector 叙事事件历史（节奏/情绪一致性检查）
+        if let Some(ref event_history) = ctx.narrative.narrative_event_history {
+            let mut eh_vars = HashMap::new();
+            eh_vars.insert("event_history".to_string(), event_history.clone());
+            let eh_template = self.resolve_prompt("inspector_narrative_event_history");
+            let eh_section = TemplateEngine::render_with_conditions(&eh_template, &eh_vars);
+            if !eh_section.trim().is_empty() {
+                context_sections.push(eh_section);
             }
         }
 
@@ -2517,21 +2596,6 @@ impl AgentService {
                             ));
                         }
                     }
-                }
-            }
-        }
-
-        // 方法论约束
-        if let Some(ref mid) = ctx.world.methodology_id {
-            if !mid.is_empty() {
-                let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
-                let prompt_id = format!("methodology_snowflake_step{}", step);
-                if let Some(content) = crate::prompts::registry::resolve_prompt_default(&prompt_id)
-                {
-                    context_sections.push(format!(
-                        "【方法论节拍（雪花法 第{}步，检查结构完整性）】\n{}",
-                        step, content
-                    ));
                 }
             }
         }
@@ -2582,15 +2646,6 @@ impl AgentService {
                         "【活跃冲突（检查是否推进或解决）】\n{}",
                         conflicts.join("\n")
                     ));
-                }
-            }
-        }
-
-        // 叙事四元组
-        if let Some(ref quartet) = task.parameters.get("narrative_quartet") {
-            if let Some(q_str) = quartet.as_str() {
-                if !q_str.is_empty() {
-                    context_sections.push(format!("【叙事四元组（检查目标达成）】\n{}", q_str));
                 }
             }
         }
@@ -2844,7 +2899,7 @@ impl AgentService {
         }
     }
 
-    fn format_memory_pack_for_prompt(pack: &crate::memory::orchestrator::MemoryPack) -> String {
+    fn format_memory_pack_for_prompt(pack: &crate::domain::memory_pack::MemoryPack) -> String {
         let mut parts = Vec::new();
 
         // Working Memory（工作记忆：近章摘要 + 当前大纲 + 前文）

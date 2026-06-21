@@ -11,6 +11,7 @@ use crate::{
         repositories::{SceneRepository, SceneUpdate},
         ChapterRepository, CharacterRepository, DbPool, StoryRepository, WorldBuildingRepository,
     },
+    domain::contracts::{ChapterContract, MasterSettingContract},
     llm::LlmService,
     router::TaskType,
 };
@@ -151,7 +152,7 @@ impl AutoContractBuilder {
 
         // 4. 检查并补齐 CHAPTER 合同
         let has_chapter_contract = tree.chapters.values().any(|c| {
-            serde_json::from_str::<super::ChapterContract>(&c.contract_json)
+            serde_json::from_str::<ChapterContract>(&c.contract_json)
                 .map(|cc| cc.chapter_number == chapter_number)
                 .unwrap_or(false)
         });
@@ -424,7 +425,7 @@ impl AutoContractBuilder {
         let master_summary = tree
             .master_setting
             .map(|c| {
-                serde_json::from_str::<super::MasterSettingContract>(&c.contract_json)
+                serde_json::from_str::<MasterSettingContract>(&c.contract_json)
                     .map(|m| {
                         format!(
                             "体裁: {}, 基调: {}, 节奏: {}",
@@ -602,7 +603,7 @@ impl AutoContractBuilder {
         let master_summary = tree
             .master_setting
             .map(|c| {
-                serde_json::from_str::<super::MasterSettingContract>(&c.contract_json)
+                serde_json::from_str::<MasterSettingContract>(&c.contract_json)
                     .map(|m| {
                         format!(
                             "体裁: {}, 基调: {}, 节奏: {}",

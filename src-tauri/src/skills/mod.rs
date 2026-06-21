@@ -8,7 +8,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{agents::AgentContext, error::AppError};
+use crate::{domain::agent_context::AgentContext, error::AppError};
 
 pub mod builtin;
 pub mod executor;

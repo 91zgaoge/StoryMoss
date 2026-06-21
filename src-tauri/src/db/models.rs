@@ -6,6 +6,8 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
+pub use crate::domain::narrative_elements::Culture;
+
 // ==================== 通用类型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -432,6 +434,28 @@ pub struct WorldRule {
     pub importance: i32, // 1-10
 }
 
+impl From<crate::domain::narrative_elements::WorldRule> for WorldRule {
+    fn from(rule: crate::domain::narrative_elements::WorldRule) -> Self {
+        let rule_type = match rule.rule_type.to_lowercase().as_str() {
+            "magic" => RuleType::Magic,
+            "technology" => RuleType::Technology,
+            "social" => RuleType::Social,
+            "physical" => RuleType::Physical,
+            "biological" => RuleType::Biological,
+            "historical" => RuleType::Historical,
+            "cultural" => RuleType::Cultural,
+            _ => RuleType::Custom,
+        };
+        Self {
+            id: String::new(),
+            name: rule.name,
+            description: Some(rule.description),
+            rule_type,
+            importance: rule.importance,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RuleType {
     Magic,      // 魔法规则
@@ -458,14 +482,6 @@ impl std::fmt::Display for RuleType {
         };
         write!(f, "{}", s)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Culture {
-    pub name: String,
-    pub description: String,
-    pub customs: Vec<String>,
-    pub values: Vec<String>,
 }
 
 // ==================== 场景设置模型 ====================
@@ -1078,6 +1094,8 @@ pub struct Story {
     pub genre_profile_id: Option<String>,
     pub methodology_id: Option<String>,
     pub methodology_step: Option<i32>,
+    /// 关联的参考书籍 ID（拆书功能）
+    pub reference_book_id: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

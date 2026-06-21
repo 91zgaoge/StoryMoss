@@ -47,6 +47,8 @@ impl StateSync {
             SyncEvent::SubscriptionChanged { .. } => "subscription-changed",
             SyncEvent::PayoffOverdue { .. } => "payoff-overdue",
             SyncEvent::AuditRewriteSuggested { .. } => "audit-rewrite-suggested",
+            SyncEvent::ContentAutoRevised { .. } => "content-auto-revised",
+            SyncEvent::RevisionSuggested { .. } => "revision-suggested",
         };
 
         // 发射到通用频道 `sync-event`
@@ -456,6 +458,48 @@ impl StateSync {
                 story_id: story_id.to_string(),
                 count: items.len(),
                 item_titles: titles,
+            },
+        );
+    }
+
+    // ==================== TriShot 后台改写事件 ====================
+
+    /// v0.23 TriShot BGP-2：后台自动改写器已修正高严重度问题并替换正文。
+    pub fn emit_content_auto_revised<R: Runtime>(
+        app: &AppHandle<R>,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_id: Option<&str>,
+        revision_count: usize,
+        summary: &str,
+    ) {
+        Self::emit_event(
+            app,
+            SyncEvent::ContentAutoRevised {
+                story_id: story_id.to_string(),
+                scene_id: scene_id.map(|s| s.to_string()),
+                chapter_id: chapter_id.map(|s| s.to_string()),
+                revision_count,
+                summary: summary.to_string(),
+            },
+        );
+    }
+
+    /// v0.23 TriShot BGP-2：后台质检发现低严重度问题，生成修订建议供用户审阅。
+    pub fn emit_revision_suggested<R: Runtime>(
+        app: &AppHandle<R>,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_id: Option<&str>,
+        suggestions: &[String],
+    ) {
+        Self::emit_event(
+            app,
+            SyncEvent::RevisionSuggested {
+                story_id: story_id.to_string(),
+                scene_id: scene_id.map(|s| s.to_string()),
+                chapter_id: chapter_id.map(|s| s.to_string()),
+                suggestions: suggestions.to_vec(),
             },
         );
     }

@@ -373,6 +373,8 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
         result
@@ -382,6 +384,10 @@ impl LlmService {
     ///
     /// v0.14.0: 优先通过 ModelGateway 执行，实现模型健康感知与自动 fallback。
     /// 若网关不可用则回退到旧版本地路由。
+    ///
+    /// Phase 2/3: 新增 asset_tags /
+    /// discovered_asset_ids，把意图图发现的资产信息
+    /// 透传给模型网关，用于任务分类与候选模型筛选。
     pub async fn generate_for_request_with_request_id(
         &self,
         request: RoutingRequest,
@@ -395,6 +401,9 @@ impl LlmService {
         // v0.22.0: SING 意图感知调度
         intent_verb: Option<&str>,
         intent_object: Option<&str>,
+        // Phase 2/3: 意图图资产标签与发现资产 ID
+        asset_tags: Option<Vec<String>>,
+        discovered_asset_ids: Option<Vec<String>>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -422,6 +431,9 @@ impl LlmService {
             // v0.22.0: 注入意图动词-宾语，激活 classify_by_intention
             intent_verb: intent_verb.map(|s| s.to_string()),
             intent_object: intent_object.map(|s| s.to_string()),
+            // Phase 2/3: 注入意图图资产发现信息
+            asset_tags: asset_tags.unwrap_or_default(),
+            discovered_asset_ids: discovered_asset_ids.unwrap_or_default(),
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => return (req_id, Ok(resp)),
@@ -467,6 +479,40 @@ impl LlmService {
         };
         self.generate_for_request(request, prompt, max_tokens, temperature, context_label)
             .await
+    }
+
+    /// v0.23 TriShot：用「最快可用模型」生成文本，用于 Call 1 路由合成器。
+    ///
+    /// 通过 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB 选最快模型，
+    /// 失败回退 active profile。始终用 `generate_with_profile_and_request_id` 单次调用，
+    /// 不走候选 fallback 链（追求首字节速度）。
+    pub async fn generate_with_fastest(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<GenerateResponse, AppError> {
+        let profile = self
+            .app_handle
+            .try_state::<crate::model_gateway::executor::GatewayExecutor>()
+            .and_then(|gw| gw.select_fastest_profile())
+            .or_else(|| self.get_active_profile())
+            .ok_or_else(|| AppError::internal("无可用模型（generate_with_fastest）".to_string()))?;
+
+        let (_, result) = self
+            .generate_with_profile_and_request_id(
+                &profile.id,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+                None,
+                None,
+            )
+            .await;
+        result
     }
 
     /// 路由生成，支持 Pipeline 步骤上下文
@@ -853,6 +899,15 @@ impl LlmService {
                 | "async-insight"
                 | "async-deep-insight"
                 | "background-summary"
+                // v0.23 TriShot：关键路径与后台 agent 的 LLM 调用全部静默，
+                // 避免与主流程进度事件混淆。tri-shot-router/refiner 属关键路径
+                // 前置调用（主流程仍在 PreparingContext 阶段，由 execute_trishot
+                // 自行发射细粒度进度，不依赖心跳）；bg-auto-rewriter/bg-ingest 属
+                // 正文返回后的后台 agent，必须静默以免触发 v0.16.2 的假超时。
+                | "tri-shot-router"
+                | "tri-shot-refiner"
+                | "bg-auto-rewriter"
+                | "bg-ingest"
         );
         let step_prefix = pipeline_ref
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))

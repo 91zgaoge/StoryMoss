@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Manager, State};
 
 use crate::{
-    agents::novel_creation::{
-        CharacterProfileOption, GenerationOptions, NovelCreationAgent, SceneProposal,
-        WorldBuildingOption, WritingStyleOption,
-    },
+    agents::novel_creation::{GenerationOptions, NovelCreationAgent, SceneProposal},
     config::StudioManager,
     db::{
         AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeTrackRepository, ChangeType,
@@ -26,6 +23,7 @@ use crate::{
         WorldBuilding, WorldBuildingRepo, WorldBuildingRepository, WorldRule, WritingStyle,
         WritingStyleRepo, WritingStyleRepository, WritingStyleUpdate,
     },
+    domain::novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
     error::AppError,
     llm::LlmService,
     memory::{
@@ -118,8 +116,10 @@ pub async fn update_world_building(
                 let skill_manager = skill_manager.clone();
                 let story_id_for_hook = story_id.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context =
-                        crate::agents::AgentContext::minimal(story_id_for_hook, String::new());
+                    let context = crate::domain::agent_context::AgentContext::minimal(
+                        story_id_for_hook,
+                        String::new(),
+                    );
                     let data = serde_json::json!({ "world_building_id": world_building_id });
                     let _ = skill_manager
                         .execute_hooks(
@@ -596,13 +596,11 @@ pub async fn compress_content(
     content: String,
     target_ratio: Option<f32>,
     app_handle: AppHandle,
-) -> Result<crate::agents::AgentResult, AppError> {
+) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{
-        commands::ExecuteAgentRequest,
-        service::{AgentService, AgentTask, AgentType},
-    };
+    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
+    use crate::domain::agent_types::{AgentTask, AgentType};
 
     log::info!(
         "[story_commands] {} called: story_id={}",
@@ -646,13 +644,11 @@ pub async fn compress_scene(
     target_ratio: Option<f32>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<crate::agents::AgentResult, AppError> {
+) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{
-        commands::ExecuteAgentRequest,
-        service::{AgentService, AgentTask, AgentType},
-    };
+    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
+    use crate::domain::agent_types::{AgentTask, AgentType};
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -716,10 +712,8 @@ pub async fn distill_story_knowledge(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<StorySummary, AppError> {
-    use crate::agents::{
-        commands::ExecuteAgentRequest,
-        service::{AgentService, AgentTask, AgentType},
-    };
+    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
+    use crate::domain::agent_types::{AgentTask, AgentType};
 
     log::info!(
         "[story_commands] {} called: story_id={}",

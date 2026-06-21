@@ -24,6 +24,7 @@ mod cascade_delete_tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -88,6 +89,7 @@ mod cascade_delete_tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -132,6 +134,7 @@ mod cascade_delete_tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -174,6 +177,7 @@ mod cascade_delete_tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story1 = story_repo.create(story1_request)?;
 
@@ -184,6 +188,7 @@ mod cascade_delete_tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story2 = story_repo.create(story2_request)?;
 

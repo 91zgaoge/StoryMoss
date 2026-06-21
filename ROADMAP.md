@@ -1,8 +1,34 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-21（v0.22.3）
+> 最后更新: 2026-06-21（v0.23.0）
+
+## ✅ v0.23.x 已实施完成
+
+### 🎯 TriShot 三击生成管线 ✅ (v0.23.0)
+- [x] GenerationMode::TriShot 三击模式（与 Fast/TimeSliced/Full 并存）
+- [x] prompt_synthesis 模块（manifest + synthesizer + refiner）
+- [x] GatewayExecutor::select_fastest_profile + generate_with_fastest
+- [x] PlanExecutor TriShot 快速路径（跳过计划生成 LLM）
+- [x] PlanStep::long_running 跳过 90s 步超时
+- [x] execute_trishot 完整管线（Call 1 → Call 2 → Call 3 + 预算守卫）
+- [x] BGP-2 auto_rewrite_executor（HIGH 自动改写 / LOW 建议）
+- [x] SyncEvent::ContentAutoRevised / RevisionSuggested
+- [x] 前端「三击模式」配置选项
+- [x] BGP-3 后台 IngestPipeline（补 smart_execute 路径缺口）
+- [x] BGP-1/BGP-4 后台审计+洞察链式 spawn
+- [x] silent_background 白名单扩展（4 个新标签）
 
 ## ✅ v0.22.x 已实施完成
+
+### 🧩 「异星球末世生存」复合题材创作流程优化 ✅ (v0.22.4)
+- [x] GenreResolver 题材解析服务
+- [x] GenreProfile 中文别名扩展
+- [x] StrategySelector / build_selected_strategy / story_concept_prompt 接入 GenreResolver
+- [x] AssetNode tags 与资产同步标签注入
+- [x] IntentionGraphPlanner 复合题材资产补充发现
+- [x] GatewayRequest asset_tags / discovered_asset_ids 透传
+- [x] TaskClassifier / GatewayExecutor 资产标签感知调度
+- [x] WriteTimeBundle secondary_genre_profile_strategy 复合题材续写补强
 
 ### 🔐 钥匙串彻底移除 + 模型健康报告自动刷新 ✅ (v0.22.3)
 - [x] 移除 keyring crate（全平台依赖）

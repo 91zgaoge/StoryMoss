@@ -54,6 +54,11 @@ impl GatewayExecutor {
         // 应用健康权重与任务匹配微调
         let health_registry = self.health_registry();
         let health = health_registry.lock().ok();
+
+        // Phase 2/3: 计算请求 asset_tags 与模型 tags 的重叠，用于候选模型微调
+        let request_tag_set: std::collections::HashSet<&str> =
+            request.asset_tags.iter().map(|s| s.as_str()).collect();
+
         let mut re_scored: Vec<(f64, &crate::config::settings::LlmProfile)> = decision
             .candidates
             .iter()
@@ -72,6 +77,17 @@ impl GatewayExecutor {
                         }
                     }
                 }
+
+                // Phase 2/3: 标签重叠加分（最多 +10），让匹配到同类标签的模型优先
+                if !request_tag_set.is_empty() {
+                    let overlap = m
+                        .tags
+                        .iter()
+                        .filter(|t| request_tag_set.contains(t.as_str()))
+                        .count() as f64;
+                    score += (overlap * 3.0).min(10.0);
+                }
+
                 (score, m)
             })
             .collect();
@@ -137,6 +153,79 @@ impl GatewayExecutor {
         }
 
         Ok(decision)
+    }
+
+    /// v0.23 TriShot：选取「最快可用模型」profile，用于 Call 1 路由合成器。
+    ///
+    /// 策略：从所有 enabled 模型中，按算力档案 `short_ttfb_ms_p50` 升序 +
+    /// `success_rate_24h` 降序排序，剔除 Unhealthy。无算力档案时回退到
+    /// `select_candidates`（让网关三维打分兜底）。最终都失败则回退 active profile。
+    pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
+        // 1) 优先用算力档案按 TTFB 选最快模型
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            if let Ok(profiles) =
+                super::capability_store::CapabilityStore::new(pool.inner().clone()).load_all()
+            {
+                let health = self.health_registry();
+                let health_guard = health.lock().ok();
+
+                // 候选：(ttfb, -success_rate, profile_id) — 升序排序
+                let mut ranked: Vec<(u64, f64, String)> = profiles
+                    .iter()
+                    .filter(|cap| cap.status != super::types::HealthStatus::Unhealthy)
+                    .filter_map(|cap| {
+                        // 只保留 registry 中存在且 enabled 的模型
+                        self.registry.get(&cap.model_id)?;
+                        let ttfb = cap.short_ttfb_ms_p50.unwrap_or(10_000);
+                        let success = cap.success_rate_24h.unwrap_or(0.0);
+                        // 若有健康快照且 Unhealthy 则跳过（双保险）
+                        if let Some(ref h) = health_guard {
+                            if let Some(snap) = h.get(&cap.model_id) {
+                                if snap.status == super::types::HealthStatus::Unhealthy {
+                                    return None;
+                                }
+                            }
+                        }
+                        Some((ttfb, -success, cap.model_id.clone()))
+                    })
+                    .collect();
+                ranked.sort_by_key(|(ttfb, neg_success, _)| (*ttfb, (*neg_success * 1_000_000.0) as i64));
+
+                if let Some((_, _, model_id)) = ranked.first() {
+                    if let Some(profile) = self.registry.get(model_id).cloned() {
+                        log::info!(
+                            "[Gateway] select_fastest_profile: 选中 {} (ttfb_p50={}ms)",
+                            profile.id,
+                            profiles
+                                .iter()
+                                .find(|p| &p.model_id == model_id)
+                                .and_then(|p| p.short_ttfb_ms_p50)
+                                .unwrap_or(0)
+                        );
+                        return Some(profile);
+                    }
+                }
+            }
+        }
+
+        // 2) 无算力档案：用 select_candidates 走网关三维打分兜底
+        let req = super::types::GatewayRequest::for_fast_routing(String::new(), "tri-shot-router");
+        if let Ok(decision) = self.select_candidates(&req) {
+            if let Some(primary) = decision.candidates.first() {
+                if let Some(profile) = self.registry.get(&primary.model_id).cloned() {
+                    log::info!(
+                        "[Gateway] select_fastest_profile (无档案兜底): 选中 {} (score={:.1})",
+                        profile.id,
+                        primary.score
+                    );
+                    return Some(profile);
+                }
+            }
+        }
+
+        // 3) 最终回退：active profile
+        log::warn!("[Gateway] select_fastest_profile: 回退到 active profile");
+        self.llm_service.get_active_profile()
     }
 
     /// 统一生成入口：选择候选链并顺序执行 fallback

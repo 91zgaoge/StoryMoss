@@ -14,11 +14,14 @@
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
 use crate::{
+    book_deconstruction::models::ReferenceScene,
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
     db::{
         Character, CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
         StoryContractRepository, StyleDnaRepository,
     },
+    domain::contracts::RuntimeContract,
+    story_system::StorySystemEngine,
 };
 
 // ==================== 数据结构 ====================
@@ -65,8 +68,14 @@ pub struct WriteTimeBundle {
     /// 题材画像策略（core_tone + pacing_strategy + reference_tables +
     /// typical_structure）
     pub genre_profile_strategy: Option<String>,
+    /// Phase 4: 次要题材画像策略（复合题材时从 selected_strategy 透传）
+    pub secondary_genre_profile_strategy: Option<String>,
     /// 写作策略约束
     pub writing_strategy_constraints: Option<String>,
+    /// v0.22.5: Story System 运行时合同（MASTER_SETTING + 当前章节合同）
+    pub runtime_contract: Option<RuntimeContract>,
+    /// Phase 3.1: 参考场景 few-shots（来自关联 reference_book 的相似场景）
+    pub reference_scene_fewshots: Vec<ReferenceSceneFewShot>,
 }
 
 pub struct CoreCharacter {
@@ -83,6 +92,15 @@ pub struct SceneOutline {
     pub conflict_type: Option<String>,
     pub external_pressure: Option<String>,
     pub setting_location: Option<String>,
+}
+
+/// Phase 3.1: 参考场景 few-shot（用于拆书功能关联写作）。
+#[derive(Debug, Clone)]
+pub struct ReferenceSceneFewShot {
+    pub title: String,
+    pub summary: String,
+    pub content_snippet: String,
+    pub similarity: f32,
 }
 
 pub struct StoryMeta {
@@ -169,6 +187,7 @@ impl WriteTimeBundle {
         story_id: &str,
         chapter_number: i32,
         style_slice_override: Option<String>,
+        secondary_genre_profile_ids: Option<Vec<String>>,
     ) -> Result<Self, String> {
         // 1. 故事元信息
         let story_repo = crate::db::StoryRepository::new(pool.clone());
@@ -198,6 +217,22 @@ impl WriteTimeBundle {
             }
             Err(e) => {
                 log::warn!("[WriteTimeBundle] 查询合同失败: {}", e);
+                None
+            }
+        };
+
+        // v0.22.5: 加载运行时合同（写前真源）
+        let runtime_contract = match StorySystemEngine::new(pool.clone())
+            .get_runtime_contract(story_id, chapter_number)
+        {
+            Ok(rc) => Some(rc),
+            Err(e) => {
+                log::debug!(
+                    "[WriteTimeBundle] 运行时合同未加载: story={} chapter={} err={}",
+                    story_id,
+                    chapter_number,
+                    e
+                );
                 None
             }
         };
@@ -240,6 +275,20 @@ impl WriteTimeBundle {
             }
         };
 
+        // Phase 3.1: 加载参考场景 few-shots（若故事关联了参考书籍）。
+        // 当前 load_sync 为同步上下文，无法直接调用 LanceVectorStore 的异步向量搜索，
+        // 因此退化为基于场景大纲与参考场景文本的关键词重叠排序，取 top 3。
+        let reference_scene_fewshots = match story.reference_book_id.as_deref() {
+            Some(book_id) if !book_id.is_empty() => {
+                Self::load_reference_scene_fewshots_sync(pool, book_id, &scene_outline)
+                    .unwrap_or_else(|e| {
+                        log::warn!("[WriteTimeBundle] 加载参考场景失败: {}", e);
+                        vec![]
+                    })
+            }
+            _ => vec![],
+        };
+
         // 5. GenreProfile 反模式清单
         let genre_repo = GenreProfileRepository::new(pool.clone());
         let genre_antipatterns = match &story.genre {
@@ -263,9 +312,8 @@ impl WriteTimeBundle {
                 let dna_repo = StyleDnaRepository::new(pool.clone());
                 match dna_repo.get_by_id(dna_id) {
                     Ok(Some(dna)) => {
-                        match serde_json::from_str::<crate::creative_engine::style::dna::StyleDNA>(
-                            &dna.dna_json,
-                        ) {
+                        match serde_json::from_str::<crate::domain::style::StyleDNA>(&dna.dna_json)
+                        {
                             Ok(dna_obj) => Some(dna_obj.to_prompt_extension()),
                             Err(e) => {
                                 log::warn!("[WriteTimeBundle] StyleDNA 解析失败: {}", e);
@@ -301,10 +349,15 @@ impl WriteTimeBundle {
                         "methodology_character_depth".to_string(),
                         "人物深度".to_string(),
                     ),
-                    "high_density_world_building" => (
-                        "methodology_hdwb_seed".to_string(),
-                        "高密度世界构建".to_string(),
-                    ),
+                    "high_density_world_building" => {
+                        let (prompt_id, label) = match step {
+                            2 => ("methodology_hdwb_expansion", "高密度世界构建-状态网扩张"),
+                            3 => ("methodology_hdwb_convergence", "高密度世界构建-多线交织"),
+                            4 => ("methodology_hdwb_iteration", "高密度世界构建-密度迭代"),
+                            _ => ("methodology_hdwb_seed", "高密度世界构建-最小世界种子"),
+                        };
+                        (prompt_id.to_string(), label.to_string())
+                    }
                     _ => (String::new(), String::new()),
                 };
                 if prompt_id.is_empty() {
@@ -351,6 +404,44 @@ impl WriteTimeBundle {
             }
         };
 
+        // Phase 4: 加载次要题材画像策略（复合题材资产补强）
+        let secondary_genre_profile_strategy = {
+            let ids = secondary_genre_profile_ids.unwrap_or_default();
+            if ids.is_empty() {
+                None
+            } else {
+                let genre_repo3 = GenreProfileRepository::new(pool.clone());
+                let mut summaries = vec![];
+                for id in ids {
+                    if let Ok(Some(profile)) = genre_repo3.get_by_id(&id) {
+                        let mut parts = vec![];
+                        if let Some(ref tone) = profile.core_tone {
+                            parts.push(format!("基调：{}", tone));
+                        }
+                        if let Some(ref pacing) = profile.pacing_strategy {
+                            parts.push(format!("节奏策略：{}", pacing));
+                        }
+                        if !parts.is_empty() {
+                            summaries.push(format!(
+                                "- {}（{}）：{}",
+                                profile.genre_name,
+                                profile.canonical_name,
+                                parts.join("，")
+                            ));
+                        }
+                    }
+                }
+                if !summaries.is_empty() {
+                    Some(format!(
+                        "【次要题材画像补充（复合题材）】\n{}\n\n续写时需同时满足主、次题材画像的核心基调与节奏策略；若两者冲突，以主题材画像为准，但应保留次题材画像的独特氛围。",
+                        summaries.join("\n")
+                    ))
+                } else {
+                    None
+                }
+            }
+        };
+
         // v0.22.0: 加载写作策略约束
         let writing_strategy_constraints = {
             // 使用默认策略（后续可通过参数传入覆盖）
@@ -386,8 +477,154 @@ impl WriteTimeBundle {
             style_dna_extension,
             methodology_extension,
             genre_profile_strategy,
+            secondary_genre_profile_strategy,
             writing_strategy_constraints,
+            runtime_contract,
+            reference_scene_fewshots,
         })
+    }
+
+    /// Phase 3.1: 同步加载参考场景 few-shots。
+    ///
+    /// 当前实现为同步上下文下的降级方案：基于当前场景大纲与参考场景文本的
+    /// 关键词重叠进行排序，返回 top 3。若未来需要向量搜索，可在外部先异步
+    /// 计算 embedding 再传入，或把 load_sync 改造为 async。
+    fn load_reference_scene_fewshots_sync(
+        pool: &DbPool,
+        book_id: &str,
+        scene_outline: &Option<SceneOutline>,
+    ) -> Result<Vec<ReferenceSceneFewShot>, Box<dyn std::error::Error>> {
+        use crate::book_deconstruction::repository::ReferenceSceneRepository;
+
+        let scene_repo = ReferenceSceneRepository::new(pool.clone());
+        let scenes = scene_repo.get_reference_scenes_by_book(book_id)?;
+        if scenes.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query_text = Self::scene_outline_query_text(scene_outline);
+        if query_text.trim().is_empty() {
+            // 无场景大纲时按顺序取前 3 个作为兜底
+            return Ok(scenes
+                .into_iter()
+                .take(3)
+                .map(Self::reference_scene_to_fewshot)
+                .collect());
+        }
+
+        let query_tokens = tokenize_text(&query_text);
+
+        let mut scored: Vec<(f32, ReferenceScene)> = scenes
+            .into_iter()
+            .map(|scene| {
+                let scene_text = Self::reference_scene_text(&scene);
+                let scene_tokens = tokenize_text(&scene_text);
+
+                let overlap = query_tokens.intersection(&scene_tokens).count() as f32;
+                let total = query_tokens.union(&scene_tokens).count() as f32;
+                let similarity = if total > 0.0 { overlap / total } else { 0.0 };
+                (similarity, scene)
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(3);
+
+        Ok(scored
+            .into_iter()
+            .map(|(similarity, scene)| {
+                let mut fewshot = Self::reference_scene_to_fewshot(scene);
+                fewshot.similarity = similarity;
+                fewshot
+            })
+            .collect())
+    }
+
+    fn scene_outline_query_text(scene_outline: &Option<SceneOutline>) -> String {
+        let mut parts = Vec::new();
+        if let Some(ref outline) = scene_outline {
+            if let Some(ref g) = outline.dramatic_goal {
+                parts.push(g.clone());
+            }
+            if let Some(ref c) = outline.conflict_type {
+                parts.push(c.clone());
+            }
+            if let Some(ref p) = outline.external_pressure {
+                parts.push(p.clone());
+            }
+            if let Some(ref s) = outline.setting_location {
+                parts.push(s.clone());
+            }
+        }
+        parts.join(" ")
+    }
+
+    fn reference_scene_text(scene: &ReferenceScene) -> String {
+        let mut parts = Vec::new();
+        if let Some(ref title) = scene.title {
+            parts.push(title.clone());
+        }
+        if let Some(ref summary) = scene.summary {
+            parts.push(summary.clone());
+        }
+        if let Some(ref key_events) = scene.key_events {
+            parts.push(key_events.clone());
+        }
+        if let Some(ref characters) = scene.characters_present {
+            parts.push(characters.clone());
+        }
+        if let Some(ref conflict) = scene.conflict_type {
+            parts.push(conflict.clone());
+        }
+        if let Some(ref tone) = scene.emotional_tone {
+            parts.push(tone.clone());
+        }
+        parts.join(" ")
+    }
+
+    fn reference_scene_to_fewshot(scene: ReferenceScene) -> ReferenceSceneFewShot {
+        let title = scene
+            .title
+            .clone()
+            .unwrap_or_else(|| format!("场景 {}", scene.sequence_number));
+        let summary = scene.summary.clone().unwrap_or_default();
+        let content_snippet = {
+            let text = Self::reference_scene_text(&scene);
+            truncate(&text, 300)
+        };
+        ReferenceSceneFewShot {
+            title,
+            summary,
+            content_snippet,
+            similarity: 0.0,
+        }
+    }
+
+    /// 渲染参考场景 few-shots 段落。
+    pub fn render_reference_scene_fewshots(fewshots: &[ReferenceSceneFewShot]) -> String {
+        let items: Vec<String> = fewshots
+            .iter()
+            .enumerate()
+            .map(|(i, fs)| {
+                let mut lines = vec![format!(
+                    "示例 {}：{}（相似度：{:.2}）",
+                    i + 1,
+                    fs.title,
+                    fs.similarity
+                )];
+                if !fs.summary.is_empty() {
+                    lines.push(format!("  摘要：{}", fs.summary));
+                }
+                if !fs.content_snippet.is_empty() {
+                    lines.push(format!("  片段：{}", fs.content_snippet));
+                }
+                lines.join("\n")
+            })
+            .collect();
+        format!(
+            "【参考场景 few-shots（仅借鉴叙事节奏与冲突处理方式，禁止复制原文）】\n{}\n\n请仅学习上述参考场景的节奏、张力与写作技巧，不得直接复制其文字、人物或专有设定。",
+            items.join("\n\n")
+        )
     }
 
     /// 将 bundle 序列化为 prompt 注入字符串。
@@ -542,9 +779,34 @@ impl WriteTimeBundle {
             sections.push(genre.clone());
         }
 
+        // ⑬-2 次要题材画像策略（复合题材资产补强）
+        if let Some(ref secondary) = self.secondary_genre_profile_strategy {
+            sections.push(secondary.clone());
+        }
+
         // ⑭ 写作策略约束
         if let Some(ref ws) = self.writing_strategy_constraints {
             sections.push(ws.clone());
+        }
+
+        // v0.22.5: Story System 运行时合同约束
+        if let Some(ref rc) = self.runtime_contract {
+            let vars = rc.to_constraint_vars();
+            if let Some(section) = crate::prompts::registry::resolve_prompt_default_with_vars(
+                "write_time_bundle_contract",
+                &vars,
+            ) {
+                if !section.trim().is_empty() {
+                    sections.push(section);
+                }
+            }
+        }
+
+        // Phase 3.1: 参考场景 few-shots（来自关联拆书）
+        if !self.reference_scene_fewshots.is_empty() {
+            sections.push(Self::render_reference_scene_fewshots(
+                &self.reference_scene_fewshots,
+            ));
         }
 
         sections.join("\n\n")
@@ -585,7 +847,7 @@ fn parse_antipatterns(json_str: &Option<String>) -> Vec<String> {
 /// 从 contract_json 提取核心红线文本。
 /// 若能解析为 JSON 且含 world_rules/redlines
 /// 字段，提取之；否则原文兜底（截断）。
-fn extract_redline_text(contract_json: &str) -> String {
+pub(crate) fn extract_redline_text(contract_json: &str) -> String {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(contract_json) {
         // 尝试常见字段名
         for key in &[
@@ -623,6 +885,19 @@ fn truncate(s: &str, max_chars: usize) -> String {
             chars.iter().take(max_chars).collect::<String>()
         )
     }
+}
+
+/// 简单文本分词：按空白与常见中英文标点切分，过滤单字符与空串。
+fn tokenize_text(s: &str) -> std::collections::HashSet<String> {
+    let delimiters: &[char] = &[
+        ' ', '\t', '\n', '\r', '，', '。', '！', '？', '；', '：', '"', '“', '”', '\'', '‘', '’',
+        '（', '）', '(', ')', '[', ']', '、', '《', '》', ',', '.', '!', '?', ';', ':',
+    ];
+    s.to_lowercase()
+        .split(delimiters)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty() && t.chars().count() > 1)
+        .collect()
 }
 
 // ==================== 测试 ====================
@@ -740,6 +1015,43 @@ mod tests {
     }
 
     #[test]
+    fn to_prompt_secondary_genre_strategy_rendered() {
+        let bundle = WriteTimeBundle {
+            contract_redlines: None,
+            core_characters: vec![],
+            scene_outline: None,
+            genre_antipatterns: vec![],
+            style_slice: None,
+            story_meta: StoryMeta {
+                title: "测试".to_string(),
+                genre: Some("末世流".to_string()),
+                tone: None,
+                pacing: None,
+                description: None,
+            },
+            genre_category: GenreCategory::Speculative,
+            narrative_phase_guidance: None,
+            pending_foreshadowings: vec![],
+            overdue_foreshadowings: vec![],
+            style_dna_summary: None,
+            narrative_quartet: None,
+            style_dna_extension: None,
+            methodology_extension: None,
+            genre_profile_strategy: Some("【体裁画像策略（末世流）】\n基调：文明崩溃".to_string()),
+            secondary_genre_profile_strategy: Some(
+                "【次要题材画像补充（复合题材）】\n- 异星世界（Alien World）：基调：陌生星球"
+                    .to_string(),
+            ),
+            writing_strategy_constraints: None,
+            runtime_contract: None,
+            reference_scene_fewshots: vec![],
+        };
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("次要题材画像补充"));
+        assert!(prompt.contains("异星世界"));
+    }
+
+    #[test]
     fn to_prompt_redlines_appear_first() {
         let bundle = WriteTimeBundle {
             contract_redlines: Some(r#"{"redlines": "绝对红线内容"}"#.to_string()),
@@ -770,7 +1082,10 @@ mod tests {
             style_dna_extension: None,
             methodology_extension: None,
             genre_profile_strategy: None,
+            secondary_genre_profile_strategy: None,
             writing_strategy_constraints: None,
+            runtime_contract: None,
+            reference_scene_fewshots: vec![],
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);
@@ -781,5 +1096,31 @@ mod tests {
         assert!(redline_pos < anti_pos, "红线应在反模式之前");
         // Speculative 题材不应有风格片段
         assert!(!prompt.contains("风格指引"));
+    }
+
+    #[test]
+    fn render_reference_scene_fewshots_includes_title_and_snippet() {
+        let fewshots = vec![ReferenceSceneFewShot {
+            title: "山谷决战".to_string(),
+            summary: "主角与反派在山谷中决战。".to_string(),
+            content_snippet: "剑光一闪，两人错身而过。".to_string(),
+            similarity: 0.85,
+        }];
+        let section = WriteTimeBundle::render_reference_scene_fewshots(&fewshots);
+        assert!(section.contains("山谷决战"));
+        assert!(section.contains("0.85"));
+        assert!(section.contains("主角与反派在山谷中决战"));
+        assert!(section.contains("剑光一闪"));
+        assert!(section.contains("禁止复制原文"));
+    }
+
+    #[test]
+    fn tokenize_text_splits_on_punctuation() {
+        let tokens = tokenize_text("主角，反派；决战：山谷！");
+        assert!(tokens.contains("主角"));
+        assert!(tokens.contains("反派"));
+        assert!(tokens.contains("决战"));
+        assert!(tokens.contains("山谷"));
+        assert!(!tokens.contains("主"));
     }
 }

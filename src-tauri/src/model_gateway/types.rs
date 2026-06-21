@@ -118,6 +118,43 @@ pub struct GatewayRequest {
     /// v0.20.1: SING 意图宾语（如 "prose"、"style"、"character"）
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub intent_object: Option<String>,
+    /// Phase 2/3: 意图图发现的资产标签（如 ["genre_profile",
+    /// "post_apocalyptic"]）
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub asset_tags: Vec<String>,
+    /// Phase 2/3: 意图图发现的具体资产 ID 列表
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub discovered_asset_ids: Vec<String>,
+}
+
+impl GatewayRequest {
+    /// v0.23 TriShot：构造「最快路由」请求——用于 Call 1 路由合成器。
+    ///
+    /// 强制 `speed_priority: High` + `budget_priority: Low`，使网关在
+    /// `select_candidates` 中倾向 `TaskClass::LightTool` 的 60% 速度权重，
+    /// 配合 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB 选最快模型。
+    pub fn for_fast_routing(prompt: String, agent_id: &str) -> Self {
+        Self {
+            prompt,
+            agent_id: agent_id.to_string(),
+            task: TaskType::Analysis,
+            complexity: Some(Complexity::Low),
+            budget_priority: Priority::Low,
+            speed_priority: Priority::High,
+            estimated_input_tokens: 0,
+            max_tokens: None,
+            temperature: None,
+            stream: false,
+            request_id: uuid::Uuid::new_v4().to_string(),
+            context_label: None,
+            timeout_seconds_override: None,
+            max_retries_override: None,
+            intent_verb: None,
+            intent_object: None,
+            asset_tags: Vec::new(),
+            discovered_asset_ids: Vec::new(),
+        }
+    }
 }
 
 /// 网关层对路由决策的扩展：RoutingDecision 已包含候选链
@@ -251,4 +288,23 @@ pub struct CapabilityProfile {
     /// 质量得分
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality_score: Option<f64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_for_fast_routing_defaults() {
+        // v0.23 TriShot：for_fast_routing 应强制速度优先、低成本、LightTool 路由
+        let req = GatewayRequest::for_fast_routing("测试 prompt".to_string(), "tri-shot-router");
+        assert_eq!(req.prompt, "测试 prompt");
+        assert_eq!(req.agent_id, "tri-shot-router");
+        assert_eq!(req.speed_priority, Priority::High);
+        assert_eq!(req.budget_priority, Priority::Low);
+        assert_eq!(req.complexity, Some(Complexity::Low));
+        assert!(!req.request_id.is_empty(), "request_id 应自动生成");
+        assert!(req.asset_tags.is_empty());
+        assert!(req.intent_verb.is_none());
+    }
 }

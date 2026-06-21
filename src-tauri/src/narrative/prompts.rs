@@ -42,19 +42,47 @@ fn resolve_and_render(prompt_id: &str, default_template: &str, vars: &[(&str, &s
 
 // ==================== 故事概念 Prompt ====================
 
-pub fn story_concept_prompt(mode: PromptMode, context: &str) -> String {
+pub fn story_concept_prompt(
+    mode: PromptMode,
+    context: &str,
+    available_profiles: Option<&[crate::db::GenreProfile]>,
+) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_story_concept_generate",
-            r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整的故事概念。
+        PromptMode::Generate => {
+            let profiles_json = available_profiles.map_or_else(
+                || "[]".to_string(),
+                |profiles| {
+                    serde_json::to_string(
+                        &profiles
+                            .iter()
+                            .map(|p| {
+                                serde_json::json!({
+                                    "id": p.id,
+                                    "genre_name": p.genre_name,
+                                    "canonical_name": p.canonical_name,
+                                    "aliases": p.aliases_json.as_deref().unwrap_or("[]"),
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "[]".to_string())
+                },
+            );
+            resolve_and_render(
+                "narrative_story_concept_generate",
+                r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整的故事概念。
 
 用户输入："{{user_input}}"
+
+可选题材画像目录（仅供标准化映射，可单选或多选）：
+{{genre_profiles}}
 
 请用 JSON 格式回复：
 {
   "title": "故事标题（有吸引力的中文标题）",
   "description": "一句话简介（30-50字）",
   "genre": "题材（如：都市玄幻、科幻、悬疑、古言）",
+  "genre_profile_ids": ["从上述目录中挑选最匹配的题材画像 id，可单选或多选"],
   "tone": "文风基调（如：热血、暗黑、轻松、沉重）",
   "pacing": "叙事节奏（如：快节奏、慢热、跌宕起伏）",
   "themes": ["主题1", "主题2"],
@@ -66,9 +94,15 @@ pub fn story_concept_prompt(mode: PromptMode, context: &str) -> String {
 2. 简介要概括核心冲突和卖点
 3. 题材必须严格遵循用户输入中的要求
 4. 题材要具体，不要笼统"小说"
-5. 只输出 JSON，不要其他内容"#,
-            &[("user_input", &context.replace('"', "'"))],
-        ),
+5. 如果用户输入包含复合题材（如"异星球末世生存"），请尽量映射多个 genre_profile_ids
+6. 如果目录中没有精确匹配，允许返回空数组，但必须在 genre 字段保留原始题材描述
+7. 只输出 JSON，不要其他内容"#,
+                &[
+                    ("user_input", &context.replace('"', "'")),
+                    ("genre_profiles", &profiles_json),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_story_concept_extract",
             r#"你是一位资深小说编辑。请从以下小说文本中，提取故事的基本信息。
@@ -103,38 +137,55 @@ pub fn world_building_prompt(
     story_title: &str,
     genre: &str,
     context: &str,
+    strategy_context: Option<&str>,
+    narrative_quartet: Option<&str>,
 ) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_world_building_generate",
-            r#"你是一位世界观架构师。请为以下故事生成完整的世界观设定。
+        PromptMode::Generate => {
+            let strategy_section = strategy_context
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
+                .unwrap_or_default();
+            let quartet_section = narrative_quartet
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
+                .unwrap_or_default();
+            resolve_and_render(
+                "narrative_world_building_generate",
+                &format!(
+                    r#"你是一位世界观架构师。请为以下故事生成完整的世界观设定。
 
 故事：《{{story_title}}》
 题材：{{genre}}
-简介：{{story_description}}
+简介：{{story_description}}{{{{strategy_section}}}}{{{{quartet_section}}}}
 
 请用 JSON 格式回复：
-{
+{{
   "concept": "世界观核心概念（50-100字）",
   "rules": [
-    {"name": "规则名称", "description": "规则描述", "rule_type": "physical|magic|social|historical", "importance": 8}
+    {{"name": "规则名称", "description": "规则描述", "rule_type": "physical|magic|social|historical", "importance": 8}}
   ],
   "history": "世界历史背景（200-300字）",
   "key_locations": ["关键地点1", "关键地点2"],
   "power_system": "力量体系概述（如有）"
-}
+}}
 
 要求：
 1. 规则要有创意，避免陈词滥调
 2. 规则之间要有逻辑一致性
 3. 重要规则（importance >= 8）不超过5条
-4. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("genre", genre),
-                ("story_description", context),
-            ],
-        ),
+4. 必须遵循【创作策略参考】中的体裁画像、方法论等约束
+5. 只输出 JSON"#
+                ),
+                &[
+                    ("story_title", story_title),
+                    ("genre", genre),
+                    ("story_description", context),
+                    ("strategy_section", &strategy_section),
+                    ("quartet_section", &quartet_section),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_world_building_extract",
             r#"你是一位世界观分析专家。请从以下小说文本中，提取世界观设定。
@@ -173,21 +224,33 @@ pub fn character_prompt(
     genre: &str,
     world_concept: &str,
     context: &str,
+    strategy_context: Option<&str>,
+    narrative_quartet: Option<&str>,
 ) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_character_generate",
-            r#"你是一位角色设计师。请为以下故事生成 3-5 个主要角色。
+        PromptMode::Generate => {
+            let strategy_section = strategy_context
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
+                .unwrap_or_default();
+            let quartet_section = narrative_quartet
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
+                .unwrap_or_default();
+            resolve_and_render(
+                "narrative_character_generate",
+                &format!(
+                    r#"你是一位角色设计师。请为以下故事生成 3-5 个主要角色。
 
 故事：《{{story_title}}》
 题材：{{genre}}
 世界观：{{world_concept}}
-简介：{{outline_summary}}
+简介：{{outline_summary}}{{{{strategy_section}}}}{{{{quartet_section}}}}
 
 请用 JSON 格式回复：
-{
+{{
   "characters": [
-    {
+    {{
       "name": "角色姓名",
       "role_type": "角色定位（主角/反派/导师/盟友/爱情线）",
       "personality": "性格特征（50字）",
@@ -198,25 +261,30 @@ pub fn character_prompt(
       "gender": "男/女/其他",
       "age": 25,
       "importance_score": 9,
-      "relationships": [{"target_name": "另一个角色名", "relation_type": "关系性质", "description": "关系描述"}]
-    }
+      "relationships": [{{"target_name": "另一个角色名", "relation_type": "关系性质", "description": "关系描述"}}]
+    }}
   ]
-}
+}}
 
 要求：
 1. 主角要有鲜明的性格弧光空间
-2. 角色之间要有冲突和张力
+2. 角色之间要有冲突和张力，可参考【中文叙事四件套】中的高压关系
 3. 避免刻板印象
 4. 命名多样性，禁用最常见单字姓，禁止单字名，姓氏不得重复
 5. 角色应有鲜明外貌、性别、年龄
-6. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("genre", genre),
-                ("world_concept", world_concept),
-                ("outline_summary", context),
-            ],
-        ),
+6. 必须遵循【创作策略参考】中的体裁画像、方法论等约束
+7. 只输出 JSON"#
+                ),
+                &[
+                    ("story_title", story_title),
+                    ("genre", genre),
+                    ("world_concept", world_concept),
+                    ("outline_summary", context),
+                    ("strategy_section", &strategy_section),
+                    ("quartet_section", &quartet_section),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_character_extract",
             r#"你是一位角色分析专家。请从以下小说文本中，提取所有出现的人物角色。
@@ -264,21 +332,33 @@ pub fn scene_prompt(
     genre: &str,
     character_names: &str,
     context: &str,
+    strategy_context: Option<&str>,
+    narrative_quartet: Option<&str>,
 ) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_scene_generate",
-            r#"你是一位大纲规划师。请为以下故事生成 8-12 个核心场景。
+        PromptMode::Generate => {
+            let strategy_section = strategy_context
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
+                .unwrap_or_default();
+            let quartet_section = narrative_quartet
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
+                .unwrap_or_default();
+            resolve_and_render(
+                "narrative_scene_generate",
+                &format!(
+                    r#"你是一位大纲规划师。请为以下故事生成 8-12 个核心场景。
 
 故事：《{{story_title}}》
 题材：{{genre}}
 角色：{{characters}}
-简介：{{outline_summary}}
+简介：{{outline_summary}}{{{{strategy_section}}}}{{{{quartet_section}}}}
 
 请用 JSON 格式回复：
-{
+{{
   "scenes": [
-    {
+    {{
       "sequence_number": 1,
       "title": "场景标题",
       "summary": "场景内容摘要（100字）",
@@ -288,22 +368,27 @@ pub fn scene_prompt(
       "setting_location": "地点",
       "setting_time": "时间",
       "characters_present": ["角色名1", "角色名2"]
-    }
+    }}
   ]
-}
+}}
 
 要求：
 1. 场景之间要有因果关系
 2. 每个场景都要推动情节或揭示人物
-3. 冲突类型要多样
-4. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("genre", genre),
-                ("characters", character_names),
-                ("outline_summary", context),
-            ],
-        ),
+3. 冲突类型要多样，可参考【中文叙事四件套】中的剧情引擎与高压关系
+4. 必须遵循【创作策略参考】中的场景结构方法论、体裁画像等约束
+5. 只输出 JSON"#
+                ),
+                &[
+                    ("story_title", story_title),
+                    ("genre", genre),
+                    ("characters", character_names),
+                    ("outline_summary", context),
+                    ("strategy_section", &strategy_section),
+                    ("quartet_section", &quartet_section),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_scene_extract",
             r#"你是一位场景分析专家。请从以下小说文本中，提取所有场景/章节。
@@ -345,41 +430,64 @@ pub fn scene_prompt(
 
 // ==================== 大纲 Prompt ====================
 
-pub fn outline_prompt(mode: PromptMode, story_title: &str, genre: &str, context: &str) -> String {
+pub fn outline_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    genre: &str,
+    context: &str,
+    strategy_context: Option<&str>,
+    narrative_quartet: Option<&str>,
+) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_outline_generate",
-            r#"你是一位资深故事架构师。请为以下故事生成一个完整的三幕式大纲。
+        PromptMode::Generate => {
+            let strategy_section = strategy_context
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
+                .unwrap_or_default();
+            let quartet_section = narrative_quartet
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
+                .unwrap_or_default();
+            resolve_and_render(
+                "narrative_outline_generate",
+                &format!(
+                    r#"你是一位资深故事架构师。请为以下故事生成一个完整的三幕式大纲。
 
 故事：《{{story_title}}》
 题材：{{genre}}
-简介：{{world_summary}}
+简介：{{world_summary}}{{{{strategy_section}}}}{{{{quartet_section}}}}
 
 请用 JSON 格式回复：
-{
+{{
   "acts": [
-    {
+    {{
       "act_number": 1,
       "title": "第一幕标题",
       "summary": "本幕核心内容摘要（100字）",
       "key_plot_points": ["情节点1", "情节点2", "情节点3"],
       "estimated_scenes": 4
-    }
+    }}
   ],
   "total_scenes_estimate": 12
-}
+}}
 
 要求：
 1. 严格三幕结构（起-承-转-合）
 2. 每幕包含3-5个关键情节点
 3. 场景数量要合理
-4. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("genre", genre),
-                ("world_summary", context),
-            ],
-        ),
+4. 可参考【中文叙事四件套】中的剧情引擎、桥段卡、高压关系来设计情节点
+5. 必须遵循【创作策略参考】中的方法论、体裁画像等约束
+6. 只输出 JSON"#
+                ),
+                &[
+                    ("story_title", story_title),
+                    ("genre", genre),
+                    ("world_summary", context),
+                    ("strategy_section", &strategy_section),
+                    ("quartet_section", &quartet_section),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_outline_extract",
             r#"你是一位故事结构分析专家。请从以下小说文本（或章节概要）中，提取故事的三幕式大纲结构。
@@ -421,42 +529,59 @@ pub fn foreshadowing_prompt(
     genre: &str,
     outline_summary: &str,
     context: &str,
+    strategy_context: Option<&str>,
+    narrative_quartet: Option<&str>,
 ) -> String {
     match mode {
-        PromptMode::Generate => resolve_and_render(
-            "narrative_foreshadowing_generate",
-            r#"你是一位资深编剧。请根据以下故事概念和大纲，设计 3-5 个核心伏笔。
+        PromptMode::Generate => {
+            let strategy_section = strategy_context
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
+                .unwrap_or_default();
+            let quartet_section = narrative_quartet
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
+                .unwrap_or_default();
+            resolve_and_render(
+                "narrative_foreshadowing_generate",
+                &format!(
+                    r#"你是一位资深编剧。请根据以下故事概念和大纲，设计 3-5 个核心伏笔。
 
 故事：《{{story_title}}》
 题材：{{genre}}
 
 故事大纲：
-{{outline_summary}}
+{{outline_summary}}{{{{strategy_section}}}}{{{{quartet_section}}}}
 
 请用 JSON 格式回复：
-{
+{{
   "foreshadowings": [
-    {
+    {{
       "content": "伏笔内容描述",
       "importance": 8,
       "target_act": 2,
       "hint_style": "暗示风格（如：环境隐喻、对话暗示、物品象征、预言梦境）"
-    }
+    }}
   ]
-}
+}}
 
 要求：
 1. 伏笔要贯穿多个幕次，具有回收价值
 2. importance 1-10，核心伏笔不低于7
 3. hint_style 要多样化
 4. 第一个伏笔建议在第一章就埋下
-5. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("genre", genre),
-                ("outline_summary", outline_summary),
-            ],
-        ),
+5. 可参考【中文叙事四件套】中的剧情引擎、桥段卡来设计伏笔埋设方向
+6. 只输出 JSON"#
+                ),
+                &[
+                    ("story_title", story_title),
+                    ("genre", genre),
+                    ("outline_summary", outline_summary),
+                    ("strategy_section", &strategy_section),
+                    ("quartet_section", &quartet_section),
+                ],
+            )
+        }
         PromptMode::Extract => resolve_and_render(
             "narrative_foreshadowing_extract",
             r#"你是一位伏笔分析专家。请从以下小说文本中，提取所有伏笔（已埋设的暗示和线索）。

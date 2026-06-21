@@ -318,7 +318,10 @@ impl SceneService {
                 let scene_title = scene.title.clone();
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                    let context = crate::domain::agent_context::AgentContext::minimal(
+                        story_id,
+                        String::new(),
+                    );
                     let data =
                         serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
                     let _ = skill_manager

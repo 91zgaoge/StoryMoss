@@ -8,7 +8,7 @@
 //!
 //! 修复审计报告缺口 5。
 
-use crate::creative_engine::style::dna::StyleDNA;
+use crate::domain::style::StyleDNA;
 
 /// 资产参数映射器
 pub struct AssetParamMapper;

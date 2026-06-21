@@ -4,8 +4,16 @@
 
 use std::collections::HashMap;
 
-use super::models::{SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides};
-use crate::{error::AppError, llm::LlmService, router::TaskType};
+use super::models::{SelectableAsset, SelectionContext};
+use crate::{
+    book_deconstruction::repository::ReferenceBookRepository,
+    db::StoryRepository,
+    domain::strategy::{SelectedStrategy, StrategyOverrides},
+    error::AppError,
+    llm::LlmService,
+    router::TaskType,
+    strategy::GenreResolver,
+};
 
 /// 策略选择器
 #[derive(Clone)]
@@ -19,16 +27,49 @@ impl StrategySelector {
     }
 
     /// 为给定的创作场景选择策略
+    ///
+    /// v0.22.x: 新增 `genre_repo` 参数，用于精确匹配失败时通过 `GenreResolver`
+    /// 做模糊/复合题材匹配。传 `None` 时保持旧行为。
     pub async fn select_strategy(
         &self,
         context: &SelectionContext,
         assets: &[SelectableAsset],
+        genre_repo: Option<&crate::db::GenreProfileRepository>,
         overrides: Option<&StrategyOverrides>,
     ) -> Result<SelectedStrategy, AppError> {
         // 1. 先尝试精确匹配 genre profile
         let mut strategy = exact_genre_match(context, assets);
 
-        // 2. 调用 LLM 做最终选择
+        // 2. 精确失败时，使用 GenreResolver 做模糊/复合题材匹配
+        if strategy.genre_profile_id.is_none() {
+            if let Some(repo) = genre_repo {
+                if let Some(hint) = context.genre_hint.as_deref() {
+                    let resolver = GenreResolver::new();
+                    if let Ok(matches) = resolver.resolve_from_hint(hint, repo) {
+                        if let Some(first) = matches.first() {
+                            strategy.genre_profile_id = Some(first.profile_id.clone());
+                            strategy.rationale = format!(
+                                "GenreResolver 模糊匹配到 '{}'/{} (score={:.1})",
+                                first.genre_name, first.canonical_name, first.score
+                            );
+                            if matches.len() > 1 {
+                                let secondary: Vec<String> = matches
+                                    .iter()
+                                    .skip(1)
+                                    .map(|m| m.profile_id.clone())
+                                    .collect();
+                                strategy.parameters.insert(
+                                    "secondary_genre_profile_ids".to_string(),
+                                    serde_json::json!(secondary),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. 调用 LLM 做最终选择
         let prompt = build_selection_prompt(context, assets, &strategy);
         let response = self
             .llm_service
@@ -43,10 +84,10 @@ impl StrategySelector {
 
         let llm_strategy = parse_strategy_response(&response.content)?;
 
-        // 3. 合并 LLM 结果与精确匹配兜底
+        // 4. 合并 LLM 结果与精确匹配兜底
         strategy = merge_strategies(strategy, llm_strategy);
 
-        // 4. 应用用户覆盖
+        // 5. 应用用户覆盖
         if let Some(ov) = overrides {
             strategy.merge_user_overrides(ov);
         }
@@ -61,6 +102,24 @@ pub fn exact_genre_match(
     assets: &[SelectableAsset],
 ) -> SelectedStrategy {
     let mut strategy = SelectedStrategy::default();
+
+    // Phase 1.5: 若 LLM 已输出标准化 genre_profile_ids，优先直接匹配
+    if !context.preferred_genre_profile_ids.is_empty() {
+        for preferred_id in &context.preferred_genre_profile_ids {
+            for asset in assets {
+                if !matches!(asset.kind, super::models::AssetKind::GenreProfile) {
+                    continue;
+                }
+                let id = asset.id.strip_prefix("genre_profile.").unwrap_or(&asset.id);
+                if id == preferred_id {
+                    strategy.genre_profile_id = Some(preferred_id.clone());
+                    strategy.rationale = format!("LLM 标准化题材画像 '{}'", asset.name);
+                    return strategy;
+                }
+            }
+        }
+    }
+
     let hint = match &context.genre_hint {
         Some(h) if !h.trim().is_empty() => h.trim().to_lowercase(),
         _ => return strategy,
@@ -146,11 +205,66 @@ fn merge_strategies(a: SelectedStrategy, b: SelectedStrategy) -> SelectedStrateg
     }
 }
 
+/// 根据 story_id 加载关联参考书籍的分析摘要。
+///
+/// 任何失败（无故事、无关联书籍、数据库错误）都返回 `None`，
+/// 保证策略选择不被阻塞。
+fn load_reference_book_summary(
+    story_id: Option<&str>,
+) -> Option<crate::book_deconstruction::models::ReferenceBookSummary> {
+    let pool = crate::get_pool()?;
+    let story_id = story_id?;
+    let story = StoryRepository::new(pool.clone())
+        .get_by_id(story_id)
+        .ok()
+        .flatten()?;
+    let book_id = story.reference_book_id?;
+    ReferenceBookRepository::new(pool)
+        .get_book_analysis_summary(&book_id)
+        .ok()
+        .flatten()
+}
+
+/// 将参考书籍摘要注入模板变量表。
+fn inject_reference_book_vars(
+    vars: &mut std::collections::HashMap<String, String>,
+    summary: Option<&crate::book_deconstruction::models::ReferenceBookSummary>,
+) {
+    let empty = String::new();
+    vars.insert("reference_book_title".to_string(), empty.clone());
+    vars.insert("reference_book_genre".to_string(), empty.clone());
+    vars.insert("reference_book_world_keywords".to_string(), empty.clone());
+    vars.insert("reference_book_arc_type".to_string(), empty.clone());
+    vars.insert("reference_book_tone".to_string(), empty);
+
+    if let Some(s) = summary {
+        vars.insert("reference_book_title".to_string(), s.title.clone());
+        if let Some(ref genre) = s.genre {
+            vars.insert("reference_book_genre".to_string(), genre.clone());
+        }
+        if !s.world_keywords.is_empty() {
+            vars.insert(
+                "reference_book_world_keywords".to_string(),
+                s.world_keywords.join(", "),
+            );
+        }
+        if let Some(ref arc) = s.arc_type {
+            vars.insert("reference_book_arc_type".to_string(), arc.clone());
+        }
+        if let Some(ref tone) = s.tone {
+            vars.insert("reference_book_tone".to_string(), tone.clone());
+        }
+    }
+}
+
 fn build_selection_prompt(
     context: &SelectionContext,
     assets: &[SelectableAsset],
     current_strategy: &SelectedStrategy,
 ) -> String {
+    // Phase 3.2: 加载关联参考书籍分析摘要（非阻塞）
+    let ref_summary = load_reference_book_summary(context.story_id.as_deref());
+
     // v0.21.0: 优先从 PromptRegistry 读取覆盖
     if let Some(tpl) = crate::get_pool()
         .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "strategy_selector").ok())
@@ -168,6 +282,7 @@ fn build_selection_prompt(
         let mut vars = std::collections::HashMap::new();
         vars.insert("context".to_string(), context_str);
         vars.insert("available_assets".to_string(), assets_str);
+        inject_reference_book_vars(&mut vars, ref_summary.as_ref());
         return crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
     }
 
@@ -225,6 +340,28 @@ fn build_selection_prompt(
                 "Genre-based recommendations (prefer these for the given genre):".to_string(),
             );
             sections.push(recommendations);
+        }
+    }
+
+    // Phase 3.2: 注入关联参考书籍上下文（fallback prompt）
+    if let Some(ref summary) = ref_summary {
+        sections.push("".to_string());
+        sections.push("Reference book context:".to_string());
+        sections.push(format!("- title: {}", summary.title));
+        if let Some(ref genre) = summary.genre {
+            sections.push(format!("- genre: {}", genre));
+        }
+        if !summary.world_keywords.is_empty() {
+            sections.push(format!(
+                "- world keywords: {}",
+                summary.world_keywords.join(", ")
+            ));
+        }
+        if let Some(ref arc) = summary.arc_type {
+            sections.push(format!("- story arc type: {}", arc));
+        }
+        if let Some(ref tone) = summary.tone {
+            sections.push(format!("- tone: {}", tone));
         }
     }
 
@@ -301,11 +438,12 @@ mod tests {
     use crate::strategy::asset_catalog::{genre_profile_assets, methodology_assets};
 
     fn sample_assets() -> Vec<SelectableAsset> {
+        // 使用与 templates/genres.json 一致的真实 aliases，避免测试数据与真实数据不一致
         let profile = crate::db::GenreProfile {
             id: "apocalyptic".to_string(),
             genre_name: "末世流".to_string(),
             canonical_name: "Post-apocalyptic".to_string(),
-            aliases_json: Some("[\"post-apocalyptic\", \"apocalyptic\", \"末世\"]".to_string()),
+            aliases_json: Some("[\"post-apocalyptic\", \"apocalyptic\", \"末世\", \"末日\", \"废土\", \"末世生存\"]".to_string()),
             core_tone: Some("文明崩溃后的世界".to_string()),
             pacing_strategy: Some("快节奏".to_string()),
             anti_patterns_json: Some("[]".to_string()),
@@ -344,6 +482,16 @@ mod tests {
     }
 
     #[test]
+    fn test_exact_genre_match_prefers_profile_ids() {
+        let mut ctx = SelectionContext::default();
+        ctx.genre_hint = Some("完全不相关".to_string());
+        ctx.preferred_genre_profile_ids = vec!["apocalyptic".to_string()];
+
+        let strategy = exact_genre_match(&ctx, &sample_assets());
+        assert_eq!(strategy.genre_profile_id, Some("apocalyptic".to_string()));
+    }
+
+    #[test]
     fn test_parse_strategy_response_valid() {
         let json = r#"{"rationale": "适合末世", "genre_profile_id": "apocalyptic", "methodology_id": "high_density_world_building", "style_dna_ids": [], "skill_ids": ["builtin.style_enhancer"], "workflow_id": null, "parameters": {}}"#;
         let strategy = parse_strategy_response(json).unwrap();
@@ -373,6 +521,123 @@ mod tests {
         assert_eq!(merged.genre_profile_id, Some("b".to_string()));
         assert_eq!(merged.methodology_id, Some("m_b".to_string()));
         assert_eq!(merged.style_dna_ids, vec!["style_1".to_string()]);
+    }
+
+    /// 审计测试：复合题材 "异星球末世生存" 的精确匹配能力
+    ///
+    /// 该测试模拟 LLM 从用户输入 "写一部异星球末世生存题材的小说" 中可能提取的
+    /// genre 字符串，并验证当前 `exact_genre_match` 的匹配结果。
+    /// 目的：暴露复合题材/别名覆盖不足导致的后台资产断链风险。
+    #[test]
+    fn test_compound_genre_exact_match_audit() {
+        // 使用与 templates/genres.json 一致的真实资产字段
+        let profiles = vec![
+            crate::db::GenreProfile {
+                id: "apocalyptic".to_string(),
+                genre_name: "末世流".to_string(),
+                canonical_name: "Post-apocalyptic".to_string(),
+                aliases_json: Some("[\"post-apocalyptic\", \"apocalyptic\"]".to_string()),
+                core_tone: Some("文明崩溃后的世界...".to_string()),
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: Some("怕,燃,生存压迫".to_string()),
+                recommended_style_dna_ids: Some("[\"余华\",\"海明威\",\"鲁迅\"]".to_string()),
+                recommended_methodology_id: Some("hero_journey".to_string()),
+                recommended_skill_ids: Some("[\"emotion_pacing\",\"character_voice\"]".to_string()),
+                min_quality_tier: Some("high".to_string()),
+                is_builtin: true,
+                created_at: chrono::Local::now(),
+            },
+            crate::db::GenreProfile {
+                id: "doomsday-pioneer".to_string(),
+                genre_name: "末日拓荒".to_string(),
+                canonical_name: "Doomsday Pioneer".to_string(),
+                aliases_json: Some(
+                    "[\"doomsday pioneer\", \"post-apocalyptic pioneer\"]".to_string(),
+                ),
+                core_tone: Some("末日后的开拓史...".to_string()),
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: Some("燃,爽".to_string()),
+                recommended_style_dna_ids: None,
+                recommended_methodology_id: None,
+                recommended_skill_ids: None,
+                min_quality_tier: Some("high".to_string()),
+                is_builtin: true,
+                created_at: chrono::Local::now(),
+            },
+            crate::db::GenreProfile {
+                id: "scifi".to_string(),
+                genre_name: "科幻".to_string(),
+                canonical_name: "Sci-Fi".to_string(),
+                aliases_json: Some("[\"sci-fi\", \"science fiction\"]".to_string()),
+                core_tone: Some("科学技术驱动...".to_string()),
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: Some("燃,惊".to_string()),
+                recommended_style_dna_ids: Some("[\"海明威\",\"余华\",\"王小波\"]".to_string()),
+                recommended_methodology_id: Some("hero_journey".to_string()),
+                recommended_skill_ids: Some("[\"style_enhancer\",\"emotion_pacing\"]".to_string()),
+                min_quality_tier: Some("high".to_string()),
+                is_builtin: true,
+                created_at: chrono::Local::now(),
+            },
+            crate::db::GenreProfile {
+                id: "mecha-stellar".to_string(),
+                genre_name: "星际机甲".to_string(),
+                canonical_name: "Mecha / Stellar Warfare".to_string(),
+                aliases_json: Some("[\"mecha/stellar warfare\", \"mecha\"]".to_string()),
+                core_tone: Some("星际战争与机甲...".to_string()),
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: Some("燃,爽".to_string()),
+                recommended_style_dna_ids: None,
+                recommended_methodology_id: None,
+                recommended_skill_ids: None,
+                min_quality_tier: Some("high".to_string()),
+                is_builtin: true,
+                created_at: chrono::Local::now(),
+            },
+        ];
+
+        let assets = genre_profile_assets(&profiles);
+
+        // LLM 从 "写一部异星球末世生存题材的小说" 可能提取的 genre 字符串
+        let cases: Vec<(&str, Option<&str>)> = vec![
+            ("异星球末世生存", None), // 复合新词，无精确匹配
+            ("末世科幻", None),       // 复合词，无精确匹配
+            ("科幻末世", None),       // 复合词，无精确匹配
+            ("异星球", None),         // 非标准别名
+            ("末世", None),           // 真实 aliases 中未包含 "末世"
+            ("生存", None),           // 主题词，非体裁名
+            ("末世流", Some("apocalyptic")),
+            ("Post-apocalyptic", Some("apocalyptic")),
+            ("Sci-Fi", Some("scifi")),
+            ("Mecha / Stellar Warfare", Some("mecha-stellar")),
+            ("星际机甲", Some("mecha-stellar")),
+        ];
+
+        for (hint, expected_id) in cases {
+            let mut ctx = SelectionContext::default();
+            ctx.genre_hint = Some(hint.to_string());
+            let strategy = exact_genre_match(&ctx, &assets);
+            assert_eq!(
+                strategy.genre_profile_id.as_deref(),
+                expected_id,
+                "genre_hint='{}' 应匹配 {:?}, 实际匹配 {:?}",
+                hint,
+                expected_id,
+                strategy.genre_profile_id
+            );
+        }
     }
 }
 

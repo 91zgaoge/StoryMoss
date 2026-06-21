@@ -34,6 +34,7 @@ fn test_story_repo_basic() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
     let fetched = story_repo.get_by_id(&story.id).unwrap();
@@ -54,6 +55,7 @@ fn test_create_snapshot_empty_story() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -80,6 +82,7 @@ fn test_create_snapshot_with_scenes() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -112,6 +115,7 @@ fn test_create_snapshot_with_characters() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -165,6 +169,7 @@ fn test_create_snapshot_with_world_facts() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -195,6 +200,7 @@ fn test_narrative_phase_calculation() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -225,6 +231,7 @@ fn test_get_snapshot_returns_same_as_create() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -249,6 +256,7 @@ fn test_narrative_phase_climax_detection() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 
@@ -296,6 +304,7 @@ fn test_narrative_phase_resolution_when_all_major_payoffs_resolved() {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         })
         .unwrap();
 

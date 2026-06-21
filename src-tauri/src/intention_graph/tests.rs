@@ -35,6 +35,22 @@ mod tests {
     }
 
     #[test]
+    fn test_asset_node_tags_from_metadata() {
+        let mut node = AssetNode::new(
+            AssetType::GenreProfile,
+            "末世流",
+            "Post-apocalyptic genre profile",
+            Some("genre_profile.apocalyptic"),
+        );
+        node.metadata = Some(serde_json::json!({
+            "tags": ["末世", "末日", "post-apocalyptic"]
+        }));
+        let tags = node.tags();
+        assert!(tags.contains(&"末世".to_string()));
+        assert!(tags.contains(&"post-apocalyptic".to_string()));
+    }
+
+    #[test]
     fn test_cosine_similarity() {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![1.0, 0.0, 0.0];

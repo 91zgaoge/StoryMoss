@@ -74,7 +74,7 @@ pub struct ReferenceBook {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReferenceBookSummary {
+pub struct ReferenceBookListItem {
     pub id: String,
     pub title: String,
     pub author: Option<String>,
@@ -84,6 +84,17 @@ pub struct ReferenceBookSummary {
     pub analysis_status: String,
     pub analysis_progress: i32,
     pub created_at: String,
+}
+
+/// 拆书分析摘要（用于策略选择时注入 prompt）。
+#[derive(Debug, Clone)]
+pub struct ReferenceBookSummary {
+    pub book_id: String,
+    pub title: String,
+    pub genre: Option<String>,
+    pub world_keywords: Vec<String>,
+    pub arc_type: Option<String>,
+    pub tone: Option<String>,
 }
 
 // ==================== 参考人物表模型 ====================

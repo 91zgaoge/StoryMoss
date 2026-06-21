@@ -6,11 +6,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 
-use crate::{
-    db::models::*,
-    llm::{LlmAdapter, LlmService},
-    router::TaskType,
+pub use crate::domain::novel_creation::{
+    CharacterProfileOption, WorldBuildingOption, WritingStyleOption,
 };
+use crate::{llm::LlmService, router::TaskType};
 
 /// 小说创建 Agent
 pub struct NovelCreationAgent {
@@ -43,40 +42,6 @@ pub enum DetailLevel {
     Brief,
     Normal,
     Detailed,
-}
-
-/// 世界观选项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorldBuildingOption {
-    pub id: String,
-    pub concept: String,
-    pub rules: Vec<WorldRule>,
-    pub history: String,
-    pub cultures: Vec<Culture>,
-}
-
-/// 角色谱选项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CharacterProfileOption {
-    pub id: String,
-    pub name: String,
-    pub personality: String,
-    pub background: String,
-    pub goals: String,
-    pub voice_style: String,
-}
-
-/// 文字风格选项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WritingStyleOption {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub tone: String,
-    pub pacing: String,
-    pub vocabulary_level: String,
-    pub sentence_structure: String,
-    pub sample_text: String,
 }
 
 impl NovelCreationAgent {
@@ -121,7 +86,7 @@ impl NovelCreationAgent {
       "id": "wb_1",
       "concept": "世界观核心概念（20-50字）",
       "rules": [
-        {{"id": "r1", "name": "规则名称", "description": "规则描述", "rule_type": "Magic", "importance": 8}}
+        {{"name": "规则名称", "description": "规则描述", "rule_type": "Magic", "importance": 8}}
       ],
       "history": "历史背景（100-200字）",
       "cultures": [

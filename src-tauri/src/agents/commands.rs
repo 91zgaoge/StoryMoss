@@ -254,6 +254,7 @@ pub async fn writer_agent_execute(
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .map_err(AppError::from)?;
 
@@ -477,11 +478,9 @@ pub async fn auto_write(
         .cloned()
         .unwrap_or_else(|| current_content.clone());
     let fingerprint = if fingerprint_source.chars().count() > 50 {
-        Some(
-            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
-                &fingerprint_source,
-            ),
-        )
+        Some(crate::domain::style::StyleFingerprint::from_text(
+            &fingerprint_source,
+        ))
     } else {
         None
     };
@@ -558,10 +557,7 @@ pub async fn auto_write(
                         .rev()
                         .take(500)
                         .collect::<String>();
-                    let recent_fp =
-                        crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
-                            &recent,
-                        );
+                    let recent_fp = crate::domain::style::StyleFingerprint::from_text(&recent);
 
                     let mut drift_parts = Vec::new();
                     let mut warnings = Vec::new();
@@ -714,9 +710,7 @@ pub async fn auto_write(
 
                         // 四字格密度补偿：如果生成内容密度低于参考 30% 以上，注入四字词
                         let generated_fp =
-                            crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(
-                                &generated,
-                            );
+                            crate::domain::style::StyleFingerprint::from_text(&generated);
                         if generated_fp.vocabulary.four_char_density
                             < fp.vocabulary.four_char_density * 0.7
                         {
@@ -1116,7 +1110,7 @@ pub async fn auto_revise(
             .await
         {
             Ok(workflow_result) => {
-                let result = crate::agents::AgentResult {
+                let result = crate::domain::agent_types::AgentResult {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
                     suggestions: workflow_result

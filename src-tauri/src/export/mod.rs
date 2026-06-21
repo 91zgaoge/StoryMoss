@@ -121,6 +121,7 @@ impl StoryImporter {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
 
         let chapters = Self::parse_chapters_from_text(content);

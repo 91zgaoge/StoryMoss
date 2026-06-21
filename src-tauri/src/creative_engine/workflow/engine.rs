@@ -15,18 +15,19 @@ use super::{
     WorkflowStage,
 };
 use crate::{
-    agents::{
-        novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
-        service::{AgentService, AgentTask, AgentType},
-        AgentContext, AgentResult,
-    },
-    creative_engine::methodology::MethodologyConfig,
+    agents::service::AgentService,
     db::{
         repositories::{
             CharacterRepository, KnowledgeGraphRepository, SceneRepository,
             WorldBuildingRepository, WritingStyleRepository,
         },
         CreateCharacterRequest, DbPool, SceneUpdate, WritingStyleUpdate,
+    },
+    domain::{
+        agent_context::AgentContext,
+        agent_types::{AgentResult, AgentTask, AgentType},
+        methodology::MethodologyConfig,
+        novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
     },
     error::AppError,
     llm::service::LlmService,
@@ -1008,10 +1009,12 @@ impl CreationWorkflowEngine {
                 let wb_repo = WorldBuildingRepository::new(self.pool.clone());
                 if let Ok(Some(existing)) = wb_repo.get_by_story(story_id) {
                     if existing.concept == "待完善的世界观" {
+                        let db_rules: Vec<crate::db::models::WorldRule> =
+                            wb_option.rules.into_iter().map(Into::into).collect();
                         let _ = wb_repo.update(
                             &existing.id,
                             Some(&wb_option.concept),
-                            Some(&wb_option.rules),
+                            Some(&db_rules),
                             Some(&wb_option.history),
                             Some(&wb_option.cultures),
                         );

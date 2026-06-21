@@ -78,6 +78,7 @@ impl ChapterCommitDebouncer {
                             Some(&chapter_id),
                             chapter_number,
                             chapter.content.as_deref(),
+                            None,
                             Some(app_handle),
                             store,
                         )
@@ -280,7 +281,10 @@ impl ChapterService {
                 let chapter_number = chapter.chapter_number;
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                    let context = crate::domain::agent_context::AgentContext::minimal(
+                        story_id,
+                        String::new(),
+                    );
                     let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
                     let _ = skill_manager
                         .execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data)
@@ -358,6 +362,7 @@ impl ChapterService {
                     Some(&chapter_id),
                     chapter_number,
                     content.as_deref(),
+                    None,
                     Some(app_handle),
                     store,
                 )

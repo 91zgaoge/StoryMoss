@@ -431,10 +431,11 @@ impl WorkflowScheduler {
                     orchestrator_config,
                     app_handle.clone(),
                 );
-                let context = crate::agents::AgentContext::minimal(story_id, String::new());
-                let task = crate::agents::service::AgentTask {
+                let context =
+                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
+                let task = crate::domain::agent_types::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::agents::service::AgentType::Writer,
+                    agent_type: crate::domain::agent_types::AgentType::Writer,
                     context,
                     input,
                     parameters: HashMap::new(),
@@ -472,11 +473,13 @@ impl WorkflowScheduler {
                 }
 
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context =
-                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
-                let task = crate::agents::service::AgentTask {
+                let context = crate::domain::agent_context::AgentContext::minimal(
+                    instance.story_id.clone(),
+                    String::new(),
+                );
+                let task = crate::domain::agent_types::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::agents::service::AgentType::Inspector,
+                    agent_type: crate::domain::agent_types::AgentType::Inspector,
                     context,
                     input: content,
                     parameters: HashMap::new(),
@@ -528,11 +531,13 @@ impl WorkflowScheduler {
                     orchestrator_config,
                     app_handle.clone(),
                 );
-                let context =
-                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
-                let task = crate::agents::service::AgentTask {
+                let context = crate::domain::agent_context::AgentContext::minimal(
+                    instance.story_id.clone(),
+                    String::new(),
+                );
+                let task = crate::domain::agent_types::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::agents::service::AgentType::Writer,
+                    agent_type: crate::domain::agent_types::AgentType::Writer,
                     context,
                     input: instruction,
                     parameters: HashMap::new(),
@@ -603,11 +608,13 @@ impl WorkflowScheduler {
                 }
 
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context =
-                    crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
-                let task = crate::agents::service::AgentTask {
+                let context = crate::domain::agent_context::AgentContext::minimal(
+                    instance.story_id.clone(),
+                    String::new(),
+                );
+                let task = crate::domain::agent_types::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::agents::service::AgentType::PlotAnalyzer,
+                    agent_type: crate::domain::agent_types::AgentType::PlotAnalyzer,
                     context,
                     input: content,
                     parameters: HashMap::new(),

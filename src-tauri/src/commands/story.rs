@@ -34,6 +34,7 @@ pub fn create_story(
             style_dna_id,
             genre_profile_id,
             methodology_id,
+            reference_book_id: None,
         })
         .map_err(AppError::from)?;
     let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
@@ -80,6 +81,7 @@ pub fn update_story(
         genre_profile_id,
         methodology_id,
         methodology_step,
+        reference_book_id: None,
     };
     StoryRepository::new(pool.inner().clone())
         .update(&id, &req)

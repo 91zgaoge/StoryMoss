@@ -6,8 +6,12 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use super::{Agent, AgentContext, AgentResult};
-use crate::{llm::service::LlmService, router::TaskType};
+use super::Agent;
+use crate::{
+    domain::{agent_context::AgentContext, agent_types::AgentResult},
+    llm::service::LlmService,
+    router::TaskType,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParagraphCommentary {

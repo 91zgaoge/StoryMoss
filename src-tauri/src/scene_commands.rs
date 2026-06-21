@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Manager, State};
 
 use crate::{
-    agents::novel_creation::{
-        CharacterProfileOption, GenerationOptions, NovelCreationAgent, SceneProposal,
-        WorldBuildingOption, WritingStyleOption,
-    },
+    agents::novel_creation::{GenerationOptions, NovelCreationAgent, SceneProposal},
     config::StudioManager,
     db::{
         AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeTrackRepository, ChangeType,
@@ -26,6 +23,7 @@ use crate::{
         WorldBuilding, WorldBuildingRepo, WorldBuildingRepository, WorldRule, WritingStyle,
         WritingStyleRepo, WritingStyleRepository, WritingStyleUpdate,
     },
+    domain::novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
     error::AppError,
     llm::LlmService,
     memory::{
@@ -713,7 +711,8 @@ pub async fn generate_paragraph_commentaries(
     text: String,
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
-    use crate::agents::{commentator::CommentatorAgent, AgentContext};
+    use crate::agents::commentator::CommentatorAgent;
+    use crate::domain::agent_context::AgentContext;
 
     log::info!(
         "[story_commands] {} called: story_id={}",

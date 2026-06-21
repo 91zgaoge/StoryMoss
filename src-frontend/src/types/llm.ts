@@ -308,7 +308,8 @@ export interface AppSettings {
   // - 'time_sliced': 强制分时模式（最快，单次 LLM 调用，30-60s）
   // - 'fast': 强制 Fast 模式（单次 LLM + 风格技能，约 60s）
   // - 'full': 强制 Full 模式（Writer + Inspector + Rewrite 闭环，2-5 分钟）
-  generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full';
+  // - 'tri_shot': v0.23 三击模式（弹性 2~3 次 LLM：合成→精修→生成，质检改写下沉后台）
+  generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full' | 'tri_shot';
 
   // v0.15.5: 超时配置
   llm_connect_timeout_secs?: number;

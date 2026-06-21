@@ -42,9 +42,8 @@ impl CreativeAssetSnapshot {
             match repo.get_by_id(id) {
                 Ok(Some(dna_model)) => {
                     // 尝试解析 dna_json 取 meta 摘要
-                    if let Ok(full_dna) = serde_json::from_str::<
-                        crate::creative_engine::style::dna::StyleDNA,
-                    >(&dna_model.dna_json)
+                    if let Ok(full_dna) =
+                        serde_json::from_str::<crate::domain::style::StyleDNA>(&dna_model.dna_json)
                     {
                         let name = full_dna.meta.name;
                         let desc = full_dna.meta.description;

@@ -141,7 +141,10 @@ impl IntentionGraphPlanner {
         self.emit_progress("discovery", "正在发现相关创作资产...");
 
         // Step 3: 分层发现
-        let discovered_assets = match self.discover_assets(&synthesis_result).await {
+        let discovered_assets = match self
+            .discover_assets(&synthesis_result, &context.user_input)
+            .await
+        {
             Ok(assets) => assets,
             Err(e) => {
                 log::warn!(
@@ -223,6 +226,7 @@ impl IntentionGraphPlanner {
     async fn discover_assets(
         &self,
         synthesis: &IntentSynthesisResult,
+        user_input: &str,
     ) -> Result<Vec<AssetDiscoveryResult>, AppError> {
         let graph_repo = self
             .graph_repo
@@ -236,7 +240,48 @@ impl IntentionGraphPlanner {
 
         // 使用根意图进行发现
         let max_results = 10;
-        let results = discovery.discover(&synthesis.root_intention, graph_repo, max_results)?;
+        let mut results = discovery.discover(&synthesis.root_intention, graph_repo, max_results)?;
+
+        // Phase 2: 对用户输入做 GenreResolver 复合题材解析，补充相关 genre_profile 资产
+        if let Some(pool) = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| app.try_state::<crate::db::DbPool>())
+        {
+            let repo = crate::db::GenreProfileRepository::new(pool.inner().clone());
+            let resolver = crate::strategy::GenreResolver::new();
+            match resolver.resolve_from_text(user_input, &repo) {
+                Ok(matches) if !matches.is_empty() => {
+                    let existing_ids: std::collections::HashSet<String> =
+                        results.iter().map(|r| r.asset.id.clone()).collect();
+                    for m in matches {
+                        let asset_id = format!("genre_profile.{}", m.profile_id);
+                        if existing_ids.contains(&asset_id) {
+                            continue;
+                        }
+                        if let Some(asset) = graph_repo.get_asset(&asset_id)? {
+                            results.push(AssetDiscoveryResult {
+                                asset,
+                                score: m.score.min(1.0),
+                                semantic_score: m.score,
+                                intent_score: m.score,
+                                ppr_score: 0.0,
+                                collab_score: 0.0,
+                                reason: format!("GenreResolver 复合题材解析: {}", m.reason),
+                            });
+                        }
+                    }
+                    // 按分数降序，保持前 max_results
+                    results.sort_by(|a, b| {
+                        b.score
+                            .partial_cmp(&a.score)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    results.truncate(max_results);
+                }
+                _ => {}
+            }
+        }
 
         Ok(results)
     }
@@ -397,6 +442,19 @@ impl IntentionGraphPlanner {
             }
         }
 
+        // Phase 2/3: 把资产标签与资产 ID 单独注入，便于 AgentService 透传给模型网关
+        let tags: Vec<String> = asset.tags();
+        if !tags.is_empty() {
+            parameters.insert(
+                "asset_tags".to_string(),
+                serde_json::to_value(&tags).unwrap_or_default(),
+            );
+        }
+        parameters.insert(
+            "discovered_asset_ids".to_string(),
+            serde_json::to_value(vec![asset.id.clone()]).unwrap_or_default(),
+        );
+
         // 用户输入作为 instruction
         parameters.insert(
             "instruction".to_string(),
@@ -409,6 +467,7 @@ impl IntentionGraphPlanner {
             purpose: format!("[意图图] {}: {}", asset.name, asset.description),
             parameters,
             depends_on: vec![],
+            long_running: false,
         })
     }
 
@@ -661,6 +720,7 @@ mod tests {
             foreshadowing_status: vec![],
             style_dna_info: None,
             mcp_tools_available: vec![],
+            deep_insight_summary: None,
             selected_text: None,
             style_weight: 50,
             chapter_number: 1,
@@ -847,6 +907,7 @@ mod tests {
             purpose: format!("[意图图] {}: {}", asset.name, asset.description),
             parameters,
             depends_on: vec![],
+            long_running: false,
         })
     }
 

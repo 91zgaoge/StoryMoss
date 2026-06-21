@@ -21,6 +21,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
 
         let story = repo.create(req).unwrap();
@@ -44,6 +45,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let req2 = CreateStoryRequest {
             title: "小说B".to_string(),
@@ -52,6 +54,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
 
         repo.create(req1).unwrap();
@@ -73,6 +76,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -86,6 +90,7 @@ mod tests {
             genre_profile_id: None,
             methodology_id: None,
             methodology_step: None,
+            reference_book_id: None,
         };
 
         let count = repo.update(&story.id, &update_req).unwrap();
@@ -108,6 +113,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -142,6 +148,7 @@ mod tests {
             style_dna_id: None,
             genre_profile_id: None,
             methodology_id: None,
+            reference_book_id: None,
         };
         let story = story_repo.create(story_req).unwrap();
 
@@ -178,6 +185,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -211,6 +219,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -261,6 +270,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -299,6 +309,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -332,6 +343,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -362,6 +374,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -404,6 +417,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -437,6 +451,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -477,6 +492,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -529,6 +545,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -557,6 +574,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -580,6 +598,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -644,6 +663,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -672,6 +692,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -707,6 +728,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -745,6 +767,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -831,6 +854,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 
@@ -876,6 +900,7 @@ mod tests {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .unwrap();
 

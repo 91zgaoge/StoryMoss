@@ -19,6 +19,7 @@ use super::{
     models::{Task, TaskResult, TaskType},
 };
 use crate::{
+    audit::AuditService,
     db::{DbPool, TextAnnotationRepository},
     llm::LlmService,
     router::TaskType as RoutingTaskType,
@@ -125,6 +126,37 @@ impl AuditExecutor {
             .map_err(|e| format!("Inspector 调用失败: {}", e))?;
 
         let mut issues = parse_inspector_issues(&response.content);
+
+        // v0.17.1: 新增 opening_clarity 维度，调用本地启发式门控
+        if let Some(ref scene_id) = payload.scene_id {
+            let audit_service = AuditService::new(self.pool.clone());
+            match audit_service.check_opening_clarity(scene_id, payload.genre.as_deref()) {
+                Ok(report) => {
+                    let severity = if !report.passed && report.score < 60.0 {
+                        "high"
+                    } else if !report.passed {
+                        "medium"
+                    } else {
+                        ""
+                    };
+                    if !severity.is_empty() {
+                        issues.push(InspectorIssue {
+                            dimension: "opening_clarity".to_string(),
+                            severity: severity.to_string(),
+                            description: report.rationale.clone(),
+                            suggestion: "在开篇 200 字内加入危险/羞辱/失去/谜题钩子并锚定具体场景"
+                                .to_string(),
+                            paragraph_index: Some(0),
+                            score: Some(report.score as i32),
+                        });
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[AuditExecutor] opening_clarity 检查失败: {}", e);
+                }
+            }
+        }
+
         if issues.is_empty() {
             return Ok(0);
         }
@@ -185,9 +217,50 @@ impl AuditExecutor {
                     story_id: payload.story_id.clone(),
                     scene_id: payload.scene_id.clone(),
                     chapter_id: payload.chapter_id.clone(),
-                    issues: high_issues,
+                    issues: high_issues.clone(),
                 },
             );
+
+            // v0.23 BGP-2 链式 spawn：自动改写（分严重度）
+            let auto_content = payload.content.clone();
+            let auto_story_id = payload.story_id.clone();
+            let auto_handle = self.app_handle.clone();
+            let auto_pool = self.pool.clone();
+            let auto_chapter = payload.chapter_number;
+            tokio::spawn(async move {
+                // 构造 high/low issues 列表
+                let high_audit_issues: Vec<_> = issues
+                    .iter()
+                    .filter(|i| i.severity.to_lowercase() == "high")
+                    .map(|i| crate::task_system::auto_rewrite_executor::AuditIssue {
+                        dimension: dimension_label(&i.dimension).to_string(),
+                        description: i.description.clone(),
+                        severity: crate::task_system::auto_rewrite_executor::AuditSeverity::High,
+                        dimension_priority: 4,
+                    })
+                    .collect();
+                let low_audit_issues: Vec<_> = issues
+                    .iter()
+                    .filter(|i| i.severity.to_lowercase() != "high")
+                    .map(|i| crate::task_system::auto_rewrite_executor::AuditIssue {
+                        dimension: dimension_label(&i.dimension).to_string(),
+                        description: i.description.clone(),
+                        severity: crate::task_system::auto_rewrite_executor::AuditSeverity::Low,
+                        dimension_priority: 1,
+                    })
+                    .collect();
+
+                crate::task_system::auto_rewrite_executor::AutoRewriteExecutor::process_audit_results(
+                    auto_handle,
+                    auto_pool,
+                    &high_audit_issues,
+                    &low_audit_issues,
+                    &auto_content,
+                    &auto_story_id,
+                    Some(auto_chapter),
+                )
+                .await;
+            });
         }
 
         Ok(created)

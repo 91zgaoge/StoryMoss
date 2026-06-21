@@ -335,6 +335,32 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
         },
     );
 
+    m.insert(
+        "writer_reference_scene_fewshots".to_string(),
+        PromptEntry {
+            id: "writer_reference_scene_fewshots".to_string(),
+            name: "参考场景 few-shots 提示词".to_string(),
+            description: "指导 Writer 如何借鉴关联参考书籍的相似场景".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"下面提供了若干与当前场景最相似的参考场景（来自关联拆书）。
+
+使用规则：
+1. 仅借鉴参考场景的叙事节奏、冲突张力、情绪转折与写作技巧。
+2. 禁止直接复制参考场景的文字、人物姓名、专有设定或情节细节。
+3. 参考场景的角色与当前故事无关，不得将其引入正文。
+4. 若参考场景与当前大纲冲突，以当前故事设定和大纲为准。
+
+【参考场景】
+{{reference_scenes}}
+
+请以上述参考为风格/节奏参照，继续创作当前场景。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["reference_scenes".to_string()],
+        },
+    );
+
     // ═══════════════════════════════════════════════════════
     // 2. 质检与审校 (Inspector)
     // ═══════════════════════════════════════════════════════
@@ -1780,6 +1806,65 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
         },
     );
 
+    m.insert(
+        "mini_review_system".to_string(),
+        PromptEntry {
+            id: "mini_review_system".to_string(),
+            name: "Mini Review 系统提示词".to_string(),
+            description: "SceneCommitService::auto_commit 后台轻量审校：对章节正文进行快速评分".to_string(),
+            category: PromptCategory::Audit,
+            default_content: r#"你是一位严苛但高效的小说编辑。请根据下方的世界观、章节目标、必须覆盖节点和禁忌区，对提供的章节正文进行快速评估。
+
+【作品信息】
+题材: {{genre}}
+基调: {{core_tone}}
+节奏策略: {{pacing_strategy}}
+
+【世界观规则】
+{{world_rules}}
+
+【本章目标】
+{{chapter_goal}}
+
+【必须覆盖节点】
+{{must_cover_nodes}}
+
+【禁忌区】
+{{forbidden_zones}}
+
+【章节正文】
+{{content}}
+
+请严格以 JSON 格式输出，不要添加任何额外说明：
+{
+  "score": 0.82,
+  "dimensions": [
+    {"name": "合同目标达成", "score": 0.9, "comment": "覆盖了主要必须节点"},
+    {"name": "世界规则一致", "score": 0.8, "comment": "未发现明显违反"},
+    {"name": "叙事连贯性", "score": 0.85, "comment": "情节推进自然"},
+    {"name": "基调一致", "score": 0.8, "comment": "符合整体基调"}
+  ],
+  "summary": "总体评价，1-2句话",
+  "issues": ["具体问题1", "具体问题2"]
+}
+
+评分标准：0.0-1.0，1.0 为完全满足合同要求。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "content".to_string(),
+                "genre".to_string(),
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "chapter_goal".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
     // ═══════════════════════════════════════════════════════
     // v0.21.0: 策略选择 (Strategy) — 从 strategy/selector.rs 接入
     // ═══════════════════════════════════════════════════════
@@ -1799,6 +1884,15 @@ Based on the story context, select the optimal creative strategy.
 Story context:
 {{context}}
 
+{{#if reference_book_title}}
+参考书籍信息：
+- 书名：{{reference_book_title}}
+- 题材：{{reference_book_genre}}
+- 世界观关键词：{{reference_book_world_keywords}}
+- 故事弧类型：{{reference_book_arc_type}}
+- 基调：{{reference_book_tone}}
+{{/if}}
+
 Available strategies and assets:
 {{available_assets}}
 
@@ -1816,7 +1910,43 @@ Output JSON only."#
                     .to_string(),
             current_content: String::new(),
             is_overridden: false,
-            variables: vec!["context".to_string(), "available_assets".to_string()],
+            variables: vec![
+                "context".to_string(),
+                "available_assets".to_string(),
+                "reference_book_title".to_string(),
+                "reference_book_genre".to_string(),
+                "reference_book_world_keywords".to_string(),
+                "reference_book_arc_type".to_string(),
+                "reference_book_tone".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "strategy_reference_book_context".to_string(),
+        PromptEntry {
+            id: "strategy_reference_book_context".to_string(),
+            name: "策略选择-参考书籍上下文".to_string(),
+            description: "StrategySelector 中关联参考书籍的上下文片段".to_string(),
+            category: PromptCategory::Strategy,
+            default_content: r#"{{#if reference_book_title}}
+参考书籍信息：
+- 书名：{{reference_book_title}}
+- 题材：{{reference_book_genre}}
+- 世界观关键词：{{reference_book_world_keywords}}
+- 故事弧类型：{{reference_book_arc_type}}
+- 基调：{{reference_book_tone}}
+{{/if}}"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "reference_book_title".to_string(),
+                "reference_book_genre".to_string(),
+                "reference_book_world_keywords".to_string(),
+                "reference_book_arc_type".to_string(),
+                "reference_book_tone".to_string(),
+            ],
         },
     );
 
@@ -2116,6 +2246,94 @@ Output JSON only."#.to_string(),
         },
     );
 
+    // v0.23 TriShot：Call 1 路由合成器——用最快模型选资产+合成提示词
+    m.insert(
+        "trishot_synthesizer".to_string(),
+        PromptEntry {
+            id: "trishot_synthesizer".to_string(),
+            name: "TriShot 路由合成器".to_string(),
+            description:
+                "v0.23 TriShot Call 1：用最快模型识别意图、选资产、合成综合提示词"
+                    .to_string(),
+            category: PromptCategory::Strategy,
+            default_content: r#"你是一名专业的创作提示词合成器。你的任务是：根据用户指令，从可用创作资产清单中智能选择相关资产，合成为一个连贯、无冲突的综合创作提示词。
+
+【分析步骤】
+1. **识别意图**：判断用户想要什么（续写/改写/新场景/润色/规划/其他）
+2. **选资产**：从清单中选与指令相关的资产。硬约束（hard_constraint）必选；软约束（soft_constraint/optional）按指令相关性选
+3. **合成提示词**：把选中资产整合成一个连贯的中文创作提示词，解决段落间冲突，精炼冗余，突出最核心约束
+4. **精修判断**：以下情况 needs_refinement=true：复合题材、改写选中文本、指令含多冲突约束、逾期伏笔超过1条、置信度偏低
+
+【用户指令】
+{{instruction}}
+{{content_preview}}
+【可用创作资产清单】
+{{manifest}}
+
+【输出格式】严格输出JSON，不要markdown代码块：
+{"intent":"continue","selected_asset_ids":["redline","characters","narrative_phase"],"synthesized_prompt":"你是一名小说作者……(此处为合成后的完整提示词)","needs_refinement":false,"refinement_focus":null,"confidence":0.85}
+
+注意：
+- synthesized_prompt 应直接写完所有约束，避免引用"见第X项"，应把实际内容融入进去
+- 硬约束（红线/角色/逾期伏笔）不可遗漏
+- 解决冲突：若两资产有矛盾，以优先级高的为准（红线 > 角色状态 > 伏笔 > 风格 > 方法论）
+- 中文输出"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "instruction".to_string(),
+                "manifest".to_string(),
+                "content_preview".to_string(),
+            ],
+        },
+    );
+
+    // v0.23 TriShot：Call 2 提示词精修器——调试完善合成提示词
+    m.insert(
+        "trishot_refiner".to_string(),
+        PromptEntry {
+            id: "trishot_refiner".to_string(),
+            name: "TriShot 提示词精修器".to_string(),
+            description:
+                "v0.23 TriShot Call 2（可选）：调试完善 Call 1 合成提示词，解决冲突、精炼冗余"
+                    .to_string(),
+            category: PromptCategory::Strategy,
+            default_content: r#"你是一名创作提示词精修师。你收到一个由路由合成器产生的创作提示词，请调试完善它。
+
+【精修重点】
+{{refinement_focus}}
+
+【待精修提示词】
+{{synthesized_prompt}}
+
+【故事背景】
+故事：《{{story_title}}》
+题材：{{story_genre}}
+基调：{{story_tone}}
+
+【精修要求】
+1. 检查并解决提示词内部的矛盾冲突（如风格指引与世界观红线的冲突、角色状态与场景任务的不一致）
+2. 精简冗余（重复的约束合并，过于冗长的描述压缩）
+3. 补缺（若有硬约束被遗漏，根据故事背景补上）
+4. 优先级排序（核心约束放在最前，次要在后）
+5. 保持中文，保持具体指导性（不要变成"请写出好的小说"这种空泛话）
+
+【输出要求】
+直接输出精修后的完整提示词文本。不要添加"这是精修后的提示词"等说明，不要用markdown代码块包裹。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "refinement_focus".to_string(),
+                "synthesized_prompt".to_string(),
+                "story_title".to_string(),
+                "story_genre".to_string(),
+                "story_tone".to_string(),
+            ],
+        },
+    );
+
     macro_rules! reg_creation_agent {
         ($id:expr, $name:expr, $desc:expr, $content:expr) => {
             m.insert(
@@ -2313,24 +2531,32 @@ Output JSON only."#.to_string(),
         r#"你必须遵循场景结构规范进行写作：
 
 每个场景必须是以下两种类型之一：
-1. 动作场景——以外部冲突为主，快节奏，短句为主
-2. 反应场景——以内心活动为主，慢节奏，允许长句和细腻描写
 
-场景结构：
-- 场景目标（角色想达成什么）
-- 冲突（阻碍目标的力量）
-- 灾难/决定（场景结果，推动到下一场景）"#,
+【目标场景】公式：目标 → 冲突 → 灾难
+- 目标：角色想在这个场景达成什么？（具体、可执行）
+- 冲突：什么阻碍了目标？（外在/内在/人际）
+- 灾难：场景结束时角色比开始时更糟（失败/暴露/新威胁）
+
+【反应场景】公式：反应 → 困境 → 决定
+- 反应：角色对灾难的本能情感反应是什么？（震惊/愤怒/悲伤/恐惧）
+- 困境：角色面临什么艰难选择？每个选项都有代价
+- 决定：角色最终选择了什么？这个决定将引出下一个场景的新目标
+
+要求：
+- 目标场景和反应场景交替出现，形成节奏变化
+- 每个场景的结尾必须推动情节或揭示人物"#,
         vec![]
     );
 
+    // DEPRECATED: methodology_scene_self_check 当前未被代码引用，保留仅作历史覆盖兼容。
     reg_methodology!(
         "methodology_scene_self_check",
         "场景结构自检格式",
-        "MethodologyEngine：场景结构标注 output_schema",
+        "MethodologyEngine：场景结构标注 output_schema（已废弃，未接入）",
         r#"在续写内容之后，请用以下格式标注场景结构：
 
 【场景结构自检】
-场景类型：动作/反应
+场景类型：目标场景/反应场景
 场景目标：...
 冲突：...
 结果：...（灾难/决定）"#,
@@ -2390,6 +2616,265 @@ Output JSON only."#.to_string(),
 3. 确保每个设定至少在一个场景中被使用
 密度不是堆砌，而是每个元素都有叙事功能。"#,
         vec![]
+    );
+
+    // ═══════════════════════════════════════════════════════
+    // v0.22.5: Story System 合同/追读力 prompt 扩展
+    // ═══════════════════════════════════════════════════════
+
+    m.insert(
+        "writer_contract_constraints".to_string(),
+        PromptEntry {
+            id: "writer_contract_constraints".to_string(),
+            name: "Writer 故事合同约束".to_string(),
+            description: "将 Story System 运行时合同注入 Writer prompt 作为创作约束".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"【故事合同约束】
+- 核心基调：{{core_tone}}
+- 节奏策略：{{pacing_strategy}}
+- 不可违反的世界规则：
+{{world_rules}}
+
+- 本章目标：{{chapter_goal}}
+- 本章必须覆盖：
+{{must_cover_nodes}}
+
+- 本章禁止区域：
+{{forbidden_zones}}
+
+重要：续写内容必须遵守上述合同。如需打破规则，必须先在剧情中给出足够铺垫，并在末尾用【违背合同说明】解释原因。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "chapter_goal".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "inspector_contract_compliance".to_string(),
+        PromptEntry {
+            id: "inspector_contract_compliance".to_string(),
+            name: "Inspector 合同合规检查".to_string(),
+            description: "让 Inspector 以 Story System 合同为基准检查内容合规性".to_string(),
+            category: PromptCategory::Inspector,
+            default_content: r#"【合同合规检查】
+请检查待检查内容是否违反以下故事合同：
+1. 是否违背核心基调（{{core_tone}}）？
+2. 是否违背节奏策略（{{pacing_strategy}}）？
+3. 是否违反以下世界规则？
+{{world_rules}}
+4. 是否遗漏本章必须覆盖的情节点？
+{{must_cover_nodes}}
+5. 是否进入禁止区域？
+{{forbidden_zones}}
+
+若存在违规，请在输出的问题清单中单独列出"合同违规"项，并说明具体违反哪一条。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "write_time_bundle_contract".to_string(),
+        PromptEntry {
+            id: "write_time_bundle_contract".to_string(),
+            name: "TimeSliced 合同约束".to_string(),
+            description: "WriteTimeBundle 中追加的故事合同约束段".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"【故事合同约束】
+{{#if core_tone}}- 基调：{{core_tone}}{{/if}}
+{{#if pacing_strategy}}- 节奏：{{pacing_strategy}}{{/if}}
+{{#if world_rules}}- 不可违反的世界规则：
+{{world_rules}}{{/if}}
+{{#if chapter_goal}}- 本章目标：{{chapter_goal}}{{/if}}
+{{#if must_cover_nodes}}- 必须覆盖：
+{{must_cover_nodes}}{{/if}}
+{{#if forbidden_zones}}- 禁止区域：
+{{forbidden_zones}}{{/if}}"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "chapter_goal".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "review_contract_criteria".to_string(),
+        PromptEntry {
+            id: "review_contract_criteria".to_string(),
+            name: "审稿合同标准".to_string(),
+            description: "Pipeline 审稿阶段注入的合同基准维度".to_string(),
+            category: PromptCategory::Pipeline,
+            default_content: r#"【审稿合同标准】
+以故事合同为基准，判断稿件是否存在以下问题：
+1. 设定冲突（违反世界规则）
+2. 节奏偏离（违背节奏策略）
+3. 基调不一致
+4. 情节点遗漏（未覆盖必须节点）
+5. 反套路/禁止区域触碰
+
+合同信息：
+- 核心基调：{{core_tone}}
+- 节奏策略：{{pacing_strategy}}
+- 世界规则：
+{{world_rules}}
+- 本章目标：{{chapter_goal}}
+- 必须覆盖：
+{{must_cover_nodes}}
+- 禁止区域：
+{{forbidden_zones}}"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "chapter_goal".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "refine_contract_criteria".to_string(),
+        PromptEntry {
+            id: "refine_contract_criteria".to_string(),
+            name: "修稿合同标准".to_string(),
+            description: "Pipeline 修稿阶段注入的合同基准维度".to_string(),
+            category: PromptCategory::Pipeline,
+            default_content: r#"【修稿合同标准】
+在修改稿件时，必须保证不违反以下故事合同：
+1. 核心基调：{{core_tone}}
+2. 节奏策略：{{pacing_strategy}}
+3. 世界规则：
+{{world_rules}}
+4. 本章目标：{{chapter_goal}}
+5. 必须覆盖：
+{{must_cover_nodes}}
+6. 禁止区域：
+{{forbidden_zones}}
+
+修改建议不能导致新的合同违规。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "core_tone".to_string(),
+                "pacing_strategy".to_string(),
+                "world_rules".to_string(),
+                "chapter_goal".to_string(),
+                "must_cover_nodes".to_string(),
+                "forbidden_zones".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "writer_chase_debt".to_string(),
+        PromptEntry {
+            id: "writer_chase_debt".to_string(),
+            name: "Writer 追读力债务".to_string(),
+            description: "将待偿还的追读力债务注入 Writer prompt".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"【追读力债务】
+当前有 {{debt_count}} 条待偿还的追读力债务，需在后续章节中兑现：
+{{debts}}
+
+请在续写中优先安排上述元素的兑现，以维持读者追读动力。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["debt_count".to_string(), "debts".to_string()],
+        },
+    );
+
+    m.insert(
+        "writer_reading_power_goal".to_string(),
+        PromptEntry {
+            id: "writer_reading_power_goal".to_string(),
+            name: "Writer 本章追读力目标".to_string(),
+            description: "将本章追读力目标注入 Writer prompt".to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"【本章追读力目标】
+- 结尾需留下的悬念类型：{{hook_type}}
+- 钩子强度：{{hook_strength}}
+- 需埋设/回收的伏笔：{{foreshadowing_list}}
+- 情绪微 payoff 数量建议：{{micropayoff_count}}
+
+请在写作中自然达成上述目标，避免生硬堆砌。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec![
+                "hook_type".to_string(),
+                "hook_strength".to_string(),
+                "foreshadowing_list".to_string(),
+                "micropayoff_count".to_string(),
+            ],
+        },
+    );
+
+    m.insert(
+        "writer_narrative_event_history".to_string(),
+        PromptEntry {
+            id: "writer_narrative_event_history".to_string(),
+            name: "Writer 叙事事件历史".to_string(),
+            description: "将最近章节的叙事事件强度/情感/类型注入 Writer prompt 用于节奏控制"
+                .to_string(),
+            category: PromptCategory::Writer,
+            default_content: r#"【叙事事件历史】
+最近章节的事件节奏与情绪参考：
+{{event_history}}
+
+请在续写时保持节奏与情绪曲线的连贯性。若本章需要转折或高潮，请确保前文有足够铺垫。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["event_history".to_string()],
+        },
+    );
+
+    m.insert(
+        "inspector_narrative_event_history".to_string(),
+        PromptEntry {
+            id: "inspector_narrative_event_history".to_string(),
+            name: "Inspector 叙事事件一致性".to_string(),
+            description: "让 Inspector 对照叙事事件历史检查节奏/情绪一致性".to_string(),
+            category: PromptCategory::Inspector,
+            default_content: r#"【叙事事件历史】
+最近章节的事件节奏与情绪参考：
+{{event_history}}
+
+请检查待检查内容的节奏、情绪是否与上述历史保持一致。若出现突兀的强度跳跃或情绪反转，请在问题清单中列出。"#
+                .to_string(),
+            current_content: String::new(),
+            is_overridden: false,
+            variables: vec!["event_history".to_string()],
+        },
     );
 
     // ═══════════════════════════════════════════════════════
@@ -2772,5 +3257,42 @@ mod tests {
             "v0.21.0 应注册至少 70 个提示词，实际 {}",
             prompts.len()
         );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // v0.22.5: Story System / 叙事分析消费端提示词注册验证
+    // ═══════════════════════════════════════════════════════
+
+    #[test]
+    fn test_v0225_consumer_prompts_registered() {
+        let prompts = get_builtin_prompts();
+
+        let new_keys = [
+            "writer_contract_constraints",
+            "inspector_contract_compliance",
+            "write_time_bundle_contract",
+            "review_contract_criteria",
+            "refine_contract_criteria",
+            "writer_chase_debt",
+            "writer_reading_power_goal",
+            "writer_narrative_event_history",
+            "inspector_narrative_event_history",
+            "mini_review_system",
+        ];
+        for key in &new_keys {
+            assert!(
+                prompts.contains_key(*key),
+                "v0.22.5 新提示词 '{}' 未注册",
+                key
+            );
+        }
+
+        // 验证叙事事件历史提示词包含正确变量
+        let writer_hist = prompts.get("writer_narrative_event_history").unwrap();
+        assert!(writer_hist.variables.contains(&"event_history".to_string()));
+        let inspector_hist = prompts.get("inspector_narrative_event_history").unwrap();
+        assert!(inspector_hist
+            .variables
+            .contains(&"event_history".to_string()));
     }
 }

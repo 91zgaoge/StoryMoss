@@ -4,8 +4,10 @@ use crate::{
         BlueprintRepository, CharacterRepository, DbPool, DraftRepository, DraftStatus,
         RevisionRepository, RevisionType,
     },
+    domain::contracts::RuntimeContract,
     llm::LlmService,
     router::TaskType,
+    story_system::StorySystemEngine,
 };
 
 /// 执行 AI 修稿
@@ -65,6 +67,11 @@ pub async fn refine_draft(
 
     callbacks.progress("refine", 0.3);
 
+    // v0.22.5: 加载运行时合同，作为修稿基准
+    let runtime_contract = StorySystemEngine::new(pool.clone())
+        .get_runtime_contract(story_id, draft.chapter_number)
+        .ok();
+
     // 4. 构建 prompt
     let prompt = build_refine_prompt(
         &draft.content,
@@ -72,6 +79,8 @@ pub async fn refine_draft(
         &characters,
         None, // writing_style
         user_prompt,
+        runtime_contract.as_ref(),
+        pool,
     );
 
     callbacks.log("[修稿] 已构建修稿 prompt");
@@ -167,6 +176,8 @@ fn build_refine_prompt(
     characters: &[crate::db::Character],
     _writing_style: Option<&str>,
     user_prompt: Option<&str>,
+    runtime_contract: Option<&RuntimeContract>,
+    pool: &DbPool,
 ) -> String {
     // v0.21.0: 系统提示词从 PromptRegistry 读取（支持用户覆盖）
     let mut vars = std::collections::HashMap::new();
@@ -212,6 +223,26 @@ fn build_refine_prompt(
     if !characters.is_empty() {
         let names: Vec<String> = characters.iter().map(|c| c.name.clone()).collect();
         prompt.push_str(&format!("## 出场角色\n{}\n", names.join(", ")));
+    }
+
+    // v0.22.5: 注入 Story System 合同修稿标准
+    if let Some(rc) = runtime_contract {
+        let contract_vars = rc.to_constraint_vars();
+        let contract_section = if let Ok(tpl) =
+            crate::prompts::registry::resolve_prompt(pool, "refine_contract_criteria")
+        {
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &contract_vars)
+        } else {
+            crate::prompts::registry::resolve_prompt_default_with_vars(
+                "refine_contract_criteria",
+                &contract_vars,
+            )
+            .unwrap_or_default()
+        };
+        if !contract_section.trim().is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(&contract_section);
+        }
     }
 
     prompt

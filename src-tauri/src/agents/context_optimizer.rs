@@ -10,17 +10,22 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{
-    AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
-    StoryContext, StyleContext, WorldContext,
-};
-use crate::db::{
-    repositories::{
-        CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
-        WritingStyleRepository,
+use crate::{
+    db::{
+        repositories::{
+            CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
+            WritingStyleRepository,
+        },
+        repositories_pipeline::{BlueprintRepository, DraftRepository},
+        DbPool,
     },
-    repositories_pipeline::{BlueprintRepository, DraftRepository},
-    DbPool,
+    domain::{
+        agent_context::{
+            AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
+            StoryContext, StyleContext, WorldContext,
+        },
+        style::StyleBlendConfig,
+    },
 };
 
 // ==================== L0: 静态元数据 ====================
@@ -35,7 +40,7 @@ pub struct L0Context {
     pub tone: String,
     pub pacing: String,
     pub style_dna_id: Option<String>,
-    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>,
+    pub style_blend: Option<StyleBlendConfig>,
     pub methodology_id: Option<String>,
     pub methodology_step: Option<String>,
 }
@@ -420,10 +425,17 @@ impl ContextOptimizer {
         selected_text: Option<String>,
         l2_tools: Vec<L2Tool>,
     ) -> Result<AgentContext, String> {
-        // 并行构建 L0 / L1
-        let (l0, l1) = tokio::join!(
+        // 并行构建 L0 / L1 / 叙事结构 / 活跃线索 / 叙事事件历史
+        // v0.22.5: 复用 StoryContextBuilder 的 LitSeg 分析结果，
+        // 避免 ContextOptimizer 路径丢失 narrative_structure / active_threads。
+        let builder =
+            crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone());
+        let (l0, l1, narrative_structure, active_threads, narrative_event_history) = tokio::join!(
             self.build_l0(story_id),
             self.build_l1(story_id, chapter_number),
+            builder.build_narrative_structure_context_async(story_id, Some(chapter_number as i32)),
+            builder.fetch_active_threads_async(story_id),
+            builder.build_narrative_event_history_async(story_id),
         );
         let l0 = l0?;
         let l1 = l1?;
@@ -451,7 +463,7 @@ impl ContextOptimizer {
                     // 将前文摘要吸收进 working_memory
                     for chapter in &l1.recent_chapters {
                         pack.working_memory
-                            .push(crate::memory::orchestrator::MemoryEntry {
+                            .push(crate::domain::memory_pack::MemoryEntry {
                                 layer: "working".to_string(),
                                 source: "previous_chapter".to_string(),
                                 chapter: chapter.number as i32,
@@ -500,8 +512,9 @@ impl ContextOptimizer {
                 previous_chapters: l1.recent_chapters,
                 current_content: current_content.clone(),
                 selected_text: selected_text.clone(),
-                narrative_structure: None,
-                active_threads: vec![],
+                narrative_structure: narrative_structure.ok(),
+                active_threads: active_threads.unwrap_or_default(),
+                narrative_event_history: narrative_event_history.unwrap_or_default(),
                 outline_context: l1.scene_structure.clone(),
             },
             style: StyleContext {
@@ -520,6 +533,7 @@ impl ContextOptimizer {
                 memory_pack,
                 memory: None,
             },
+            runtime_contract: None,
         };
 
         // 将 L2 结果追加到 scene_structure 或 world_rules 中
@@ -608,13 +622,9 @@ impl ContextOptimizer {
         .map_err(|e| format!("获取文风任务失败: {}", e))?
     }
 
-    async fn fetch_style_blend(
-        &self,
-        story_id: &str,
-    ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
+    async fn fetch_style_blend(&self, story_id: &str) -> Option<StyleBlendConfig> {
         use crate::{
-            creative_engine::style::blend::StyleBlendConfig,
-            db::repositories::StoryStyleConfigRepository,
+            db::repositories::StoryStyleConfigRepository, domain::style::StyleBlendConfig,
         };
 
         let pool = self.pool.clone();

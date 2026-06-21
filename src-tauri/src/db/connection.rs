@@ -112,6 +112,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             tone TEXT,
             pacing TEXT,
             style_dna_id TEXT,
+            reference_book_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -3410,6 +3411,22 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             }
         }
         record_migration(conn, 96)?;
+    }
+
+    // Migration 97: 扩展 stories 表 — 添加 reference_book_id 字段（拆书功能关联）
+    if current_version < 97 {
+        let story_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(stories)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !story_cols.contains(&"reference_book_id".to_string()) {
+            conn.execute("ALTER TABLE stories ADD COLUMN reference_book_id TEXT", [])?;
+        }
+        record_migration(conn, 97)?;
     }
 
     Ok(())

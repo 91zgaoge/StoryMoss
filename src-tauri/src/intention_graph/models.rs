@@ -203,6 +203,20 @@ impl AssetNode {
     pub fn canonical_text(&self) -> String {
         format!("{}: {}", self.name, self.description)
     }
+
+    /// 从 metadata JSON 中提取 tags（Phase 2：意图图资产发现增强）
+    pub fn tags(&self) -> Vec<String> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("tags"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 // ==================== 边类型 ====================

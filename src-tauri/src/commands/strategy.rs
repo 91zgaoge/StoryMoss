@@ -4,9 +4,10 @@ use tauri::State;
 
 use crate::{
     db::DbPool,
+    domain::strategy::StrategyOverrides,
     error::AppError,
     llm::LlmService,
-    strategy::{load_all_assets, SelectionContext, StrategyOverrides, StrategySelector},
+    strategy::{load_all_assets, SelectionContext, StrategySelector},
 };
 
 /// 预览模型为当前创作场景推荐的策略组合
@@ -18,8 +19,9 @@ pub async fn select_creation_strategy(
     genre_hint: Option<String>,
     methodology_hint: Option<String>,
     word_count_target: Option<i32>,
+    story_id: Option<String>,
     overrides: Option<StrategyOverrides>,
-) -> Result<crate::strategy::SelectedStrategy, AppError> {
+) -> Result<crate::domain::strategy::SelectedStrategy, AppError> {
     let repo = crate::db::GenreProfileRepository::new(pool.inner().clone());
     let skills = crate::SKILL_MANAGER
         .get()
@@ -33,11 +35,12 @@ pub async fn select_creation_strategy(
         genre_hint,
         methodology_hint,
         word_count_target,
+        story_id,
         ..Default::default()
     };
 
     let selector = StrategySelector::new(llm_service.inner().clone());
     selector
-        .select_strategy(&context, &assets, overrides.as_ref())
+        .select_strategy(&context, &assets, Some(&repo), overrides.as_ref())
         .await
 }

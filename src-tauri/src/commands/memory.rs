@@ -2,7 +2,11 @@
 
 use tauri::State;
 
-use crate::{db::DbPool, error::AppError};
+use crate::{
+    db::DbPool,
+    domain::memory_pack::{MemoryItemDto, MemoryPack},
+    error::AppError,
+};
 
 // ==================== Memory Commands ====================
 
@@ -13,7 +17,7 @@ pub fn build_memory_pack(
     chapter_number: i32,
     task_type: String,
     outline: Option<String>,
-) -> Result<crate::memory::MemoryPack, AppError> {
+) -> Result<MemoryPack, AppError> {
     let pool = pool.inner().clone();
     let orchestrator = crate::memory::MemoryOrchestrator::new(pool.clone());
     let mut pack = orchestrator.build_memory_pack(
@@ -28,7 +32,7 @@ pub fn build_memory_pack(
     let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(pool);
     if let Ok(overdue) = ledger.detect_overdue(&story_id, chapter_number) {
         for item in overdue {
-            pack.active_constraints.push(crate::memory::MemoryItemDto {
+            pack.active_constraints.push(MemoryItemDto {
                 id: item.id,
                 category: "overdue_foreshadowing".to_string(),
                 subject: Some(item.title),
@@ -41,7 +45,7 @@ pub fn build_memory_pack(
     }
     if let Ok(recommendations) = ledger.recommend_payoff_timing(&story_id, chapter_number) {
         for rec in recommendations.iter().take(5) {
-            pack.active_constraints.push(crate::memory::MemoryItemDto {
+            pack.active_constraints.push(MemoryItemDto {
                 id: rec.foreshadowing_id.clone(),
                 category: "recommended_payoff".to_string(),
                 subject: Some(rec.title.clone()),

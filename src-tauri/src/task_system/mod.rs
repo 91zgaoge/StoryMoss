@@ -4,6 +4,7 @@
 //! 参考 memoh-X internal/schedule + internal/heartbeat 设计。
 
 pub mod audit_executor;
+pub mod auto_rewrite_executor;
 pub mod commands;
 pub mod executor;
 pub mod heartbeat;

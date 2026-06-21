@@ -14,10 +14,6 @@ use std::{
 use tokio::sync::RwLock;
 
 use crate::{
-    agents::{
-        AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
-        NarrativeStructureContext, StoryContext, StyleContext, WorldContext,
-    },
     config::settings::{default_context_budget_ratio, default_max_context_length, AppConfig},
     db::{
         repositories::{
@@ -25,6 +21,14 @@ use crate::{
             WritingStyleRepository,
         },
         Character, DbPool, Story,
+    },
+    domain::{
+        agent_context::{
+            AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
+            NarrativeStructureContext, StoryContext, StyleContext, WorldContext,
+        },
+        memory_pack::{MemoryEntry, MemoryPack},
+        style::StyleBlendConfig,
     },
     error::AppError,
     memory::tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end},
@@ -387,6 +391,10 @@ impl StoryContextBuilder {
             None => None,
         };
 
+        // 2.1 加载 Story System 运行时合同
+        let chapter_number = scene_number.map(|n| n.max(0)).unwrap_or(1);
+        let runtime_contract = self.fetch_runtime_contract(story_id, chapter_number);
+
         // Phase 3.1: fetch 失败即 fatal — 所有 DB 查询错误通过 ? 传播
 
         // Phase 3.2: 空数据致命性判断 — 需要角色的场景类型不能为空角色
@@ -459,11 +467,12 @@ impl StoryContextBuilder {
         let scene_structure_text =
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
 
-        // 3. 风格混合、大纲上下文、叙事结构、活跃线索（同步执行）
+        // 3. 风格混合、大纲上下文、叙事结构、活跃线索、叙事事件历史（同步执行）
         let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
         let outline_context_text = self.build_outline_context(story_id, current_scene.as_ref());
         let narrative_structure = self.build_narrative_structure_context(story_id, scene_number);
         let active_threads = self.fetch_active_threads(story_id);
+        let narrative_event_history = self.build_narrative_event_history(story_id);
 
         // 4. 预计算风格 DNA 扩展与 MemoryPack
         let style_dna_extension = self.compute_style_dna_extension(story_id, &style_blend);
@@ -481,16 +490,15 @@ impl StoryContextBuilder {
                 Ok(mut pack) => {
                     // 将 previous_chapters 吸收进 working_memory
                     for chapter in &previous_chapters {
-                        pack.working_memory
-                            .push(crate::memory::orchestrator::MemoryEntry {
-                                layer: "working".to_string(),
-                                source: "previous_chapter".to_string(),
-                                chapter: chapter.number as i32,
-                                content: serde_json::json!({
-                                    "title": chapter.title,
-                                    "summary": chapter.summary
-                                }),
-                            });
+                        pack.working_memory.push(MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
                     }
                     Some(pack)
                 }
@@ -528,6 +536,7 @@ impl StoryContextBuilder {
                 selected_text,
                 narrative_structure: Some(narrative_structure),
                 active_threads,
+                narrative_event_history,
                 outline_context: outline_context_text,
             },
             style: StyleContext {
@@ -561,6 +570,7 @@ impl StoryContextBuilder {
                 memory_pack,
                 memory: None,
             },
+            runtime_contract,
         };
 
         self.apply_context_budget(&mut context);
@@ -837,6 +847,28 @@ impl StoryContextBuilder {
             .map_err(|e| format!("获取文风失败: {}", e))
     }
 
+    /// 加载 Story System 运行时合同（写前真源）。
+    /// 失败时返回 None，不阻塞上下文构建。
+    fn fetch_runtime_contract(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Option<crate::domain::contracts::RuntimeContract> {
+        let engine = crate::story_system::StorySystemEngine::new(self.pool.clone());
+        match engine.get_runtime_contract(story_id, chapter_number) {
+            Ok(contract) => Some(contract),
+            Err(e) => {
+                log::debug!(
+                    "[StoryContextBuilder] Runtime contract not available for story {} chapter {}: {}",
+                    story_id,
+                    chapter_number,
+                    e
+                );
+                None
+            }
+        }
+    }
+
     // v0.9.3: 异步包装，用于并行构建上下文
     async fn fetch_story_async(&self, story_id: &str) -> Result<Story, AppError> {
         let pool = self.pool.clone();
@@ -933,7 +965,7 @@ impl StoryContextBuilder {
         story_id: &str,
         scene_number: Option<i32>,
         current_scene: Option<crate::db::models::Scene>,
-    ) -> Result<Option<crate::creative_engine::style::blend::StyleBlendConfig>, AppError> {
+    ) -> Result<Option<StyleBlendConfig>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
@@ -951,7 +983,7 @@ impl StoryContextBuilder {
     async fn compute_style_dna_extension_async(
         &self,
         story_id: &str,
-        style_blend: &Option<crate::creative_engine::style::blend::StyleBlendConfig>,
+        style_blend: &Option<StyleBlendConfig>,
     ) -> Result<Option<String>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
@@ -979,7 +1011,7 @@ impl StoryContextBuilder {
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
     }
 
-    async fn build_narrative_structure_context_async(
+    pub async fn build_narrative_structure_context_async(
         &self,
         story_id: &str,
         scene_number: Option<i32>,
@@ -994,12 +1026,29 @@ impl StoryContextBuilder {
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
     }
 
-    async fn fetch_active_threads_async(&self, story_id: &str) -> Result<Vec<String>, AppError> {
+    pub async fn fetch_active_threads_async(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<String>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
             let builder = Self::new(pool);
             Ok::<_, AppError>(builder.fetch_active_threads(&story_id))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    pub async fn build_narrative_event_history_async(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.build_narrative_event_history(&story_id))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1011,7 +1060,7 @@ impl StoryContextBuilder {
         scene_number: Option<i32>,
         current_scene: Option<crate::db::models::Scene>,
         previous_chapters: Vec<ChapterSummary>,
-    ) -> Result<Option<crate::memory::orchestrator::MemoryPack>, AppError> {
+    ) -> Result<Option<MemoryPack>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
@@ -1027,16 +1076,15 @@ impl StoryContextBuilder {
                 Ok(mut pack) => {
                     // 将 previous_chapters 吸收进 working_memory
                     for chapter in &previous_chapters {
-                        pack.working_memory
-                            .push(crate::memory::orchestrator::MemoryEntry {
-                                layer: "working".to_string(),
-                                source: "previous_chapter".to_string(),
-                                chapter: chapter.number as i32,
-                                content: serde_json::json!({
-                                    "title": chapter.title,
-                                    "summary": chapter.summary
-                                }),
-                            });
+                        pack.working_memory.push(MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
                     }
                     Ok(Some(pack))
                 }
@@ -1096,10 +1144,9 @@ impl StoryContextBuilder {
         story_id: &str,
         _scene_number: Option<i32>,
         current_scene: Option<&crate::db::models::Scene>,
-    ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
+    ) -> Option<StyleBlendConfig> {
         use crate::{
-            creative_engine::style::blend::StyleBlendConfig,
-            db::repositories::StoryStyleConfigRepository,
+            db::repositories::StoryStyleConfigRepository, domain::style::StyleBlendConfig,
         };
 
         // 1. 检查 scene 级别的 override
@@ -1127,9 +1174,9 @@ impl StoryContextBuilder {
     fn compute_style_dna_extension(
         &self,
         story_id: &str,
-        style_blend: &Option<crate::creative_engine::style::blend::StyleBlendConfig>,
+        style_blend: &Option<StyleBlendConfig>,
     ) -> Option<String> {
-        use crate::{creative_engine::style::dna::StyleDNA, db::repositories::StyleDnaRepository};
+        use crate::{db::repositories::StyleDnaRepository, domain::style::StyleDNA};
 
         let dna_repo = StyleDnaRepository::new(self.pool.clone());
 
@@ -1478,6 +1525,62 @@ impl StoryContextBuilder {
         }
 
         threads
+    }
+
+    /// v0.22.5: 构建叙事事件历史（强度/情感/事件类型），供节奏/情绪一致性提示
+    pub fn build_narrative_event_history(&self, story_id: &str) -> Option<String> {
+        use crate::db::repositories::SceneRepository;
+
+        let repo = SceneRepository::new(self.pool.clone());
+        let scenes = repo.get_by_story(story_id).ok()?;
+        let mut events: Vec<_> = scenes
+            .into_iter()
+            .filter(|s| s.narrative_intensity.is_some())
+            .map(|s| {
+                let types: Vec<String> = s
+                    .narrative_event_types
+                    .as_ref()
+                    .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+                    .unwrap_or_default();
+                (
+                    s.sequence_number,
+                    s.narrative_intensity,
+                    s.narrative_sentiment,
+                    types,
+                )
+            })
+            .collect();
+        if events.is_empty() {
+            return None;
+        }
+
+        events.sort_by_key(|(chapter, _, _, _)| *chapter);
+        let recent = events.into_iter().rev().take(10).collect::<Vec<_>>();
+
+        let lines: Vec<String> = recent
+            .into_iter()
+            .rev()
+            .map(|(chapter, intensity, sentiment, types)| {
+                let sentiment_label = match sentiment {
+                    Some(s) if s > 0.3 => "正面",
+                    Some(s) if s < -0.3 => "负面",
+                    _ => "中性",
+                };
+                format!(
+                    "第{}章 | 强度:{:.1} | 情感:{} | 事件:{}",
+                    chapter,
+                    intensity.unwrap_or(0.5),
+                    sentiment_label,
+                    if types.is_empty() {
+                        "未分类".to_string()
+                    } else {
+                        types.join(",")
+                    }
+                )
+            })
+            .collect();
+
+        Some(lines.join("\n"))
     }
 
     /// 基于场景数量实时推断叙事结构（pipeline 运行前的 fallback）
@@ -2002,6 +2105,7 @@ mod tests {
                 selected_text: None,
                 narrative_structure: None,
                 active_threads: vec![],
+                narrative_event_history: None,
                 outline_context: None,
             },
             style: StyleContext {
@@ -2025,6 +2129,7 @@ mod tests {
                 memory_pack: None,
                 memory: None,
             },
+            runtime_contract: None,
         }
     }
 }

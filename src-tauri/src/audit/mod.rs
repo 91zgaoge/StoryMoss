@@ -15,6 +15,7 @@ use crate::{
     },
     db::{
         repositories::{SceneRepository, StoryRepository, StyleDnaRepository},
+        repositories_story_system::GenreProfileRepository,
         DbPool,
     },
     error::AppError,
@@ -99,6 +100,7 @@ impl AuditService {
         let style_dim = self.check_style(&content, story.style_dna_id.as_deref())?;
         let pacing_dim = self.check_pacing(&content)?;
         let payoff_dim = self.check_payoff(&scene.story_id, scene_id, scene.sequence_number)?;
+        let opening_clarity_dim = self.check_opening_clarity_as_dimension(scene_id, None)?;
 
         let mut dimensions = vec![
             continuity_dim,
@@ -106,6 +108,7 @@ impl AuditService {
             style_dim,
             pacing_dim,
             payoff_dim,
+            opening_clarity_dim,
         ];
 
         // 4. 完整审计：LLM 深度评估
@@ -445,6 +448,103 @@ impl AuditService {
             score: score.max(0.0),
             issues,
         })
+    }
+
+    fn check_opening_clarity_as_dimension(
+        &self,
+        scene_id: &str,
+        genre_canonical: Option<&str>,
+    ) -> Result<AuditDimension, AppError> {
+        let report = self.check_opening_clarity(scene_id, genre_canonical)?;
+
+        let mut issues = Vec::new();
+        if !report.passed {
+            issues.push(AuditIssue {
+                severity: "warning".to_string(),
+                message: report.rationale.clone(),
+                suggestion: Some(
+                    "在开篇 200 字内加入危险、羞辱、失去或谜题等钩子，并锚定具体可视化场景"
+                        .to_string(),
+                ),
+            });
+        }
+
+        // score 为 0-100，转换为 0-1
+        Ok(AuditDimension {
+            name: "opening_clarity".to_string(),
+            score: (report.score as f32 / 100.0).clamp(0.0, 1.0),
+            issues,
+        })
+    }
+
+    /// 检查场景开篇清晰度。
+    ///
+    /// 从场景内容前 200 字中评估开篇要素（危险/羞辱/失去/谜题/物理锚点/题材信号）。
+    /// 如果 genre_canonical 未提供，则尝试通过 story 的 genre_profile_id 推导。
+    /// 若场景/题材加载失败，返回默认报告（passed=true）以避免阻塞审计流程。
+    pub fn check_opening_clarity(
+        &self,
+        scene_id: &str,
+        genre_canonical: Option<&str>,
+    ) -> Result<crate::audit::opening_clarity::OpeningClarityReport, AppError> {
+        use crate::audit::opening_clarity::{OpeningClarityGate, OpeningClarityReport};
+
+        let scene_repo = SceneRepository::new(self.pool.clone());
+        let scene = match scene_repo.get_by_id(scene_id) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                return Ok(OpeningClarityReport {
+                    passed: true,
+                    hits: vec![],
+                    misses: vec![],
+                    score: 100.0,
+                    rationale: "场景未找到，跳过开篇清晰度检查".to_string(),
+                })
+            }
+            Err(e) => {
+                log::warn!("[AuditService] 加载场景失败: {}", e);
+                return Ok(OpeningClarityReport {
+                    passed: true,
+                    hits: vec![],
+                    misses: vec![],
+                    score: 100.0,
+                    rationale: "场景加载失败，跳过开篇清晰度检查".to_string(),
+                });
+            }
+        };
+
+        let canonical = match genre_canonical {
+            Some(c) => Some(c.to_string()),
+            None => {
+                let story_repo = StoryRepository::new(self.pool.clone());
+                match story_repo.get_by_id(&scene.story_id) {
+                    Ok(Some(story)) => match story.genre_profile_id {
+                        Some(profile_id) => {
+                            let genre_repo = GenreProfileRepository::new(self.pool.clone());
+                            match genre_repo.get_by_id(&profile_id) {
+                                Ok(Some(profile)) => Some(profile.canonical_name),
+                                Ok(None) => None,
+                                Err(e) => {
+                                    log::warn!("[AuditService] 加载题材档案失败: {}", e);
+                                    None
+                                }
+                            }
+                        }
+                        None => None,
+                    },
+                    Ok(None) => None,
+                    Err(e) => {
+                        log::warn!("[AuditService] 加载故事失败: {}", e);
+                        None
+                    }
+                }
+            }
+        };
+
+        let content = scene.content.unwrap_or_default();
+        let opening: String = content.chars().take(200).collect();
+        let gate = OpeningClarityGate::default();
+        Ok(gate.evaluate(&opening, canonical.as_deref()))
     }
 
     /// LLM 深度评估

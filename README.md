@@ -8,12 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.22.3-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.22.3 钥匙串彻底移除 + 模型健康报告自动刷新。macOS 钥匙串依赖已全部清除，API Key 直接存储在 SQLite 中，本地模型用户不再被反复提示输入钥匙串密码。模型健康报告每 30 秒自动刷新。AppConfig.load() 热路径冗余调用已消除。
+**最新动态**：v0.23.0 TriShot 三击生成管线。新增三击模式（与 Fast/TimeSliced/Full 并存），Call 1 用最快模型选资产+合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成，关键路径最多 3 次 LLM。质检/改写/入库/洞察全部后台静默执行。`prompt_synthesis` 模块、`AssetManifest` 紧凑清单、`select_fastest_profile` 最快模型选取、BGP-2 智能改写器（HIGH 自动改/LOW 建议）。
 
-> **上一版**：v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。v0.21.0 提示词全量可配置化——79 个提示词全部前端可编辑。v0.20.1 SING 意图图集成审计修复。
+> **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 
 > 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
 

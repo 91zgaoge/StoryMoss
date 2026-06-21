@@ -93,6 +93,21 @@ impl PlanExecutor {
         context: &PlanContext,
     ) -> Result<PlanExecutionResult, AppError> {
         log::info!("[PlanExecutor] execute_with_context START");
+        // v0.23 TriShot 快速路径：当 AppConfig.generation_mode == "tri_shot" 时，
+        // 跳过计划生成 LLM（Call 1 路由合成器替代），直接构造单步 writer plan。
+        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        let generation_mode = crate::config::AppConfig::load(&app_dir)
+            .map(|c| c.generation_mode.clone())
+            .unwrap_or_else(|_| "auto".to_string());
+        let is_trishot = generation_mode == "tri_shot" || generation_mode == "trishot";
+
+        if is_trishot && !crate::is_novel_creation_intent(&context.user_input)
+        {
+            log::info!("[PlanExecutor] TriShot 快速路径：跳过计划生成，直接 writer step");
+            let plan = Self::make_trishot_plan(context);
+            return Ok(self.execute_plan(plan, context).await);
+        }
+
         // Before generating a new plan, check PlanTemplateLibrary for matching
         // templates
         let mut plan = if let Some(template_plan) = self.find_template(&context.user_input) {
@@ -187,6 +202,7 @@ impl PlanExecutor {
                                         p
                                     },
                                     depends_on: vec![],
+                                    long_running: false,
                                 }],
                                 fallback_message: "计划生成失败，已回退到直接写作模式".to_string(),
                             }
@@ -240,6 +256,7 @@ impl PlanExecutor {
                                 p
                             },
                             depends_on: vec![],
+                            long_running: false,
                         }],
                         fallback_message: "计划生成失败，已回退到直接写作模式".to_string(),
                     }
@@ -262,6 +279,54 @@ impl PlanExecutor {
         }
 
         Ok(self.execute_plan(plan, context).await)
+    }
+
+    /// v0.23 TriShot 快速路径：构造单步 writer plan（跳过计划生成 LLM）。
+    /// Call 1 路由合成器替代了计划生成的角色——此处仅产生一个最小 plan，
+    /// 使 `execute_plan → execute_writer` 路径得以复用步骤参数注入。
+    fn make_trishot_plan(context: &PlanContext) -> ExecutionPlan {
+        let mut params = HashMap::new();
+        params.insert(
+            "story_id".to_string(),
+            serde_json::Value::String(
+                context.current_story_id.clone().unwrap_or_default(),
+            ),
+        );
+        params.insert(
+            "instruction".to_string(),
+            serde_json::Value::String(context.user_input.clone()),
+        );
+        // 标记 mode=tri_shot，使 execute_writer 走 TriShot 分支
+        params.insert(
+            "mode".to_string(),
+            serde_json::Value::String("tri_shot".to_string()),
+        );
+        if let Some(ref content_preview) = context.current_content_preview {
+            params.insert(
+                "current_content".to_string(),
+                serde_json::Value::String(content_preview.clone()),
+            );
+        }
+        // 标记为长任务，跳过 90s 步超时（受 smart_execute 180s 伞保护）
+        params.insert(
+            "long_running".to_string(),
+            serde_json::Value::Bool(true),
+        );
+
+        ExecutionPlan {
+            understanding: "TriShot 三击模式：智能合成 → 精修 → 生成".to_string(),
+            steps: vec![PlanStep {
+                step_id: "trishot_writer".to_string(),
+                capability_id: "writer".to_string(),
+                purpose:
+                    "TriShot 模式：Call 1 合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成"
+                        .to_string(),
+                parameters: params,
+                depends_on: vec![],
+                long_running: true,
+            }],
+            fallback_message: String::new(),
+        }
     }
 
     pub async fn execute_plan(
@@ -400,36 +465,40 @@ impl PlanExecutor {
                     let step_start = std::time::Instant::now();
                     // v0.14.0: 单步超时 90 秒，防止某个 capability 卡死拖垮整个计划。
                     // 超时记为 step failed 但不中断后续批次（保持容错语义）。
-                    // v0.15.5: 从 AppConfig 读取，默认 90s
-                    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()
-                    let app_dir = self
-                        .app_handle
-                        .path()
-                        .app_data_dir()
-                        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-                    let step_timeout_secs = crate::config::AppConfig::load(&app_dir)
-                        .map(|c| c.executor_step_timeout_secs)
-                        .unwrap_or(90u64);
-                    let result = match tokio::time::timeout(
-                        std::time::Duration::from_secs(step_timeout_secs),
-                        self.execute_step(&step, &resolved_params, plan_context),
-                    )
-                    .await
-                    {
-                        Ok(r) => r,
-                        Err(_) => {
-                            log::error!(
-                                "[PlanExecutor] Step {} ({}) timed out after {}s",
-                                step.step_id,
-                                step.capability_id,
-                                step_timeout_secs
-                            );
-                            Err(AppError::internal(format!(
-                                "步骤 {} 超时（{}秒）",
-                                Self::capability_display_name(&step.capability_id),
-                                step_timeout_secs
-                            )))
+                    // v0.23: long_running 步骤跳过步超时（如 TriShot 2~3 次 LLM），
+                    // 仅受外层 smart_execute 180s 伞保护。
+                    let step_timeout = if step.long_running {
+                        None // 不设步级超时，依赖 smart_execute 外层 180s
+                    } else {
+                        let app_dir = self
+                            .app_handle
+                            .path()
+                            .app_data_dir()
+                            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                        let secs = crate::config::AppConfig::load(&app_dir)
+                            .map(|c| c.executor_step_timeout_secs)
+                            .unwrap_or(90u64);
+                        Some(std::time::Duration::from_secs(secs))
+                    };
+
+                    let result = if let Some(dur) = step_timeout {
+                        match tokio::time::timeout(dur, self.execute_step(&step, &resolved_params, plan_context)).await {
+                            Ok(r) => r,
+                            Err(_) => {
+                                log::error!(
+                                    "[PlanExecutor] Step {} ({}) timed out after {:?}",
+                                    step.step_id,
+                                    step.capability_id,
+                                    dur
+                                );
+                                Err(AppError::internal(format!(
+                                    "步骤 {} 超时",
+                                    Self::capability_display_name(&step.capability_id),
+                                )))
+                            }
                         }
+                    } else {
+                        self.execute_step(&step, &resolved_params, plan_context).await
                     };
                     let step_duration = step_start.elapsed().as_millis() as u64;
 
@@ -648,9 +717,9 @@ impl PlanExecutor {
         story_id: &str,
         current_content: Option<String>,
         selected_text: Option<String>,
-    ) -> Result<crate::agents::AgentContext, AppError> {
+    ) -> Result<crate::domain::agent_context::AgentContext, AppError> {
         if story_id.is_empty() {
-            return Ok(crate::agents::AgentContext::minimal(
+            return Ok(crate::domain::agent_context::AgentContext::minimal(
                 story_id.to_string(),
                 String::new(),
             ));
@@ -732,6 +801,7 @@ impl PlanExecutor {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: None,
             })
             .map_err(AppError::from)?;
 
@@ -920,11 +990,125 @@ impl PlanExecutor {
                     enriched_params.insert("narrative_quartet".to_string(), quartet);
                 }
             }
+
+            // Phase 4: 将复合题材的次要 genre_profile_ids 透传给 TimeSliced 路径
+            if let Some(secondary) = selected.parameters.get("secondary_genre_profile_ids") {
+                let ids: Vec<String> = secondary
+                    .as_str()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .or_else(|| {
+                        secondary.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                    })
+                    .unwrap_or_default();
+                if !ids.is_empty() {
+                    enriched_params.insert(
+                        "secondary_genre_profile_ids".to_string(),
+                        serde_json::to_value(&ids).unwrap_or_default(),
+                    );
+                }
+            }
         }
 
-        let task = crate::agents::service::AgentTask {
+        // v0.22.5: Phase C - 注入追读力债务与本章追读力目标
+        if let Some(pool_state) = self.app_handle.try_state::<crate::db::DbPool>() {
+            let pool = pool_state.inner().clone();
+
+            // 加载待偿还追读力债务
+            let debt_repo = crate::db::ChaseDebtRepository::new(pool.clone());
+            let (debt_count, debts_text) = match debt_repo.get_active_by_story(&story_id) {
+                Ok(debts) => {
+                    let count = debts.len();
+                    let text = if debts.is_empty() {
+                        "无".to_string()
+                    } else {
+                        debts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, d)| {
+                                format!(
+                                    "{}. 类型：{}，当前金额：{:.1}，到期章节：{}，来源章节：{}",
+                                    i + 1,
+                                    d.debt_type,
+                                    d.current_amount,
+                                    d.due_chapter,
+                                    d.source_chapter
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+                    (count, text)
+                }
+                Err(e) => {
+                    log::warn!("[PlanExecutor] 加载追读力债务失败: {}", e);
+                    (0, "无".to_string())
+                }
+            };
+            enriched_params.insert(
+                "chase_debt_count".to_string(),
+                serde_json::Value::String(debt_count.to_string()),
+            );
+            enriched_params.insert(
+                "chase_debts".to_string(),
+                serde_json::Value::String(debts_text),
+            );
+
+            // 加载最近一章追读力作为目标参考
+            let rp_repo = crate::db::ChapterReadingPowerRepository::new(pool);
+            let (hook_type, hook_strength, foreshadowing_list, micropayoff_count) =
+                match rp_repo.get_by_story(&story_id, 1) {
+                    Ok(items) if !items.is_empty() => {
+                        let item = &items[0];
+                        let micropayoffs: Vec<String> = item
+                            .micropayoffs_json
+                            .as_ref()
+                            .and_then(|s| serde_json::from_str(s).ok())
+                            .unwrap_or_default();
+                        (
+                            item.hook_type
+                                .clone()
+                                .unwrap_or_else(|| "（延续）".to_string()),
+                            item.hook_strength.clone(),
+                            if micropayoffs.is_empty() {
+                                "无".to_string()
+                            } else {
+                                micropayoffs.join("、")
+                            },
+                            micropayoffs.len().to_string(),
+                        )
+                    }
+                    _ => (
+                        "（未指定）".to_string(),
+                        "medium".to_string(),
+                        "无".to_string(),
+                        "1-2".to_string(),
+                    ),
+                };
+            enriched_params.insert(
+                "reading_power_hook_type".to_string(),
+                serde_json::Value::String(hook_type),
+            );
+            enriched_params.insert(
+                "reading_power_hook_strength".to_string(),
+                serde_json::Value::String(hook_strength),
+            );
+            enriched_params.insert(
+                "reading_power_foreshadowing_list".to_string(),
+                serde_json::Value::String(foreshadowing_list),
+            );
+            enriched_params.insert(
+                "reading_power_micropayoff_count".to_string(),
+                serde_json::Value::String(micropayoff_count),
+            );
+        }
+
+        let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
-            agent_type: crate::agents::service::AgentType::Writer,
+            agent_type: crate::domain::agent_types::AgentType::Writer,
             context,
             input: instruction,
             parameters: enriched_params,
@@ -947,6 +1131,8 @@ impl PlanExecutor {
             "full" => crate::agents::orchestrator::GenerationMode::Full,
             "fast" => crate::agents::orchestrator::GenerationMode::Fast,
             "time_sliced" | "timesliced" => crate::agents::orchestrator::GenerationMode::TimeSliced,
+            // v0.23 TriShot：弹性 2~3 次 LLM，资产任务下沉后台
+            "tri_shot" | "trishot" => crate::agents::orchestrator::GenerationMode::TriShot,
             _ => {
                 // "auto" 或其他：场景智能路由
                 if has_selected_text {
@@ -1005,9 +1191,9 @@ impl PlanExecutor {
         let context = self
             .build_agent_context(&story_id, current_content, None)
             .await?;
-        let task = crate::agents::service::AgentTask {
+        let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
-            agent_type: crate::agents::service::AgentType::Inspector,
+            agent_type: crate::domain::agent_types::AgentType::Inspector,
             context,
             input: draft,
             parameters: params.clone(),
@@ -1040,9 +1226,9 @@ impl PlanExecutor {
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
         let context = self.build_agent_context(&story_id, None, None).await?;
-        let task = crate::agents::service::AgentTask {
+        let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
-            agent_type: crate::agents::service::AgentType::OutlinePlanner,
+            agent_type: crate::domain::agent_types::AgentType::OutlinePlanner,
             context,
             input: premise,
             parameters: params.clone(),
@@ -1083,9 +1269,9 @@ impl PlanExecutor {
         );
 
         let context = self.build_agent_context(&story_id, None, None).await?;
-        let task = crate::agents::service::AgentTask {
+        let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
-            agent_type: crate::agents::service::AgentType::StyleMimic,
+            agent_type: crate::domain::agent_types::AgentType::StyleMimic,
             context,
             input: content,
             parameters: task_params,
@@ -1114,9 +1300,9 @@ impl PlanExecutor {
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
         let context = self.build_agent_context(&story_id, None, None).await?;
-        let task = crate::agents::service::AgentTask {
+        let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
-            agent_type: crate::agents::service::AgentType::PlotAnalyzer,
+            agent_type: crate::domain::agent_types::AgentType::PlotAnalyzer,
             context,
             input: content,
             parameters: params.clone(),

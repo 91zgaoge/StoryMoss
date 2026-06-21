@@ -11,76 +11,10 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
-
-/// 风格指纹 — 统一描述任意文本的语言风格
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct StyleFingerprint {
-    /// 词汇层指纹
-    pub vocabulary: VocabularyFingerprint,
-    /// 句法层指纹
-    pub syntax: SyntaxFingerprint,
-    /// 对话层指纹
-    pub dialogue: DialogueFingerprint,
-    /// 锚点片段 — 最具代表性的原文段落（用于少样本注入）
-    pub anchor_samples: Vec<String>,
-    /// N-gram 白名单
-    pub ngrams: NgramFingerprint,
-}
-
-/// 词汇指纹
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct VocabularyFingerprint {
-    /// 四字格密度（每百字）
-    pub four_char_density: f32,
-    /// 虚词 TOP10（频率排序）
-    pub function_words: Vec<(String, u32)>,
-    /// 标志性实词 TOP10
-    pub signature_words: Vec<(String, u32)>,
-    /// 平均词长（中文字符数）
-    pub avg_word_length: f32,
-    /// 时代感：classical / modern / mixed
-    pub temporal_quality: String,
-}
-
-/// 句法指纹
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SyntaxFingerprint {
-    /// 平均句长（字）
-    pub avg_sentence_length: f32,
-    /// 句长标准差
-    pub sentence_length_std: f32,
-    /// 短句占比（<10字）
-    pub short_ratio: f32,
-    /// 中句占比（10-25字）
-    pub medium_ratio: f32,
-    /// 长句占比（>25字）
-    pub long_ratio: f32,
-    /// 逗号密度（每百字）
-    pub comma_density: f32,
-}
-
-/// 对话指纹
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DialogueFingerprint {
-    /// 对话标签分布：("道", 0.8), ("说", 0.1) ...
-    pub tag_distribution: Vec<(String, f32)>,
-    /// 对话占全文比例
-    pub dialogue_ratio: f32,
-    /// 是否有对话
-    pub has_dialogue: bool,
-}
-
-/// N-gram 指纹
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NgramFingerprint {
-    /// 高频双字搭配 TOP30
-    pub bigrams: Vec<(String, u32)>,
-    /// 高频四字词 TOP20
-    pub four_char_phrases: Vec<(String, u32)>,
-    /// 高频衔接模式 TOP15
-    pub transitions: Vec<(String, u32)>,
-}
+pub use crate::domain::style::{
+    DialogueFingerprint, NgramFingerprint, StyleFingerprint, SyntaxFingerprint,
+    VocabularyFingerprint,
+};
 
 impl StyleFingerprint {
     /// 从任意参考文本提取风格指纹

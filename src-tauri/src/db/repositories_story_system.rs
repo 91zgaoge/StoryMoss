@@ -1183,7 +1183,8 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at, reader_promise recommended_skill_ids, min_quality_tier FROM genre_profiles ORDER BY genre_name",
+             created_at, reader_promise, recommended_style_dna_ids, recommended_methodology_id, \
+             recommended_skill_ids, min_quality_tier FROM genre_profiles ORDER BY genre_name",
         )?;
 
         let profiles = stmt

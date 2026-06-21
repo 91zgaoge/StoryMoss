@@ -34,6 +34,9 @@ pub struct PlanStep {
     pub parameters: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// v0.23 TriShot：标记为长任务，跳过 PlanExecutor 90s 步超时
+    #[serde(default)]
+    pub long_running: bool,
 }
 
 /// 完整的执行计划
@@ -82,6 +85,8 @@ pub struct PlanContext {
     pub foreshadowing_status: Vec<String>,
     pub style_dna_info: Option<String>,
     pub mcp_tools_available: Vec<String>,
+    /// v0.22.5: 最新深度洞察摘要，供 Planner 生成分阶段干预计划
+    pub deep_insight_summary: Option<String>,
     // W3-F3: 支持选中文本（Inline Suggestion 统一路径）
     pub selected_text: Option<String>,
     // v0.7.8: 风格权重（0-100，默认50）
@@ -89,7 +94,7 @@ pub struct PlanContext {
     // v0.8.0: 当前章节号（用于记忆构建）
     pub chapter_number: i32,
     // v0.10.0: 当前故事的创作策略（模型选择或用户锁定）
-    pub selected_strategy: Option<crate::strategy::SelectedStrategy>,
+    pub selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
 }
 
 /// 计划生成器
@@ -238,6 +243,11 @@ impl PlanGenerator {
                     .join("\n")
             )
         };
+        let deep_insight_text = context
+            .deep_insight_summary
+            .as_deref()
+            .map(|s| format!("Deep insight (latest):\n{}", s))
+            .unwrap_or_else(|| "No deep insight report yet".to_string());
         let style_dna_text = context
             .style_dna_info
             .as_deref()
@@ -332,6 +342,13 @@ impl PlanGenerator {
                     context.has_story, context.chapter_count, context.total_word_count
                 ),
             );
+            vars.insert(
+                "deep_insight_summary".to_string(),
+                context
+                    .deep_insight_summary
+                    .clone()
+                    .unwrap_or_else(|| "No deep insight report yet".to_string()),
+            );
             crate::prompts::engine::TemplateEngine::render_with_conditions(&template, &vars)
         } else {
             // 默认动态拼接逻辑（原代码）
@@ -357,6 +374,9 @@ World building:
 
 {}
 
+{}
+
+Deep insight (latest):
 {}
 
 Style: {}
@@ -427,6 +447,7 @@ Rules:
                 world_building_text,
                 characters_text,
                 foreshadowing_text,
+                deep_insight_text,
                 style_dna_text,
                 strategy_text,
                 mcp_tools_text,
@@ -565,6 +586,7 @@ mod tests {
             purpose: "Generate opening".to_string(),
             parameters: HashMap::new(),
             depends_on: vec![],
+            long_running: false,
         };
         assert_eq!(step.step_id, "step_1");
         assert_eq!(step.capability_id, "writer");
@@ -614,6 +636,7 @@ mod tests {
             foreshadowing_status: vec![],
             style_dna_info: None,
             mcp_tools_available: vec![],
+            deep_insight_summary: None,
             style_weight: 50,
             chapter_number: 1,
             selected_strategy: None,

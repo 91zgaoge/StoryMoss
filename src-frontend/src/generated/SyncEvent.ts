@@ -13,4 +13,16 @@ export type SyncEvent = { "type": "storyCreated", "payload": { story_id: string,
 /**
  * high 严重性问题描述摘要（用于前端弹窗展示）
  */
-issues: Array<string>, } };
+issues: Array<string>, } } | { "type": "contentAutoRevised", "payload": { story_id: string, scene_id: string | null, chapter_id: string | null, 
+/**
+ * 本次自动修正的问题数量
+ */
+revision_count: number, 
+/**
+ * 修正摘要（用于前端展示）
+ */
+summary: string, } } | { "type": "revisionSuggested", "payload": { story_id: string, scene_id: string | null, chapter_id: string | null, 
+/**
+ * 建议列表（每条含维度、描述、建议改法）
+ */
+suggestions: Array<string>, } };

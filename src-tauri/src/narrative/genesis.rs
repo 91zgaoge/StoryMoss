@@ -28,6 +28,7 @@ use crate::{
     },
     llm::{service::PipelineContext as LlmPipelineContext, LlmService},
     router::{Complexity, Priority, RoutingRequest, TaskType},
+    story_system::StorySystemEngine,
     strategy::{load_all_assets, SelectionContext, StrategySelector},
 };
 
@@ -48,7 +49,7 @@ pub struct GenesisContext {
     /// 第一章正文内容（用于返回给前端）
     pub first_chapter_content: Option<String>,
     /// 模型为当前故事选择的创作策略
-    pub selected_strategy: Option<crate::strategy::SelectedStrategy>,
+    pub selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
 }
 
 impl StepContext for GenesisContext {
@@ -88,7 +89,7 @@ impl GenesisContext {
         session_id: String,
         user_premise: String,
         bundle: NarrativeBundle,
-        selected_strategy: Option<crate::strategy::SelectedStrategy>,
+        selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
     ) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
         Self {
@@ -161,7 +162,11 @@ fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
     }
 
     if let Some(methodology_id) = &strategy.methodology_id {
-        notes.push(format!("\n应遵循的方法论：{}", methodology_id));
+        if let Some(content) = resolve_methodology_prompt(methodology_id, None) {
+            notes.push(format!("\n应遵循的方法论：{}\n{}", methodology_id, content));
+        } else {
+            notes.push(format!("\n应遵循的方法论：{}", methodology_id));
+        }
     }
 
     if !strategy.style_dna_ids.is_empty() {
@@ -185,6 +190,39 @@ fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
     }
 }
 
+/// 从 PromptRegistry 读取指定方法论的当前 prompt 内容（不引入新的硬编码文本）
+fn resolve_methodology_prompt(methodology_id: &str, step: Option<&str>) -> Option<String> {
+    let prompt_id = match methodology_id {
+        "snowflake" => format!("methodology_snowflake_step{}", step.unwrap_or("1")),
+        "hero_journey" => "methodology_hero_journey".to_string(),
+        "scene_structure" => "methodology_scene_structure".to_string(),
+        "character_depth" => "methodology_character_depth".to_string(),
+        "high_density_world_building" => {
+            let phase = step.unwrap_or("1");
+            match phase {
+                "1" | "seed" => "methodology_hdwb_seed",
+                "2" | "expansion" => "methodology_hdwb_expansion",
+                "3" | "convergence" => "methodology_hdwb_convergence",
+                "4" | "iteration" => "methodology_hdwb_iteration",
+                _ => "methodology_hdwb_seed",
+            }
+            .to_string()
+        }
+        _ => return None,
+    };
+    crate::prompts::registry::resolve_prompt_default(&prompt_id)
+}
+
+/// 将已选策略中的中文叙事四元组渲染为 prompt 可注入文本
+fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
+    let strategy = ctx.selected_strategy.as_ref()?;
+    let value = crate::strategy::quartet_inference::serialize_quartet_for_prompt(strategy).ok()?;
+    if value.is_null() {
+        return None;
+    }
+    Some(value.to_string())
+}
+
 // ==================== GenesisPipeline 构建器 ====================
 
 pub struct GenesisPipeline;
@@ -200,7 +238,7 @@ impl GenesisPipeline {
         vec![Box::new(StrategySelectionStep)]
     }
 
-    /// 后台阶段：第一章 + 世界观/大纲/角色/场景/伏笔/知识图谱
+    /// 后台阶段：第一章 + 世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
     pub fn first_chapter_and_background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
             Box::new(FirstChapterGenerationStep),
@@ -209,6 +247,7 @@ impl GenesisPipeline {
             Box::new(SceneGenerationStep),
             Box::new(ForeshadowingGenerationStep),
             Box::new(KnowledgeGraphGenerationStep),
+            Box::new(ContractSeedingStep),
         ]
     }
 }
@@ -262,7 +301,13 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                     })
                     .unwrap_or((512, 0.7));
 
-            let prompt = story_concept_prompt(PromptMode::Generate, &ctx.user_premise);
+            let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+            let available_profiles = genre_repo.get_all().unwrap_or_default();
+            let prompt = story_concept_prompt(
+                PromptMode::Generate,
+                &ctx.user_premise,
+                Some(&available_profiles),
+            );
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
             let request = RoutingRequest {
@@ -291,7 +336,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))?;
 
-            // 创建 Story 记录
+            // 创建 Story 记录；若 LLM 已返回标准化 genre_profile_ids，优先使用首个
+            let primary_genre_profile_id = meta.genre_profile_ids.first().cloned();
             let story_repo = StoryRepository::new(ctx.pool.clone());
             let story = story_repo
                 .create(CreateStoryRequest {
@@ -299,8 +345,9 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                     description: Some(meta.description.clone()),
                     genre: Some(meta.genre.clone()),
                     style_dna_id: None,
-                    genre_profile_id: None,
+                    genre_profile_id: primary_genre_profile_id,
                     methodology_id: None,
+                    reference_book_id: None,
                 })
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
@@ -368,12 +415,12 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 metadata: None,
             });
 
-            let genre = {
+            let (genre, preferred_genre_profile_ids) = {
                 let bundle = ctx.bundle.read().await;
                 bundle
                     .story_meta
                     .as_ref()
-                    .map(|m| m.genre.clone())
+                    .map(|m| (m.genre.clone(), m.genre_profile_ids.clone()))
                     .unwrap_or_default()
             };
 
@@ -398,14 +445,16 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
             let selection_ctx = SelectionContext {
                 user_input: ctx.user_premise.clone(),
                 genre_hint: Some(genre.clone()),
+                preferred_genre_profile_ids,
                 word_count_target: Some(word_count_target),
                 story_progress: "just_started".to_string(),
                 has_story: true,
+                story_id: Some(ctx.story_id.clone()),
                 ..Default::default()
             };
 
             let strategy = selector
-                .select_strategy(&selection_ctx, &assets, None)
+                .select_strategy(&selection_ctx, &assets, Some(&genre_repo), None)
                 .await
                 .map_err(|e| PipelineError::StepFailed {
                     step_name: self.name().to_string(),
@@ -424,6 +473,7 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 genre_profile_id: strategy.genre_profile_id.clone(),
                 methodology_id: strategy.methodology_id.clone(),
                 methodology_step: None,
+                reference_book_id: None,
             };
             if let Err(e) = story_repo.update(&ctx.story_id, &update_req) {
                 log::warn!("[GenesisPipeline] 保存策略到 story 表失败: {}", e);
@@ -523,15 +573,18 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 
             // 构建策略注解：将模型选择的体裁画像、方法论等注入写作指令
             let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let quartet_section = build_narrative_quartet(ctx)
+                .map(|q| format!("\n\n【中文叙事四元组】\n{}\n", q))
+                .unwrap_or_default();
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
-            let task = crate::agents::service::AgentTask {
+            let task = crate::domain::agent_types::AgentTask {
                 id: Uuid::new_v4().to_string(),
-                agent_type: crate::agents::service::AgentType::Writer,
+                agent_type: crate::domain::agent_types::AgentType::Writer,
                 context: agent_context,
                 input: format!(
                     "请撰写《{}》的第一章开头（目标字数：{}字，允许±15%）。\n\n【故事概念】\n题材：{}\n基调：\
-                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【创作策略】\n{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
+                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【创作策略】\n{}{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
                      需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
                      埋下至少一个伏笔\n4. \
                      在第一幕结尾制造一个冲突或悬念\n\n重要：\
@@ -544,6 +597,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     meta.description,
                     meta.themes.join(", "),
                     strategy_notes,
+                    quartet_section,
                     writing_strategy.run_mode,
                     writing_strategy.conflict_level,
                     writing_strategy.pace,
@@ -577,7 +631,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .generate(task, crate::agents::orchestrator::GenerationMode::Full)
                 .await
             {
-                Ok(workflow_result) => crate::agents::AgentResult {
+                Ok(workflow_result) => crate::domain::agent_types::AgentResult {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
                     suggestions: vec![],
@@ -640,6 +694,65 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     .map(|c| c.chars().count())
                     .unwrap_or(0)
             );
+
+            // v0.22.5: Genesis 完成后主动触发一次 commit/ingest 管线，
+            // 让叙事分析、追读力评估、投影写入在第一章就有数据。
+            // 在后台任务中执行，避免阻塞 Genesis 完成事件。
+            let commit_story_id = ctx.story_id.clone();
+            let commit_app_handle = ctx.app_handle.clone();
+            let commit_pool = ctx.pool.clone();
+            let commit_chapter_id = chapter.id.clone();
+            let commit_chapter_number = chapter.chapter_number;
+            let commit_content = result.content.clone();
+            tauri::async_runtime::spawn(async move {
+                let service = crate::story_system::SceneCommitService::new(commit_pool.clone());
+                match service
+                    .auto_commit(
+                        &commit_story_id,
+                        None,
+                        Some(&commit_chapter_id),
+                        commit_chapter_number,
+                        Some(&commit_content),
+                        None,
+                        Some(commit_app_handle.clone()),
+                        crate::VECTOR_STORE.get(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            "[FirstChapterGenerationStep] Genesis 后自动 commit 成功: story_id={}, chapter_number={}",
+                            commit_story_id,
+                            commit_chapter_number
+                        );
+                        // commit 成功后触发一次深度洞察（首次 Genesis 强制 interval=1）
+                        if crate::task_system::insight_executor::InsightExecutor::should_trigger(
+                            &commit_pool,
+                            &commit_story_id,
+                            commit_chapter_number,
+                            1,
+                        ) {
+                            let executor = crate::task_system::insight_executor::InsightExecutor {
+                                pool: commit_pool,
+                                app_handle: commit_app_handle,
+                            };
+                            executor
+                                .run_insight(crate::task_system::insight_executor::InsightPayload {
+                                    story_id: commit_story_id,
+                                    chapter_number: commit_chapter_number,
+                                    trend_window: 1,
+                                })
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[FirstChapterGenerationStep] Genesis 后自动 commit 失败（非阻塞）: {}",
+                            e
+                        );
+                    }
+                }
+            });
 
             // 发送 ChapterSwitch 事件
             match crate::window::WindowManager::send_to_frontstage(
@@ -736,6 +849,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
             let pool = ctx.pool.clone();
             let bundle = ctx.bundle.clone();
             let llm = llm.clone();
+            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let narrative_quartet = build_narrative_quartet(ctx);
 
             let world_future = {
                 let meta = meta.clone();
@@ -744,6 +859,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let pool = pool.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
+                let strategy_notes = strategy_notes.clone();
+                let narrative_quartet = narrative_quartet.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -763,6 +880,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.title,
                         &meta.genre,
                         &meta.description,
+                        Some(&strategy_notes),
+                        narrative_quartet.as_deref(),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "构建世界".to_string(),
@@ -860,6 +979,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let pool = pool.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
+                let strategy_notes = strategy_notes.clone();
+                let narrative_quartet = narrative_quartet.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -879,6 +1000,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.title,
                         &meta.genre,
                         &meta.description,
+                        Some(&strategy_notes),
+                        narrative_quartet.as_deref(),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "故事大纲".to_string(),
@@ -963,6 +1086,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let bundle = bundle.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
+                let strategy_notes = strategy_notes.clone();
+                let narrative_quartet = narrative_quartet.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -991,6 +1116,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.genre,
                         &world,
                         &meta.description,
+                        Some(&strategy_notes),
+                        narrative_quartet.as_deref(),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "塑造角色".to_string(),
@@ -1178,6 +1305,8 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                     .join(", ");
                 (meta, character_names)
             };
+            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let narrative_quartet = build_narrative_quartet(ctx);
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
@@ -1198,6 +1327,8 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 &meta.genre,
                 &character_names,
                 &meta.description,
+                Some(&strategy_notes),
+                narrative_quartet.as_deref(),
             );
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成场景大纲");
@@ -1375,6 +1506,8 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 let first_scene_id = bundle.scenes.first().map(|s| s.id.clone());
                 (meta, outline_summary, first_scene_id)
             };
+            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let narrative_quartet = build_narrative_quartet(ctx);
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
@@ -1395,6 +1528,8 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 &meta.genre,
                 &outline_summary,
                 "",
+                Some(&strategy_notes),
+                narrative_quartet.as_deref(),
             );
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成伏笔");
             let request = RoutingRequest {
@@ -1578,6 +1713,183 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
     }
 }
 
+// ==================== Step 9: 合同播种 ====================
+
+struct ContractSeedingStep;
+
+impl PipelineStep<GenesisContext> for ContractSeedingStep {
+    fn name(&self) -> &'static str {
+        "播种故事合同"
+    }
+    fn description(&self) -> &'static str {
+        "根据 Genesis 产出创建 MASTER_SETTING 和 CHAPTER_1 合同"
+    }
+    fn step_number(&self) -> usize {
+        5
+    }
+
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut GenesisContext,
+        _llm: &'a LlmService,
+        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 4,
+                status: StepStatus::Running,
+                message: "正在为故事建立合同真源...".to_string(),
+                progress_percent: 95,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            if let Err(e) = seed_contracts_from_genesis(ctx).await {
+                log::warn!(
+                    "[GenesisPipeline] Contract seeding failed (non-blocking): {}",
+                    e
+                );
+            }
+
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 4,
+                status: StepStatus::Completed,
+                message: "故事合同已建立".to_string(),
+                progress_percent: 100,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            Ok(())
+        })
+    }
+}
+
+/// 从 Genesis 产物生成 MASTER_SETTING 与 CHAPTER_1 合同。
+/// 失败时返回 Err，但调用方已标记为 non-blocking。
+async fn seed_contracts_from_genesis(ctx: &GenesisContext) -> Result<(), PipelineError> {
+    let (story_meta, world_building, characters, scenes, foreshadowings, genre_profile_id) = {
+        let bundle = ctx.bundle.read().await;
+        let meta = bundle
+            .story_meta
+            .clone()
+            .ok_or_else(|| PipelineError::StepFailed {
+                step_name: "播种故事合同".to_string(),
+                reason: "故事概念未生成".to_string(),
+            })?;
+        let gpid = meta.genre_profile_ids.first().cloned();
+        (
+            meta,
+            bundle.world_building.clone(),
+            bundle.characters.clone(),
+            bundle.scenes.clone(),
+            bundle.foreshadowings.clone(),
+            gpid,
+        )
+    };
+
+    // 加载体裁画像：优先用 genre_profile_id，否则按 genre 名称回退
+    let profile = {
+        let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+        let by_id = if let Some(id) = &genre_profile_id {
+            repo.get_by_id(id).ok().flatten()
+        } else {
+            None
+        };
+        by_id.or_else(|| repo.get_by_name(&story_meta.genre).ok().flatten())
+    };
+
+    let core_tone = profile
+        .as_ref()
+        .and_then(|p| p.core_tone.clone())
+        .unwrap_or_else(|| story_meta.tone.clone());
+    let pacing_strategy = profile
+        .as_ref()
+        .and_then(|p| p.pacing_strategy.clone())
+        .unwrap_or_else(|| story_meta.pacing.clone());
+
+    let anti_patterns: Vec<String> = profile
+        .as_ref()
+        .and_then(|p| p.anti_patterns_json.as_deref())
+        .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+        .unwrap_or_default();
+
+    let world_rules: Vec<String> = world_building
+        .as_ref()
+        .map(|wb| {
+            wb.rules
+                .iter()
+                .map(|r| format!("{}: {}", r.name, r.description))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let engine = StorySystemEngine::new(ctx.pool.clone());
+
+    // 创建 MASTER_SETTING 合同
+    engine
+        .create_master_setting(
+            &ctx.story_id,
+            &story_meta.genre,
+            &core_tone,
+            &pacing_strategy,
+            &anti_patterns,
+            &world_rules,
+        )
+        .map_err(|e| PipelineError::StorageError(format!("创建 MASTER_SETTING 合同失败: {}", e)))?;
+
+    // 准备 CHAPTER_1 合同数据
+    let first_scene = scenes.first();
+    let first_foreshadowing = foreshadowings.first();
+
+    let goal = first_scene
+        .map(|s| s.dramatic_goal.clone())
+        .unwrap_or_else(|| "建立世界观与主角，引入核心冲突".to_string());
+
+    let mut must_cover_nodes = Vec::new();
+    if let Some(scene) = first_scene {
+        must_cover_nodes.push(format!("场景：{}", scene.title));
+        if !scene.setting_location.is_empty() {
+            must_cover_nodes.push(format!("地点：{}", scene.setting_location));
+        }
+    }
+    if let Some(fw) = first_foreshadowing {
+        must_cover_nodes.push(format!("伏笔：{}", fw.content));
+    }
+    for c in characters.iter().take(3) {
+        must_cover_nodes.push(format!("角色：{}({})", c.name, c.role_type));
+    }
+
+    let mut forbidden_zones = anti_patterns.clone();
+    forbidden_zones.extend(world_rules.iter().map(|r| format!("不可违反：{}", r)));
+
+    let time_anchor = first_scene.map(|s| s.setting_time.as_str());
+    let chapter_span = first_scene.map(|s| s.setting_location.as_str());
+
+    engine
+        .create_chapter_contract(
+            &ctx.story_id,
+            1,
+            &goal,
+            &must_cover_nodes,
+            &forbidden_zones,
+            time_anchor,
+            chapter_span,
+        )
+        .map_err(|e| PipelineError::StorageError(format!("创建 CHAPTER_1 合同失败: {}", e)))?;
+
+    Ok(())
+}
+
 // ==================== 辅助函数 ====================
 
 fn parse_conflict_type(s: &str) -> ConflictType {
@@ -1594,5 +1906,18 @@ fn parse_conflict_type(s: &str) -> ConflictType {
         "man_vs_identity" => ConflictType::ManVsIdentity,
         "faction_vs_faction" => ConflictType::FactionVsFaction,
         _ => ConflictType::ManVsMan,
+    }
+}
+
+#[cfg(test)]
+mod contract_seeding_tests {
+    use super::*;
+
+    #[test]
+    fn background_steps_include_contract_seeding() {
+        let steps = GenesisPipeline::first_chapter_and_background_steps();
+        let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
+        assert!(names.contains(&"播种故事合同"));
+        assert_eq!(names.len(), 6);
     }
 }

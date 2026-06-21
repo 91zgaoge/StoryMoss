@@ -732,4 +732,19 @@ mod input_clarity_tests {
         assert!(InputClarity::WithSeed.needs_quartet_inference());
         assert!(!InputClarity::WithFullConcept.needs_quartet_inference());
     }
+
+    /// 审计测试：验证“异星球末世生存”类输入的清晰度判定
+    ///
+    /// 该输入仅有题材/主题词，缺少主角、动作、冲突等故事元素信号词，
+    /// 当前启发式规则会判定为 Vague，从而触发后台四元组自动补全。
+    #[test]
+    fn alien_postapocalyptic_input_is_vague() {
+        let input = "写一部异星球末世生存题材的小说";
+        let clarity = detect_input_clarity(input);
+        assert_eq!(
+            clarity,
+            InputClarity::Vague,
+            "'{input}' 只有题材词，应被判定为 Vague 以触发四元组补全"
+        );
+    }
 }

@@ -13,6 +13,7 @@ pub mod foreshadowing;
 pub mod methodology;
 pub mod payoff_ledger;
 pub mod pressure_relationships;
+pub mod prompt_synthesis;
 pub mod reader_promise;
 pub mod story_engines;
 pub mod style;

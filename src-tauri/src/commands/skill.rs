@@ -138,17 +138,17 @@ pub async fn execute_skill(
                             "[execute_skill] StoryContextBuilder failed: {}, using minimal context",
                             e
                         );
-                        crate::agents::AgentContext::minimal(story_id, String::new())
+                        crate::domain::agent_context::AgentContext::minimal(story_id, String::new())
                     }
                 }
             }
             None => {
                 log::warn!("[execute_skill] DbPool not available, using minimal context");
-                crate::agents::AgentContext::minimal(story_id, String::new())
+                crate::domain::agent_context::AgentContext::minimal(story_id, String::new())
             }
         }
     } else {
-        crate::agents::AgentContext::default()
+        crate::domain::agent_context::AgentContext::default()
     };
 
     // Execute skill

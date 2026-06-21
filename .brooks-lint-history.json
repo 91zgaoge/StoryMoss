@@ -1,0 +1,13 @@
+[
+  {
+    "date": "2026-06-21T02:11:04Z",
+    "mode": "Architecture Audit",
+    "score": 18,
+    "findings": {
+      "critical": 4,
+      "warning": 4,
+      "suggestion": 2
+    },
+    "scope": "StoryForge (草苔) v0.22.4 全项目 — Rust 后端 (src-tauri/src)、前端 (src-frontend/src)、模板与资产 (templates/)"
+  }
+]

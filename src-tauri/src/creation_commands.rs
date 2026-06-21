@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, Manager, State};
 
 use crate::{
-    agents::novel_creation::{
-        CharacterProfileOption, GenerationOptions, NovelCreationAgent, SceneProposal,
-        WorldBuildingOption, WritingStyleOption,
-    },
+    agents::novel_creation::{GenerationOptions, NovelCreationAgent, SceneProposal},
     config::StudioManager,
     db::{
         AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeTrackRepository, ChangeType,
@@ -26,6 +23,7 @@ use crate::{
         WorldBuilding, WorldBuildingRepo, WorldBuildingRepository, WorldRule, WritingStyle,
         WritingStyleRepo, WritingStyleRepository, WritingStyleUpdate,
     },
+    domain::novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
     error::AppError,
     llm::LlmService,
     memory::{
@@ -134,17 +132,24 @@ fn persist_wizard_elements_in_tx(
             style_dna_id: style_dna_id.map(|s| s.to_string()),
             genre_profile_id: genre_profile_id.map(|s| s.to_string()),
             methodology_id: methodology_id.map(|s| s.to_string()),
+            reference_book_id: None,
         },
     )?;
     let story_id = story.id.clone();
 
     let wb_repo = WorldBuildingRepository::new(pool.clone());
     let wb = wb_repo.create_in_tx(tx, &story_id, &world_building.concept)?;
+    let db_rules: Vec<crate::db::models::WorldRule> = world_building
+        .rules
+        .iter()
+        .cloned()
+        .map(Into::into)
+        .collect();
     wb_repo.update_in_tx(
         tx,
         &wb.id,
         Some(&world_building.concept),
-        Some(&world_building.rules),
+        Some(&db_rules),
         Some(&world_building.history),
         Some(&world_building.cultures),
     )?;
@@ -636,6 +641,7 @@ pub async fn set_story_style_dna(
         genre_profile_id: None,
         methodology_id: None,
         methodology_step: None,
+        reference_book_id: None,
     };
     match repo.update(&story_id, &req) {
         Ok(_) => {
@@ -937,13 +943,11 @@ pub async fn generate_scene_outline(
     scene_id: String,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<crate::agents::AgentResult, AppError> {
+) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{
-        commands::ExecuteAgentRequest,
-        service::{AgentService, AgentTask, AgentType},
-    };
+    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
+    use crate::domain::agent_types::{AgentTask, AgentType};
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -1037,13 +1041,11 @@ pub async fn generate_scene_draft(
     scene_id: String,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<crate::agents::AgentResult, AppError> {
+) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{
-        commands::ExecuteAgentRequest,
-        service::{AgentService, AgentTask, AgentType},
-    };
+    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
+    use crate::domain::agent_types::{AgentTask, AgentType};
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -1150,7 +1152,7 @@ pub async fn generate_scene_draft(
         },
     );
 
-    let result = crate::agents::AgentResult {
+    let result = crate::domain::agent_types::AgentResult {
         content: workflow_result.final_content,
         score: Some(workflow_result.final_score),
         suggestions: workflow_result
@@ -1171,7 +1173,7 @@ pub async fn get_story_style_blend(
     story_id: String,
     pool: State<'_, DbPool>,
 ) -> Result<Option<serde_json::Value>, AppError> {
-    use crate::creative_engine::style::blend::StyleBlendConfig;
+    use crate::domain::style::StyleBlendConfig;
 
     let repo = StoryStyleConfigRepository::new(pool.inner().clone());
 
@@ -1199,7 +1201,7 @@ pub async fn set_story_style_blend(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, AppError> {
-    use crate::creative_engine::style::blend::StyleBlendConfig;
+    use crate::domain::style::StyleBlendConfig;
 
     log::info!(
         "[story_commands] {} called: story_id={}, name={}",
@@ -1304,7 +1306,7 @@ pub async fn update_scene_style_blend(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
-    use crate::creative_engine::style::blend::StyleBlendConfig;
+    use crate::domain::style::StyleBlendConfig;
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -1358,8 +1360,9 @@ pub async fn check_style_drift(
     scene_number: Option<i32>,
     pool: State<'_, DbPool>,
 ) -> Result<serde_json::Value, AppError> {
-    use crate::creative_engine::style::{
-        blend::StyleBlendConfig, dna::StyleDNA, StyleDriftChecker,
+    use crate::{
+        creative_engine::style::StyleDriftChecker,
+        domain::style::{StyleBlendConfig, StyleDNA},
     };
 
     // 1. 获取风格混合配置（scene override → story active）

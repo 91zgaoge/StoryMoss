@@ -79,7 +79,7 @@ pub fn get_runtime_contract(
     story_id: String,
     chapter_number: i32,
     pool: State<'_, DbPool>,
-) -> Result<crate::story_system::RuntimeContract, AppError> {
+) -> Result<crate::domain::contracts::RuntimeContract, AppError> {
     let pool = pool.inner().clone();
     let engine = crate::story_system::StorySystemEngine::new(pool);
     engine

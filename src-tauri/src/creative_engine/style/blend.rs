@@ -3,27 +3,9 @@
 //! 支持任意 2-5 个 StyleDNA 按权重组合，生成融合风格 prompt。
 //! 核心用于 3风格三角框架（Proust + Hemingway + Márquez），但架构通用。
 
-use serde::{Deserialize, Serialize};
+pub use crate::domain::style::{BlendComponent, BlendRole, StyleBlendConfig};
 
 use super::dna::StyleDNA;
-
-/// 混合角色
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum BlendRole {
-    Dominant,  // 主导 50-80%
-    Secondary, // 辅助 10-30%
-    Tertiary,  // 辅助 5-20%
-}
-
-/// 混合组件
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BlendComponent {
-    pub dna_id: String,
-    pub dna_name: String,
-    pub weight: f32,
-    pub role: BlendRole,
-}
 
 impl BlendComponent {
     pub fn new(dna_id: &str, dna_name: &str, weight: f32) -> Self {
@@ -39,24 +21,6 @@ impl BlendComponent {
             dna_name: dna_name.to_string(),
             weight: weight.clamp(0.0, 1.0),
             role,
-        }
-    }
-}
-
-/// 风格混合配置
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct StyleBlendConfig {
-    pub name: String,
-    pub components: Vec<BlendComponent>,
-    pub drift_check_enabled: bool,
-}
-
-impl Default for StyleBlendConfig {
-    fn default() -> Self {
-        Self {
-            name: "默认混合".to_string(),
-            components: vec![],
-            drift_check_enabled: true,
         }
     }
 }

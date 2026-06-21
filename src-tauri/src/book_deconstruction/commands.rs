@@ -75,7 +75,7 @@ pub async fn get_book_analysis(
 #[command]
 pub async fn list_reference_books(
     app_handle: AppHandle,
-) -> Result<Vec<ReferenceBookSummary>, AppError> {
+) -> Result<Vec<ReferenceBookListItem>, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);

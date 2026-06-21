@@ -15,6 +15,8 @@ use crate::db::{
     SceneCommitRepository,
 };
 
+use evaluator::ContentFeatureExtractor;
+
 pub mod evaluator;
 
 /// 章节追读力评估结果
@@ -49,17 +51,26 @@ impl ReadingPowerEvaluator {
         story_id: &str,
         chapter_number: i32,
     ) -> Result<ReadingPowerEvaluation, String> {
-        // 从 commit 中提取数据
+        // 从 commit 中提取章节内容
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
         let commits = commit_repo
             .get_by_story(story_id)
             .map_err(|e| format!("获取提交记录失败: {}", e))?;
 
-        let chapter_commit = commits.iter().find(|c| c.chapter_number == chapter_number);
+        let chapter_commits: Vec<_> = commits
+            .iter()
+            .filter(|c| c.chapter_number == chapter_number)
+            .collect();
 
-        // 提取爽点模式
-        let coolpoint_patterns = Vec::new();
-        let micropayoffs = Vec::new();
+        let scene_id = chapter_commits.first().and_then(|c| c.scene_id.as_deref());
+
+        let content = chapter_commits
+            .iter()
+            .filter_map(|c| c.summary_text.as_deref())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let features = ContentFeatureExtractor::extract(&content);
 
         // 检查是否有债务
         let debt_repo = ChaseDebtRepository::new(self.pool.clone());
@@ -77,42 +88,79 @@ impl ReadingPowerEvaluator {
 
         let override_count = pending_overrides.len() as i32;
 
-        // 计算综合得分
-        let hook_score: f64 = match chapter_commit {
-            Some(c) if c.dominant_strand.is_some() => 0.8,
-            _ => 0.5,
-        };
-
-        let coolpoint_score: f64 = if coolpoint_patterns.is_empty() {
-            0.0
+        // 计算 Hook 得分
+        let hook_score = if features.is_transition {
+            0.0_f64
         } else {
-            0.7
+            match features.hook_type.as_deref() {
+                Some("cliffhanger") | Some("mystery") => 0.9_f64,
+                Some("emotional") | Some("action") => 0.6_f64,
+                _ => 0.3_f64,
+            }
         };
-        let debt_penalty = (debt_balance as f64 * 0.1_f64).min(0.5_f64);
 
-        let score: f64 = (hook_score * 0.4_f64 + coolpoint_score * 0.3_f64 + 0.3_f64)
-            .min(1.0_f64)
-            .max(0.0_f64)
-            - debt_penalty;
+        let hook_strength = if features.is_transition {
+            "weak".to_string()
+        } else {
+            match features.hook_type.as_deref() {
+                Some("cliffhanger") | Some("mystery") => "strong".to_string(),
+                Some("emotional") | Some("action") => "medium".to_string(),
+                _ => "weak".to_string(),
+            }
+        };
+
+        // 爽点得分：每个命中 +0.1，上限 0.8
+        let coolpoint_score = (features.coolpoint_patterns.len() as f64 * 0.1_f64).min(0.8_f64);
+
+        // 微兑现得分：每个命中 +0.1，上限 0.4
+        let micropayoff_score = (features.micropayoffs.len() as f64 * 0.1_f64).min(0.4_f64);
+
+        let debt_penalty = (debt_balance * 0.1_f64).min(0.5_f64);
+
+        let score =
+            (hook_score * 0.4_f64 + coolpoint_score * 0.3_f64 + micropayoff_score * 0.3_f64
+                - debt_penalty)
+                .min(1.0_f64)
+                .max(0.0_f64);
+
+        let hook_type = if features.is_transition {
+            None
+        } else {
+            features.hook_type.clone()
+        };
+
+        // 持久化到 chapter_reading_power
+        let rp_repo = ChapterReadingPowerRepository::new(self.pool.clone());
+        let coolpoint_patterns_json =
+            serde_json::to_string(&features.coolpoint_patterns).map_err(|e| e.to_string())?;
+        let micropayoffs_json =
+            serde_json::to_string(&features.micropayoffs).map_err(|e| e.to_string())?;
+
+        rp_repo
+            .save(
+                story_id,
+                scene_id,
+                chapter_number,
+                hook_type.as_deref(),
+                &hook_strength,
+                Some(&coolpoint_patterns_json),
+                Some(&micropayoffs_json),
+                features.is_transition,
+            )
+            .map_err(|e| format!("保存追读力数据失败: {}", e))?;
 
         Ok(ReadingPowerEvaluation {
             chapter_number,
-            hook_type: None, // 从摘要中提取
-            hook_strength: if score > 0.7 {
-                "strong".to_string()
-            } else if score > 0.4 {
-                "medium".to_string()
-            } else {
-                "weak".to_string()
-            },
-            coolpoint_patterns,
-            micropayoffs,
-            hard_violations: Vec::new(),
-            soft_suggestions: Vec::new(),
-            is_transition: false,
+            hook_type,
+            hook_strength,
+            coolpoint_patterns: features.coolpoint_patterns,
+            micropayoffs: features.micropayoffs,
+            hard_violations: features.hard_violations,
+            soft_suggestions: features.soft_suggestions,
+            is_transition: features.is_transition,
             override_count,
             debt_balance,
-            score: score.max(0.0),
+            score,
         })
     }
 

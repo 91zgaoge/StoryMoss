@@ -4,11 +4,13 @@
 //! 供 GenesisPipeline、Planner、Writer 在创作过程中自动调用。
 
 pub mod asset_catalog;
+pub mod genre_resolver;
 pub mod models;
 pub mod quartet_inference;
 pub mod selector;
 
 pub use asset_catalog::load_all_assets;
+pub use genre_resolver::{GenreMatch, GenreResolver};
 pub use models::{
     AssetKind, SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides,
 };

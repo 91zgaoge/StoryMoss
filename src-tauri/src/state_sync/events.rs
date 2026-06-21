@@ -175,6 +175,28 @@ pub enum SyncEvent {
         /// high 严重性问题描述摘要（用于前端弹窗展示）
         issues: Vec<String>,
     },
+
+    /// v0.23 TriShot BGP-2：后台自动改写器已自动修正高严重度问题并替换正文。
+    /// 正文已写入修订历史，用户可撤销。前端展示 toast「AI 已修正 N 处问题，可撤销」。
+    ContentAutoRevised {
+        story_id: String,
+        scene_id: Option<String>,
+        chapter_id: Option<String>,
+        /// 本次自动修正的问题数量
+        revision_count: usize,
+        /// 修正摘要（用于前端展示）
+        summary: String,
+    },
+
+    /// v0.23 TriShot BGP-2：后台质检发现低严重度问题，生成修订建议供用户审阅。
+    /// 不自动改文，前端展示「AI 有 N 条建议」审阅面板（采纳/忽略）。
+    RevisionSuggested {
+        story_id: String,
+        scene_id: Option<String>,
+        chapter_id: Option<String>,
+        /// 建议列表（每条含维度、描述、建议改法）
+        suggestions: Vec<String>,
+    },
 }
 
 impl SyncEvent {
@@ -213,6 +235,8 @@ impl SyncEvent {
             SyncEvent::SubscriptionChanged { .. } => "subscription",
             SyncEvent::PayoffOverdue { .. } => "payoffOverdue",
             SyncEvent::AuditRewriteSuggested { .. } => "auditRewrite",
+            SyncEvent::ContentAutoRevised { .. } => "contentAutoRevised",
+            SyncEvent::RevisionSuggested { .. } => "revisionSuggested",
         }
     }
 
@@ -249,6 +273,8 @@ impl SyncEvent {
             SyncEvent::SubscriptionChanged { .. } => None,
             SyncEvent::PayoffOverdue { story_id, .. } => Some(story_id),
             SyncEvent::AuditRewriteSuggested { story_id, .. } => Some(story_id),
+            SyncEvent::ContentAutoRevised { story_id, .. } => Some(story_id),
+            SyncEvent::RevisionSuggested { story_id, .. } => Some(story_id),
         }
     }
 }
@@ -285,5 +311,43 @@ mod ts_export_tests {
         );
 
         println!("✅ TypeScript 绑定已导出到: {:?}", export_dir);
+    }
+}
+
+#[cfg(test)]
+mod trishot_event_tests {
+    use super::*;
+
+    #[test]
+    fn test_content_auto_revised_serialization() {
+        // v0.23 BGP-2：ContentAutoRevised 序列化为 tag/content 模式
+        let event = SyncEvent::ContentAutoRevised {
+            story_id: "s1".to_string(),
+            scene_id: Some("sc1".to_string()),
+            chapter_id: None,
+            revision_count: 3,
+            summary: "修正逻辑连贯性问题".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"contentAutoRevised\""), "json={}", json);
+        assert!(json.contains("\"revision_count\":3"), "json={}", json);
+        assert_eq!(event.story_id(), Some(&"s1".to_string()));
+        assert_eq!(event.resource_type(), "contentAutoRevised");
+    }
+
+    #[test]
+    fn test_revision_suggested_serialization() {
+        // v0.23 BGP-2：RevisionSuggested 序列化为 tag/content 模式
+        let event = SyncEvent::RevisionSuggested {
+            story_id: "s2".to_string(),
+            scene_id: None,
+            chapter_id: Some("ch1".to_string()),
+            suggestions: vec!["节奏偏慢".to_string(), "对话比例过高".to_string()],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"revisionSuggested\""), "json={}", json);
+        assert!(json.contains("\"suggestions\""), "json={}", json);
+        assert_eq!(event.story_id(), Some(&"s2".to_string()));
+        assert_eq!(event.resource_type(), "revisionSuggested");
     }
 }

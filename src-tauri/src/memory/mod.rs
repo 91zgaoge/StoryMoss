@@ -25,7 +25,10 @@ pub mod retention;
 pub mod tokenizer;
 pub mod writer;
 
-pub use orchestrator::{MemoryItemDto, MemoryOrchestrator, MemoryPack};
+pub use crate::domain::memory_pack::{
+    MemoryEntry, MemoryItemDto, MemoryPack, MemoryStats, MemoryWarning,
+};
+pub use orchestrator::MemoryOrchestrator;
 pub use tokenizer::CJKTokenizer;
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
@@ -100,16 +103,15 @@ impl ShortTermMemory {
             ) {
                 Ok(mut pack) => {
                     for chapter in &previous_chapters {
-                        pack.working_memory
-                            .push(crate::memory::orchestrator::MemoryEntry {
-                                layer: "working".to_string(),
-                                source: "previous_chapter".to_string(),
-                                chapter: chapter.number as i32,
-                                content: serde_json::json!({
-                                    "title": chapter.title,
-                                    "summary": chapter.summary
-                                }),
-                            });
+                        pack.working_memory.push(MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
                     }
                     Some(pack)
                 }
@@ -140,6 +142,7 @@ impl ShortTermMemory {
                 selected_text: None,
                 narrative_structure: None,
                 active_threads: vec![],
+                narrative_event_history: None,
                 outline_context: None,
             },
             style: StyleContext {
@@ -158,6 +161,7 @@ impl ShortTermMemory {
                 memory_pack,
                 memory: None,
             },
+            runtime_contract: None,
         }
     }
 

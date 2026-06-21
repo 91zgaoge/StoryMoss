@@ -278,13 +278,19 @@ pub struct AppConfig {
     pub share_usage_data: bool,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
-    /// v0.14.3: AI 生成模式（auto/time_sliced/fast/full）
+    /// v0.14.3: AI 生成模式（auto/time_sliced/fast/full/tri_shot）
     /// - auto: 场景智能路由（续写 TimeSliced，重写 Full）
     /// - time_sliced: 强制分时模式（最快，单次 LLM）
     /// - fast: 强制 Fast 模式（单次 LLM + 风格技能）
     /// - full: 强制 Full 模式（Writer + Inspector + Rewrite 闭环）
+    /// - tri_shot: v0.23 三击模式（弹性 2~3 次 LLM：合成→精修→生成，质检/改写下沉后台）
     #[serde(default = "default_generation_mode")]
     pub generation_mode: String,
+    /// v0.23 TriShot BGP-2：后台自动改写的严重度阈值（"high" / "medium"）。
+    /// 仅当审计问题严重度 ≥ 此阈值时后台 agent 自动改写并替换正文（写修订历史可撤销）；
+    /// 低于阈值仅生成修订建议供用户审阅。默认 "high"（保守，只自动改逻辑硬伤）。
+    #[serde(default = "default_auto_rewrite_severity_threshold")]
+    pub auto_rewrite_severity_threshold: String,
     /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）
     #[serde(default = "default_llm_connect_timeout")]
     pub llm_connect_timeout_secs: u64,
@@ -309,6 +315,11 @@ pub struct AppConfig {
 
 fn default_generation_mode() -> String {
     "auto".to_string()
+}
+
+/// v0.23 TriShot BGP-2：后台自动改写严重度阈值默认值。
+fn default_auto_rewrite_severity_threshold() -> String {
+    "high".to_string()
 }
 
 fn default_llm_connect_timeout() -> u64 {
@@ -964,6 +975,7 @@ impl Default for AppConfig {
             share_usage_data: default_share_usage_data(),
             writing_strategy: WritingStrategy::default(),
             generation_mode: default_generation_mode(),
+            auto_rewrite_severity_threshold: default_auto_rewrite_severity_threshold(),
             llm_connect_timeout_secs: default_llm_connect_timeout(),
             smart_execute_total_timeout_secs: default_smart_execute_timeout(),
             executor_step_timeout_secs: default_executor_step_timeout(),

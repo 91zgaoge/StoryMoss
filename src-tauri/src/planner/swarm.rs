@@ -146,6 +146,7 @@ mod tests {
             purpose: "test".to_string(),
             parameters: HashMap::new(),
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            long_running: false,
         }
     }
 

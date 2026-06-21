@@ -2,6 +2,80 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.0] - TriShot 三击生成管线（2026-06-21）
+
+### 背景
+智能创作主流程存在两个核心痛点：(1) 资产注入是「笨拼接」——`WriteTimeBundle::to_prompt()` 把 ~17 个资产段落无差别堆砌，不区分相关性，不解决段落间冲突；(2) Full 模式（改写/质检）最多 5 次串行 LLM，本地模型累计 250-335s 必然超时。用户提出「最多 3 次连接」的思路，本版本全面实施。
+
+### 新增
+- 新增 `GenerationMode::TriShot` 三击模式（`agents/orchestrator.rs`），与 Fast/TimeSliced/Full 并存，`AppConfig.generation_mode = "tri_shot"` 配置切换
+- 新增 `creative_engine/prompt_synthesis/` 模块（`manifest.rs` / `synthesizer.rs` / `refiner.rs`）：Call 1 用最快模型选资产+合成提示词；Call 2(可选) 精修提示词；Call 3 Writer 生成
+- 新增 `GatewayExecutor::select_fastest_profile()` + `LlmService::generate_with_fastest()`：按 CapabilityProfile TTFB 选最快可用模型
+- 新增 `GatewayRequest::for_fast_routing()` 构造函数
+- 新增 BGP-2 后台自动改写器 `task_system/auto_rewrite_executor.rs`：HIGH 严重度自动改写+可撤销，LOW 仅建议
+- 新增 `PlanStep::long_running` 标志，TriShot 步骤跳过 90s 步超时（受 180s 伞保护）
+- 新增 `SyncEvent::ContentAutoRevised` / `RevisionSuggested` 变体 + 前端路由
+- 新增 `silent_background` 白名单标签：`tri-shot-router` / `tri-shot-refiner` / `bg-auto-rewriter` / `bg-ingest`
+- 注册表新增 `trishot_synthesizer` / `trishot_refiner` prompt 模板
+- 新增 `auto_rewrite_severity_threshold` 配置字段（默认 "high"）
+
+### 改造
+- `PlanExecutor::execute_with_context` 新增 TriShot 快速路径：跳过 SING/PlanGenerator，直接单步 writer step
+- `execute_writer` mode 路由新增 `"tri_shot"` 分支
+- `AuditExecutor::run_audit_inner` 链式 spawn AutoRewriteExecutor（BGP-2）
+- `execute_trishot` 后台 spawn Audit（BGP-1）+ IngestPipeline（BGP-3）+ Insight（BGP-4）
+- 默认续写路径从 2 次 LLM（计划+Writer）优化为 2~3 次 LLM（合成+精修+Writer），资产选择由 LLM 智能替代本地拼接
+- `extract_redline_text` 提升为 `pub(crate)` 供 manifest 复用
+
+### 测试
+- 新增 `GenerationMode` 枚举测试 1 例
+- 新增 `prompt_synthesis::manifest` 测试 5 例（空清单/红线+角色/截断/元数据/综合）
+- 新增 `prompt_synthesis::synthesizer` 测试 10 例（code fence 剥离/JSON 解析容错/字段缺失/低置信度/回退）
+- 新增 `GatewayRequest::for_fast_routing` 测试 1 例
+- 新增 `SyncEvent::ContentAutoRevised` / `RevisionSuggested` 序列化测试 2 例
+- 新增 `prompt_synthesis` 集成测试 1 例（清单+回退流程）
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 486 passed / 48 failed（48 failed 为已知 V092 基线，零新回归）；新增 TriShot 相关测试全部通过
+- `npx tsc --noEmit` ✅ 零错误
+
+### 设计文档
+- `docs/plans/2026-06-21-trishot-pipeline-design.md`
+
+## [v0.22.4] - 「异星球末世生存」智能创作流程优化（2026-06-21）
+
+### 背景
+用户输入「写一部异星球末世生存题材的小说」时，后台资产链路存在断链：自然语言题材词无法解析为多个 `GenreProfile`、意图图发现无法感知复合题材、模型网关调度未利用资产标签、TimeSliced 默认续写 prompt 只注入主题材画像。本版本系统性修复这些问题。
+
+### 新增
+- 新增 `GenreResolver` 题材解析服务（`src-tauri/src/strategy/genre_resolver.rs`），支持精确匹配、别名匹配、子串匹配、同义词扩展、复合题材拆分
+- `GenreProfile` 别名表扩展：新增「末世」「末日」「废土」「生存」「异星球」「异星」「星际」「外星」「机甲」「科幻」「未来」「太空」「拓荒」「荒野求生」等中文别名
+- `AssetNode` 支持 `tags` 字段，资产同步时自动注入 `genre_profile` / `mcp_tool` / `system_command` / `creative_writing` 等标签
+- `GatewayRequest` 新增 `asset_tags` 和 `discovered_asset_ids` 字段，打通意图图→AgentService→模型网关的资产上下文
+- `WriteTimeBundle` 新增 `secondary_genre_profile_strategy` 字段与 `load_for_continue_writing` 参数，复合题材时自动加载次要题材画像策略
+
+### 改造
+- `StrategySelector::exact_genre_match` 接入 `GenreResolver`，优先按解析出的 `genre_profile_ids` 匹配推荐资产
+- `build_selected_strategy` 将 LLM 输出的自由格式题材词经 GenreResolver 归一化为标准 `genre_profile_ids`
+- `story_concept_prompt` 要求 LLM 输出标准 `genre_profile_ids` 字段
+- `IntentionGraphPlanner::discover_assets` 增加 `GenreResolver` 复合题材解析分支，为未通过 PPR 发现的题材画像资产补充分数
+- `TaskClassifier::classify_task` 新增 `adjust_by_asset_tags` 校准：外部工具/系统命令标签→LightTool，genre_profile/creative_writing 标签→HeavyCreation
+- `GatewayExecutor` 按 `asset_tags` 重叠加分，提升携带创作资产标签的候选模型排序
+- `AgentService::generate_for_request_with_request_id` 透传 `asset_tags`/`discovered_asset_ids` 到 `GatewayRequest`
+
+### 测试
+- 新增 `strategy::genre_resolver` 单元测试 5 例
+- 新增 `strategy::selector` 复合题材/别名匹配测试 6 例
+- 新增 `write_time_bundle` 次要题材渲染测试 1 例（累计 13 例）
+- 新增 `model_gateway::dispatcher` 资产标签校准测试 2 例
+- 新增 `intention_graph` 标签与发现相关测试 2 例
+
+### 验证
+- `cargo check` 零错误
+- `cargo test --lib` 新增 targeted tests 全部通过（39 passed；49 failed 为已知 V092 基线问题，非本次引入）
+- `npx tsc --noEmit` 零错误
+
 ## [v0.22.3] - 钥匙串彻底移除 + 模型健康报告自动刷新 + 配置加载优化（2026-06-21）
 
 ### 🔥 核心变更

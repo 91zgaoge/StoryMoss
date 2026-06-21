@@ -405,6 +405,7 @@ async fn smart_execute_inner(
         style_dna_info,
         mcp_tools_available,
         chapter_number,
+        deep_insight_summary,
     ) = if let Some(ref story_id) = current_story_id {
         emit_progress("loading_context", "正在读取章节与场景结构...", 1, 5);
         log::info!(
@@ -503,7 +504,7 @@ async fn smart_execute_inner(
         // v0.9.5: 将多个同步上下文查询批量移入 spawn_blocking
         let pool_for_context = pool.clone();
         let story_id_for_context = story_id.clone();
-        let (world_building_summary, character_list, foreshadowing_status) =
+        let (world_building_summary, character_list, foreshadowing_status, deep_insight_summary) =
             tokio::task::spawn_blocking(move || {
                 // 世界观摘要
                 let wb_repo =
@@ -553,7 +554,20 @@ async fn smart_execute_inner(
                     .map(|records| records.into_iter().take(5).map(|r| r.content).collect())
                     .unwrap_or_default();
 
-                (world_building_summary, character_list, foreshadowing_status)
+                // v0.22.5: 加载最新深度洞察摘要
+                let deep_insight_summary =
+                    crate::db::repositories::StorySummaryRepository::new(pool_for_context.clone())
+                        .get_summary_by_type(&story_id_for_context, "deep_insight")
+                        .ok()
+                        .flatten()
+                        .map(|s| s.content.chars().take(800).collect::<String>());
+
+                (
+                    world_building_summary,
+                    character_list,
+                    foreshadowing_status,
+                    deep_insight_summary,
+                )
             })
             .await
             .map_err(|e| {
@@ -569,8 +583,7 @@ async fn smart_execute_inner(
         // v0.14.0: spawn_blocking 包裹同步 DB 查询
         let style_dna_info = {
             use crate::{
-                creative_engine::style::blend::StyleBlendConfig,
-                db::repositories::StoryStyleConfigRepository,
+                db::repositories::StoryStyleConfigRepository, domain::style::StyleBlendConfig,
             };
 
             let pool_for_style = pool.clone();
@@ -649,6 +662,7 @@ async fn smart_execute_inner(
             style_dna_info,
             mcp_tools_available,
             chapter_number,
+            deep_insight_summary,
         )
     } else {
         (
@@ -666,6 +680,7 @@ async fn smart_execute_inner(
             None,
             vec![],
             1,
+            None,
         )
     };
 
@@ -717,6 +732,7 @@ async fn smart_execute_inner(
         foreshadowing_status,
         style_dna_info,
         mcp_tools_available,
+        deep_insight_summary,
         selected_text: None,
         style_weight,
         chapter_number,
@@ -900,7 +916,7 @@ fn build_selected_strategy(
     current_story: &Option<crate::db::Story>,
     pool: &crate::db::DbPool,
     input_clarity: crate::intent::InputClarity,
-) -> Option<crate::strategy::SelectedStrategy> {
+) -> Option<crate::domain::strategy::SelectedStrategy> {
     let story = current_story.as_ref()?;
 
     // P3-2: 当 story 未显式设定资产时，尝试按题材自动匹配 GenreProfile，
@@ -909,23 +925,46 @@ fn build_selected_strategy(
     let mut auto_genre_profile_id: Option<String> = None;
     let mut auto_canonical_name: Option<String> = None;
     let mut auto_reader_promise: Option<String> = None;
+    let mut rationale_parts = Vec::new();
+    let mut strategy = crate::domain::strategy::SelectedStrategy::default();
     if story.genre_profile_id.is_none()
         && story.methodology_id.is_none()
         && story.style_dna_id.is_none()
     {
-        // 尝试按 story.genre 匹配 GenreProfile（纯 DB 查询，不调 LLM，无延迟）
+        // 使用 GenreResolver 解析 story.genre，支持精确/别名/子串/同义词/复合题材
         if let Some(ref genre) = story.genre {
             if !genre.trim().is_empty() {
                 let repo = crate::db::GenreProfileRepository::new(pool.clone());
-                if let Ok(Some(profile)) = repo.get_by_name(genre) {
-                    auto_genre_profile_id = Some(profile.id.clone());
-                    auto_canonical_name = Some(profile.canonical_name.clone());
-                    auto_reader_promise = profile.reader_promise.clone();
-                    log::info!(
-                        "[build_selected_strategy] 自动匹配题材画像: {} → {}",
-                        genre,
-                        profile.canonical_name
-                    );
+                let resolver = crate::strategy::GenreResolver::new();
+                match resolver.resolve_from_text(genre, &repo) {
+                    Ok(matches) if !matches.is_empty() => {
+                        if let Some(first) = matches.first() {
+                            auto_genre_profile_id = Some(first.profile_id.clone());
+                            auto_canonical_name = Some(first.canonical_name.clone());
+                        }
+                        let secondary: Vec<String> = matches
+                            .iter()
+                            .skip(1)
+                            .map(|m| m.profile_id.clone())
+                            .collect();
+                        if !secondary.is_empty() {
+                            let _ = serde_json::to_string(&secondary).map(|s| {
+                                strategy.parameters.insert(
+                                    "secondary_genre_profile_ids".to_string(),
+                                    serde_json::Value::String(s),
+                                );
+                            });
+                        }
+                        log::info!(
+                            "[build_selected_strategy] GenreResolver 自动匹配题材画像: {} -> {:?}",
+                            genre,
+                            matches
+                                .iter()
+                                .map(|m| &m.canonical_name)
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -935,8 +974,6 @@ fn build_selected_strategy(
         }
     }
 
-    let mut rationale_parts = Vec::new();
-    let mut strategy = crate::strategy::SelectedStrategy::default();
     // 优先使用 story 显式设定，回退自动匹配
     strategy.genre_profile_id = story
         .genre_profile_id
@@ -1020,4 +1057,135 @@ fn build_selected_strategy(
 
 // ===== 模型驱动的智能编排命令 =====
 
-// ===== 模型驱动的智能编排命令 =====
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+
+    use super::*;
+    use crate::{
+        db::{create_test_pool, GenreProfileRepository, Story},
+        intent::InputClarity,
+    };
+
+    fn story_with_genre(genre: &str) -> Story {
+        Story {
+            id: "story-1".to_string(),
+            title: "测试故事".to_string(),
+            description: None,
+            genre: Some(genre.to_string()),
+            tone: None,
+            pacing: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            methodology_step: None,
+            reference_book_id: None,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        }
+    }
+
+    /// 测试环境：create_test_pool() 中的 legacy inline migration 会被 SQL
+    /// 文件迁移覆盖， 导致 genre_profiles
+    /// 等表未创建。这里手动补齐测试所需表。
+    fn ensure_genre_profiles_table(pool: &crate::db::DbPool) {
+        let conn = pool.get().expect("get conn");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS genre_profiles (
+                id TEXT PRIMARY KEY,
+                genre_name TEXT NOT NULL UNIQUE,
+                canonical_name TEXT NOT NULL,
+                aliases_json TEXT,
+                core_tone TEXT,
+                pacing_strategy TEXT,
+                anti_patterns_json TEXT,
+                reference_tables_json TEXT,
+                typical_structure_json TEXT,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                reader_promise TEXT,
+                recommended_style_dna_ids TEXT,
+                recommended_methodology_id TEXT,
+                recommended_skill_ids TEXT,
+                min_quality_tier TEXT DEFAULT 'medium'
+            );
+            CREATE INDEX IF NOT EXISTS idx_genre_profiles_canonical ON genre_profiles(canonical_name);"
+        ).expect("create genre_profiles table");
+    }
+
+    /// Phase 1.4 审计测试：build_selected_strategy 通过 GenreResolver
+    /// 解析复合题材 "异星球末世生存"，并保留 secondary genre IDs。
+    #[test]
+    fn test_build_selected_strategy_resolves_compound_genre() {
+        let pool = create_test_pool().expect("test pool");
+        ensure_genre_profiles_table(&pool);
+        let repo = GenreProfileRepository::new(pool.clone());
+
+        // 创建两个题材画像，并包含能触发复合匹配的关键词
+        let apocalyptic = repo
+            .create(
+                "末世流",
+                "Post-apocalyptic",
+                Some("[\"post-apocalyptic\", \"apocalyptic\", \"末世\", \"末日\", \"废土\", \"末世生存\"]"),
+                Some("文明崩溃后的世界"),
+                Some("快节奏"),
+                Some("[]"),
+                None,
+                None,
+            )
+            .expect("create apocalyptic");
+        let alien = repo
+            .create(
+                "异星世界",
+                "Alien World",
+                Some("[\"alien world\", \"alien planet\", \"异星球\", \"异星\"]"),
+                Some("陌生星球"),
+                Some("中快节奏"),
+                Some("[]"),
+                None,
+                None,
+            )
+            .expect("create alien-world");
+
+        let apocalyptic_id = apocalyptic.id.clone();
+        let alien_id = alien.id.clone();
+
+        let story = story_with_genre("异星球末世生存");
+        let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague)
+            .expect("应通过 GenreResolver 匹配到题材画像");
+
+        assert!(
+            strategy.genre_profile_id.is_some(),
+            "应自动设置主题材画像 ID"
+        );
+        let primary = strategy.genre_profile_id.as_deref().unwrap();
+        assert!(
+            primary == apocalyptic_id || primary == alien_id,
+            "主题材应为已创建画像之一，实际为 {}",
+            primary
+        );
+
+        let secondary = strategy
+            .parameters
+            .get("secondary_genre_profile_ids")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+            .expect("应保存次要题材画像 ID 列表");
+        assert_eq!(secondary.len(), 1, "应解析出 1 个次要题材");
+        let other = if primary == apocalyptic_id {
+            &alien_id
+        } else {
+            &apocalyptic_id
+        };
+        assert_eq!(&secondary[0], other, "次要题材应为另一个画像");
+    }
+
+    #[test]
+    fn test_build_selected_strategy_returns_none_for_unmatched_genre() {
+        let pool = create_test_pool().expect("test pool");
+        ensure_genre_profiles_table(&pool);
+        let story = story_with_genre("完全不存在的题材 XYZ123");
+        let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague);
+        assert!(strategy.is_none(), "无法匹配任何题材画像时应返回 None");
+    }
+}

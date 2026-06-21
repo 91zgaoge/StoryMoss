@@ -1,4 +1,8 @@
-use crate::agents::{Agent, AgentContext, AgentResult};
+use crate::agents::Agent;
+use crate::domain::{
+    agent_context::AgentContext,
+    agent_types::AgentResult,
+};
 use crate::llm::{GenerateRequest, OpenAiAdapter, LlmAdapter};
 use crate::config::LlmConfig;
 use async_trait::async_trait;

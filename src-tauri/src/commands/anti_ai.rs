@@ -41,11 +41,11 @@ pub fn evolve_style_from_anti_ai_review(
             .get_by_id(&id)
             .map_err(AppError::from)?
             .ok_or("StyleDNA not found")?;
-        let base: crate::creative_engine::style::dna::StyleDNA =
+        let base: crate::domain::style::StyleDNA =
             serde_json::from_str(&dna.dna_json).map_err(AppError::from)?;
         (id, base)
     } else {
-        let base = crate::creative_engine::style::dna::StyleDNA::new("evolved");
+        let base = crate::domain::style::StyleDNA::new("evolved");
         let json = serde_json::to_string(&base).map_err(AppError::from)?;
         let dna = dna_repo
             .create("evolved", None, &json, false)

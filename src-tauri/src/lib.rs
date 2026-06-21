@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// 中性领域类型模块，必须在业务模块之前声明，供各层依赖。
+mod domain;
+
 mod agents;
 mod analytics;
 mod anti_ai;

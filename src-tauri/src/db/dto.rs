@@ -130,6 +130,7 @@ pub struct CreateStoryRequest {
     pub style_dna_id: Option<String>,
     pub genre_profile_id: Option<String>,
     pub methodology_id: Option<String>,
+    pub reference_book_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +144,7 @@ pub struct UpdateStoryRequest {
     pub genre_profile_id: Option<String>,
     pub methodology_id: Option<String>,
     pub methodology_step: Option<i32>,
+    pub reference_book_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

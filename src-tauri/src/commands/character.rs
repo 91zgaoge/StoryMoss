@@ -53,7 +53,8 @@ pub fn create_character(
             let character_name = character.name.clone();
             let skill_manager = skill_manager.clone();
             tauri::async_runtime::spawn(async move {
-                let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                let context =
+                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
                 let data = serde_json::json!({ "character_id": character_id, "character_name": character_name });
                 let _ = skill_manager
                     .execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data)

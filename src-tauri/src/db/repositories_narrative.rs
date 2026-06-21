@@ -10,7 +10,7 @@ use chrono::Local;
 use rusqlite::params;
 
 use super::DbPool;
-use crate::narrative::elements::*;
+use crate::domain::narrative_elements::*;
 
 // ==================== Character Repository ====================
 
@@ -420,8 +420,8 @@ fn parse_source(s: &str) -> ElementSource {
     }
 }
 
-fn parse_status(s: &str) -> crate::narrative::elements::ElementStatus {
-    use crate::narrative::elements::ElementStatus;
+fn parse_status(s: &str) -> crate::domain::narrative_elements::ElementStatus {
+    use crate::domain::narrative_elements::ElementStatus;
     match s {
         "active" => ElementStatus::Active,
         "reference" => ElementStatus::Reference,

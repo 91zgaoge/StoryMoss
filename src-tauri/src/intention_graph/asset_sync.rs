@@ -328,6 +328,19 @@ fn capability_to_asset_node(cap: &Capability) -> AssetNode {
         CapabilitySource::Workflow => AssetType::SystemCommand,
     };
 
+    let mut tags: Vec<String> = vec![
+        format!("{:?}", cap.source_type).to_lowercase(),
+        cap.name.to_lowercase().replace(' ', "_"),
+    ];
+    tags.extend(
+        cap.name
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string()),
+    );
+    tags.sort();
+    tags.dedup();
+
     let mut metadata = HashMap::new();
     metadata.insert(
         "parameters".to_string(),
@@ -336,6 +349,10 @@ fn capability_to_asset_node(cap: &Capability) -> AssetNode {
     metadata.insert(
         "source_type".to_string(),
         serde_json::json!(format!("{:?}", cap.source_type)),
+    );
+    metadata.insert(
+        "tags".to_string(),
+        serde_json::to_value(tags).unwrap_or_default(),
     );
 
     let mut node = AssetNode::new(asset_type, &cap.name, &cap.description, Some(&cap.id));
@@ -361,12 +378,40 @@ fn selectable_asset_to_asset_node(asset: &SelectableAsset) -> AssetNode {
         crate::strategy::AssetKind::PressureRelationship => AssetType::PressureRelation,
     };
 
+    let mut tags: Vec<String> = vec![
+        format!("{:?}", asset.kind).to_lowercase(),
+        asset.name.to_lowercase().replace(' ', "_"),
+    ];
+    // 对 GenreProfile，把 aliases 和 canonical_name 也作为 tags，便于复合题材发现
+    if asset.kind == crate::strategy::AssetKind::GenreProfile {
+        if let Some(aliases) = asset.payload.get("aliases").and_then(|v| v.as_array()) {
+            for alias in aliases {
+                if let Some(s) = alias.as_str() {
+                    tags.push(s.to_lowercase());
+                }
+            }
+        }
+        if let Some(canonical) = asset.payload.get("canonical_name").and_then(|v| v.as_str()) {
+            tags.push(canonical.to_lowercase());
+        }
+    }
+    tags.extend(
+        asset
+            .name
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string()),
+    );
+    tags.sort();
+    tags.dedup();
+
     let mut node = AssetNode::new(asset_type, &asset.name, &asset.description, Some(&asset.id));
     node.metadata = Some(serde_json::json!({
         "when_to_use": asset.when_to_use,
         "input_description": asset.input_description,
         "output_description": asset.output_description,
         "payload": asset.payload,
+        "tags": tags,
     }));
     // v0.20.1: 生成语义嵌入（修复审计报告 P1-4）
     node.embedding = generate_embedding(&asset.description);
@@ -404,6 +449,9 @@ fn builtin_agents() -> Vec<AssetNode> {
     // v0.20.1: 为内置 Agent 生成语义嵌入
     for agent in &mut agents {
         agent.embedding = generate_embedding(&agent.description);
+        agent.metadata = Some(serde_json::json!({
+            "tags": ["agent", agent.name.to_lowercase()]
+        }));
     }
     agents
 }
@@ -439,6 +487,9 @@ fn builtin_system_commands() -> Vec<AssetNode> {
     // v0.20.1: 为内置系统命令生成语义嵌入
     for cmd in &mut commands {
         cmd.embedding = generate_embedding(&cmd.description);
+        cmd.metadata = Some(serde_json::json!({
+            "tags": ["system_command", cmd.name.to_lowercase()]
+        }));
     }
     commands
 }

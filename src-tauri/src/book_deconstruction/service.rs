@@ -435,7 +435,7 @@ impl BookDeconstructionService {
         })
     }
 
-    pub fn list_books(&self) -> Result<Vec<ReferenceBookSummary>, AppError> {
+    pub fn list_books(&self) -> Result<Vec<ReferenceBookListItem>, AppError> {
         let repo = ReferenceBookRepository::new(self.pool.clone());
         repo.list_all().map_err(AppError::from)
     }
@@ -519,6 +519,7 @@ impl BookDeconstructionService {
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
+                reference_book_id: Some(book_id.to_string()),
             })
             .map_err(AppError::from)?;
         let story_id = story.id;
