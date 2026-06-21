@@ -371,6 +371,8 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
         result
@@ -390,6 +392,9 @@ impl LlmService {
         request_id: Option<String>,
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
+        // v0.22.0: SING 意图感知调度
+        intent_verb: Option<&str>,
+        intent_object: Option<&str>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -414,8 +419,9 @@ impl LlmService {
             context_label: context_label.map(|s| s.to_string()),
             timeout_seconds_override,
             max_retries_override,
-            intent_verb: None,
-            intent_object: None,
+            // v0.22.0: 注入意图动词-宾语，激活 classify_by_intention
+            intent_verb: intent_verb.map(|s| s.to_string()),
+            intent_object: intent_object.map(|s| s.to_string()),
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => return (req_id, Ok(resp)),

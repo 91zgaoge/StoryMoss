@@ -704,6 +704,19 @@ impl AgentService {
         };
         let agent_type = task.agent_type;
 
+        // v0.22.0: 按 agent_type 推导 SING 意图，激活模型网关意图感知调度
+        let (intent_verb, intent_object) = match agent_type {
+            AgentType::Writer => (Some("generate"), Some("prose")),
+            AgentType::Inspector => (Some("inspect"), Some("quality")),
+            AgentType::OutlinePlanner => (Some("plan"), Some("structure")),
+            AgentType::StyleMimic => (Some("analyze"), Some("style")),
+            AgentType::PlotAnalyzer => (Some("analyze"), Some("plot")),
+            AgentType::Commentator => (Some("analyze"), Some("prose")),
+            AgentType::MemoryCompressor => (Some("compress"), Some("content")),
+            AgentType::KnowledgeDistiller => (Some("distill"), Some("knowledge")),
+            _ => (None, None),
+        };
+
         log::info!(
             "[AgentService] generate_for_agent_with_options: agent={:?}, story_id={}, prompt_len={}, max_tokens={:?}, temperature={:?}",
             agent_type,
@@ -789,6 +802,8 @@ impl AgentService {
                         request_id.clone(),
                         timeout_seconds_override,
                         max_retries_override,
+                    intent_verb,
+                    intent_object,
                     )
                     .await;
                 (rid, result?)
@@ -822,6 +837,8 @@ impl AgentService {
                     request_id.clone(),
                     timeout_seconds_override,
                     max_retries_override,
+                intent_verb,
+                intent_object,
                 )
                 .await;
             (rid, result?)
@@ -2351,6 +2368,52 @@ impl AgentService {
             if !ext.is_empty() {
                 context_sections.push(format!("【目标风格约束（检查风格一致性）】\n{}", ext));
             }
+        }
+
+        // v0.22.0: Inspector 全资产注入（Phase B）
+        // 体裁画像策略
+        if let Some(pool) = crate::get_pool() {
+            if let Some(ref gpid) = ctx.story.genre_profile_id {
+                if !gpid.is_empty() {
+                    let genre_repo = crate::db::GenreProfileRepository::new(pool.clone());
+                    if let Ok(Some(profile)) = genre_repo.get_by_id(gpid) {
+                        let mut parts = vec![];
+                        if let Some(ref tone) = profile.core_tone { parts.push(format!("基调：{}", tone)); }
+                        if let Some(ref pacing) = profile.pacing_strategy { parts.push(format!("节奏：{}", pacing)); }
+                        if !parts.is_empty() {
+                            context_sections.push(format!("【体裁画像（检查题材套路合规）】\n{}", parts.join("\n")));
+                        }
+                    }
+                }
+            }
+            // 角色状态 + 活跃冲突
+            let snap = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
+                &pool, &ctx.story.story_id, ctx.style.style_dna_id.as_deref());
+            if let Some(ref canonical) = snap.canonical {
+                if !canonical.character_states.is_empty() {
+                    let states: Vec<String> = canonical.character_states.iter().take(5)
+                        .map(|cs| format!("- {}: 位置={}, 情绪={}", cs.name, cs.current_location.as_deref().unwrap_or("未知"), cs.current_emotion.as_deref().unwrap_or("未知"))).collect();
+                    context_sections.push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
+                }
+                if !canonical.story_context.active_conflicts.is_empty() {
+                    let cf: Vec<String> = canonical.story_context.active_conflicts.iter().take(3)
+                        .map(|c| format!("  - {} ({}: {})", c.conflict_type, c.parties.join(", "), c.stakes)).collect();
+                    context_sections.push(format!("【活跃冲突（检查是否推进）】\n{}", cf.join("\n")));
+                }
+            }
+        }
+        // 方法论约束
+        if let Some(ref mid) = ctx.world.methodology_id {
+            if !mid.is_empty() {
+                let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
+                if let Some(content) = crate::prompts::registry::resolve_prompt_default(&format!("methodology_snowflake_step{}", step)) {
+                    context_sections.push(format!("【方法论节拍（雪花法 第{}步）】\n{}", step, content));
+                }
+            }
+        }
+        // 叙事四元组
+        if let Some(ref quartet) = task.parameters.get("narrative_quartet") {
+            if let Some(q_str) = quartet.as_str() { if !q_str.is_empty() { context_sections.push(format!("【叙事四元组】\n{}", q_str)); } }
         }
 
         // v0.22.0: Inspector 全资产注入（Phase B）
