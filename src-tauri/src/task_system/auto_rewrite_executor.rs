@@ -1,16 +1,16 @@
 //! BGP-2 自动改写执行器（v0.23 TriShot）
 //!
 //! 在 AuditExecutor 完成异步审计后链式启动。按问题严重度分流：
-//! - HIGH 严重度（逻辑/连续性/设定违反，priority≥3）：自动调用 Writer 改写问题段落，
-//!   替换正文并写修订历史，发射 ContentAutoRevised SyncEvent
-//! - LOW 严重度（风格/节奏/余韵）：组装差异建议，发射 RevisionSuggested SyncEvent
+//! - HIGH 严重度（逻辑/连续性/设定违反，priority≥3）：自动调用 Writer
+//!   改写问题段落， 替换正文并写修订历史，发射 ContentAutoRevised SyncEvent
+//! - LOW 严重度（风格/节奏/余韵）：组装差异建议，发射 RevisionSuggested
+//!   SyncEvent
 //!
 //! 设计依据：docs/plans/2026-06-21-trishot-pipeline-design.md Phase 4 BGP-2
 
 use tauri::{AppHandle, Emitter};
 
-use crate::db::DbPool;
-use crate::state_sync::events::SyncEvent;
+use crate::{db::DbPool, state_sync::events::SyncEvent};
 
 /// 审计批注的严重度（与 AuditExecutor 的 audit_level 对齐）
 #[derive(Debug, Clone, PartialEq)]

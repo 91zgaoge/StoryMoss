@@ -604,7 +604,8 @@ impl ReferenceSceneRepository {
     ///
     /// 当前参考场景 embedding 存储在 LanceDB 中，SQLite 侧仅保留文本与元数据。
     /// 该方法作为同步上下文下的占位接口：若未来需要在 SQLite 缓存 embedding，
-    /// 可在此直接返回；目前返回 None，调用方应通过 LanceVectorStore 进行向量检索。
+    /// 可在此直接返回；目前返回 None，调用方应通过 LanceVectorStore
+    /// 进行向量检索。
     pub fn get_reference_scene_embedding(
         &self,
         _scene_id: &str,

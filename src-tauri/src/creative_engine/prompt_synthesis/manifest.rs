@@ -3,8 +3,8 @@
 //!
 //! 设计目标：
 //! - 每项 `{id, kind, label, one_line, tags}`，让 LLM 能快速判断相关性。
-//! - 总清单 token 预算 4000 字符（参考 StrategySelector::build_selection_prompt 的
-//!   `max_total=8000` 截断模式，这里更紧凑因为还要留空间给合成 prompt）。
+//! - 总清单 token 预算 4000 字符（参考 StrategySelector::build_selection_prompt
+//!   的 `max_total=8000` 截断模式，这里更紧凑因为还要留空间给合成 prompt）。
 //! - 低相关项（无 tags 命中且 one_line 为空）截断，保留红线/角色/伏笔等硬约束。
 
 use crate::creative_engine::write_time_bundle::WriteTimeBundle;
@@ -14,8 +14,9 @@ use crate::creative_engine::write_time_bundle::WriteTimeBundle;
 pub struct AssetManifestItem {
     /// 稳定 ID（用于 LLM 引用选中资产）
     pub id: String,
-    /// 资产类别（redline / character / scene / antipattern / style / foreshadowing /
-    /// methodology / genre_profile / strategy / contract / fewshot 等）
+    /// 资产类别（redline / character / scene / antipattern / style /
+    /// foreshadowing / methodology / genre_profile / strategy / contract /
+    /// fewshot 等）
     pub kind: String,
     /// 人类可读标签（与 to_prompt 段落标题对齐）
     pub label: String,
@@ -42,7 +43,8 @@ impl AssetManifest {
     /// 从 WriteTimeBundle 构建紧凑资产清单。
     ///
     /// 把 bundle 的 ~17 段落转成清单项，每项一行摘要。
-    /// 硬约束资产（红线/角色/伏笔）打 `hard_constraint` tag，软约束打 `optional`。
+    /// 硬约束资产（红线/角色/伏笔）打 `hard_constraint` tag，软约束打
+    /// `optional`。
     pub fn build(bundle: &WriteTimeBundle) -> Self {
         let mut items: Vec<AssetManifestItem> = Vec::new();
 
@@ -147,7 +149,10 @@ impl AssetManifest {
                 id: "overdue_foreshadowings".into(),
                 kind: "foreshadowing".into(),
                 label: "逾期伏笔".into(),
-                one_line: format!("⚠️{}条逾期伏笔须优先回收", bundle.overdue_foreshadowings.len()),
+                one_line: format!(
+                    "⚠️{}条逾期伏笔须优先回收",
+                    bundle.overdue_foreshadowings.len()
+                ),
                 tags: vec!["hard_constraint".into(), "foreshadowing".into()],
             });
         }
@@ -232,12 +237,10 @@ impl AssetManifest {
         // 运行时合同
         if let Some(ref rc) = bundle.runtime_contract {
             let vars = rc.to_constraint_vars();
-            if let Some(section) =
-                crate::prompts::registry::resolve_prompt_default_with_vars(
-                    "write_time_bundle_contract",
-                    &vars,
-                )
-            {
+            if let Some(section) = crate::prompts::registry::resolve_prompt_default_with_vars(
+                "write_time_bundle_contract",
+                &vars,
+            ) {
                 if !section.trim().is_empty() {
                     items.push(AssetManifestItem {
                         id: "runtime_contract".into(),
@@ -319,7 +322,10 @@ fn truncate(s: &str, max_chars: usize) -> String {
     if chars.len() <= max_chars {
         s.to_string()
     } else {
-        let head: String = chars.into_iter().take(max_chars.saturating_sub(1)).collect();
+        let head: String = chars
+            .into_iter()
+            .take(max_chars.saturating_sub(1))
+            .collect();
         format!("{}…", head)
     }
 }
@@ -388,19 +394,22 @@ mod tests {
         // 红线、角色、逾期伏笔三项
         assert_eq!(manifest.items.len(), 3);
         assert_eq!(manifest.items[0].id, "redline");
-        assert!(manifest.items[0].tags.contains(&"hard_constraint".to_string()));
+        assert!(manifest.items[0]
+            .tags
+            .contains(&"hard_constraint".to_string()));
         assert_eq!(manifest.items[1].id, "characters");
         assert_eq!(manifest.items[2].id, "overdue_foreshadowings");
         // 逾期伏笔是硬约束
-        assert!(manifest.items[2].tags.contains(&"hard_constraint".to_string()));
+        assert!(manifest.items[2]
+            .tags
+            .contains(&"hard_constraint".to_string()));
     }
 
     #[test]
     fn test_compact_text_budget_truncation() {
         let mut bundle = empty_bundle();
         // 用大量重复段落构造一个超大资产，触发截断逻辑
-        bundle.style_dna_extension =
-            Some("这是为测试截断而生成的大量文本内容。".repeat(300));
+        bundle.style_dna_extension = Some("这是为测试截断而生成的大量文本内容。".repeat(300));
         let manifest = AssetManifest::build(&bundle);
         let text = manifest.to_compact_text();
         // 截断后不应超过 4100 字符（4000 预算 + 少量截断标记）

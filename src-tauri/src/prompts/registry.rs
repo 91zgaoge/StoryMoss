@@ -2299,7 +2299,8 @@ Output JSON only."#.to_string(),
                 "v0.23 TriShot Call 2（可选）：调试完善 Call 1 合成提示词，解决冲突、精炼冗余"
                     .to_string(),
             category: PromptCategory::Strategy,
-            default_content: r#"你是一名创作提示词精修师。你收到一个由路由合成器产生的创作提示词，请调试完善它。
+            default_content:
+                r#"你是一名创作提示词精修师。你收到一个由路由合成器产生的创作提示词，请调试完善它。
 
 【精修重点】
 {{refinement_focus}}
@@ -2321,7 +2322,7 @@ Output JSON only."#.to_string(),
 
 【输出要求】
 直接输出精修后的完整提示词文本。不要添加"这是精修后的提示词"等说明，不要用markdown代码块包裹。"#
-                .to_string(),
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -2548,7 +2549,8 @@ Output JSON only."#.to_string(),
         vec![]
     );
 
-    // DEPRECATED: methodology_scene_self_check 当前未被代码引用，保留仅作历史覆盖兼容。
+    // DEPRECATED: methodology_scene_self_check
+    // 当前未被代码引用，保留仅作历史覆盖兼容。
     reg_methodology!(
         "methodology_scene_self_check",
         "场景结构自检格式",

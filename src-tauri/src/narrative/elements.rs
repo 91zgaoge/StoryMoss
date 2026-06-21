@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 //! 统一叙事元素模型
 //!
-//! 注意：具体类型定义已迁移到 `domain::narrative_elements`，本模块保留为向后兼容的
-//! 重新导出层，以便现有调用方逐步迁移。新代码应优先使用 `crate::domain::narrative_elements`。
+//! 注意：具体类型定义已迁移到
+//! `domain::narrative_elements`，本模块保留为向后兼容的
+//! 重新导出层，以便现有调用方逐步迁移。新代码应优先使用
+//! `crate::domain::narrative_elements`。
 
 pub use crate::domain::narrative_elements::*;
 

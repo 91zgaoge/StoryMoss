@@ -479,7 +479,8 @@ impl AuditService {
 
     /// 检查场景开篇清晰度。
     ///
-    /// 从场景内容前 200 字中评估开篇要素（危险/羞辱/失去/谜题/物理锚点/题材信号）。
+    /// 从场景内容前 200
+    /// 字中评估开篇要素（危险/羞辱/失去/谜题/物理锚点/题材信号）。
     /// 如果 genre_canonical 未提供，则尝试通过 story 的 genre_profile_id 推导。
     /// 若场景/题材加载失败，返回默认报告（passed=true）以避免阻塞审计流程。
     pub fn check_opening_clarity(

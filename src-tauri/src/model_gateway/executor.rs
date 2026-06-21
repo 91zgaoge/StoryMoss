@@ -159,7 +159,8 @@ impl GatewayExecutor {
     ///
     /// 策略：从所有 enabled 模型中，按算力档案 `short_ttfb_ms_p50` 升序 +
     /// `success_rate_24h` 降序排序，剔除 Unhealthy。无算力档案时回退到
-    /// `select_candidates`（让网关三维打分兜底）。最终都失败则回退 active profile。
+    /// `select_candidates`（让网关三维打分兜底）。最终都失败则回退 active
+    /// profile。
     pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
         // 1) 优先用算力档案按 TTFB 选最快模型
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
@@ -189,7 +190,9 @@ impl GatewayExecutor {
                         Some((ttfb, -success, cap.model_id.clone()))
                     })
                     .collect();
-                ranked.sort_by_key(|(ttfb, neg_success, _)| (*ttfb, (*neg_success * 1_000_000.0) as i64));
+                ranked.sort_by_key(|(ttfb, neg_success, _)| {
+                    (*ttfb, (*neg_success * 1_000_000.0) as i64)
+                });
 
                 if let Some((_, _, model_id)) = ranked.first() {
                     if let Some(profile) = self.registry.get(model_id).cloned() {

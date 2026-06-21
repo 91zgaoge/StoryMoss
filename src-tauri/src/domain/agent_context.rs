@@ -1,6 +1,7 @@
 //! Agent context domain types.
 //!
-//! Shared execution context data structures used by agents and the creative engine.
+//! Shared execution context data structures used by agents and the creative
+//! engine.
 
 use serde::{Deserialize, Serialize};
 
@@ -89,7 +90,7 @@ pub struct StyleContext {
     #[serde(default)]
     pub style_dna_id: Option<String>, // 风格DNA ID（向后兼容）
     #[serde(default)]
-    pub style_blend: Option<StyleBlendConfig>, /* 风格混合配置 */
+    pub style_blend: Option<StyleBlendConfig>, // 风格混合配置
     /// 风格指纹（v0.7.8: 续写加固 — 从参考文本提取的量化风格约束）
     #[serde(default)]
     pub style_fingerprint: Option<StyleFingerprint>,

@@ -24,13 +24,14 @@ pub mod scene_service;
 
 // Re-export public types used by external code.
 #[allow(unused_imports)]
-pub use crate::domain::contracts::{
-    ChapterContract, ChapterDirective, ContractType, MasterSettingContract, RuntimeContract,
-};
-#[allow(unused_imports)]
 pub use commit_service::SceneCommitService;
 #[allow(unused_imports)]
 pub use contract_service::{ContractTree, ProjectionHealthReport, StorySystemEngine, WriterHealth};
+
+#[allow(unused_imports)]
+pub use crate::domain::contracts::{
+    ChapterContract, ChapterDirective, ContractType, MasterSettingContract, RuntimeContract,
+};
 
 // ==================== 测试 ====================
 

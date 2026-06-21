@@ -20,7 +20,8 @@ pub struct SynthesisResult {
     pub selected_asset_ids: Vec<String>,
     /// 合成后的综合提示词（供 Call 3 Writer 直接使用，或 Call 2 精修）
     pub synthesized_prompt: String,
-    /// 是否需要 Call 2 精修（复合题材/改写选中/多冲突约束/逾期伏笔多/confidence低）
+    /// 是否需要 Call 2
+    /// 精修（复合题材/改写选中/多冲突约束/逾期伏笔多/confidence低）
     pub needs_refinement: bool,
     /// 精修重点（needs_refinement=true 时提供，指导 Call 2 聚焦）
     pub refinement_focus: Option<String>,
@@ -73,21 +74,13 @@ impl PromptSynthesizer {
 
         // 调最快模型（静默标签 tri-shot-router）
         let response = llm
-            .generate_with_fastest(
-                prompt,
-                Some(1024),
-                Some(0.3),
-                Some("tri-shot-router"),
-            )
+            .generate_with_fastest(prompt, Some(1024), Some(0.3), Some("tri-shot-router"))
             .await;
 
         let response = match response {
             Ok(r) => r,
             Err(e) => {
-                log::warn!(
-                    "[TriShot Synthesizer] Call 1 LLM 失败，回退本地拼接: {}",
-                    e
-                );
+                log::warn!("[TriShot Synthesizer] Call 1 LLM 失败，回退本地拼接: {}", e);
                 return SynthesisResult::fallback(bundle_prompt.to_string());
             }
         };
@@ -118,12 +111,8 @@ impl PromptSynthesizer {
 
         // 优先用注册表模板，回退硬编码
         let tpl = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "trishot_synthesizer").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("trishot_synthesizer")
-            });
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "trishot_synthesizer").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("trishot_synthesizer"));
 
         if let Some(tpl) = tpl {
             let mut vars = std::collections::HashMap::new();

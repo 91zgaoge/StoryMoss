@@ -39,8 +39,7 @@ mod integration_tests {
         assert_eq!(manifest.items[0].id, "redline");
 
         // 验证回退结果可用
-        let fallback =
-            super::synthesizer::SynthesisResult::fallback(bundle_prompt.clone());
+        let fallback = super::synthesizer::SynthesisResult::fallback(bundle_prompt.clone());
         assert!(fallback.is_fallback);
         assert_eq!(fallback.synthesized_prompt, bundle_prompt);
     }

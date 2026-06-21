@@ -283,12 +283,15 @@ pub struct AppConfig {
     /// - time_sliced: 强制分时模式（最快，单次 LLM）
     /// - fast: 强制 Fast 模式（单次 LLM + 风格技能）
     /// - full: 强制 Full 模式（Writer + Inspector + Rewrite 闭环）
-    /// - tri_shot: v0.23 三击模式（弹性 2~3 次 LLM：合成→精修→生成，质检/改写下沉后台）
+    /// - tri_shot: v0.23 三击模式（弹性 2~3 次
+    ///   LLM：合成→精修→生成，质检/改写下沉后台）
     #[serde(default = "default_generation_mode")]
     pub generation_mode: String,
     /// v0.23 TriShot BGP-2：后台自动改写的严重度阈值（"high" / "medium"）。
-    /// 仅当审计问题严重度 ≥ 此阈值时后台 agent 自动改写并替换正文（写修订历史可撤销）；
-    /// 低于阈值仅生成修订建议供用户审阅。默认 "high"（保守，只自动改逻辑硬伤）。
+    /// 仅当审计问题严重度 ≥ 此阈值时后台 agent
+    /// 自动改写并替换正文（写修订历史可撤销）；
+    /// 低于阈值仅生成修订建议供用户审阅。默认
+    /// "high"（保守，只自动改逻辑硬伤）。
     #[serde(default = "default_auto_rewrite_severity_threshold")]
     pub auto_rewrite_severity_threshold: String,
     /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）

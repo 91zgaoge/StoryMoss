@@ -177,7 +177,8 @@ pub enum SyncEvent {
     },
 
     /// v0.23 TriShot BGP-2：后台自动改写器已自动修正高严重度问题并替换正文。
-    /// 正文已写入修订历史，用户可撤销。前端展示 toast「AI 已修正 N 处问题，可撤销」。
+    /// 正文已写入修订历史，用户可撤销。前端展示 toast「AI 已修正 N
+    /// 处问题，可撤销」。
     ContentAutoRevised {
         story_id: String,
         scene_id: Option<String>,
@@ -329,7 +330,11 @@ mod trishot_event_tests {
             summary: "修正逻辑连贯性问题".to_string(),
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"type\":\"contentAutoRevised\""), "json={}", json);
+        assert!(
+            json.contains("\"type\":\"contentAutoRevised\""),
+            "json={}",
+            json
+        );
         assert!(json.contains("\"revision_count\":3"), "json={}", json);
         assert_eq!(event.story_id(), Some(&"s1".to_string()));
         assert_eq!(event.resource_type(), "contentAutoRevised");
@@ -345,7 +350,11 @@ mod trishot_event_tests {
             suggestions: vec!["节奏偏慢".to_string(), "对话比例过高".to_string()],
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"type\":\"revisionSuggested\""), "json={}", json);
+        assert!(
+            json.contains("\"type\":\"revisionSuggested\""),
+            "json={}",
+            json
+        );
         assert!(json.contains("\"suggestions\""), "json={}", json);
         assert_eq!(event.story_id(), Some(&"s2".to_string()));
         assert_eq!(event.resource_type(), "revisionSuggested");

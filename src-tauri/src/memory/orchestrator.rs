@@ -9,8 +9,10 @@
 
 use std::collections::HashMap;
 
-use crate::db::{DbPool, MemoryItemRepository, SceneCommitRepository};
-use crate::domain::memory_pack::*;
+use crate::{
+    db::{DbPool, MemoryItemRepository, SceneCommitRepository},
+    domain::memory_pack::*,
+};
 
 /// 记忆类别优先级（数值越小优先级越高）
 pub const MEMORY_PRIORITY: &[(&str, i32)] = &[

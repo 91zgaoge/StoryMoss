@@ -711,8 +711,7 @@ pub async fn generate_paragraph_commentaries(
     text: String,
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
-    use crate::agents::commentator::CommentatorAgent;
-    use crate::domain::agent_context::AgentContext;
+    use crate::{agents::commentator::CommentatorAgent, domain::agent_context::AgentContext};
 
     log::info!(
         "[story_commands] {} called: story_id={}",

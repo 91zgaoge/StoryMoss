@@ -1,6 +1,7 @@
 //! Call 2 提示词精修器（PromptRefiner）——可选步骤，调试完善合成提示词。
 //!
-//! 仅在 needs_refinement=true 且剩余预算充足时调用。失败回退原提示词（不阻塞）。
+//! 仅在 needs_refinement=true
+//! 且剩余预算充足时调用。失败回退原提示词（不阻塞）。
 
 use tauri::AppHandle;
 

@@ -12,10 +12,10 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::OnceCell;
 
 use super::Agent;
-use crate::domain::agent_context::AgentContext;
 pub use crate::domain::agent_types::{AgentResult, AgentTask, AgentType};
 use crate::{
     config::settings::AppConfig,
+    domain::agent_context::AgentContext,
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
     llm::service::LlmService,

@@ -1,7 +1,8 @@
 //! Methodology domain types.
 //!
 //! Pure data definitions shared across the creative engine and commands.
-//! Methodology engines and behavior remain in `crate::creative_engine::methodology`.
+//! Methodology engines and behavior remain in
+//! `crate::creative_engine::methodology`.
 
 use serde::{Deserialize, Serialize};
 

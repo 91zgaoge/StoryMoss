@@ -3,9 +3,8 @@
 //! 支持任意 2-5 个 StyleDNA 按权重组合，生成融合风格 prompt。
 //! 核心用于 3风格三角框架（Proust + Hemingway + Márquez），但架构通用。
 
-pub use crate::domain::style::{BlendComponent, BlendRole, StyleBlendConfig};
-
 use super::dna::StyleDNA;
+pub use crate::domain::style::{BlendComponent, BlendRole, StyleBlendConfig};
 
 impl BlendComponent {
     pub fn new(dna_id: &str, dna_name: &str, weight: f32) -> Self {

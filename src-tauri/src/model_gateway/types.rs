@@ -132,7 +132,8 @@ impl GatewayRequest {
     ///
     /// 强制 `speed_priority: High` + `budget_priority: Low`，使网关在
     /// `select_candidates` 中倾向 `TaskClass::LightTool` 的 60% 速度权重，
-    /// 配合 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB 选最快模型。
+    /// 配合 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB
+    /// 选最快模型。
     pub fn for_fast_routing(prompt: String, agent_id: &str) -> Self {
         Self {
             prompt,

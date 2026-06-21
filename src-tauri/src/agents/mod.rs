@@ -24,7 +24,8 @@ pub mod novel_creation;
 pub mod orchestrator;
 pub mod service;
 
-// 数据类型已下沉到中性 domain 层以打破循环依赖；agents 继续重新导出保持向后兼容。
+// 数据类型已下沉到中性 domain 层以打破循环依赖；agents
+// 继续重新导出保持向后兼容。
 pub use crate::domain::{
     agent_context::*,
     agent_types::{AgentResult, AgentTask, AgentType},

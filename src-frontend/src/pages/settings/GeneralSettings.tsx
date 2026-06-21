@@ -445,7 +445,9 @@ export function GeneralSettings() {
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
               >
                 <option value="auto">智能路由（推荐）— 续写快速、重写精修</option>
-                <option value="tri_shot">三击模式 — 智能合成资产，2~3 次 LLM，质检改写下沉后台（v0.23）</option>
+                <option value="tri_shot">
+                  三击模式 — 智能合成资产，2~3 次 LLM，质检改写下沉后台（v0.23）
+                </option>
                 <option value="time_sliced">分时模式 — 最快（30-60秒）</option>
                 <option value="fast">快速模式 — 单次 + 风格技能（约 60秒）</option>
                 <option value="full">精修模式 — 含质检改写（2-5 分钟）</option>

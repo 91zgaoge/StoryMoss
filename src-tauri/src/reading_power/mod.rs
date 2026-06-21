@@ -8,14 +8,13 @@
 //! - Debt（债务）：违背软建议时产生的追读力债务，含利息机制
 //! - Override Contract：违背约束时的偿还计划与截止章节
 
+use evaluator::ContentFeatureExtractor;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{
     ChapterReadingPowerRepository, ChaseDebtRepository, DbPool, OverrideContractRepository,
     SceneCommitRepository,
 };
-
-use evaluator::ContentFeatureExtractor;
 
 pub mod evaluator;
 

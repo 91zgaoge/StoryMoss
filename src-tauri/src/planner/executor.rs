@@ -101,8 +101,7 @@ impl PlanExecutor {
             .unwrap_or_else(|_| "auto".to_string());
         let is_trishot = generation_mode == "tri_shot" || generation_mode == "trishot";
 
-        if is_trishot && !crate::is_novel_creation_intent(&context.user_input)
-        {
+        if is_trishot && !crate::is_novel_creation_intent(&context.user_input) {
             log::info!("[PlanExecutor] TriShot 快速路径：跳过计划生成，直接 writer step");
             let plan = Self::make_trishot_plan(context);
             return Ok(self.execute_plan(plan, context).await);
@@ -288,9 +287,7 @@ impl PlanExecutor {
         let mut params = HashMap::new();
         params.insert(
             "story_id".to_string(),
-            serde_json::Value::String(
-                context.current_story_id.clone().unwrap_or_default(),
-            ),
+            serde_json::Value::String(context.current_story_id.clone().unwrap_or_default()),
         );
         params.insert(
             "instruction".to_string(),
@@ -308,19 +305,15 @@ impl PlanExecutor {
             );
         }
         // 标记为长任务，跳过 90s 步超时（受 smart_execute 180s 伞保护）
-        params.insert(
-            "long_running".to_string(),
-            serde_json::Value::Bool(true),
-        );
+        params.insert("long_running".to_string(), serde_json::Value::Bool(true));
 
         ExecutionPlan {
             understanding: "TriShot 三击模式：智能合成 → 精修 → 生成".to_string(),
             steps: vec![PlanStep {
                 step_id: "trishot_writer".to_string(),
                 capability_id: "writer".to_string(),
-                purpose:
-                    "TriShot 模式：Call 1 合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成"
-                        .to_string(),
+                purpose: "TriShot 模式：Call 1 合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成"
+                    .to_string(),
                 parameters: params,
                 depends_on: vec![],
                 long_running: true,

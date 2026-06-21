@@ -1,7 +1,8 @@
 //! 策略选择模型
 //!
 //! 定义可被模型发现与选择的创作资产，以及策略选择请求上下文。
-//! 策略结果类型（SelectedStrategy / StrategyOverrides）已迁移至 domain::strategy。
+//! 策略结果类型（SelectedStrategy / StrategyOverrides）已迁移至
+//! domain::strategy。
 
 use std::collections::HashMap;
 

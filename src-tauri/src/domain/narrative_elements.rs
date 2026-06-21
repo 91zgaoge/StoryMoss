@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 //! 统一叙事元素模型（Domain 层）
 //!
-//! 原位于 `narrative::elements`，为切断 `db -> narrative` 的循环依赖而下放到中性的
-//! `domain` 模块。本模块只包含纯数据结构，不依赖任何业务模块。
+//! 原位于 `narrative::elements`，为切断 `db -> narrative`
+//! 的循环依赖而下放到中性的 `domain` 模块。本模块只包含纯数据结构，
+//! 不依赖任何业务模块。
 //!
 //! 生产表（stories/characters/scenes）和参考表（reference_books/
 //! reference_characters/reference_scenes）共享同一套数据结构，通过

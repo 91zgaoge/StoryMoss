@@ -30,8 +30,8 @@ pub struct ReviewDimension {
 
 /// 运行 mini review。
 ///
-/// 优先使用 LLM（通过 `mini_review_system` PromptRegistry 提示词）返回结构化 JSON；
-/// 若 LLM 不可用、超时或返回无法解析，则回退到启发式评分。
+/// 优先使用 LLM（通过 `mini_review_system` PromptRegistry 提示词）返回结构化
+/// JSON； 若 LLM 不可用、超时或返回无法解析，则回退到启发式评分。
 pub async fn run_mini_review(
     content: &str,
     contract: &RuntimeContract,

@@ -483,9 +483,10 @@ impl LlmService {
 
     /// v0.23 TriShot：用「最快可用模型」生成文本，用于 Call 1 路由合成器。
     ///
-    /// 通过 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB 选最快模型，
-    /// 失败回退 active profile。始终用 `generate_with_profile_and_request_id` 单次调用，
-    /// 不走候选 fallback 链（追求首字节速度）。
+    /// 通过 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB
+    /// 选最快模型， 失败回退 active profile。始终用
+    /// `generate_with_profile_and_request_id` 单次调用， 不走候选 fallback
+    /// 链（追求首字节速度）。
     pub async fn generate_with_fastest(
         &self,
         prompt: String,

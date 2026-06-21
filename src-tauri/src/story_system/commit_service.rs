@@ -472,7 +472,8 @@ impl SceneCommitService {
 
     /// 运行知识图谱提取（原 auto_ingest 的 IngestPipeline 逻辑）
     ///
-    /// 返回 `IngestResult`，调用方负责从中提取 state/entity deltas 与 narrative events。
+    /// 返回 `IngestResult`，调用方负责从中提取 state/entity deltas 与 narrative
+    /// events。
     async fn run_kg_ingest(
         &self,
         story_id: &str,

@@ -1,7 +1,8 @@
 //! Style domain types.
 //!
-//! Pure data definitions shared across the creative engine, agents, and commands.
-//! All analysis / behavior impls remain in `crate::creative_engine::style`.
+//! Pure data definitions shared across the creative engine, agents, and
+//! commands. All analysis / behavior impls remain in
+//! `crate::creative_engine::style`.
 
 use serde::{Deserialize, Serialize};
 

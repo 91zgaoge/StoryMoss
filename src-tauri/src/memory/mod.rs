@@ -25,11 +25,12 @@ pub mod retention;
 pub mod tokenizer;
 pub mod writer;
 
+pub use orchestrator::MemoryOrchestrator;
+pub use tokenizer::CJKTokenizer;
+
 pub use crate::domain::memory_pack::{
     MemoryEntry, MemoryItemDto, MemoryPack, MemoryStats, MemoryWarning,
 };
-pub use orchestrator::MemoryOrchestrator;
-pub use tokenizer::CJKTokenizer;
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
 pub struct ShortTermMemory {

@@ -2,12 +2,12 @@
 //!
 //! v0.17.1：完全后台决定，不打扰用户创作流。
 
-use crate::domain::strategy::SelectedStrategy;
 use crate::{
     creative_engine::{
         beat_cards::builtin_beat_cards, pressure_relationships::builtin_pressure_relationships,
         story_engines::builtin_story_engines,
     },
+    domain::strategy::SelectedStrategy,
     intent::InputClarity,
 };
 

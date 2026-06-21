@@ -599,8 +599,10 @@ pub async fn compress_content(
 ) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
-    use crate::domain::agent_types::{AgentTask, AgentType};
+    use crate::{
+        agents::{commands::ExecuteAgentRequest, service::AgentService},
+        domain::agent_types::{AgentTask, AgentType},
+    };
 
     log::info!(
         "[story_commands] {} called: story_id={}",
@@ -647,8 +649,10 @@ pub async fn compress_scene(
 ) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
-    use crate::domain::agent_types::{AgentTask, AgentType};
+    use crate::{
+        agents::{commands::ExecuteAgentRequest, service::AgentService},
+        domain::agent_types::{AgentTask, AgentType},
+    };
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -712,8 +716,10 @@ pub async fn distill_story_knowledge(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<StorySummary, AppError> {
-    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
-    use crate::domain::agent_types::{AgentTask, AgentType};
+    use crate::{
+        agents::{commands::ExecuteAgentRequest, service::AgentService},
+        domain::agent_types::{AgentTask, AgentType},
+    };
 
     log::info!(
         "[story_commands] {} called: story_id={}",

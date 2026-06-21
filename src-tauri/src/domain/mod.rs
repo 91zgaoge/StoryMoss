@@ -1,8 +1,9 @@
 #![allow(unused_imports)]
 //! StoryForge 中性领域类型模块
 //!
-//! 本模块只包含纯数据结构（DTO / Value Objects / Entities），不依赖任何业务模块。
-//! 目标：切断 `db`、`narrative`、`creative_engine`、`agents`、`memory` 等模块之间的
+//! 本模块只包含纯数据结构（DTO / Value Objects /
+//! Entities），不依赖任何业务模块。 目标：切断 `db`、`narrative`、
+//! `creative_engine`、`agents`、`memory` 等模块之间的
 //! 循环依赖，让它们可以只依赖类型而非互相引用。
 //!
 //! 迁入本模块的类型应满足：

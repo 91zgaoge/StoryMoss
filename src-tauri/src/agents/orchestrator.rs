@@ -946,7 +946,8 @@ impl AgentOrchestrator {
             Some("三击模式：智能合成提示词，2~3 次生成"),
         );
 
-        // ===== Phase 0: QuickPreflight + 加载 WriteTimeBundle（复用 TimeSliced 逻辑）=====
+        // ===== Phase 0: QuickPreflight + 加载 WriteTimeBundle（复用 TimeSliced
+        // 逻辑）=====
         self.emit_generation_status(
             &task.id,
             GenerationPhase::PreparingContext,
@@ -1005,7 +1006,11 @@ impl AgentOrchestrator {
         })
         .await
         .map_err(|e| AppError::internal(format!("[TriShot] bundle 加载失败: {}", e)))??;
-        trace.log_phase("bundle_load", bundle_start.elapsed().as_millis(), Some("write-time-bundle"));
+        trace.log_phase(
+            "bundle_load",
+            bundle_start.elapsed().as_millis(),
+            Some("write-time-bundle"),
+        );
 
         // 注入叙事四元组
         if let Some(quartet_val) = task.parameters.get("narrative_quartet") {
@@ -1045,21 +1050,26 @@ impl AgentOrchestrator {
         );
 
         let t_synth = std::time::Instant::now();
-        let synthesis = crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
-            self.app_handle.clone(),
-            &user_instruction,
-            current_content_preview,
-            &manifest,
-            &bundle_prompt,
-        )
-        .await;
-        trace.log_phase("call1_synthesize", t_synth.elapsed().as_millis(), Some(&format!(
-            "intent={} selected={} confidence={:.2} fallback={}",
-            synthesis.intent,
-            synthesis.selected_asset_ids.len(),
-            synthesis.confidence,
-            synthesis.is_fallback,
-        )));
+        let synthesis =
+            crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
+                self.app_handle.clone(),
+                &user_instruction,
+                current_content_preview,
+                &manifest,
+                &bundle_prompt,
+            )
+            .await;
+        trace.log_phase(
+            "call1_synthesize",
+            t_synth.elapsed().as_millis(),
+            Some(&format!(
+                "intent={} selected={} confidence={:.2} fallback={}",
+                synthesis.intent,
+                synthesis.selected_asset_ids.len(),
+                synthesis.confidence,
+                synthesis.is_fallback,
+            )),
+        );
 
         log::info!(
             "[TriShot] Call 1 完成: intent={}, selected_assets={}, confidence={:.2}, needs_refinement={}, fallback={}",
@@ -1094,20 +1104,25 @@ impl AgentOrchestrator {
                 );
 
                 let t_refine = std::time::Instant::now();
-                let refined = crate::creative_engine::prompt_synthesis::refiner::PromptRefiner::refine(
-                    self.app_handle.clone(),
-                    &synthesis.synthesized_prompt,
-                    synthesis.refinement_focus.as_deref(),
-                    &bundle.story_meta.title,
-                    bundle.story_meta.genre.as_deref(),
-                    bundle.story_meta.tone.as_deref(),
-                )
-                .await;
-                trace.log_phase("call2_refine", t_refine.elapsed().as_millis(), Some(&format!(
-                    "chars: {}→{}",
-                    synthesis.synthesized_prompt.chars().count(),
-                    refined.chars().count(),
-                )));
+                let refined =
+                    crate::creative_engine::prompt_synthesis::refiner::PromptRefiner::refine(
+                        self.app_handle.clone(),
+                        &synthesis.synthesized_prompt,
+                        synthesis.refinement_focus.as_deref(),
+                        &bundle.story_meta.title,
+                        bundle.story_meta.genre.as_deref(),
+                        bundle.story_meta.tone.as_deref(),
+                    )
+                    .await;
+                trace.log_phase(
+                    "call2_refine",
+                    t_refine.elapsed().as_millis(),
+                    Some(&format!(
+                        "chars: {}→{}",
+                        synthesis.synthesized_prompt.chars().count(),
+                        refined.chars().count(),
+                    )),
+                );
                 final_prompt = refined;
             }
         }
@@ -1167,8 +1182,9 @@ impl AgentOrchestrator {
                                 .filter(|s| !s.trim().is_empty())
                                 .collect();
                             if !sents.is_empty() {
-                                let actual_len = sents.iter().map(|s| s.chars().count()).sum::<usize>()
-                                    as u32 / sents.len() as u32;
+                                let actual_len =
+                                    sents.iter().map(|s| s.chars().count()).sum::<usize>() as u32
+                                        / sents.len() as u32;
                                 let deviation = if target_len > 0 {
                                     (actual_len as f32 - target_len as f32).abs()
                                         / target_len as f32
@@ -1268,7 +1284,13 @@ impl AgentOrchestrator {
                 insight_chapter,
                 5,
             );
-            (should, insight_pool, insight_story_id, insight_chapter, insight_handle)
+            (
+                should,
+                insight_pool,
+                insight_story_id,
+                insight_chapter,
+                insight_handle,
+            )
         })
         .await
         .ok()

@@ -946,8 +946,10 @@ pub async fn generate_scene_outline(
 ) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
-    use crate::domain::agent_types::{AgentTask, AgentType};
+    use crate::{
+        agents::{commands::ExecuteAgentRequest, service::AgentService},
+        domain::agent_types::{AgentTask, AgentType},
+    };
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -1044,8 +1046,10 @@ pub async fn generate_scene_draft(
 ) -> Result<crate::domain::agent_types::AgentResult, AppError> {
     use std::collections::HashMap;
 
-    use crate::agents::{commands::ExecuteAgentRequest, service::AgentService};
-    use crate::domain::agent_types::{AgentTask, AgentType};
+    use crate::{
+        agents::{commands::ExecuteAgentRequest, service::AgentService},
+        domain::agent_types::{AgentTask, AgentType},
+    };
 
     log::info!(
         "[story_commands] {} called: scene_id={}",
