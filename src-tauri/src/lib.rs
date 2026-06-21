@@ -301,6 +301,35 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
     }
 }
 
+/// v0.22.2: 更新内置题材画像的推荐资产字段
+/// v0.22.2: 更新内置题材画像的推荐资产字段（Phase F 种子数据）
+fn seed_genre_recommendations(pool: &DbPool) {
+    let mappings: &[(&str, &str, &str, &str)] = &[
+        ("末世流", r#"["余华","海明威","鲁迅"]"#, "hero_journey", r#"["emotion_pacing","character_voice"]"#),
+        ("科幻", r#"["海明威","余华","王小波"]"#, "hero_journey", r#"["style_enhancer","emotion_pacing"]"#),
+        ("修仙", r#"["金庸","曹雪芹"]"#, "snowflake", r#"["style_enhancer","character_voice"]"#),
+        ("都市", r#"["张爱玲","老舍","余华"]"#, "scene_structure", r#"["character_voice","emotion_pacing"]"#),
+        ("悬疑", r#"["鲁迅","海明威"]"#, "scene_structure", r#"["emotion_pacing"]"#),
+        ("历史", r#"["金庸","曹雪芹"]"#, "snowflake", r#"["style_enhancer"]"#),
+    ];
+    let conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[GenreProfile] Cannot get connection for seed: {}", e);
+            return;
+        }
+    };
+    for (genre_name, styles, method, skills) in mappings {
+        if let Err(e) = conn.execute(
+            "UPDATE genre_profiles SET recommended_style_dna_ids=?1, recommended_methodology_id=?2, recommended_skill_ids=?3 WHERE genre_name=?4 AND recommended_style_dna_ids IS NULL",
+            rusqlite::params![styles, method, skills, genre_name],
+        ) {
+            log::warn!("[GenreProfile] Failed to seed {}: {}", genre_name, e);
+        }
+    }
+    log::info!("[GenreProfile] Seeded recommendations for {} genres", mappings.len());
+}
+
 /// 初始化任务系统和自动化服务
 fn init_task_system_and_automation(
     app: &mut tauri::App,
@@ -623,6 +652,8 @@ pub fn run() {
 
                 // 注册可发现创作资产到全局 CapabilityRegistry
                 let genre_repo = db::GenreProfileRepository::new(pool.clone());
+                // v0.22.2: 种子题材推荐资产映射（Phase F）
+                seed_genre_recommendations(&pool);
                 let skills = SKILL_MANAGER
                     .get()
                     .map(|m| m.lock().unwrap().get_all_skills())

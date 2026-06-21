@@ -110,7 +110,7 @@ impl GatewayExecutor {
                         let ttfb = cap.short_ttfb_ms_p50.unwrap_or(5000) as f64;
                         let tps = cap.sustained_tps.unwrap_or(10.0);
                         let success = cap.success_rate_24h.unwrap_or(0.9);
-                        let cap_score = cap.capability_score.unwrap_or(0.5);
+                        let cap_score = cap.capability_score.unwrap_or(0.0);
 
                         let speed_bonus = if ttfb < 2000.0 {
                             5.0 * (1.0 - ttfb / 2000.0) + tps * 0.2

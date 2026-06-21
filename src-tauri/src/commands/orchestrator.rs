@@ -958,6 +958,27 @@ fn build_selected_strategy(
             rationale_parts.push(format!("体裁画像：{}", profile.genre_name));
             canonical_name = Some(profile.canonical_name.clone());
             reader_promise = profile.reader_promise.clone();
+
+            // v0.22.2: 硬约束——若体裁画像有推荐资产，跳过 LLM 策略选择直接使用
+            if story.style_dna_id.is_none() {
+                if let Some(ref rec) = profile.recommended_style_dna_ids {
+                    if let Ok(ids) = serde_json::from_str::<Vec<String>>(rec) {
+                        strategy.style_dna_ids = ids;
+                        rationale_parts.push(format!("风格 DNA（题材推荐）：{:?}", strategy.style_dna_ids));
+                    }
+                }
+            }
+            if story.methodology_id.is_none() {
+                if let Some(ref rec) = profile.recommended_methodology_id {
+                    strategy.methodology_id = Some(rec.clone());
+                    rationale_parts.push(format!("方法论（题材推荐）：{}", rec));
+                }
+            }
+            if let Some(ref rec) = profile.recommended_skill_ids {
+                if let Ok(ids) = serde_json::from_str::<Vec<String>>(rec) {
+                    strategy.skill_ids = ids;
+                }
+            }
         } else {
             rationale_parts.push(format!("体裁画像 ID：{}", profile_id));
         }
