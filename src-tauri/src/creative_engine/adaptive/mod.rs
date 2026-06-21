@@ -11,6 +11,7 @@
 
 use crate::error::AppError;
 
+pub mod asset_params;
 pub mod feedback;
 pub mod generator;
 pub mod miner;
