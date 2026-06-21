@@ -214,6 +214,18 @@ fn build_selection_prompt(
     sections.push("".to_string());
     sections.push("Available assets:".to_string());
 
+    // v0.22.1: 注入题材→风格推荐映射（意见1）
+    // 让 StrategySelector 知道各题材的推荐风格/方法论，
+    // 而非仅凭风格名称凭空推断
+    if let Some(ref genre_hint) = context.genre_hint {
+        let recommendations = get_genre_recommendations(genre_hint);
+        if !recommendations.is_empty() {
+            sections.push("".to_string());
+            sections.push("Genre-based recommendations (prefer these for the given genre):".to_string());
+            sections.push(recommendations);
+        }
+    }
+
     // 按 kind 分组，控制总长度
     let mut by_kind: HashMap<String, Vec<&SelectableAsset>> = HashMap::new();
     for asset in assets {
@@ -298,6 +310,10 @@ mod tests {
             reference_tables_json: None,
             typical_structure_json: None,
             reader_promise: Some("怕,燃,生存压迫".to_string()),
+            recommended_style_dna_ids: Some("[\"余华\",\"海明威\"]".to_string()),
+            recommended_methodology_id: Some("hero_journey".to_string()),
+            recommended_skill_ids: Some("[\"emotion_pacing\"]".to_string()),
+            min_quality_tier: Some("high".to_string()),
             is_builtin: true,
             created_at: chrono::Local::now(),
         };
@@ -356,4 +372,28 @@ mod tests {
         assert_eq!(merged.methodology_id, Some("m_b".to_string()));
         assert_eq!(merged.style_dna_ids, vec!["style_1".to_string()]);
     }
+}
+
+/// v0.22.1: 题材→风格推荐映射表（意见1）
+///
+/// 让 StrategySelector 在 LLM 选择前获得预置推荐，
+/// 而非仅凭风格名称凭空推断。推荐基于网文创作领域共识。
+fn get_genre_recommendations(genre_hint: &str) -> String {
+    let g = genre_hint.to_lowercase();
+    let (styles, methodology, skills) = if g.contains("末世") || g.contains("apocalypse") || g.contains("废土") {
+        ("余华（冷酷白描,苦难叙事）> 海明威（极简白描,短句为主）> 鲁迅（冷峻讽刺）", "hero_journey（英雄之旅,12阶段生存叙事）", "emotion_pacing（情感节奏优化）, character_voice（角色声音一致性）")
+    } else if g.contains("玄幻") || g.contains("xianxia") || g.contains("仙侠") {
+        ("金庸（武侠诗意）> 曹雪芹（华丽古典）> 莫言（魔幻现实）", "snowflake（雪花写作法,多轮展开）", "style_enhancer（风格增强）, character_voice")
+    } else if g.contains("都市") || g.contains("urban") || g.contains("现实") {
+        ("张爱玲（细腻心理）> 老舍（京味白描）> 余华（冷酷白描）", "scene_structure（场景结构）", "character_voice, emotion_pacing")
+    } else if g.contains("科幻") || g.contains("sci-fi") {
+        ("海明威（极简白描）> 余华（冷酷白描）> 王小波（黑色幽默）", "hero_journey", "style_enhancer, emotion_pacing")
+    } else if g.contains("悬疑") || g.contains("推理") || g.contains("mystery") {
+        ("鲁迅（冷峻讽刺）> 海明威（极简白描）> 黑色侦探", "scene_structure", "emotion_pacing")
+    } else if g.contains("古言") || g.contains("历史") {
+        ("曹雪芹（华丽古典）> 金庸（武侠诗意）> 张爱玲（细腻心理）", "snowflake（雪花写作法）", "style_enhancer, character_voice")
+    } else {
+        return String::new();
+    };
+    format!("- Style DNA: {}\n- Methodology: {}\n- Skills: {}", styles, methodology, skills)
 }

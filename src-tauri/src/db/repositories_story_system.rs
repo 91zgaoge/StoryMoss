@@ -1165,6 +1165,10 @@ impl GenreProfileRepository {
             reference_tables_json: reference_tables_json.map(|s| s.to_string()),
             typical_structure_json: typical_structure_json.map(|s| s.to_string()),
             reader_promise: None,
+            recommended_style_dna_ids: None,
+            recommended_methodology_id: None,
+            recommended_skill_ids: None,
+            min_quality_tier: Some("medium".to_string()),
             is_builtin: true,
             created_at: now,
         })
@@ -1179,7 +1183,7 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at, reader_promise FROM genre_profiles ORDER BY genre_name",
+             created_at, reader_promise recommended_skill_ids, min_quality_tier FROM genre_profiles ORDER BY genre_name",
         )?;
 
         let profiles = stmt
@@ -1198,6 +1202,10 @@ impl GenreProfileRepository {
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     reader_promise: row.get(11).ok(),
+                    recommended_style_dna_ids: row.get(12).ok(),
+                    recommended_methodology_id: row.get(13).ok(),
+                    recommended_skill_ids: row.get(14).ok(),
+                    min_quality_tier: row.get(15).ok(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1214,7 +1222,8 @@ impl GenreProfileRepository {
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
              anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
-             created_at, reader_promise FROM genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
+             created_at, reader_promise, recommended_style_dna_ids, recommended_methodology_id, \
+             recommended_skill_ids, min_quality_tier FROM genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
         )?;
 
         let profile = stmt
@@ -1233,6 +1242,10 @@ impl GenreProfileRepository {
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     reader_promise: row.get(11).ok(),
+                    recommended_style_dna_ids: row.get(12).ok(),
+                    recommended_methodology_id: row.get(13).ok(),
+                    recommended_skill_ids: row.get(14).ok(),
+                    min_quality_tier: row.get(15).ok(),
                 })
             })
             .optional()?;
@@ -1268,6 +1281,10 @@ impl GenreProfileRepository {
                     is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     reader_promise: row.get(11).ok(),
+                    recommended_style_dna_ids: row.get(12).ok(),
+                    recommended_methodology_id: row.get(13).ok(),
+                    recommended_skill_ids: row.get(14).ok(),
+                    min_quality_tier: row.get(15).ok(),
                 })
             })
             .optional()?;

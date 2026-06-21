@@ -101,12 +101,6 @@ impl PromptCategory {
             Self::Deconstruction => "小说拆书分析（元数据/角色/章节/故事线提取）",
             Self::Creation => "创世流程（Genesis）提示词——故事概念/世界观/角色/场景/大纲/伏笔",
             Self::Strategy => "创作策略选择、资产选择",
-            Self::Pipeline => "审稿、修稿、后处理流水线提示词",
-            Self::Audit => "11 维度质量审计、深度评估",
-            Self::Intent => "用户意图解析（SING 意图合成、旧版意图路由）",
-            Self::Deconstruction => "小说拆书：元数据/角色/章节/故事线提取",
-            Self::Creation => "创世流程：故事概念/世界观/角色/场景/大纲/伏笔/故事线",
-            Self::Strategy => "创作策略选择、资产选择策略",
             Self::Other => "其他辅助提示词",
         }
     }

@@ -96,17 +96,35 @@ impl GatewayExecutor {
         decision.candidates = candidates;
 
         // v0.22.0: 算力档案消费闭环（Phase D）
-        // 使用 CapabilityProfile 的 TTFB/TPS 微调候选排序
+        // v0.22.1: 按 TaskClass 应用差异化权重（意见5）
+        //   HeavyCreation → 优先质量分（quality 80%）
+        //   LightTool → 优先速度分（speed 60%）
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
             if let Ok(profiles) =
                 super::capability_store::CapabilityStore::new(pool.inner().clone()).load_all()
             {
+                let task_class = TaskClassifier::classify_task(request);
                 let mut candidates = decision.candidates.clone();
                 for c in &mut candidates {
                     if let Some(cap) = profiles.iter().find(|p| p.model_id == c.model_id) {
                         let ttfb = cap.short_ttfb_ms_p50.unwrap_or(5000) as f64;
-                        let speed_bonus = if ttfb < 2000.0 { 3.0 * (1.0 - ttfb / 2000.0) } else { 0.0 };
-                        c.score += speed_bonus;
+                        let tps = cap.sustained_tps.unwrap_or(10.0);
+                        let success = cap.success_rate_24h.unwrap_or(0.9);
+                        let cap_score = cap.capability_score.unwrap_or(0.5);
+
+                        let speed_bonus = if ttfb < 2000.0 {
+                            5.0 * (1.0 - ttfb / 2000.0) + tps * 0.2
+                        } else {
+                            0.0
+                        };
+                        let quality_bonus = success * 3.0 + cap_score * 2.0;
+
+                        use super::types::TaskClass;
+                        c.score += match task_class {
+                            TaskClass::HeavyCreation => speed_bonus * 0.2 + quality_bonus * 0.8,
+                            TaskClass::LightTool => speed_bonus * 0.6 + quality_bonus * 0.4,
+                            _ => speed_bonus * 0.4 + quality_bonus * 0.6,
+                        };
                     }
                 }
                 candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));

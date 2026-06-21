@@ -747,12 +747,57 @@ impl AgentOrchestrator {
         let content = gen_response.content;
         let request_id = gen_response.model.clone();
 
+        // v0.22.1: 轻量 StyleDNA 句长偏差检测（意见2）
+        // 检查生成文本的句长是否偏离目标 StyleDNA 指标。
+        // 偏差>30%时记录建议——不阻塞返回（TimeSliced 优先速度），
+        // 但为后续改写提供数据。
+        let mut style_suggestions = vec![];
+        if let Some(ref dna_ext) = bundle.style_dna_extension {
+            // 从 style_dna_extension 提取目标句长
+            for line in dna_ext.lines() {
+                if line.contains("平均句长") {
+                    if let Some(target_str) = line.split(':').nth(1) {
+                        if let Ok(target_len) = target_str.trim().chars()
+                            .take_while(|c| c.is_ascii_digit())
+                            .collect::<String>()
+                            .parse::<u32>()
+                        {
+                            // 计算实际句长
+                            let sents: Vec<&str> = content
+                                .split(|c| c == '。' || c == '！' || c == '？' || c == '\n')
+                                .filter(|s| !s.trim().is_empty())
+                                .collect();
+                            if !sents.is_empty() {
+                                let actual_len = sents.iter()
+                                    .map(|s| s.chars().count())
+                                    .sum::<usize>() as u32 / sents.len() as u32;
+                                let deviation = if target_len > 0 {
+                                    (actual_len as f32 - target_len as f32).abs() / target_len as f32
+                                } else { 0.0 };
+                                log::debug!(
+                                    "[TimeSliced] 句长检测: 目标{}字, 实际{}字, 偏差{:.0}%",
+                                    target_len, actual_len, deviation * 100.0
+                                );
+                                if deviation > 0.3 {
+                                    style_suggestions.push(format!(
+                                        "句长偏差较大（目标{}字,实际{}字，偏差{:.0}%），建议下一轮微调",
+                                        target_len, actual_len, deviation * 100.0
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    break; // 只取第一个句长指标
+                }
+            }
+        }
+
         let steps = vec![WorkflowStepResult {
             step_type: WorkflowStepType::Generation,
             agent_type: AgentType::Writer,
             content: content.clone(),
             score: None,
-            suggestions: vec![],
+            suggestions: style_suggestions,
         }];
 
         // 跳过 apply_writing_skills（Pro 专属）、Inspector、Rewrite

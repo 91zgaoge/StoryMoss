@@ -283,15 +283,21 @@ impl WriteTimeBundle {
         let methodology_extension = match story.methodology_id.as_deref() {
             Some(mid) if !mid.is_empty() => {
                 let step = story.methodology_step.unwrap_or(1);
-                // 使用雪花法作为示例（后续可扩展到其他方法论）
-                let prompt_id = format!("methodology_snowflake_step{}", step);
-                if let Some(content) =
+                // v0.22.1: 按 methodology_id 动态选择 prompt ID
+                let (prompt_id, label) = match mid {
+                    "snowflake" => (format!("methodology_snowflake_step{}", step), format!("雪花法 第{}步", step)),
+                    "hero_journey" => ("methodology_hero_journey".to_string(), "英雄之旅".to_string()),
+                    "scene_structure" => ("methodology_scene_structure".to_string(), "场景结构".to_string()),
+                    "character_depth" => ("methodology_character_depth".to_string(), "人物深度".to_string()),
+                    "high_density_world_building" => ("methodology_hdwb_seed".to_string(), "高密度世界构建".to_string()),
+                    _ => (String::new(), String::new()),
+                };
+                if prompt_id.is_empty() {
+                    None
+                } else if let Some(content) =
                     crate::prompts::registry::resolve_prompt_default(&prompt_id)
                 {
-                    Some(format!(
-                        "【创作方法论（雪花法 第{}步）】\n{}",
-                        step, content
-                    ))
+                    Some(format!("【创作方法论（{}）】\n{}", label, content))
                 } else {
                     None
                 }

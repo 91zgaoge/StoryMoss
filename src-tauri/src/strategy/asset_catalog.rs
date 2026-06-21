@@ -397,6 +397,10 @@ mod tests {
                 "[{\"title\": \"末日降临\", \"description\": \"...\"}]".to_string(),
             ),
             reader_promise: Some("怕,燃,生存压迫".to_string()),
+            recommended_style_dna_ids: None,
+            recommended_methodology_id: None,
+            recommended_skill_ids: None,
+            min_quality_tier: None,
             is_builtin: true,
             created_at: chrono::Local::now(),
         };

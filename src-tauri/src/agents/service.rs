@@ -2406,8 +2406,27 @@ impl AgentService {
         if let Some(ref mid) = ctx.world.methodology_id {
             if !mid.is_empty() {
                 let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
-                if let Some(content) = crate::prompts::registry::resolve_prompt_default(&format!("methodology_snowflake_step{}", step)) {
-                    context_sections.push(format!("【方法论节拍（雪花法 第{}步）】\n{}", step, content));
+                // v0.22.1: 按 methodology_id 动态选择 prompt ID（支持雪花法/英雄之旅/场景结构/人物深度）
+                let prompt_id = match mid.as_str() {
+                    "snowflake" => Some(format!("methodology_snowflake_step{}", step)),
+                    "hero_journey" => Some("methodology_hero_journey".to_string()),
+                    "scene_structure" => Some("methodology_scene_structure".to_string()),
+                    "character_depth" => Some("methodology_character_depth".to_string()),
+                    "high_density_world_building" => Some("methodology_hdwb_seed".to_string()),
+                    _ => None,
+                };
+                if let Some(ref pid) = prompt_id {
+                    if let Some(content) = crate::prompts::registry::resolve_prompt_default(pid) {
+                        let label = match mid.as_str() {
+                            "snowflake" => format!("雪花法 第{}步", step),
+                            "hero_journey" => "英雄之旅".to_string(),
+                            "scene_structure" => "场景结构".to_string(),
+                            "character_depth" => "人物深度".to_string(),
+                            "high_density_world_building" => "高密度世界构建".to_string(),
+                            _ => mid.clone(),
+                        };
+                        context_sections.push(format!("【方法论节拍（{}，检查结构完整性）】\n{}", label, content));
+                    }
                 }
             }
         }
