@@ -1,33 +1,37 @@
 # StoryForge (草苔) 开发路线图
 
-## ✅ 已实施完成 (v5.6.0)
+> 最后更新: 2026-06-21（v0.22.2）
 
-### Phase 1: 基础架构重构 ✅
-**状态**: 数据库 Schema 重构完成
+## ✅ v0.22.x 已实施完成
 
-- [x] 场景表 (scenes) 替代章节表
-- [x] 世界观表 (world_buildings)
-- [x] 知识图谱实体表 (kg_entities)
-- [x] 知识图谱关系表 (kg_relations)
-- [x] 工作室配置表 (studio_configs)
-- [x] Repository 层实现
+### 提示词与后台资产深度结合 ✅
+- [x] Phase A：TimeSliced 路径全资产注入（StyleDNA六维+方法论+体裁画像+写作策略）
+- [x] Phase B：Inspector 全资产注入（体裁画像+角色状态+活跃冲突+四元组+方法论）
+- [x] Phase C：意图感知调度接线（agent_type→intent 自动推导，activate classify_by_intention）
+- [x] Phase D：算力档案消费闭环（CapabilityProfile TTFB/TPS 参与候选排序）
+- [x] Phase E：资产→生成参数规则映射（asset_params.rs）
+- [x] Phase F：GenreProfile 推荐资产字段（Migration 96 + 4 新列 + 种子数据 7 题材）
 
-### Phase 2: 场景化叙事架构 ✅
-**状态**: 完整实现
+### 提示词全量可配置化 ✅
+- [x] 79 个提示词全部纳入 PromptRegistry（21 个分类）
+- [x] 前端 Monaco 编辑器 + 批量导入/导出
+- [x] 40+ 个原硬编码提示词全部接入 registry
+- [x] 15 个假接入 key 修复为真实 DB 覆盖
 
-- [x] Scene 数据模型（戏剧目标、外部压迫、冲突类型）
-- [x] SceneRepository CRUD + 重新排序
-- [x] StoryTimeline 组件（可视化、拖拽排序）
-- [x] SceneEditor 组件（三标签页编辑）
-- [x] ConflictType 枚举（6种冲突类型）
+### SING 意图图集成 ✅
+- [x] Migration 95：6 张意图图表
+- [x] 意图合成流水线（LLM 增强 + 规则回退）
+- [x] PPR 分层发现
+- [x] 动态 ReAct 执行
+- [x] IntentionGraphPlanner × PlanExecutor 集成
+- [x] 前端诊断面板（IntentionGraphDiagnostics）
 
-### Phase 3: 增强记忆系统 ✅
-**状态**: 核心功能完成
-
-- [x] CJK Bigram Tokenizer（中文二元组分词）
-- [x] Ingest Pipeline（两步思维链）
-- [x] Knowledge Graph（带权实体关系）
-- [x] Query Pipeline（四阶段检索）
+### v0.20.x 基础设施 ✅
+- [x] Phase 1-5: SING 数据层/离线合成/分层发现/PlanGenerator重构/动态ReAct
+- [x] Phase 6: 模型网关意图感知集成
+- [x] Phase 7: 前端意图图诊断面板
+- [x] P0 断环修复: 资产同步/意图分类/执行图持久化/LLM合成/PPR传播
+- [x] 真实模型测试（Gemma4-e2b, 6/6）
 - [x] Multi-Agent Sessions（6种助手类型）
 
 ### Phase 4: AI 智能生成 ✅
