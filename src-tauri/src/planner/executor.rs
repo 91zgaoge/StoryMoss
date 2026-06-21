@@ -858,8 +858,7 @@ impl PlanExecutor {
         log::info!("[PlanExecutor::execute_writer] Loading AppConfig...");
         let app_config = crate::config::AppConfig::load(&app_dir).unwrap_or_default();
         let app_config_mode = app_config.generation_mode.clone();
-        let mut config =
-            crate::agents::orchestrator::WorkflowConfig::from_app_config(&app_config);
+        let mut config = crate::agents::orchestrator::WorkflowConfig::from_app_config(&app_config);
         config.style_weight = sw;
         config.narrative_weight = 1.0 - sw;
         let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
