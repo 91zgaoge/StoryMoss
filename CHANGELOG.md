@@ -2,6 +2,15 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.5] - CI 格式化修复（2026-06-21）
+
+### 修复
+- 修复 Rust nightly `cargo fmt` 格式化差异（import 顺序、函数参数折行、单行化）
+- 修复前端 Prettier 格式化差异（`GeneralSettings.tsx` 类型断言单行化）
+
+### 备注
+- 无业务逻辑变更；仅代码风格修复，使 `rust-check` / `frontend-check` 通过 GitHub Actions 门控
+
 ## [v0.23.4] - 智能层闭环落地（2026-06-21）
 
 ### 背景
