@@ -431,16 +431,17 @@ export function GeneralSettings() {
               </label>
               <select
                 value={settings?.generation_mode ?? 'auto'}
-                onChange={e =>
-                  debouncedUpdateSettings({
-                    generation_mode: e.target.value as
-                      | 'auto'
-                      | 'time_sliced'
-                      | 'fast'
-                      | 'full'
-                      | 'tri_shot',
-                  })
-                }
+                onChange={e => {
+                  const v = e.target.value as
+                    | 'auto'
+                    | 'time_sliced'
+                    | 'fast'
+                    | 'full'
+                    | 'tri_shot';
+                  // 直接保存，不使用防抖：select 每次点击只有一次事件，无需防抖；
+                  // 乐观更新即时刷新 UI，避免受控组件在 800ms 防抖期间被弹回旧值。
+                  updateSettings({ generation_mode: v });
+                }}
                 disabled={isPending}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
               >
