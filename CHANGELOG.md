@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.6] - 修复 macOS 启动崩溃（2026-06-22）
+
+### 修复
+- 修复启动时 `state() called before manage() for Arc<dyn VectorStore>` panic 导致的 macOS 崩溃
+  - 根因：`init_task_system_and_automation` 在 `app.manage(vector_store)` 之前通过 `app_handle.state()` 获取向量存储
+  - 方案：将 `LanceVectorStore` 的创建与 `app.manage` 提前到所有依赖组件之前，仅保留异步 `init()` 在原地
+
+### 验证
+- 本地 `cargo run` 启动成功，未再出现 APPLICATION PANIC
+- `cargo test --lib` 538 passed
+- `npm run format:check` / `npm run type-check` 通过
+- `python3 scripts/architecture_guard.py` 通过
+
 ## [v0.23.5] - CI 格式化修复（2026-06-21）
 
 ### 修复

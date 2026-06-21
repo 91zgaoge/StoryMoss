@@ -649,6 +649,14 @@ pub fn run() {
             }
             app.manage(pending_queue.clone());
 
+            // 初始化 LanceDB 向量存储并尽早注入 State，后续 task_system /
+            // model_gateway 等组件会通过 app_handle.state() 获取它。
+            let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
+            std::fs::create_dir_all(&vector_db_path).ok();
+            let vector_store: std::sync::Arc<dyn ports::VectorStore> =
+                std::sync::Arc::new(vector::LanceVectorStore::new(vector_db_path.clone()));
+            app.manage(vector_store.clone());
+
             // 初始化共享 LLM 服务并通过 Tauri State 注入，确保后续所有
             // LlmService::new(app_handle) 复用同一连接池与缓存。
             let llm_service = crate::llm::LlmService::new(app.handle().clone());
@@ -803,12 +811,7 @@ pub fn run() {
                 init_task_system_and_automation(app, pool, &app_handle);
             }
 
-            // Initialize LanceDB vector store (async background task)
-            let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
-            std::fs::create_dir_all(&vector_db_path).ok();
-            let vector_store: std::sync::Arc<dyn ports::VectorStore> =
-                std::sync::Arc::new(vector::LanceVectorStore::new(vector_db_path.clone()));
-            app.manage(vector_store.clone());
+            // 异步初始化 LanceDB 向量存储（State 已在上方提前注入）
             if let Some(ref pool) = pool {
                 let pool_clone = pool.clone();
                 tauri::async_runtime::spawn(init_vector_store_async(
