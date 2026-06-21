@@ -95,6 +95,25 @@ impl GatewayExecutor {
         }
         decision.candidates = candidates;
 
+        // v0.22.0: 算力档案消费闭环（Phase D）
+        // 使用 CapabilityProfile 的 TTFB/TPS 微调候选排序
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            if let Ok(profiles) =
+                super::capability_store::CapabilityStore::new(pool.inner().clone()).load_all()
+            {
+                let mut candidates = decision.candidates.clone();
+                for c in &mut candidates {
+                    if let Some(cap) = profiles.iter().find(|p| p.model_id == c.model_id) {
+                        let ttfb = cap.short_ttfb_ms_p50.unwrap_or(5000) as f64;
+                        let speed_bonus = if ttfb < 2000.0 { 3.0 * (1.0 - ttfb / 2000.0) } else { 0.0 };
+                        c.score += speed_bonus;
+                    }
+                }
+                candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+                decision.candidates = candidates;
+            }
+        }
+
         Ok(decision)
     }
 
