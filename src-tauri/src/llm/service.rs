@@ -1377,8 +1377,18 @@ impl LlmService {
             .remove(&request_id)
             .flatten();
 
+        self.workflow_log(
+            "llm.heartbeat.abort",
+            "开始中止心跳任务",
+            Some(serde_json::json!({"request_id": request_id})),
+        );
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
+        self.workflow_log(
+            "llm.heartbeat.aborted",
+            "心跳任务已中止",
+            Some(serde_json::json!({"request_id": request_id})),
+        );
 
         match result {
             Ok(response) => {
@@ -1400,6 +1410,11 @@ impl LlmService {
                         "response_chars": response.content.chars().count(),
                     })),
                 );
+                self.workflow_log(
+                    "llm.record_call.start",
+                    "开始写入 llm_calls 记录",
+                    Some(serde_json::json!({"request_id": request_id})),
+                );
                 self.record_llm_call(LlmCallRecord {
                     model_id: &model_name,
                     model_name: Some(&model_name),
@@ -1409,6 +1424,11 @@ impl LlmService {
                     duration_ms: duration,
                     error: None,
                 });
+                self.workflow_log(
+                    "llm.record_call.done",
+                    "llm_calls 记录写入完成",
+                    Some(serde_json::json!({"request_id": request_id})),
+                );
                 if !is_silent_background {
                     self.emit_llm_progress(
                         "completed",
@@ -1424,6 +1444,11 @@ impl LlmService {
                         Some(request_id.as_str()),
                     );
                 }
+                self.workflow_log(
+                    "llm.generate.return_ok",
+                    "LLM 生成成功，准备返回结果给调用者",
+                    Some(serde_json::json!({"request_id": request_id, "content_len": response.content.len()})),
+                );
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
