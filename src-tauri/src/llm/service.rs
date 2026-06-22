@@ -422,6 +422,21 @@ impl LlmService {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+        // v0.23.7: 向前端诊断系统广播本次调用使用的提示词与模型，
+        // 便于超时/失败时用户可复制完整 prompt 排查模型端行为。
+        let active_profile = self.get_active_profile();
+        let _ = self.app_handle.emit(
+            "llm-prompt-sent",
+            serde_json::json!({
+                "request_id": req_id,
+                "context_label": context_label,
+                "model_id": active_profile.as_ref().map(|p| p.id.clone()).unwrap_or_default(),
+                "model_name": active_profile.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
+                "provider": active_profile.as_ref().map(|p| format!("{:?}", p.provider)).unwrap_or_default(),
+                "prompt": prompt,
+            }),
+        );
+
         // 优先尝试模型网关
         let gateway = self
             .app_handle

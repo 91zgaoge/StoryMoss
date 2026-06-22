@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.6
+- **版本**: v0.23.7
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,13 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.7 诊断信息增强 + 超时文案去硬编码** (2026-06-22) — 修复诊断卡片版本号仍显示 `0.16.0`、超时文案硬编码 200/180 的问题，并补充 AI 生成模式、当前模型、最后发给 LLM 的提示词全文。核心变更：
+    - `src-frontend/src/main.tsx` / `src/frontstage/main.tsx` 从 `package.json` 动态注入 `__STORYFORGE_VERSION__`
+    - `FrontstageApp.tsx` 的 `handleRequestGeneration` / `handleSmartGeneration` 从 `settings` 读取实际超时时长
+    - 诊断卡片新增 `AI生成模式`、`当前模型ID/名称/提供商/端点`、`最后调用模型`、`最后发给模型的提示词`
+    - 后端 `LlmService` 调用模型前发射 `llm-prompt-sent` 事件，前端监听并缓存最后一次 prompt
+    - 验证：`cargo check` 零错误；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.6 修复 macOS 启动崩溃（VectorStore State 初始化顺序）** (2026-06-22) — 修复启动时 `state() called before manage() for Arc<dyn VectorStore>` panic 导致的 macOS 崩溃。核心变更：
     - 将 `LanceVectorStore` 的创建与 `app.manage(vector_store)` 提前到 `init_task_system_and_automation` 之前

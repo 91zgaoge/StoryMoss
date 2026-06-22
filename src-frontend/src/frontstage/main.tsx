@@ -9,9 +9,10 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from './FrontstageApp';
 import './styles/frontstage.css';
+import packageJson from '../../package.json';
 
 // 注入版本号供诊断卡片使用
-(window as any).__STORYFORGE_VERSION__ = '0.16.0';
+(window as any).__STORYFORGE_VERSION__ = packageJson.version;
 
 // React Query client
 const queryClient = new QueryClient({

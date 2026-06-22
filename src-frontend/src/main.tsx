@@ -7,9 +7,10 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import './index.css';
+import packageJson from '../package.json';
 
 // 注入版本号供诊断使用
-(window as any).__STORYFORGE_VERSION__ = '0.16.0';
+(window as any).__STORYFORGE_VERSION__ = packageJson.version;
 
 const queryClient = new QueryClient({
   defaultOptions: {

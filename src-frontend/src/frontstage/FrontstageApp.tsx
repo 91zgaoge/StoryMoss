@@ -534,6 +534,26 @@ const FrontstageApp: React.FC = () => {
     return () => stop();
   }, [allModels, startPolling]);
 
+  // v0.23.7: 监听后端实际发给 LLM 的提示词，用于诊断卡片
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      unlisten = await listen<{
+        prompt: string;
+        model_id: string;
+        model_name: string;
+        provider: string;
+      }>('llm-prompt-sent', event => {
+        lastLlmPromptRef.current = event.payload.prompt ?? '空提示词';
+        lastLlmModelRef.current =
+          event.payload.model_id || event.payload.model_name
+            ? `${event.payload.model_name} (${event.payload.provider})`
+            : '未知';
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+
   // AI 学习指示器
 
   const editorRef = useRef<RichTextEditorRef>(null);
@@ -568,6 +588,9 @@ const FrontstageApp: React.FC = () => {
   const mainGenerationCompletedRef = useRef<boolean>(false);
   // v0.13.3: 用户主动取消时跳过安全网诊断
   const lastGenerationCancelledRef = useRef<boolean>(false);
+  // v0.23.7: 记录后端最近一次实际发给 LLM 的提示词与模型，用于诊断卡片
+  const lastLlmPromptRef = useRef<string>('未捕获（可能生成未进入 LLM 调用）');
+  const lastLlmModelRef = useRef<string>('未知');
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
 
@@ -591,9 +614,23 @@ const FrontstageApp: React.FC = () => {
       const lastEvt = lastProgressEventRef.current;
       const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
 
+      const feTimeout = settings?.frontend_timeout_secs ?? 200;
+      const beTimeout = settings?.smart_execute_total_timeout_secs ?? 180;
+      const firstChunkTimeout = settings?.llm_first_chunk_timeout_secs ?? 60;
+      const connectTimeout = settings?.llm_connect_timeout_secs ?? 30;
+      const promptText = lastLlmPromptRef.current;
+      const promptPreview =
+        promptText.length > 12000 ? `${promptText.substring(0, 12000)}\n...（已截断）` : promptText;
+
       const info: Record<string, string> = {
         发生时间: new Date().toISOString(),
         应用版本: backendVersion,
+        AI生成模式: settings?.generation_mode ?? 'auto',
+        当前模型ID: activeChatModel?.id || activeChatModelId || '未配置',
+        当前模型名称: activeChatModel?.name || '未知',
+        当前模型提供商: activeChatModel?.provider || '未知',
+        当前模型端点: activeChatModel?.api_base || '未知',
+        最后调用模型: lastLlmModelRef.current,
         '当前阶段（UI 判定）': currentToastPhaseRef.current || '未知',
         当前状态文字: generationStatus || '无',
         '已用时（秒）': String(elapsed),
@@ -603,7 +640,12 @@ const FrontstageApp: React.FC = () => {
         最后事件消息: lastEvt?.message || lastEvt?.detail || '无',
         最后事件详情: lastEvt ? JSON.stringify(lastEvt).substring(0, 500) : '{}',
         作品存在: currentStory?.id ? '是' : '否（currentStory 为 null）',
-        后端超时配置: '前端200s / 后端smart_execute整体180s / LLM首字节60s+绝对360s',
+        前端超时秒数: String(feTimeout),
+        后端smart_execute整体超时秒数: String(beTimeout),
+        LLM连接超时秒数: String(connectTimeout),
+        LLM首字节超时秒数: String(firstChunkTimeout),
+        后端超时配置: `前端${feTimeout}s / 后端smart_execute整体${beTimeout}s / LLM连接${connectTimeout}s / LLM首字节${firstChunkTimeout}s`,
+        最后发给模型的提示词: promptPreview,
         模型建议: '若本地模型慢，可尝试减少上下文或用量',
         作品ID: currentStory?.id || '无',
         章数: chapters?.length ? String(chapters.length) : '未知',
@@ -619,7 +661,16 @@ const FrontstageApp: React.FC = () => {
       setDiagnosticData(info);
       setShowDiagnosticCard(true);
     },
-    [generationStatus, currentStory, chapters, scenes, currentChapter]
+    [
+      generationStatus,
+      currentStory,
+      chapters,
+      scenes,
+      currentChapter,
+      activeChatModel,
+      activeChatModelId,
+      settings,
+    ]
   );
 
   // A4-1.7: 将基础文案与已用时间拼接（避免重复追加时间后缀）
@@ -1668,22 +1719,27 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      // v0.14.0: 前端超时从 330 秒降至 200 秒，后端 smart_execute 整体超时为 180 秒，
-      // 前端 200 秒确保在后端超时后才触发，避免前端先于后端退出导致无法收到后端错误。
+      // v0.14.0: 前端超时从 330 秒降至 200 秒，后端 smart_execute 整体超时为 180 秒。
+      // v0.23.7: 改为从 settings 读取，避免用户已调整超时后文案仍显示 200/180。
+      const feTimeoutSeconds = settings?.frontend_timeout_secs ?? 200;
+      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 180;
+      const feTimeoutMs = feTimeoutSeconds * 1000;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 200 秒内响应');
+          useBackendActivityStore
+            .getState()
+            .failAllRunning(`前端超时：模型未在 ${feTimeoutSeconds} 秒内响应`);
           // v0.14.0: 前端超时时通知后端取消所有进行中的 LLM 生成（best-effort）
           invoke('llm_cancel_all_generations').catch(() => {
             /* best-effort，忽略取消失败 */
           });
           reject(
             new Error(
-              '前端超时：模型响应超过200秒。后端 smart_execute 整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。'
+              `前端超时：模型响应超过${feTimeoutSeconds}秒。后端 smart_execute 整体超时为${beTimeoutSeconds}秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
             )
           );
-        }, 200000);
+        }, feTimeoutMs);
       });
       cancelGenerationRef.current = () => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -1862,7 +1918,7 @@ const FrontstageApp: React.FC = () => {
         setOrchestratorStatus(null);
       }
     },
-    [isGenerating]
+    [isGenerating, settings]
   );
 
   // Accept AI generation
@@ -2043,9 +2099,9 @@ const FrontstageApp: React.FC = () => {
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
       // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。
-      // 前端 200 秒确保在后端超时后才触发，避免前端先于后端退出。
-      // v0.15.5: 从设置读取，默认 200s
+      // v0.15.5/v0.23.7: 从设置读取，避免用户已调整超时后文案仍显示 200/180。
       const timeoutSeconds = settings?.frontend_timeout_secs ?? 200;
+      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 180;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
@@ -2152,8 +2208,8 @@ const FrontstageApp: React.FC = () => {
           reject(
             new Error(
               isBootstrap
-                ? `前端超时：模型响应超过${timeoutSeconds}秒。创建新小说需要多次LLM调用，后端整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
-                : `前端超时：模型响应超过${timeoutSeconds}秒。后端 smart_execute 整体超时为180秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
+                ? `前端超时：模型响应超过${timeoutSeconds}秒。创建新小说需要多次LLM调用，后端 smart_execute 整体超时为${beTimeoutSeconds}秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
+                : `前端超时：模型响应超过${timeoutSeconds}秒。后端 smart_execute 整体超时为${beTimeoutSeconds}秒，正常情况下应由后端先返回错误。请检查模型服务（vllm/Ollama/OpenAI）是否正常运行。`
             )
           );
         }, timeoutMs);
@@ -2364,7 +2420,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
     },
-    [isGenerating]
+    [isGenerating, settings]
   );
 
   // 底部输入栏提交

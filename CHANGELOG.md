@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.7] - 诊断信息增强 + 超时文案去硬编码（2026-06-22）
+
+### 修复
+- 修复诊断卡片 `应用版本` 显示固定 `0.16.0` 的问题
+  - `src-frontend/src/main.tsx` 与 `src/frontstage/main.tsx` 改为从 `package.json` 动态注入 `__STORYFORGE_VERSION__`
+- 修复前端超时/后端超时提示文案硬编码 `200s` / `180s` 的问题
+  - `FrontstageApp.tsx` 的 `handleRequestGeneration` / `handleSmartGeneration` 现在从 `settings.frontend_timeout_secs` / `settings.smart_execute_total_timeout_secs` 读取实际值
+  - 错误提示与诊断卡片中的超时说明全部改为实际配置值
+
+### 新增
+- 诊断卡片新增 **AI 生成模式**（`settings.generation_mode`）
+- 诊断卡片新增 **当前连接模型 ID / 名称 / 提供商 / 端点**
+- 诊断卡片新增 **最后调用模型** 与 **最后发给模型的提示词全文**（后端通过 `llm-prompt-sent` 事件广播，前端实时捕获）
+- 后端 `LlmService::generate_for_request_with_request_id` 在调用模型网关前发射 `llm-prompt-sent` 事件，携带 `request_id`、`context_label`、`model_id`、`model_name`、`provider`、`prompt`
+
+### 验证
+- `cargo check` ✅ 零错误（82 warnings 均为既有）
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.6] - 修复 macOS 启动崩溃（2026-06-22）
 
 ### 修复

@@ -1,11 +1,20 @@
-# StoryForge (草苔) v0.23.6 项目完成状态
+# StoryForge (草苔) v0.23.7 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.6 macOS 启动崩溃修复 + 智能层闭环落地）
+> 最后更新: 2026-06-22（v0.23.7 诊断信息增强 + 超时文案去硬编码）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.7 — 诊断信息增强 + 超时文案去硬编码（2026-06-22）
+
+- 🩹 **修复诊断版本号硬编码**：`__STORYFORGE_VERSION__` 改为从 `package.json` 动态读取，不再显示 `0.16.0`
+- 🩹 **修复超时文案硬编码**：`handleRequestGeneration` / `handleSmartGeneration` 现在从 `settings` 读取 `frontend_timeout_secs` / `smart_execute_total_timeout_secs`，错误提示与诊断卡片均显示实际配置值
+- 📋 **诊断卡片新增 AI 生成模式**：显示 `settings.generation_mode`（`auto` / `time_sliced` / `fast` / `full` / `tri_shot`）
+- 🤖 **诊断卡片新增当前模型信息**：模型 ID / 名称 / 提供商 / 端点
+- 📝 **诊断卡片新增最后发给模型的提示词全文**：后端通过 `llm-prompt-sent` 事件广播，前端实时捕获并展示（上限 12000 字符）
+- ✅ **验证**：`cargo check` 零错误；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
 ### v0.23.6 — 修复 macOS 启动崩溃：VectorStore State 初始化顺序（2026-06-22）
 

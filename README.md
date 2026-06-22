@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.6-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.7-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.6 修复 macOS 启动崩溃，并延续 v0.23.4 智能层闭环落地成果。Review/Refine Pipeline 启用 LLM JSON mode（OpenAI/Ollama 原生结构化输出），修稿结果携带 `refinement_notes`；MemoryPack 预算参数强类型化；拆书存储统一，删除 `reference_characters` / `reference_scenes`，数据全部汇入 `narrative_*` 表。v0.23.5 仅做 CI 格式化修复，无业务逻辑变更。当前 TriShot 三击管线、后台静默质检/改写/洞察能力均保持可用。
+**最新动态**：v0.23.7 修复诊断卡片版本号仍显示 `0.16.0` 的问题，去除前端/后端超时文案中的硬编码 `200s` / `180s`，诊断信息新增 AI 生成模式、当前模型、最后发给 LLM 的提示词全文。v0.23.6 修复 macOS 启动崩溃；v0.23.4 完成智能层闭环（LLM JSON mode / MemoryPack 预算语义化 / 拆书存储统一）。当前 TriShot 三击管线、后台静默质检/改写/洞察能力均保持可用。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 
