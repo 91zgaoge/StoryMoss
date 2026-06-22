@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.23.12 项目完成状态
+# StoryForge (草苔) v0.23.13 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.12 彻底修复长超时：活跃模型优先 + 智能创作流程日志）
+> 最后更新: 2026-06-22（v0.23.13 强制所有生成路径使用活跃模型）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.13 — 强制所有生成路径使用活跃模型（2026-06-22）
+
+- 🎯 **彻底修复“当前模型是 A，实际调用 B”**：`LlmService::select_profile_for_request`、`GatewayExecutor::select_candidates`、`GatewayExecutor::select_fastest_profile` 全部优先返回/置顶用户当前设置的活跃模型
+- 🧭 **Genesis 故事概念、TriShot Call 1、普通路由生成统一走活跃模型**：只要活跃模型健康（Healthy/Degraded），不再被 TTFB 阈值或三维打分绕开
+- 🩹 **新增模型即时可用**：`create_model` 完成后立即刷新网关注册表并执行健康探测，探测通过即刻进入可用模型池
+- ✅ **验证**：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
 ### v0.23.12 — 彻底修复长超时：活跃模型优先 + 智能创作流程日志（2026-06-22）
 

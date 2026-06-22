@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.12-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.13-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.12 彻底修复长超时根因——模型网关错误地连接了非当前设置的模型。现在 `GatewayExecutor::generate` 会把用户当前设置的活跃模型强制放到候选链首位；`select_fastest_profile` 在活跃模型无算力档案时也优先使用活跃模型。同时新增 `WorkflowLogger`，把 TriShot 每个阶段（Call 1 选资产、Call 3 路由、LLM 调用起止、模型选择）写入 `logs/creative_workflow.log`，诊断卡片可直接读取。v0.23.11 已过滤探测 prompt。
+**最新动态**：v0.23.13 强制所有生成路径（Genesis 故事概念、TriShot Call 1、普通路由生成）统一使用用户当前设置的活跃模型，彻底避免“当前模型是 A，实际调用 B 导致 600 秒超时”的问题。v0.23.12 已新增 `WorkflowLogger` 并把活跃模型提到候选链首位；v0.23.11 已过滤探测 prompt。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

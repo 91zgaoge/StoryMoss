@@ -261,6 +261,48 @@ impl GatewayExecutor {
             }
         }
 
+        // v0.23.13: 普通路由生成强制使用用户当前设置的活跃模型作为主模型。
+        // 只要活跃模型通过健康检查（Healthy/Degraded）且仍在注册表，就将其置于
+        // 候选链首位；这防止网关三维打分/算力档案把请求路由到用户未预期的模型。
+        if let Some(active) = self.llm_service.get_active_profile() {
+            if self.is_model_available(&active.id) {
+                if let Some(profile) = self.registry_guard().get(&active.id).cloned() {
+                    let mut candidates = decision.candidates.clone();
+                    candidates.retain(|c| c.model_id != active.id);
+                    let top_score = candidates.first().map(|c| c.score).unwrap_or(50.0);
+                    let active_candidate = crate::router::RankedCandidate {
+                        model_id: active.id.clone(),
+                        model_name: active.name.clone(),
+                        score: top_score + 1000.0,
+                        reason: "当前活跃模型强制优先".to_string(),
+                    };
+                    candidates.insert(0, active_candidate);
+                    decision.model_id = active.id.clone();
+                    decision.model_name = active.name.clone();
+                    decision.candidates = candidates;
+                    log::info!(
+                        "[Gateway] select_candidates: 强制使用当前活跃模型 {}",
+                        active.id
+                    );
+                    self.workflow_log(
+                        "gateway.select_candidates",
+                        format!("强制使用当前活跃模型: {}", active.id),
+                        Some(serde_json::json!({
+                            "active_profile_id": active.id,
+                            "active_profile_name": active.name,
+                            "score": top_score + 1000.0,
+                            "reason": "active_profile_forced_primary",
+                        })),
+                    );
+                }
+            } else {
+                log::warn!(
+                    "[Gateway] select_candidates: 当前活跃模型 {} 不可用，继续按网关打分选择",
+                    active.id
+                );
+            }
+        }
+
         Ok(decision)
     }
 
@@ -272,6 +314,30 @@ impl GatewayExecutor {
     /// profile。
     pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
         let active = self.llm_service.get_active_profile();
+
+        // v0.23.13: 用户 explicit 设置的活跃模型无条件优先（只要健康检查未判定
+        // Unhealthy）。 这是为了避免 TriShot Call 1
+        // 等「最快模型」路径绕过用户当前设置的模型，
+        // 连接到用户未预期或实际不可用的模型。
+        if let Some(ref active_profile) = active {
+            let active_available = self.is_model_available(&active_profile.id);
+            let active_in_registry = self.registry_guard().get(&active_profile.id).is_some();
+            if active_in_registry && active_available {
+                log::info!(
+                    "[Gateway] select_fastest_profile: 无条件使用当前活跃模型 {}",
+                    active_profile.id
+                );
+                self.workflow_log(
+                    "gateway.select_fastest_profile",
+                    format!("无条件使用当前活跃模型: {}", active_profile.id),
+                    Some(serde_json::json!({
+                        "active_profile_id": active_profile.id,
+                        "reason": "active_profile_priority",
+                    })),
+                );
+                return self.registry_guard().get(&active_profile.id).cloned();
+            }
+        }
 
         // 1) 优先用算力档案按 TTFB 选最快模型
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {

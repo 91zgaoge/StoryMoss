@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.12）
+> 最后更新: 2026-06-22（v0.23.13）
 
 ## ✅ v0.23.x 已实施完成
+
+### 🔒 v0.23.13 强制所有生成路径使用活跃模型 ✅ (2026-06-22)
+- [x] `LlmService::select_profile_for_request` 无条件优先返回 `active_llm_profile`
+- [x] `GatewayExecutor::select_candidates` 将健康活跃模型强制置顶为 primary
+- [x] `GatewayExecutor::select_fastest_profile` 健康活跃模型无条件优先，不再受 TTFB 阈值限制
+- [x] Genesis 故事概念、TriShot Call 1、普通路由生成全部走用户当前设置的活跃模型
+- [x] 新增模型保存后即时刷新注册表并执行健康探测
 
 ### 🎯 TriShot 三击生成管线 ✅ (v0.23.0)
 - [x] GenerationMode::TriShot 三击模式（与 Fast/TimeSliced/Full 并存）
@@ -354,6 +361,11 @@ $ cd src-tauri && cargo test --lib
 ---
 
 ## 📈 历史版本
+
+### v0.23.13 (2026-06-22)
+- [x] 强制 Genesis / TriShot / 普通路由生成统一使用用户设置的活跃模型
+- [x] `select_profile_for_request`、`select_candidates`、`select_fastest_profile` 全部优先活跃模型
+- [x] 新增模型保存后即时健康探测并刷新网关注册表
 
 ### v0.23.12 (2026-06-22)
 - [x] 活跃模型强制优先，修复连接错误模型导致的长超时

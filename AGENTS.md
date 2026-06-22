@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.12
+- **版本**: v0.23.13
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,14 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.13 强制所有生成路径使用活跃模型** (2026-06-22) — 彻底解决“当前模型是 A，实际调用 B”导致的 600 秒超时。核心变更：
+    - `LlmService::select_profile_for_request` 无条件优先返回用户设置的 `active_llm_profile`
+    - `GatewayExecutor::select_candidates` 将健康活跃模型强制置顶为 primary，避免被三维打分/算力档案绕开
+    - `GatewayExecutor::select_fastest_profile` 只要活跃模型健康（Healthy/Degraded）就优先使用，不再受 TTFB 阈值限制
+    - Genesis 故事概念、TriShot Call 1/Call 3、普通路由生成全部走活跃模型
+    - `create_model` 保存后即时刷新网关注册表并执行健康探测，新模型立即进入可用池
+    - 验证：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.12 彻底修复长超时：活跃模型优先 + 智能创作流程日志** (2026-06-22) — 根因是模型网关连接了非当前设置的模型，导致实际调用的模型挂起/不可用。核心变更：
     - `GatewayExecutor::generate` 把用户当前设置的活跃模型强制提升到候选链首位

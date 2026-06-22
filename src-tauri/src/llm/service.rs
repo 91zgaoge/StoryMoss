@@ -368,6 +368,9 @@ impl LlmService {
     }
 
     /// 根据路由请求选择最合适的 LLM 配置
+    ///
+    /// v0.23.13: 优先使用用户当前设置的活跃模型，避免路由器在用户未预期的
+    /// 模型上执行（特别是本地/远程模型混用时）。活跃模型不可用时才走统一路由。
     pub fn select_profile_for_request(
         &self,
         request: &RoutingRequest,
@@ -375,6 +378,21 @@ impl LlmService {
         let guard = self.config.lock().map_err(|_| {
             AppError::internal("Failed to lock AppConfig while selecting model".to_string())
         })?;
+
+        // 1) 优先返回用户 explicit 设置的活跃模型
+        if let Some(active_id) = guard.active_llm_profile.as_deref() {
+            if let Some(profile) = guard.llm_profiles.get(active_id) {
+                if profile.enabled {
+                    log::info!(
+                        "[LLM] select_profile_for_request: 优先使用活跃模型 {}",
+                        profile.id
+                    );
+                    return Ok(profile.clone());
+                }
+            }
+        }
+
+        // 2) 活跃模型不可用时走统一路由
         let registry = UnifiedModelRegistry::from_app_config(&*guard);
         let router = UnifiedModelRouter::new(registry);
         let decision = router.route(request)?;

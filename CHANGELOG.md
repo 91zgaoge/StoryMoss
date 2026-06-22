@@ -2,6 +2,24 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.13] - 强制所有生成路径使用活跃模型（2026-06-22）
+
+### 修复
+- **Genesis / TriShot / 路由生成统一优先使用用户设置的活跃模型**
+  - `LlmService::select_profile_for_request` 现在优先返回 `active_llm_profile`，不再让路由器把调用发到用户未预期的“最快”模型
+  - `GatewayExecutor::select_candidates` 现在把健康活跃模型强制置顶为 primary，避免被三维打分或算力档案绕开
+  - `GatewayExecutor::select_fastest_profile` 无条件优先使用健康注册表中的活跃模型（Healthy/Degraded），仅在活跃模型不可用时才回退到最快模型
+  - 避免再次出现“当前模型是 Gemma4-e2b，实际调用 RavenX/Qwen3.5 导致 600 秒超时”的情况
+- **新增模型即时进入可用池**
+  - `create_model` 保存后立刻刷新网关注册表并执行一次健康探测
+  - 探测通过的模型立即参与后续调度，避免新模型被遗漏
+
+### 验证
+- `cargo test --lib` ✅ 540 passed / 0 failed / 2 ignored
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.12] - 彻底修复长超时：活跃模型优先 + 智能创作流程日志（2026-06-22）
 
 ### 修复
