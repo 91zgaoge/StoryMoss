@@ -1383,10 +1383,12 @@ impl LlmService {
             Some(serde_json::json!({"request_id": request_id})),
         );
         heartbeat_handle.abort();
-        let _ = heartbeat_handle.await;
+        // v0.23.17: 带超时的心跳等待——若心跳 task 卡在 emit() 等同步阻塞操作中，
+        // tokio::task::abort() 无法立即终止。用 5s 超时防止主流程被无限阻塞。
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), heartbeat_handle).await;
         self.workflow_log(
             "llm.heartbeat.aborted",
-            "心跳任务已中止",
+            "心跳任务已完成/超时终止",
             Some(serde_json::json!({"request_id": request_id})),
         );
 

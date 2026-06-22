@@ -24,7 +24,12 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
              PRAGMA busy_timeout = 5000;",
         )
     });
-    let pool = Pool::builder().max_size(10).build(manager)?;
+    let pool = Pool::builder()
+        .max_size(10)
+        // v0.23.17: connection_timeout 防止 pool.get() 在连接池耗尽时无限阻塞，
+        // 导致 tokio worker 线程被卡死、tokio::time::timeout 无法触发。
+        .connection_timeout(std::time::Duration::from_secs(10))
+        .build(manager)?;
 
     let mut conn = pool.get()?;
 

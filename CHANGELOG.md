@@ -2,6 +2,13 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.17] - 心跳阻塞 + 连接池超时双保险（2026-06-23）
+
+### 修复
+- **心跳 await 无限阻塞**：`heartbeat_handle.await` 等待 tokio task 终止。若心跳在 `emit()` 等同步操作中卡住，`abort()` 无法立即生效，导致主流程永久阻塞。修复：用 `tokio::time::timeout(5s)` 包裹，5 秒后强制继续。
+- **r2d2 连接池无限等待**：`pool.get()` 默认无超时。连接池耗尽时阻塞 tokio worker 线程，导致 `tokio::time::timeout` 无法触发。修复：`Pool::builder().connection_timeout(10s)`。
+- **LLM 返回路径诊断**：`generate_with_profile_context_and_pipeline` 添加 workflow log 追踪（`record_call.start/done`、`heartbeat.abort/aborted`、`return_ok`），写入 `creative_workflow.log`。
+
 ## [v0.23.16] - Genesis 快速阶段卡死修复 + E2E 集成测试（2026-06-22）
 
 ### 修复
