@@ -182,10 +182,15 @@ async fn smart_execute_inner(
     // 检测是否需要启动小说初始化工作流
     let is_bootstrap_intent = is_novel_creation_intent(&user_input);
 
-    if is_bootstrap_intent {
-        log::info!(
-            "[smart_execute] Detected novel creation intent, starting GenesisPipeline quick phase"
-        );
+            if is_bootstrap_intent {
+                let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+                let total_timeout = crate::config::AppConfig::load(&app_dir)
+                    .map(|c| c.smart_execute_total_timeout_secs)
+                    .unwrap_or(180u64);
+                log::warn!(
+                    "[smart_execute] 检测到小说创建意图，启动 GenesisPipeline 快速阶段，total_timeout={}s",
+                    total_timeout
+                );
         let mut ctx =
             crate::narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
         let session_id = ctx.session_id.clone();
@@ -195,6 +200,7 @@ async fn smart_execute_inner(
         // v0.23.14: 快速阶段 = 故事概念 + 第一章正文（TriShot 模式，目标 30-60 秒）
         // 正文生成后立即返回给用户，策略选择与世界观/大纲/角色等推入后台。
         let quick_steps = crate::narrative::genesis::GenesisPipeline::quick_phase_steps();
+        let quick_step_count = quick_steps.len();
         let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
             .with_cancel_flag(cancel_flag.clone());
 
@@ -217,11 +223,19 @@ async fn smart_execute_inner(
             },
         );
 
-        match executor
-            .execute(&mut ctx, &llm, progress_callback.clone())
-            .await
-        {
-            Ok(()) => {
+            log::warn!(
+                "[smart_execute] GenesisPipeline 快速阶段开始执行，共 {} 步",
+                quick_step_count
+            );
+            match executor
+                .execute(&mut ctx, &llm, progress_callback.clone())
+                .await
+            {
+                Ok(()) => {
+                    log::warn!(
+                        "[smart_execute] GenesisPipeline 快速阶段成功完成 story_id={}",
+                        ctx.story_id
+                    );
                 // 从上下文读取第一章正文内容（已在 FirstChapterGenerationStep
                 // 中保存到数据库并发射 ChapterSwitch 事件）
                 let final_content = {

@@ -335,11 +335,24 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
+            log::warn!(
+                "[GenesisDiag] ConceptGenerationStep: LLM 返回，content_len={}，开始解析 JSON",
+                response.content.len()
+            );
+
             let content = response.content.trim();
             let json_str = super::extract_and_sanitize_json(content)
                 .map_err(|e| PipelineError::ParseError(e))?;
+            log::warn!(
+                "[GenesisDiag] ConceptGenerationStep: JSON 提取成功，len={}，开始反序列化",
+                json_str.len()
+            );
             let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))?;
+            log::warn!(
+                "[GenesisDiag] ConceptGenerationStep: 反序列化成功 title={}，开始创建 Story 记录",
+                meta.title
+            );
 
             // 创建 Story 记录；若 LLM 已返回标准化 genre_profile_ids，优先使用首个
             let primary_genre_profile_id = meta.genre_profile_ids.first().cloned();
@@ -355,6 +368,10 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                     reference_book_id: None,
                 })
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+            log::warn!(
+                "[GenesisDiag] ConceptGenerationStep: Story 创建成功 id={}，写入 ctx",
+                story.id
+            );
 
             ctx.story_id = story.id.clone();
             let title = meta.title.clone();
@@ -560,6 +577,14 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             // 配合钥匙串内存缓存，大幅减少 macOS 钥匙串访问。
             let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
             let app_config = crate::config::AppConfig::load(&app_dir).unwrap_or_default();
+            log::warn!(
+                "[GenesisDiag] FirstChapterGenerationStep: 开始，story_id={}",
+                ctx.story_id
+            );
+
+            let app_config = crate::config::AppConfig::load(&app_dir)
+                .map(|c| c)
+                .unwrap_or_default();
             let word_count_target = app_config.genesis_first_chapter_word_count_target;
             let writing_strategy = app_config.writing_strategy.clone();
             let orchestrator_config =
@@ -567,12 +592,19 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 
             // 通过 AgentService 生成第一章
             // v0.23.15: TriShot 模式的预检失败会自动触发 auto-fill 补齐角色，
+            log::warn!(
+                "[GenesisDiag] FirstChapterGenerationStep: 开始构建 StoryContext story_id={}",
+                ctx.story_id
+            );
             let builder =
                 crate::creative_engine::context_builder::StoryContextBuilder::new(ctx.pool.clone());
             let agent_context = builder
                 .build(&ctx.story_id, Some(1), None, None)
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+            log::warn!(
+                "[GenesisDiag] FirstChapterGenerationStep: StoryContext 构建完成，开始生成第一章"
+            );
 
             // 构建策略注解：将模型选择的体裁画像、方法论等注入写作指令
             let strategy_notes = build_strategy_notes(ctx, &meta.genre);
