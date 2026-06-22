@@ -1,11 +1,54 @@
-# StoryForge (草苔) v0.23.0 项目完成状态
+# StoryForge (草苔) v0.23.6 项目完成状态
 
-> 最后更新: 2026-06-21（v0.23.0 TriShot 三击生成管线 + 后台智能改写）
+> 最后更新: 2026-06-22（v0.23.6 macOS 启动崩溃修复 + 智能层闭环落地）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.6 — 修复 macOS 启动崩溃：VectorStore State 初始化顺序（2026-06-22）
+
+- 🐛 **修复启动 panic**：解决 `state() called before manage() for Arc<dyn VectorStore>` 导致的 macOS 启动崩溃
+- 🔧 **根因**：`init_task_system_and_automation` 在 `app.manage(vector_store)` 之前通过 `app_handle.state()` 获取向量存储
+- 🔧 **方案**：将 `LanceVectorStore` 创建与 `app.manage(vector_store)` 提前到依赖组件之前，异步 `init()` 保留原地
+- ✅ **验证**：`cargo check` 零错误；`cargo test --lib` **538 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 通过；`python3 scripts/architecture_guard.py` 通过
+
+### v0.23.5 — CI 格式化修复（2026-06-21）
+
+- 🎨 **Rust nightly fmt**：修复 import 顺序、函数参数折行、单行化等格式化差异
+- 🎨 **前端 Prettier**：修复 `GeneralSettings.tsx` 类型断言单行化差异
+- 📋 **无业务逻辑变更**：仅代码风格修复，使 GitHub Actions `rust-check` / `frontend-check` 通过
+
+### v0.23.4 — 智能层闭环落地（2026-06-21）
+
+- 🧠 **LLM JSON mode 原生支持**：新增 `llm::adapter::ResponseFormat::JsonObject`，OpenAI/Ollama 适配器分别附加 `response_format` / `format`，模型网关可透传
+- ✍️ **Review/Refine Pipeline 结构化输出**：调用 JSON mode 并解析 `{ refined_content, change_summary, refinement_notes }`
+- 💰 **MemoryPack 预算语义强类型化**：`MemoryBudget::for_task_type` 接收 `MemoryTaskType { Write, Plan, Review }`
+- 📚 **拆书存储统一**：删除 `reference_characters` / `reference_scenes`，人物/场景数据全部汇入 `narrative_*` 表；迁移 `V100__拆书存储统一_删除_reference_表.sql`
+- ✅ **验证**：`cargo check` 零错误；`cargo test --lib` **538 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过
+
+### v0.23.3 — 测试基线修复 + 工程化（2026-06-21）
+
+- 🐛 **MigrationRunner 交错执行**：`run_with_legacy` 按版本将 SQL 文件 migration 与 inline Rust migration 交错执行，避免高版本 SQL 文件跳过低版本 inline migrations
+- 🗂️ **SING migration 版本上调**：`V095__意图图_SING_数据层.sql` → `V099__...`，确保其跑在所有 inline migrations 之后
+- 🗂️ **`narrative_*` 表补 status 列**：`narrative_characters` / `narrative_scenes` / `narrative_world_buildings` 加入 `status TEXT NOT NULL DEFAULT 'active'`，新增 inline Migration 98 为已存在表补列
+- 🔄 **ElementSource/ElementStatus round-trip 修复**：`domain/narrative_elements.rs` 新增 `as_str()` / `from_str()`（snake_case 英文）；`db/repositories_narrative.rs` 存储与解析统一使用英文键
+- ✅ **验证**：`cargo check` 零错误；`cargo test --lib` **538 passed / 0 failed / 2 ignored**（新增 3 个测试，零回归）；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过
+
+### v0.23.2 — 事件总线与状态同步治理（2026-06-21）
+
+- 📡 **后端 `SyncEvent::ChapterCommitted`**：携带 `projection_status`，`SceneCommitService::apply_commit` 在 projections 完成后统一发射
+- 🖥️ **前端 `content/isSaved` 迁移到 `frontstageStore`**：移除本地 `useState`，保留 `isSaved` + editor focus 双重保护
+- 🧹 **清理遗留事件/hack**：删除所有 `backstage-data-refreshed` 废弃注释；`useWebViewRedrawFix` 改为 `FIXME` 标记
+- ✅ **验证**：`cargo check` 零错误；`cargo test --lib` 487 passed / 48 failed（零新回归）；`npx tsc --noEmit` 零错误；`npx vitest run` 126 passed / 3 skipped
+
+### v0.23.1 — 架构债务清偿：全局单例治理 + 模块依赖解耦（2026-06-21）
+
+- 🗑️ **全局单例清零**：彻底移除 14 个全局 `static`/缓存，全部改为 Tauri State 注入或每次调用重新加载
+- 🏗️ **domain 领域层扩展**：新增 `agent_context` / `agent_types` / `foreshadowing` / `search` / `write_time_bundle` / `asset_snapshot` / `continuity` / `adaptive` / `prompt_synthesis` / `agent_service` / `creative_engine` 等共享类型与端口
+- 🔗 **模块循环依赖斩断**：`memory → agents`、`narrative → memory`、`narrative → creative_engine` 数据类型下沉到 `domain`；`agents ↔ creative_engine` 行为依赖通过 `CreativeEnginePort` / `AgentServicePort` 双向反转
+- ✅ **验证**：`cargo check` 零错误；`cargo test --lib` 486 passed / 48 failed（零新回归）；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过
 
 ### v0.23.0 — TriShot 三击生成管线：关键路径压缩至最多 3 次 LLM（2026-06-21）
 
@@ -71,6 +114,7 @@
 | 检查项 | 状态 |
 |--------|------|
 | `cargo check` | ✅ 零错误 |
+| `cargo test --lib` | ✅ 538 passed / 0 failed / 2 ignored |
 | `cargo test --lib intention_graph` | ✅ 21/21 |
 | `cargo test --lib adaptive::asset_params` | ✅ 3/3 |
 | `cargo test --lib genre_resolver` | ✅ 5/5 |
@@ -79,10 +123,12 @@
 | `cargo test --lib dispatcher` | ✅ 5/5 |
 | 真实模型测试（Gemma4-e2b） | ✅ 6/6 |
 | `npx tsc --noEmit` | ✅ 零错误 |
+| `npx vitest run` | ✅ 126 passed / 3 skipped |
 | `cargo +nightly fmt -- --check` | ✅ 零差异 |
-| `prettier --check` | ✅ 零差异 |
+| `npm run format:check` | ✅ 零差异 |
+| `python3 scripts/architecture_guard.py` | ✅ 通过 |
 | 后台资产审计 | ✅ 完成，见 `docs/CREATIVE_ASSETS_AUDIT_v0.22.4.md` |
-| 已知测试失败 | ⚠️ `test_load_all_assets_integration`（V092 基线）、`test_build_prompt_extension_scene_structure`（注册表与代码 fallback 不一致）|
+| 已知测试失败 | ✅ 无（V092 基线问题已在 v0.23.3 清零） |
 
 ---
 

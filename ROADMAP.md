@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-21（v0.23.0）
+> 最后更新: 2026-06-22（v0.23.6）
 
 ## ✅ v0.23.x 已实施完成
 
@@ -17,6 +17,24 @@
 - [x] BGP-3 后台 IngestPipeline（补 smart_execute 路径缺口）
 - [x] BGP-1/BGP-4 后台审计+洞察链式 spawn
 - [x] silent_background 白名单扩展（4 个新标签）
+
+### 🧩 v0.23.4 智能层闭环落地 ✅ (2026-06-21)
+- [x] LLM JSON mode 原生支持（`ResponseFormat::JsonObject`）
+- [x] OpenAI/Ollama 适配器结构化输出接线
+- [x] Review/Refine Pipeline 解析 `refinement_notes`
+- [x] `MemoryBudget::for_task_type` 强类型化预算参数
+- [x] 拆书存储统一：`reference_characters` / `reference_scenes` 删除，汇入 `narrative_*` 表
+- [x] 迁移 `V100__拆书存储统一_删除_reference_表.sql`
+
+### 🎨 v0.23.5 CI 格式化修复 ✅ (2026-06-21)
+- [x] Rust nightly `cargo fmt` 格式化差异清零
+- [x] 前端 Prettier 格式化差异清零
+- [x] GitHub Actions `rust-check` / `frontend-check` 通过
+
+### 🐛 v0.23.6 修复 macOS 启动崩溃 ✅ (2026-06-22)
+- [x] 修复 `state() called before manage() for Arc<dyn VectorStore>` 启动 panic
+- [x] `LanceVectorStore` 创建与 `app.manage` 提前到依赖组件之前
+- [x] 全平台 CI 构建通过，生成 `.dmg` / `.deb` / `.msi`
 
 ## ✅ v0.22.x 已实施完成
 
@@ -192,23 +210,20 @@ $ cd src-frontend && npm run build
 ```bash
 $ cd src-tauri && cargo tauri build
     Finished release profile [optimized] target(s) in 8m 04s
-       Built application at: target/release/storyforge.exe
+       Built application at: target/release/storyforge
     Finished 3 bundles at:
-        target/release/bundle/msi/StoryForge_0.1.0_x64_en-US.msi
-        target/release/bundle/nsis/StoryForge_0.1.0_x64-setup.exe
+        target/release/bundle/dmg/StoryForge_0.23.6_aarch64.dmg
+        target/release/bundle/deb/storyforge_0.23.6_amd64.deb
+        target/release/bundle/msi/StoryForge_0.23.6_x64_en-US.msi
 ```
 
 ```bash
-$ cd src-tauri && cargo tauri build
-    Compiling storyforge v0.1.0
-    Finished release profile [optimized] target(s) in 8m 08s
-       Built application at: target/release/storyforge.exe
-    Finished 2 bundles at:
-        target/release/bundle/msi/StoryForge_0.1.0_x64_en-US.msi
-        target/release/bundle/nsis/StoryForge_0.1.0_x64-setup.exe
+$ cd src-tauri && cargo test --lib
+    running 538 tests
+    test result: ok. 538 passed; 0 failed; 2 ignored
 ```
 
-✅ **编译成功** | ✅ **打包成功**
+✅ **编译成功** | ✅ **测试全绿** | ✅ **打包成功**
 
 ---
 
@@ -304,6 +319,39 @@ $ cd src-tauri && cargo tauri build
 ---
 
 ## 📈 历史版本
+
+### v0.23.6 (2026-06-22)
+- [x] 修复 macOS 启动崩溃（VectorStore State 初始化顺序）
+- [x] 全平台 CI 构建通过（`.dmg` / `.deb` / `.msi`）
+
+### v0.23.5 (2026-06-21)
+- [x] CI 格式化修复（Rust nightly fmt + 前端 Prettier）
+- [x] `rust-check` / `frontend-check` 通过
+
+### v0.23.4 (2026-06-21)
+- [x] LLM JSON mode 原生支持（OpenAI/Ollama）
+- [x] Review/Refine Pipeline 结构化输出
+- [x] MemoryPack 预算参数强类型化
+- [x] 拆书存储统一，删除 `reference_characters` / `reference_scenes`
+
+### v0.23.3 (2026-06-21)
+- [x] MigrationRunner 交错执行修复
+- [x] V092 测试基线 48 个失败清零
+- [x] `narrative_*` 表 `status` 列补齐
+
+### v0.23.2 (2026-06-21)
+- [x] `SyncEvent::ChapterCommitted`
+- [x] 前端编辑器状态收敛到 `frontstageStore`
+
+### v0.23.1 (2026-06-21)
+- [x] 全局单例清零（14 个）
+- [x] 模块循环依赖斩断
+
+### v0.23.0 (2026-06-21)
+- [x] TriShot 三击生成管线
+- [x] prompt_synthesis 模块
+- [x] BGP-2 智能改写
+- [x] 前端「三击模式」配置
 
 ### v3.1.1 (2026-04-13)
 - [x] 幕前界面重构（Waza 设计原则）

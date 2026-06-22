@@ -1,23 +1,24 @@
-# 🧪 StoryForge 自动化测试环境 (v0.23.0)
+# 🧪 StoryForge 自动化测试环境 (v0.23.6)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 | 套件 | 数量 | 状态 |
 |------|------|------|
-| `cargo test --lib` | 486 | ✅（48 failed 为已知 V092 基线） |
+| `cargo test --lib` | 538 | ✅ 0 failed / 2 ignored |
 | `cargo test --lib prompt_synthesis` | 19 | ✅（TriShot 三击管线全部通过） |
+| `cargo test --lib narrative` | 11 | ✅（拆书/叙事元素 round-trip） |
 | `npx tsc --noEmit` | 前端类型 | ✅ |
 | `cargo check` | — | ✅ 零错误 |
-| `npx tsc --noEmit` | — | ✅ 零错误 |
+| `npm run format:check` | 代码风格 | ✅ 零差异 |
 
 | 类型 | 数量 | 状态 |
 |------|------|------|
-| Rust 单元测试 | 392 | ✅ 全部通过 (`cargo test --lib`) |
+| Rust 单元测试 | 538 | ✅ 全部通过 (`cargo test --lib`) |
 | 前端单元测试 | 126 | ✅ 全部通过 (`vitest run`) |
 | 前端构建测试 | — | ✅ `npm run build` 通过 |
 | Tauri 构建测试 | — | ✅ `cargo tauri build` 通过 |
-| Playwright E2E | 36 (32+4) | ✅ 行为驱动测试 |
+| Playwright E2E | 36 (32+4) | ✅ 行为驱动测试（CI 中 `continue-on-error`） |
 
 ### 测试文件分布
 
@@ -32,6 +33,7 @@
 **Rust 单元测试** (`src-tauri/src/**/*.rs` 内 `#[cfg(test)]`):
 - `db/repositories_tests.rs`：18 例
 - `db/cascade_tests.rs`：6 例
+- `db/repositories_narrative.rs`：3 例（source/status round-trip、repository 读写 round-trip）
 - `canonical_state/tests.rs`：8 例
 - `task_system/tests.rs`：15 例
 - `task_system/integration_tests.rs`：5 例
@@ -280,4 +282,4 @@ timeout: 60000, // 60秒
 
 ---
 
-*最后更新: 2026-06-18 - v0.19.0 提示词全面可配置化*
+*最后更新: 2026-06-22 - v0.23.6 macOS 启动崩溃修复 + 智能层闭环落地*

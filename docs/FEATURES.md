@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.23.0 功能清单（历史档案）
+# StoryForge (草苔) v0.23.6 功能清单（历史档案）
 
-> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.0**
+> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.6**
 >
 > **注意**：本文档为历史归档，初始编写于 v0.7.4，部分早期功能描述可能未同步最新变更。
 > 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
@@ -494,3 +494,13 @@ Layer 1: Raw Sources (原始内容)
 
 - **v0.20.1**：修复 5 处致命断环（资产同步/网关意图/执行图持久化/LLM 合成/PPR 传播）
 - **v0.20.0**：arXiv:2606.16591v2 论文的意图-工具异构图理论全面集成，动态 ReAct + 分层发现
+
+### v0.23.x 新功能补充（2026-06-22）
+
+- **v0.23.0 TriShot 三击生成管线**：`GenerationMode::TriShot`、prompt_synthesis（manifest/synthesizer/refiner）、最快模型路由、BGP-2 智能改写、后台静默质检/改写/洞察
+- **v0.23.1 架构债务清偿**：14 个全局单例移除、模块循环依赖斩断、`domain` 领域层扩展、`architecture_guard.py` 0 violations
+- **v0.23.2 事件总线与状态同步治理**：`SyncEvent::ChapterCommitted`、前端 `content/isSaved` 收敛到 `frontstageStore`
+- **v0.23.3 测试基线修复**：MigrationRunner 交错执行、V092 失败清零、`narrative_*` 表 `status` 列补齐
+- **v0.23.4 智能层闭环落地**：LLM JSON mode（OpenAI/Ollama 原生结构化输出）、Review/Refine `refinement_notes`、MemoryPack 预算参数强类型化、拆书存储统一
+- **v0.23.5 CI 格式化修复**：Rust nightly fmt + 前端 Prettier 格式化差异清零
+- **v0.23.6 macOS 启动崩溃修复**：`VectorStore` State 初始化顺序调整，全平台 CI 构建通过
