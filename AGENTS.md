@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.10
+- **版本**: v0.23.11
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,11 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.11 诊断提示词过滤探测/静默调用** (2026-06-22) — 修复诊断卡片里“最后发给模型的提示词”被 `model_gateway_probe` 的 `Respond with exactly the word OK.` 覆盖的问题。核心变更：
+    - `LlmService::execute_generation` 仅在非静默/非探测调用时更新 `DiagnosticStore` 和 `llm-prompt-sent` 事件
+    - 过滤范围：probe、input_hint、intent_detection、后台审计/洞察、tri-shot-router/refiner、bg-auto-rewriter、bg-ingest
+    - 验证：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.10 模型网关优先使用当前活跃模型** (2026-06-22) — 修复“AI 连接了以前的模型 ID，没有连接当前设置的模型”的问题。核心变更：
     - `select_fastest_profile` 在选最快模型前先读取当前 `active profile`；若活跃模型健康且 TTFB 不比最快模型差太多，优先使用活跃模型

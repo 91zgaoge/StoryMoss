@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.23.10 项目完成状态
+# StoryForge (草苔) v0.23.11 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.10 模型网关优先使用当前活跃模型）
+> 最后更新: 2026-06-22（v0.23.11 诊断提示词过滤探测/静默调用）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.11 — 诊断提示词过滤探测/静默调用（2026-06-22）
+
+- 🛡️ **过滤探测/静默调用**：`LlmService::execute_generation` 只在非静默调用时更新诊断提示词
+- 🐛 **修复诊断提示词被 probe 覆盖**：避免 `model_gateway_probe` 的 `Respond with exactly the word OK.` 覆盖用户真正关心的生成提示词
+- ✅ **验证**：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
 ### v0.23.10 — 模型网关优先使用当前活跃模型（2026-06-22）
 

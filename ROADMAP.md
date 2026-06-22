@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.10）
+> 最后更新: 2026-06-22（v0.23.11）
 
 ## ✅ v0.23.x 已实施完成
 
@@ -60,6 +60,10 @@
 ### 🎯 v0.23.10 模型网关优先使用当前活跃模型 ✅ (2026-06-22)
 - [x] `select_fastest_profile` 优先使用当前 `active profile`（健康且 TTFB 不比最快模型差太多）
 - [x] `select_candidates` 保证活跃模型始终出现在候选链中
+
+### 🛡️ v0.23.11 诊断提示词过滤探测/静默调用 ✅ (2026-06-22)
+- [x] 静默/探测调用不再更新 `DiagnosticStore` 和 `llm-prompt-sent` 事件
+- [x] 避免 `model_gateway_probe` 的 `Respond with exactly the word OK.` 覆盖诊断提示词
 
 ## ✅ v0.22.x 已实施完成
 
@@ -344,6 +348,9 @@ $ cd src-tauri && cargo test --lib
 ---
 
 ## 📈 历史版本
+
+### v0.23.11 (2026-06-22)
+- [x] 诊断提示词过滤探测/静默调用，避免被 probe prompt 覆盖
 
 ### v0.23.10 (2026-06-22)
 - [x] `select_fastest_profile` 优先使用当前活跃模型，避免连到旧模型

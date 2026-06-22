@@ -1006,42 +1006,9 @@ impl LlmService {
         };
 
         let label = context_label.unwrap_or("");
-
-        // v0.23.8: 把本次实际要发给 LLM 的提示词存入诊断存储，并向前端发送轻量通知。
-        // 完整 prompt 通过 get_last_llm_prompt 命令读取，避免事件 payload
-        // 过大导致丢失。
-        let req_id = request_id
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let prompt_chars = req.prompt.chars().count();
         let prompt_tokens_est = prompt_chars / 2;
-        if let Some(store) = self.app_handle.try_state::<Arc<DiagnosticStore>>() {
-            store.set_last_llm_prompt(LastLlmPrompt {
-                request_id: req_id.clone(),
-                context_label: label.to_string(),
-                model_id: model_id.clone(),
-                model_name: model_name.clone(),
-                provider: format!("{:?}", provider),
-                prompt: req.prompt.clone(),
-                prompt_chars,
-                prompt_tokens: prompt_tokens_est,
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            });
-        }
-        let prompt_preview: String = req.prompt.chars().take(500).collect();
-        let _ = self.app_handle.emit(
-            "llm-prompt-sent",
-            serde_json::json!({
-                "request_id": req_id,
-                "context_label": context_label,
-                "model_id": model_id,
-                "model_name": model_name,
-                "provider": format!("{:?}", provider),
-                "prompt_preview": prompt_preview,
-                "prompt_chars": prompt_chars,
-                "prompt_tokens": prompt_tokens_est,
-            }),
-        );
+
         // v0.14.4: 识别后台静默调用（如模型健康探测），跳过心跳发射避免误导前端
         // 模型探测在应用启动时自动触发，不应让前端误以为用户的生成任务正在进行
         // v0.16.2: 时间线 2/3 的后台审计与洞察 LLM 调用同样静默——主流程已发出
@@ -1067,6 +1034,41 @@ impl LlmService {
                 | "bg-auto-rewriter"
                 | "bg-ingest"
         );
+
+        // v0.23.11: 只有非静默/非探测调用才更新诊断提示词，避免 probe prompt
+        // "Respond with exactly the word OK." 覆盖用户真正关心的生成提示词。
+        if !is_silent_background {
+            let req_id = request_id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            if let Some(store) = self.app_handle.try_state::<Arc<DiagnosticStore>>() {
+                store.set_last_llm_prompt(LastLlmPrompt {
+                    request_id: req_id.clone(),
+                    context_label: label.to_string(),
+                    model_id: model_id.clone(),
+                    model_name: model_name.clone(),
+                    provider: format!("{:?}", provider),
+                    prompt: req.prompt.clone(),
+                    prompt_chars,
+                    prompt_tokens: prompt_tokens_est,
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+            let prompt_preview: String = req.prompt.chars().take(500).collect();
+            let _ = self.app_handle.emit(
+                "llm-prompt-sent",
+                serde_json::json!({
+                    "request_id": req_id,
+                    "context_label": context_label,
+                    "model_id": model_id,
+                    "model_name": model_name,
+                    "provider": format!("{:?}", provider),
+                    "prompt_preview": prompt_preview,
+                    "prompt_chars": prompt_chars,
+                    "prompt_tokens": prompt_tokens_est,
+                }),
+            );
+        }
         let step_prefix = pipeline_ref
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
             .unwrap_or_default();

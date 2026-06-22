@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.11] - 诊断提示词过滤探测/静默调用（2026-06-22）
+
+### 修复
+- 修复诊断卡片中“最后发给模型的提示词”显示为探测 prompt `Respond with exactly the word OK.` 的问题
+  - `LlmService::execute_generation` 现在只在**非静默/非探测**调用时更新 `DiagnosticStore` 和 `llm-prompt-sent` 事件
+  - 被过滤的调用包括：`model_gateway_probe`、`input_hint`、`intent_detection`、各类 `async-*` 后台审计/洞察、`tri-shot-router/refiner`、`bg-auto-rewriter`、`bg-ingest`
+
+### 验证
+- `cargo test --lib` ✅ 540 passed / 0 failed / 2 ignored
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.10] - 模型网关优先使用当前活跃模型（2026-06-22）
 
 ### 修复

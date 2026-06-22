@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.10-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.11-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.10 修复模型网关可能选用旧模型而非当前设置模型的问题：`select_fastest_profile` 现在会优先使用当前活跃模型（只要 TTFB 不比最快模型差太多且健康）；`select_candidates` 保证活跃模型始终出现在候选链中。v0.23.9 已让 TriShot Call 1 看到系统级创作资产目录并透传给 ModelGateway。
+**最新动态**：v0.23.11 修复诊断提示词被模型探测 prompt（"Respond with exactly the word OK."）覆盖的问题：现在只有非静默/非探测调用才会更新 `DiagnosticStore` 和 `llm-prompt-sent` 事件。v0.23.10 已修复模型网关优先使用当前活跃模型；v0.23.9 已让 TriShot Call 1 看到系统级创作资产目录。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 
