@@ -356,18 +356,25 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
 
             // 创建 Story 记录；若 LLM 已返回标准化 genre_profile_ids，优先使用首个
             let primary_genre_profile_id = meta.genre_profile_ids.first().cloned();
-            let story_repo = StoryRepository::new(ctx.pool.clone());
-            let story = story_repo
-                .create(CreateStoryRequest {
-                    title: meta.title.clone(),
-                    description: Some(meta.description.clone()),
-                    genre: Some(meta.genre.clone()),
-                    style_dna_id: None,
-                    genre_profile_id: primary_genre_profile_id,
-                    methodology_id: None,
-                    reference_book_id: None,
-                })
-                .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+            // v0.23.15: spawn_blocking 包裹 sync DB 操作，防止连接池满/DB 锁阻塞
+            // tokio worker 线程，导致 smart_execute 的 tokio::time::timeout 无法触发。
+            let pool = ctx.pool.clone();
+            let req = CreateStoryRequest {
+                title: meta.title.clone(),
+                description: Some(meta.description.clone()),
+                genre: Some(meta.genre.clone()),
+                style_dna_id: None,
+                genre_profile_id: primary_genre_profile_id,
+                methodology_id: None,
+                reference_book_id: None,
+            };
+            let story = tokio::task::spawn_blocking(move || {
+                let story_repo = StoryRepository::new(pool);
+                story_repo.create(req)
+            })
+            .await
+            .map_err(|e| PipelineError::StorageError(format!("spawn_blocking 失败: {}", e)))?
+            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
             log::warn!(
                 "[GenesisDiag] ConceptGenerationStep: Story 创建成功 id={}，写入 ctx",
                 story.id
