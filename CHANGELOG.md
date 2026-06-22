@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.15] - TriShot 管线 4 处缺陷修复（2026-06-22）
+
+### 修复
+- **P0 Genesis 新故事必然失败**：`execute_trishot` 预检用 `QuickPreflightChecker`（仅检查角色非空），不触发 auto-fill。新故事角色表为空 → 预检失败 → 整个 Genesis 报错。修复：预检失败时调 `AutoContractBuilder::auto_fill` 补齐角色后重试预检，与 `prepare_writer_context` 路径行为一致。
+- **P1 前端消息标记错误**：v0.23.14 后端返回 `novel_bootstrap_background_started` 但 `final_content` 实际有第一章正文，前端将其当"后台生成中"处理，正文被设为幽灵文本。修复：改名为 `novel_bootstrap_first_chapter_ready`，前端区分"正文已就绪"与"后台生成中"两条路径。
+- **P2 Call 1 预算守卫失效**：`t_synth` 在计算前刚创建，`elapsed≈0`，`remaining_budget` 永远等于 `total_budget`，跳过条件永远 false。修复：用函数入口 `total_start` 计算已耗时间（含预检/auto-fill/bundle 加载）。
+- **P2 Call 2 预算硬编码 + Call 3 无超时覆盖**：Call 2 硬编码 `total_budget=180` 不读配置；Call 3 走 `generate_for_task_with_tags` 无 `timeout_seconds_override`，可跑满 profile 300s。修复：Call 2 读配置 `total_budget`；新增 `generate_for_task_with_tags_and_timeout`，Call 3 按剩余预算计算超时（30-120s）+ 空内容检查（空字符串直接报错不静默传递）。
+- **死代码清理**：移除 `GenesisPipeline::strategy_selection_step()`（无调用者，`StrategySelectionStep` 已包含在 `background_steps()` 中）。
+
+### 验证
+- `cargo check` 零错误（92 warnings，减少 1 个死代码警告）
+- `cargo test --lib` **551 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit` 零错误
+- `cargo +nightly fmt --check` 通过
+- `npm run format:check` 通过
+
 ## [v0.23.14] - 干净健康的模型池 + 统一身份 + 实时健康报告（2026-06-22）
 
 ### 核心目标
