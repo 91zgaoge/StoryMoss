@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.9-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.10-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.9 运行时创作资产能力清单：应用启动后自动生成并刷新全部系统资产（methodology、genre_profile、skill、beat_card、story_engine、pressure_relationship 等）的紧凑目录，注入 TriShot Call 1 提示词合成器与 ModelGateway，让模型知道“根据意图该调用哪个资产”。同时修复 TriShot 把模型名当 request_id、Call 1 无预算守卫等问题。v0.23.8 已增强 AI 进度指示。
+**最新动态**：v0.23.10 修复模型网关可能选用旧模型而非当前设置模型的问题：`select_fastest_profile` 现在会优先使用当前活跃模型（只要 TTFB 不比最快模型差太多且健康）；`select_candidates` 保证活跃模型始终出现在候选链中。v0.23.9 已让 TriShot Call 1 看到系统级创作资产目录并透传给 ModelGateway。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

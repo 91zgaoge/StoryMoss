@@ -152,6 +152,35 @@ impl GatewayExecutor {
                         .partial_cmp(&a.score)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
+
+                // v0.23.10: 保证用户当前设置的活跃模型始终在候选链中（只要健康），
+                // 避免路由结果完全脱离用户预期。
+                if let Some(active) = self.llm_service.get_active_profile() {
+                    if !candidates.iter().any(|c| c.model_id == active.id) {
+                        let active_healthy = self
+                            .health_registry()
+                            .lock()
+                            .ok()
+                            .and_then(|h| h.get(&active.id).cloned())
+                            .map(|s| s.status != super::types::HealthStatus::Unhealthy)
+                            .unwrap_or(true);
+                        if active_healthy {
+                            let base_score = candidates.first().map(|c| c.score).unwrap_or(50.0);
+                            candidates.push(crate::router::RankedCandidate {
+                                model_id: active.id.clone(),
+                                model_name: active.name.clone(),
+                                score: base_score,
+                                reason: "当前活跃模型兜底".to_string(),
+                            });
+                            candidates.sort_by(|a, b| {
+                                b.score
+                                    .partial_cmp(&a.score)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                        }
+                    }
+                }
+
                 decision.candidates = candidates;
             }
         }
@@ -166,6 +195,8 @@ impl GatewayExecutor {
     /// `select_candidates`（让网关三维打分兜底）。最终都失败则回退 active
     /// profile。
     pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
+        let active = self.llm_service.get_active_profile();
+
         // 1) 优先用算力档案按 TTFB 选最快模型
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
             if let Ok(profiles) =
@@ -198,14 +229,55 @@ impl GatewayExecutor {
                     (*ttfb, (*neg_success * 1_000_000.0) as i64)
                 });
 
-                if let Some((_, _, model_id)) = ranked.first() {
-                    if let Some(profile) = self.registry.get(model_id).cloned() {
+                if let Some((fastest_ttfb, _, fastest_id)) = ranked.first() {
+                    // v0.23.10: 用户当前设置的活跃模型如果也在候选中且 TTFB 不比最快模型差太多，
+                    // 优先使用活跃模型，避免“AI 连接了以前模型”的困惑。
+                    if let Some(ref active_profile) = active {
+                        if let Some(active_cap) =
+                            profiles.iter().find(|p| p.model_id == active_profile.id)
+                        {
+                            if active_cap.status != super::types::HealthStatus::Unhealthy {
+                                if let Some(snap) = health_guard
+                                    .as_ref()
+                                    .and_then(|h| h.get(&active_profile.id))
+                                {
+                                    if snap.status == super::types::HealthStatus::Unhealthy {
+                                        // active 不健康，跳过偏好
+                                    } else {
+                                        let active_ttfb =
+                                            active_cap.short_ttfb_ms_p50.unwrap_or(10_000);
+                                        let threshold = (*fastest_ttfb * 3).max(3000);
+                                        if active_ttfb <= threshold {
+                                            log::info!(
+                                                "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
+                                                active_profile.id, active_ttfb, fastest_ttfb
+                                            );
+                                            return self.registry.get(&active_profile.id).cloned();
+                                        }
+                                    }
+                                } else {
+                                    let active_ttfb =
+                                        active_cap.short_ttfb_ms_p50.unwrap_or(10_000);
+                                    let threshold = (*fastest_ttfb * 3).max(3000);
+                                    if active_ttfb <= threshold {
+                                        log::info!(
+                                            "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
+                                            active_profile.id, active_ttfb, fastest_ttfb
+                                        );
+                                        return self.registry.get(&active_profile.id).cloned();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(profile) = self.registry.get(fastest_id).cloned() {
                         log::info!(
                             "[Gateway] select_fastest_profile: 选中 {} (ttfb_p50={}ms)",
                             profile.id,
                             profiles
                                 .iter()
-                                .find(|p| &p.model_id == model_id)
+                                .find(|p| &p.model_id == fastest_id)
                                 .and_then(|p| p.short_ttfb_ms_p50)
                                 .unwrap_or(0)
                         );

@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.9
+- **版本**: v0.23.10
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,11 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.10 模型网关优先使用当前活跃模型** (2026-06-22) — 修复“AI 连接了以前的模型 ID，没有连接当前设置的模型”的问题。核心变更：
+    - `select_fastest_profile` 在选最快模型前先读取当前 `active profile`；若活跃模型健康且 TTFB 不比最快模型差太多，优先使用活跃模型
+    - `select_candidates` 保证活跃模型始终出现在候选链中，避免路由结果完全脱离用户预期
+    - 验证：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.9 运行时创作资产能力清单 + TriShot 路由增强** (2026-06-22) — 解决“组合提示词不顺利”的根因：Call 1 原本只能看到当前故事约束，看不到系统级创作资产。核心变更：
     - 新增 `AssetCapabilityManifest` Tauri State，启动时自动生成全部系统资产（methodology、genre_profile、skill、beat_card、story_engine、pressure_relationship 等）的紧凑目录

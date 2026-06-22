@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.23.9 项目完成状态
+# StoryForge (草苔) v0.23.10 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.9 运行时创作资产能力清单 + TriShot 路由增强）
+> 最后更新: 2026-06-22（v0.23.10 模型网关优先使用当前活跃模型）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.10 — 模型网关优先使用当前活跃模型（2026-06-22）
+
+- 🎯 **修复 AI 连到旧模型的问题**：`select_fastest_profile` 现在优先使用当前设置的活跃模型（只要健康且 TTFB 不比最快模型差太多）
+- 🔗 **`select_candidates` 兜底活跃模型**：候选链中若不存在活跃模型，自动注入，保证用户设置的模型始终有机会被选中
+- ✅ **验证**：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
 ### v0.23.9 — 运行时创作资产能力清单 + TriShot 路由增强（2026-06-22）
 

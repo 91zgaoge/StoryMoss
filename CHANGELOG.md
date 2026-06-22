@@ -2,6 +2,23 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.10] - 模型网关优先使用当前活跃模型（2026-06-22）
+
+### 修复
+- 修复 `select_fastest_profile` 可能选中用户已不用的旧模型的问题
+  - 现在先读取当前 `active profile`
+  - 若活跃模型健康且 `short_ttfb_ms_p50` 不超过最快模型 3 倍（至少 3000ms），优先使用活跃模型
+  - 仅当活跃模型明显慢或不可用时才回退到全局最快模型
+- 修复 `select_candidates` 候选链可能不包含当前活跃模型的问题
+  - 若活跃模型不在候选链中且健康，将其以当前 top 分数注入候选链
+  - 保证用户设置的模型始终有机会被选中
+
+### 验证
+- `cargo test --lib` ✅ 540 passed / 0 failed / 2 ignored
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.9] - 运行时创作资产能力清单 + TriShot 路由增强（2026-06-22）
 
 ### 新增

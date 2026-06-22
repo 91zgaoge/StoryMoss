@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.9）
+> 最后更新: 2026-06-22（v0.23.10）
 
 ## ✅ v0.23.x 已实施完成
 
@@ -56,6 +56,10 @@
 - [x] TriShot Call 3 透传 `selected_asset_ids` / `asset_tags` 给 ModelGateway
 - [x] ModelGateway dispatcher 识别 methodology/beat_card/story_engine/pressure_relationship/style_dna/skill 等标签
 - [x] 修复 TriShot `request_id` 错误赋值、Call 1 无预算守卫
+
+### 🎯 v0.23.10 模型网关优先使用当前活跃模型 ✅ (2026-06-22)
+- [x] `select_fastest_profile` 优先使用当前 `active profile`（健康且 TTFB 不比最快模型差太多）
+- [x] `select_candidates` 保证活跃模型始终出现在候选链中
 
 ## ✅ v0.22.x 已实施完成
 
@@ -340,6 +344,10 @@ $ cd src-tauri && cargo test --lib
 ---
 
 ## 📈 历史版本
+
+### v0.23.10 (2026-06-22)
+- [x] `select_fastest_profile` 优先使用当前活跃模型，避免连到旧模型
+- [x] `select_candidates` 候选链兜底活跃模型
 
 ### v0.23.9 (2026-06-22)
 - [x] 运行时创作资产能力清单：启动时刷新全部系统资产并注入 TriShot/ModelGateway
