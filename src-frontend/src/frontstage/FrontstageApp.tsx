@@ -2889,6 +2889,7 @@ const FrontstageApp: React.FC = () => {
               isZenMode={isZenMode}
               isGenerating={isGenerating}
               generationStatus={generationStatus}
+              isGenesis={!currentStory}
               inputValue={inputValue}
               ghostHint={ghostHint}
               hintSource={hintSource}

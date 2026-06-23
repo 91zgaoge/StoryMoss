@@ -64,6 +64,21 @@ impl GenerationMode {
             GenerationMode::TriShot => "三击",
         }
     }
+
+    /// Genesis（创世）默认模式。
+    ///
+    /// Genesis 是一辈子只发生一次的操作（创建新小说时），需要：
+    /// - 资产选择（Call 1 选方法论/体裁画像/叙事阶段）
+    /// - 快速出章（Call 3 Writer 直接生成，30-90s）
+    /// - 跳过 Call 2 精修（新故事无已有内容，精修不增值）
+    ///
+    /// 无论用户在设置中选择什么模式，Genesis 始终走 TriShot，
+    /// 模式设置影响的是日常续写/改写，不是创世。
+    ///
+    /// 设计依据：docs/plans/2026-06-21-trishot-pipeline-design.md
+    pub fn genesis_default() -> Self {
+        GenerationMode::TriShot
+    }
 }
 
 /// 工作流配置

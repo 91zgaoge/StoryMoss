@@ -7,6 +7,7 @@ describe('FrontstageBottomBar', () => {
   const defaultProps = {
     isZenMode: false,
     isGenerating: false,
+    isGenesis: false,
     generationStatus: '',
     inputValue: '',
     ghostHint: '',

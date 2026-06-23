@@ -8,6 +8,7 @@ import type { ModelHealthSnapshot, ModelConfig } from '@/types/llm';
 interface FrontstageBottomBarProps {
   isZenMode: boolean;
   isGenerating: boolean;
+  isGenesis: boolean;
   generationStatus: string;
   inputValue: string;
   ghostHint: string;
@@ -69,6 +70,7 @@ const categoryLabels: Record<BackendActivity['category'], string> = {
 const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   isZenMode,
   isGenerating,
+  isGenesis,
   generationStatus,
   inputValue,
   ghostHint,
@@ -156,8 +158,11 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const scoreToHeight = (score: number): number => Math.round(4 + score * 12);
 
   const hasAnyActivity = isGenerating || !!primaryActivity;
-  const displayMessage =
+  const baseMessage =
     isGenerating && generationStatus ? generationStatus : primaryActivity?.message || '';
+  // v0.23.30: Genesis（创世）期间，用"正在创世"替代模式名称，避免对用户展示"三击模式"等技术术语
+  const displayMessage =
+    isGenesis && isGenerating ? baseMessage.replace(/^\[.+\]/, '[创世]') : baseMessage;
   const displayProgress = primaryActivity?.progress;
 
   // 从状态文案中分离基础文本与已运行时长，避免文案被时间截断

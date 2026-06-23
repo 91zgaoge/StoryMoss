@@ -663,18 +663,16 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // v0.23.14: Bootstrap 初稿走 TriShot 模式（30-60s），替代 Full 模式（最多 270s
-            // + 5 次 LLM 调用） TriShot: Call 1 选资产合成提示词 → Call
-            // 2(可选)精修 → Call 3 Writer 生成，目标 3 次 LLM 内完成。
+            // v0.23.30: Genesis 始终走 genesis_default（TriShot），不随用户设置变化。
+            // 原因：Genesis 是一辈子一次的操作，需要资产选择 + 快速出章，
+            // 用户模式设置影响日常续写/改写，不影响创世。
+            let genesis_mode = crate::agents::orchestrator::GenerationMode::genesis_default();
             let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
                 service,
                 orchestrator_config,
                 ctx.app_handle.clone(),
             );
-            let result = match orchestrator
-                .generate(task, crate::agents::orchestrator::GenerationMode::TriShot)
-                .await
-            {
+            let result = match orchestrator.generate(task, genesis_mode).await {
                 Ok(workflow_result) => crate::domain::agent_types::AgentResult {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
