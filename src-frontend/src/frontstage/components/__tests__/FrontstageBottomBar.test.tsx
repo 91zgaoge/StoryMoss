@@ -127,7 +127,7 @@ describe('FrontstageBottomBar', () => {
 
   it('模型状态指示器应该存在', () => {
     render(<FrontstageBottomBar {...defaultProps} />);
-    expect(document.querySelector('.model-status-dot')).toBeInTheDocument();
+    expect(document.querySelector('.model-signal-bar')).toBeInTheDocument();
   });
 
   it('空输入时发送按钮应该被禁用', () => {

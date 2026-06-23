@@ -126,6 +126,24 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
     }
   };
 
+  // v0.23.25: 计算模型综合得分（0-1），用于信号竖条高度映射
+  const computeModelScore = (m: ModelHealthSnapshot): number => {
+    let score = 0;
+    // TTFB 越低分越高（0-0.5 分）
+    score +=
+      typeof m.ttfb_ms === 'number' && m.ttfb_ms > 0
+        ? Math.max(0, 1 - m.ttfb_ms / 5000) * 0.5
+        : 0.25; // 无数据给中等偏低的分
+    // TPS 越高分越高（0-0.3 分）
+    score += typeof m.tps === 'number' && m.tps > 0 ? Math.min(m.tps / 30, 1) * 0.3 : 0;
+    // 健康状态加分（0.2 分）
+    score += m.status === 'healthy' ? 0.2 : 0;
+    return Math.min(score, 1);
+  };
+
+  // 得分映射到竖条高度（4px-16px）
+  const scoreToHeight = (score: number): number => Math.round(4 + score * 12);
+
   const hasAnyActivity = isGenerating || !!primaryActivity;
   const displayMessage =
     isGenerating && generationStatus ? generationStatus : primaryActivity?.message || '';
@@ -151,22 +169,27 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             onMouseEnter={() => setShowModelTooltip(true)}
             onMouseLeave={() => setShowModelTooltip(false)}
           >
-            <div className="model-status-dots">
+            <div className="model-signal-bars">
               {gatewayModels.length === 0 ? (
-                <div className="model-status-dot status-connecting" />
+                <div className="model-signal-bar status-connecting" style={{ height: '4px' }} />
               ) : (
-                gatewayModels
-                  .slice(0, 5)
-                  .map(m => (
-                    <div
-                      key={m.model_id}
-                      className={`model-status-dot ${statusClass(m.status)}`}
-                      title={`${m.model_name}: ${statusText(m.status)}`}
-                    />
-                  ))
+                [...gatewayModels]
+                  .sort((a, b) => computeModelScore(a) - computeModelScore(b))
+                  .slice(0, 8)
+                  .map(m => {
+                    const score = computeModelScore(m);
+                    return (
+                      <div
+                        key={m.model_id}
+                        className={`model-signal-bar ${statusClass(m.status)}`}
+                        style={{ height: `${scoreToHeight(score)}px` }}
+                        title={`${m.model_name}: ${statusText(m.status)}（得分 ${(score * 100).toFixed(0)}%）`}
+                      />
+                    );
+                  })
               )}
-              {gatewayModels.length > 5 && (
-                <span className="model-status-more">+{gatewayModels.length - 5}</span>
+              {gatewayModels.length > 8 && (
+                <span className="model-status-more">+{gatewayModels.length - 8}</span>
               )}
             </div>
             {showModelTooltip && (

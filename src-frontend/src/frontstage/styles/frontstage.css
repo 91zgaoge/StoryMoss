@@ -981,6 +981,73 @@ body {
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 
+/* v0.23.25: 信号竖条指示器 — 替代圆点，支持 8+ 模型 */
+.model-signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  cursor: default;
+}
+
+.model-signal-bar {
+  width: 3px;
+  min-height: 4px;
+  border-radius: 1px;
+  background-color: var(--stone-gray);
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    height 0.3s ease;
+}
+
+.model-signal-bar.status-connected {
+  background-color: oklch(65% 0.22 145);
+  box-shadow: 0 0 4px oklch(65% 0.22 145 / 0.4);
+}
+
+.model-signal-bar.status-disconnected {
+  background-color: oklch(60% 0.22 25);
+  box-shadow: 0 0 4px oklch(60% 0.22 25 / 0.4);
+}
+
+.model-signal-bar.status-connecting {
+  background-color: oklch(75% 0.16 95);
+}
+
+/* v0.23.25: 信号竖条指示器 — 每个模型一个竖条，高度匹配得分 */
+.model-signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+
+.model-signal-bar {
+  width: 3px;
+  min-height: 4px;
+  border-radius: 1px;
+  background-color: var(--stone-gray);
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    height 0.3s ease;
+}
+
+.model-signal-bar.status-connected {
+  background-color: oklch(65% 0.22 145);
+  box-shadow: 0 0 4px oklch(65% 0.22 145 / 0.4);
+}
+
+.model-signal-bar.status-disconnected {
+  background-color: oklch(60% 0.22 25);
+  box-shadow: 0 0 4px oklch(60% 0.22 25 / 0.4);
+}
+
+.model-signal-bar.status-connecting {
+  background-color: oklch(75% 0.16 95);
+}
+
 @keyframes status-pulse {
   0%,
   100% {
