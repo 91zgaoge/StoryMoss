@@ -8,7 +8,7 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.20-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.21-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
 **最新动态**：v0.23.20 DB 连接池状态可视化 + 根治 600s 超时——`record_llm_call` 同步 DB INSERT 改为 fire-and-forget `spawn_blocking`，生产连接池补 `connection_timeout(5s)`，审计日志写入永不阻塞生成主流程。v0.23.18 行级诊断标记精确定位卡点。v0.23.16 `story_repo.create()` 改用 spawn_blocking。v0.23.14 彻底重塑模型管理体系——建设干净的健康的模型池。E2E 集成测试 73.2s 完成全部 Call 1-3 流程。

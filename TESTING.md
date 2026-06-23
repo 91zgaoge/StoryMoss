@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.23.20)
+# 🧪 StoryForge 自动化测试环境 (v0.23.21)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -282,4 +282,4 @@ timeout: 60000, // 60秒
 
 ---
 
-*最后更新: 2026-06-22 - v0.23.20 DB 连接池状态可视化 阻塞 tokio worker 导致 600s 超时*
+*最后更新: 2026-06-22 - v0.23.21 TriShot 跳过 auto_fill 阻塞 tokio worker 导致 600s 超时*

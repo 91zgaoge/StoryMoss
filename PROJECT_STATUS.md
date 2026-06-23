@@ -1,4 +1,4 @@
-# StoryForge (草苔) v0.23.20 项目完成状态
+# StoryForge (草苔) v0.23.21 项目完成状态
 
 > 最后更新: 2026-06-22（v0.23.20 DB 连接池 record_llm_call 阻塞 tokio worker 导致 600s 超时）
 > GitHub: https://github.com/91zgaoge/StoryForge

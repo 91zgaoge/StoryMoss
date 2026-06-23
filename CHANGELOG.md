@@ -2,6 +2,17 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.21] - 根治 TriShot auto_fill 5 次 LLM 调用耗尽预算（2026-06-23）
+
+### 修复
+- **TriShot auto_fill 做 5 次 LLM 调用导致 600s 超时**：v0.23.20 日志显示概念生成 1.1s 完成、故事已创建、TriShot 启动，但 `trishot.start` 后卡住。根因：新故事无角色 → `QuickPreflightChecker::check` 失败 → 触发 `AutoContractBuilder::auto_fill` 做 **5 次 LLM 调用**（角色 + 场景 + MASTER_SETTING + CHAPTER 合同 + 大纲），每次 30-90s，总计 150-450s，超出 TriShot "最多 3 次 LLM" 设计目标。修复：Genesis TriShot 路径预检失败时，只创建一个最小占位角色（`spawn_blocking` + 纯 DB INSERT，不调 LLM），然后直接进入 Call 1。
+- 新增 `trishot.bundle.start` 工作流日志标记，便于诊断 bundle 加载阶段卡点。
+
+### 验证
+- `cargo check` ✅
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check` ✅
+
 ## [v0.23.20] - DB 连接池状态可视化 + record_llm_call 整体 spawn_blocking + update_chapter async 化（2026-06-22）
 
 ### 修复

@@ -997,78 +997,50 @@ impl AgentOrchestrator {
         )
         .await;
         if !quick_check.ready {
-            // v0.23.15: Genesis 新故事角色表为空时，先 auto-fill 补齐基础数据再重试预检。
-            // 与 prepare_writer_context 路径行为一致，避免 TriShot 模式下 Genesis
-            // 必然失败。
+            // v0.23.21: Genesis 新故事角色表为空时，只创建一个最小占位角色（不调 LLM），
+            // 不再走 auto_fill 的 5 次 LLM 调用——那会耗尽 TriShot 预算导致 600s 超时。
+            // TriShot Call 1 本身会合成提示词，不需要预先补齐合同/大纲。
             log::info!(
-                "[TriShot] QuickPreflight failed for story {}: {:?}, attempting auto-fill",
+                "[TriShot] QuickPreflight failed for story {}: {:?}, creating minimal placeholder character",
                 task.context.story.story_id,
                 quick_check.blocking_issues
             );
-            let builder = crate::story_system::auto_contract::AutoContractBuilder::new(
-                pool.inner().clone(),
-                self.app_handle.clone(),
-            );
-            let target_scene_id = {
-                let pool = pool.inner().clone();
-                let story_id = task.context.story.story_id.clone();
-                let chapter_number = task.context.narrative.chapter_number as i32;
-                tokio::task::spawn_blocking(move || {
-                    let scene_repo = crate::db::repositories::SceneRepository::new(pool);
-                    scene_repo
-                        .get_by_story(&story_id)
-                        .ok()
-                        .and_then(|scenes| {
-                            scenes
-                                .into_iter()
-                                .find(|s| s.sequence_number == chapter_number)
-                        })
-                        .map(|s| s.id)
-                })
-                .await
-                .unwrap_or_else(|e| {
-                    log::warn!("[TriShot] 目标场景查询任务失败: {}", e);
-                    None
-                })
-            };
-            match builder
-                .auto_fill(
-                    &task.context.story.story_id,
-                    task.context.narrative.chapter_number as i32,
-                    target_scene_id.as_deref(),
-                )
-                .await
-            {
-                Ok(result) => {
-                    log::info!(
-                        "[TriShot] Auto-fill completed: master={}, chapter={}, character={}, \
-                         scene={}, outline={}",
-                        result.created_master,
-                        result.created_chapter,
-                        result.created_character,
-                        result.created_scene,
-                        result.created_outline
-                    );
-                    let preflight_after =
-                        crate::story_system::preflight::QuickPreflightChecker::check(
-                            pool.inner(),
-                            &task.context.story.story_id,
-                        )
-                        .await;
-                    if !preflight_after.ready {
-                        return Err(AppError::preflight_failed(
-                            "三击模式预检未通过（auto-fill 后仍缺少角色）",
-                            preflight_after.blocking_issues,
-                        ));
+
+            // 同步创建占位角色，不调 LLM
+            let pool_clone = pool.inner().clone();
+            let story_id_clone = task.context.story.story_id.clone();
+            let placeholder_created = tokio::task::spawn_blocking(move || {
+                use crate::db::{CharacterRepository, CreateCharacterRequest};
+                let char_repo = CharacterRepository::new(pool_clone);
+                let req = CreateCharacterRequest {
+                    story_id: story_id_clone,
+                    name: "主角".to_string(),
+                    background: Some("待定".to_string()),
+                    personality: Some("勇敢、坚韧".to_string()),
+                    goals: Some("在异星末世中生存".to_string()),
+                    appearance: None,
+                    gender: None,
+                    age: None,
+                };
+                match char_repo.create(req) {
+                    Ok(_) => {
+                        log::info!("[TriShot] Placeholder character created");
+                        true
+                    }
+                    Err(e) => {
+                        log::warn!("[TriShot] Failed to create placeholder character: {}", e);
+                        false
                     }
                 }
-                Err(e) => {
-                    log::warn!("[TriShot] Auto-fill failed: {}", e);
-                    return Err(AppError::preflight_failed(
-                        "三击模式预检未通过（缺少角色），自动补齐失败",
-                        quick_check.blocking_issues,
-                    ));
-                }
+            })
+            .await
+            .unwrap_or(false);
+
+            if !placeholder_created {
+                return Err(AppError::preflight_failed(
+                    "三击模式预检未通过（无法创建占位角色）",
+                    quick_check.blocking_issues,
+                ));
             }
         }
 
@@ -1098,6 +1070,11 @@ impl AgentOrchestrator {
         );
 
         let bundle_start = std::time::Instant::now();
+        self.workflow_log(
+            "trishot.bundle.start",
+            "开始加载 WriteTimeBundle",
+            Some(serde_json::json!({"task_id": task.id})),
+        );
         let engine = self.service.creative_engine().clone();
         let mut bundle = tokio::task::spawn_blocking(move || {
             engine.load_write_time_bundle(
