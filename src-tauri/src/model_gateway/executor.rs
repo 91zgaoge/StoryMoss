@@ -122,7 +122,6 @@ impl GatewayExecutor {
 
         // 应用健康权重与任务匹配微调
         let health_registry = self.health_registry();
-        let health = health_registry.lock().ok();
 
         // Phase 2/3: 计算请求 asset_tags 与模型 tags 的重叠，用于候选模型微调
         let request_tag_set: std::collections::HashSet<&str> =
@@ -138,37 +137,46 @@ impl GatewayExecutor {
                 .collect()
         };
 
-        let mut re_scored: Vec<(f64, crate::config::settings::LlmProfile)> = candidate_profiles
-            .into_iter()
-            .map(|(base_score, m)| {
-                let mut score = base_score;
-                // v0.15.0 三维打分
-                // 健康状态约束
-                if let Some(ref h) = health {
-                    if let Some(snapshot) = h.get(&m.id) {
-                        match snapshot.status {
-                            super::types::HealthStatus::Unhealthy => score -= 1000.0,
-                            super::types::HealthStatus::Degraded => score -= 20.0,
-                            super::types::HealthStatus::Unknown => score *= 0.5,
-                            _ => {}
+        // v0.23.34: health 锁限定在块作用域内，块结束后 MutexGuard 自动释放。
+        // 根因：std::sync::Mutex 不可重入，若 health 锁未释放，后续
+        // is_model_available / health_registry().lock() 会自死锁 → 600s 超时。
+        let mut re_scored: Vec<(f64, crate::config::settings::LlmProfile)> = {
+            let health = health_registry.lock().ok();
+            let result: Vec<_> = candidate_profiles
+                .into_iter()
+                .map(|(base_score, m)| {
+                    let mut score = base_score;
+                    // v0.15.0 三维打分
+                    // 健康状态约束
+                    if let Some(ref h) = health {
+                        if let Some(snapshot) = h.get(&m.id) {
+                            match snapshot.status {
+                                super::types::HealthStatus::Unhealthy => score -= 1000.0,
+                                super::types::HealthStatus::Degraded => score -= 20.0,
+                                super::types::HealthStatus::Unknown => score *= 0.5,
+                                _ => {}
+                            }
                         }
                     }
-                }
 
-                // Phase 2/3: 标签重叠加分（最多 +10），让匹配到同类标签的模型优先
-                if !request_tag_set.is_empty() {
-                    let overlap = m
-                        .tags
-                        .iter()
-                        .filter(|t| request_tag_set.contains(t.as_str()))
-                        .count() as f64;
-                    score += (overlap * 3.0).min(10.0);
-                }
+                    // Phase 2/3: 标签重叠加分（最多 +10），让匹配到同类标签的模型优先
+                    if !request_tag_set.is_empty() {
+                        let overlap = m
+                            .tags
+                            .iter()
+                            .filter(|t| request_tag_set.contains(t.as_str()))
+                            .count() as f64;
+                        score += (overlap * 3.0).min(10.0);
+                    }
 
-                (score, m)
-            })
-            .collect();
+                    (score, m)
+                })
+                .collect();
+            // health MutexGuard 在此块结束时释放
+            result
+        };
         re_scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        // ↑ health 锁已释放，is_model_available 可以安全地重新锁定 health_registry
 
         // 更新候选链顺序与 primary
         let candidates: Vec<crate::router::RankedCandidate> = re_scored
