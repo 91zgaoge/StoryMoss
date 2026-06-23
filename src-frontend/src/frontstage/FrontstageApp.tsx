@@ -1525,7 +1525,10 @@ const FrontstageApp: React.FC = () => {
 
     cancelAutoSave();
     setCurrentChapter(chapter);
-    setContent(autoFormatText(chapter.content || ''));
+    const formattedContent = autoFormatText(chapter.content || '');
+    setContent(formattedContent);
+    // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
+    latestContentRef.current = formattedContent;
     setIsSaved(true);
     setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
 
@@ -1616,6 +1619,8 @@ const FrontstageApp: React.FC = () => {
 
   const handleContentChange = useCallback(
     async (newContent: string) => {
+      // v0.23.23: 内容未变化时跳过，避免伪"保存中"
+      if (newContent === latestContentRef.current) return;
       setContent(newContent);
       setIsSaved(false);
       // A4-1.8: 使用 ref 保存最新内容，避免在输入关键路径立即创建保存任务对象

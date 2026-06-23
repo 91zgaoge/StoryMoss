@@ -51,13 +51,18 @@ export const useFrontstageStore = create<FrontstageState>(set => ({
 
   // Actions
   setContent: content =>
-    set(state => ({
-      content:
+    set(state => {
+      const newContent =
         typeof content === 'function'
           ? (content as (prev: string) => string)(state.content)
-          : content,
-      isSaved: false,
-    })),
+          : content;
+      // v0.23.23: 内容未变化时不标记为未保存，避免启动加载/章节切换/格式化等
+      // 非用户编辑场景触发伪"保存中"和自动保存 IPC 调用
+      if (newContent === state.content) {
+        return {};
+      }
+      return { content: newContent, isSaved: false };
+    }),
 
   setChapterInfo: (id, title, storyTitle) =>
     set({
