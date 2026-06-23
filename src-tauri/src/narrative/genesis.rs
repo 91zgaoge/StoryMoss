@@ -685,58 +685,51 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             };
 
             // 保存到 Chapter（自动补齐可能已创建 chapter_number=1 的 Chapter，需要检查）
-            let chapter_repo = ChapterRepository::new(ctx.pool.clone());
-            let content_len = result.content.chars().count();
-            tracing::info!(
-                "[FirstChapterGenerationStep] Saving chapter: story_id={}, content_len={}",
-                ctx.story_id,
-                content_len
-            );
-
-            // 检查是否已有 chapter_number=1 的 Chapter（由 auto-fill 创建）
-            let existing_chapters = chapter_repo
-                .get_by_story(&ctx.story_id)
-                .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-            let existing_chapter = existing_chapters
-                .into_iter()
-                .find(|c| c.chapter_number == 1);
-
-            let chapter = if let Some(ch) = existing_chapter {
-                tracing::info!(
-                    "[FirstChapterGenerationStep] Existing chapter found: chapter_id={}, updating",
-                    ch.id
-                );
-                chapter_repo
-                    .update(
-                        &ch.id,
-                        Some("第一章".to_string()),
-                        None,
-                        Some(result.content.clone()),
-                        Some(content_len as i32),
-                    )
-                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-                ch
-            } else {
-                let ch = chapter_repo
-                    .create(crate::db::CreateChapterRequest {
-                        story_id: ctx.story_id.clone(),
-                        chapter_number: 1,
-                        title: Some("第一章".to_string()),
-                        outline: None,
-                        content: Some(result.content.clone()),
-                    })
-                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-                ch
-            };
+            // v0.23.29: spawn_blocking 包裹同步 DB 操作，防连接池满时阻塞 tokio worker。
+            let save_content = result.content.clone();
+            let save_story_id = ctx.story_id.clone();
+            let save_pool = ctx.pool.clone();
+            let (chapter_id, chapter_number) = tokio::task::spawn_blocking(move || {
+                let chapter_repo = ChapterRepository::new(save_pool);
+                let existing = chapter_repo
+                    .get_by_story(&save_story_id)
+                    .map_err(|e| PipelineError::StorageError(e.to_string()))?
+                    .into_iter()
+                    .find(|c| c.chapter_number == 1);
+                if let Some(ref ch) = existing {
+                    chapter_repo
+                        .update(
+                            &ch.id,
+                            Some("第一章".to_string()),
+                            None,
+                            Some(save_content),
+                            None,
+                        )
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                    Ok::<_, PipelineError>((ch.id.clone(), ch.chapter_number))
+                } else {
+                    let ch = chapter_repo
+                        .create(crate::db::CreateChapterRequest {
+                            story_id: save_story_id,
+                            chapter_number: 1,
+                            title: Some("第一章".to_string()),
+                            outline: None,
+                            content: Some(save_content),
+                        })
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                    Ok((ch.id, ch.chapter_number))
+                }
+            })
+            .await
+            .map_err(|e| PipelineError::StepFailed {
+                step_name: "撰写开篇".to_string(),
+                reason: format!("章节保存 spawn_blocking 失败: {}", e),
+            })??;
 
             tracing::info!(
                 "[FirstChapterGenerationStep] Chapter saved: chapter_id={}, chapter_content_len={}",
-                chapter.id,
-                chapter
-                    .content
-                    .as_ref()
-                    .map(|c| c.chars().count())
-                    .unwrap_or(0)
+                chapter_id,
+                result.content.chars().count()
             );
 
             // v0.22.5: Genesis 完成后主动触发一次 commit/ingest 管线，
@@ -746,8 +739,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let commit_app_handle = ctx.app_handle.clone();
             let commit_pool = ctx.pool.clone();
             let commit_vector_store = ctx.vector_store.clone();
-            let commit_chapter_id = chapter.id.clone();
-            let commit_chapter_number = chapter.chapter_number;
+            let commit_chapter_id = chapter_id.clone();
+            let commit_chapter_number = chapter_number;
             let commit_content = result.content.clone();
             tauri::async_runtime::spawn(async move {
                 let service = crate::story_system::SceneCommitService::new(commit_pool.clone());
@@ -804,7 +797,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 &ctx.app_handle,
                 crate::window::FrontstageEvent::ChapterSwitch {
                     story_id: ctx.story_id.clone(),
-                    chapter_id: chapter.id.clone(),
+                    chapter_id: chapter_id.clone(),
                     title: "第一章".to_string(),
                     content: Some(result.content.clone()),
                 },
@@ -813,7 +806,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     "[FirstChapterGenerationStep] ChapterSwitch event sent: story_id={}, \
                      chapter_id={}",
                     ctx.story_id,
-                    chapter.id
+                    chapter_id
                 ),
                 Err(e) => tracing::error!(
                     "[FirstChapterGenerationStep] Failed to send ChapterSwitch event: {}",
