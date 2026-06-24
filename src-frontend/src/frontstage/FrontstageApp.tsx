@@ -853,13 +853,17 @@ const FrontstageApp: React.FC = () => {
       }
       updateLastEventTime();
       const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
+      // v0.23.43: 状态文案追加模型名称，提高识别度（用名称而非 ID）
+      const modelName = lastLlmModelRef.current;
       const message = precise || p.message;
-      setGenerationStatus(formatStatusWithElapsed(message));
+      const messageWithModel =
+        modelName && modelName !== '未知' ? `${message} · ${modelName}` : message;
+      setGenerationStatus(formatStatusWithElapsed(messageWithModel));
       setOrchestratorStatus({
         stepType: p.phase,
         loopIdx: undefined,
         score: p.progress,
-        message,
+        message: messageWithModel,
         detail: p.request_id || undefined,
       });
       updateGenerationPhase(message);
@@ -1339,13 +1343,17 @@ const FrontstageApp: React.FC = () => {
         // v0.11.2: LLM 心跳不应覆盖更具体的阶段进度（如"生成候选 1/2"）。
         // A4-1.7: 优先映射到精确阶段文案，并基于前端计时器显示已用时间。
         const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message) || p.message;
+        // v0.23.43: 状态文案追加模型名称，提高识别度
+        const modelName = lastLlmModelRef.current;
+        const preciseWithModel =
+          modelName && modelName !== '未知' ? `${precise} · ${modelName}` : precise;
         setGenerationStatus(prev => {
           const base = cleanStatusBase(prev);
           const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
           if (hasSpecificProgress) {
             return formatStatusWithElapsed(base);
           }
-          return formatStatusWithElapsed(precise);
+          return formatStatusWithElapsed(preciseWithModel);
         });
       });
       unlisteners.push(unlisten8);
