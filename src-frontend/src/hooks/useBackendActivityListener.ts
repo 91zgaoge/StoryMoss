@@ -309,8 +309,15 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         status: string;
         message: string;
         progress_percent: number;
+        metadata?: Record<string, unknown> | null;
       }>('pipeline-progress', event => {
         const p = event.payload;
+        // 后台阶段事件（如 Genesis 后台完善世界观/角色/场景）只做状态提示，
+        // 不注册 running activity，避免拉高 isGenerating 禁用输入框。
+        // 状态文案仍由 novel-bootstrap-progress 监听器更新。
+        if (p.metadata && (p.metadata as Record<string, unknown>).background === true) {
+          return;
+        }
         updatePrimary({
           category: 'pipeline',
           stage: p.step_name,

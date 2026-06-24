@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.36] - 创世正文质量优化 + 后台作业不再禁用输入框（2026-06-24）
+
+### 优化：创世正文质量（问题1）
+- **根因**：TriShot Call 3 的 `final_prompt` 来自合成器（Call 1 LLM 生成的 `synthesized_prompt`），只含创作约束（题材/角色/风格），**完全没有输出纪律**。`writer_system` 模板虽有纪律约束，但 Call 3 不使用它——合成器提示词直接当 user prompt 发送。模型无格式约束 → 自由发挥输出"好的，作为...""【创作分析】"、`#` 标题、`***` 分隔符等元评论与 markdown 格式。
+- **修复A（prompt 约束）**：Call 3 调用前给 `final_prompt` 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段——禁止元评论、markdown 格式、`【】`小节标题、`（幕结束）`批注。
+- **修复B（后处理兜底）**：新增 `sanitize_novel_output` 函数做最后防线，四步清洗：
+  1. 逐行去除 markdown 符号（`**`加粗、`*`斜体、`#`标题前缀）
+  2. 去除尾部元评论（"【创作分析】"、"（第一幕结束）"等及之后内容）
+  3. 去除前导元评论（"好的，作为..."等过渡语）
+  4. 去除整行`【】`小节标题与`（）`幕结束批注行、纯分隔符行
+- **设计原则**：宁可保留可疑行也不误删正文。尾部截断用的标记是元评论强信号（正文不会整句出现"创作分析与策略说明"），不限制位置。
+- **测试**：新增 7 个单元测试覆盖前导过渡语/尾部创作分析/幕结束批注/小节标题/markdown格式/纯净正文不误伤/空输入
+
+### 优化：后台作业不再禁用输入框（问题2）
+- **根因**：Genesis 后台阶段（世界观/角色/场景/伏笔）的 `pipeline-progress` 事件被 `useBackendActivityListener` 注册为 running activity → `getIsAnyActive()=true` → `setIsGenerating(true)` → 输入框 `disabled={isGenerating}`。快速阶段已返回、用户本可写作，但后台事件把 `isGenerating` 重新拉高。
+- **修复**：后台阶段 `pipeline-progress` 事件打 `metadata: {background: true}` 标记。前端 `useBackendActivityListener` 检测到 `background` 标记后跳过注册 running activity。状态文案仍由已有的 `novel-bootstrap-progress` 监听器更新（"后台正在完善小说世界..."），不影响提示。
+- **效果**：创世快速阶段完成后，用户可立即开始写作，后台完善世界观/角色/场景时输入框保持可用。
+
+### 验证
+- `cargo test --lib` ✅ **563 passed / 0 failed / 2 ignored**（新增 7 个 sanitize 测试）
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.23.34] - 修复 select_candidates 中 std::sync::Mutex 自死锁（2026-06-23）
 
 ### 修复（根因）

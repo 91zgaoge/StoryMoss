@@ -313,7 +313,10 @@ async fn smart_execute_inner(
                             .with_cancel_flag(bg_cancel_flag);
 
                     let progress_callback_bg = std::sync::Arc::new(
-                        move |evt: crate::narrative::progress::PipelineProgressEvent| {
+                        move |mut evt: crate::narrative::progress::PipelineProgressEvent| {
+                            // 标记为后台阶段：前端监听器据此跳过注册 running activity，
+                            // 不禁用输入框（后台作业只做状态提示，不阻塞用户写作）。
+                            evt.metadata = Some(serde_json::json!({"background": true}));
                             let _ = app_handle_bg.emit("pipeline-progress", &evt);
                             let _ = app_handle_bg.emit(
                                 "novel-bootstrap-progress",

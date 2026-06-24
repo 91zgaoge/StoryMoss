@@ -1309,6 +1309,9 @@ impl AgentOrchestrator {
             .as_ref()
             .map(|m| m.tags_for_selected(&selected_ids))
             .unwrap_or_default();
+        // 追加输出纪律段：约束模型只输出纯小说正文，禁止元评论/markdown/批注。
+        // 配合 sanitize_novel_output 后处理兜底，双重防线避免正文混入提示词泄漏。
+        final_prompt.push_str(NOVEL_OUTPUT_DISCIPLINE);
         let call3_request_id = uuid::Uuid::new_v4().to_string();
         // v0.23.15: Call 3 超时覆盖——按剩余预算计算，最少 30s 最多 120s，
         // 避免跑满 profile.timeout_seconds（用户可能设 300s）导致前端先超时。
@@ -1364,7 +1367,10 @@ impl AgentOrchestrator {
 
         // v0.23.15: 空内容检查——Call 3 返回空字符串时直接报错，不静默传递空
         // final_content。
-        let content = gen_response.content;
+        let raw_content = gen_response.content;
+        // 后处理清洗：剥离前导过渡语/尾部创作分析/markdown 标记（输出纪律的兜底）。
+        // 部分模型即便有输出纪律约束仍会泄漏元评论与格式，此处做最后防线。
+        let content = sanitize_novel_output(&raw_content);
         if content.trim().is_empty() {
             log::warn!(
                 "[TriShot] Call 3 返回空内容（request_id={}，timeout={}s）",
@@ -2789,6 +2795,136 @@ impl AgentOrchestrator {
     }
 }
 
+/// 输出纪律段——追加到 TriShot Call 3 提示词末尾，约束模型只输出纯小说正文。
+///
+/// 作为第一道防线（prompt 约束），配合 [`sanitize_novel_output`]（后处理兜底），
+/// 双重保证正文不混入元评论与 markdown 格式。
+const NOVEL_OUTPUT_DISCIPLINE: &str = "\n\n【输出纪律（必须严格遵守）】\n\
+- 只输出小说正文本身，禁止任何元评论、创作分析、策略说明、过渡语（如\"好的，作为...\"、\"以下是为您创作的...\"）\n\
+- 禁止使用 markdown 格式（# 标题、**加粗**、*** 分隔符、> 引用等）\n\
+- 禁止添加【】方括号标注的小节标题（如【开篇】【第一幕结尾】等）\n\
+- 禁止在正文末尾添加（第X幕结束）等批注或括号说明\n\
+- 直接以正文内容开始，段落之间用空行分隔，不输出任何标题或分隔线";
+
+/// 清洗 LLM 生成的小说正文，去除元评论与 markdown 格式。
+///
+/// 作为输出纪律的兜底——即便 prompt 要求了纪律，部分模型仍会泄漏元评论，
+/// 此函数做最后防线：
+/// 1. 逐行去除 markdown 符号（** 加粗、* 斜体、# 标题前缀）
+/// 2. 去除尾部元评论（"【创作分析】"、"（第一幕结束）"等及之后内容）
+/// 3. 去除前导元评论（"好的，作为..."等过渡语，到第一个正文段落/章节标题）
+/// 4. 去除整行【】方括号小节标题与（）幕结束批注行、纯分隔符行
+///
+/// 设计原则：宁可保留可疑行也不误删正文。尾部截断用的标记是元评论强信号
+/// （正文不会整句出现"创作分析与策略说明"或"第一幕结束"），不限制位置。
+pub(crate) fn sanitize_novel_output(content: &str) -> String {
+    if content.trim().is_empty() {
+        return content.to_string();
+    }
+
+    // 1. 逐行去除 markdown 符号（先做，让后续整行判断能匹配到 **【】** 等包裹）
+    let demd: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let mut l = line.to_string();
+            // 去标题前缀 # ## ###（保留标题文字）
+            let trimmed = l.trim_start();
+            if trimmed.starts_with('#') {
+                let n = trimmed.chars().take_while(|&c| c == '#').count();
+                l = trimmed[n..].trim_start().to_string();
+            }
+            l.replace("**", "").replace('*', "")
+        })
+        .collect();
+    let mut text = demd.join("\n");
+
+    // 2. 去除尾部元评论：找元评论强信号标记，截断其后所有内容。
+    //    这些标记正文不会整句出现，不限制位置。
+    let tail_markers = [
+        "【创作分析",
+        "【创作分析与策略说明",
+        "（第一幕结束",
+        "（第二幕结束",
+        "（第三幕结束",
+        "（全章结束",
+        "（全篇结束",
+    ];
+    let mut cut = text.len();
+    for marker in &tail_markers {
+        if let Some(pos) = text.find(marker) {
+            cut = cut.min(pos);
+        }
+    }
+    text.truncate(cut);
+    text = text.trim_end().to_string();
+
+    // 3. 去除前导元评论：跳过前导的空行和元评论行，第一个非元评论非空行作为正文起点
+    let lines: Vec<&str> = text.lines().collect();
+    let mut start = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if is_meta_intro_line(t) {
+            continue;
+        }
+        // 遇到第一个非元评论行，作为正文起点
+        start = i;
+        break;
+    }
+    if start > 0 {
+        text = lines[start..].join("\n");
+    }
+
+    // 4. 逐行去除整行【】小节标题、（）幕结束批注、纯分隔符行
+    let cleaned: Vec<String> = text
+        .lines()
+        .map(|line| {
+            let t = line.trim();
+            // 去除纯分隔符行（---、___ 等）
+            if !t.is_empty() && t.chars().all(|c| c == '-' || c == '_') && t.len() >= 3 {
+                return String::new();
+            }
+            // 去除整行【】包裹的小节标题（短行，像标题而非正文）
+            if t.starts_with("【") && t.ends_with("】") && t.chars().count() <= 30 {
+                return String::new();
+            }
+            // 去除整行（）包裹的幕结束批注
+            if t.starts_with("（") && t.ends_with("）") && t.contains("幕结束") {
+                return String::new();
+            }
+            line.to_string()
+        })
+        .collect();
+
+    let mut result: String = cleaned
+        .iter()
+        .filter(|l| !l.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    result = result.trim().to_string();
+    if !result.is_empty() {
+        result.push('\n');
+    }
+    result
+}
+
+/// 判断一行是否为前导元评论（LLM 过渡语/开场白）。
+///
+/// 仅匹配几乎确定是元评论的开头，保守以避免误伤正文。
+fn is_meta_intro_line(line: &str) -> bool {
+    line.starts_with("好的，")
+        || line.starts_with("好的,")
+        || line.starts_with("作为一")
+        || line.starts_with("我将为")
+        || line.starts_with("以下是为您")
+        || line.starts_with("以下是我为")
+        || line.starts_with("为您创作")
+        || line.starts_with("严格遵循")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2816,6 +2952,78 @@ mod tests {
         assert_ne!(GenerationMode::TriShot, GenerationMode::TimeSliced);
         assert_ne!(GenerationMode::TriShot, GenerationMode::Full);
         assert_ne!(GenerationMode::TriShot, GenerationMode::Fast);
+    }
+
+    #[test]
+    fn test_sanitize_strips_leading_meta_and_markdown() {
+        let raw = "好的，作为一名专业科幻作家，我将为您构思第一章开篇。\n\n以下是为您创作的第一章：\n\n***\n\n# 星骸残响\n\n## 第一章：灰烬之海\n\n寂静是最大的谎言。";
+        let cleaned = sanitize_novel_output(raw);
+        // 前导过渡语被剥离
+        assert!(!cleaned.starts_with("好的"));
+        assert!(!cleaned.contains("以下是为您创作"));
+        // markdown 标题前缀被去除，标题文字保留
+        assert!(!cleaned.contains("# "));
+        assert!(cleaned.contains("星骸残响"));
+        assert!(cleaned.contains("第一章：灰烬之海"));
+        // 正文保留
+        assert!(cleaned.contains("寂静是最大的谎言。"));
+        // 分隔符 *** 被去除
+        assert!(!cleaned.contains("***"));
+    }
+
+    #[test]
+    fn test_sanitize_strips_tail_creation_analysis() {
+        let raw = "寂静是最大的谎言。\n\n这是正文第二段。\n\n***\n\n**【创作分析与策略说明】**\n\n1. **基调与主题：** 成功营造张力。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("寂静是最大的谎言。"));
+        assert!(cleaned.contains("这是正文第二段。"));
+        // 尾部创作分析被截断
+        assert!(!cleaned.contains("创作分析"));
+        assert!(!cleaned.contains("基调与主题"));
+    }
+
+    #[test]
+    fn test_sanitize_strips_act_end_annotations() {
+        let raw = "正文段落。\n\n**（第一幕结束，悬念：主角被标记。）**\n\n后续不应保留。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("正文段落。"));
+        // 第一幕结束标记之后的批注被截断
+        assert!(!cleaned.contains("第一幕结束"));
+        assert!(!cleaned.contains("后续不应保留"));
+    }
+
+    #[test]
+    fn test_sanitize_preserves_clean_novel() {
+        // 纯净小说正文不应被误伤
+        let raw = "寂静是最大的谎言。\n\n这不是那种宁静的寂静。\n\n我蜷缩在舱室里。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("寂静是最大的谎言。"));
+        assert!(cleaned.contains("我蜷缩在舱室里。"));
+    }
+
+    #[test]
+    fn test_sanitize_strips_bracket_section_headers() {
+        let raw = "正文第一段。\n\n**【开篇：危机爆发】**\n\n正文第二段。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("正文第一段。"));
+        assert!(cleaned.contains("正文第二段。"));
+        // 【】小节标题被去除
+        assert!(!cleaned.contains("开篇：危机爆发"));
+    }
+
+    #[test]
+    fn test_sanitize_empty_input() {
+        assert_eq!(sanitize_novel_output(""), "");
+        assert_eq!(sanitize_novel_output("   \n  "), "   \n  ");
+    }
+
+    #[test]
+    fn test_sanitize_no_anchor_keeps_body() {
+        // 无标题锚点时，剥离典型过渡语开头但保留正文
+        let raw = "好的，我为您创作以下内容：\n\n寂静是最大的谎言。这是正文。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(!cleaned.starts_with("好的"));
+        assert!(cleaned.contains("寂静是最大的谎言。"));
     }
 
     #[test]
