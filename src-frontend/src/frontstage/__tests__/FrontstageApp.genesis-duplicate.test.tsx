@@ -47,7 +47,13 @@ vi.mock('@/services/tauri', () => ({
     if (cmd === 'get_story_chapters') {
       // 与 ChapterSwitch 事件携带的 content 完全相同
       return Promise.resolve([
-        { id: 'ch-1', story_id: 'story-1', chapter_number: 1, title: '第一章', content: CHAPTER_TEXT },
+        {
+          id: 'ch-1',
+          story_id: 'story-1',
+          chapter_number: 1,
+          title: '第一章',
+          content: CHAPTER_TEXT,
+        },
       ]);
     }
     if (cmd === 'get_story_scenes') {
