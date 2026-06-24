@@ -1442,6 +1442,22 @@ impl AgentOrchestrator {
             Some(request_id.clone()),
         );
 
+        // [DEBUG] Bug A/B 关键日志：Call 3 完成，正文已就绪
+        if let Some(logger) = self
+            .app_handle
+            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+        {
+            logger.info(
+                "trishot.call3.done",
+                "Call 3 完成，正文已生成",
+                Some(serde_json::json!({
+                    "content_len": content.len(),
+                    "content_preview": &content[..content.len().min(120)],
+                    "request_id": &request_id,
+                })),
+            );
+        }
+
         // ===== Phase 4: 后台 agent（全部静默，0 LLM 在关键路径）=====
 
         // BGP-1: 后台异步审计
@@ -1493,10 +1509,27 @@ impl AgentOrchestrator {
         });
 
         // BGP-4: 条件触发深度洞察
+        // [DEBUG] Bug B 关键日志：此处 spawn_blocking().await 可能阻塞 execute_trishot
+        // 返回 如果 should_trigger 的 DB
+        // 查询慢或连接池满，会卡在这里，前端停在"最终输出"
         let insight_pool = pool.inner().clone();
         let insight_story_id = task.context.story.story_id.clone();
         let insight_chapter = task.context.narrative.chapter_number as i32;
         let insight_handle = self.app_handle.clone();
+        if let Some(logger) = self
+            .app_handle
+            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+        {
+            logger.info(
+                "trishot.bgp4.start",
+                "BGP-4 深度洞察检查开始（spawn_blocking，可能阻塞返回）",
+                None,
+            );
+        }
+        let bgp4_start = std::time::Instant::now();
+        let bgp4_logger = self
+            .app_handle
+            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>();
         tokio::task::spawn_blocking(move || {
             let should = crate::task_system::insight_executor::InsightExecutor::should_trigger(
                 &insight_pool,
@@ -1531,6 +1564,17 @@ impl AgentOrchestrator {
                 });
             }
         });
+
+        // [DEBUG] Bug B 关键日志：BGP-4 完成，execute_trishot 即将返回
+        if let Some(ref logger) = bgp4_logger {
+            logger.info(
+                "trishot.bgp4.done",
+                "BGP-4 完成，execute_trishot 即将返回",
+                Some(serde_json::json!({
+                    "bgp4_duration_ms": bgp4_start.elapsed().as_millis() as u64,
+                })),
+            );
+        }
 
         Ok(WorkflowResult {
             final_content: content,

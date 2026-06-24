@@ -682,6 +682,22 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 Err(e) => return Err(PipelineError::LlmError(e.to_string())),
             };
 
+            // [DEBUG] Bug A 关键日志：第一章生成完成，记录实际内容
+            if let Some(logger) = ctx
+                .app_handle
+                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+            {
+                logger.info(
+                    "genesis.first_chapter.generated",
+                    "第一章正文生成完成",
+                    Some(serde_json::json!({
+                        "content_len": result.content.len(),
+                        "content_preview": &result.content[..result.content.len().min(120)],
+                        "score": result.score,
+                    })),
+                );
+            }
+
             // 保存到 Chapter（自动补齐可能已创建 chapter_number=1 的 Chapter，需要检查）
             // v0.23.29: spawn_blocking 包裹同步 DB 操作，防连接池满时阻塞 tokio worker。
             let save_content = result.content.clone();
@@ -791,6 +807,22 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             });
 
             // 发送 ChapterSwitch 事件
+            // [DEBUG] Bug A 关键日志：ChapterSwitch 事件发送时的内容
+            if let Some(logger) = ctx
+                .app_handle
+                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+            {
+                logger.info(
+                    "genesis.chapter_switch.sent",
+                    "ChapterSwitch 事件发送到前端",
+                    Some(serde_json::json!({
+                        "story_id": &ctx.story_id,
+                        "chapter_id": &chapter_id,
+                        "content_len": result.content.len(),
+                        "content_preview": &result.content[..result.content.len().min(120)],
+                    })),
+                );
+            }
             match crate::window::WindowManager::send_to_frontstage(
                 &ctx.app_handle,
                 crate::window::FrontstageEvent::ChapterSwitch {

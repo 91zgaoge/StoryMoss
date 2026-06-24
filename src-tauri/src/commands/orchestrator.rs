@@ -162,6 +162,18 @@ async fn smart_execute_inner(
 
     let chapter_count = chapters.len();
 
+    // [DEBUG] 获取 WorkflowLogger，关键日志点写入
+    // creative_workflow.log（诊断卡片自动收集）
+    let wf_logger = app_handle
+        .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+        .map(|l| l.clone());
+    let current_content_len = current_content.as_ref().map(|s| s.len()).unwrap_or(0);
+    let wf = |phase: &str, message: &str, details: Option<serde_json::Value>| {
+        if let Some(ref l) = wf_logger {
+            l.info(phase, message, details);
+        }
+    };
+
     // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的内容
     let current_content_preview = current_content
         .filter(|c| !c.trim().is_empty())
@@ -181,6 +193,16 @@ async fn smart_execute_inner(
 
     // 检测是否需要启动小说初始化工作流
     let is_bootstrap_intent = is_novel_creation_intent(&user_input);
+
+    wf(
+        "smart_execute.start",
+        "smart_execute 开始",
+        Some(serde_json::json!({
+            "is_bootstrap_intent": is_bootstrap_intent,
+            "user_input": &user_input,
+            "current_content_len": current_content_len,
+        })),
+    );
 
     if is_bootstrap_intent {
         let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
@@ -252,6 +274,21 @@ async fn smart_execute_inner(
                         })
                         .or_else(|| ctx.first_chapter_content.clone())
                 };
+
+                // [DEBUG] Bug A 关键日志：final_content 是摘要还是完整正文？
+                wf(
+                    "genesis.final_content",
+                    "Genesis 快速阶段完成，确定 final_content",
+                    Some(serde_json::json!({
+                        "story_id": &ctx.story_id,
+                        "story_meta_title": ctx.bundle.read().await.story_meta.as_ref().map(|m| m.title.clone()).unwrap_or_default(),
+                        "first_chapter_content_len": ctx.first_chapter_content.as_ref().map(|s| s.len()).unwrap_or(0),
+                        "final_content_len": final_content.as_ref().map(|s| s.len()).unwrap_or(0),
+                        "final_content_is_summary": final_content.as_ref().map(|s| s.contains("已创建，第一章正文已生成")).unwrap_or(false),
+                        "final_content_preview": final_content.as_ref().map(|s| &s[..s.len().min(100)]).unwrap_or("EMPTY"),
+                        "messages": ["story_created", "novel_bootstrap_first_chapter_ready"],
+                    })),
+                );
 
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
