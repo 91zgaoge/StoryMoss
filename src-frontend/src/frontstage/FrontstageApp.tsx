@@ -1482,7 +1482,9 @@ const FrontstageApp: React.FC = () => {
       currentChapter?.content != null &&
       chapter.content === currentChapter.content
     ) {
-      frontstageLogger.info('[selectChapter] Same chapter & content, skipping redundant setContent');
+      frontstageLogger.info(
+        '[selectChapter] Same chapter & content, skipping redundant setContent'
+      );
       setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
       return;
     }
