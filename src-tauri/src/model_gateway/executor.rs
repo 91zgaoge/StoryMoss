@@ -626,6 +626,106 @@ impl GatewayExecutor {
                 continue;
             };
 
+            // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
+            // 根因：模型列表里可能存在已失效但健康状态仍为 Healthy 的死模型
+            // （本地 llama.cpp/MLX 服务已停止，但缓存未更新），直接调用会浪费
+            // 30-300s 直到 LLM 超时。实时探测用极短 prompt 验证连接，失败则跳过。
+            let probe_request_id = format!("pre-call-probe-{}", &candidate.model_id);
+            let probe_profile = profile.clone();
+            let probe_service = self.llm_service.clone();
+            let probe_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                let (_, result) = probe_service
+                    .generate_with_profile_and_request_id(
+                        &probe_profile.id,
+                        "Respond with exactly the word OK.".to_string(),
+                        Some(4),
+                        Some(0.0),
+                        Some("pre-call-probe"),
+                        Some(probe_request_id),
+                        Some(5),
+                        Some(0),
+                    )
+                    .await;
+                result
+            })
+            .await;
+            match probe_result {
+                Ok(Ok(_resp)) => {
+                    self.workflow_log(
+                        "gateway.generate.pre_call_probe.ok",
+                        format!("候选 [{}] 实时探测通过", idx + 1),
+                        Some(serde_json::json!({"model_id": candidate.model_id})),
+                    );
+                }
+                Ok(Err(e)) => {
+                    log::warn!(
+                        "[Gateway] 候选 [{}/{}] {} 实时探测失败，跳过: {}",
+                        idx + 1,
+                        decision.candidates.len(),
+                        candidate.model_id,
+                        e
+                    );
+                    self.workflow_log(
+                        "gateway.generate.pre_call_probe.fail",
+                        format!("候选 [{}] 实时探测失败，跳过", idx + 1),
+                        Some(serde_json::json!({"model_id": candidate.model_id, "error": e.to_string()})),
+                    );
+                    // 更新健康状态为 Unhealthy
+                    if let Ok(mut guard) = self.health_registry().lock() {
+                        guard.update(super::types::ModelHealthSnapshot {
+                            model_id: candidate.model_id.clone(),
+                            model_name: candidate.model_name.clone(),
+                            status: super::types::HealthStatus::Unhealthy,
+                            ttfb_ms: None,
+                            tps: None,
+                            success_rate_24h: None,
+                            avg_latency_ms: None,
+                            last_error: Some(e.to_string()),
+                            last_checked_at: Some(chrono::Utc::now().to_rfc3339()),
+                            enabled: true,
+                            is_primary: false,
+                            is_fallback: false,
+                        });
+                    }
+                    last_error = Some(e);
+                    continue;
+                }
+                Err(_elapsed) => {
+                    log::warn!(
+                        "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），跳过",
+                        idx + 1,
+                        decision.candidates.len(),
+                        candidate.model_id
+                    );
+                    self.workflow_log(
+                        "gateway.generate.pre_call_probe.timeout",
+                        format!("候选 [{}] 实时探测超时（5s），跳过", idx + 1),
+                        Some(serde_json::json!({"model_id": candidate.model_id})),
+                    );
+                    // 更新健康状态为 Unhealthy
+                    if let Ok(mut guard) = self.health_registry().lock() {
+                        guard.update(super::types::ModelHealthSnapshot {
+                            model_id: candidate.model_id.clone(),
+                            model_name: candidate.model_name.clone(),
+                            status: super::types::HealthStatus::Unhealthy,
+                            ttfb_ms: None,
+                            tps: None,
+                            success_rate_24h: None,
+                            avg_latency_ms: None,
+                            last_error: Some("pre-call probe timeout (5s)".to_string()),
+                            last_checked_at: Some(chrono::Utc::now().to_rfc3339()),
+                            enabled: true,
+                            is_primary: false,
+                            is_fallback: false,
+                        });
+                    }
+                    last_error = Some(AppError::Internal {
+                        message: format!("模型 {} 实时探测超时", candidate.model_name),
+                    });
+                    continue;
+                }
+            }
+
             // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
             // 以支持 OpenAI/Ollama 的 JSON mode。
             let context_label = request.context_label.as_deref();
