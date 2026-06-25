@@ -17,6 +17,10 @@ interface UseBackendActivityListenerOptions {
 
 const PRIMARY_ACTIVITY_ID = 'ai-primary-activity';
 
+// v0.23.46: 全局缓存最近一次 LLM 心跳的模型名称（model + provider），
+// 用于 generation-status / smart-execute-progress 消息中追加模型名称
+let lastModelName = '';
+
 /** 智能创作精确阶段映射（A4-1.7 / C1） */
 const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
   {
@@ -94,6 +98,14 @@ type ProgressPayload = {
   progress?: number;
   status?: 'running' | 'completed' | 'failed';
 };
+
+/** v0.23.46: 在消息后追加模型名称（若有），提高识别度 */
+function appendModelName(message: string): string {
+  if (lastModelName && message) {
+    return `${message} · ${lastModelName}`;
+  }
+  return message;
+}
 
 /** C1: 统一生成状态事件 payload */
 type GenerationStatusPayload = {
@@ -180,6 +192,8 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
             precise,
             progress: p.progress,
           });
+          // v0.23.46: 状态文案追加模型名称
+          const messageWithModel = appendModelName(precise || p.message);
           const status: ProgressPayload['status'] =
             p.phase === 'completed'
               ? 'completed'
@@ -189,7 +203,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           updatePrimary({
             category: 'orchestrator',
             stage: p.phase,
-            message: precise || p.message,
+            message: messageWithModel,
             progress: p.progress,
             status,
           });
@@ -313,10 +327,12 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           total: p.total_steps,
           mapped_status: status,
         });
+        // v0.23.46: smart-execute-progress 消息追加模型名称
+        const smartMsgWithModel = appendModelName(p.message);
         updatePrimary({
           category: 'smart_execute',
           stage: p.stage,
-          message: p.message,
+          message: smartMsgWithModel,
           progress,
           status,
         });
@@ -400,12 +416,16 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         // C1: 统一事件已覆盖 LLM 创作进度，跳过重叠更新
         if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
+        // v0.23.46: 缓存模型名称，供 generation-status / smart-execute-progress 追加
+        if (p.model) {
+          lastModelName = p.model;
+        }
         // v0.11.6-hotfix2: 心跳本身不应创建新的主活动，否则输入框自动聚焦时触发的
         // get_input_hint 等轻量 LLM 调用会把输入框置为禁用状态。只在已有创作活动
-        // 进行时更新文案，避免“还没打字就进入运行进程”。
+        // 进行时更新文案，避免”还没打字就进入运行进程”。
         // A4-1.7: 优先映射到精确阶段文案
         const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
-        const message = precise || p.message;
+        const message = appendModelName(precise || p.message);
         const existing = store.activities.find(
           a => a.status === 'running' && a.id === PRIMARY_ACTIVITY_ID
         );
