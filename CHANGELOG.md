@@ -2,6 +2,64 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.45] - IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃（2026-06-25）
+
+### 修复：IngestPipeline LLM 调用未静默导致前端崩溃（Bug B 残留根因）
+- **根因（日志确认）**：创世正文返回后，IngestPipeline 并发发起多个"记忆-内容分析"LLM 调用（提取实体/关系/事件），`context_label` 未匹配 `is_silent_background` 静默列表，`is_silent_background=false` 导致进度事件覆盖前端主活动状态（"准备上下文"卡住）。同时本地模型无法处理并发请求返回 `INTERNAL_ERROR`，大量错误事件涌入导致前端页面崩溃空白。
+- **修复**：将 IngestPipeline 的三个 `context_label`（`"记忆-内容分析"`、`"记忆-生成知识"`、`"记忆-叙事事件提取"`）加入 `is_silent_background` 静默列表。
+- 验证：`cargo check` 零错误
+
+## [v0.23.44] - AI 状态提示使用模型名称（2026-06-25）
+
+### 优化：AI 进程状态提示使用模型名称而非 ID
+- `generation-status` 和 `llm-generating-progress` 心跳事件的状态文案追加模型名称（格式：`准备上下文... · gemma4-e2b (OpenAI) (15s)`），提高识别度。
+
+## [v0.23.43] - 前端诊断日志 + log_frontend_event 命令（2026-06-25）
+
+### 新增：前端写入 WorkflowLogger 的 Tauri 命令
+- 新增 `log_frontend_event` Tauri 命令，前端关键路径（`setContent`/`selectChapter`/`ChapterSwitch`）可写入 `creative_workflow.log`，诊断卡片自动收集。
+- 前端 `[DEBUG-dup]` / `[DEBUG-act]` 诊断日志接入 WorkflowLogger。
+
+## [v0.23.42] - 根治创世卡在"最终输出"：BGP-4 自死锁修复（2026-06-25）
+
+### 修复：TriShot BGP-4 spawn_blocking 自死锁（Bug B 主根因）
+- **根因（日志确认）**：`execute_trishot` 在 Call 3 LLM 成功返回正文后，用 `spawn_blocking().await` **同步等待** BGP-4 深度洞察的 `should_trigger` DB 查询。该查询与 BGP-1（审计）/BGP-3（入库）的后台任务竞争 `std::sync::Mutex`，导致**自死锁**——`execute_trichot` 永不返回，`FirstChapterGenerationStep` 中的 DB 保存和 `ChapterSwitch` 事件发送（都在 `generate().await` 之后）**从未执行**，`smart_execute` 超时 600s。
+- **修复**：BGP-4 从 `spawn_blocking().await`（同步等待）改为 `tokio::spawn`（fire-and-forget），`execute_trichot` 在 Call 3 完成后**立即返回**。
+- **诊断日志确认**：`trishot.call3.done` → `trishot.bgp4.spawn` → `trishot.bgp4.done` 全部在 1ms 内完成，不再卡死。
+- 附带修复 `rustls v0.23.41` checksum（crates.io 重新发布导致 CI 失败）。
+- 验证：`cargo test --lib` **563 passed / 0 failed / 2 ignored**；`cargo +nightly fmt -- --check` 通过；`npx tsc --noEmit` 零错误
+
+## [v0.23.41] - BGP-4 fire-and-forget 修复（2026-06-25）
+
+- 与 v0.23.42 相同修复的初次提交（v0.23.42 包含 rustls checksum 修复）。
+
+## [v0.23.40] - 参照现有诊断机制添加 WorkflowLogger 日志点（2026-06-25）
+
+### 新增：关键路径 WorkflowLogger 日志点
+- 参照应用已有的 `WorkflowLogger` 诊断机制（写 `logs/creative_workflow.log`，诊断卡片自动收集最近 30 行），在以下关键缺失点补充了日志：
+  - **Bug A（正文重复）**：`genesis.first_chapter.generated`、`genesis.chapter_switch.sent`、`genesis.final_content`（记录是摘要还是完整正文）
+  - **Bug B（超时/卡死）**：`smart_execute.start`、`trishot.call3.done`、`trishot.bgp4.start`/`bgp4.done`
+- 前端 `[DEBUG-dup]` / `[DEBUG-act]` console.warn 诊断日志。
+
+## [v0.23.39] - 回滚激进前端修改恢复可用性（2026-06-25）
+
+### 修复：回滚 v0.23.37/38 中导致页面空白和超时的前端修改
+- 回滚 `selectChapter` 同章同内容跳过 guard
+- 回滚 `story_created` 块跳过 `selectChapter`
+- 回滚 `isFirstChapterReady` 时 `setGeneratedText('')`
+- 保留：后端 Bug B 修复（Genesis 补发 completed/error + timeout/error 映射为 failed）、诊断日志
+
+## [v0.23.38] - 诊断日志版本（2026-06-25）
+
+- 添加 `[DEBUG-dup]` / `[DEBUG-act]` 诊断日志到前端关键路径。
+
+## [v0.23.37] - Genesis 活动清理 + 前端正文重复修复尝试（2026-06-25）
+
+### 修复
+- **Bug B-1**：Genesis 成功路径补发 `smart-execute-progress` 的 `completed` 事件，错误路径补发 `error` 事件。
+- **Bug B-2**：`smart-execute-progress` 处理器把 `timeout`/`error` 也映射为 `failed`（此前只认 `completed`）。
+- **Bug A 尝试**：`selectChapter` 同章同内容跳过 + `story_created` 块跳过 + `isFirstChapterReady` 时清空 `generatedText`（后在 v0.23.39 回滚）。
+
 ## [v0.23.36] - 创世正文质量优化 + 后台作业不再禁用输入框（2026-06-24）
 
 ### 优化：创世正文质量（问题1）

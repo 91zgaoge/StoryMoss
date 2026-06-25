@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.23.36 功能清单（历史档案）
+# StoryForge (草苔) v0.23.45 功能清单（历史档案）
 
-> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.36**
+> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.45**
 >
 > **注意**：本文档为历史归档，初始编写于 v0.7.4，部分早期功能描述可能未同步最新变更。
 > 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
@@ -510,4 +510,4 @@ Layer 1: Raw Sources (原始内容)
 - **v0.23.25-v0.23.30**：Call 2 精修器跳过、`select_candidates` spawn_blocking、Chapter 保存 spawn_blocking、`genesis_default()` 显式化、全链路阻塞点修复
 - **v0.23.31-v0.23.34**：全链路 15 个诊断标记精确定位 + `select_candidates` 中 `std::sync::Mutex` 自死锁根因修复（health 锁移入嵌套块作用域）
 - **v0.23.35 采摘 Step1 JSON 解析容错**：`memory/ingest.rs` 6 个反序列化结构体补 `#[serde(default)]`，修复 LLM 返回 JSON 缺失 `entity_type` 等字段导致的采摘失败
-- **v0.23.36 创世正文清洗 + 后台作业不阻塞输入**：TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段 + `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）；Genesis 后台阶段事件标记 `background`，前端跳过注册 running activity，输入框不再被后台作业禁用
+- **v0.23.45 创世正文清洗 + 后台作业不阻塞输入**：TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段 + `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）；Genesis 后台阶段事件标记 `background`，前端跳过注册 running activity，输入框不再被后台作业禁用

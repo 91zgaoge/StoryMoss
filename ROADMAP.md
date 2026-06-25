@@ -1,10 +1,33 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-24（v0.23.36）
+> 最后更新: 2026-06-25（v0.23.45）
 
 ## ✅ v0.23.x 已实施完成
 
-### 📝 v0.23.36 创世正文清洗 + 后台作业不阻塞输入 ✅ (2026-06-24)
+### 📝 v0.23.45 IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃 ✅ (2026-06-25)
+- [x] 将 IngestPipeline 的三个 `context_label`（`"记忆-内容分析"`、`"记忆-生成知识"`、`"记忆-叙事事件提取"`）加入 `is_silent_background` 静默列表
+- [x] 根因：创世正文返回后 IngestPipeline 并发发起多个 LLM 调用未静默，进度事件覆盖前端主活动导致卡死，本地模型并发崩溃导致页面空白
+
+### 📝 v0.23.44 AI 状态提示使用模型名称 ✅ (2026-06-25)
+- [x] `generation-status` 和 `llm-generating-progress` 心跳事件状态文案追加模型名称
+
+### 📝 v0.23.43 前端诊断日志 + log_frontend_event 命令 ✅ (2026-06-25)
+- [x] 新增 `log_frontend_event` Tauri 命令，前端可写入 WorkflowLogger
+
+### 📝 v0.23.42 根治创世卡在"最终输出"：BGP-4 自死锁修复 ✅ (2026-06-25)
+- [x] BGP-4 从 `spawn_blocking().await` 改为 `tokio::spawn`（fire-and-forget）
+- [x] 根因：BGP-4 同步等待 DB 查询与 BGP-1/BGP-3 竞争 `std::sync::Mutex` 自死锁
+
+### 📝 v0.23.40 参照现有诊断机制添加 WorkflowLogger 日志点 ✅ (2026-06-25)
+- [x] Bug A 日志点：`genesis.first_chapter.generated`、`genesis.chapter_switch.sent`、`genesis.final_content`
+- [x] Bug B 日志点：`smart_execute.start`、`trishot.call3.done`、`trishot.bgp4.start`/`bgp4.done`
+- [x] 前端 `[DEBUG-dup]` / `[DEBUG-act]` console.warn 诊断日志
+
+### 📝 v0.23.37 Genesis 活动清理 + 前端正文重复修复尝试 ✅ (2026-06-25)
+- [x] Genesis 成功路径补发 `smart-execute-progress` completed/error 事件
+- [x] `smart-execute-progress` 处理器把 timeout/error 映射为 failed
+
+### 📝 v0.23.36 创世正文清洗 + 后台作业不阻塞输入 ✅ (2026-06-25)
 - [x] TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段（禁元评论/markdown/小节标题/幕结束批注）
 - [x] 新增 `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）
 - [x] 7 个单元测试覆盖各场景（前导剥离/尾部截断/markdown清洗/幕结束/小节标题/纯净正文不误伤/空输入）

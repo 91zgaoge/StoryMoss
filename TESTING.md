@@ -1,11 +1,11 @@
-# 🧪 StoryForge 自动化测试环境 (v0.23.36)
+# 🧪 StoryForge 自动化测试环境 (v0.23.45)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 | 套件 | 数量 | 状态 |
 |------|------|------|
-| `cargo test --lib` | 538 | ✅ 0 failed / 2 ignored |
+| `cargo test --lib` | 563 | ✅ 0 failed / 2 ignored |
 | `cargo test --lib prompt_synthesis` | 19 | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative` | 11 | ✅（拆书/叙事元素 round-trip） |
 | `npx tsc --noEmit` | 前端类型 | ✅ |
@@ -282,4 +282,4 @@ timeout: 60000, // 60秒
 
 ---
 
-*最后更新: 2026-06-24 - v0.23.36 创世正文清洗 + 后台作业不阻塞输入*
+*最后更新: 2026-06-25 - v0.23.45 创世正文清洗 + 后台作业不阻塞输入*

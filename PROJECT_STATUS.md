@@ -1,13 +1,41 @@
-# StoryForge (草苔) v0.23.36 项目完成状态
+# StoryForge (草苔) v0.23.45 项目完成状态
 
-> 最后更新: 2026-06-24（v0.23.36 创世正文清洗 + 后台作业不阻塞输入）
+> 最后更新: 2026-06-25（v0.23.45 IngestPipeline LLM 调用静默化）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
 
-### v0.23.36 — 创世正文清洗 + 后台作业不阻塞输入（2026-06-24）
+### v0.23.45 — IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃（2026-06-25）
+
+- 🎯 **根因（日志确认）**：创世正文返回后，IngestPipeline 并发发起多个"记忆-内容分析"LLM 调用，`context_label` 未匹配 `is_silent_background` 静默列表，进度事件覆盖前端主活动状态（"准备上下文"卡住）。本地模型无法处理并发请求返回 `INTERNAL_ERROR`，大量错误事件涌入导致前端页面崩溃空白。
+- 🎯 **修复**：将 IngestPipeline 的三个 `context_label` 加入 `is_silent_background` 静默列表。
+- ✅ **验证**：`cargo check` 零错误
+
+### v0.23.44 — AI 状态提示使用模型名称（2026-06-25）
+
+- 🎯 `generation-status` 和 `llm-generating-progress` 心跳事件状态文案追加模型名称（格式：`准备上下文... · gemma4-e2b (OpenAI) (15s)`）。
+
+### v0.23.43 — 前端诊断日志 + log_frontend_event 命令（2026-06-25）
+
+- 🎯 新增 `log_frontend_event` Tauri 命令，前端关键路径可写入 `creative_workflow.log`。
+
+### v0.23.42 — 根治创世卡在"最终输出"：BGP-4 自死锁修复（2026-06-25）
+
+- 🎯 **根因（日志确认）**：`execute_trishot` 在 Call 3 成功返回后用 `spawn_blocking().await` 同步等待 BGP-4 `should_trigger` DB 查询，与 BGP-1/BGP-3 后台任务竞争 `std::sync::Mutex` 导致自死锁，`execute_trichot` 永不返回。
+- 🎯 **修复**：BGP-4 改为 `tokio::spawn`（fire-and-forget）。
+- ✅ **验证**：`cargo test --lib` **563 passed / 0 failed / 2 ignored**
+
+### v0.23.40 — 参照现有诊断机制添加 WorkflowLogger 日志点（2026-06-25）
+
+- 🎯 Bug A/B 诊断日志点接入 WorkflowLogger（`genesis.chapter_switch.sent`、`trishot.call3.done`、`trishot.bgp4` 等）。
+
+### v0.23.37 — Genesis 活动清理（2026-06-25）
+
+- 🎯 Genesis 成功路径补发 `smart-execute-progress` completed/error；`smart-execute-progress` 处理器把 timeout/error 映射为 failed。
+
+### v0.23.36 — 创世正文清洗 + 后台作业不阻塞输入（2026-06-25）
 
 - 🎯 **创世正文质量优化**：TriShot Call 3 的 `final_prompt` 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段（禁元评论/markdown/小节标题/幕结束批注）+ 新增 `sanitize_novel_output` 后处理兜底（逐行去 markdown 符号→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）。7 个单元测试覆盖各场景。
 - 🎯 **后台作业不阻塞输入**：Genesis 后台阶段 `pipeline-progress` 事件打 `metadata: {background: true}` 标记，前端 `useBackendActivityListener` 检测到后跳过注册 running activity，不禁用输入框。状态文案仍由 `novel-bootstrap-progress` 监听器独立更新。
