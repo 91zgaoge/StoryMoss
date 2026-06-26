@@ -2,6 +2,18 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.49] - 推理模型思考链导致 JSON 提取出空对象修复（2026-06-26）
+
+### 修复：创世「解析故事概念失败: missing field `title`」
+- **症状**：用推理模型（如 MN-Oblivion-26B-UNCENSORED）创世时，`ConceptGenerationStep` 报 `missing field 'title' at line 1 column 2`。LLM 实际成功返回 5191 字符、2018 tokens（日志 `llm.generate.return_ok`），失败发生在 JSON 提取阶段。
+- **根因**：推理模型在正文前输出 `önh...` / `<thinking>...</thinking>` 思考链。思考链里常出现花括号（如 "用 {} 格式表示"、"return {}"）。v0.23.48 的 `extract_first_json_object` 用 `content.find('{')` 找第一个 `{` —— 它落在思考链里那个 `{}` 上，括号匹配返回空对象 `{}`，serde 反序列化 `StoryMetaElement` 时找不到必填的 `title`，报错位置 `line 1 column 2` 正是 `{}` 的 `}`。
+- **修复**：
+  - 新增 `strip_reasoning_blocks`：在 `extract_and_sanitize_json` 第一步剥离配对的 `önh...` / `<thinking>...</thinking>` 块（标签以字节数组构造，避免源码中出现完整标签字面量）。未闭合标签保持原样，交给后续括号匹配发现 JSON。
+  - `extract_first_json_object` 增强：跳过空对象 `{}` / `{ }`（候选去掉首尾花括号后不含 `:` 即视为空），继续向后扫描找真实 JSON。对任何前导杂散花括号的纵深防御。
+- **影响**：`extract_and_sanitize_json` 是 genesis/ingest/analysis/auto_contract 共用的 JSON 提取咽喉点，所有结构化 LLM 响应解析一次性受益。
+- 新增 3 个回归测试：思考链前缀+花括号、`<thinking>` 标签、前导空对象跳过。
+- 验证：`cargo check` 零错误；`cargo test --lib` **571 passed / 0 failed / 2 ignored**（+3 新测试，零回归）
+
 ## [v0.23.47] - 调用模型前实时连接探测 + JSON 尾部多余文本容错（2026-06-25）
 
 ### 新增：模型调用前 5 秒实时连接探测

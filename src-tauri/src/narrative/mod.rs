@@ -36,55 +36,119 @@ pub mod structure_analyzer;
 pub mod thread;
 pub mod thread_tracker;
 
+/// 剥离推理模型在正文前输出的「思考链」块。
+///
+/// 部分本地推理模型（DeepSeek-R1/Qwen3 系微调、MN-Oblivion、Gemma 3 等）会在
+/// 真正的答案前输出一段 `<think>...</think>` 或 `<thinking>...</thinking>`
+/// 包裹的 chain-of-thought。这段思考里经常出现花括号（如 "用 {} 格式表示"、
+/// "return {}"），若不剥离，[`extract_first_json_object`] 会把第一个 `{}`
+/// 当成 JSON 对象提取出来 → serde 反序列化报 "missing field" 错误。
+///
+/// 只剥离**配对**的块。未闭合的标签（有开标签但无闭标签）保持原样：此时
+/// 真正的 JSON 可能就出现在「未闭合思考」之后，留给后续括号匹配去发现。
+///
+/// 注意：标签以字节数组构造，避免在源码里出现完整标签字面量被工具链误处理。
+fn strip_reasoning_blocks(content: &str) -> String {
+    // <think>, </think>, <thinking>, </thinking>
+    const THINK_OPEN: &[u8] = b"\x3c\x74\x68\x69\x6e\x6b\x3e";
+    const THINK_CLOSE: &[u8] = b"\x3c\x2f\x74\x68\x69\x6e\x6b\x3e";
+    const THINKING_OPEN: &[u8] = b"\x3c\x74\x68\x69\x6e\x6b\x69\x6e\x67\x3e";
+    const THINKING_CLOSE: &[u8] = b"\x3c\x2f\x74\x68\x69\x6e\x6b\x69\x6e\x67\x3e";
+
+    let mut text = content.to_string();
+    for (open, close) in [(THINK_OPEN, THINK_CLOSE), (THINKING_OPEN, THINKING_CLOSE)] {
+        let open_s = std::str::from_utf8(open).unwrap();
+        let close_s = std::str::from_utf8(close).unwrap();
+        loop {
+            let Some(start) = text.find(open_s) else {
+                break;
+            };
+            let after_open = start + open_s.len();
+            let Some(rel) = text[after_open..].find(close_s) else {
+                break;
+            };
+            let end = after_open + rel + close_s.len();
+            text.replace_range(start..end, "");
+        }
+    }
+    text
+}
+
 /// 用括号匹配从 LLM 响应中提取第一个完整的 JSON 对象。
 ///
 /// 遍历字符，跟踪花括号深度（`{` +1, `}` -1），同时跳过字符串字面量
 /// （`"..."` 内的 `{`/`}` 不计入深度）。当深度回到 0 时，即为 JSON 对象边界。
 /// 这样即使 LLM 在 JSON 后输出包含 `}` 的额外文本，也不会误提取。
+///
+/// 会跳过空对象 `{}` / `{ }`：它们从不承载所需字段，通常来自思考链或前导
+/// 文本里的杂散花括号。抓到空对象只会让 serde 报 "missing field"。真实
+/// JSON 对象至少含一个键值对（`:`），据此跳过空候选继续向后扫描。
 fn extract_first_json_object(content: &str) -> Result<&str, String> {
-    let start = content
-        .find('{')
-        .ok_or_else(|| "No JSON object found in response".to_string())?;
-
     let bytes = content.as_bytes();
-    let mut depth: i32 = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut i = start;
+    let mut search_from = 0usize;
 
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
+    loop {
+        let start = content[search_from..]
+            .find('{')
+            .map(|p| search_from + p)
+            .ok_or_else(|| "No JSON object found in response".to_string())?;
+
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut i = start;
+        let mut closed = false;
+
+        while i < bytes.len() {
+            let ch = bytes[i] as char;
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    in_string = false;
+                }
             } else if ch == '"' {
-                in_string = false;
+                in_string = true;
+            } else if ch == '{' {
+                depth += 1;
+            } else if ch == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    closed = true;
+                    break;
+                }
             }
-        } else if ch == '"' {
-            in_string = true;
-        } else if ch == '{' {
-            depth += 1;
-        } else if ch == '}' {
-            depth -= 1;
-            if depth == 0 {
-                return Ok(&content[start..=i]);
-            }
+            i += 1;
         }
-        i += 1;
-    }
 
-    Err("JSON object not properly closed (unmatched braces)".to_string())
+        if !closed {
+            return Err("JSON object not properly closed (unmatched braces)".to_string());
+        }
+
+        let candidate = &content[start..=i];
+        // 候选去掉首尾花括号后若不含 `:`，说明是 `{}` / `{ }` 这类空对象，
+        // 不可能是有效答案，跳过继续找下一个 `{`。
+        let inner = &candidate[1..candidate.len().saturating_sub(1)];
+        if inner.contains(':') {
+            return Ok(candidate);
+        }
+        search_from = i + 1;
+    }
 }
 
 /// 从 LLM 响应中提取 JSON 对象，并修复常见语法错误（尾随逗号、空值、markdown
 /// 围栏等）
 pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
+    // 0. 剥离推理模型的思考链块（önh... / <thinking>...</thinking>）。
+    //    思考链里的花括号会被括号匹配误当成 JSON 对象，必须先移除。
+    let content = strip_reasoning_blocks(content);
+
     // 1. 基础提取：用括号匹配找第一个完整的 JSON 对象 { ... } （不使用
     //    rfind('}')，因为 LLM 可能在 JSON 后输出额外文本 其中包含 }
     //    字符，导致提取过多内容 → serde_json "trailing characters" 错误）
-    let raw = extract_first_json_object(content)?;
+    let raw = extract_first_json_object(&content)?;
 
     // 2. 移除 markdown 代码围栏标记（```json ... ```）
     let mut s = raw.to_string();
@@ -267,6 +331,42 @@ mod tests {
     fn test_extract_json_no_object() {
         let result = extract_and_sanitize_json("没有 JSON 的纯文本");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_json_after_reasoning_think_block() {
+        // 推理模型（如 MN-Oblivion-26B）在 JSON 前输出 <think>...</think>
+        // 思考链，思考链里含 {} 花括号，此前会被当成 JSON 对象提取出空 {} →
+        // serde "missing field 'title' at line 1 column 2"
+        let think_open = std::str::from_utf8(b"\x3c\x74\x68\x69\x6e\x6b\x3e").unwrap();
+        let think_close = std::str::from_utf8(b"\x3c\x2f\x74\x68\x69\x6e\x6b\x3e").unwrap();
+        let content = format!(
+            "{open}我需要为「异星末世生存」生成故事概念。\n输出格式用 {{}} 包裹 JSON 对象。\n先想标题……用 {{年份: 2087}} 设定背景。\n{close}{{\n  \"title\": \"锈蚀纪元\",\n  \"description\": \"幸存者在锈蚀星球上寻找最后的净水\",\n  \"genre\": \"科幻\",\n  \"tone\": \"沉重\",\n  \"pacing\": \"跌宕起伏\",\n  \"themes\": [\"生存\", \"希望\"],\n  \"target_length\": \"长篇100万字\"\n}}",
+            open = think_open,
+            close = think_close
+        );
+        let result = extract_and_sanitize_json(&content).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["title"], "锈蚀纪元");
+        assert_eq!(parsed["genre"], "科幻");
+    }
+
+    #[test]
+    fn test_extract_json_after_reasoning_angle_thinking() {
+        // <thinking>...</thinking> 形式的思考链
+        let content = "<thinking>\n用户想要异星末世题材。返回 {} 即可。\n</thinking>\n{\"title\": \"X\", \"genre\": \"科幻\"}";
+        let result = extract_and_sanitize_json(content).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["title"], "X");
+    }
+
+    #[test]
+    fn test_extract_json_skips_leading_empty_object() {
+        // 前导文本里的 {}（非思考链场景）也应被跳过，找到真正的 JSON
+        let content = "占位 {} 然后 {\"title\": \"真\", \"genre\": \"科幻\"}";
+        let result = extract_and_sanitize_json(content).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["title"], "真");
     }
 }
 

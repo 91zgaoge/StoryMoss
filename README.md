@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.45-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.49-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.45 IngestPipeline LLM 调用静默化——根治创世正文返回后"记忆-内容分析"后台 LLM 调用未静默导致前端活动卡死与页面崩溃。v0.23.42 根治创世卡在"最终输出"——BGP-4 `spawn_blocking().await` 自死锁改为 `tokio::spawn` fire-and-forget。v0.23.44 AI 状态提示使用模型名称。v0.23.36 创世正文清洗 + 后台作业不阻塞输入。v0.23.34 修复 select_candidates Mutex 自死锁，所有同步 DB 操作已从 tokio worker 线程移出。
+**最新动态**：v0.23.49 修复推理模型（如 MN-Oblivion-26B）思考链导致创世 JSON 提取出空对象的 `missing field 'title'` 错误——思考链里的花括号会被误当成 JSON 对象，现在先剥离思考链再提取。v0.23.48 用括号匹配修复 JSON 尾部多余文本的 `trailing characters` 错误。v0.23.47 调用模型前 5s 实时连接探测，跳过失效死模型。v0.23.45 IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃。v0.23.34 修复 select_candidates Mutex 自死锁，所有同步 DB 操作已从 tokio worker 线程移出。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

@@ -1,8 +1,24 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-25（v0.23.45）
+> 最后更新: 2026-06-26（v0.23.49）
 
 ## ✅ v0.23.x 已实施完成
+
+### 📝 v0.23.49 推理模型思考链导致 JSON 提取出空对象修复 ✅ (2026-06-26)
+- [x] 新增 `strip_reasoning_blocks` 剥离 `önh...` / `<thinking>...</thinking>` 思考链块
+- [x] `extract_first_json_object` 跳过空对象 `{}` 继续向后扫描
+- [x] 根因：推理模型思考链里的花括号会被 `find('{')` 误当成 JSON 对象，提取出空 `{}` → serde "missing field 'title'"
+
+### 📝 v0.23.48 JSON 提取用括号匹配修复 trailing characters 解析失败 ✅ (2026-06-25)
+- [x] 新增 `extract_first_json_object` 用括号匹配精确提取第一个完整 JSON 对象
+- [x] 根因：`rfind('}')` 在 JSON 后附带含 `}` 文本时会误提取过多内容
+
+### 📝 v0.23.47 调用模型前实时连接探测 + JSON 尾部多余文本容错 ✅ (2026-06-25)
+- [x] 候选模型在实际 LLM 调用前先执行 5s 超时实时探测，探测失败标记 Unhealthy 跳到下一候选
+- [x] 三处 WorkflowLogger 日志点：`pre_call_probe.ok` / `pre_call_probe.fail` / `pre_call_probe.timeout`
+
+### 📝 v0.23.46 AI 状态提示使用模型名称 ✅ (2026-06-25)
+- [x] `generation-status` 和 `llm-generating-progress` 心跳事件状态文案追加模型名称
 
 ### 📝 v0.23.45 IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃 ✅ (2026-06-25)
 - [x] 将 IngestPipeline 的三个 `context_label`（`"记忆-内容分析"`、`"记忆-生成知识"`、`"记忆-叙事事件提取"`）加入 `is_silent_background` 静默列表

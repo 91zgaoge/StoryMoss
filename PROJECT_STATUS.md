@@ -1,11 +1,33 @@
-# StoryForge (草苔) v0.23.45 项目完成状态
+# StoryForge (草苔) v0.23.49 项目完成状态
 
-> 最后更新: 2026-06-25（v0.23.45 IngestPipeline LLM 调用静默化）
+> 最后更新: 2026-06-26（v0.23.49 推理模型思考链导致 JSON 提取出空对象修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.49 — 推理模型思考链导致 JSON 提取出空对象修复（2026-06-26）
+
+- 🎯 **症状**：用推理模型（如 MN-Oblivion-26B-UNCENSORED）创世时报 `missing field 'title' at line 1 column 2`，LLM 实际成功返回 5191 字符，失败在 JSON 提取阶段。
+- 🎯 **根因**：推理模型在正文前输出 `önh...` / `<thinking>...</thinking>` 思考链，思考链里含花括号（如 "用 {} 格式表示"），`extract_first_json_object` 把第一个 `{}` 当成 JSON 对象提取出空对象，serde 找不到必填 `title`。
+- 🎯 **修复**：新增 `strip_reasoning_blocks` 剥离配对思考链块；`extract_first_json_object` 跳过空对象 `{}` 继续向后扫描。
+- ✅ **验证**：`cargo test --lib` 571 passed / 0 failed / 2 ignored
+
+### v0.23.48 — JSON 提取用括号匹配修复 trailing characters 解析失败（2026-06-25）
+
+- 🎯 **根因**：LLM 返回故事概念 JSON 后附带额外说明文本（含 `}`），`extract_and_sanitize_json` 用 `rfind('}')` 找 JSON 结尾会误提取过多内容 → serde_json "trailing characters" 错误。
+- 🎯 **修复**：新增 `extract_first_json_object` 用括号匹配（跟踪 `{`/`}` 深度 + 跳过字符串字面量）精确提取第一个完整 JSON 对象。
+- ✅ **验证**：`cargo test --lib` 568 passed / 0 failed / 2 ignored
+
+### v0.23.47 — 调用模型前实时连接探测（5s），跳过失效死模型（2026-06-25）
+
+- 🎯 **根因**：模型列表里可能存在已失效但健康状态仍为 Healthy 的死模型（本地 llama.cpp/MLX 服务已停止但缓存未更新），直接调用浪费 30-300s 直到 LLM 超时。
+- 🎯 **修复**：`GatewayExecutor::generate` 候选循环中，每个候选模型在实际 LLM 调用前先执行 5s 超时实时探测；探测失败/超时则标记 `HealthStatus::Unhealthy`，跳到下一候选。
+
+### v0.23.46 — AI 状态提示使用模型名称（2026-06-25）
+
+- 🎯 `generation-status` 和 `llm-generating-progress` 心跳事件状态文案追加模型名称（格式：`准备上下文... · gemma4-e2b (OpenAI) (15s)`）。
 
 ### v0.23.45 — IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃（2026-06-25）
 

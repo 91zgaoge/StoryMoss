@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.23.45 功能清单（历史档案）
+# StoryForge (草苔) v0.23.49 功能清单（历史档案）
 
-> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.45**
+> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.49**
 >
 > **注意**：本文档为历史归档，初始编写于 v0.7.4，部分早期功能描述可能未同步最新变更。
 > 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
@@ -511,3 +511,7 @@ Layer 1: Raw Sources (原始内容)
 - **v0.23.31-v0.23.34**：全链路 15 个诊断标记精确定位 + `select_candidates` 中 `std::sync::Mutex` 自死锁根因修复（health 锁移入嵌套块作用域）
 - **v0.23.35 采摘 Step1 JSON 解析容错**：`memory/ingest.rs` 6 个反序列化结构体补 `#[serde(default)]`，修复 LLM 返回 JSON 缺失 `entity_type` 等字段导致的采摘失败
 - **v0.23.45 创世正文清洗 + 后台作业不阻塞输入**：TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段 + `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）；Genesis 后台阶段事件标记 `background`，前端跳过注册 running activity，输入框不再被后台作业禁用
+- **v0.23.46 AI 状态提示使用模型名称**：`generation-status` 和 `llm-generating-progress` 心跳事件状态文案追加模型名称（格式：`准备上下文... · gemma4-e2b (OpenAI) (15s)`）
+- **v0.23.47 调用模型前实时连接探测**：候选模型在实际 LLM 调用前先执行 5s 超时实时探测（prompt: `Respond with exactly the word OK.`），探测失败/超时则标记 `Unhealthy` 跳到下一候选，避免浪费 30-300s 等待死模型超时
+- **v0.23.48 JSON 提取括号匹配**：新增 `extract_first_json_object` 用括号匹配（跟踪 `{`/`}` 深度 + 跳过字符串字面量）精确提取第一个完整 JSON 对象，修复 LLM 在 JSON 后附带含 `}` 文本时 `rfind('}')` 误提取导致的 `trailing characters` 错误
+- **v0.23.49 推理模型思考链 JSON 提取修复**：新增 `strip_reasoning_blocks` 剥离 `önh...` / `<thinking>...</thinking>` 思考链块（思考链里的花括号会被误当成 JSON 对象）；`extract_first_json_object` 跳过空对象 `{}` 继续向后扫描。修复推理模型（如 MN-Oblivion-26B）创世时报 `missing field 'title' at line 1 column 2`
