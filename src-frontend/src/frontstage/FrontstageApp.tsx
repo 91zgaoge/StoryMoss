@@ -2391,8 +2391,12 @@ const FrontstageApp: React.FC = () => {
 
         if (isFirstChapterReady) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter ready');
-          // [DEBUG-dup] 保留诊断日志，但回滚 setGeneratedText('') —— v0.23.37 的激进清空
-          // 可能与竞态交互导致状态不一致。先回到 v0.23.37 之前的行为，用诊断日志定位根因。
+          // v0.23.50: 清空 stale generatedText。根因：若上一次续写/生成在
+          // generatedText 留下了正文（纯文本幽灵段落），创世成功后 ChapterSwitch
+          // 把正文加载进编辑器（HTML 排版版），stale generatedText 仍显示为幽灵
+          // 段落 → 两份重复（一排版一纯文本）。正文已通过 ChapterSwitch 加载，
+          // 幽灵文本必须清空。v0.23.37 曾清空后回滚，但日志确认根因正是 stale 文本。
+          setGeneratedText('');
         } else if (isBackgroundBootstrap) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {

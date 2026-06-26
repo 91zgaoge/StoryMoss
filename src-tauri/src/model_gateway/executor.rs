@@ -565,7 +565,13 @@ impl GatewayExecutor {
                             "context_label": request.context_label,
                         })),
                     );
-                } else if self.registry_guard().get(&active.id).is_some() {
+                } else if self.registry_guard().get(&active.id).is_some()
+                    && self.is_model_available(&active.id)
+                {
+                    // v0.23.50: 活跃模型若已被 select_candidates 判为不可用
+                    // （Unhealthy），不再强行插回候选链首位，否则每次 generate()
+                    // 都会先 5s 探测这个死模型再失败 continue，造成"卡在最终输出"
+                    // 的假象并持续覆盖前端状态。交给候选链里的其他健康模型。
                     decision.candidates.insert(
                         0,
                         crate::router::RankedCandidate {

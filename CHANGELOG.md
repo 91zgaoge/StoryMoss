@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.50] - 续写卡死"最终输出" + 创世正文重复 + 页面崩溃根治（2026-06-26）
+
+### 修复：续写/创世卡在"最终输出"长时间超时无诊断提示
+- **症状**：续写或创世时，进度卡在"最终输出"环节长达 600s 直到前端超时，且无诊断卡片弹出。诊断显示"距最后一次进度事件 588s"但其实后端每 ~60s 都在发事件——只是事件被 probe 的进度文案覆盖。
+- **根因（日志确认）**：v0.23.47 引入的 pre-call 实时探测用 `context_label = "pre-call-probe"`，但 `is_silent_background` 静默列表只匹配 `"model_gateway_probe"`，两者不匹配。探测的进度事件"模型 X 回应完成 [pre-call-probe]，正在解析结果..."未静默，直接显示到前端 UI，覆盖了主流程的"最终输出/已完成"状态，造成"卡住"假象。
+- **修复**：将 `"pre-call-probe"` 加入 `is_silent_background` 静默列表（`llm/service.rs`）。探测是轻量连接验证，其进度不应显示给用户。
+
+### 修复：死模型反复探测导致持续轮询
+- **根因**：`generate()` 在 `select_candidates` 过滤掉 Unhealthy 模型后，会把用户设置的活跃模型（即使是死模型）**无条件重新插入候选链首位**（`executor.rs:568` 的 `else if` 分支不做健康检查）。每次 `generate()` 调用都先 5s 探测这个死模型 → 失败 → continue → 下次调用又探测，形成"死模型永远排在第一位被反复探测"的无效循环。
+- **修复**：活跃模型重插入前加 `is_model_available` 健康检查。若活跃模型已被判为 Unhealthy，不再强行插回首位，交给候选链中的其他健康模型。
+
+### 修复：创世第一章正文重复显示（排版版 + 纯文本版两份）
+- **症状**：生成新故事第一章后，编辑器出现两份相同文字的正文，一份有 HTML 排版（`<p>` 标签），一份是纯文本。
+- **根因**：v0.23.37 回滚了创世成功后清空 `generatedText` 的逻辑（`FrontstageApp.tsx:2392`），改为"用诊断日志定位根因"。若上一次续写/生成在 `generatedText`（纯文本幽灵段落）留下了正文，创世成功后 ChapterSwitch 把正文加载进编辑器（HTML 排版版），stale `generatedText` 仍显示为幽灵段落 → 两份重复。日志确认根因正是 stale 文本。
+- **修复**：恢复 `isFirstChapterReady` 时 `setGeneratedText('')` 清空。正文已通过 ChapterSwitch 事件加载到编辑器，幽灵文本必须清空，否则两份并存。
+
+### 修复：输出正文后前端页面崩溃空白
+- **根因**：与 Bug 1 同源。非静默的 pre-call-probe 错误事件（`INTERNAL_ERROR`）高频涌入前端，叠加本地模型无法处理并发请求返回错误，大量错误事件导致前端渲染崩溃（与 v0.16.2/v0.23.45 崩溃机制同源）。静默化 probe 后，错误事件不再涌入前端。
+- 验证：`cargo check` 零错误；`cargo +nightly fmt --check` 通过；`cargo test --lib` **571 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npx vitest run` **127 passed / 3 skipped**（含创世正文重复回归测试通过）
+
 ## [v0.23.49] - 推理模型思考链导致 JSON 提取出空对象修复（2026-06-26）
 
 ### 修复：创世「解析故事概念失败: missing field `title`」

@@ -1107,6 +1107,7 @@ impl LlmService {
         let is_silent_background = matches!(
             label,
             "model_gateway_probe"
+                | "pre-call-probe"
                 | "input_hint"
                 | "intent_detection"
                 | "async-audit-inspector"
