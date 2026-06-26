@@ -144,8 +144,8 @@ fn extract_first_json_object(content: &str) -> Result<&str, String> {
 /// 围栏等）
 pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     // 0. 剥离推理模型的思考链块（önh... / <thinking>...</thinking>）。
-    //    思考链里的花括号会被括号匹配误当成 JSON 对象，必须先移除。
-    //    v0.23.53: 但有些推理模型把 JSON 写在思考链内部，剥离后反而丢失。
+    //    思考链里的花括号会被括号匹配误当成 JSON 对象，必须先移除。 v0.23.53:
+    //    但有些推理模型把 JSON 写在思考链内部，剥离后反而丢失。
     //    因此先尝试剥离后的内容，失败则回退到原始内容（从思考链内提取 JSON）。
     let stripped = strip_reasoning_blocks(content);
     let raw = extract_first_json_object(&stripped).or_else(|_| {
@@ -390,7 +390,8 @@ mod tests {
     #[test]
     fn test_extract_json_skips_unclosed_draft_in_reasoning() {
         // v0.23.53: 思考链里有未闭合的 JSON 草稿片段，应跳过找到真正完整的 JSON
-        let content = "前导文本 {\"title\": \"草稿\" 未闭合\n然后 {\"title\": \"真\", \"genre\": \"科幻\"}";
+        let content =
+            "前导文本 {\"title\": \"草稿\" 未闭合\n然后 {\"title\": \"真\", \"genre\": \"科幻\"}";
         let result = extract_and_sanitize_json(content).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["title"], "真");

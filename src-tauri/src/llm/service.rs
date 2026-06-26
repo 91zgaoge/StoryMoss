@@ -1049,7 +1049,14 @@ impl LlmService {
             );
         }
 
-        let model_name = profile.model.clone();
+        // v0.23.53: 状态提示使用用户定义的显示名称（profile.name），而非
+        // API 模型标识符（profile.model，通常是 .gguf 文件名或 API model 字段）。
+        // 若 name 为空则回退到 model。
+        let model_name = if profile.name.trim().is_empty() {
+            profile.model.clone()
+        } else {
+            profile.name.clone()
+        };
         let provider = profile.provider.clone();
         let model_id = profile.id.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
