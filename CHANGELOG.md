@@ -2,6 +2,16 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.52] - 创世后页面崩溃根治：消除重复 Completed 事件 + 生成中跳过 chapterUpdated（2026-06-26）
+
+### 修复：创世正文输出后前端页面崩溃空白需 reload 恢复
+- **症状**：创世（TriShot）成功返回"三击生成完成"后，前端页面崩溃空白，需右键 reload 恢复。诊断显示"距最后一次进度事件 458 秒"，作品和第一章实际已创建成功（编辑器 2011 字），但 `smart_execute` invoke 未 resolve，前端等 600s 超时。
+- **根因**：`generate()` 在 `execute_trishot` 返回后重复发射状态事件——`execute_trishot` 已在 Call 3 完成时 emit `GenerationPhase::Completed`（"三击生成完成"），但 `generate()` 又 emit 了 `SavingMemory`（"保存记忆..."）和第二个 `Completed`（"创作完成"）。前端 `mainGenerationCompletedRef` 在第一个 Completed 时置 true，但随后的 SavingMemory 覆盖了"已完成"状态，导致状态不一致。同时后台 `auto_commit` 的 `chapterUpdated` 事件在生成期间到达，与 ChapterSwitch 加载正文竞争，`onChapterUpdated` 用原始内容（未 autoFormatText）覆盖编辑器刚加载的 HTML 内容，触发渲染竞态。
+- **修复**：
+  - **后端**：`generate()` 在 TriShot 模式下跳过重复的 `SavingMemory` 和 `Completed` emit（`execute_trishot` 已自行 emit）。其他模式不受影响。内存写入/钩子/审计等后台 spawn 仍正常执行。
+  - **前端**：`onChapterUpdated` 在 `isGenerating` 期间跳过（`useGenerationStore.getState().isGenerating`），避免后台 `auto_commit` 的 chapterUpdated 在创世期间覆盖编辑器正文。
+- 验证：`cargo check` 零错误；`cargo +nightly fmt --check` 通过；`cargo test --lib` **571 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误
+
 ## [v0.23.51] - 状态提示统一使用模型名称而非模型 ID（2026-06-26）
 
 ### 修复：进度状态文案中显示模型 ID 而非模型名称

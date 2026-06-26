@@ -396,14 +396,20 @@ impl AgentOrchestrator {
         // v0.8.0: 自动写入记忆（创作完成后）
         // v0.9.5: 同时触发完整采摘（IngestPipeline → KG + 向量索引）
         // v0.11.x (C2): 增加 Semaphore 背压与 CancellationToken 取消传播。
+        // v0.23.52: TriShot 已在 execute_trishot 内 emit "三击生成完成"(Completed)，
+        // 这里不再重复 emit SavingMemory/Completed，否则两个 Completed + 一个 SavingMemory
+        // 会在前端与 execute_trishot 的事件竞争，覆盖"已完成"状态，导致状态不一致。
+        let trishot_already_completed = matches!(mode, GenerationMode::TriShot);
         if let Ok(ref workflow_result) = result {
-            self.emit_generation_status(
-                &task.id,
-                GenerationPhase::SavingMemory,
-                0.95,
-                "保存记忆并更新知识图谱...",
-                workflow_result.request_id.clone(),
-            );
+            if !trishot_already_completed {
+                self.emit_generation_status(
+                    &task.id,
+                    GenerationPhase::SavingMemory,
+                    0.95,
+                    "保存记忆并更新知识图谱...",
+                    workflow_result.request_id.clone(),
+                );
+            }
 
             // 若用户已取消该次生成，则不再启动后台 ingest。
             if let Some(ref req_id) = workflow_result.request_id {
@@ -546,26 +552,32 @@ impl AgentOrchestrator {
         }
 
         // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore 正确结束活动
+        // v0.23.52: TriShot 路径已在 execute_trishot 内 emit Completed/Failed，
+        // 不再重复 emit，避免与前端"已完成"状态竞争。
         match &result {
             Ok(r) => {
-                self.emit_step_status_event(&task.id, "completed", "创作完成");
-                self.emit_generation_status(
-                    &task.id,
-                    GenerationPhase::Completed,
-                    1.0,
-                    "创作完成",
-                    r.request_id.clone(),
-                );
+                if !trishot_already_completed {
+                    self.emit_step_status_event(&task.id, "completed", "创作完成");
+                    self.emit_generation_status(
+                        &task.id,
+                        GenerationPhase::Completed,
+                        1.0,
+                        "创作完成",
+                        r.request_id.clone(),
+                    );
+                }
             }
             Err(e) => {
-                self.emit_step_status_event(&task.id, "failed", &e.to_string());
-                self.emit_generation_status(
-                    &task.id,
-                    GenerationPhase::Error,
-                    0.0,
-                    format!("创作失败: {}", e),
-                    None,
-                );
+                if !trishot_already_completed {
+                    self.emit_step_status_event(&task.id, "failed", &e.to_string());
+                    self.emit_generation_status(
+                        &task.id,
+                        GenerationPhase::Error,
+                        0.0,
+                        format!("创作失败: {}", e),
+                        None,
+                    );
+                }
             }
         }
 

@@ -222,6 +222,12 @@ const FrontstageApp: React.FC = () => {
     },
     // v5.2.0: 监听 chapter 更新（幕后修改后同步到幕前）
     onChapterUpdated: (chapterId, title) => {
+      // v0.23.52: 生成进行中时跳过后台 auto_commit 的 chapterUpdated 事件，
+      // 避免后台保存与 ChapterSwitch/编辑器加载正文竞争，覆盖刚写入的正文。
+      if (useGenerationStore.getState().isGenerating) {
+        frontstageLogger.info('[onChapterUpdated] Skipped during generation', { chapterId });
+        return;
+      }
       if (currentChapter && chapterId === currentChapter.id) {
         // 如果刚在 3 秒内自动保存过，忽略这次更新（避免循环）
         if (Date.now() - justSavedRef.current < 3000) {
