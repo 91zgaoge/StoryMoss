@@ -1177,31 +1177,31 @@ impl LlmService {
         let connecting_msg = if label.is_empty() {
             format!(
                 "{}连接模型 {}（{}）...",
-                step_prefix, model_id, provider_str
+                step_prefix, model_name, provider_str
             )
         } else {
             format!(
                 "{}连接模型 {}（{}）用于 [{}]...",
-                step_prefix, model_id, provider_str, label
+                step_prefix, model_name, provider_str, label
             )
         };
         let sent_msg = if label.is_empty() {
             format!(
                 "{}已连接 {}，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
-                step_prefix, model_id, prompt_chars, prompt_tokens_est
+                step_prefix, model_name, prompt_chars, prompt_tokens_est
             )
         } else {
             format!(
                 "{}已连接 {} 用于 [{}]，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
-                step_prefix, model_id, label, prompt_chars, prompt_tokens_est
+                step_prefix, model_name, label, prompt_chars, prompt_tokens_est
             )
         };
         let completed_msg = if label.is_empty() {
-            format!("{}模型 {} 回应完成，正在解析结果...", step_prefix, model_id)
+            format!("{}模型 {} 回应完成，正在解析结果...", step_prefix, model_name)
         } else {
             format!(
                 "{}模型 {} 回应完成 [{}]，正在解析结果...",
-                step_prefix, model_id, label
+                step_prefix, model_name, label
             )
         };
 
@@ -1251,12 +1251,12 @@ impl LlmService {
                     let message = if label_owned.is_empty() {
                         format!(
                             "{}等待模型 {}（{}）回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
-                            step_prefix_hb, model_id_hb, provider_hb, prompt_chars_hb, prompt_tokens_hb, elapsed
+                            step_prefix_hb, model_hb, provider_hb, prompt_chars_hb, prompt_tokens_hb, elapsed
                         )
                     } else {
                         format!(
                             "{}等待模型 {}（{}）的 [{}] 回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
-                            step_prefix_hb, model_id_hb, provider_hb, label_owned, prompt_chars_hb, prompt_tokens_hb, elapsed
+                            step_prefix_hb, model_hb, provider_hb, label_owned, prompt_chars_hb, prompt_tokens_hb, elapsed
                         )
                     };
                     let emit_result = app_handle.emit(

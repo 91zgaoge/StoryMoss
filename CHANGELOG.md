@@ -2,6 +2,14 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.51] - 状态提示统一使用模型名称而非模型 ID（2026-06-26）
+
+### 修复：进度状态文案中显示模型 ID 而非模型名称
+- **症状**：顶部流程进度和底部 AI 进程状态提示中，部分文案显示模型 ID（如 `model-458b5096`、`mn-oblivion-26b-hitop-q6-k`）而非人类可读的模型名称（如 `gemma4-e2b`、`MN-Oblivion-26B-UNCENSORED-HITOP-Q6_K.gguf`）。
+- **根因**：`llm/service.rs` 中面向用户的进度消息文案（连接模型 / 已连接 / 回应完成 / 等待回应）全部用 `model_id`（profile.id，UUID 或 slug）格式化，而 `model_name`（profile.model，人类可读名称）只放在结构化 `model` 字段里。前端虽有 `appendModelName` 追加名称，但消息文本本身已嵌入 ID，追加后变成"模型 model-458b5096 回应完成... · gemma4-e2b (OpenAI)"，ID 仍然可见。
+- **修复**：将 `execute_generation` 中所有 8 处面向用户的进度消息文案（`connecting_msg` / `sent_msg` / `completed_msg` / 心跳 `message`）从 `model_id` 改为 `model_name`。结构化 `model_id` 字段保留不变（前端用它做查找/匹配）。
+- 验证：`cargo check` 零错误；`cargo +nightly fmt --check` 通过；`cargo test --lib` **571 passed / 0 failed / 2 ignored**
+
 ## [v0.23.50] - 续写卡死"最终输出" + 创世正文重复 + 页面崩溃根治（2026-06-26）
 
 ### 修复：续写/创世卡在"最终输出"长时间超时无诊断提示
