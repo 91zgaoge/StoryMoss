@@ -99,9 +99,11 @@ type ProgressPayload = {
   status?: 'running' | 'completed' | 'failed';
 };
 
-/** v0.23.46: 在消息后追加模型名称（若有），提高识别度 */
+/** v0.23.46: 在消息后追加模型名称（若有），提高识别度。
+ *  v0.23.52: 后端 service.rs 消息文案已内嵌 model_name，若消息已包含
+ *  模型名称则不再追加，避免重复（"连接模型 X · X"）。 */
 function appendModelName(message: string): string {
-  if (lastModelName && message) {
+  if (lastModelName && message && !message.includes(lastModelName)) {
     return `${message} · ${lastModelName}`;
   }
   return message;
