@@ -1197,7 +1197,10 @@ impl LlmService {
             )
         };
         let completed_msg = if label.is_empty() {
-            format!("{}模型 {} 回应完成，正在解析结果...", step_prefix, model_name)
+            format!(
+                "{}模型 {} 回应完成，正在解析结果...",
+                step_prefix, model_name
+            )
         } else {
             format!(
                 "{}模型 {} 回应完成 [{}]，正在解析结果...",
