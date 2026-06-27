@@ -8,6 +8,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from './FrontstageApp';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import './styles/frontstage.css';
 import packageJson from '../../package.json';
 
@@ -28,7 +29,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <FrontstageApp />
+      <ErrorBoundary>
+        <FrontstageApp />
+      </ErrorBoundary>
     </QueryClientProvider>
   </React.StrictMode>
 );

@@ -2,6 +2,21 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.54] - 创世正文重复 + 页面崩溃根治（ErrorBoundary + autoFormatText + generatedText 安全网）（2026-06-27）
+
+### 修复：创世第一章正文重复显示（排版版 + 纯文本版）
+- **根因**：`onChapterUpdated` 后台同步用 `updated.content`（原始纯文本）覆盖编辑器，而 ChapterSwitch 用 `autoFormatText(content)`（HTML 排版版）。两者交替覆盖导致排版丢失。同时 `generatedText` 幽灵段落若残留正文，会与编辑器正文并存 → 两份重复。
+- **修复**：
+  - `onChapterUpdated` 改用 `autoFormatText(updated.content)` 格式化，与 ChapterSwitch 保持一致
+  - 新增 `isGenerating` true→false 转换时清空 `generatedText` 的安全网 useEffect，确保任何路径遗漏都不残留幽灵文本
+
+### 修复：创世后前端页面崩溃空白（需右键 reload 恢复）
+- **根因**：渲染崩溃无 ErrorBoundary 捕获 → 白屏。
+- **修复**：幕前 `main.tsx` 用 `ErrorBoundary` 包裹 `FrontstageApp`，崩溃时显示恢复 UI（错误信息 + 刷新按钮）而非空白页面
+
+### 修复：CI fmt 差异
+- `narrative/mod.rs` 注释换行 + 测试字符串换行对齐 nightly rustfmt
+
 ## [v0.23.52] - 创世后页面崩溃根治：消除重复 Completed 事件 + 生成中跳过 chapterUpdated（2026-06-26）
 
 ### 修复：创世正文输出后前端页面崩溃空白需 reload 恢复

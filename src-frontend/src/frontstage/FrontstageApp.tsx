@@ -234,12 +234,15 @@ const FrontstageApp: React.FC = () => {
           return;
         }
         // 静默刷新当前 chapter 内容
+        // v0.23.54: 后台同步内容用 autoFormatText 格式化，否则纯文本会覆盖
+        // 刚通过 ChapterSwitch 加载的 HTML 排版内容
         (async () => {
           try {
             const updated = await loggedInvoke<Chapter | null>('get_chapter', { id: chapterId });
             if (updated && updated.content !== undefined) {
+              const formatted = autoFormatText(updated.content || '');
               setContent(prev => {
-                if (prev !== updated.content) {
+                if (prev !== formatted) {
                   // 使用底部状态栏替代黑色 toast
                   setGenerationStatus('📝 幕后已更新本章内容');
                   setTimeout(() => {
@@ -248,7 +251,7 @@ const FrontstageApp: React.FC = () => {
                     );
                   }, 2000);
                 }
-                return updated.content || '';
+                return formatted;
               });
             }
           } catch (e) {
@@ -281,6 +284,21 @@ const FrontstageApp: React.FC = () => {
   const setGenerationStatus = useGenerationStore(s => s.setGenerationStatus);
   const setOrchestratorStatus = useGenerationStore(s => s.setOrchestratorStatus);
   const setBootstrapProgress = useBootstrapStore(s => s.setBootstrapProgress);
+
+  // v0.23.54: 生成结束（isGenerating true→false）时清空 generatedText 安全网。
+  // 根因：创世成功后 ChapterSwitch 把正文加载进编辑器（HTML 排版版），
+  // 若 generatedText 仍持有正文（纯文本幽灵段落），两者同时显示 → 两份重复。
+  // 各 return 路径虽已 setGeneratedText('')，但安全网确保任何遗漏都不残留。
+  const prevIsGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (prevIsGeneratingRef.current && !isGenerating && generatedText) {
+      frontstageLogger.info('[SafetyNet] isGenerating→false, clearing stale generatedText', {
+        genTextLen: generatedText.length,
+      });
+      setGeneratedText('');
+    }
+    prevIsGeneratingRef.current = isGenerating;
+  }, [isGenerating, generatedText]);
 
   // B1: 全文字数状态；输入时基于当前章节字数增量 diff 更新，避免每次渲染全量 reduce
   const [totalWordCount, setTotalWordCount] = useState(0);
