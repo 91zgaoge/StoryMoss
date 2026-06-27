@@ -302,25 +302,8 @@ async fn smart_execute_inner(
                     "新故事",
                 );
 
-                // Record AI operation
-                record_ai_operation(
-                    &pool,
-                    crate::db::CreateAiOperationRequest {
-                        story_id: story_id.clone(),
-                        scene_id: None,
-                        chapter_id: None,
-                        operation_type: "bootstrap".to_string(),
-                        operation_name: "小说创世".to_string(),
-                        input_summary: Some(user_input.clone()),
-                        output_summary: None,
-                        previous_content: None,
-                        new_content: None,
-                        metadata: Some(
-                            serde_json::json!({"session_id": session_id, "mode": "quick_phase"})
-                                .to_string(),
-                        ),
-                    },
-                );
+                // v0.23.56: record_ai_operation 已移至 emit_progress("completed") 之后
+                // 的 spawn_blocking 中，此处不再同步调用。
 
                 // v0.23.14: 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱
                 let app_handle_bg = app_handle.clone();
@@ -424,7 +407,36 @@ async fn smart_execute_inner(
                 // 此前 Genesis 路径在 :115 发了 loading_context（映射为"准备上下文"）后
                 // 直接 return，跳过了常规路径 :819 的 completed，导致主活动永远 running、
                 // 底部状态栏卡在"准备上下文"。
+                // v0.23.56: emit_progress("completed") 必须在 record_ai_operation 之前，
+                // 确保前端立即收到完成事件并释放等待，不因 DB 写入阻塞 invoke resolve。
                 emit_progress("completed", "小说创世完成", 5, 5);
+
+                // v0.23.56: record_ai_operation 是同步 DB 写入，移入 spawn_blocking
+                // 避免 tokio worker 线程被 DB 操作阻塞导致 smart_execute invoke 延迟 resolve。
+                let pool_for_record = pool.clone();
+                let input_for_record = user_input.clone();
+                let sid_for_record = story_id.clone();
+                let sid_session = session_id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let _ = record_ai_operation(
+                        &pool_for_record,
+                        crate::db::CreateAiOperationRequest {
+                            story_id: sid_for_record,
+                            scene_id: None,
+                            chapter_id: None,
+                            operation_type: "bootstrap".to_string(),
+                            operation_name: "小说创世".to_string(),
+                            input_summary: Some(input_for_record),
+                            output_summary: None,
+                            previous_content: None,
+                            new_content: None,
+                            metadata: Some(
+                                serde_json::json!({"session_id": sid_session, "mode": "quick_phase"})
+                                    .to_string(),
+                            ),
+                        },
+                    );
+                });
 
                 return Ok(crate::planner::PlanExecutionResult {
                     success: true,
