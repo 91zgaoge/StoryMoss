@@ -89,9 +89,21 @@ impl LlmAdapter for OllamaAdapter {
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
         use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
 
+        // v0.23.65: Ollama /api/generate 端点无 system 字段，把非空
+        // system_prompt 前置拼入 prompt，使 writer_system 写作准则对
+        // Ollama 模型也生效（与 OpenAI/Anthropic 适配器语义对齐）。
+        let prompt = match request
+            .system_prompt
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            Some(sys) => format!("{}\n\n{}", sys, request.prompt),
+            None => request.prompt,
+        };
+
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
-            prompt: request.prompt,
+            prompt,
             stream: false,
             options: Some(OllamaOptions {
                 temperature: request.temperature.unwrap_or(self.default_temperature),
@@ -143,9 +155,19 @@ impl LlmAdapter for OllamaAdapter {
         tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        // v0.23.65: 与 generate 同理，system_prompt 前置拼入 prompt。
+        let prompt = match request
+            .system_prompt
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            Some(sys) => format!("{}\n\n{}", sys, request.prompt),
+            None => request.prompt,
+        };
+
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
-            prompt: request.prompt,
+            prompt,
             stream: true,
             options: Some(OllamaOptions {
                 temperature: request.temperature.unwrap_or(self.default_temperature),

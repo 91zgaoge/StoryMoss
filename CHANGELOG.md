@@ -2,6 +2,32 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.65] - 提示词工程全链路修复（2026-06-27）
+
+### P0-1/P0-2：`writer_system` 全链透传（最高优先级）
+- **根因**：`writer_system`（7 条写作准则）此前仅在 Full 路径（`build_writer_prompt`）生效，TriShot Call 3 和 TimeSliced（默认续写，占 90%+ 流量）完全旁路——80+ 高质量提示词在默认路径被系统性绕过
+- **修复**：打通 system_prompt 全链路——orchestrator → `generate_for_task*` → `GatewayRequest` → `execute_generation` → `GenerateRequest` → 适配器。新增三级优先级：每模型 `system_prompt_override` > adapter 默认 > PromptRegistry `writer_system` 默认
+- **修改**：`GatewayRequest` +`system_prompt` 字段；`LlmService` 全族函数增 `system_prompt: Option<String>` 参数；Ollama 适配器 `system_prompt` 前置拼接；`pipeline/refine.rs`/`review.rs`/`model_gateway/dispatcher.rs` 参数对不齐修复
+
+### P0-3：选中资产正文回灌
+- **根因**：Call 1 返回 `selected_asset_ids`（如 `beat_card.*`、`story_engine.*`、`pressure_relationship.*`），此前只被转为路由标签用于模型网关调度，资产内容（`function`/`when_to_use`/`remix_hint`/`avoid`/`core_payoff`）从未到达 Writer
+- **修复**：新增 `render_selected_asset_guidance`——从 `AssetCapabilityManifest` 回查资产完整内容，格式化为紧凑创作指导文本，注入 TriShot Call 3 的 system_prompt（限 5 条，控制 token 预算）。同时消费 `FrameworkSelections.prompt_hints`
+- **修改**：`agents/service.rs` 新增 4 个辅助函数（`render_selected_asset_guidance` / `format_single_asset_guidance` / `truncate_str` / `resolve_prompt_for_hint`）；`orchestrator.rs` TriShot 路径 system_prompt 三级合并
+
+### P1-2：LivingAuthorGuard 注入所有 Writer 路径
+- **修复**：`render_writer_system_from_bundle` 内置在世作者名清除（41 位作者黑名单，替换为"具备相同手工艺特征的写作风格"）+ 手工艺滑块（5 维 × 3 档：句长偏好 / 对话比例 / 比喻密度 / 内心独白比例 / 视角粘度），此前只在 Full 路径 `build_writer_prompt` 生效
+- **修改**：`agents/service.rs` `render_writer_system_from_bundle` 增强
+
+### P1-3：Anti-AI cliché 避免指令注入
+- **修复**：27 个 AI 高频陈词滥调（不言而喻、显而易见、总的来说、嘴角微微上扬…）作为"反 AI 味写作指令"注入所有 Writer 路径的 system_prompt
+- **修改**：`agents/service.rs` `render_writer_system_from_bundle` 追加反 cliché 段
+
+### P2：模板注册表修复
+- **P2-5**：`orchestrator_timesliced_writer` 注册表补全 `continuation` 变量声明（此前代码注入了但注册表未声明，前端编辑器不可见）
+- **P2-1**：模板默认内容新增 `{{continuation}}` 变量使用（此前只在硬编码 fallback 路径使用）
+
+- 验证：`cargo test --lib` **582 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`cargo +nightly fmt -- --check` ✓
+
 ## [v0.23.64] - 续写内容质量根因修复（2026-06-27）
 
 ### P0：Writer LLM 看不到前文正文 → 每次续写生成全新故事

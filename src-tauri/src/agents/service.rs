@@ -752,6 +752,7 @@ impl AgentService {
                         asset_tags.clone(),
                         discovered_asset_ids.clone(),
                         None,
+                        None,
                     )
                     .await;
                 (rid, result?)
@@ -789,6 +790,7 @@ impl AgentService {
                     intent_object,
                     asset_tags.clone(),
                     discovered_asset_ids.clone(),
+                    None,
                     None,
                 )
                 .await;
@@ -3197,6 +3199,209 @@ pub fn get_available_agents() -> Vec<(AgentType, String, String)> {
             AgentType::PlotAnalyzer.description().to_string(),
         ),
     ]
+}
+
+/// v0.23.65: 从 WriteTimeBundle 渲染 `writer_system` system_prompt。
+///
+/// TimeSliced/TriShot 路径不经 `build_writer_prompt`（Full 路径），用此函数
+/// 获取 `writer_system` 7 条写作准则作为 system_prompt 传入 LLM 调用。
+///
+/// 模板变量从 bundle 的 `story_meta` 和 `core_characters` 构造；上下文类变量
+/// （previous_chapters / narrative_structure 等）留空——上下文由
+/// `bundle.to_prompt()` 承载，system_prompt 只负责写作准则层。
+pub fn render_writer_system_from_bundle(
+    pool: &crate::db::DbPool,
+    bundle: &crate::domain::write_time_bundle::WriteTimeBundle,
+    instruction: &str,
+) -> Option<String> {
+    let tpl = crate::prompts::registry::resolve_prompt(pool, "writer_system")
+        .ok()
+        .or_else(|| crate::prompts::registry::resolve_prompt_default("writer_system"))?;
+
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("story_title".to_string(), bundle.story_meta.title.clone());
+    vars.insert(
+        "genre".to_string(),
+        bundle.story_meta.genre.clone().unwrap_or_default(),
+    );
+    vars.insert(
+        "tone".to_string(),
+        bundle.story_meta.tone.clone().unwrap_or_default(),
+    );
+    vars.insert(
+        "pacing".to_string(),
+        bundle.story_meta.pacing.clone().unwrap_or_default(),
+    );
+    // 角色简表
+    let chars: Vec<String> = bundle
+        .core_characters
+        .iter()
+        .map(|c| {
+            format!(
+                "{}（{}）",
+                c.name,
+                c.personality.as_deref().unwrap_or("未指定")
+            )
+        })
+        .collect();
+    vars.insert("characters".to_string(), chars.join("\n"));
+    vars.insert("instruction".to_string(), instruction.to_string());
+    vars.insert(
+        "story_description".to_string(),
+        bundle.story_meta.description.clone().unwrap_or_default(),
+    );
+    // 以下变量在 system_prompt 准则层用空串/占位（上下文由 bundle.to_prompt 承载）
+    vars.insert("previous_chapters".to_string(), String::new());
+    vars.insert("current_content".to_string(), String::new());
+    vars.insert(
+        "world_rules".to_string(),
+        bundle.contract_redlines.clone().unwrap_or_default(),
+    );
+    vars.insert("scene_structure".to_string(), String::new());
+    vars.insert("outline_context".to_string(), String::new());
+    vars.insert("narrative_structure".to_string(), String::new());
+
+    let rendered = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+
+    // v0.23.65 P1-2: LivingAuthorGuard——清除系统提示词中的在世作者名，
+    // 替换为"具备相同手工艺特征的写作风格"并追加手工艺滑块（5 维 × 3 档）。
+    let guard_outcome =
+        crate::creative_engine::style::living_author_guard::sanitize_style_brief(&rendered);
+    let mut result = guard_outcome.sanitized;
+    if guard_outcome.require_craft_sliders {
+        let sliders = crate::creative_engine::style::living_author_guard::default_craft_sliders();
+        result.push_str("\n\n");
+        result.push_str(
+            &crate::creative_engine::style::living_author_guard::render_craft_sliders(&sliders),
+        );
+    }
+
+    // v0.23.65 P1-3: 反 AI cliché 避免指令——把已知的 AI 高频陈词滥调列表
+    // 注入 system_prompt，让 Writer 在生成时主动避开这些表达。
+    result.push_str("\n\n【反 AI 味写作指令】\n");
+    result.push_str("请避免使用以下 AI 高频陈词滥调，用角色视角的独特表达替代：\n");
+    result.push_str("不言而喻、显而易见、毫无疑问、众所周知、不可否认、值得一提的是、");
+    result.push_str("从某种意义上说、总的来说、归根结底、总而言之、突然之间、刹那间、");
+    result.push_str("说时迟那时快、嘴角微微上扬、眼中闪过一丝、心中涌起一股、");
+    result.push_str("关键在于、值得注意的是、综上所述、让我们、在某种程度上、");
+    result.push_str("与此同时、这一切的背后。\n");
+
+    Some(result)
+}
+
+/// v0.23.65 P0-3: 把 Call 1 选中的资产正文解析为创作指导文本。
+///
+/// Call 1（PromptSynthesizer）返回 `selected_asset_ids`（如 beat_card.*、
+/// story_engine.*、pressure_relationship.*），此前只被转成路由标签用于模型网关
+/// 调度，资产内容（function/when_to_use/remix_hint/avoid）从未回灌到 Writer
+/// prompt。此函数从 `AssetCapabilityManifest` 查找资产完整内容，格式化为紧凑
+/// 创作指导文本。
+///
+/// 同时消费 `FrameworkSelections.prompt_hints`——Call 1 选中的额外提示词
+/// ID 列表，从 PromptRegistry 解析后注入。
+pub fn render_selected_asset_guidance(
+    capability_manifest: Option<
+        &crate::creative_engine::asset_capability_manifest::AssetCapabilityManifest,
+    >,
+    selected_asset_ids: &[String],
+    framework_selections: Option<&crate::domain::prompt_synthesis::FrameworkSelections>,
+    pool: &crate::db::DbPool,
+) -> Option<String> {
+    let mut sections: Vec<String> = Vec::new();
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // 限 5 条，控制 token 预算
+    const MAX_ITEMS: usize = 5;
+
+    // 1. 解析 framework_selections.prompt_hints → PromptRegistry
+    if let Some(fs) = framework_selections {
+        for hint_id in &fs.prompt_hints {
+            if sections.len() >= MAX_ITEMS {
+                break;
+            }
+            if let Some(content) = resolve_prompt_for_hint(pool, hint_id) {
+                sections.push(format!(
+                    "【提示：{}】\n{}",
+                    hint_id,
+                    truncate_str(&content, 400)
+                ));
+                seen_ids.insert(hint_id.clone());
+            }
+        }
+    }
+
+    // 2. 解析 selected_asset_ids → 资产正文（桥段卡/引擎/高压关系等）
+    if let Some(manifest) = capability_manifest {
+        for id in selected_asset_ids {
+            if sections.len() >= MAX_ITEMS {
+                break;
+            }
+            if seen_ids.contains(id) {
+                continue;
+            }
+            if let Some(asset) = manifest.find(id) {
+                let guidance = format_single_asset_guidance(asset);
+                if !guidance.is_empty() {
+                    sections.push(guidance);
+                    seen_ids.insert(id.clone());
+                }
+            }
+        }
+    }
+
+    if sections.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "【创作指导——以下为选中的创作资产指导，请在写作中融入】\n\n{}",
+        sections.join("\n\n")
+    ))
+}
+
+/// 把单个 SelectableAsset 格式化为紧凑创作指导文本。
+fn format_single_asset_guidance(asset: &crate::strategy::models::SelectableAsset) -> String {
+    let name = &asset.name;
+    let desc = &asset.description;
+
+    let mut lines = vec![format!("■ {}：{}", name, desc)];
+
+    if !asset.when_to_use.is_empty() && asset.when_to_use != "N/A" {
+        lines.push(format!("  适用：{}", truncate_str(&asset.when_to_use, 200)));
+    }
+
+    // 从 payload 提取资产类型特定字段
+    let payload = &asset.payload;
+    if let Some(v) = payload.get("function").and_then(|v| v.as_str()) {
+        lines.push(format!("  功能：{}", truncate_str(v, 300)));
+    }
+    if let Some(v) = payload.get("remix_hint").and_then(|v| v.as_str()) {
+        lines.push(format!("  重构提示：{}", truncate_str(v, 200)));
+    }
+    if let Some(v) = payload.get("avoid").and_then(|v| v.as_str()) {
+        lines.push(format!("  避免：{}", truncate_str(v, 200)));
+    }
+    if let Some(v) = payload.get("core_payoff").and_then(|v| v.as_str()) {
+        lines.push(format!("  核心爽点：{}", truncate_str(v, 200)));
+    }
+    if let Some(v) = payload.get("best_conclusion").and_then(|v| v.as_str()) {
+        lines.push(format!("  最佳收束：{}", truncate_str(v, 200)));
+    }
+
+    lines.join("\n")
+}
+
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
+fn resolve_prompt_for_hint(pool: &crate::db::DbPool, prompt_id: &str) -> Option<String> {
+    crate::prompts::registry::resolve_prompt(pool, prompt_id)
+        .ok()
+        .or_else(|| crate::prompts::registry::resolve_prompt_default(prompt_id))
 }
 
 /// 把 `narrative_quartet` JSON 渲染为 Writer prompt 注入片段（v0.17.1

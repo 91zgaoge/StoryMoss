@@ -775,6 +775,7 @@ impl GatewayExecutor {
 
             // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
             // 以支持 OpenAI/Ollama 的 JSON mode。
+            // v0.23.65: 透传请求级 system_prompt（writer_system 写作准则）。
             let context_label = request.context_label.as_deref();
             let (_, result) = self
                 .llm_service
@@ -788,6 +789,7 @@ impl GatewayExecutor {
                     request.timeout_seconds_override,
                     request.max_retries_override,
                     request.response_format,
+                    request.system_prompt.clone(),
                 )
                 .await;
             match result {

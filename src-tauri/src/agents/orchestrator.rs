@@ -857,15 +857,24 @@ impl AgentOrchestrator {
             .llm_service_ref()
             .acquire_writer_permit(is_local)
             .await?;
+        // v0.23.65: 渲染 writer_system 作为 system_prompt——让 7 条写作准则
+        // 在默认续写路径生效（此前 TimeSliced 绕过 build_writer_prompt，
+        // writer_system 完全缺席）。
+        let writer_system_prompt = crate::agents::service::render_writer_system_from_bundle(
+            pool.inner(),
+            &bundle,
+            &user_instruction,
+        );
         let gen_response = self
             .service
             .llm_service_ref()
-            .generate_for_task(
+            .generate_for_task_with_system_prompt(
                 crate::router::TaskType::CreativeWriting,
                 prompt,
                 Some(2048),
                 Some(0.75),
                 Some("time-sliced-writer"),
+                writer_system_prompt,
             )
             .await?;
         trace.log_phase(
@@ -1421,10 +1430,34 @@ impl AgentOrchestrator {
             "即将调用 generate_for_task_with_tags_and_timeout",
             Some(serde_json::json!({"timeout": call3_timeout, "task_id": task.id, "request_id": call3_request_id})),
         );
+        // v0.23.65: 渲染 writer_system 作为 system_prompt——让 7 条写作准则
+        // 在 TriShot Call 3 路径生效（此前 Call 3 只收到 final_prompt，
+        // writer_system 完全缺席）。
+        let writer_system_prompt = crate::agents::service::render_writer_system_from_bundle(
+            pool.inner(),
+            &bundle,
+            &task.input,
+        );
+        // v0.23.65 P0-3: 把 Call 1 选中的资产正文（桥段卡/引擎/高压关系等）
+        // 以及 framework_selections.prompt_hints 解析为创作指导，回灌到
+        // system_prompt——解决"Call 1 选中资产但内容不传递到 Writer"的断裂。
+        let asset_guidance = crate::agents::service::render_selected_asset_guidance(
+            capability_manifest.as_ref().map(|v| v.as_ref()),
+            &selected_ids,
+            synthesis.framework_selections.as_ref(),
+            pool.inner(),
+        );
+        // 三级合并：writer_system + 资产正文创作指导
+        let system_prompt = match (writer_system_prompt, asset_guidance) {
+            (Some(ws), Some(ag)) => Some(format!("{}\n\n{}", ws, ag)),
+            (Some(ws), None) => Some(ws),
+            (None, Some(ag)) => Some(ag),
+            (None, None) => None,
+        };
         let gen_response = self
             .service
             .llm_service_ref()
-            .generate_for_task_with_tags_and_timeout(
+            .generate_for_task_with_tags_timeout_and_system_prompt(
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
                 Some(2048),
@@ -1433,6 +1466,7 @@ impl AgentOrchestrator {
                 asset_tags,
                 selected_ids,
                 Some(call3_timeout),
+                system_prompt,
             )
             .await?;
         trace.log_phase(

@@ -131,6 +131,14 @@ pub struct GatewayRequest {
     /// v0.23: 结构化输出格式（OpenAI/Ollama JSON mode）
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub response_format: Option<ResponseFormat>,
+    /// v0.23.65: 请求级 system_prompt（来自 PromptRegistry writer_system
+    /// 渲染）。
+    ///
+    /// 优先级：`LlmProfile.system_prompt_override` > 此字段 > 适配器默认。
+    /// TimeSliced/TriShot 路径不经 `build_writer_prompt`，用此字段把
+    /// `writer_system` 写作准则传递到适配器层。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub system_prompt: Option<String>,
 }
 
 impl GatewayRequest {
@@ -161,6 +169,7 @@ impl GatewayRequest {
             asset_tags: Vec::new(),
             discovered_asset_ids: Vec::new(),
             response_format: None,
+            system_prompt: None,
         }
     }
 }

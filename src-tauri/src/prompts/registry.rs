@@ -2289,6 +2289,8 @@ Output JSON only."#.to_string(),
 故事上下文：
 {{context}}
 
+{{continuation}}
+
 写作指令：
 {{instruction}}
 
@@ -2299,7 +2301,11 @@ Output JSON only."#.to_string(),
                 .to_string(),
             current_content: String::new(),
             is_overridden: false,
-            variables: vec!["context".to_string(), "instruction".to_string()],
+            variables: vec![
+                "context".to_string(),
+                "instruction".to_string(),
+                "continuation".to_string(),
+            ],
         },
     );
 

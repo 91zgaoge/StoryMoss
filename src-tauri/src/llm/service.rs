@@ -448,6 +448,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -481,6 +482,8 @@ impl LlmService {
         asset_tags: Option<Vec<String>>,
         discovered_asset_ids: Option<Vec<String>>,
         response_format: Option<ResponseFormat>,
+        // v0.23.65: 请求级 system_prompt（来自 PromptRegistry writer_system 渲染）
+        system_prompt: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -518,6 +521,8 @@ impl LlmService {
             discovered_asset_ids: discovered_asset_ids.unwrap_or_default(),
             // v0.23: 结构化输出格式透传
             response_format,
+            // v0.23.65: 请求级 system_prompt 透传
+            system_prompt: system_prompt.clone(),
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => {
@@ -548,6 +553,7 @@ impl LlmService {
             None,
             None,
             response_format,
+            system_prompt,
         )
         .await
     }
@@ -561,13 +567,38 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        self.generate_for_task_with_format(
+        self.generate_for_task_with_format_impl(
             task,
             prompt,
             max_tokens,
             temperature,
             context_label,
             None,
+            None,
+        )
+        .await
+    }
+
+    /// v0.23.65: 带 system_prompt 的简化入口——供 TimeSliced/TriShot 等
+    /// 需要注入 writer_system 写作准则的路径使用。其余 ~40 处
+    /// `generate_for_task` 调用不受影响（保持 5 参数签名）。
+    pub async fn generate_for_task_with_system_prompt(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        system_prompt: Option<String>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_format_impl(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            None,
+            system_prompt,
         )
         .await
     }
@@ -582,6 +613,29 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         response_format: Option<ResponseFormat>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_format_impl(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            response_format,
+            None,
+        )
+        .await
+    }
+
+    /// v0.23.65: 带 system_prompt + response_format 的版本。
+    async fn generate_for_task_with_format_impl(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        response_format: Option<ResponseFormat>,
+        system_prompt: Option<String>,
     ) -> Result<GenerateResponse, AppError> {
         let request = RoutingRequest {
             task,
@@ -606,6 +660,7 @@ impl LlmService {
                 None,
                 None,
                 response_format,
+                system_prompt,
             )
             .await;
         result
@@ -648,6 +703,60 @@ impl LlmService {
         discovered_asset_ids: Vec<String>,
         timeout_seconds_override: Option<u64>,
     ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_tags_and_timeout_impl(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            asset_tags,
+            discovered_asset_ids,
+            timeout_seconds_override,
+            None,
+        )
+        .await
+    }
+
+    /// v0.23.65: 带 system_prompt + timeout 的版本，供 TriShot Call 3 使用。
+    pub async fn generate_for_task_with_tags_timeout_and_system_prompt(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        asset_tags: Vec<String>,
+        discovered_asset_ids: Vec<String>,
+        timeout_seconds_override: Option<u64>,
+        system_prompt: Option<String>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_tags_and_timeout_impl(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            asset_tags,
+            discovered_asset_ids,
+            timeout_seconds_override,
+            system_prompt,
+        )
+        .await
+    }
+
+    /// v0.23.65: 带 timeout + system_prompt 的实现（内部共享）。
+    async fn generate_for_task_with_tags_and_timeout_impl(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        asset_tags: Vec<String>,
+        discovered_asset_ids: Vec<String>,
+        timeout_seconds_override: Option<u64>,
+        system_prompt: Option<String>,
+    ) -> Result<GenerateResponse, AppError> {
         let request = RoutingRequest {
             task,
             complexity: Complexity::Medium,
@@ -671,6 +780,7 @@ impl LlmService {
                 Some(asset_tags),
                 Some(discovered_asset_ids),
                 None,
+                system_prompt,
             )
             .await;
         result
@@ -775,6 +885,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -844,6 +955,7 @@ impl LlmService {
                 None,
                 intent_verb,
                 intent_object,
+                None,
                 None,
                 None,
                 None,
@@ -1173,6 +1285,8 @@ impl LlmService {
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
         response_format: Option<ResponseFormat>,
+        // v0.23.65: 请求级 system_prompt（来自 PromptRegistry writer_system 渲染）
+        request_system_prompt: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         if !profile.enabled {
             let msg = format!("模型 {} 已被禁用，请在设置中启用或切换可用模型", profile.id);
@@ -1228,19 +1342,35 @@ impl LlmService {
             }
         };
 
-        // v0.23.61: 解析系统提示词覆盖（优先级：每模型 > 全局配置 > 适配器默认）
-        let system_prompt = {
-            // 1) 每模型 system_prompt_override
-            if let Some(ref sp) = profile.system_prompt_override {
-                if !sp.trim().is_empty() {
-                    Some(sp.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        // v0.23.65: 解析系统提示词覆盖（三级优先级）。
+        //
+        // 优先级：LlmProfile.system_prompt_override（每模型）
+        //       > AppConfig.writer_system_prompt_override（全局配置）
+        //       > 请求级 request_system_prompt（PromptRegistry writer_system 渲染）
+        //
+        // 这补全了 v0.23.61 注释声称但未实现的三级链——此前网关路径只读
+        // profile.system_prompt_override，AppConfig 和 registry writer_system
+        // 从未被消费。TimeSliced/TriShot 路径现在通过 request_system_prompt
+        // 传入渲染好的 writer_system 写作准则。
+        let system_prompt = profile
+            .system_prompt_override
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .or_else(|| {
+                // 2) AppConfig.writer_system_prompt_override（全局配置）
+                self.app_handle
+                    .try_state::<crate::config::settings::AppConfig>()
+                    .and_then(|c| {
+                        let s = &c.writer_system_prompt_override;
+                        if s.trim().is_empty() {
+                            None
+                        } else {
+                            Some(s.clone())
+                        }
+                    })
+            })
+            .or(request_system_prompt); // 3) 请求级（registry writer_system 渲染产物）
 
         let req = GenerateRequest {
             prompt,
@@ -1783,6 +1913,7 @@ impl LlmService {
             None,
             None,
             None,
+            None,
         )
         .await
     }
@@ -1874,6 +2005,7 @@ impl LlmService {
             timeout_seconds_override,
             max_retries_override,
             None,
+            None,
         )
         .await
     }
@@ -1891,6 +2023,8 @@ impl LlmService {
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
         response_format: Option<ResponseFormat>,
+        // v0.23.65: 请求级 system_prompt 透传
+        system_prompt: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={} format={:?}",
@@ -1921,6 +2055,7 @@ impl LlmService {
             timeout_seconds_override,
             max_retries_override,
             response_format,
+            system_prompt,
         )
         .await
     }
@@ -1995,6 +2130,7 @@ impl LlmService {
             timeout_seconds_override,
             max_retries_override,
             response_format,
+            None,
         )
         .await
     }

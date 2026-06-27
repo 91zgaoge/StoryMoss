@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.64
+- **版本**: v0.23.65
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,14 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.65 提示词工程全链路修复** (2026-06-27) — 对提示词工程进行深度审计，修复 80+ 高质量提示词在默认续写路径（TimeSliced）被系统性旁路的问题，全部改动零新增 LLM 调用。核心变更：
+    - **P0-1/P0-2：`writer_system` 全链透传**。`writer_system`（7 条写作准则）此前仅在 Full 路径（`build_writer_prompt`）生效，TriShot Call 3 和 TimeSliced（默认续写）完全旁路。现在从 orchestrator → `generate_for_task*` → `GatewayRequest` → `execute_generation` → `GenerateRequest` → 适配器全链路透传 `system_prompt`。`GatewayRequest` +`system_prompt` 字段；`execute_generation` 三级优先级（每模型 > adapter 默认 > `writer_system` 注册表默认）；Ollama 适配器 `system_prompt` 前置拼接
+    - **P0-3：选中资产正文回灌**。Call 1 返回 `selected_asset_ids`（桥段卡/引擎/高压关系等），此前只被转为路由标签用于模型网关，资产内容（`function`/`when_to_use`/`remix_hint`/`avoid`/`core_payoff`）从未到达 Writer。新增 `render_selected_asset_guidance`——从 `AssetCapabilityManifest` 回查资产完整内容，格式化为紧凑创作指导文本，注入 TriShot Call 3 的 system_prompt（限 5 条，控制 token 预算）
+    - **P1-2：LivingAuthorGuard 注入所有路径**。`render_writer_system_from_bundle` 内置在世作者名清除 + 手工艺滑块（5 维 × 3 档），此前只在 Full 路径 `build_writer_prompt` 生效
+    - **P1-3：Anti-AI cliché 避免指令**。27 个 AI 高频陈词滥调（不言而喻、总而言之、嘴角微微上扬…）注入所有 Writer 路径的 system_prompt
+    - **P2-1/P2-5：`orchestrator_timesliced_writer` 模板充实 + `continuation` 变量声明补全**。模板新增 `{{continuation}}` 变量使用；注册表补全 `continuation` 变量声明（此前代码注入了但注册表未声明，前端编辑器不可见）
+    - 验证：`cargo test --lib` **582 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`cargo +nightly fmt -- --check` ✓
 
   - **v0.23.64 续写内容质量根因修复** (2026-06-27) — 用户续写得到完全不可用的小说（4 个不同故事拼接 + 每个重复两次 + 规划 markdown 泄漏）。三路并行调查确认 3 个根因。核心变更：
     - **P0 根因：Writer LLM 看不到前文正文**。TimeSliced（默认续写）`execute_time_sliced` 构建 prompt 时完全不读取 `task.parameters["current_content"]`，Writer 只收到 `WriteTimeBundle` 结构化约束 → 每次续写生成全新故事。TriShot 路径的 `current_content` 截断 6000→600 字只给 Call 1 做意图检测，Call 3 Writer 看不到任何原始正文
