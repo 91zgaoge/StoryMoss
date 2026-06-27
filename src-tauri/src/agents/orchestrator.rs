@@ -808,7 +808,9 @@ impl AgentOrchestrator {
             pool.inner(),
             &task.context.story.story_id,
             chapter_number,
-            task.parameters.get("current_content").and_then(|v| v.as_str()),
+            task.parameters
+                .get("current_content")
+                .and_then(|v| v.as_str()),
         );
         let user_instruction = if task.input.trim().is_empty() {
             "请续写下一段正文。".to_string()
@@ -2958,7 +2960,8 @@ fn build_continuation_context(
     let mut sections = Vec::new();
 
     // 1. 近章摘要：从 scene_commits 读取已沉淀的摘要
-    let commit_repo = crate::db::repositories_story_system::SceneCommitRepository::new(pool.clone());
+    let commit_repo =
+        crate::db::repositories_story_system::SceneCommitRepository::new(pool.clone());
     if let Ok(commits) = commit_repo.get_by_story(story_id) {
         let recent_summaries: Vec<_> = commits
             .into_iter()
@@ -2971,10 +2974,7 @@ fn build_continuation_context(
                 if let Some(summary) = &commit.summary_text {
                     if !summary.trim().is_empty() {
                         let truncated: String = summary.chars().take(300).collect();
-                        summary_lines.push(format!(
-                            "第{}章: {}",
-                            commit.chapter_number, truncated
-                        ));
+                        summary_lines.push(format!("第{}章: {}", commit.chapter_number, truncated));
                     }
                 }
             }
@@ -2992,7 +2992,11 @@ fn build_continuation_context(
             let max_chars = 2000;
             let preview: String = if total > max_chars {
                 let skip = total - max_chars;
-                format!("...(前{}字已省略)\n{}", skip, trimmed.chars().skip(skip).collect::<String>())
+                format!(
+                    "...(前{}字已省略)\n{}",
+                    skip,
+                    trimmed.chars().skip(skip).collect::<String>()
+                )
             } else {
                 trimmed.to_string()
             };
@@ -3041,8 +3045,19 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
 
     // 0c. 剥离编号规划块：连续 3+ 行以"数字. "开头且包含规划关键词
     let plan_keywords = [
-        "设定", "结构", "风格", "场景", "起草", "润色", "大纲", "叙事", "角色", "情节",
-        "世界观", "开篇", "结尾",
+        "设定",
+        "结构",
+        "风格",
+        "场景",
+        "起草",
+        "润色",
+        "大纲",
+        "叙事",
+        "角色",
+        "情节",
+        "世界观",
+        "开篇",
+        "结尾",
     ];
     let lines_vec: Vec<&str> = text.lines().collect();
     let mut plan_block_start: Option<usize> = None;
@@ -3051,8 +3066,14 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
     for (i, line) in lines_vec.iter().enumerate() {
         let t = line.trim();
         let is_numbered = t.len() > 3
-            && t.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
-            && t.chars().nth(1).map(|c| c == '.' || c == '、').unwrap_or(false);
+            && t.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+            && t.chars()
+                .nth(1)
+                .map(|c| c == '.' || c == '、')
+                .unwrap_or(false);
         if is_numbered && plan_keywords.iter().any(|kw| t.contains(kw)) {
             if first_numbered.is_none() {
                 first_numbered = Some(i);

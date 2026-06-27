@@ -97,7 +97,12 @@ impl GatewayExecutor {
 
     /// v0.23.63: 路由细节日志仅输出到控制台 debug，不写入工作流日志文件。
     /// 避免 8 次 LLM 调用产生 ~96 行 gateway 路由噪声。
-    fn gateway_debug(&self, phase: &str, message: impl Into<String>, details: Option<serde_json::Value>) {
+    fn gateway_debug(
+        &self,
+        phase: &str,
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) {
         let msg: String = message.into();
         if let Some(d) = &details {
             log::debug!("[{}] {} | {}", phase, msg, d);
@@ -610,7 +615,10 @@ impl GatewayExecutor {
 
         log::debug!("[Gateway] 开始 select_candidates");
         let mut decision = self.select_candidates(&request, capability_profiles)?;
-        log::debug!("[Gateway] select_candidates 完成: 候选数={}", decision.candidates.len());
+        log::debug!(
+            "[Gateway] select_candidates 完成: 候选数={}",
+            decision.candidates.len()
+        );
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
@@ -638,10 +646,7 @@ impl GatewayExecutor {
                 {
                     let item = decision.candidates.remove(pos);
                     decision.candidates.insert(0, item);
-                    log::debug!(
-                        "[Gateway] 将活跃模型 {} 提升至候选链首位",
-                        active.id
-                    );
+                    log::debug!("[Gateway] 将活跃模型 {} 提升至候选链首位", active.id);
                 } else if self.registry_guard().get(&active.id).is_some()
                     && self.is_model_available(&active.id)
                 {
@@ -658,10 +663,7 @@ impl GatewayExecutor {
                             reason: "当前活跃模型优先".to_string(),
                         },
                     );
-                    log::debug!(
-                        "[Gateway] 将活跃模型 {} 插入候选链首位",
-                        active.id
-                    );
+                    log::debug!("[Gateway] 将活跃模型 {} 插入候选链首位", active.id);
                 }
             }
         }
@@ -725,10 +727,7 @@ impl GatewayExecutor {
                 .await;
                 match probe_result {
                     Ok(Ok(_resp)) => {
-                        log::debug!(
-                            "[Gateway] 候选 [{}] 实时探测通过",
-                            idx + 1
-                        );
+                        log::debug!("[Gateway] 候选 [{}] 实时探测通过", idx + 1);
                         self.record_gateway_success(&candidate.model_id, &candidate.model_name);
                         true
                     }
