@@ -138,6 +138,8 @@ const FrontstageApp: React.FC = () => {
   const currentChapterRef = useRef(currentChapter);
   // [DEBUG-dup] 统计创世过程中 ChapterSwitch 事件触发次数
   const chapterSwitchCountRef = useRef(0);
+  // v0.23.62: 追踪 ChapterSwitch 时间戳，用于 post-ChapterSwitch 5s 静默期
+  const chapterSwitchTimestampRef = useRef(0);
   useEffect(() => {
     currentStoryRef.current = currentStory;
   }, [currentStory]);
@@ -228,6 +230,15 @@ const FrontstageApp: React.FC = () => {
         frontstageLogger.info('[onChapterUpdated] Skipped during generation', { chapterId });
         return;
       }
+      // v0.23.62: ChapterSwitch 后 5s 静默期，auto_commit 触发的 chapterUpdated
+      // 不得覆盖刚加载的正文（会造成有排版/无排版两份重复内容的根因）。
+      if (Date.now() - chapterSwitchTimestampRef.current < 5000) {
+        frontstageLogger.info('[onChapterUpdated] Skipped in post-ChapterSwitch quiet period', {
+          chapterId,
+          msSinceChapterSwitch: Date.now() - chapterSwitchTimestampRef.current,
+        });
+        return;
+      }
       if (currentChapter && chapterId === currentChapter.id) {
         // 如果刚在 3 秒内自动保存过，忽略这次更新（避免循环）
         if (Date.now() - justSavedRef.current < 3000) {
@@ -240,7 +251,19 @@ const FrontstageApp: React.FC = () => {
           try {
             const updated = await loggedInvoke<Chapter | null>('get_chapter', { id: chapterId });
             if (updated && updated.content !== undefined) {
-              const formatted = autoFormatText(updated.content || '');
+              const dbContent = updated.content || '';
+              // v0.23.62: 与编辑器当前内容比较，相同则跳过（避免空操作触发渲染）
+              const currentEditorText = editorRef.current?.getText() || '';
+              if (dbContent.trim() === currentEditorText.trim()) {
+                frontstageLogger.info('[onChapterUpdated] DB content === editor, skipping');
+                return;
+              }
+              const formatted = autoFormatText(dbContent);
+              // v0.23.62: 安全包装，防止 autoFormatText 异常导致白屏
+              if (!formatted || formatted.trim().length === 0) {
+                frontstageLogger.warn('[onChapterUpdated] autoFormatText returned empty');
+                return;
+              }
               setContent(prev => {
                 if (prev !== formatted) {
                   // 使用底部状态栏替代黑色 toast
@@ -975,6 +998,7 @@ const FrontstageApp: React.FC = () => {
               }
               // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
               chapterSwitchCountRef.current += 1;
+              chapterSwitchTimestampRef.current = Date.now(); // v0.23.62: post-ChapterSwitch quiet period
               frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
                 count: chapterSwitchCountRef.current,
                 story_id: payload.story_id,
