@@ -293,7 +293,7 @@ async fn smart_execute_inner(
                         "first_chapter_content_len": ctx.first_chapter_content.as_ref().map(|s| s.len()).unwrap_or(0),
                         "final_content_len": final_content.as_ref().map(|s| s.len()).unwrap_or(0),
                         "final_content_is_summary": final_content.as_ref().map(|s| s.contains("已创建，第一章正文已生成")).unwrap_or(false),
-                        "final_content_preview": final_content.as_ref().map(|s| &s[..s.len().min(100)]).unwrap_or("EMPTY"),
+                        "final_content_preview": final_content.as_ref().map(|s| s.chars().take(100).collect::<String>()).unwrap_or_else(|| "EMPTY".to_string()),
                         "messages": ["story_created", "novel_bootstrap_first_chapter_ready"],
                     })),
                 );

@@ -697,7 +697,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     "第一章正文生成完成",
                     Some(serde_json::json!({
                         "content_len": result.content.len(),
-                        "content_preview": &result.content[..result.content.len().min(120)],
+                        "content_preview": result.content.chars().take(120).collect::<String>(),
                         "score": result.score,
                     })),
                 );
@@ -849,7 +849,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                         "story_id": &ctx.story_id,
                         "chapter_id": &chapter_id,
                         "content_len": result.content.len(),
-                        "content_preview": &result.content[..result.content.len().min(120)],
+                        "content_preview": result.content.chars().take(120).collect::<String>(),
                     })),
                 );
             }

@@ -1512,7 +1512,7 @@ impl AgentOrchestrator {
                 "Call 3 完成，正文已生成",
                 Some(serde_json::json!({
                     "content_len": content.len(),
-                    "content_preview": &content[..content.len().min(120)],
+                    "content_preview": content.chars().take(120).collect::<String>(),
                     "request_id": &request_id,
                 })),
             );

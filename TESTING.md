@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.23.61)
+# 🧪 StoryForge 自动化测试环境 (v0.23.63)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -282,4 +282,4 @@ timeout: 60000, // 60秒
 
 ---
 
-*最后更新: 2026-06-26 - v0.23.61 推理模型思考链 JSON 提取修复（571 passed / 0 failed / 2 ignored）*
+*最后更新: 2026-06-26 - v0.23.63 推理模型思考链 JSON 提取修复（571 passed / 0 failed / 2 ignored）*

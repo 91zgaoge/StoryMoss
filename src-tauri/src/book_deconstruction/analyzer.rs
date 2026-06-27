@@ -946,7 +946,7 @@ fn parse_json_response<T: serde::de::DeserializeOwned>(response: &str) -> Result
 
     Err(AnalysisError::ParseError(format!(
         "Failed to parse JSON from LLM response: {}",
-        &trimmed[..trimmed.len().min(200)]
+        trimmed.chars().take(200).collect::<String>()
     )))
 }
 

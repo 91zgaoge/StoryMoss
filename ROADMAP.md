@@ -1,10 +1,10 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-27（v0.23.61）
+> 最后更新: 2026-06-27（v0.23.63）
 
 ## ✅ v0.23.x 已实施完成
 
-### 📝 v0.23.61 系统提示词可配置 + 第一章注册表化 + 框架级智能路由 ✅ (2026-06-27)
+### 📝 v0.23.63 系统提示词可配置 + 第一章注册表化 + 框架级智能路由 ✅ (2026-06-27)
 - [x] Gap 1: 第一章正文指令从硬编码 `format!()` 迁移到 PromptRegistry `narrative_first_chapter_generate`（15 个模板变量）
 - [x] Gap 2: `LlmProfile.system_prompt_override` → `GenerateRequest.system_prompt` → OpenAI/Anthropic adapter 去硬编码英文
 - [x] Gap 3: 新增 `FrameworkSelections` + `build_prompt_framework_catalog()`，Call 1 最快模型自主选择方法论/质量门/注入器

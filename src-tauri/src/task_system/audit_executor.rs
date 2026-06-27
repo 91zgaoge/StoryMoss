@@ -375,7 +375,7 @@ fn parse_inspector_issues(content: &str) -> Vec<InspectorIssue> {
         None => {
             log::warn!(
                 "[AuditExecutor] Inspector 响应无 JSON: {}",
-                &cleaned[..cleaned.len().min(100)]
+                cleaned.chars().take(100).collect::<String>()
             );
             return vec![];
         }
@@ -403,7 +403,7 @@ fn parse_inspector_issues(content: &str) -> Vec<InspectorIssue> {
             log::warn!(
                 "[AuditExecutor] JSON 解析失败: {} | 原文前200字: {}",
                 e,
-                &cleaned[..cleaned.len().min(200)]
+                cleaned.chars().take(200).collect::<String>()
             );
             vec![]
         }

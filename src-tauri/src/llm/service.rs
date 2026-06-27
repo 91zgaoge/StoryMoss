@@ -1503,23 +1503,25 @@ impl LlmService {
             .map(|c| c.llm_connect_timeout_secs)
             .unwrap_or(30u64);
 
-        self.workflow_log(
-            "llm.generate.start",
-            format!("开始 LLM 调用: model_id={}", model_id),
-            Some(serde_json::json!({
-                "request_id": request_id,
-                "model_id": model_id,
-                "model_name": model_name,
-                "provider": format!("{:?}", provider),
-                "context_label": context_label,
-                "prompt_chars": prompt_chars,
-                "prompt_tokens_est": prompt_tokens_est,
-                "timeout_seconds": timeout_seconds,
-                "connect_timeout_seconds": connect_timeout_seconds,
-                "max_retries": max_retries,
-                "is_silent_background": is_silent_background,
-            })),
-        );
+        if !is_silent_background {
+            self.workflow_log(
+                "llm.generate.start",
+                format!("开始 LLM 调用: model_id={}", model_id),
+                Some(serde_json::json!({
+                    "request_id": request_id,
+                    "model_id": model_id,
+                    "model_name": model_name,
+                    "provider": format!("{:?}", provider),
+                    "context_label": context_label,
+                    "prompt_chars": prompt_chars,
+                    "prompt_tokens_est": prompt_tokens_est,
+                    "timeout_seconds": timeout_seconds,
+                    "connect_timeout_seconds": connect_timeout_seconds,
+                    "max_retries": max_retries,
+                    "is_silent_background": is_silent_background,
+                })),
+            );
+        }
 
         // v0.11.8: 超时与重试策略
         // - adapter.generate 内部已拆分连接超时（10s）与生成超时（timeout_seconds），
@@ -1591,20 +1593,24 @@ impl LlmService {
             .remove(&request_id)
             .flatten();
 
-        self.workflow_log(
-            "llm.heartbeat.abort",
-            "开始中止心跳任务",
-            Some(serde_json::json!({"request_id": request_id})),
-        );
+        if !is_silent_background {
+            self.workflow_log(
+                "llm.heartbeat.abort",
+                "开始中止心跳任务",
+                Some(serde_json::json!({"request_id": request_id})),
+            );
+        }
         heartbeat_handle.abort();
         // v0.23.17: 带超时的心跳等待——若心跳 task 卡在 emit() 等同步阻塞操作中，
         // tokio::task::abort() 无法立即终止。用 5s 超时防止主流程被无限阻塞。
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), heartbeat_handle).await;
-        self.workflow_log(
-            "llm.heartbeat.aborted",
-            "心跳任务已完成/超时终止",
-            Some(serde_json::json!({"request_id": request_id})),
-        );
+        if !is_silent_background {
+            self.workflow_log(
+                "llm.heartbeat.aborted",
+                "心跳任务已完成/超时终止",
+                Some(serde_json::json!({"request_id": request_id})),
+            );
+        }
 
         match result {
             Ok(response) => {
@@ -1614,45 +1620,53 @@ impl LlmService {
                     duration,
                     response.content.len()
                 );
-                self.workflow_log(
-                    "llm.generate.completed",
-                    format!("LLM 调用完成: model_id={} 耗时={}ms", model_id, duration),
-                    Some(serde_json::json!({
-                        "request_id": request_id,
-                        "model_id": model_id,
-                        "model_name": model_name,
-                        "duration_ms": duration,
-                        "response_tokens": response.tokens_used,
-                        "response_chars": response.content.chars().count(),
-                    })),
-                );
-                self.workflow_log(
-                    "llm.record_call.start",
-                    "开始写入 llm_calls 记录",
-                    Some(serde_json::json!({"request_id": request_id})),
-                );
-                self.record_llm_call(LlmCallRecord {
-                    model_id: &model_name,
-                    model_name: Some(&model_name),
-                    purpose: label,
-                    prompt: &req.prompt,
-                    response: Some(&response),
-                    duration_ms: duration,
-                    error: None,
-                });
+                if !is_silent_background {
+                    self.workflow_log(
+                        "llm.generate.completed",
+                        format!("LLM 调用完成: model_id={} 耗时={}ms", model_id, duration),
+                        Some(serde_json::json!({
+                            "request_id": request_id,
+                            "model_id": model_id,
+                            "model_name": model_name,
+                            "duration_ms": duration,
+                            "response_tokens": response.tokens_used,
+                            "response_chars": response.content.chars().count(),
+                        })),
+                    );
+                    self.workflow_log(
+                        "llm.record_call.start",
+                        "开始写入 llm_calls 记录",
+                        Some(serde_json::json!({"request_id": request_id})),
+                    );
+                }
+                // v0.23.63: 探测调用跳过 llm_calls DB 写入，避免每 10s keepalive
+                // 产生大量噪声记录。
+                if !is_silent_background {
+                    self.record_llm_call(LlmCallRecord {
+                        model_id: &model_name,
+                        model_name: Some(&model_name),
+                        purpose: label,
+                        prompt: &req.prompt,
+                        response: Some(&response),
+                        duration_ms: duration,
+                        error: None,
+                    });
+                }
                 // v0.23.19: record_llm_call 现在是 fire-and-forget，DB
                 // 写入在阻塞线程池异步执行。 此处已立即返回，不会阻塞后续
                 // emit_llm_progress。
-                self.workflow_log(
-                    "llm.record_call.done",
-                    "llm_calls 记录已提交（fire-and-forget，DB 写入在后台线程）",
-                    Some(serde_json::json!({"request_id": request_id})),
-                );
-                self.workflow_log(
-                    "llm.emit_completed.start",
-                    "准备发射 completed 进度事件",
-                    Some(serde_json::json!({"request_id": request_id})),
-                );
+                if !is_silent_background {
+                    self.workflow_log(
+                        "llm.record_call.done",
+                        "llm_calls 记录已提交（fire-and-forget，DB 写入在后台线程）",
+                        Some(serde_json::json!({"request_id": request_id})),
+                    );
+                    self.workflow_log(
+                        "llm.emit_completed.start",
+                        "准备发射 completed 进度事件",
+                        Some(serde_json::json!({"request_id": request_id})),
+                    );
+                }
                 if !is_silent_background {
                     self.emit_llm_progress(
                         "completed",
@@ -1668,16 +1682,18 @@ impl LlmService {
                         Some(request_id.as_str()),
                     );
                 }
-                self.workflow_log(
-                    "llm.emit_completed.done",
-                    "completed 进度事件已发射",
-                    Some(serde_json::json!({"request_id": request_id})),
-                );
-                self.workflow_log(
-                    "llm.generate.return_ok",
-                    "LLM 生成成功，准备返回结果给调用者",
-                    Some(serde_json::json!({"request_id": request_id, "content_len": response.content.len()})),
-                );
+                if !is_silent_background {
+                    self.workflow_log(
+                        "llm.emit_completed.done",
+                        "completed 进度事件已发射",
+                        Some(serde_json::json!({"request_id": request_id})),
+                    );
+                    self.workflow_log(
+                        "llm.generate.return_ok",
+                        "LLM 生成成功，准备返回结果给调用者",
+                        Some(serde_json::json!({"request_id": request_id, "content_len": response.content.len()})),
+                    );
+                }
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
@@ -1688,27 +1704,32 @@ impl LlmService {
                         | AppError::LlmGenerationTimeout { .. }
                 );
                 let duration = start_time.elapsed().as_millis() as u64;
-                self.workflow_log(
-                    "llm.generate.error",
-                    format!("LLM 调用失败: model_id={} 错误={}", model_id, e),
-                    Some(serde_json::json!({
-                        "request_id": request_id,
-                        "model_id": model_id,
-                        "model_name": model_name,
-                        "duration_ms": duration,
-                        "is_timeout": is_timeout,
-                        "error": e.to_string(),
-                    })),
-                );
-                self.record_llm_call(LlmCallRecord {
-                    model_id: &model_name,
-                    model_name: Some(&model_name),
-                    purpose: label,
-                    prompt: &req.prompt,
-                    response: None,
-                    duration_ms: duration,
-                    error: Some(&e),
-                });
+                if !is_silent_background {
+                    self.workflow_log(
+                        "llm.generate.error",
+                        format!("LLM 调用失败: model_id={} 错误={}", model_id, e),
+                        Some(serde_json::json!({
+                            "request_id": request_id,
+                            "model_id": model_id,
+                            "model_name": model_name,
+                            "duration_ms": duration,
+                            "is_timeout": is_timeout,
+                            "error": e.to_string(),
+                        })),
+                    );
+                }
+                // v0.23.63: 探测调用跳过 llm_calls DB 写入。
+                if !is_silent_background {
+                    self.record_llm_call(LlmCallRecord {
+                        model_id: &model_name,
+                        model_name: Some(&model_name),
+                        purpose: label,
+                        prompt: &req.prompt,
+                        response: None,
+                        duration_ms: duration,
+                        error: Some(&e),
+                    });
+                }
                 if !is_silent_background {
                     self.emit_llm_progress(
                         "error",
@@ -2015,7 +2036,7 @@ impl LlmService {
         );
         log::debug!(
             "[LLM] Prompt: {}...",
-            &enhanced_prompt[..enhanced_prompt.len().min(100)]
+            enhanced_prompt.chars().take(100).collect::<String>()
         );
 
         let adapter = self.create_adapter(&profile)?;

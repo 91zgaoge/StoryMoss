@@ -2,6 +2,25 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.63] - 创世静默挂死根治 + 探测日志洪流根治（2026-06-27）
+
+### P0：byte-slice UTF-8 边界 panic 根治
+- **根因（日志确认）**：v0.23.62 创世流程中，`trishot.call3.done`（作家模型生成完成）正常发射后，第二条 `trishot.call3.done`（正文已生成）从未出现。两者之间的 `&content[..content.len().min(120)]` 在多字节 UTF-8 边界（中文 3 字节/字符）**panic**——Rust 字符串字节索引必须落在 char 边界。`tokio::time::timeout` 无法捕获 panic → `execute_trishot` tokio task 静默崩溃 → `smart_execute` 600s 超时 → 前端报"三击生成完成"但 `currentStory` 为 null
+- **修复**：全局 9 处 `&str[..str.len().min(N)]` 字节切片改为 `str.chars().take(N).collect::<String>()`，字符边界安全。覆盖：
+  - `agents/orchestrator.rs`（trishot.call3.done 日志）
+  - `narrative/genesis.rs`×2（first_chapter.generated + chapter_switch.sent 日志）
+  - `llm/service.rs`（stream prompt debug 日志）
+  - `book_deconstruction/analyzer.rs`（JSON 解析错误信息）
+  - `commands/orchestrator.rs`（final_content_preview 日志）
+  - `task_system/audit_executor.rs`×2（Inspector 响应无 JSON + JSON 解析失败日志）
+  - `db/migrations.rs`（幂等跳过日志）
+
+### P1：探测调用日志静默化
+- **根因（日志确认）**：v0.23.60 后台 keepalive 每 10s 探测 3 个模型，走完整 LLM 生成路径。虽然 `is_silent_background=true` 跳过了 `emit_llm_progress` 和心跳，但 `workflow_log`（`llm.generate.start`/`llm.heartbeat.*`/`llm.record_call.*`/`llm.emit_completed.*`/`llm.generate.completed`/`llm.generate.return_ok`）和 `record_llm_call`（DB INSERT）**未被跳过** → 每 10s 产生 ~24 行噪声日志 + 3 条 DB 记录，27361 行日志中 17832 行是探测噪声
+- **修复**：`execute_generation` 中所有 `workflow_log` 调用和 `record_llm_call` 调用全部加 `if !is_silent_background` 守卫，探测调用零日志、零 DB 写入
+
+- 验证：`cargo test --lib` **578 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓
+
 ## [v0.23.61] - 系统提示词可配置 + 第一章注册表化 + 框架级智能路由（2026-06-27）
 
 ### Gap 1：第一章正文指令注册表化

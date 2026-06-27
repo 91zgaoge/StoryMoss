@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.61-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.63-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.61 系统提示词全面可配置化 + 第一章正文指令注册表化 + 框架级智能提示词路由。每模型可设置独立 system prompt（MN-Oblivion 三种人格/工作模式终可切换），Call 1 最快模型根据创作意图和题材自主选择最适合的方法论/质量门/条件注入器。v0.23.60 网关探测异步化（后台 keepalive 10s 刷新缓存，生成路径跳过内联 5s 探测） + 死模型退避 + 后台 LLM 并发限流。v0.23.59 全面修复并强化模型网关调度——创世流程全部 LLM 调用路由到网关（5s 探测 + 候选 fallback），活跃模型连续失败降级。
+**最新动态**：v0.23.63 创世静默挂死根治 + 探测日志洪流根治。P0：9 处 `&str[..len.min(N)]` 字节切片在多字节 UTF-8 边界 panic（中文字符 3 字节），导致 `execute_trishot` tokio task 静默崩溃、创世 600s 超时但前端报"三击生成完成"——全部改为 `chars().take(N).collect()`。P1：keepalive 探测每 10s 产生 ~24 行噪声日志（27361 行中 17832 行是 probe），现在 `is_silent_background=true` 时跳过全部 workflow_log 和 record_llm_call。v0.23.61 系统提示词全面可配置化 + 第一章正文指令注册表化 + 框架级智能提示词路由。v0.23.60 网关探测异步化 + 死模型退避 + 后台 LLM 并发限流。v0.23.59 全面修复并强化模型网关调度。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

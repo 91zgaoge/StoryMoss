@@ -287,7 +287,7 @@ impl MigrationRunner {
                     log::warn!(
                         "[migrations] Idempotent skip: {} (stmt: {})",
                         e,
-                        &stmt_with_semicolon[..stmt_with_semicolon.len().min(80)]
+                        stmt_with_semicolon.chars().take(80).collect::<String>()
                     );
                     continue;
                 }
