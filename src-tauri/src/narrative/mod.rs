@@ -48,7 +48,7 @@ pub mod thread_tracker;
 /// 真正的 JSON 可能就出现在「未闭合思考」之后，留给后续括号匹配去发现。
 ///
 /// 注意：标签以字节数组构造，避免在源码里出现完整标签字面量被工具链误处理。
-fn strip_reasoning_blocks(content: &str) -> String {
+pub(crate) fn strip_reasoning_blocks(content: &str) -> String {
     // <think>, </think>, <thinking>, </thinking>
     const THINK_OPEN: &[u8] = b"\x3c\x74\x68\x69\x6e\x6b\x3e";
     const THINK_CLOSE: &[u8] = b"\x3c\x2f\x74\x68\x69\x6e\x6b\x3e";

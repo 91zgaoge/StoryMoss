@@ -966,7 +966,20 @@ const FrontstageApp: React.FC = () => {
           case 'AppendContent':
             if (payload?.text !== undefined) {
               const formatted = autoFormatText(payload.text);
-              setContent(prev => prev + formatted);
+              // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
+              // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
+              // 可能重发相同内容，或前端重复接收事件）
+              setContent(prev => {
+                const prevText = prev.replace(/<[^>]*>/g, '').trim();
+                const formattedText = formatted.replace(/<[^>]*>/g, '').trim();
+                if (formattedText && prevText.endsWith(formattedText.slice(-200))) {
+                  frontstageLogger.warn('[AppendContent] Skipped duplicate append', {
+                    formattedLen: formattedText.length,
+                  });
+                  return prev;
+                }
+                return prev + formatted;
+              });
             }
             break;
           case 'DataRefresh':
@@ -2561,6 +2574,7 @@ const FrontstageApp: React.FC = () => {
                     frontstageLogger.warn(
                       '[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback'
                     );
+                    setGeneratedText(''); // v0.23.64: 清空幽灵文本，避免格式版+无格式版重复
                     setContent(autoFormatText(result.final_content));
                   }
                 } else if (result.final_content && result.final_content.trim().length > 0) {
@@ -2568,6 +2582,7 @@ const FrontstageApp: React.FC = () => {
                   frontstageLogger.warn(
                     '[SmartGeneration] No chapters in DB but final_content exists, displaying content directly'
                   );
+                  setGeneratedText(''); // v0.23.64: 清空幽灵文本，避免格式版+无格式版重复
                   setContent(autoFormatText(result.final_content));
                 }
               } else {

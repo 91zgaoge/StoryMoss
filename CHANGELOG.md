@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.64] - 续写内容质量根因修复（2026-06-27）
+
+### P0：Writer LLM 看不到前文正文 → 每次续写生成全新故事
+- **根因**：TimeSliced（默认续写）路径 `execute_time_sliced` 完全不读取 `current_content`，Writer 只收到 `WriteTimeBundle` 结构化约束；TriShot 路径 `current_content` 截断 6000→600 字只给 Call 1 做意图检测，Call 3 Writer 看不到任何原始正文
+- **修复**：新增 `build_continuation_context` 函数，智能构建续写上下文（近章摘要 3 章各 300 字 + 当前章尾部预览 2000 字），注入 TimeSliced 和 TriShot 路径。升级 `MemoryWriter::extract_summary` 从 200 字前缀改为 300 字尾部（续写需要最近发生的事而非开头）
+
+### P1：sanitize_novel_output 清洗不足 → 规划 markdown 泄漏到正文
+- **根因**：`sanitize_novel_output` 不剥离推理模型思考链（`<thinking>`）、`+++++` 文件分隔符、编号规划块（`1. 世界观设定`）、markdown 代码块
+- **修复**：在现有 4 步清洗前增加第 0 步（4 个子步骤）：剥离思考链（复用 `strip_reasoning_blocks`）、`+++++` 分隔符截断、编号规划块检测（连续 3+ 行含规划关键词）、markdown 代码块删除。新增 4 个单元测试
+
+### P2：前端幽灵文本与编辑器内容同时渲染 → 内容重复两份
+- **根因**：`AppendContent` 事件处理 `setContent(prev => prev + formatted)` 无去重守卫；bootstrap 回退路径 `setContent(autoFormatText(result.final_content))` 不清空 `generatedText`
+- **修复**：`AppendContent` 追加前检查尾部 200 字是否已存在；bootstrap 回退路径前清空 `generatedText`
+
+- 验证：`cargo test --lib` **582 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓
+
 ## [v0.23.63] - 创世静默挂死根治 + 探测日志洪流根治（2026-06-27）
 
 ### P0：byte-slice UTF-8 边界 panic 根治

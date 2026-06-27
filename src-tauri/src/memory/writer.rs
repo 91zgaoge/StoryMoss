@@ -151,21 +151,26 @@ impl MemoryWriter {
         Ok(())
     }
 
-    /// 提取内容摘要：取前 N 字，不截断句子
+    /// 提取内容摘要：取尾部 N 字，不截断句子。
+    ///
+    /// v0.23.64: 从前缀改为尾部——续写需要知道"最近发生了什么"而非开头。
+    /// 前缀摘要在第 1 章后每次都一样（都是开头），对续写衔接无价值。
     fn extract_summary(content: &str, max_chars: usize) -> String {
         let trimmed = content.trim();
-        if trimmed.chars().count() <= max_chars {
+        let total = trimmed.chars().count();
+        if total <= max_chars {
             return trimmed.to_string();
         }
 
-        // 取前 max_chars 字，然后找到最后一个句号/逗号截断
-        let prefix: String = trimmed.chars().take(max_chars).collect();
-        if let Some(pos) = prefix.rfind(|c| c == '。' || c == '！' || c == '？') {
-            prefix[..=pos].to_string()
-        } else if let Some(pos) = prefix.rfind('，') {
-            prefix[..=pos].to_string()
+        // 取尾部 max_chars 字，然后找到第一个句号/逗号截断（从前向后找）
+        let skip = total - max_chars;
+        let suffix: String = trimmed.chars().skip(skip).collect();
+        if let Some(pos) = suffix.find(|c: char| c == '。' || c == '！' || c == '？') {
+            suffix[pos..].to_string()
+        } else if let Some(pos) = suffix.find('，') {
+            suffix[pos..].to_string()
         } else {
-            prefix
+            suffix
         }
     }
 
