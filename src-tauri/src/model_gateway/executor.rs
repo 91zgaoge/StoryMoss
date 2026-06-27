@@ -95,6 +95,17 @@ impl GatewayExecutor {
         }
     }
 
+    /// v0.23.63: 路由细节日志仅输出到控制台 debug，不写入工作流日志文件。
+    /// 避免 8 次 LLM 调用产生 ~96 行 gateway 路由噪声。
+    fn gateway_debug(&self, phase: &str, message: impl Into<String>, details: Option<serde_json::Value>) {
+        let msg: String = message.into();
+        if let Some(d) = &details {
+            log::debug!("[{}] {} | {}", phase, msg, d);
+        } else {
+            log::debug!("[{}] {}", phase, msg);
+        }
+    }
+
     /// v0.23.13: 模型必须出现在健康注册表且状态为 Healthy/Degraded
     /// 才可用于调度。
     fn is_model_available(&self, model_id: &str) -> bool {
@@ -369,20 +380,15 @@ impl GatewayExecutor {
             }
         }
 
-        self.workflow_log(
-            "gateway.select_candidates.cap_done",
-            "能力档案段结束",
-            Some(serde_json::json!({"candidates": decision.candidates.len(), "request_id": request.request_id})),
+        log::debug!(
+            "[Gateway] select_candidates: 能力档案段结束, 候选={}",
+            decision.candidates.len()
         );
 
         // v0.23.13: 活跃模型强制置顶。v0.23.32: 每步 Mutex 前后加标记诊断。
         // v0.23.59: 连续失败达阈值时跳过强制置顶，交给候选打分选择。
         if let Some(active) = self.llm_service.get_active_profile() {
-            self.workflow_log(
-                "gateway.select_candidates.active_ok",
-                "活跃模型获取成功",
-                Some(serde_json::json!({"active_id": active.id, "request_id": request.request_id})),
-            );
+            log::debug!("[Gateway] select_candidates: 活跃模型={}", active.id);
             if self.active_model_demoted() {
                 let failures = self
                     .health_registry()
@@ -395,27 +401,9 @@ impl GatewayExecutor {
                     active.id,
                     failures
                 );
-                self.workflow_log(
-                    "gateway.select_candidates.active_demoted",
-                    format!("活跃模型连续失败 {} 次，跳过强制置顶", failures),
-                    Some(serde_json::json!({
-                        "active_profile_id": active.id,
-                        "consecutive_failures": failures,
-                        "request_id": request.request_id,
-                    })),
-                );
             } else if self.is_model_available(&active.id) {
-                self.workflow_log(
-                    "gateway.select_candidates.model_available",
-                    "is_model_available 通过",
-                    Some(serde_json::json!({"request_id": request.request_id})),
-                );
                 if let Some(profile) = self.registry_guard().get(&active.id).cloned() {
-                    self.workflow_log(
-                        "gateway.select_candidates.registry_ok",
-                        "注册表查询成功",
-                        Some(serde_json::json!({"request_id": request.request_id})),
-                    );
+                    log::debug!("[Gateway] select_candidates: 注册表查询成功");
                     let mut candidates = decision.candidates.clone();
                     candidates.retain(|c| c.model_id != active.id);
                     let top_score = candidates.first().map(|c| c.score).unwrap_or(50.0);
@@ -429,19 +417,10 @@ impl GatewayExecutor {
                     decision.model_id = active.id.clone();
                     decision.model_name = active.name.clone();
                     decision.candidates = candidates;
-                    log::info!(
-                        "[Gateway] select_candidates: 强制使用当前活跃模型 {}",
-                        active.id
-                    );
-                    self.workflow_log(
-                        "gateway.select_candidates",
-                        format!("强制使用当前活跃模型: {}", active.id),
-                        Some(serde_json::json!({
-                            "active_profile_id": active.id,
-                            "active_profile_name": active.name,
-                            "score": top_score + 1000.0,
-                            "reason": "active_profile_forced_primary",
-                        })),
+                    log::debug!(
+                        "[Gateway] select_candidates: 强制使用当前活跃模型 {} (score={})",
+                        active.id,
+                        top_score + 1000.0
                     );
                 }
             } else {
@@ -452,15 +431,9 @@ impl GatewayExecutor {
             }
         }
 
-        self.workflow_log(
-            "gateway.select_candidates.return",
-            format!(
-                "select_candidates 即将返回, {} 个候选",
-                decision.candidates.len()
-            ),
-            Some(
-                serde_json::json!({"request_id": request.request_id, "primary": decision.model_id}),
-            ),
+        log::debug!(
+            "[Gateway] select_candidates 返回, {} 个候选",
+            decision.candidates.len()
         );
         Ok(decision)
     }
@@ -488,13 +461,9 @@ impl GatewayExecutor {
                     "[Gateway] select_fastest_profile: 无条件使用当前活跃模型 {}",
                     active_profile.id
                 );
-                self.workflow_log(
-                    "gateway.select_fastest_profile",
-                    format!("无条件使用当前活跃模型: {}", active_profile.id),
-                    Some(serde_json::json!({
-                        "active_profile_id": active_profile.id,
-                        "reason": "active_profile_priority",
-                    })),
+                log::debug!(
+                    "[Gateway] select_fastest_profile: 无条件使用当前活跃模型 {}",
+                    active_profile.id
                 );
                 return self.registry_guard().get(&active_profile.id).cloned();
             } else if active_demoted {
@@ -578,16 +547,6 @@ impl GatewayExecutor {
                                     "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
                                     active_profile.id, active_ttfb, fastest_ttfb
                                 );
-                                self.workflow_log(
-                                    "gateway.select_fastest_profile",
-                                    format!("偏好使用当前活跃模型: {}", active_profile.id),
-                                    Some(serde_json::json!({
-                                        "active_profile_id": active_profile.id,
-                                        "active_ttfb_ms": active_ttfb,
-                                        "fastest_ttfb_ms": fastest_ttfb,
-                                        "reason": if active_cap.is_none() { "no capability record" } else { "active within threshold" },
-                                    })),
-                                );
                                 return self.registry_guard().get(&active_profile.id).cloned();
                             }
                         }
@@ -632,11 +591,7 @@ impl GatewayExecutor {
     /// 统一生成入口：选择候选链并顺序执行 fallback
     pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
         let request_id = request.request_id.clone();
-        self.workflow_log(
-            "gateway.generate.enter",
-            "进入网关 generate",
-            Some(serde_json::json!({"request_id": request_id})),
-        );
+        log::debug!("[Gateway] generate.enter request_id={}", request_id);
 
         // v0.23.28: 用 spawn_blocking 预加载能力档案（同步 DB 查询），
         // 连接池满时不会阻塞 tokio worker 线程导致 Call 3 hang住。
@@ -648,29 +603,14 @@ impl GatewayExecutor {
         })
         .await
         .unwrap_or(None);
-        self.workflow_log(
-            "gateway.generate.cap_profiles_loaded",
-            format!(
-                "能力档案加载完成: {} 条",
-                capability_profiles.as_ref().map(|v| v.len()).unwrap_or(0)
-            ),
-            Some(serde_json::json!({"request_id": request.request_id})),
+        log::debug!(
+            "[Gateway] 能力档案加载完成: {} 条",
+            capability_profiles.as_ref().map(|v| v.len()).unwrap_or(0)
         );
 
-        self.workflow_log(
-            "gateway.generate.select_candidates_start",
-            "开始 select_candidates",
-            Some(serde_json::json!({"request_id": request.request_id})),
-        );
+        log::debug!("[Gateway] 开始 select_candidates");
         let mut decision = self.select_candidates(&request, capability_profiles)?;
-        self.workflow_log(
-            "gateway.generate.select_candidates_done",
-            format!(
-                "select_candidates 完成: 候选数={}",
-                decision.candidates.len()
-            ),
-            Some(serde_json::json!({"request_id": request.request_id})),
-        );
+        log::debug!("[Gateway] select_candidates 完成: 候选数={}", decision.candidates.len());
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
@@ -688,15 +628,6 @@ impl GatewayExecutor {
                     active.id,
                     failures
                 );
-                self.workflow_log(
-                    "gateway.generate.active_demoted",
-                    format!("活跃模型连续失败 {} 次，跳过候选链首位提升", failures),
-                    Some(serde_json::json!({
-                        "active_profile_id": active.id,
-                        "consecutive_failures": failures,
-                        "request_id": request.request_id,
-                    })),
-                );
             } else if decision.candidates.first().map(|c| c.model_id.as_str())
                 != Some(active.id.as_str())
             {
@@ -707,14 +638,9 @@ impl GatewayExecutor {
                 {
                     let item = decision.candidates.remove(pos);
                     decision.candidates.insert(0, item);
-                    self.workflow_log(
-                        "gateway.generate",
-                        format!("将活跃模型 {} 提升至候选链首位", active.id),
-                        Some(serde_json::json!({
-                            "request_id": request.request_id,
-                            "active_profile_id": active.id,
-                            "context_label": request.context_label,
-                        })),
+                    log::debug!(
+                        "[Gateway] 将活跃模型 {} 提升至候选链首位",
+                        active.id
                     );
                 } else if self.registry_guard().get(&active.id).is_some()
                     && self.is_model_available(&active.id)
@@ -732,32 +658,17 @@ impl GatewayExecutor {
                             reason: "当前活跃模型优先".to_string(),
                         },
                     );
-                    self.workflow_log(
-                        "gateway.generate",
-                        format!("将活跃模型 {} 插入候选链首位", active.id),
-                        Some(serde_json::json!({
-                            "request_id": request.request_id,
-                            "active_profile_id": active.id,
-                            "context_label": request.context_label,
-                        })),
+                    log::debug!(
+                        "[Gateway] 将活跃模型 {} 插入候选链首位",
+                        active.id
                     );
                 }
             }
         }
 
-        self.workflow_log(
-            "gateway.generate",
-            format!("候选链已确定，共 {} 个模型", decision.candidates.len()),
-            Some(serde_json::json!({
-                "request_id": request.request_id,
-                "context_label": request.context_label,
-                "candidates": decision.candidates.iter().map(|c| serde_json::json!({
-                    "model_id": c.model_id,
-                    "model_name": c.model_name,
-                    "score": c.score,
-                    "reason": c.reason,
-                })).collect::<Vec<_>>(),
-            })),
+        log::debug!(
+            "[Gateway] 候选链已确定，共 {} 个模型",
+            decision.candidates.len()
         );
 
         if decision.candidates.is_empty() {
@@ -767,10 +678,9 @@ impl GatewayExecutor {
         }
 
         let mut last_error: Option<AppError> = None;
-        self.workflow_log(
-            "gateway.generate.for_loop_enter",
-            format!("进入候选链循环, {} 个候选项", decision.candidates.len()),
-            Some(serde_json::json!({"request_id": request.request_id})),
+        log::debug!(
+            "[Gateway] 进入候选链循环, {} 个候选项",
+            decision.candidates.len()
         );
         for (idx, candidate) in decision.candidates.iter().enumerate() {
             self.workflow_log(
@@ -788,10 +698,9 @@ impl GatewayExecutor {
             // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms 延迟。
             let health_fresh = self.is_health_fresh(&candidate.model_id);
             let probe_passed = if health_fresh {
-                self.workflow_log(
-                    "gateway.generate.pre_call_probe.skip_fresh",
-                    format!("候选 [{}] 健康数据新鲜（<15s），跳过内联探测", idx + 1),
-                    Some(serde_json::json!({"model_id": candidate.model_id})),
+                log::debug!(
+                    "[Gateway] 候选 [{}] 健康数据新鲜（<15s），跳过内联探测",
+                    idx + 1
                 );
                 true
             } else {
@@ -816,10 +725,9 @@ impl GatewayExecutor {
                 .await;
                 match probe_result {
                     Ok(Ok(_resp)) => {
-                        self.workflow_log(
-                            "gateway.generate.pre_call_probe.ok",
-                            format!("候选 [{}] 实时探测通过", idx + 1),
-                            Some(serde_json::json!({"model_id": candidate.model_id})),
+                        log::debug!(
+                            "[Gateway] 候选 [{}] 实时探测通过",
+                            idx + 1
                         );
                         self.record_gateway_success(&candidate.model_id, &candidate.model_name);
                         true
@@ -831,11 +739,6 @@ impl GatewayExecutor {
                             decision.candidates.len(),
                             candidate.model_id,
                             e
-                        );
-                        self.workflow_log(
-                            "gateway.generate.pre_call_probe.fail",
-                            format!("候选 [{}] 实时探测失败，跳过", idx + 1),
-                            Some(serde_json::json!({"model_id": candidate.model_id, "error": e.to_string()})),
                         );
                         self.record_gateway_failure(
                             &candidate.model_id,
@@ -852,11 +755,6 @@ impl GatewayExecutor {
                             idx + 1,
                             decision.candidates.len(),
                             candidate.model_id
-                        );
-                        self.workflow_log(
-                            "gateway.generate.pre_call_probe.timeout",
-                            format!("候选 [{}] 实时探测超时（5s），跳过", idx + 1),
-                            Some(serde_json::json!({"model_id": candidate.model_id})),
                         );
                         self.record_gateway_failure(
                             &candidate.model_id,
