@@ -134,6 +134,24 @@ pub async fn get_workflow_logs(
     logger.tail(count.unwrap_or(50))
 }
 
+/// v0.23.57: 获取解析后的工作流日志（前端直接用字段渲染，无需二次
+/// JSON.parse）。
+#[command(rename_all = "snake_case")]
+pub async fn get_workflow_logs_parsed(
+    logger: State<'_, Arc<crate::workflow_logger::WorkflowLogger>>,
+    count: Option<usize>,
+) -> Result<Vec<crate::workflow_logger::WorkflowLogEvent>, AppError> {
+    let lines = logger.tail(count.unwrap_or(100))?;
+    let parsed: Vec<_> = lines
+        .into_iter()
+        .rev() // tail 返回 newest-first，反转为 oldest-first 方便阅读
+        .filter_map(|line| {
+            serde_json::from_str::<crate::workflow_logger::WorkflowLogEvent>(&line).ok()
+        })
+        .collect();
+    Ok(parsed)
+}
+
 /// v0.23.12: 获取智能创作流程日志文件路径（诊断用）。
 #[command(rename_all = "snake_case")]
 pub async fn get_workflow_log_path(

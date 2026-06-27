@@ -205,6 +205,14 @@ async fn smart_execute_inner(
     );
 
     if is_bootstrap_intent {
+        wf(
+            "smart_execute.bootstrap.enter",
+            "进入创世模式（GenesisPipeline 快速阶段）",
+            Some(serde_json::json!({
+                "total_timeout_secs": crate::config::AppConfig::load(&app_handle.path().app_data_dir().unwrap_or_default())
+                    .map(|c| c.smart_execute_total_timeout_secs).unwrap_or(180u64),
+            })),
+        );
         let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
         let total_timeout = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.smart_execute_total_timeout_secs)
@@ -479,6 +487,13 @@ async fn smart_execute_inner(
     }
 
     // Phase 3: 加载场景结构信息 + 增强上下文
+    wf(
+        "smart_execute.continue_write.enter",
+        "进入续写模式（加载场景结构 + 增强上下文）",
+        Some(serde_json::json!({
+            "current_content_len": current_content_len,
+        })),
+    );
     let (
         _scenes,
         scene_count,

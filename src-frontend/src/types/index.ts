@@ -294,6 +294,7 @@ export type ViewType =
   | 'usage-stats'
   | 'writing-stats'
   | 'intention-graph'
+  | 'logs'
   | 'settings';
 
 // ===== Intent Engine Types =====

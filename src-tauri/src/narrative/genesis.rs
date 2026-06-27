@@ -710,6 +710,19 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let save_content = result.content.clone();
             let save_story_id = ctx.story_id.clone();
             let save_pool = ctx.pool.clone();
+            if let Some(logger) = ctx
+                .app_handle
+                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+            {
+                logger.info(
+                    "genesis.chapter.save.start",
+                    "保存第一章到 DB",
+                    Some(serde_json::json!({
+                        "story_id": save_story_id,
+                        "content_len": save_content.len(),
+                    })),
+                );
+            }
             let (chapter_id, chapter_number) = tokio::task::spawn_blocking(move || {
                 let chapter_repo = ChapterRepository::new(save_pool);
                 let existing = chapter_repo
