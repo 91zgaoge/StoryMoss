@@ -285,20 +285,9 @@ const FrontstageApp: React.FC = () => {
   const setOrchestratorStatus = useGenerationStore(s => s.setOrchestratorStatus);
   const setBootstrapProgress = useBootstrapStore(s => s.setBootstrapProgress);
 
-  // v0.23.54: 生成结束（isGenerating true→false）时清空 generatedText 安全网。
-  // 根因：创世成功后 ChapterSwitch 把正文加载进编辑器（HTML 排版版），
-  // 若 generatedText 仍持有正文（纯文本幽灵段落），两者同时显示 → 两份重复。
-  // 各 return 路径虽已 setGeneratedText('')，但安全网确保任何遗漏都不残留。
-  const prevIsGeneratingRef = useRef(false);
-  useEffect(() => {
-    if (prevIsGeneratingRef.current && !isGenerating && generatedText) {
-      frontstageLogger.info('[SafetyNet] isGenerating→false, clearing stale generatedText', {
-        genTextLen: generatedText.length,
-      });
-      setGeneratedText('');
-    }
-    prevIsGeneratingRef.current = isGenerating;
-  }, [isGenerating, generatedText]);
+  // v0.23.54: 安全网已在 ChapterSwitch 处理器中清空 generatedText（正文加载到
+  // 编辑器的时刻）。此处不再用 isGenerating 转换检测，因为会误伤正常续写流程
+  // （续写时先 setGeneratedText 再 setIsGenerating(false)，转换检测会清掉合法幽灵文本）。
 
   // B1: 全文字数状态；输入时基于当前章节字数增量 diff 更新，避免每次渲染全量 reduce
   const [totalWordCount, setTotalWordCount] = useState(0);
@@ -971,6 +960,16 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
+              // v0.23.55: 正文通过 ChapterSwitch 加载到编辑器时，必须清空 generatedText。
+              // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
+              // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
+              // 在 ChapterSwitch（正文加载点）清空是最可靠的时机。
+              if (generatedText) {
+                frontstageLogger.info('[ChapterSwitch] Clearing generatedText to prevent duplicate', {
+                  genTextLen: generatedText.length,
+                });
+                setGeneratedText('');
+              }
               // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
               chapterSwitchCountRef.current += 1;
               frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
