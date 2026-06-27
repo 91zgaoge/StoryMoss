@@ -280,9 +280,11 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
 /// v0.23.55: 正则兜底提取故事概念字段。
 ///
 /// 当 serde_json::from_str 因 JSON 语法错误（如字符串值内未转义双引号）失败时，
-/// 用正则表达式逐字段提取 `StoryMetaElement` 的关键字段。容错性强，不依赖严格 JSON 语法。
+/// 用正则表达式逐字段提取 `StoryMetaElement` 的关键字段。容错性强，不依赖严格
+/// JSON 语法。
 ///
-/// 提取策略：匹配 `"key": "value"` 或 `"key": [array]` 模式，值取到下一个未转义 `"` 或行尾。
+/// 提取策略：匹配 `"key": "value"` 或 `"key": [array]` 模式，值取到下一个未转义
+/// `"` 或行尾。
 pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::StoryMetaElement> {
     use crate::domain::{ElementSource, StoryMetaElement};
 

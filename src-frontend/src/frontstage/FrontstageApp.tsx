@@ -965,9 +965,12 @@ const FrontstageApp: React.FC = () => {
               // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
               // 在 ChapterSwitch（正文加载点）清空是最可靠的时机。
               if (generatedText) {
-                frontstageLogger.info('[ChapterSwitch] Clearing generatedText to prevent duplicate', {
-                  genTextLen: generatedText.length,
-                });
+                frontstageLogger.info(
+                  '[ChapterSwitch] Clearing generatedText to prevent duplicate',
+                  {
+                    genTextLen: generatedText.length,
+                  }
+                );
                 setGeneratedText('');
               }
               // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容

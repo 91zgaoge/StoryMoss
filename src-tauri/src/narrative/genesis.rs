@@ -347,19 +347,15 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 "[GenesisDiag] ConceptGenerationStep: JSON 提取成功，len={}，开始反序列化",
                 json_str.len()
             );
-            let meta: StoryMetaElement = serde_json::from_str(&json_str)
-                .or_else(|e| {
-                    // v0.23.55: serde 解析失败时，用正则逐字段提取作为兜底。
-                    // 根因：本地模型（如 MN-Oblivion）经常在 JSON 字符串值里放
-                    // 未转义的双引号或特殊字符，导致 serde "expected `,` or `}`" 错误。
-                    // 正则提取不依赖严格的 JSON 语法，容错性更强。
-                    log::warn!(
-                        "[GenesisDiag] serde 解析失败: {}，尝试正则兜底提取",
-                        e
-                    );
-                    super::extract_story_meta_fallback(&json_str)
-                        .ok_or_else(|| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))
-                })?;
+            let meta: StoryMetaElement = serde_json::from_str(&json_str).or_else(|e| {
+                // v0.23.55: serde 解析失败时，用正则逐字段提取作为兜底。
+                // 根因：本地模型（如 MN-Oblivion）经常在 JSON 字符串值里放
+                // 未转义的双引号或特殊字符，导致 serde "expected `,` or `}`" 错误。
+                // 正则提取不依赖严格的 JSON 语法，容错性更强。
+                log::warn!("[GenesisDiag] serde 解析失败: {}，尝试正则兜底提取", e);
+                super::extract_story_meta_fallback(&json_str)
+                    .ok_or_else(|| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))
+            })?;
             log::warn!(
                 "[GenesisDiag] ConceptGenerationStep: 反序列化成功 title={}，开始创建 Story 记录",
                 meta.title
