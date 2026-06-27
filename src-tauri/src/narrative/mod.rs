@@ -277,6 +277,71 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     Ok(s)
 }
 
+/// v0.23.55: 正则兜底提取故事概念字段。
+///
+/// 当 serde_json::from_str 因 JSON 语法错误（如字符串值内未转义双引号）失败时，
+/// 用正则表达式逐字段提取 `StoryMetaElement` 的关键字段。容错性强，不依赖严格 JSON 语法。
+///
+/// 提取策略：匹配 `"key": "value"` 或 `"key": [array]` 模式，值取到下一个未转义 `"` 或行尾。
+pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::StoryMetaElement> {
+    use crate::domain::{ElementSource, StoryMetaElement};
+
+    // 提取字符串字段值：匹配 "key" : "value"，value 取到下一个未转义的 "
+    fn extract_string(json: &str, key: &str) -> Option<String> {
+        // 构造模式：匹配 "key" 后面的字符串值
+        let pattern = format!(r#""{}"\s*:\s*"((?:[^"\\]|\\.)*)"#, regex::escape(key));
+        regex::Regex::new(&pattern)
+            .ok()
+            .and_then(|re| re.captures(json))
+            .and_then(|c| c.get(1))
+            .map(|m| {
+                // 反转义 \n, \", \\ 等
+                m.as_str()
+                    .replace("\\n", "\n")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+            })
+    }
+
+    // 提取数组字段：匹配 "key" : [ "v1", "v2", ... ]
+    fn extract_array(json: &str, key: &str) -> Vec<String> {
+        let pattern = format!(r#""{}"\s*:\s*\[(.*?)\]"#, regex::escape(key));
+        if let Some(re) = regex::Regex::new(&pattern).ok() {
+            if let Some(c) = re.captures(json) {
+                let arr_str = c.get(1).map(|m| m.as_str()).unwrap_or("");
+                let item_re = regex::Regex::new(r#""((?:[^"\\]|\\.)*)""#).ok();
+                if let Some(item_re) = item_re {
+                    return item_re
+                        .captures_iter(arr_str)
+                        .filter_map(|c| c.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .collect();
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    let title = extract_string(json_str, "title")?;
+    if title.trim().is_empty() {
+        return None;
+    }
+
+    Some(StoryMetaElement {
+        id: String::new(),
+        title,
+        description: extract_string(json_str, "description").unwrap_or_default(),
+        genre: extract_string(json_str, "genre").unwrap_or_default(),
+        genre_profile_ids: extract_array(json_str, "genre_profile_ids"),
+        tone: extract_string(json_str, "tone").unwrap_or_default(),
+        pacing: extract_string(json_str, "pacing").unwrap_or_default(),
+        themes: extract_array(json_str, "themes"),
+        target_length: extract_string(json_str, "target_length").unwrap_or_default(),
+        source: ElementSource::Generated,
+        source_ref_id: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,6 +460,28 @@ mod tests {
         let result = extract_and_sanitize_json(content).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["title"], "真");
+    }
+
+    #[test]
+    fn test_extract_story_meta_fallback_malformed_json() {
+        // v0.23.55: JSON 字符串值内有未转义双引号，serde 会失败，正则兜底提取
+        let malformed = r#"{
+  "title": "异星末世",
+  "description": "主角说"快跑"然后逃离",
+  "genre": "科幻",
+  "tone": "暗黑",
+  "pacing": "快节奏",
+  "themes": ["生存", "希望"],
+  "target_length": "长篇100万字"
+}"#;
+        // serde 应该失败
+        assert!(serde_json::from_str::<serde_json::Value>(malformed).is_err());
+        // 正则兜底应成功
+        let meta = extract_story_meta_fallback(malformed).unwrap();
+        assert_eq!(meta.title, "异星末世");
+        assert_eq!(meta.genre, "科幻");
+        assert_eq!(meta.tone, "暗黑");
+        assert_eq!(meta.themes, vec!["生存", "希望"]);
     }
 }
 
