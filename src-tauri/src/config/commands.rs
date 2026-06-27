@@ -50,6 +50,9 @@ pub struct ModelConfigInput {
     pub supports_streaming: Option<bool>,
     pub knowledge_cutoff: Option<String>,
     pub reasoning_effort: Option<String>,
+    /// v0.23.61: 每模型独立系统提示词覆盖
+    #[serde(default)]
+    pub system_prompt_override: Option<String>,
 }
 
 // ============================================================================
@@ -197,6 +200,7 @@ fn build_llm_profile(
         supports_streaming: config.supports_streaming.unwrap_or(true),
         knowledge_cutoff: config.knowledge_cutoff.clone(),
         reasoning_effort: config.reasoning_effort.clone(),
+        system_prompt_override: config.system_prompt_override.clone(),
     }
 }
 

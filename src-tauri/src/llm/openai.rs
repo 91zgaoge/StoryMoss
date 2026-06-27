@@ -137,11 +137,14 @@ impl OpenAiAdapter {
         (tokens as f64 / 1000.0) * rate
     }
 
-    fn build_messages(&self, prompt: String) -> Vec<Message> {
+    fn build_messages(&self, prompt: String, system_prompt: Option<&str>) -> Vec<Message> {
+        let system_content = system_prompt
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("You are a professional creative writing assistant.");
         vec![
             Message {
                 role: "system".to_string(),
-                content: "You are a professional creative writing assistant.".to_string(),
+                content: system_content.to_string(),
             },
             Message {
                 role: "user".to_string(),
@@ -161,7 +164,7 @@ impl LlmAdapter for OpenAiAdapter {
 
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt),
+            messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
             top_p: request.top_p,
@@ -235,7 +238,7 @@ impl LlmAdapter for OpenAiAdapter {
     > {
         let openai_req = OpenAiStreamRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt),
+            messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
             top_p: request.top_p,

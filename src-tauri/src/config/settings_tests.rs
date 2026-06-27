@@ -43,6 +43,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         config.add_llm_profile(test_profile).unwrap();
 
@@ -106,6 +107,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         config.add_llm_profile(mm_profile).unwrap();
 
@@ -165,6 +167,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
 
         config.add_llm_profile(new_profile).unwrap();
@@ -213,6 +216,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
 
         config.add_llm_profile(profile).unwrap();
@@ -291,6 +295,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         config.add_llm_profile(second).unwrap();
         config.set_active_llm_profile("second").unwrap();
@@ -339,6 +344,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         config.add_llm_profile(second).unwrap();
 

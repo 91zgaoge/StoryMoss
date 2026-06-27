@@ -120,7 +120,14 @@ impl LlmAdapter for AnthropicAdapter {
                 role: "user".to_string(),
                 content: request.prompt,
             }],
-            system: Some("You are a professional creative writing assistant.".to_string()),
+            system: Some(
+                request
+                    .system_prompt
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("You are a professional creative writing assistant.")
+                    .to_string(),
+            ),
             stream: false,
         };
 
@@ -187,7 +194,14 @@ impl LlmAdapter for AnthropicAdapter {
                 role: "user".to_string(),
                 content: request.prompt,
             }],
-            system: Some("You are a professional creative writing assistant.".to_string()),
+            system: Some(
+                request
+                    .system_prompt
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("You are a professional creative writing assistant.")
+                    .to_string(),
+            ),
             stream: true,
         };
 

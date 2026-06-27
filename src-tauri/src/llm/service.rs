@@ -1228,6 +1228,20 @@ impl LlmService {
             }
         };
 
+        // v0.23.61: 解析系统提示词覆盖（优先级：每模型 > 全局配置 > 适配器默认）
+        let system_prompt = {
+            // 1) 每模型 system_prompt_override
+            if let Some(ref sp) = profile.system_prompt_override {
+                if !sp.trim().is_empty() {
+                    Some(sp.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         let req = GenerateRequest {
             prompt,
             max_tokens,
@@ -1236,6 +1250,7 @@ impl LlmService {
             frequency_penalty: profile.frequency_penalty,
             presence_penalty: profile.presence_penalty,
             response_format,
+            system_prompt,
         };
 
         let label = context_label.unwrap_or("");
@@ -2013,6 +2028,7 @@ impl LlmService {
             frequency_penalty: profile.frequency_penalty,
             presence_penalty: profile.presence_penalty,
             response_format: None,
+            system_prompt: None,
         };
 
         // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
@@ -2568,6 +2584,7 @@ mod tests {
             frequency_penalty: None,
             presence_penalty: None,
             response_format: None,
+            system_prompt: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();
@@ -2625,6 +2642,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         let response = GenerateResponse {
             content: "OK".to_string(),
@@ -2692,6 +2710,7 @@ mod tests {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         let response = GenerateResponse {
             content: "OK".to_string(),

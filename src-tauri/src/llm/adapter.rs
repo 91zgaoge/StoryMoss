@@ -124,6 +124,11 @@ pub struct GenerateRequest {
     /// 暂不支持， 仍靠 prompt 约束输出 JSON。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    /// v0.23.61: 系统提示词覆盖（替换适配器 hardcoded 默认值）。
+    /// 优先级：LlmProfile.system_prompt_override >
+    /// AppConfig.writer_system_prompt_override > 适配器内置默认。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

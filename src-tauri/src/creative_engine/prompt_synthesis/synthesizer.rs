@@ -109,6 +109,11 @@ impl PromptSynthesizer {
                 "asset_capability_summary".to_string(),
                 asset_capability_summary.unwrap_or("").to_string(),
             );
+            // v0.23.61: 注入提示词框架目录
+            vars.insert(
+                "prompt_framework_catalog".to_string(),
+                crate::narrative::prompts::build_prompt_framework_catalog(),
+            );
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
         } else {
             // 硬编码兜底（与注册表默认内容对齐）
@@ -182,6 +187,11 @@ impl PromptSynthesizer {
 
         let is_fallback = synthesized_prompt == *bundle_prompt;
 
+        // v0.23.61: 解析 LLM 选择的提示词框架
+        let framework_selections = parsed
+            .get("framework_selections")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
         Some(SynthesisResult {
             intent,
             selected_asset_ids,
@@ -190,6 +200,7 @@ impl PromptSynthesizer {
             refinement_focus,
             confidence,
             is_fallback,
+            framework_selections,
         })
     }
 }

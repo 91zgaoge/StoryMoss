@@ -542,6 +542,12 @@ pub struct LlmProfile {
     /// 是否支持 system prompt（部分本地模型或特定 API 不支持）
     #[serde(default = "default_true")]
     pub supports_system_prompt: bool,
+    /// v0.23.61: 每模型独立系统提示词覆盖。
+    /// 优先级：此字段 > AppConfig.writer_system_prompt_override >
+    /// PromptRegistry "writer_system" 默认。 MN-Oblivion
+    /// 等推理模型可能需要不同的 system prompt 来激活模型卡指令。
+    #[serde(default)]
+    pub system_prompt_override: Option<String>,
     /// 是否支持流式输出
     #[serde(default = "default_true")]
     pub supports_streaming: bool,
@@ -854,6 +860,7 @@ impl Default for AppConfig {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         llm_profiles.insert(qwen35.id.clone(), qwen35);
 
@@ -895,6 +902,7 @@ impl Default for AppConfig {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
         llm_profiles.insert(gemma4.id.clone(), gemma4);
 
@@ -1404,7 +1412,9 @@ impl AppConfig {
             supports_streaming: true,
             knowledge_cutoff: None,
             reasoning_effort: None,
+            system_prompt_override: None,
         };
+        let _ = legacy_profile; // suppress unused warning in migration code
 
         self.llm_profiles
             .insert(legacy_profile.id.clone(), legacy_profile);

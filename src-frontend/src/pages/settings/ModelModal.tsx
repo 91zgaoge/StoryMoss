@@ -37,6 +37,7 @@ interface ModelFormData {
   dimensions?: number;
   is_default?: boolean;
   enabled?: boolean;
+  system_prompt_override?: string;
 }
 
 function isChatOrMultimodal(model: ModelConfig): model is ChatModelConfig | MultimodalModelConfig {
@@ -187,6 +188,10 @@ export function ModelModal({
       }
       if (data.presence_penalty !== undefined) {
         payload.presence_penalty = normalizeFloat(Number(data.presence_penalty), 2);
+      }
+      // v0.23.61: 系统提示词覆盖
+      if (data.system_prompt_override !== undefined) {
+        (payload as any).system_prompt_override = data.system_prompt_override;
       }
       payload.capabilities =
         effectiveType === 'chat'
@@ -525,6 +530,21 @@ export function ModelModal({
                 <span className="text-sm text-gray-300">启用</span>
               </label>
             </div>
+
+            {/* v0.23.61: 系统提示词覆盖 */}
+            {(effectiveType === 'chat' || effectiveType === 'multimodal') && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  系统提示词覆盖（可选，替换默认英文 system prompt）
+                </label>
+                <textarea
+                  {...register('system_prompt_override')}
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-y"
+                  placeholder="留空则使用全局默认。例如：你是专业的中文小说创作助手，擅长…"
+                  rows={3}
+                />
+              </div>
+            )}
 
             {/* 按钮 */}
             <div className="flex justify-end gap-3 pt-4 border-t border-cinema-800">

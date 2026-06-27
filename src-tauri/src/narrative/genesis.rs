@@ -627,32 +627,30 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .unwrap_or_default();
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
+            // v0.23.61: 使用 PromptRegistry 条目替代硬编码 format!
+            let chapter_prompt = first_chapter_prompt(
+                &meta.title,
+                &meta.genre,
+                &meta.tone,
+                &meta.pacing,
+                &meta.description,
+                &meta.themes.join(", "),
+                &strategy_notes,
+                &quartet_section,
+                &writing_strategy.run_mode,
+                writing_strategy.conflict_level,
+                &writing_strategy.pace,
+                &writing_strategy.ai_freedom,
+                &ctx.user_premise,
+                word_count_target as u32,
+                "", // genre_tips: v0.23.61 Gap 3 will populate
+                Some(&ctx.pool),
+            );
             let task = crate::domain::agent_types::AgentTask {
                 id: Uuid::new_v4().to_string(),
                 agent_type: crate::domain::agent_types::AgentType::Writer,
                 context: agent_context,
-                input: format!(
-                    "请撰写《{}》的第一章开头（目标字数：{}字，允许±15%）。\n\n【故事概念】\n题材：{}\n基调：\
-                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【创作策略】\n{}{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
-                     需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
-                     埋下至少一个伏笔\n4. \
-                     在第一幕结尾制造一个冲突或悬念\n\n重要：\
-                     必须严格遵循用户原始要求中的题材设定，不得偏离。",
-                    meta.title,
-                    word_count_target,
-                    meta.genre,
-                    meta.tone,
-                    meta.pacing,
-                    meta.description,
-                    meta.themes.join(", "),
-                    strategy_notes,
-                    quartet_section,
-                    writing_strategy.run_mode,
-                    writing_strategy.conflict_level,
-                    writing_strategy.pace,
-                    writing_strategy.ai_freedom,
-                    ctx.user_premise
-                ),
+                input: chapter_prompt,
                 parameters: HashMap::new(),
                 tier: None,
             };

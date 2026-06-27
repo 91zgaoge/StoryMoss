@@ -50,6 +50,28 @@ pub struct SynthesisResult {
     pub confidence: f32,
     /// 是否为回退结果
     pub is_fallback: bool,
+    /// v0.23.61: LLM 选择的提示词框架（方法论/质量门/条件注入器/额外提示词）
+    pub framework_selections: Option<FrameworkSelections>,
+}
+
+/// v0.23.61: 最快模型选择的提示词框架。
+///
+/// Call 1 收到 `prompt_framework_catalog` 后，根据创作意图和题材
+/// 选择适合的方法论家族、质量门类型、条件注入器和额外推荐提示词。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameworkSelections {
+    /// 选中的方法论 ID（如 "snowflake", "hero_journey"）
+    #[serde(default)]
+    pub methodology: Option<String>,
+    /// 选中的质量门 ID（如 "pipeline_review", "mini_review_system"）
+    #[serde(default)]
+    pub quality_gate: Option<String>,
+    /// 应注入的条件约束提示词 ID 列表
+    #[serde(default)]
+    pub contextual_injectors: Vec<String>,
+    /// 额外推荐的具体 prompt_id 列表（用于注入创作指导）
+    #[serde(default)]
+    pub prompt_hints: Vec<String>,
 }
 
 impl SynthesisResult {
@@ -63,6 +85,7 @@ impl SynthesisResult {
             refinement_focus: None,
             confidence: 0.0,
             is_fallback: true,
+            framework_selections: None,
         }
     }
 }

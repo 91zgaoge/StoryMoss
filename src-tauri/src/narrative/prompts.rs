@@ -698,3 +698,74 @@ pub fn story_arc_prompt(
         ),
     }
 }
+
+// ==================== 第一章正文 Prompt (v0.23.61) ====================
+
+pub fn first_chapter_prompt(
+    title: &str,
+    genre: &str,
+    tone: &str,
+    pacing: &str,
+    description: &str,
+    themes: &str,
+    strategy_notes: &str,
+    narrative_quartet: &str,
+    run_mode: &str,
+    conflict_level: i32,
+    pace: &str,
+    ai_freedom: &str,
+    user_premise: &str,
+    word_count: u32,
+    genre_tips: &str,
+    pool: Option<&DbPool>,
+) -> String {
+    let vars: &[(&str, &str)] = &[
+        ("story_title", title),
+        ("genre", genre),
+        ("tone", tone),
+        ("pacing", pacing),
+        ("description", description),
+        ("themes", themes),
+        ("strategy_notes", strategy_notes),
+        ("narrative_quartet", narrative_quartet),
+        ("run_mode", run_mode),
+        ("conflict_level", &conflict_level.to_string()),
+        ("pace", pace),
+        ("ai_freedom", ai_freedom),
+        ("user_premise", user_premise),
+        ("word_count", &word_count.to_string()),
+        ("genre_tips", genre_tips),
+    ];
+    resolve_and_render(
+        "narrative_first_chapter_generate",
+        "你是一名专业的小说作家。请根据故事设定撰写第一章开头，目标{{word_count}}字。",
+        vars,
+        pool,
+    )
+}
+
+// ==================== 提示词框架目录 (v0.23.61) ====================
+
+/// 生成紧凑的提示词框架目录 JSON，供 Call 1 最快模型选择创作框架。
+pub fn build_prompt_framework_catalog() -> String {
+    serde_json::json!({
+        "methodologies": [
+            {"id": "snowflake", "name": "雪花法", "steps": 10, "适合": "规划型作者"},
+            {"id": "hero_journey", "name": "英雄之旅", "stages": 12, "适合": "史诗/奇幻/冒险"},
+            {"id": "scene_structure", "name": "场景结构法", "适合": "电影化写作"},
+            {"id": "character_depth", "name": "角色深度模型", "适合": "角色驱动型"},
+            {"id": "hdwb", "name": "高密度世界构建", "phases": 4, "适合": "复杂世界观"}
+        ],
+        "quality_gates": [
+            {"id": "pipeline_review", "用途": "深度审稿(5维评分)"},
+            {"id": "audit_quality_inspector", "用途": "11维审计(后台静默)"},
+            {"id": "mini_review_system", "用途": "轻量合同检查(默认)"}
+        ],
+        "contextual_injectors": [
+            {"id": "writer_contract_constraints", "触发": "故事合同已设置时"},
+            {"id": "writer_chase_debt", "触发": "有未回收伏笔时"},
+            {"id": "writer_narrative_event_history", "触发": "已有前文内容时"}
+        ]
+    })
+    .to_string()
+}
