@@ -753,6 +753,34 @@ impl AgentOrchestrator {
             }
         }
 
+        // v0.23.59: 从用户配置读取写作策略，替换 WriteTimeBundle 中的硬编码默认值。
+        // 此前 `load_sync` 写死"运行模式：标准\n冲突强度：0.5\n叙事节奏：正常\nAI
+        // 自由度：0.5"， 用户在后台设置调整的策略从未在 TimeSliced
+        // 续写路径生效。
+        match self.app_handle.path().app_data_dir() {
+            Ok(app_dir) => match crate::config::AppConfig::load(&app_dir) {
+                Ok(cfg) => {
+                    bundle.writing_strategy_constraints = Some(
+                            crate::creative_engine::write_time_bundle::format_writing_strategy_constraints(
+                                &cfg.writing_strategy,
+                            ),
+                        );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[TimeSliced] 加载 AppConfig 失败，使用 bundle 默认策略约束: {}",
+                        e
+                    );
+                }
+            },
+            Err(e) => {
+                log::warn!(
+                    "[TimeSliced] 获取 app_data_dir 失败，使用 bundle 默认策略约束: {}",
+                    e
+                );
+            }
+        }
+
         // 构建精简 prompt：bundle 约束 + 用户指令
         let bundle_prompt = bundle.to_prompt();
         let user_instruction = if task.input.trim().is_empty() {

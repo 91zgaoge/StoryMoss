@@ -2,6 +2,38 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.59] - 全面修复并强化模型网关调度（2026-06-27）
+
+### 修复：创世流程 5 个 LLM 调用中 4 个绕过网关，死模型挂起 300s 无候选切换
+- **根因（审计确认）**：创世流程 5 个 LLM 调用中，只有 TriShot Call 3 经过网关（带 5s 预探测 + 候选 fallback）。故事概念生成、Call 1 路由合成、5 个后台 pipeline 步骤（世界观/大纲/角色/场景/伏笔）全部绕过网关——直接走 `select_profile_for_request` + 单适配器，死模型挂起 300s 直到 LLM 超时，无候选切换。
+
+### 修复：真实调用失败对调度器完全不可见
+- **根因（审计确认）**：候选循环中，真实调用失败只 `continue` 到下一候选，不更新健康注册表。只有预探测失败才标记 Unhealthy。而预探测成功≠真实调用成功——模型能说 "OK" 但无法生成正文时，下次 `generate()` 又强制置顶该模型（`+1000` 分）。`Degraded` 状态从未被任何路径写入，`-20` 惩罚形同虚设。
+
+### 变更
+
+#### Fix 1：所有创世 LLM 调用路由到网关
+- `generate_for_request_with_context_and_pipeline`（service.rs）改为委托 `generate_for_request_with_request_id`（网关路径，自带 5s 探测 + 候选 fallback + 内部直接适配器兜底）。单点修改覆盖概念生成 + 5 个后台 pipeline 调用点。
+- 从 `context_label` 派生 `intent_verb`/`intent_object`（新增 `derive_intent_from_label` 助手），激活网关意图感知分类（`classify_by_intention`）：生成概念→HeavyCreation，提取/分析→LightTool，让模型路由更精准。
+- `pipeline_ctx`（心跳步骤前缀）不再透传——后台步骤均在 `is_silent_background` 中不发射心跳，概念步骤的 `context_label` 已足够标识当前阶段。
+
+#### Fix 2：`generate_with_fastest` 增加 5s 探测 + 候选 fallback
+- 此前直接调适配器，死模型挂起 300s 无候选切换。现在探测通过才直接调用（保留最快模型速度优势），探测失败则标记 Unhealthy + 递增连续失败计数，回退到网关候选链（自带探测 + fallback）。
+- 新增 `probe_profile_quick` 私有助手（与网关候选循环内探测逻辑一致）。
+- 新增 `GatewayExecutor::mark_unhealthy` / `record_success_public` 公开接口供 LlmService 调用。
+
+#### Fix 3：活跃模型连续失败降级
+- **健康注册表增加连续失败计数**（health.rs）：`HealthRecord` +`consecutive_failures` 字段；新增 `record_failure`/`record_success`/`consecutive_failures` 方法；`apply_probe_result` 同步维护计数。7 个新单元测试覆盖。
+- **网关候选循环跟踪真实调用成败**（executor.rs）：预探测成功→`record_success` 重置计数；预探测失败/超时→`record_failure(Unhealthy)` 替换直接 `guard.update()`；**真实调用失败→`record_failure(Degraded)`**（关键变更，让真实调用失败对调度器可见，Degraded 保留在候选池受 -20 惩罚但不再被强制置顶）；真实调用成功→`record_success` 重置计数。
+- **强制置顶增加降级门控**（executor.rs）：新增 `active_model_demoted()` 方法 + `ACTIVE_MODEL_DEMOTION_THRESHOLD = 2` 常量。3 个强制置顶点（`select_candidates` force-promote、`generate()` re-promote、`select_fastest_profile` short-circuit）在连续失败≥2 时跳过强制置顶，让其他健康候选接管。降级时记录 workflow_log。成功 1 次即清零恢复。
+
+#### Fix 4: TimeSliced 写作策略硬编码替换为用户真实配置
+- **根因**：诊断日志显示 `运行模式：标准\n冲突强度：0.5\n叙事节奏：正常\nAI 自由度：0.5` 是 `WriteTimeBundle::load_sync()` 的硬编码字符串，`execute_time_sliced()` 从未从 `AppConfig` 读取用户的真实 `WritingStrategy` 设置。
+- **修复**（orchestrator.rs）：`execute_time_sliced()` 在 bundle 加载后从 `AppConfig::load()` 读取 `writing_strategy`，用 `format_writing_strategy_constraints()`（新增于 `write_time_bundle.rs`）生成约束文本，覆盖 `bundle.writing_strategy_constraints` 的硬编码默认值。加载失败时保留默认值（优雅降级）。
+- 覆盖 Full 模式和 Genesis 路径——它们通过 `build_writer_prompt` 早已正确读取 `writer_app_config()`。
+
+- 验证：`cargo check` 零错误；`cargo test --lib` **578 passed / 0 failed / 2 ignored**（571 基线 + 7 新增）；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误
+
 ## [v0.23.54] - 创世正文重复 + 页面崩溃根治（ErrorBoundary + autoFormatText + generatedText 安全网）（2026-06-27）
 
 ### 修复：创世第一章正文重复显示（排版版 + 纯文本版）

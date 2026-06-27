@@ -18,6 +18,13 @@ use crate::{
     llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
 };
 
+/// v0.23.59: 活跃模型连续失败降级阈值。
+///
+/// 连续失败达到此值后，活跃模型不再被 `+1000` 强制置顶，
+/// 让其他健康候选接管。成功 1 次即清零恢复。
+/// 设为 2：容忍 1 次偶发失败（网络抖动/单次超时），2 次连续失败才降级。
+const ACTIVE_MODEL_DEMOTION_THRESHOLD: u32 = 2;
+
 /// 网关执行器
 #[derive(Clone)]
 pub struct GatewayExecutor {
@@ -101,6 +108,72 @@ impl GatewayExecutor {
             }
         }
         false
+    }
+
+    /// v0.23.59: 活跃模型连续失败次数达到降级阈值时返回 true。
+    ///
+    /// 降级后活跃模型不再被 `+1000` 强制置顶，让其他健康候选接管。
+    /// 成功 1 次即清零恢复。阈值 2：容忍 1 次偶发失败，2 次连续失败才降级。
+    pub fn active_model_demoted(&self) -> bool {
+        if let Some(active) = self.llm_service.get_active_profile() {
+            let failures = self
+                .health_registry()
+                .lock()
+                .ok()
+                .map(|g| g.consecutive_failures(&active.id))
+                .unwrap_or(0);
+            failures >= ACTIVE_MODEL_DEMOTION_THRESHOLD
+        } else {
+            false
+        }
+    }
+
+    /// v0.23.59: 记录候选模型真实调用失败（探测通过但生成失败）。
+    ///
+    /// 标记为 Degraded（保留在候选池中受 -20 惩罚），递增连续失败计数。
+    /// 这是让"能说 OK 但无法生成正文"的模型对调度器可见的关键。
+    fn record_gateway_failure(
+        &self,
+        model_id: &str,
+        model_name: &str,
+        status: super::types::HealthStatus,
+        error: Option<String>,
+    ) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_failure(model_id, model_name, status, error);
+        }
+    }
+
+    /// v0.23.59: 记录候选模型成功（探测通过或真实调用成功），重置连续失败计数。
+    fn record_gateway_success(&self, model_id: &str, model_name: &str) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_success(model_id, model_name);
+        }
+    }
+
+    /// v0.23.59: 供 LlmService 调用的公开标记 Unhealthy 接口。
+    ///
+    /// `generate_with_fastest` 在 5s 预探测失败时调用此方法标记模型，
+    /// 随后回退到网关候选链（自带探测 + fallback）。
+    pub fn mark_unhealthy(&self, model_id: &str, model_name: &str, error: Option<String>) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_failure(
+                model_id,
+                model_name,
+                super::types::HealthStatus::Unhealthy,
+                error,
+            );
+        }
+    }
+
+    /// v0.23.59: 供 LlmService 调用的公开标记成功接口。
+    ///
+    /// `generate_with_fastest` 在预探测通过后调用此方法重置连续失败计数，
+    /// 恢复活跃模型的强制置顶资格。
+    pub fn record_success_public(&self, model_id: &str, model_name: &str) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_success(model_id, model_name);
+        }
     }
 
     /// 选择候选模型链（v0.15.0 三维打分：算力 50% + 偏好 30% + 适配 20%）
@@ -277,13 +350,35 @@ impl GatewayExecutor {
         );
 
         // v0.23.13: 活跃模型强制置顶。v0.23.32: 每步 Mutex 前后加标记诊断。
+        // v0.23.59: 连续失败达阈值时跳过强制置顶，交给候选打分选择。
         if let Some(active) = self.llm_service.get_active_profile() {
             self.workflow_log(
                 "gateway.select_candidates.active_ok",
                 "活跃模型获取成功",
                 Some(serde_json::json!({"active_id": active.id, "request_id": request.request_id})),
             );
-            if self.is_model_available(&active.id) {
+            if self.active_model_demoted() {
+                let failures = self
+                    .health_registry()
+                    .lock()
+                    .ok()
+                    .map(|g| g.consecutive_failures(&active.id))
+                    .unwrap_or(0);
+                log::warn!(
+                    "[Gateway] select_candidates: 活跃模型 {} 连续失败 {} 次，跳过强制置顶，交给候选打分",
+                    active.id,
+                    failures
+                );
+                self.workflow_log(
+                    "gateway.select_candidates.active_demoted",
+                    format!("活跃模型连续失败 {} 次，跳过强制置顶", failures),
+                    Some(serde_json::json!({
+                        "active_profile_id": active.id,
+                        "consecutive_failures": failures,
+                        "request_id": request.request_id,
+                    })),
+                );
+            } else if self.is_model_available(&active.id) {
                 self.workflow_log(
                     "gateway.select_candidates.model_available",
                     "is_model_available 通过",
@@ -357,10 +452,12 @@ impl GatewayExecutor {
         // Unhealthy）。 这是为了避免 TriShot Call 1
         // 等「最快模型」路径绕过用户当前设置的模型，
         // 连接到用户未预期或实际不可用的模型。
+        // v0.23.59: 连续失败达阈值时跳过短路，走 TTFB 排序选其他候选。
         if let Some(ref active_profile) = active {
             let active_available = self.is_model_available(&active_profile.id);
             let active_in_registry = self.registry_guard().get(&active_profile.id).is_some();
-            if active_in_registry && active_available {
+            let active_demoted = self.active_model_demoted();
+            if active_in_registry && active_available && !active_demoted {
                 log::info!(
                     "[Gateway] select_fastest_profile: 无条件使用当前活跃模型 {}",
                     active_profile.id
@@ -374,6 +471,11 @@ impl GatewayExecutor {
                     })),
                 );
                 return self.registry_guard().get(&active_profile.id).cloned();
+            } else if active_demoted {
+                log::warn!(
+                    "[Gateway] select_fastest_profile: 活跃模型 {} 连续失败已降级，走 TTFB 排序",
+                    active_profile.id
+                );
             }
         }
 
@@ -546,8 +648,31 @@ impl GatewayExecutor {
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
+        // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates 已不强制置顶。
         if let Some(active) = self.llm_service.get_active_profile() {
-            if decision.candidates.first().map(|c| c.model_id.as_str()) != Some(active.id.as_str())
+            if self.active_model_demoted() {
+                let failures = self
+                    .health_registry()
+                    .lock()
+                    .ok()
+                    .map(|g| g.consecutive_failures(&active.id))
+                    .unwrap_or(0);
+                log::warn!(
+                    "[Gateway] generate: 活跃模型 {} 连续失败 {} 次，跳过候选链首位提升",
+                    active.id,
+                    failures
+                );
+                self.workflow_log(
+                    "gateway.generate.active_demoted",
+                    format!("活跃模型连续失败 {} 次，跳过候选链首位提升", failures),
+                    Some(serde_json::json!({
+                        "active_profile_id": active.id,
+                        "consecutive_failures": failures,
+                        "request_id": request.request_id,
+                    })),
+                );
+            } else if decision.candidates.first().map(|c| c.model_id.as_str())
+                != Some(active.id.as_str())
             {
                 if let Some(pos) = decision
                     .candidates
@@ -662,6 +787,8 @@ impl GatewayExecutor {
                         format!("候选 [{}] 实时探测通过", idx + 1),
                         Some(serde_json::json!({"model_id": candidate.model_id})),
                     );
+                    // v0.23.59: 探测通过重置连续失败计数（但仍可能在真实调用失败时再累积）
+                    self.record_gateway_success(&candidate.model_id, &candidate.model_name);
                 }
                 Ok(Err(e)) => {
                     log::warn!(
@@ -676,23 +803,13 @@ impl GatewayExecutor {
                         format!("候选 [{}] 实时探测失败，跳过", idx + 1),
                         Some(serde_json::json!({"model_id": candidate.model_id, "error": e.to_string()})),
                     );
-                    // 更新健康状态为 Unhealthy
-                    if let Ok(mut guard) = self.health_registry().lock() {
-                        guard.update(super::types::ModelHealthSnapshot {
-                            model_id: candidate.model_id.clone(),
-                            model_name: candidate.model_name.clone(),
-                            status: super::types::HealthStatus::Unhealthy,
-                            ttfb_ms: None,
-                            tps: None,
-                            success_rate_24h: None,
-                            avg_latency_ms: None,
-                            last_error: Some(e.to_string()),
-                            last_checked_at: Some(chrono::Utc::now().to_rfc3339()),
-                            enabled: true,
-                            is_primary: false,
-                            is_fallback: false,
-                        });
-                    }
+                    // v0.23.59: 记录失败（Unhealthy）并递增连续失败计数
+                    self.record_gateway_failure(
+                        &candidate.model_id,
+                        &candidate.model_name,
+                        super::types::HealthStatus::Unhealthy,
+                        Some(e.to_string()),
+                    );
                     last_error = Some(e);
                     continue;
                 }
@@ -708,23 +825,13 @@ impl GatewayExecutor {
                         format!("候选 [{}] 实时探测超时（5s），跳过", idx + 1),
                         Some(serde_json::json!({"model_id": candidate.model_id})),
                     );
-                    // 更新健康状态为 Unhealthy
-                    if let Ok(mut guard) = self.health_registry().lock() {
-                        guard.update(super::types::ModelHealthSnapshot {
-                            model_id: candidate.model_id.clone(),
-                            model_name: candidate.model_name.clone(),
-                            status: super::types::HealthStatus::Unhealthy,
-                            ttfb_ms: None,
-                            tps: None,
-                            success_rate_24h: None,
-                            avg_latency_ms: None,
-                            last_error: Some("pre-call probe timeout (5s)".to_string()),
-                            last_checked_at: Some(chrono::Utc::now().to_rfc3339()),
-                            enabled: true,
-                            is_primary: false,
-                            is_fallback: false,
-                        });
-                    }
+                    // v0.23.59: 记录失败（Unhealthy）并递增连续失败计数
+                    self.record_gateway_failure(
+                        &candidate.model_id,
+                        &candidate.model_name,
+                        super::types::HealthStatus::Unhealthy,
+                        Some("pre-call probe timeout (5s)".to_string()),
+                    );
                     last_error = Some(AppError::Internal {
                         message: format!("模型 {} 实时探测超时", candidate.model_name),
                     });
@@ -751,7 +858,8 @@ impl GatewayExecutor {
                 .await;
             match result {
                 Ok(resp) => {
-                    // 记录成功探测近似数据（实际由调用层记录）
+                    // v0.23.59: 真实调用成功，重置连续失败计数，恢复强制置顶资格
+                    self.record_gateway_success(&candidate.model_id, &candidate.model_name);
                     return Ok(resp);
                 }
                 Err(e) => {
@@ -760,6 +868,15 @@ impl GatewayExecutor {
                         candidate.model_id,
                         idx + 1,
                         e
+                    );
+                    // v0.23.59: 真实调用失败标记 Degraded（保留在候选池受 -20 惩罚），
+                    // 递增连续失败计数。这是让"能说 OK 但无法生成正文"的模型
+                    // 对调度器可见的关键——下次 generate 不再强制置顶它。
+                    self.record_gateway_failure(
+                        &candidate.model_id,
+                        &candidate.model_name,
+                        super::types::HealthStatus::Degraded,
+                        Some(e.to_string()),
                     );
                     last_error = Some(e);
                     continue;

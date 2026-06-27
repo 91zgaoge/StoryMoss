@@ -725,6 +725,21 @@ fn tokenize_text(s: &str) -> std::collections::HashSet<String> {
         .collect()
 }
 
+// ==================== 工具函数 ====================
+
+/// v0.23.59: 将 `WritingStrategy` 格式化为写作策略约束提示文本。
+///
+/// 与 Full 模式的详细翻译不同（service.rs:1840），TimeSliced 模式使用
+/// 紧凑格式，与现有负载均衡逻辑一致。值从 `AppConfig` 读取，不再是硬编码。
+pub fn format_writing_strategy_constraints(
+    strategy: &crate::config::settings::WritingStrategy,
+) -> String {
+    format!(
+        "【写作策略约束】\n运行模式：{}\n冲突强度：{}\n叙事节奏：{}\nAI 自由度：{}",
+        strategy.run_mode, strategy.conflict_level, strategy.pace, strategy.ai_freedom,
+    )
+}
+
 // ==================== 测试 ====================
 
 #[cfg(test)]

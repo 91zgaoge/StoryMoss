@@ -16,6 +16,12 @@ pub struct HealthRecord {
     pub snapshot: ModelHealthSnapshot,
     /// 最近若干次探测结果（用于计算平均 TTFB/TPS）
     pub recent_probes: Vec<ProbeResult>,
+    /// v0.23.59: 连续失败次数（预探测失败 + 真实调用失败）。
+    ///
+    /// 真实调用失败（模型能说 "OK" 但无法生成正文）以前对调度器
+    /// 完全不可见，活跃模型仍被 `+1000` 强制置顶。此计数让连续
+    /// 失败的活跃模型降级，交给其他健康候选接管；成功 1 次即清零。
+    pub consecutive_failures: u32,
 }
 
 /// 健康注册表
@@ -97,6 +103,7 @@ impl HealthRegistry {
     /// 根据探测结果更新模型健康状态
     /// v0.23.13: 健康状态严格由本次探测结果决定，不保留历史失败状态，
     /// 避免用户修复模型后仍然显示不可用。
+    /// v0.23.59: 同步维护 `consecutive_failures`，成功清零、失败递增。
     pub fn apply_probe_result(
         &mut self,
         profile: &LlmProfile,
@@ -113,6 +120,12 @@ impl HealthRegistry {
         let success_rate = self.aggregate_success_rate_from_history(&profile.id, pool);
 
         let record = self.records.entry(profile.id.clone()).or_default();
+        // v0.23.59: 同步连续失败计数
+        if result.success {
+            record.consecutive_failures = 0;
+        } else {
+            record.consecutive_failures = record.consecutive_failures.saturating_add(1);
+        }
         record.recent_probes.push(result.clone());
         // 保留最近 20 次
         if record.recent_probes.len() > 20 {
@@ -157,6 +170,53 @@ impl HealthRegistry {
             is_primary: false,
             is_fallback: false,
         };
+    }
+
+    /// v0.23.59: 记录一次真实调用失败（探测通过但生成失败）。
+    ///
+    /// 这是让"能说 OK 但无法生成正文"的模型对调度器可见的关键。
+    /// 真实调用失败标记为 `Degraded`（而非 Unhealthy），保留在候选池
+    /// 中（受 `-20` 分惩罚）但不再被强制置顶。
+    pub fn record_failure(
+        &mut self,
+        model_id: &str,
+        model_name: &str,
+        status: HealthStatus,
+        error: Option<String>,
+    ) {
+        let record = self.records.entry(model_id.to_string()).or_default();
+        record.consecutive_failures = record.consecutive_failures.saturating_add(1);
+        // 保留原 TTFB/TPS/success_rate 展示数据，仅更新状态与错误
+        record.snapshot.status = status;
+        record.snapshot.last_error = error;
+        record.snapshot.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
+        record.snapshot.model_id = model_id.to_string();
+        if record.snapshot.model_name.is_empty() {
+            record.snapshot.model_name = model_name.to_string();
+        }
+    }
+
+    /// v0.23.59: 记录一次成功（预探测或真实调用），重置连续失败计数。
+    ///
+    /// 成功 1 次即清零，让用户修复模型后立即恢复强制置顶资格。
+    pub fn record_success(&mut self, model_id: &str, model_name: &str) {
+        let record = self.records.entry(model_id.to_string()).or_default();
+        record.consecutive_failures = 0;
+        record.snapshot.status = HealthStatus::Healthy;
+        record.snapshot.last_error = None;
+        record.snapshot.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
+        record.snapshot.model_id = model_id.to_string();
+        if record.snapshot.model_name.is_empty() {
+            record.snapshot.model_name = model_name.to_string();
+        }
+    }
+
+    /// v0.23.59: 查询模型连续失败次数（预探测 + 真实调用合计）。
+    pub fn consecutive_failures(&self, model_id: &str) -> u32 {
+        self.records
+            .get(model_id)
+            .map(|r| r.consecutive_failures)
+            .unwrap_or(0)
     }
 
     /// 移除指定模型的健康记录（删除模型时联动清除残留快照）
@@ -304,5 +364,85 @@ mod tests {
         registry.update(make_snapshot("model-a", HealthStatus::Healthy));
         // 有快照但无探测记录时返回 0
         assert_eq!(registry.probe_count("model-a"), 0);
+    }
+
+    // v0.23.59: 连续失败计数与降级测试
+
+    #[test]
+    fn test_record_failure_increments_consecutive_count() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+
+        registry.record_failure(
+            "model-a",
+            "Model A",
+            HealthStatus::Degraded,
+            Some("e1".into()),
+        );
+        assert_eq!(registry.consecutive_failures("model-a"), 1);
+        assert_eq!(
+            registry.get("model-a").unwrap().status,
+            HealthStatus::Degraded
+        );
+
+        registry.record_failure(
+            "model-a",
+            "Model A",
+            HealthStatus::Degraded,
+            Some("e2".into()),
+        );
+        assert_eq!(registry.consecutive_failures("model-a"), 2);
+    }
+
+    #[test]
+    fn test_record_success_resets_consecutive_count() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Degraded));
+
+        registry.record_failure(
+            "model-a",
+            "Model A",
+            HealthStatus::Degraded,
+            Some("e1".into()),
+        );
+        registry.record_failure(
+            "model-a",
+            "Model A",
+            HealthStatus::Degraded,
+            Some("e2".into()),
+        );
+        assert_eq!(registry.consecutive_failures("model-a"), 2);
+
+        registry.record_success("model-a", "Model A");
+        assert_eq!(registry.consecutive_failures("model-a"), 0);
+        assert_eq!(
+            registry.get("model-a").unwrap().status,
+            HealthStatus::Healthy
+        );
+        assert!(registry.get("model-a").unwrap().last_error.is_none());
+    }
+
+    #[test]
+    fn test_consecutive_failures_zero_for_missing_model() {
+        let registry = HealthRegistry::new();
+        assert_eq!(registry.consecutive_failures("nonexistent"), 0);
+    }
+
+    #[test]
+    fn test_record_failure_creates_record_if_missing() {
+        let mut registry = HealthRegistry::new();
+        // 模型从未被探测过，直接记录失败（如 generate_with_fastest 探测失败）
+        registry.record_failure(
+            "model-new",
+            "Model New",
+            HealthStatus::Unhealthy,
+            Some("probe timeout".into()),
+        );
+        assert_eq!(registry.consecutive_failures("model-new"), 1);
+        assert_eq!(
+            registry.get("model-new").unwrap().status,
+            HealthStatus::Unhealthy
+        );
+        assert_eq!(registry.get("model-new").unwrap().model_name, "Model New");
     }
 }

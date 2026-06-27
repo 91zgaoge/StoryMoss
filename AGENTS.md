@@ -186,6 +186,15 @@ node scripts/cdp-inspect.js
 
 ### 最近完成的功能
 
+  - **v0.23.59 全面修复并强化模型网关调度** (2026-06-27) — 审计发现创世流程 5 个 LLM 调用中 4 个绕过网关、真实调用失败对调度器不可见两个系统性缺陷，全面修复。核心变更：
+    - **根因 A（审计确认）**：创世流程 5 个 LLM 调用中，只有 TriShot Call 3 经过网关（带 5s 预探测 + 候选 fallback）。故事概念生成、Call 1 路由合成、5 个后台 pipeline 步骤全部绕过网关——直接走 `select_profile_for_request` + 单适配器，死模型挂起 300s 直到 LLM 超时，无候选切换
+    - **根因 B（审计确认）**：候选循环中真实调用失败只 `continue` 到下一候选，不更新健康注册表。只有预探测失败才标记 Unhealthy。预探测成功≠真实调用成功——模型能说 "OK" 但无法生成正文时，下次 `generate()` 又强制置顶该模型（`+1000` 分）。`Degraded` 状态从未被任何路径写入
+    - **Fix 1 路由到网关**：`generate_for_request_with_context_and_pipeline`（service.rs）改为委托 `generate_for_request_with_request_id`（网关路径），单点覆盖概念生成 + 5 个后台 pipeline。新增 `derive_intent_from_label` 从 `context_label` 派生 `intent_verb`/`intent_object` 激活意图感知分类
+    - **Fix 2 `generate_with_fastest` 探测+fallback**：新增 5s 预探测（`probe_profile_quick`），探测通过才直接调用（保留速度优势），失败标记 Unhealthy + 递增失败计数，回退到网关候选链。新增 `GatewayExecutor::mark_unhealthy`/`record_success_public` 公开接口
+    - **Fix 3 连续失败降级**：`HealthRecord` +`consecutive_failures` 字段 + `record_failure`/`record_success`/`consecutive_failures` 方法；网关候选循环 5 处跟踪真实调用成败（真实调用失败标记 `Degraded`——让"能说 OK 但无法生成正文"的模型对调度器可见）；新增 `active_model_demoted()` + `ACTIVE_MODEL_DEMOTION_THRESHOLD=2`，3 个强制置顶点（`select_candidates`/`generate`/`select_fastest_profile`）连续失败≥2 时跳过强制置顶，成功 1 次即清零恢复
+    - **Fix 4 TimeSliced 写作策略**：`WriteTimeBundle::load_sync()` 的写作策略约束字符串是硬编码（`运行模式：标准\n冲突强度：0.5\n...`），用户在后台设置修改的策略从未在 TimeSliced 续写路径生效。`execute_time_sliced()` 从 `AppConfig` 读取真实 `WritingStrategy` 并覆盖 `bundle.writing_strategy_constraints`（`format_writing_strategy_constraints` 新增于 `write_time_bundle.rs`）
+    - 验证：`cargo check` 零错误；`cargo test --lib` **578 passed / 0 failed / 2 ignored**（571 基线 + 7 新增）；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误
+
   - **v0.23.49 推理模型思考链导致 JSON 提取出空对象修复** (2026-06-26) — 解决推理模型创世时报 `missing field 'title' at line 1 column 2` 的问题。核心变更：
     - **根因（日志确认）**：MN-Oblivion-26B 等推理模型在正文前输出 `önh...` / `<thinking>...</thinking>` 思考链，思考链里含花括号（如 "用 {} 格式表示"）。`extract_first_json_object` 用 `content.find('{')` 找第一个 `{`，它落在思考链里那个 `{}` 上，括号匹配返回空对象 `{}`，serde 反序列化 `StoryMetaElement` 时找不到必填 `title`。LLM 实际成功返回 5191 字符，失败在 JSON 提取阶段
     - **修复**：新增 `strip_reasoning_blocks`（在 `extract_and_sanitize_json` 第一步剥离配对思考链块，标签以字节数组构造避免源码字面量被误处理）；`extract_first_json_object` 跳过空对象 `{}` 继续向后扫描。`extract_and_sanitize_json` 是 genesis/ingest/analysis/auto_contract 共用 JSON 提取咽喉点，一次性受益

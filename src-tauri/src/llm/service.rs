@@ -236,6 +236,24 @@ pub struct PipelineContext {
     pub action: String,
 }
 
+/// v0.23.59: 从 context_label 派生 SING 意图动词-宾语。
+///
+/// 创世 pipeline 各步骤的 `context_label`（如 "生成故事概念"）此前不携带
+/// 意图信息，网关无法用 `classify_by_intention` 做意图感知路由。此函数将
+/// 常见创世步骤标签映射到 (verb, object) 对，让网关能区分生成任务
+/// （HeavyCreation）与分析任务（LightTool），路由到合适的模型。
+fn derive_intent_from_label(label: Option<&str>) -> (Option<&str>, Option<&str>) {
+    match label {
+        Some("生成故事概念") => (Some("create"), Some("concept")),
+        Some("生成世界观设定") => (Some("create"), Some("world")),
+        Some("生成故事大纲") => (Some("plan"), Some("outline")),
+        Some("生成角色") => (Some("create"), Some("character")),
+        Some("生成场景大纲") => (Some("generate"), Some("scene")),
+        Some("生成伏笔") => (Some("generate"), Some("foreshadowing")),
+        _ => (None, None),
+    }
+}
+
 /// 封装一次 LLM 调用记录所需的数据，避免 `record_llm_call` 参数过多。
 struct LlmCallRecord<'a> {
     model_id: &'a str,
@@ -661,9 +679,12 @@ impl LlmService {
     /// v0.23 TriShot：用「最快可用模型」生成文本，用于 Call 1 路由合成器。
     ///
     /// 通过 `GatewayExecutor::select_fastest_profile` 按算力档案 TTFB
-    /// 选最快模型， 失败回退 active profile。始终用
-    /// `generate_with_profile_and_request_id` 单次调用， 不走候选 fallback
-    /// 链（追求首字节速度）。
+    /// 选最快模型， 失败回退 active profile。
+    ///
+    /// v0.23.59: 新增 5s 预探测 + 候选 fallback。此前直接调适配器，死模型
+    /// 挂起 300s 直到 LLM 超时无候选切换。现在探测通过才直接调用（保留
+    /// 最快模型速度优势），探测失败则标记 Unhealthy 并回退到网关候选链
+    /// （自带探测 + fallback）。
     pub async fn generate_with_fastest(
         &self,
         prompt: String,
@@ -671,20 +692,73 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        let profile = self
+        let gw = self
             .app_handle
-            .try_state::<crate::model_gateway::executor::GatewayExecutor>()
+            .try_state::<crate::model_gateway::executor::GatewayExecutor>();
+
+        let profile = gw
+            .as_ref()
             .and_then(|gw| gw.select_fastest_profile())
             .or_else(|| self.get_active_profile())
             .ok_or_else(|| AppError::internal("无可用模型（generate_with_fastest）".to_string()))?;
 
-        let (_, result) = self
-            .generate_with_profile_and_request_id(
+        // v0.23.59: 5s 预探测——验证最快模型确实可用，避免死模型挂起。
+        let probe_ok = self.probe_profile_quick(&profile.id, &profile.name).await;
+
+        if probe_ok {
+            // 探测通过：直接调用，保留最快模型速度优势
+            if let Some(gw) = gw.as_ref() {
+                gw.record_success_public(&profile.id, &profile.name);
+            }
+            let (_, result) = self
+                .generate_with_profile_and_request_id(
+                    &profile.id,
+                    prompt,
+                    max_tokens,
+                    temperature,
+                    context_label,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            return result;
+        }
+
+        // 探测失败：标记 Unhealthy + 递增连续失败计数
+        log::warn!(
+            "[LlmService] generate_with_fastest: 最快模型 {} 预探测失败，回退到网关候选链",
+            profile.id
+        );
+        if let Some(gw) = gw.as_ref() {
+            gw.mark_unhealthy(
                 &profile.id,
+                &profile.name,
+                Some("generate_with_fastest pre-call probe failed".to_string()),
+            );
+        }
+
+        // 回退：走网关候选链（自带 5s 探测 + 候选 fallback）
+        let request = crate::router::RoutingRequest {
+            task: crate::router::TaskType::Analysis,
+            complexity: crate::router::Complexity::Low,
+            budget_priority: crate::router::Priority::Low,
+            speed_priority: crate::router::Priority::High,
+            estimated_input_tokens: 0,
+            constraints: vec![],
+        };
+        let (_, result) = self
+            .generate_for_request_with_request_id(
+                request,
                 prompt,
                 max_tokens,
                 temperature,
                 context_label,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -693,7 +767,44 @@ impl LlmService {
         result
     }
 
+    /// v0.23.59: 轻量预探测——5s 超时验证模型连接是否正常。
+    ///
+    /// 与网关候选循环内的探测逻辑一致：极短 prompt + 4 token 上限 +
+    /// temperature 0 + max_retries 0 + 5s 超时。供 `generate_with_fastest`
+    /// 在直接调用前验证最快模型确实可用。
+    async fn probe_profile_quick(&self, profile_id: &str, _profile_name: &str) -> bool {
+        let probe_request_id = format!("pre-call-probe-fastest-{}", profile_id);
+        let probe_service = self.clone();
+        let profile_id = profile_id.to_string();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let (_, res) = probe_service
+                .generate_with_profile_and_request_id(
+                    &profile_id,
+                    "Respond with exactly the word OK.".to_string(),
+                    Some(4),
+                    Some(0.0),
+                    Some("pre-call-probe"),
+                    Some(probe_request_id),
+                    Some(5),
+                    Some(0),
+                )
+                .await;
+            res
+        })
+        .await;
+        matches!(result, Ok(Ok(_)))
+    }
+
     /// 路由生成，支持 Pipeline 步骤上下文
+    ///
+    /// v0.23.59: 改为委托 `generate_for_request_with_request_id`（网关路径），
+    /// 让概念生成和后台 pipeline 步骤获得 5s 预探测 + 候选 fallback 保护。
+    /// 此前直接走 `select_profile_for_request` + 单适配器，死模型会挂起 300s
+    /// 直到 LLM 超时，无候选切换。
+    ///
+    /// `pipeline_ctx`（心跳步骤前缀 `[step_name N/M]`）不再透传——后台步骤
+    /// 均在 `is_silent_background` 中不发射心跳，概念步骤的 `context_label`
+    /// 已足够标识当前阶段。
     pub async fn generate_for_request_with_context_and_pipeline(
         &self,
         request: RoutingRequest,
@@ -703,16 +814,29 @@ impl LlmService {
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
     ) -> Result<GenerateResponse, AppError> {
-        let profile = self.select_profile_for_request(&request)?;
-        self.generate_with_profile_context_and_pipeline(
-            &profile.id,
-            prompt,
-            max_tokens,
-            temperature,
-            context_label,
-            pipeline_ctx,
-        )
-        .await
+        // 从 context_label 派生意图动词-宾语，激活网关意图感知分类
+        // （classify_by_intention），让概念/世界观/大纲等生成任务路由到
+        // 合适的模型类别（HeavyCreation vs LightTool）。
+        let (intent_verb, intent_object) = derive_intent_from_label(context_label);
+        let _ = pipeline_ctx; // 保留参数签名兼容现有调用方，网关路径不使用
+        let (_, result) = self
+            .generate_for_request_with_request_id(
+                request,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+                None,
+                None,
+                intent_verb,
+                intent_object,
+                None,
+                None,
+                None,
+            )
+            .await;
+        result
     }
 
     /// 计算实际生效的超时秒数
