@@ -703,7 +703,20 @@ impl LlmService {
             .ok_or_else(|| AppError::internal("无可用模型（generate_with_fastest）".to_string()))?;
 
         // v0.23.59: 5s 预探测——验证最快模型确实可用，避免死模型挂起。
-        let probe_ok = self.probe_profile_quick(&profile.id, &profile.name).await;
+        // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过探测。
+        let health_fresh = gw
+            .as_ref()
+            .map(|gw| gw.is_health_fresh_public(&profile.id))
+            .unwrap_or(false);
+        let probe_ok = if health_fresh {
+            log::debug!(
+                "[LlmService] generate_with_fastest: {} 健康数据新鲜，跳过预探测",
+                profile.id
+            );
+            true
+        } else {
+            self.probe_profile_quick(&profile.id, &profile.name).await
+        };
 
         if probe_ok {
             // 探测通过：直接调用，保留最快模型速度优势

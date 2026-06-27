@@ -707,9 +707,14 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 
             // 保存到 Chapter（自动补齐可能已创建 chapter_number=1 的 Chapter，需要检查）
             // v0.23.29: spawn_blocking 包裹同步 DB 操作，防连接池满时阻塞 tokio worker。
+            // v0.23.60: stall diagnostic — 添加前后日志排查 DB 保存阻塞点。
             let save_content = result.content.clone();
             let save_story_id = ctx.story_id.clone();
             let save_pool = ctx.pool.clone();
+            log::warn!(
+                "[Genesis-DIAG] About to spawn_blocking for chapter save, story_id={} content_len={}",
+                save_story_id, save_content.len()
+            );
             if let Some(logger) = ctx
                 .app_handle
                 .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
@@ -759,6 +764,13 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 step_name: "撰写开篇".to_string(),
                 reason: format!("章节保存 spawn_blocking 失败: {}", e),
             })??;
+
+            // v0.23.60 stall diagnostic: DB save completed
+            log::warn!(
+                "[Genesis-DIAG] spawn_blocking chapter save completed, chapter_id={} story_id={}",
+                chapter_id,
+                ctx.story_id
+            );
 
             tracing::info!(
                 "[FirstChapterGenerationStep] Chapter saved: chapter_id={}, chapter_content_len={}",

@@ -8,8 +8,12 @@
 
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::time::{timeout, Duration};
+use tokio::{
+    sync::Semaphore,
+    time::{timeout, Duration},
+};
 
 use super::service::{AgentService, AgentTask};
 use crate::{
@@ -27,6 +31,14 @@ use crate::{
     events::{emit_generation_status, GenerationPhase},
     workflow_logger::WorkflowLogger,
 };
+
+/// v0.23.60: 后台 LLM 调用全局并发限制（1 个）。
+///
+/// Call 3 完成后，BGP-1（审计）、BGP-3（ingest）等后台 LLM 任务
+/// 会并发发射。在只有 1 个健康模型时，3 个并发调用竞争同一模型，
+/// 造成不必要的超时/错误。此信号量限制同时最多 1 个后台 LLM 调用。
+pub static BACKGROUND_LLM_SEMAPHORE: Lazy<Arc<Semaphore>> =
+    Lazy::new(|| Arc::new(Semaphore::new(1)));
 
 /// 生成模式 — 决定 Orchestrator 执行路径
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -582,6 +594,13 @@ impl AgentOrchestrator {
             }
         }
 
+        // v0.23.60 stall diagnostic: orchestrator.generate() returning
+        if trishot_already_completed {
+            log::warn!(
+                "[TriShot-DIAG] orchestrator.generate returning after TriShot, is_ok={}",
+                result.is_ok()
+            );
+        }
         result
     }
 
@@ -1501,7 +1520,7 @@ impl AgentOrchestrator {
 
         // ===== Phase 4: 后台 agent（全部静默，0 LLM 在关键路径）=====
 
-        // BGP-1: 后台异步审计
+        // BGP-1: 后台异步审计（v0.23.60: 受 BACKGROUND_LLM_SEMAPHORE 限流）
         let audit_content = content.clone();
         let audit_story_id = task.context.story.story_id.clone();
         let audit_pool = pool.inner().clone();
@@ -1510,6 +1529,7 @@ impl AgentOrchestrator {
         let audit_story_title = bundle.story_meta.title.clone();
         let audit_genre = bundle.story_meta.genre.clone();
         tokio::spawn(async move {
+            let _permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
             let executor = crate::task_system::audit_executor::AuditExecutor {
                 pool: audit_pool,
                 app_handle: audit_handle,
@@ -1528,12 +1548,13 @@ impl AgentOrchestrator {
                 .await;
         });
 
-        // BGP-3: 后台入库（补 smart_execute 路径缺口）
+        // BGP-3: 后台入库（v0.23.60: 受 BACKGROUND_LLM_SEMAPHORE 限流）
         let ingest_content_text = content.clone();
         let ingest_story_id = task.context.story.story_id.clone();
         let ingest_app_handle = self.app_handle.clone();
         let ingest_pool = pool.inner().clone();
         tokio::spawn(async move {
+            let _permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
             let llm_service = crate::llm::LlmService::new(ingest_app_handle.clone());
             let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
                 .with_pool(ingest_pool.clone())
@@ -1611,7 +1632,7 @@ impl AgentOrchestrator {
             );
         }
 
-        Ok(WorkflowResult {
+        let result = WorkflowResult {
             final_content: content,
             final_score: 1.0,
             style_score: 0.0,
@@ -1621,7 +1642,14 @@ impl AgentOrchestrator {
             was_rewritten: false,
             rewrite_count: 0,
             request_id: Some(request_id),
-        })
+        };
+        // v0.23.60 stall diagnostic: execute_trishot about to return Ok
+        log::warn!(
+            "[TriShot-DIAG] execute_trishot returning Ok, content_len={} request_id={}",
+            result.final_content.len(),
+            result.request_id.as_deref().unwrap_or("none")
+        );
+        Ok(result)
     }
 
     /// Full 模式：Writer → Inspector → Writer 反馈闭环

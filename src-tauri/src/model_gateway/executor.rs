@@ -128,6 +128,32 @@ impl GatewayExecutor {
         }
     }
 
+    /// v0.23.60: 健康数据是否新鲜（<15s 前探测过）。
+    ///
+    /// 若为 true，网关可跳过内联 5s 预探测，直接信任缓存。
+    /// 后台 keepalive 每 10s 刷新一次健康模型，保证正常运行时缓存始终新鲜。
+    fn is_health_fresh(&self, model_id: &str) -> bool {
+        let health = self.health_registry();
+        if let Ok(guard) = health.lock() {
+            if let Some(snap) = guard.get(model_id) {
+                if let Some(ref ts) = snap.last_checked_at {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                        let age_secs = chrono::Utc::now()
+                            .signed_duration_since(dt.with_timezone(&chrono::Utc))
+                            .num_seconds();
+                        return age_secs >= 0 && age_secs < 15;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// v0.23.60: 供 LlmService 调用的公开健康新鲜度查询。
+    pub fn is_health_fresh_public(&self, model_id: &str) -> bool {
+        self.is_health_fresh(model_id)
+    }
+
     /// v0.23.59: 记录候选模型真实调用失败（探测通过但生成失败）。
     ///
     /// 标记为 Degraded（保留在候选池中受 -20 惩罚），递增连续失败计数。
@@ -758,85 +784,96 @@ impl GatewayExecutor {
             };
 
             // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
-            // 根因：模型列表里可能存在已失效但健康状态仍为 Healthy 的死模型
-            // （本地 llama.cpp/MLX 服务已停止，但缓存未更新），直接调用会浪费
-            // 30-300s 直到 LLM 超时。实时探测用极短 prompt 验证连接，失败则跳过。
-            let probe_request_id = format!("pre-call-probe-{}", &candidate.model_id);
-            let probe_profile = profile.clone();
-            let probe_service = self.llm_service.clone();
-            let probe_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                let (_, result) = probe_service
-                    .generate_with_profile_and_request_id(
-                        &probe_profile.id,
-                        "Respond with exactly the word OK.".to_string(),
-                        Some(4),
-                        Some(0.0),
-                        Some("pre-call-probe"),
-                        Some(probe_request_id),
-                        Some(5),
-                        Some(0),
-                    )
-                    .await;
-                result
-            })
-            .await;
-            match probe_result {
-                Ok(Ok(_resp)) => {
-                    self.workflow_log(
-                        "gateway.generate.pre_call_probe.ok",
-                        format!("候选 [{}] 实时探测通过", idx + 1),
-                        Some(serde_json::json!({"model_id": candidate.model_id})),
-                    );
-                    // v0.23.59: 探测通过重置连续失败计数（但仍可能在真实调用失败时再累积）
-                    self.record_gateway_success(&candidate.model_id, &candidate.model_name);
+            // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过内联探测，
+            // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms 延迟。
+            let health_fresh = self.is_health_fresh(&candidate.model_id);
+            let probe_passed = if health_fresh {
+                self.workflow_log(
+                    "gateway.generate.pre_call_probe.skip_fresh",
+                    format!("候选 [{}] 健康数据新鲜（<15s），跳过内联探测", idx + 1),
+                    Some(serde_json::json!({"model_id": candidate.model_id})),
+                );
+                true
+            } else {
+                let probe_request_id = format!("pre-call-probe-{}", &candidate.model_id);
+                let probe_profile = profile.clone();
+                let probe_service = self.llm_service.clone();
+                let probe_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    let (_, result) = probe_service
+                        .generate_with_profile_and_request_id(
+                            &probe_profile.id,
+                            "Respond with exactly the word OK.".to_string(),
+                            Some(4),
+                            Some(0.0),
+                            Some("pre-call-probe"),
+                            Some(probe_request_id),
+                            Some(5),
+                            Some(0),
+                        )
+                        .await;
+                    result
+                })
+                .await;
+                match probe_result {
+                    Ok(Ok(_resp)) => {
+                        self.workflow_log(
+                            "gateway.generate.pre_call_probe.ok",
+                            format!("候选 [{}] 实时探测通过", idx + 1),
+                            Some(serde_json::json!({"model_id": candidate.model_id})),
+                        );
+                        self.record_gateway_success(&candidate.model_id, &candidate.model_name);
+                        true
+                    }
+                    Ok(Err(e)) => {
+                        log::warn!(
+                            "[Gateway] 候选 [{}/{}] {} 实时探测失败，跳过: {}",
+                            idx + 1,
+                            decision.candidates.len(),
+                            candidate.model_id,
+                            e
+                        );
+                        self.workflow_log(
+                            "gateway.generate.pre_call_probe.fail",
+                            format!("候选 [{}] 实时探测失败，跳过", idx + 1),
+                            Some(serde_json::json!({"model_id": candidate.model_id, "error": e.to_string()})),
+                        );
+                        self.record_gateway_failure(
+                            &candidate.model_id,
+                            &candidate.model_name,
+                            super::types::HealthStatus::Unhealthy,
+                            Some(e.to_string()),
+                        );
+                        last_error = Some(e);
+                        false
+                    }
+                    Err(_elapsed) => {
+                        log::warn!(
+                            "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），跳过",
+                            idx + 1,
+                            decision.candidates.len(),
+                            candidate.model_id
+                        );
+                        self.workflow_log(
+                            "gateway.generate.pre_call_probe.timeout",
+                            format!("候选 [{}] 实时探测超时（5s），跳过", idx + 1),
+                            Some(serde_json::json!({"model_id": candidate.model_id})),
+                        );
+                        self.record_gateway_failure(
+                            &candidate.model_id,
+                            &candidate.model_name,
+                            super::types::HealthStatus::Unhealthy,
+                            Some("pre-call probe timeout (5s)".to_string()),
+                        );
+                        last_error = Some(AppError::Internal {
+                            message: format!("模型 {} 实时探测超时", candidate.model_name),
+                        });
+                        false
+                    }
                 }
-                Ok(Err(e)) => {
-                    log::warn!(
-                        "[Gateway] 候选 [{}/{}] {} 实时探测失败，跳过: {}",
-                        idx + 1,
-                        decision.candidates.len(),
-                        candidate.model_id,
-                        e
-                    );
-                    self.workflow_log(
-                        "gateway.generate.pre_call_probe.fail",
-                        format!("候选 [{}] 实时探测失败，跳过", idx + 1),
-                        Some(serde_json::json!({"model_id": candidate.model_id, "error": e.to_string()})),
-                    );
-                    // v0.23.59: 记录失败（Unhealthy）并递增连续失败计数
-                    self.record_gateway_failure(
-                        &candidate.model_id,
-                        &candidate.model_name,
-                        super::types::HealthStatus::Unhealthy,
-                        Some(e.to_string()),
-                    );
-                    last_error = Some(e);
-                    continue;
-                }
-                Err(_elapsed) => {
-                    log::warn!(
-                        "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），跳过",
-                        idx + 1,
-                        decision.candidates.len(),
-                        candidate.model_id
-                    );
-                    self.workflow_log(
-                        "gateway.generate.pre_call_probe.timeout",
-                        format!("候选 [{}] 实时探测超时（5s），跳过", idx + 1),
-                        Some(serde_json::json!({"model_id": candidate.model_id})),
-                    );
-                    // v0.23.59: 记录失败（Unhealthy）并递增连续失败计数
-                    self.record_gateway_failure(
-                        &candidate.model_id,
-                        &candidate.model_name,
-                        super::types::HealthStatus::Unhealthy,
-                        Some("pre-call probe timeout (5s)".to_string()),
-                    );
-                    last_error = Some(AppError::Internal {
-                        message: format!("模型 {} 实时探测超时", candidate.model_name),
-                    });
-                    continue;
-                }
+            }; // end probe_passed assignment
+
+            if !probe_passed {
+                continue;
             }
 
             // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
