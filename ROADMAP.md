@@ -1,8 +1,26 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-26（v0.23.49）
+> 最后更新: 2026-06-27（v0.23.61）
 
 ## ✅ v0.23.x 已实施完成
+
+### 📝 v0.23.61 系统提示词可配置 + 第一章注册表化 + 框架级智能路由 ✅ (2026-06-27)
+- [x] Gap 1: 第一章正文指令从硬编码 `format!()` 迁移到 PromptRegistry `narrative_first_chapter_generate`（15 个模板变量）
+- [x] Gap 2: `LlmProfile.system_prompt_override` → `GenerateRequest.system_prompt` → OpenAI/Anthropic adapter 去硬编码英文
+- [x] Gap 3: 新增 `FrameworkSelections` + `build_prompt_framework_catalog()`，Call 1 最快模型自主选择方法论/质量门/注入器
+- [x] 前端 ModelModal 新增「系统提示词覆盖」多行文本框
+
+### 📝 v0.23.60 网关探测异步化 + 调度退避 + 并发限流 ✅ (2026-06-27)
+- [x] 后台 keepalive 每 10s 刷新缓存 → `is_health_fresh()` 跳过内联 5s 探测，0ms 延迟
+- [x] 死模型指数退避 30→60→120→…→3600s
+- [x] `BACKGROUND_LLM_SEMAPHORE(1)` 后台 LLM 串行化
+- [x] `execute_trishot` → `orchestrator.generate` → genesis DB 保存全线 `log::warn!` 诊断
+
+### 📝 v0.23.59 全面修复并强化模型网关调度 ✅ (2026-06-27)
+- [x] `generate_for_request_with_context_and_pipeline` 路由到网关（单点覆盖概念生成 + 5 后台 pipeline）
+- [x] `generate_with_fastest` 加 5s 探测 + 回退网关候选链
+- [x] 活跃模型连续失败 ≥2 次降级，3 个强制置顶点跳过
+- [x] TimeSliced 写作策略从 AppConfig 读取用户配置
 
 ### 📝 v0.23.49 推理模型思考链导致 JSON 提取出空对象修复 ✅ (2026-06-26)
 - [x] 新增 `strip_reasoning_blocks` 剥离 `önh...` / `<thinking>...</thinking>` 思考链块

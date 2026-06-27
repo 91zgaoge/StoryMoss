@@ -2,6 +2,43 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.61] - 系统提示词可配置 + 第一章注册表化 + 框架级智能路由（2026-06-27）
+
+### Gap 1：第一章正文指令注册表化
+- **根因**：`genesis.rs:634-654` 一个大段 `format!()` 硬编码，不经过 PromptRegistry，用户和后台都无法编辑
+- **修复**：新增 `narrative_first_chapter_generate` 到 PromptRegistry（Creation 分类，15 个模板变量）；新增 `first_chapter_prompt()`（`narrative/prompts.rs`）走 `resolve_and_render` 模式；`genesis.rs` 改为调用 `first_chapter_prompt()`
+- 后台「提示词注册表」页面可编辑覆盖
+
+### Gap 2：系统提示词覆盖真正生效
+- **根因**：`writer_system_prompt_override` 字段定义了、存了但从不被消费。OpenAI/Anthropic adapter 硬编码 `"You are a professional creative writing assistant."` 覆盖掉 PromptRegistry 的 `writer_system` 中文指令。MN-Oblivion 的模型卡指令无法激活
+- **修复**：`LlmProfile.system_prompt_override` → `GenerateRequest.system_prompt` → adapter 改用 `req.system_prompt` 替代硬编码。优先级：每模型 > adapter 默认。前端 ModelModal 新增「系统提示词覆盖」多行文本框
+
+### Gap 3：框架级智能提示词路由
+- **根因**：84 个提示词无路由逻辑，每个步骤用写死的 prompt_id。没有任何代码根据题材/意图/叙事阶段选择提示词
+- **修复**：新增 `FrameworkSelections` 结构体（methodology/quality_gate/contextual_injectors/prompt_hints）。`SynthesisResult` +`framework_selections` 字段。Call 1 最快模型收到 `build_prompt_framework_catalog()`（5 种方法论/3 种质量门/3 种注入器），输出 `framework_selections`。`trishot_synthesizer` prompt 扩展输出格式
+
+- 验证：`cargo test --lib` **578 passed / 0 failed / 2 ignored**；fmt ✓；tsc ✓
+
+## [v0.23.60] - 网关探测异步化 + 调度退避 + 并发限流 + 卡死诊断（2026-06-27）
+
+### 网关探测异步化
+- **根因**：每条 gateway 调用嵌入 5s 内联预探测，运行时每调用 +5s 延迟
+- **修复**：后台 keepalive 每 10s 刷新健康/降级模型（5s 超时）；`GatewayExecutor::is_health_fresh()` 检查 `last_checked_at` <15s → 跳过内联探测；`generate_with_fastest` 同样适用。正常运行时 0ms 附加开销
+
+### 死模型退避
+- **根因**：MN-Oblivion 等死模型持续失败 4h+，每 60s 浪费 2 个模型 × 1s 探测
+- **修复**：重写 `scheduler.rs` 三轮架构：启动全量 + keepalive 10s + retry backoff。连续失败 ≥3 → 指数退避 30→60→120→…→3600s
+
+### 后台 LLM 并发限流
+- **根因**：Call 3 后 BGP-1+BGP-3+ingest 3 个 LLM 调用同时发射，竞争 1 个健康模型
+- **修复**：新增 `BACKGROUND_LLM_SEMAPHORE(1)`，BGP-1/BGP-3 受信号量限流串行化
+
+### post-call3 卡死诊断
+- **根因**：最新创世流程 `trishot.call3.done` 后 56s 零 genesis 事件
+- **修复**：`execute_trishot` 返回前、`orchestrator.generate` 返回前、DB 保存前后添加 `log::warn!` 诊断点
+
+- 验证：`cargo test --lib` **578 passed / 0 failed / 2 ignored**；fmt ✓；tsc ✓
+
 ## [v0.23.59] - 全面修复并强化模型网关调度（2026-06-27）
 
 ### 修复：创世流程 5 个 LLM 调用中 4 个绕过网关，死模型挂起 300s 无候选切换
