@@ -342,8 +342,7 @@ impl SceneService {
             debounce.insert(scene_id_for_commit.clone(), scheduled_time);
             // 清理超过 24 小时的过期条目
             debounce.retain(|_, last_time| {
-                Instant::now().duration_since(*last_time)
-                    < Duration::from_secs(24 * 3600)
+                Instant::now().duration_since(*last_time) < Duration::from_secs(24 * 3600)
             });
         }
 

@@ -284,7 +284,8 @@ impl ChapterService {
             self.app_handle.clone(),
         );
 
-        // 5. Phase 3: Chapter-level auto_commit 已废弃，由 SceneCommitDebouncer 接替
+        // 5. Phase 3: Chapter-level auto_commit 已废弃，由 SceneCommitDebouncer
+        //    接替
         // 保留注释供参考：触发点从 Chapter 保存迁移到 Scene 保存
         // ChapterCommitDebouncer::from_app_handle(&self.app_handle).schedule(
         //     chapter_id.to_string(),

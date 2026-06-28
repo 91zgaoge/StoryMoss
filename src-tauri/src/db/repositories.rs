@@ -5826,7 +5826,8 @@ impl ChapterRepository {
                 chapter.content = Some(self.get_content(&chapter.id)?);
                 // 同步更新 word_count
                 if chapter.word_count.unwrap_or(0) == 0 {
-                    chapter.word_count = Some(chapter.content.as_ref().map_or(0, |c| c.len() as i32));
+                    chapter.word_count =
+                        Some(chapter.content.as_ref().map_or(0, |c| c.len() as i32));
                 }
             }
         }
@@ -5966,8 +5967,9 @@ impl ChapterRepository {
     }
 
     /// Phase 1: content 参数已移除。章内容以 Scene 为唯一真相源，
-    /// 请使用 SceneRepository 写入内容。本方法仅更新章级元数据（title/outline/word_count）。
-    /// title 变更会同步到关联的 Scene(s)。
+    /// 请使用 SceneRepository
+    /// 写入内容。本方法仅更新章级元数据（title/outline/word_count）。 title
+    /// 变更会同步到关联的 Scene(s)。
     pub fn update(
         &self,
         id: &str,

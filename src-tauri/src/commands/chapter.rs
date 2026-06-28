@@ -56,7 +56,8 @@ pub async fn update_chapter(
     let automation_service = automation_service.inner().clone();
     let vector_store = vector_store.inner().clone();
 
-    // Phase 1: 章元数据走 ChapterRepository，内容走 SceneRepository（Scene 为真相源）
+    // Phase 1: 章元数据走 ChapterRepository，内容走 SceneRepository（Scene
+    // 为真相源）
     let title_for_update = title.clone();
     let content_for_update = content.clone();
     let word_count_for_update = word_count.or_else(|| content.as_ref().map(|c| c.len() as i32));

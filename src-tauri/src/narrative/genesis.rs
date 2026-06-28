@@ -738,14 +738,38 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let scene_outline;
             if let Ok(scenes) = scene_repo_for_prompt.get_by_story(&ctx.story_id) {
                 let scene1 = scenes.into_iter().find(|s| s.sequence_number == 1);
-                scene_dramatic_goal = scene1.as_ref().and_then(|s| s.dramatic_goal.clone()).unwrap_or_default();
-                scene_conflict_type = scene1.as_ref().and_then(|s| s.conflict_type.map(|c| c.to_string())).unwrap_or_default();
-                scene_external_pressure = scene1.as_ref().and_then(|s| s.external_pressure.clone()).unwrap_or_default();
-                scene_setting_location = scene1.as_ref().and_then(|s| s.setting_location.clone()).unwrap_or_default();
-                scene_setting_time = scene1.as_ref().and_then(|s| s.setting_time.clone()).unwrap_or_default();
-                scene_setting_atmosphere = scene1.as_ref().and_then(|s| s.setting_atmosphere.clone()).unwrap_or_default();
-                scene_characters_present = scene1.as_ref().map(|s| s.characters_present.join("、")).unwrap_or_default();
-                scene_outline = scene1.as_ref().and_then(|s| s.outline_content.clone()).unwrap_or_default();
+                scene_dramatic_goal = scene1
+                    .as_ref()
+                    .and_then(|s| s.dramatic_goal.clone())
+                    .unwrap_or_default();
+                scene_conflict_type = scene1
+                    .as_ref()
+                    .and_then(|s| s.conflict_type.map(|c| c.to_string()))
+                    .unwrap_or_default();
+                scene_external_pressure = scene1
+                    .as_ref()
+                    .and_then(|s| s.external_pressure.clone())
+                    .unwrap_or_default();
+                scene_setting_location = scene1
+                    .as_ref()
+                    .and_then(|s| s.setting_location.clone())
+                    .unwrap_or_default();
+                scene_setting_time = scene1
+                    .as_ref()
+                    .and_then(|s| s.setting_time.clone())
+                    .unwrap_or_default();
+                scene_setting_atmosphere = scene1
+                    .as_ref()
+                    .and_then(|s| s.setting_atmosphere.clone())
+                    .unwrap_or_default();
+                scene_characters_present = scene1
+                    .as_ref()
+                    .map(|s| s.characters_present.join("、"))
+                    .unwrap_or_default();
+                scene_outline = scene1
+                    .as_ref()
+                    .and_then(|s| s.outline_content.clone())
+                    .unwrap_or_default();
             } else {
                 scene_dramatic_goal = String::new();
                 scene_conflict_type = String::new();
@@ -848,7 +872,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let save_pool = ctx.pool.clone();
             log::warn!(
                 "[Genesis-DIAG] About to spawn_blocking for scene save, story_id={} content_len={}",
-                save_story_id, save_content.len()
+                save_story_id,
+                save_content.len()
             );
             if let Some(logger) = ctx
                 .app_handle

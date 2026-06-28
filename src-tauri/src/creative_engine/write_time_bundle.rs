@@ -538,7 +538,10 @@ impl WriteTimeBundle {
                 outline_parts.push(format!("氛围：{}", a));
             }
             if !outline.characters_present.is_empty() {
-                outline_parts.push(format!("出场人物：{}", outline.characters_present.join("、")));
+                outline_parts.push(format!(
+                    "出场人物：{}",
+                    outline.characters_present.join("、")
+                ));
             }
             if let Some(ref o) = outline.outline_content {
                 outline_parts.push(format!("场景大纲：{}", o));

@@ -747,7 +747,8 @@ pub fn first_chapter_prompt(
 // ==================== 第一场景正文 Prompt (Phase 4) ====================
 
 /// Phase 4: 场景优先创世——以 Scene 为单位生成正文，
-/// 注入场景级戏剧结构变量（dramatic_goal, conflict_type, characters_present 等）。
+/// 注入场景级戏剧结构变量（dramatic_goal, conflict_type, characters_present
+/// 等）。
 pub fn first_scene_prompt(
     title: &str,
     genre: &str,

@@ -82,12 +82,7 @@ pub async fn finalize_draft(
             .find(|c| c.chapter_number == draft.chapter_number)
         {
             // 更新章元数据（不含 content）
-            let _ = chapter_repo.update(
-                &chapter.id,
-                None,
-                None,
-                Some(draft.word_count),
-            );
+            let _ = chapter_repo.update(&chapter.id, None, None, Some(draft.word_count));
             // 内容写入关联 Scene
             if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
                 if let Some(scene) = scenes.first() {
