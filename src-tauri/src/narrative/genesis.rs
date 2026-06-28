@@ -1425,16 +1425,12 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 }
             };
 
-            // v0.23.66: 从 tokio::join! 3路并发改为串行 + BACKGROUND_LLM_SEMAPHORE。
-            // 单模型环境下 3 路并发调用同一本地模型导致模型过载
-            // → INTERNAL_ERROR 洪流 → 前端页面崩溃（与 v0.23.45 IngestPipeline 同根因）。
-            let _bg_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
-                .acquire()
-                .await;
+            // v0.23.71: 3 路 LLM 调用保持串行执行（已在 v0.23.66 从 tokio::join! 改为
+            // 顺序 .await）。信号量由 commands/orchestrator.rs 的 genesis 后台 spawn 入口
+            // 统一持有，此处不再重复 acquire（否则同一 task 内自死锁）。
             let world_res = world_future.await;
             let outline_res = outline_future.await;
             let characters_res = character_future.await;
-            drop(_bg_permit);
 
             {
                 let mut bundle_guard = bundle.write().await;
