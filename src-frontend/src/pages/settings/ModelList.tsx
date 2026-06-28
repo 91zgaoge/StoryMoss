@@ -18,6 +18,8 @@ export function ModelList({
   groupTitle,
   showAddButton = true,
   showTypeHeader = true,
+  /** v0.23.66: 模型角色分配信息（用于徽章显示） */
+  activeModels,
 }: {
   type: ModelType;
   models: ModelConfig[];
@@ -32,6 +34,7 @@ export function ModelList({
   groupTitle?: string;
   showAddButton?: boolean;
   showTypeHeader?: boolean;
+  activeModels?: Record<string, string | undefined>;
 }) {
   const title =
     groupTitle ||
@@ -77,7 +80,13 @@ export function ModelList({
         </Card>
       ) : (
         <div className="grid gap-4">
-          {models.map(model => (
+          {models.map(model => {
+            // v0.23.66: 计算模型角色徽章
+            const roles: string[] = [];
+            if (activeModels?.creative === model.id) roles.push('创作');
+            if (activeModels?.tool === model.id) roles.push('工具');
+            if (activeModels?.background === model.id) roles.push('后台');
+            return (
             <ModelCard
               key={model.id}
               model={model}
@@ -88,8 +97,9 @@ export function ModelList({
               onSetActive={() => onSetActive(model.id)}
               onRetry={onRetry ? () => onRetry(model.id) : undefined}
               onDelete={onDelete ? () => onDelete(model.id) : undefined}
+              roleBadges={roles}
             />
-          ))}
+          )})}
         </div>
       )}
     </div>

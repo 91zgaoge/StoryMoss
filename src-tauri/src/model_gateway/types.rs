@@ -139,6 +139,10 @@ pub struct GatewayRequest {
     /// `writer_system` 写作准则传递到适配器层。
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_prompt: Option<String>,
+    /// v0.23.66: 模型角色偏好 — 告知网关调用者期望的模型角色
+    /// (Creative/Tool/Background)。网关据此选择角色指定模型或自动分配。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model_role: Option<crate::config::settings::ModelRole>,
 }
 
 impl GatewayRequest {
@@ -170,6 +174,7 @@ impl GatewayRequest {
             discovered_asset_ids: Vec::new(),
             response_format: None,
             system_prompt: None,
+            model_role: None,
         }
     }
 }

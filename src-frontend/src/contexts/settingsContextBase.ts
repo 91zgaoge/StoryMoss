@@ -22,8 +22,12 @@ export interface SettingsContextValue {
   updateModel: (id: string, config: Partial<ModelConfig>) => Promise<void>;
   /** 删除模型 */
   deleteModel: (id: string) => Promise<void>;
-  /** 设置活跃模型 */
-  setActiveModel: (type: ModelConfig['type'], modelId: string) => Promise<void>;
+  /** 设置活跃模型（v0.23.66: 可选 role="creative"|"tool"|"background" 指定角色） */
+  setActiveModel: (
+    type: ModelConfig['type'],
+    modelId: string,
+    role?: 'creative' | 'tool' | 'background'
+  ) => Promise<void>;
 
   /** 更新 Agent 模型映射（乐观更新） */
   updateAgentMapping: (mapping: AgentModelMapping) => void;

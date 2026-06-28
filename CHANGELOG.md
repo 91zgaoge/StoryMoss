@@ -2,6 +2,25 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.66] - 模型角色分配 × 后台并发根治（2026-06-28）
+
+### 模型角色分配：三层默认模型
+- **背景**：此前只有一个 `active_llm_profile`，所有任务（正文生成/路由分析/后台审计）全部分配给同一模型——资源分配不均，创作模型被轻量探测占满
+- **新增**：三种模型角色——🎨 **创作模型**（正文生成、Writer、改写）、🔧 **工具模型**（Call 1 路由、探测、JSON 提取）、⚙️ **后台任务模型**（BGP 审计/入库/洞察、Genesis 后台流水线）
+- **网关调度**：`select_candidates` 按请求角色偏好选择对应模型并强制置顶；未设置时自动分配（快模型→工具，闲置→后台，创作回退 active）
+- **前端 UI**：`UnifiedModelManager` 顶部新增「模型角色分配」卡片，三个下拉框可选所有聊天模型或"自动分配"；`ModelCard` 显示角色徽章（琥珀=创作/蓝=工具/紫=后台）
+- **修改**：`config/settings.rs` ModelRole 枚举 + AppConfig 三字段；`model_gateway/executor.rs` `resolve_role_model` + 自动分配逻辑；`config/commands.rs` `set_active_model` 支持 role 参数；前端 5 文件（types/settings/context/components）
+
+### 后台并发过载根治：Genesis 后台流水线串行化
+- **根因**：v0.23.64 代码中 `ParallelWorldOutlineCharacterStep` 使用 `tokio::join!` 3 路并发（世界观+大纲+角色），加上 BGP-4 同时发射，共 4 个 LLM 调用打向同一本地 26B 模型 → 模型过载 → `INTERNAL_ERROR` 洪流 → 前端页面崩溃/空白
+- **修复**：`tokio::join!` 改为串行 `.await` + 外层 `BACKGROUND_LLM_SEMAPHORE` 保护；BGP-4 `run_insight` 前加信号量；Genesis 后台 spawn 入口加信号量。任何时刻最多 1 个后台 LLM 调用
+- **修改**：`narrative/genesis.rs`（3 路并发→串行）、`agents/orchestrator.rs`（BGP-4 信号量）、`commands/orchestrator.rs`（后台 spawn 信号量）
+
+### 历史修复（本迭代）
+- **v0.23.64-65 的并行修复**：正文重复渲染去重、`sanitize_novel_output` 思考链/规划块剥离、UTF-8 字节边界 panic 修复、探测日志静默化
+
+- 验证：`cargo test --lib` **582 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`cargo +nightly fmt -- --check` ✓
+
 ## [v0.23.65] - 提示词工程全链路修复（2026-06-27）
 
 ### P0-1/P0-2：`writer_system` 全链透传（最高优先级）

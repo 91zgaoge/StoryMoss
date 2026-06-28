@@ -206,6 +206,15 @@ pub struct AppConfig {
     pub active_llm_profile: Option<String>,
     #[serde(default)]
     pub active_embedding_profile: Option<String>,
+    /// v0.23.66: 创作模型 — 正文生成、Writer、改写
+    #[serde(default)]
+    pub creative_model_id: Option<String>,
+    /// v0.23.66: 工具模型 — Call 1 路由、探测、意图识别、JSON 提取
+    #[serde(default)]
+    pub tool_model_id: Option<String>,
+    /// v0.23.66: 后台任务模型 — BGP 审计/入库/洞察、Genesis 后台流水线
+    #[serde(default)]
+    pub background_model_id: Option<String>,
     #[serde(default)]
     pub agent_mappings: HashMap<String, AgentMapping>,
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
@@ -742,6 +751,22 @@ impl Default for ModelKind {
     }
 }
 
+/// 模型角色 — 指定模型在网关调度中的默认用途
+///
+/// 用户可为不同任务类型指定不同模型：
+/// - `Creative`：正文生成、Writer、改写 → 质量优先
+/// - `Tool`：Call 1 路由合成、探测、意图识别、JSON 提取 → 速度优先
+/// - `Background`：BGP 审计/入库/洞察、Genesis 后台流水线 → 不抢占前台模型
+///
+/// 未指定时网关自动分配：快模型→工具，闲置→后台，创作回退 active。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRole {
+    Creative,
+    Tool,
+    Background,
+}
+
 /// 质量等级 — 用于任务路由评分
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -967,6 +992,9 @@ impl Default for AppConfig {
             active_llm_profile: None, /* v0.23.14: 不默认指向占位 profile，由
                                        * get_active_llm_profile 走 fallback */
             active_embedding_profile: None,
+            creative_model_id: None,
+            tool_model_id: None,
+            background_model_id: None,
             agent_mappings,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
@@ -1281,6 +1309,54 @@ impl AppConfig {
         }
     }
 
+    // =========================================================================
+    // v0.23.66: 模型角色分配 — 创作/工具/后台任务三层默认模型
+    // =========================================================================
+
+    /// 按角色获取当前指定的模型 profile（若未设置或模型不可用则返回 None）
+    pub fn get_model_for_role(&self, role: ModelRole) -> Option<&LlmProfile> {
+        let id = match role {
+            ModelRole::Creative => self.creative_model_id.as_ref(),
+            ModelRole::Tool => self.tool_model_id.as_ref(),
+            ModelRole::Background => self.background_model_id.as_ref(),
+        };
+        id.and_then(|id| self.llm_profiles.get(id))
+            .filter(|p| p.enabled)
+    }
+
+    /// 设置指定角色的默认模型
+    pub fn set_model_for_role(&mut self, role: ModelRole, model_id: &str) -> Result<(), AppError> {
+        match self.llm_profiles.get(model_id) {
+            Some(profile) if profile.enabled => {
+                let slot = match role {
+                    ModelRole::Creative => &mut self.creative_model_id,
+                    ModelRole::Tool => &mut self.tool_model_id,
+                    ModelRole::Background => &mut self.background_model_id,
+                };
+                *slot = Some(model_id.to_string());
+                Ok(())
+            }
+            Some(_) => Err(AppError::ValidationFailed {
+                message: "无法将已禁用的模型设为角色模型".to_string(),
+                field: Some("model_id".to_string()),
+            }),
+            None => Err(AppError::NotFound {
+                resource: "llm_profile".to_string(),
+                id: model_id.to_string(),
+            }),
+        }
+    }
+
+    /// 清除指定角色的模型分配（恢复自动分配）
+    pub fn clear_model_for_role(&mut self, role: ModelRole) {
+        let slot = match role {
+            ModelRole::Creative => &mut self.creative_model_id,
+            ModelRole::Tool => &mut self.tool_model_id,
+            ModelRole::Background => &mut self.background_model_id,
+        };
+        *slot = None;
+    }
+
     /// 添加LLM配置
     pub fn add_llm_profile(&mut self, mut profile: LlmProfile) -> Result<(), AppError> {
         if profile.id.is_empty() {
@@ -1333,6 +1409,16 @@ impl AppConfig {
                     .values()
                     .find(|p| p.is_default)
                     .map(|p| p.id.clone());
+            }
+            // v0.23.66: 清除该模型的所有角色分配
+            if self.creative_model_id.as_deref() == Some(profile_id) {
+                self.creative_model_id = None;
+            }
+            if self.tool_model_id.as_deref() == Some(profile_id) {
+                self.tool_model_id = None;
+            }
+            if self.background_model_id.as_deref() == Some(profile_id) {
+                self.background_model_id = None;
             }
             Ok(())
         } else {

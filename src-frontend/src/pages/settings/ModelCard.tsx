@@ -16,6 +16,8 @@ export function ModelCard({
   onSetActive,
   onRetry,
   onDelete,
+  /** v0.23.66: 该模型被分配的角色列表（如 ['创作', '工具']） */
+  roleBadges,
 }: {
   model: ModelConfig;
   isActive?: boolean;
@@ -28,6 +30,7 @@ export function ModelCard({
   onSetActive: () => void;
   onRetry?: () => void;
   onDelete?: () => void;
+  roleBadges?: string[];
 }) {
   const [showSteps, setShowSteps] = useState(false);
   const isDefault = model.is_default;
@@ -112,6 +115,22 @@ export function ModelCard({
                     禁用
                   </span>
                 )}
+                {/* v0.23.66: 模型角色分配徽章 */}
+                {roleBadges?.map(role => (
+                  <span
+                    key={role}
+                    className={cn(
+                      'px-2 py-0.5 text-xs rounded-full font-medium',
+                      role === '创作'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : role === '工具'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-purple-500/20 text-purple-400'
+                    )}
+                  >
+                    {role}
+                  </span>
+                ))}
               </div>
               <p className="text-sm text-gray-500">
                 {model.provider} · {model.model}

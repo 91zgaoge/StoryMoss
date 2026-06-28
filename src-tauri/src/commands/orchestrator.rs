@@ -319,6 +319,13 @@ async fn smart_execute_inner(
                 let session_id_bg = session_id.clone();
                 let user_input_bg = user_input.clone();
                 tauri::async_runtime::spawn(async move {
+                    // v0.23.66: Genesis 后台流水线加 BACKGROUND_LLM_SEMAPHORE 保护。
+                    // 后台 6 个步骤（含 ParallelWorldOutlineCharacterStep 的世界观/大纲/角色 3 路）
+                    // 加上 BGP-4 深度洞察同时打向同一本地模型 → 模型过载 → INTERNAL_ERROR 洪流
+                    // → 前端页面崩溃（与 v0.23.45 IngestPipeline 同根因）。
+                    let _bg_pipeline_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
+                        .acquire()
+                        .await;
                     let story_id_for_emit = story_id_bg.clone();
                     let app_handle_for_emit = app_handle_bg.clone();
                     let mut bg_ctx = crate::narrative::genesis::GenesisContext::for_background(

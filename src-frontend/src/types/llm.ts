@@ -271,6 +271,12 @@ export interface AppSettings {
     embedding?: string;
     multimodal?: string;
     image?: string;
+    /** v0.23.66: 创作模型（正文生成、Writer、改写） */
+    creative?: string;
+    /** v0.23.66: 工具模型（路由、探测、JSON 提取） */
+    tool?: string;
+    /** v0.23.66: 后台任务模型（BGP/Genesis 后台流水线） */
+    background?: string;
   };
 
   // Agent模型映射

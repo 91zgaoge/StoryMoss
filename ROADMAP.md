@@ -1,8 +1,12 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-27（v0.23.63）
+> 最后更新: 2026-06-28（v0.23.66）
 
 ## ✅ v0.23.x 已实施完成
+
+### 📝 v0.23.66 模型角色分配 × 后台并发根治 ✅ (2026-06-28)
+- [x] 模型角色分配：创作/工具/后台三层默认模型 + 网关按角色智能调度 + 前端「模型角色分配」卡片
+- [x] 后台并发过载根治：`ParallelWorldOutlineCharacterStep` `tokio::join!` 3 路 → 串行 + `BACKGROUND_LLM_SEMAPHORE` 全覆盖
 
 ### 📝 v0.23.63 系统提示词可配置 + 第一章注册表化 + 框架级智能路由 ✅ (2026-06-27)
 - [x] Gap 1: 第一章正文指令从硬编码 `format!()` 迁移到 PromptRegistry `narrative_first_chapter_generate`（15 个模板变量）

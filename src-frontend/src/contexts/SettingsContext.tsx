@@ -208,16 +208,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setActiveModelMutation = useMutation<
     void,
     Error,
-    { type: ModelConfig['type']; modelId: string },
+    { type: ModelConfig['type']; modelId: string; role?: 'creative' | 'tool' | 'background' },
     OptimisticContext<AppSettings>
   >({
-    mutationFn: ({ type, modelId }) => setActiveModelService(type, modelId),
-    onMutate: async ({ type, modelId }) => {
+    mutationFn: ({ type, modelId, role }) => setActiveModelService(type, modelId, role),
+    onMutate: async ({ type, modelId, role }) => {
       await queryClient.cancelQueries({ queryKey: [SETTINGS_KEY] });
       const previousSettings = queryClient.getQueryData<AppSettings>([SETTINGS_KEY]);
       queryClient.setQueryData<AppSettings>([SETTINGS_KEY], old => {
         if (!old) return old;
-        return { ...old, active_models: { ...old.active_models, [type]: modelId } };
+        const key = role ? role : type;
+        return { ...old, active_models: { ...old.active_models, [key]: modelId } };
       });
       return { previousData: previousSettings };
     },
@@ -227,8 +228,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
       toast.error('设置活跃模型失败: ' + error.message);
     },
-    onSuccess: () => {
-      toast.success('已设为当前模型');
+    onSuccess: (_data, vars) => {
+      toast.success(vars.role ? `已设为${vars.role === 'creative' ? '创作' : vars.role === 'tool' ? '工具' : '后台'}模型` : '已设为当前模型');
     },
     onSettled: () => {
       invalidateSettingsFamily();
@@ -283,8 +284,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveModel = useCallback(
-    (type: ModelConfig['type'], modelId: string) =>
-      setActiveModelMutation.mutateAsync({ type, modelId }),
+    (type: ModelConfig['type'], modelId: string, role?: 'creative' | 'tool' | 'background') =>
+      setActiveModelMutation.mutateAsync({ type, modelId, role }),
     [setActiveModelMutation]
   );
 

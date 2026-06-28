@@ -523,6 +523,8 @@ impl LlmService {
             response_format,
             // v0.23.65: 请求级 system_prompt 透传
             system_prompt: system_prompt.clone(),
+            // v0.23.66: 模型角色偏好（留 None，网关按 TaskClass 自动推导）
+            model_role: None,
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => {

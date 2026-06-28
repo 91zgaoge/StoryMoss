@@ -936,7 +936,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 step_number: self.step_number(),
                 total_steps: 4,
                 status: StepStatus::Running,
-                message: "正在并行构建世界观、大纲与角色...".to_string(),
+                message: "正在构建世界观、大纲与角色...".to_string(),
                 progress_percent: 5,
                 elapsed_seconds: 0,
                 metadata: None,
@@ -1325,8 +1325,16 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 }
             };
 
-            let (world_res, outline_res, characters_res) =
-                tokio::join!(world_future, outline_future, character_future);
+            // v0.23.66: 从 tokio::join! 3路并发改为串行 + BACKGROUND_LLM_SEMAPHORE。
+            // 单模型环境下 3 路并发调用同一本地模型导致模型过载
+            // → INTERNAL_ERROR 洪流 → 前端页面崩溃（与 v0.23.45 IngestPipeline 同根因）。
+            let _bg_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
+                .acquire()
+                .await;
+            let world_res = world_future.await;
+            let outline_res = outline_future.await;
+            let characters_res = character_future.await;
+            drop(_bg_permit);
 
             {
                 let mut bundle_guard = bundle.write().await;
@@ -1355,7 +1363,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 step_number: self.step_number(),
                 total_steps: 4,
                 status: StepStatus::Completed,
-                message: "世界观、大纲与角色已并行生成".to_string(),
+                message: "世界观、大纲与角色已生成".to_string(),
                 progress_percent: 50,
                 elapsed_seconds: 0,
                 metadata: None,

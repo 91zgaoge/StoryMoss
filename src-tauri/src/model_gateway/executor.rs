@@ -57,6 +57,140 @@ impl GatewayExecutor {
         self.registry.lock().expect("registry lock poisoned")
     }
 
+    // =========================================================================
+    // v0.23.66: 模型角色分配 — 按请求的角色偏好解析目标模型
+    // =========================================================================
+
+    /// 解析请求对应的角色模型。
+    ///
+    /// 优先级：
+    /// 1. 请求显式指定 `model_role` + 用户已为该角色设置模型 + 模型健康 →
+    ///    返回该模型
+    /// 2. 用户未设置 → 自动分配（Tool→TTFB最快，Background→最空闲，
+    ///    Creative→active）
+    /// 3. 角色模型不健康 → 返回 None，让网关正常打分
+    fn resolve_role_model(
+        &self,
+        request: &GatewayRequest,
+    ) -> Option<crate::config::settings::LlmProfile> {
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let config = crate::config::AppConfig::load(&app_dir).ok()?;
+
+        // 确定目标角色：显式指定 > TaskClass 推导
+        let role = request.model_role.or_else(|| {
+            Some(match TaskClassifier::classify_task(request) {
+                super::types::TaskClass::LightTool => crate::config::settings::ModelRole::Tool,
+                super::types::TaskClass::HeavyCreation => {
+                    crate::config::settings::ModelRole::Creative
+                }
+                _ => crate::config::settings::ModelRole::Creative,
+            })
+        })?;
+
+        // 1. 用户已为该角色设置模型 → 检查健康后返回
+        if let Some(profile) = config.get_model_for_role(role) {
+            if self.is_model_available(&profile.id) {
+                let failures = self
+                    .health_registry()
+                    .lock()
+                    .ok()
+                    .map(|g| g.consecutive_failures(&profile.id))
+                    .unwrap_or(0);
+                if failures < ACTIVE_MODEL_DEMOTION_THRESHOLD {
+                    log::info!(
+                        "[Gateway] resolve_role_model: 使用角色指定模型 {:?} → {}",
+                        role,
+                        profile.id
+                    );
+                    return Some(profile.clone());
+                }
+            }
+            // 角色模型不可用 → fall through 到自动分配
+        }
+
+        // 2. 自动分配
+        match role {
+            crate::config::settings::ModelRole::Tool => {
+                // 工具模型：选 TTFB 最快的可用模型
+                self.pick_fastest_for_role()
+            }
+            crate::config::settings::ModelRole::Background => {
+                // 后台模型：避免抢占创作/当前活跃模型
+                self.pick_idle_for_background(&config)
+            }
+            crate::config::settings::ModelRole::Creative => {
+                // 创作模型：回退到 active_llm_profile
+                self.llm_service.get_active_profile()
+            }
+        }
+    }
+
+    /// 自动分配工具模型：选 TTFB 最快的健康模型
+    fn pick_fastest_for_role(&self) -> Option<crate::config::settings::LlmProfile> {
+        // 从 capability profiles 按 TTFB 排序选最快
+        if let Some(pool_state) = self.app_handle.try_state::<crate::db::DbPool>() {
+            if let Ok(profiles) =
+                super::capability_store::CapabilityStore::new(pool_state.inner().clone()).load_all()
+            {
+                let registry = self.registry_guard();
+                let mut candidates: Vec<_> = profiles
+                    .iter()
+                    .filter(|p| {
+                        self.is_model_available(&p.model_id) && registry.get(&p.model_id).is_some()
+                    })
+                    .collect();
+                candidates.sort_by_key(|p| p.short_ttfb_ms_p50.unwrap_or(u64::MAX));
+                if let Some(fastest) = candidates.first() {
+                    return registry.get(&fastest.model_id).cloned();
+                }
+            }
+        }
+        // 回退：从注册表选第一个健康的
+        let registry = self.registry_guard();
+        registry
+            .enabled_generative_models()
+            .into_iter()
+            .find(|p| self.is_model_available(&p.id))
+            .cloned()
+    }
+
+    /// 自动分配后台模型：避免使用当前活跃模型和创作模型
+    fn pick_idle_for_background(
+        &self,
+        config: &crate::config::AppConfig,
+    ) -> Option<crate::config::settings::LlmProfile> {
+        let registry = self.registry_guard();
+        let active_id = config.active_llm_profile.as_deref();
+        let creative_id = config.creative_model_id.as_deref();
+
+        // 优先选一个非活跃、非创作的模型
+        let idle = registry
+            .enabled_generative_models()
+            .into_iter()
+            .filter(|p| {
+                self.is_model_available(&p.id)
+                    && Some(p.id.as_str()) != active_id
+                    && Some(p.id.as_str()) != creative_id
+            })
+            .next()
+            .cloned();
+
+        // 回退：如果只有 active/creative 模型可用，用 active
+        idle.or_else(|| {
+            active_id.and_then(|id| {
+                if self.is_model_available(id) {
+                    registry.get(id).cloned()
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     /// v0.23.13: 从最新配置刷新网关模型注册表，确保新增/修改模型后立即可见。
     pub fn refresh_registry(&self) {
         let app_dir = self
@@ -390,48 +524,69 @@ impl GatewayExecutor {
             decision.candidates.len()
         );
 
+        // v0.23.66: 角色模型优先 — 若请求有角色偏好且用户为该角色指定了模型，
+        // 用角色模型替代 active_llm_profile 做强制置顶。
+        // 未指定角色时回退到现有 active 逻辑，保持完全向后兼容。
+        let role_profile = self.resolve_role_model(request);
+        let is_role = role_profile.is_some();
+        let promotion_profile = role_profile.or_else(|| self.llm_service.get_active_profile());
+
         // v0.23.13: 活跃模型强制置顶。v0.23.32: 每步 Mutex 前后加标记诊断。
         // v0.23.59: 连续失败达阈值时跳过强制置顶，交给候选打分选择。
-        if let Some(active) = self.llm_service.get_active_profile() {
-            log::debug!("[Gateway] select_candidates: 活跃模型={}", active.id);
+        // v0.23.66: 若已解析到角色模型，使用角色模型；否则回退 active。
+        if let Some(ref promote) = promotion_profile {
+            log::debug!("[Gateway] select_candidates: 置顶模型={}", promote.id);
             if self.active_model_demoted() {
                 let failures = self
                     .health_registry()
                     .lock()
                     .ok()
-                    .map(|g| g.consecutive_failures(&active.id))
+                    .map(|g| g.consecutive_failures(&promote.id))
                     .unwrap_or(0);
                 log::warn!(
-                    "[Gateway] select_candidates: 活跃模型 {} 连续失败 {} 次，跳过强制置顶，交给候选打分",
-                    active.id,
+                    "[Gateway] select_candidates: {}模型 {} 连续失败 {} 次，跳过强制置顶",
+                    if is_role { "角色" } else { "活跃" },
+                    promote.id,
                     failures
                 );
-            } else if self.is_model_available(&active.id) {
-                if let Some(profile) = self.registry_guard().get(&active.id).cloned() {
+            } else if self.is_model_available(&promote.id) {
+                if let Some(profile) = self.registry_guard().get(&promote.id).cloned() {
                     log::debug!("[Gateway] select_candidates: 注册表查询成功");
                     let mut candidates = decision.candidates.clone();
-                    candidates.retain(|c| c.model_id != active.id);
+                    candidates.retain(|c| c.model_id != promote.id);
                     let top_score = candidates.first().map(|c| c.score).unwrap_or(50.0);
-                    let active_candidate = crate::router::RankedCandidate {
-                        model_id: active.id.clone(),
-                        model_name: active.name.clone(),
-                        score: top_score + 1000.0,
-                        reason: "当前活跃模型强制优先".to_string(),
+                    let reason = if is_role {
+                        format!(
+                            "角色模型({:?})强制优先",
+                            request
+                                .model_role
+                                .unwrap_or(crate::config::settings::ModelRole::Creative)
+                        )
+                    } else {
+                        "当前活跃模型强制优先".to_string()
                     };
-                    candidates.insert(0, active_candidate);
-                    decision.model_id = active.id.clone();
-                    decision.model_name = active.name.clone();
+                    let promote_candidate = crate::router::RankedCandidate {
+                        model_id: promote.id.clone(),
+                        model_name: promote.name.clone(),
+                        score: top_score + 1000.0,
+                        reason,
+                    };
+                    candidates.insert(0, promote_candidate);
+                    decision.model_id = promote.id.clone();
+                    decision.model_name = promote.name.clone();
                     decision.candidates = candidates;
                     log::debug!(
-                        "[Gateway] select_candidates: 强制使用当前活跃模型 {} (score={})",
-                        active.id,
+                        "[Gateway] select_candidates: 强制使用{}模型 {} (score={})",
+                        if is_role { "角色" } else { "活跃" },
+                        promote.id,
                         top_score + 1000.0
                     );
                 }
             } else {
                 log::warn!(
-                    "[Gateway] select_candidates: 当前活跃模型 {} 不可用，继续按网关打分选择",
-                    active.id
+                    "[Gateway] select_candidates: {}模型 {} 不可用，继续按网关打分选择",
+                    if is_role { "角色" } else { "活跃" },
+                    promote.id
                 );
             }
         }
@@ -450,6 +605,30 @@ impl GatewayExecutor {
     /// `select_candidates`（让网关三维打分兜底）。最终都失败则回退 active
     /// profile。
     pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
+        // v0.23.66: 工具模型优先 — 若用户设置了工具模型且健康，优先使用。
+        // select_fastest_profile 主要用于 TriShot Call 1（路由合成），属于 Tool 角色。
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        if let Ok(config) = crate::config::AppConfig::load(&app_dir) {
+            if let Some(tool_model) =
+                config.get_model_for_role(crate::config::settings::ModelRole::Tool)
+            {
+                if self.is_model_available(&tool_model.id)
+                    && self.registry_guard().get(&tool_model.id).is_some()
+                    && !self.active_model_demoted()
+                {
+                    log::info!(
+                        "[Gateway] select_fastest_profile: 使用工具模型 {}",
+                        tool_model.id
+                    );
+                    return Some(tool_model.clone());
+                }
+            }
+        }
+
         let active = self.llm_service.get_active_profile();
 
         // v0.23.13: 用户 explicit 设置的活跃模型无条件优先（只要健康检查未判定

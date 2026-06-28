@@ -1667,6 +1667,10 @@ impl AgentOrchestrator {
             .await
             .unwrap_or(false);
             if should {
+                // v0.23.66: BGP-4 深度洞察加 BACKGROUND_LLM_SEMAPHORE 保护，
+                // 防止与 Genesis 后台流水线（世界观/大纲/角色 3 路）同时打向同一本地模型，
+                // 导致模型过载 → 前端页面崩溃。
+                let _bg_permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
                 let executor = crate::task_system::insight_executor::InsightExecutor {
                     pool: insight_pool,
                     app_handle: insight_handle,
@@ -1678,6 +1682,7 @@ impl AgentOrchestrator {
                         trend_window: 5,
                     })
                     .await;
+                drop(_bg_permit);
             }
         });
 

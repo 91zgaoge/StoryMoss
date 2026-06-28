@@ -395,6 +395,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
 
     // v0.11.2: multimodal 复用 active_llm_profile，不应硬编码为空；
     // image 类型当前未独立实现，保持空字符串。
+    // v0.23.66: 新增三个模型角色字段
     let active_llm_profile = config.active_llm_profile.clone().unwrap_or_default();
     let active_models = vec![
         ("chat".to_string(), active_llm_profile.clone()),
@@ -404,6 +405,18 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         ),
         ("multimodal".to_string(), active_llm_profile),
         ("image".to_string(), String::new()),
+        (
+            "creative".to_string(),
+            config.creative_model_id.clone().unwrap_or_default(),
+        ),
+        (
+            "tool".to_string(),
+            config.tool_model_id.clone().unwrap_or_default(),
+        ),
+        (
+            "background".to_string(),
+            config.background_model_id.clone().unwrap_or_default(),
+        ),
     ]
     .into_iter()
     .collect();
@@ -476,6 +489,28 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         if !emb_id.is_empty() {
             config.active_embedding_profile = Some(emb_id.clone());
         }
+    }
+    // v0.23.66: 保存模型角色分配
+    if let Some(creative_id) = settings.active_models.get("creative") {
+        config.creative_model_id = if creative_id.is_empty() {
+            None
+        } else {
+            Some(creative_id.clone())
+        };
+    }
+    if let Some(tool_id) = settings.active_models.get("tool") {
+        config.tool_model_id = if tool_id.is_empty() {
+            None
+        } else {
+            Some(tool_id.clone())
+        };
+    }
+    if let Some(bg_id) = settings.active_models.get("background") {
+        config.background_model_id = if bg_id.is_empty() {
+            None
+        } else {
+            Some(bg_id.clone())
+        };
     }
 
     // 保存 Agent 映射
@@ -1041,11 +1076,12 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 设置活跃模型
+/// 设置活跃模型（v0.23.66: 支持 role="creative"/"tool"/"background" 角色参数）
 #[command]
 pub fn set_active_model(
     model_type: String,
     model_id: String,
+    role: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
     let app_dir = app_handle
@@ -1055,21 +1091,39 @@ pub fn set_active_model(
 
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
-    match model_type.as_str() {
-        "chat" => config
-            .set_active_llm_profile(&model_id)
-            .map_err(AppError::from)?,
-        "multimodal" => config
-            .set_active_llm_profile(&model_id)
-            .map_err(AppError::from)?,
-        "embedding" => config
-            .set_active_embedding_profile(&model_id)
-            .map_err(AppError::from)?,
-        _ => {
-            return Err(AppError::internal(format!(
-                "Unknown model type: {}",
-                model_type
-            )))
+    // v0.23.66: 按角色设置对应字段
+    if let Some(ref role_str) = role {
+        let model_role = match role_str.as_str() {
+            "creative" => crate::config::settings::ModelRole::Creative,
+            "tool" => crate::config::settings::ModelRole::Tool,
+            "background" => crate::config::settings::ModelRole::Background,
+            _ => {
+                return Err(AppError::internal(format!(
+                    "Unknown model role: {}",
+                    role_str
+                )))
+            }
+        };
+        config
+            .set_model_for_role(model_role, &model_id)
+            .map_err(AppError::from)?;
+    } else {
+        match model_type.as_str() {
+            "chat" => config
+                .set_active_llm_profile(&model_id)
+                .map_err(AppError::from)?,
+            "multimodal" => config
+                .set_active_llm_profile(&model_id)
+                .map_err(AppError::from)?,
+            "embedding" => config
+                .set_active_embedding_profile(&model_id)
+                .map_err(AppError::from)?,
+            _ => {
+                return Err(AppError::internal(format!(
+                    "Unknown model type: {}",
+                    model_type
+                )))
+            }
         }
     }
 

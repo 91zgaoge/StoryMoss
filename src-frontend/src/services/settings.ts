@@ -117,9 +117,13 @@ export async function deleteModel(id: string): Promise<void> {
   await loggedInvoke<void>('delete_model', { id });
 }
 
-// 设置激活的模型
-export async function setActiveModel(type: ModelConfig['type'], modelId: string): Promise<void> {
-  await loggedInvoke<void>('set_active_model', { modelType: type, modelId });
+// 设置激活的模型（v0.23.66: 支持 role 参数指定创意/工具/后台角色）
+export async function setActiveModel(
+  type: ModelConfig['type'],
+  modelId: string,
+  role?: 'creative' | 'tool' | 'background'
+): Promise<void> {
+  await loggedInvoke<void>('set_active_model', { modelType: type, modelId, role: role ?? null });
 }
 
 // 获取Agent模型映射

@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.65
+- **版本**: v0.23.66
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,11 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.66 模型角色分配 × 后台并发根治** (2026-06-28) — 两层修复解决模型过载与前端页面崩溃问题。核心变更：
+    - **模型角色分配**：新增三种模型角色——创作模型（正文生成/Writer/改写）、工具模型（Call 1 路由/探测/JSON 提取）、后台任务模型（BGP 审计/入库/洞察/Genesis 后台流水线）。`AppConfig` +3 字段 + `GatewayRequest.model_role` + `resolve_role_model` 解析方法。网关 `select_candidates`/`select_fastest_profile` 按角色选择对应模型并强制置顶；未设置时自动分配（快→工具，闲置→后台，创作回退 active）。前端 `UnifiedModelManager` 顶部新增「模型角色分配」卡片（三个下拉框 + "自动分配"选项），`ModelCard` 显示角色徽章（琥珀=创作/蓝=工具/紫=后台）
+    - **后台并发过载根治**：`ParallelWorldOutlineCharacterStep` 从 `tokio::join!` 3 路并发改为串行 `.await` + `BACKGROUND_LLM_SEMAPHORE` 保护；BGP-4 `run_insight` 前加信号量；Genesis 后台 spawn 入口加信号量。任何时刻最多 1 个后台 LLM 调用，根治单模型过载 → `INTERNAL_ERROR` 洪流 → 前端崩溃的链路
+    - 验证：`cargo test --lib` **582 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`cargo +nightly fmt -- --check` ✓
 
   - **v0.23.65 提示词工程全链路修复** (2026-06-27) — 对提示词工程进行深度审计，修复 80+ 高质量提示词在默认续写路径（TimeSliced）被系统性旁路的问题，全部改动零新增 LLM 调用。核心变更：
     - **P0-1/P0-2：`writer_system` 全链透传**。`writer_system`（7 条写作准则）此前仅在 Full 路径（`build_writer_prompt`）生效，TriShot Call 3 和 TimeSliced（默认续写）完全旁路。现在从 orchestrator → `generate_for_task*` → `GatewayRequest` → `execute_generation` → `GenerateRequest` → 适配器全链路透传 `system_prompt`。`GatewayRequest` +`system_prompt` 字段；`execute_generation` 三级优先级（每模型 > adapter 默认 > `writer_system` 注册表默认）；Ollama 适配器 `system_prompt` 前置拼接
