@@ -323,6 +323,11 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 estimated_input_tokens: 0,
                 constraints: vec![],
             };
+            // v0.23.66: 为可能的重试保存副本
+            let retry_request = request.clone();
+            let retry_pipeline_ctx = pipeline_ctx.clone();
+            let retry_prompt_base = prompt.clone();
+
             let response = llm
                 .generate_for_request_with_context_and_pipeline(
                     request,
@@ -341,8 +346,47 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             );
 
             let content = response.content.trim();
-            let json_str = super::extract_and_sanitize_json(content)
-                .map_err(|e| PipelineError::ParseError(e))?;
+            let json_str = match super::extract_and_sanitize_json(content) {
+                Ok(s) => s,
+                Err(first_err) => {
+                    // v0.23.66: 一次重试——部分本地量化模型无视"只输出JSON"指令，
+                    // 返回纯文本/散文而非 JSON。用更严格的提示词重试一次。
+                    log::warn!(
+                        "[GenesisDiag] ConceptGenerationStep: 首次JSON提取失败({})，准备重试。content_preview={}",
+                        first_err,
+                        &content[..content.len().min(200)]
+                    );
+                    let retry_prompt = format!(
+                        "{}\n\n【重要】你的上一次回复未包含有效的JSON格式。请严格按以下JSON格式输出，不要添加任何解释、思考、markdown或前缀文字：\n{}\n只输出JSON，不要输出其他任何内容。",
+                        retry_prompt_base,
+                        r#"{"title":"故事标题","description":"一句话简介","genre":"题材","tone":"基调","pacing":"节奏","themes":["主题1"],"target_length":"篇幅"}"#
+                    );
+                    let retry_response = llm
+                        .generate_for_request_with_context_and_pipeline(
+                            retry_request,
+                            retry_prompt,
+                            Some(concept_max_tokens),
+                            Some(concept_temperature),
+                            Some("生成故事概念（重试）"),
+                            Some(retry_pipeline_ctx),
+                        )
+                        .await
+                        .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+                    let retry_content = retry_response.content.trim();
+                    super::extract_and_sanitize_json(retry_content)
+                        .map_err(|retry_err| {
+                            log::error!(
+                                "[GenesisDiag] ConceptGenerationStep: 重试也失败({})。retry_content_preview={}",
+                                retry_err,
+                                &retry_content[..retry_content.len().min(200)]
+                            );
+                            PipelineError::ParseError(format!(
+                                "JSON解析失败（含1次重试）: 首次={}, 重试={}",
+                                first_err, retry_err
+                            ))
+                        })?
+                }
+            };
             log::warn!(
                 "[GenesisDiag] ConceptGenerationStep: JSON 提取成功，len={}，开始反序列化",
                 json_str.len()
