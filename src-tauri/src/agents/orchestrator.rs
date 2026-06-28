@@ -3284,43 +3284,45 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
 /// v0.23.66: 检测并去除 LLM 单次生成中的全文重复。
 ///
 /// 部分模型在长文本生成时会从头重复已生成的内容（类似"循环输出"）。
-/// 检测策略：取前半段与后半段比较，若前 200 字符完全匹配则判定为重复，
-/// 只保留前半段。
+/// 检测策略：取文本开头的指纹（前 200 字符），在全文剩余部分搜索相同指纹。
+/// 若在中间某处找到且不太靠近末尾，则判定为重复，截断保留前半段。
 fn deduplicate_full_text(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
-    if chars.len() < 200 {
+    let total = chars.len();
+    if total < 400 {
         return text.to_string();
     }
-    let mid = chars.len() / 2;
-    // 取前半段前 200 字符作为指纹
-    let head_fingerprint: String = chars[..200.min(chars.len())].iter().collect();
-    // 在后半段开头查找这个指纹
-    let second_half_start = mid;
-    if second_half_start + 200 <= chars.len() {
-        let second_half_head: String = chars[second_half_start..second_half_start + 200]
-            .iter()
-            .collect();
-        // 比较前 200 字符是否相同（容差：允许少量空白差异）
-        let similarity = head_fingerprint
-            .chars()
-            .zip(second_half_head.chars())
-            .filter(|(a, b)| a == b)
-            .count() as f64
-            / 200.0;
-        if similarity > 0.85 {
-            log::warn!(
-                "[sanitize] 检测到全文重复（相似度={:.2}），保留前半段（{}→{} 字符）",
-                similarity,
-                chars.len(),
-                mid
-            );
-            return chars[..second_half_start]
-                .iter()
-                .collect::<String>()
-                .trim()
-                .to_string();
-        }
+
+    // 取开头 100 字符作为指纹（短指纹避免后半段窗口不足，同时足够唯一）
+    let fingerprint_len = 100.min(total / 3);
+    if fingerprint_len < 30 {
+        return text.to_string();
     }
+    let fingerprint: Vec<char> = chars[..fingerprint_len].to_vec();
+
+    let search_start = total / 2;
+    if search_start + fingerprint_len > total {
+        return text.to_string();
+    }
+    // 从文本中点开始搜索，用 rposition 找最后一个匹配（真正的重复起点），
+    // 而非第一个（可能是故事内部的巧合重复，如角色名再次出现）。
+    if let Some(pos) = chars[search_start..]
+        .windows(fingerprint_len)
+        .rposition(|w| w == fingerprint.as_slice())
+    {
+        let match_pos = search_start + pos;
+        log::warn!(
+            "[sanitize] 检测到全文重复：指纹在位置 {} 再次出现（总长={}），截断保留前段",
+            match_pos,
+            total,
+        );
+        return chars[..match_pos]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string();
+    }
+
     text.to_string()
 }
 
@@ -3563,5 +3565,43 @@ mod tests {
         // 远端 2 候选配置（用户显式设置）时，总超时仍被硬上限 90s 截断
         let remote_total_2 = remote_per.saturating_mul(2).saturating_add(30).min(90);
         assert_eq!(remote_total_2, 90);
+    }
+
+    // =========================================================================
+    // v0.23.66: deduplicate_full_text 测试
+    // =========================================================================
+
+    #[test]
+    fn test_dedup_full_text_repeat_at_end() {
+        // 模拟真实场景：正文后面从开头完整重复了一遍
+        let story = "静寂。是他最恨的东西。在绝对的静寂中，他甚至能听到自己的呼吸声在头盔里回荡——那种沙哑的、费力的喘息，像是一台即将熄火的老式发动机。他站在悬崖边缘，俯瞰着下方无尽的深渊。那里什么都没有。没有云，没有风，没有生命的痕迹。只有那种让人窒息的、铁灰色的虚空。他转过头，看向身后的山洞。那里隐藏着他们仅剩的飞船残骸，以及那一小群疲惫的幸存者——他们是这个世界上仅存的文明火种。他深吸了口气，启动了背部的喷气推进器。头盔里的仪表盘疯狂地闪烁着。他推开了悬崖边缘的阻挡板，纵身一跃，坠入了深渊。";
+        // 构造：故事 + 换行 + 故事（从开头完整重复）
+        let content = format!("{}\n{}", story, story);
+        let result = deduplicate_full_text(&content);
+        assert!(
+            result.len() < content.len(),
+            "result {} < content {}",
+            result.len(),
+            content.len()
+        );
+        // 每段故事只应出现一次
+        let count = result.matches("静寂。是他最恨的东西。").count();
+        assert_eq!(count, 1, "phrase count={} in result:\n{}", count, result);
+    }
+
+    #[test]
+    fn test_dedup_no_duplicate() {
+        // 正常文本不应被截断
+        let content =
+            "这是一段正常的续写内容。\n包含多个段落。\n每个段落都是不同的。\n没有任何重复。";
+        let result = deduplicate_full_text(content);
+        assert_eq!(result.trim(), content.trim());
+    }
+
+    #[test]
+    fn test_dedup_too_short() {
+        let content = "短文本";
+        let result = deduplicate_full_text(content);
+        assert_eq!(result, content); // 太短，不处理
     }
 }
