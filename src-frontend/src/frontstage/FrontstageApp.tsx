@@ -164,7 +164,21 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => {
     isSavedRef.current = isSaved;
   }, [isSaved]);
-  const [generatedText, setGeneratedText] = useState('');
+  const [generatedText, _setGeneratedText] = useState('');
+  // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
+  const setGeneratedText = (text: string) => {
+    if (text && text.length > 50) {
+      const stack = new Error().stack?.split('\n').slice(1, 5).join(' <- ');
+      frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
+        textLen: text.length,
+        preview: text.slice(0, 80),
+        stack: stack || 'unknown',
+      });
+    } else if (text === '') {
+      frontstageLogger.info('[GEN-TEXT] setGeneratedText cleared');
+    }
+    _setGeneratedText(text);
+  };
   const [wordCount, setWordCount] = useState(0);
   const [fontSize, setFontSize] = useState(() => loadEditorConfig().fontSize);
   const [isZenMode, setIsZenMode] = useState(false);

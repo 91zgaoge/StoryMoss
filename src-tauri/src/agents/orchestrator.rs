@@ -897,8 +897,12 @@ impl AgentOrchestrator {
             Some("time-sliced direct generate_for_task"),
         );
 
-        let content = gen_response.content;
+        let raw_content = gen_response.content;
         let request_id = gen_response.model.clone();
+
+        // v0.23.66: TimeSliced 路径也走 sanitize_novel_output（之前只有 TriShot 走），
+        // 确保全文重复检测（deduplicate_full_text）对所有生成路径生效。
+        let content = sanitize_novel_output(&raw_content);
 
         // v0.22.1: 轻量 StyleDNA 句长偏差检测（意见2）
         // 检查生成文本的句长是否偏离目标 StyleDNA 指标。
@@ -3298,15 +3302,26 @@ fn deduplicate_full_text(text: &str) -> String {
     if fingerprint_len < 30 {
         return text.to_string();
     }
-    let fingerprint: Vec<char> = chars[..fingerprint_len].to_vec();
+    // v0.23.66: 空白归一化——将换行/连续空白替换为单个空格。
+    // LLM 第一遍输出用 \n 分段，第二遍用空格，精确匹配会失败。
+    // 归一化后两遍指纹一致。
+    let fingerprint: Vec<char> = chars[..fingerprint_len]
+        .iter()
+        .map(|&c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    // 也归一化搜索目标
+    let normalized: Vec<char> = chars
+        .iter()
+        .map(|&c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
 
+    // 从文本中点开始搜索，用 rposition 找最后一个匹配（真正的重复起点），
+    // 而非第一个（可能是故事内部的巧合重复，如角色名再次出现）。
     let search_start = total / 2;
     if search_start + fingerprint_len > total {
         return text.to_string();
     }
-    // 从文本中点开始搜索，用 rposition 找最后一个匹配（真正的重复起点），
-    // 而非第一个（可能是故事内部的巧合重复，如角色名再次出现）。
-    if let Some(pos) = chars[search_start..]
+    if let Some(pos) = normalized[search_start..]
         .windows(fingerprint_len)
         .rposition(|w| w == fingerprint.as_slice())
     {
@@ -3575,18 +3590,27 @@ mod tests {
     fn test_dedup_full_text_repeat_at_end() {
         // 模拟真实场景：正文后面从开头完整重复了一遍
         let story = "静寂。是他最恨的东西。在绝对的静寂中，他甚至能听到自己的呼吸声在头盔里回荡——那种沙哑的、费力的喘息，像是一台即将熄火的老式发动机。他站在悬崖边缘，俯瞰着下方无尽的深渊。那里什么都没有。没有云，没有风，没有生命的痕迹。只有那种让人窒息的、铁灰色的虚空。他转过头，看向身后的山洞。那里隐藏着他们仅剩的飞船残骸，以及那一小群疲惫的幸存者——他们是这个世界上仅存的文明火种。他深吸了口气，启动了背部的喷气推进器。头盔里的仪表盘疯狂地闪烁着。他推开了悬崖边缘的阻挡板，纵身一跃，坠入了深渊。";
-        // 构造：故事 + 换行 + 故事（从开头完整重复）
         let content = format!("{}\n{}", story, story);
+        let result = deduplicate_full_text(&content);
+        assert!(result.len() < content.len());
+        assert_eq!(result.matches("静寂。是他最恨的东西。").count(), 1);
+    }
+
+    #[test]
+    fn test_dedup_whitespace_variant() {
+        // 第一次用 \n 分段，第二次用空格——两种空白格式应归一化后匹配
+        let line = "静寂。是他最恨的东西。在绝对的静寂中，他甚至能听到自己的呼吸声在头盔里回荡。他站在悬崖边缘，俯瞰着下方无尽的深渊。那里什么都没有。没有云，没有风，没有生命的痕迹。只有那种让人窒息的、铁灰色的虚空。他转过头，看向身后的山洞。他深吸了口气，启动了背部的喷气推进器。头盔里的仪表盘疯狂地闪烁着。他推开了悬崖边缘的阻挡板，纵身一跃，坠入了深渊。";
+        // 构造足够长的内容（>400）
+        let first = format!("{}\n{}\n{}", line, line, line);
+        let second = first.replace('\n', " ");
+        let content = format!("{}\n{}", first, second);
         let result = deduplicate_full_text(&content);
         assert!(
             result.len() < content.len(),
-            "result {} < content {}",
+            "空白不同时也应检测到重复: result={} content={}",
             result.len(),
             content.len()
         );
-        // 每段故事只应出现一次
-        let count = result.matches("静寂。是他最恨的东西。").count();
-        assert_eq!(count, 1, "phrase count={} in result:\n{}", count, result);
     }
 
     #[test]
