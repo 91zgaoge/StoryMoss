@@ -267,6 +267,15 @@ pub struct AppSettingsData {
     pub writer_system_prompt_override: Option<String>,
     #[serde(default)]
     pub probe_prompt_override: Option<String>,
+    /// v0.23.66: 创世/首章温度（推荐 1.0-1.3）
+    #[serde(default)]
+    pub creative_temperature: Option<f32>,
+    /// v0.23.66: 续写温度（推荐 0.7-0.9）
+    #[serde(default)]
+    pub continuation_temperature: Option<f32>,
+    /// v0.23.66: 工具温度（推荐 0.2-0.4）
+    #[serde(default)]
+    pub tool_temperature: Option<f32>,
 }
 
 fn default_concurrency() -> usize {
@@ -466,6 +475,9 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         writer_system_prompt_override: Some(config.writer_system_prompt_override.clone()),
         probe_prompt_override: Some(config.probe_prompt_override.clone()),
         auto_rewrite_severity_threshold: Some(config.auto_rewrite_severity_threshold.clone()),
+        creative_temperature: config.creative_temperature,
+        continuation_temperature: config.continuation_temperature,
+        tool_temperature: config.tool_temperature,
     })
 }
 
@@ -528,6 +540,10 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     config.max_feedback_loops = settings.max_feedback_loops.max(1).min(10);
     // 保存写作策略
     config.writing_strategy = settings.writing_strategy;
+    // v0.23.66: 保存任务分型温度覆盖
+    config.creative_temperature = settings.creative_temperature;
+    config.continuation_temperature = settings.continuation_temperature;
+    config.tool_temperature = settings.tool_temperature;
     // 保存通用与隐私设置
     config.theme = settings.general.theme;
     config.language = settings.general.language;

@@ -298,10 +298,12 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                     .map(|c| {
                         let profile_id = c.active_llm_profile.as_deref();
                         let profile = profile_id.and_then(|id| c.llm_profiles.get(id));
-                        (
-                            profile.map(|p| p.max_tokens).unwrap_or(512),
-                            profile.map(|p| p.temperature).unwrap_or(0.7),
-                        )
+                        // v0.23.66: 创世温度优先用 creative_temperature 覆盖，回退到 profile 默认
+                        let temp = c
+                            .creative_temperature()
+                            .or_else(|| profile.map(|p| p.temperature))
+                            .unwrap_or(0.7);
+                        (profile.map(|p| p.max_tokens).unwrap_or(512), temp)
                     })
                     .unwrap_or((512, 0.7));
 

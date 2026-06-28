@@ -215,6 +215,16 @@ pub struct AppConfig {
     /// v0.23.66: 后台任务模型 — BGP 审计/入库/洞察、Genesis 后台流水线
     #[serde(default)]
     pub background_model_id: Option<String>,
+    /// v0.23.66: 创世/首章温度 — 用于生成全新故事概念和第一章（推荐 1.0-1.3）
+    #[serde(default)]
+    pub creative_temperature: Option<f32>,
+    /// v0.23.66: 续写温度 — 用于已有内容基础上的续写/改写（推荐 0.7-0.9）
+    #[serde(default)]
+    pub continuation_temperature: Option<f32>,
+    /// v0.23.66: 工具温度 — 用于路由合成/Call1/JSON提取等精确任务（推荐
+    /// 0.2-0.4）
+    #[serde(default)]
+    pub tool_temperature: Option<f32>,
     #[serde(default)]
     pub agent_mappings: HashMap<String, AgentMapping>,
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
@@ -995,6 +1005,9 @@ impl Default for AppConfig {
             creative_model_id: None,
             tool_model_id: None,
             background_model_id: None,
+            creative_temperature: None,
+            continuation_temperature: None,
+            tool_temperature: None,
             agent_mappings,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
@@ -1355,6 +1368,21 @@ impl AppConfig {
             ModelRole::Background => &mut self.background_model_id,
         };
         *slot = None;
+    }
+
+    /// v0.23.66: 获取创意生成（创世/首章）的温度覆盖值
+    pub fn creative_temperature(&self) -> Option<f32> {
+        self.creative_temperature
+    }
+
+    /// v0.23.66: 获取续写温度覆盖值
+    pub fn continuation_temperature(&self) -> Option<f32> {
+        self.continuation_temperature
+    }
+
+    /// v0.23.66: 获取工具任务（路由/JSON提取）温度覆盖值
+    pub fn tool_temperature(&self) -> Option<f32> {
+        self.tool_temperature
     }
 
     /// 添加LLM配置

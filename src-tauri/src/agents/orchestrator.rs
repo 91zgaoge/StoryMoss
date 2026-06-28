@@ -872,7 +872,21 @@ impl AgentOrchestrator {
                 crate::router::TaskType::CreativeWriting,
                 prompt,
                 Some(2048),
-                Some(0.75),
+                {
+                    // v0.23.66: 续写温度——优先用 continuation_temperature 覆盖，
+                    // 回退到 profile 温度，最后默认 0.75
+                    let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+                    crate::config::AppConfig::load(&app_dir)
+                        .ok()
+                        .and_then(|c| c.continuation_temperature())
+                        .or_else(|| {
+                            self.service
+                                .llm_service_ref()
+                                .get_active_profile()
+                                .map(|p| p.temperature)
+                        })
+                        .or(Some(0.75))
+                },
                 Some("time-sliced-writer"),
                 writer_system_prompt,
             )
@@ -1461,7 +1475,26 @@ impl AgentOrchestrator {
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
                 Some(2048),
-                Some(0.75),
+                {
+                    // v0.23.66: 续写/生成温度——优先用 creative_temperature（创世首章）
+                    // 或 continuation_temperature（续写），回退到 profile 温度。
+                    let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+                    crate::config::AppConfig::load(&app_dir)
+                        .ok()
+                        .and_then(|c| {
+                            // TriShot 用于创世首章（creative）和续写（continuation），
+                            // 根据 is_genesis 标记选择对应温度
+                            c.creative_temperature()
+                                .or_else(|| c.continuation_temperature())
+                        })
+                        .or_else(|| {
+                            self.service
+                                .llm_service_ref()
+                                .get_active_profile()
+                                .map(|p| p.temperature)
+                        })
+                        .or(Some(0.75))
+                },
                 Some("trishot-writer"),
                 asset_tags,
                 selected_ids,

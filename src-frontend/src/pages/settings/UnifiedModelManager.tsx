@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
   Database,
@@ -15,8 +15,10 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
-import type { ModelConfig, ModelType } from '@/types/llm';
+import { saveSettings } from '@/services/settings';
+import type { ModelConfig, ModelType, AppSettings } from '@/types/llm';
 import { cn } from '@/utils/cn';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { ModelList } from './ModelList';
 import { ModelModal } from './ModelModal';
@@ -42,8 +44,20 @@ export function UnifiedModelManager() {
 
   const { models, settings, isLoading, setActiveModel, deleteModel } = useSettingsContext();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const activeModelIds = settings?.active_models ?? {};
+
+  // v0.23.66: 温度覆盖保存
+  const handleSetTemperature = useCallback(
+    async (field: string, value: number | undefined) => {
+      if (!settings) return;
+      const updated: AppSettings = { ...settings, [field]: value };
+      await saveSettings(updated);
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+    [settings, queryClient]
+  );
 
   // 模型连接状态管理
   const { states, checkModels, checkModel } = useModelConnectionStore();
@@ -157,6 +171,10 @@ export function UnifiedModelManager() {
           models={models}
           activeModels={activeModelIds}
           onSetRole={(modelId, role) => setActiveModel('chat', modelId, role)}
+          creativeTemp={settings?.creative_temperature}
+          continuationTemp={settings?.continuation_temperature}
+          toolTemp={settings?.tool_temperature}
+          onSetTemperature={handleSetTemperature}
         />
       )}
 
@@ -308,13 +326,28 @@ function ModelRoleCard({
   models,
   activeModels,
   onSetRole,
+  creativeTemp,
+  continuationTemp,
+  toolTemp,
+  onSetTemperature,
 }: {
   models: ModelConfig[];
   activeModels: Record<string, string | undefined>;
   onSetRole: (modelId: string, role: ModelRoleKey) => void;
+  creativeTemp?: number;
+  continuationTemp?: number;
+  toolTemp?: number;
+  onSetTemperature: (field: string, value: number | undefined) => void;
 }) {
-  // 只为聊天模型提供角色选择
-  const chatModels = models.filter(m => m.type === 'chat');
+  // 创作/工具/后台角色：chat 和 multimodal 模型都可以用于文本生成
+  const eligibleModels = models.filter(m => m.type === 'chat' || m.type === 'multimodal');
+
+  // 角色→温度字段映射
+  const tempMap: Record<string, { key: string; value?: number; label: string }> = {
+    creative: { key: 'creative_temperature', value: creativeTemp, label: '创世温度' },
+    tool: { key: 'tool_temperature', value: toolTemp, label: '工具温度' },
+    background: { key: 'continuation_temperature', value: continuationTemp, label: '续写温度' },
+  };
 
   return (
     <Card>
@@ -327,7 +360,7 @@ function ModelRoleCard({
           {(Object.entries(ROLE_CONFIG) as [ModelRoleKey, (typeof ROLE_CONFIG)['creative']][]).map(
             ([role, config]) => {
               const currentId = activeModels[role];
-              const currentModel = chatModels.find(m => m.id === currentId);
+              const currentModel = eligibleModels.find(m => m.id === currentId);
               return (
                 <div key={role} className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
                   <span
@@ -352,12 +385,31 @@ function ModelRoleCard({
                     }}
                   >
                     <option value="">自动分配（网关判断）</option>
-                    {chatModels.map(m => (
+                    {eligibleModels.map(m => (
                       <option key={m.id} value={m.id}>
                         {m.name}
                       </option>
                     ))}
                   </select>
+                  {/* v0.23.66: 温度覆盖输入 */}
+                  {tempMap[role] && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-500">{tempMap[role].label}</span>
+                      <input
+                        type="number"
+                        className="bg-cinema-800 border border-cinema-700 rounded-md text-xs text-white px-1.5 py-1 w-16 text-center focus:border-cinema-gold focus:outline-none"
+                        min={0.1}
+                        max={2.0}
+                        step={0.1}
+                        placeholder="默认"
+                        value={tempMap[role].value ?? ''}
+                        onChange={e => {
+                          const v = e.target.value;
+                          onSetTemperature(tempMap[role].key, v === '' ? undefined : parseFloat(v));
+                        }}
+                      />
+                    </div>
+                  )}
                   {currentModel && (
                     <span className="text-xs text-cinema-gold bg-cinema-gold/10 px-2 py-0.5 rounded">
                       {currentModel.name.length > 15

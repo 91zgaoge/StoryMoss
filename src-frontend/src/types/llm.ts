@@ -340,6 +340,12 @@ export interface AppSettings {
   // v0.16.0: 提示词覆盖
   writer_system_prompt_override?: string;
   probe_prompt_override?: string;
+  /** v0.23.66: 创世/首章温度（推荐 1.0-1.3） */
+  creative_temperature?: number;
+  /** v0.23.66: 续写温度（推荐 0.7-0.9） */
+  continuation_temperature?: number;
+  /** v0.23.66: 工具温度（推荐 0.2-0.4） */
+  tool_temperature?: number;
 }
 
 export interface WritingStrategy {
