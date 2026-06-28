@@ -254,6 +254,35 @@ fn derive_intent_from_label(label: Option<&str>) -> (Option<&str>, Option<&str>)
     }
 }
 
+/// v0.23.69: 从 context_label 推导模型角色。
+///
+/// 含"世界观/大纲/角色/场景/伏笔/图谱/后台/审计/洞察/入库/记忆"等关键字的
+/// 标注为 Background，确保后台任务通过 BACKGROUND_LLM_SEMAPHORE 串行化后
+/// 使用后台模型而非抢占创作/工具模型。
+fn derive_model_role_from_label(label: Option<&str>) -> Option<crate::config::settings::ModelRole> {
+    let label = label.unwrap_or("");
+    let bg_keywords = [
+        "世界观",
+        "大纲",
+        "角色",
+        "场景",
+        "伏笔",
+        "图谱",
+        "后台",
+        "审计",
+        "洞察",
+        "入库",
+        "记忆",
+        "strategy_select",
+        "background",
+    ];
+    if bg_keywords.iter().any(|kw| label.contains(kw)) {
+        Some(crate::config::settings::ModelRole::Background)
+    } else {
+        None // 网关按 TaskClass 自动推导
+    }
+}
+
 /// 封装一次 LLM 调用记录所需的数据，避免 `record_llm_call` 参数过多。
 struct LlmCallRecord<'a> {
     model_id: &'a str,
@@ -524,7 +553,10 @@ impl LlmService {
             // v0.23.65: 请求级 system_prompt 透传
             system_prompt: system_prompt.clone(),
             // v0.23.66: 模型角色偏好（留 None，网关按 TaskClass 自动推导）
-            model_role: None,
+            // v0.23.69: 从 context_label 推导 model_role。含"世界观/大纲/角色/场景/
+            // 伏笔/图谱/后台/审计/洞察/入库/记忆"等关键字的标注为 Background，
+            // 确保后台任务不抢占创作/工具模型。
+            model_role: derive_model_role_from_label(context_label),
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => {
