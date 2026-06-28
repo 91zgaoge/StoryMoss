@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.66-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.67-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.66 模型角色分配——为模型设置添加「创作/工具/后台任务」三层默认模型，网关按任务类型智能调度，解决单模型过载与前端页面崩溃问题。v0.23.65 提示词工程全链路修复——`writer_system`（7 条写作准则）从仅 Full 路径生效扩展为 TimeSliced+TriShot 全覆盖，Call 1 选中资产正文首次回灌到 Writer prompt。
+**最新动态**：v0.23.67 全文重复根治——后端空白归一化+TimeSliced路径sanitize全覆盖+前端GEN-TEXT诊断日志。v0.23.66 模型角色分配+任务分型温度覆盖。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 
