@@ -371,7 +371,6 @@ pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryM
                     val = val
                         .trim_matches(|c: char| {
                             c == '"'
-                                || c == '"'
                                 || c == '\''
                                 || c == '《'
                                 || c == '》'
