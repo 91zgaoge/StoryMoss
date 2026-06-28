@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.68
+- **版本**: v0.23.69
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -145,7 +145,7 @@ type:
 
 ### 🏷️ 版本标签规则（永久）
 
-- **每次推送必须使用新 tag**（如 v0.23.66 → v0.23.68），禁止 force push 覆盖已有 tag
+- **每次推送必须使用新 tag**（如 v0.23.66 → v0.23.69），禁止 force push 覆盖已有 tag
 - 原因：① 新 tag 可靠触发 CI 构建 ② 版本可追溯 ③ 回滚安全
 - 做法：`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`
 ```

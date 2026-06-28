@@ -1617,6 +1617,10 @@ const FrontstageApp: React.FC = () => {
     setCurrentChapter(chapter);
     const formattedContent = autoFormatText(chapter.content || '');
     setContent(formattedContent);
+    // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
+    // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
+    // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
+    setGeneratedText('');
     // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
     latestContentRef.current = formattedContent;
     setIsSaved(true);
