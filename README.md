@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.70-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.71-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.70 全文重复根治——后端空白归一化+TimeSliced路径sanitize全覆盖+前端GEN-TEXT诊断日志。v0.23.66 模型角色分配+任务分型温度覆盖。
+**最新动态**：v0.23.71 全文重复根治——后端空白归一化+TimeSliced路径sanitize全覆盖+前端GEN-TEXT诊断日志。v0.23.66 模型角色分配+任务分型温度覆盖。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

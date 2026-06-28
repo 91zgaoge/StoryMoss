@@ -187,6 +187,20 @@ const FrontstageApp: React.FC = () => {
   const [wensiMode, setWensiMode] = useState<WensiMode>('passive');
 
   const [smartGhostText, setSmartGhostText] = useState('');
+
+  // v0.23.70: 反应式安全网——editor 有内容时自动清 generatedText。
+  // 续写走 Tab 确认天然保证 generatedText 在内容加载后被清空，
+  // 但创世第一章跳过了确认步骤。此 effect 在任何 content 变更后
+  // 检查 generatedText 是否残留，有则清空，彻底消除"有排版+无排版"双副本。
+  useEffect(() => {
+    if (content && content.length > 100 && generatedText && generatedText.length > 50) {
+      frontstageLogger.info('[GEN-TEXT] useEffect: content present, clearing stale generatedText', {
+        contentLen: content.length,
+        generatedTextLen: generatedText.length,
+      });
+      setGeneratedText('');
+    }
+  }, [content, generatedText]);
   const [inlineSuggestion, setInlineSuggestion] = useState<{
     instruction: string;
     targetText: string;
