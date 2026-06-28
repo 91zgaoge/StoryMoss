@@ -142,6 +142,12 @@ type:
   refactor: 重构
   test: 测试
   chore: 构建
+
+### 🏷️ 版本标签规则（永久）
+
+- **每次推送必须使用新 tag**（如 v0.23.66 → v0.23.67），禁止 force push 覆盖已有 tag
+- 原因：① 新 tag 可靠触发 CI 构建 ② 版本可追溯 ③ 回滚安全
+- 做法：`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`
 ```
 
 ---
