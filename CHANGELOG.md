@@ -2,6 +2,35 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.74] - 场景优先架构迁移——Scene 成为唯一叙事真相源（2026-06-28）
+
+### 架构变更
+
+四阶段完整迁移，对齐 CONTEXT.md 设计意图，结束 chapter-centric 到 scene-centric 的过渡期：
+
+**Phase 1 — 消灭内容双写**：`scenes.content` 成为唯一叙事真相源。`ChapterRepository::update()` 移除 content 参数、移除 cascade 到 scenes 的同步写入。`SceneRepository::update_in_tx()` 移除 reverse-cascade 到 chapters。`ChapterRepository::create()` 不再向 chapters 表写入 content。新增 `get_content(chapter_id)` 从 scenes 聚合。`get_by_id/get_by_story` 自动 fallback 到 scenes。`total_content_length_by_story()` 改为查询 scenes 表。`ChapterRepo` trait 签名更新。
+
+**Phase 2 — 前端编辑器切到 Scene**：`frontstageStore` 主键从 `chapterId` 改为 `sceneId`，`setChapterInfo` → `setSceneInfo`。自动保存从 `update_chapter` 迁移到 `update_scene`。`ChapterSwitch` 事件新增 `scene_id` 字段。`FrontstageEvent` 类型同步更新。
+
+**Phase 3 — Commit 触发点迁移**：`SceneService::on_scene_updated()` 新增 `SceneCommitDebouncer`（30s 空闲防抖），接管 auto_commit。`ChapterService::on_chapter_updated()` 移除 `ChapterCommitDebouncer`。Vector `record_type` 从 `"chapter"` 改为 `"scene"`。
+
+**Phase 4 — 创世场景化**：
+- 新增 `narrative_first_scene_generate` 提示词模板（14 个场景级变量：dramatic_goal、conflict_type、characters_present、setting_location/time/atmosphere、scene_outline 等）
+- `first_scene_prompt()` 函数注入完整场景戏剧结构
+- Genesis `FirstChapterGenerationStep` 调用场景级模板
+- `SceneOutline` 扩展：新增 `characters_present`、`setting_time`、`setting_atmosphere`、`outline_content`
+- `WriteTimeBundle::to_prompt()` 渲染新增场景字段
+
+**幕前纯正文**：移除 TipTap `SceneDividerNode` 扩展，幕前编辑器仅显示无缝拼接的纯正文（如成品书页）。新增 `get_chapter_aggregated_content` 命令。
+
+**前后台同步增强**：`SceneUpdated` 事件新增 `content_changed: bool` 字段，区分内容变更与元数据变更。
+
+### 验证
+- `cargo check`：零错误
+- `cargo test --lib`：**592 passed / 0 failed / 2 ignored**（基线 582 + 新增 10）
+- `npx tsc --noEmit`：零错误
+- 29 files changed, 580 insertions(+), 126 deletions(-)
+
 ## [v0.23.66] - 模型角色分配 × 后台并发根治（2026-06-28）
 
 ### 模型角色分配：三层默认模型

@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.73
+- **版本**: v0.23.74
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -191,6 +191,13 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.74 场景优先架构迁移——Scene 成为唯一叙事真相源** (2026-06-28) — 四阶段完整迁移，对齐 CONTEXT.md 设计意图。核心变更：
+    - **Phase 1 消灭内容双写**：`scenes.content` 为唯一真相源。`ChapterRepository::update()` 移除 content 参数，不再写入 `chapters.content`；`SceneRepository::update_in_tx()` 移除 reverse-cascade；`ChapterRepository::create()` 不写 content 列。新增 `get_content(chapter_id)` 从 scenes 聚合。`get_by_id/get_by_story` 自动 fallback 到 scenes。`total_content_length_by_story()` 改为查 scenes 表
+    - **Phase 2 前端编辑器切到 Scene**：`frontstageStore` 主键 `chapterId`→`sceneId`，`setChapterInfo`→`setSceneInfo`。自动保存 `update_chapter`→`update_scene`。`ChapterSwitch` 事件新增 `scene_id`
+    - **Phase 3 Commit 触发点迁移**：`SceneService::on_scene_updated()` 新增 `SceneCommitDebouncer`（30s 防抖）接替 `ChapterCommitDebouncer`。Vector `record_type: "chapter"`→`"scene"`
+    - **Phase 4 创世场景化**：新增 `narrative_first_scene_generate` 提示词模板（14 场景变量：dramatic_goal/conflict_type/characters_present/setting 等）。`first_scene_prompt()` 注入完整戏剧结构。`SceneOutline` 扩展 4 字段。幕前编辑器移除 `SceneDividerNode`，纯正文无缝拼接。`SceneUpdated` 事件新增 `content_changed` 字段
+    - 验证：`cargo test --lib` **592 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓
 
   - **v0.23.66 模型角色分配 × 后台并发根治** (2026-06-28) — 两层修复解决模型过载与前端页面崩溃问题。核心变更：
     - **模型角色分配**：新增三种模型角色——创作模型（正文生成/Writer/改写）、工具模型（Call 1 路由/探测/JSON 提取）、后台任务模型（BGP 审计/入库/洞察/Genesis 后台流水线）。`AppConfig` +3 字段 + `GatewayRequest.model_role` + `resolve_role_model` 解析方法。网关 `select_candidates`/`select_fastest_profile` 按角色选择对应模型并强制置顶；未设置时自动分配（快→工具，闲置→后台，创作回退 active）。前端 `UnifiedModelManager` 顶部新增「模型角色分配」卡片（三个下拉框 + "自动分配"选项），`ModelCard` 显示角色徽章（琥珀=创作/蓝=工具/紫=后台）

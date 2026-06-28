@@ -1,8 +1,16 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-28（v0.23.66）
+> 最后更新: 2026-06-28（v0.23.74）
 
 ## ✅ v0.23.x 已实施完成
+
+### 📝 v0.23.74 场景优先架构迁移——Scene 成为唯一叙事真相源 ✅ (2026-06-28)
+- [x] Phase 1: 消灭内容双写 — `scenes.content` 为唯一真相源，`chapters.content` 不再直接写入
+- [x] Phase 2: 前端编辑器切到 Scene — store `sceneId` 主键，`update_scene` 自动保存
+- [x] Phase 3: Commit 触发点迁移 — `SceneCommitDebouncer` 接替 `ChapterCommitDebouncer`
+- [x] Phase 4: 创世提示词场景化 — `narrative_first_scene_generate`（14 场景变量），`SceneOutline` 扩展
+- [x] 幕前纯正文 — 移除 `SceneDividerNode`，章内容无缝聚合
+- [x] `SceneUpdated` 事件新增 `content_changed` 字段
 
 ### 📝 v0.23.66 模型角色分配 × 后台并发根治 ✅ (2026-06-28)
 - [x] 模型角色分配：创作/工具/后台三层默认模型 + 网关按角色智能调度 + 前端「模型角色分配」卡片

@@ -8,7 +8,7 @@ Glossary for the Rust core layer.
 |------|------------|------------------------|
 | **Scene** | Drama-conflict-driven narrative unit. The primary logical storytelling unit. Carries dramatic goal, external pressure, conflict type. | "chapter" (see distinction below) |
 | **Chapter** | Physical storage/publishing unit. An aggregation of one or more Scenes. Holds the final rendered text for export. | "scene" (see distinction below) |
-| **Bootstrap / Genesis** | One-click novel world creation pipeline. 7-step process: concept → first chapter → world-building → outline → characters → scenes → foreshadowing → knowledge graph. Synonymous terms. | "creation", "wizard" |
+| **Bootstrap / Genesis** | One-click novel world creation pipeline. 7-step process: concept → first scene (with dramatic goal, conflict, characters) → world-building → outline → characters → scenes → foreshadowing → knowledge graph. v0.23.74: scene-first prompts via `narrative_first_scene_generate`. Synonymous terms. | "creation", "wizard" |
 | **Book Deconstruction** | Reverse pipeline: analyze an existing novel (txt/pdf/epub) and convert it into a story project with extracted narrative elements. | "import", "parse" |
 | **Ingest Pipeline** | Two-step chain: analyze raw content (chapter text) → generate knowledge → save to knowledge graph + vector store. Triggered after chapter save/update. | "index", "import" |
 | **Query Pipeline** | 5-stage memory retrieval: token search → semantic search → fusion → graph expansion → budget control → context assembly. Produces a `MemoryPack`. | "search", "retrieval" |
@@ -30,9 +30,11 @@ Glossary for the Rust core layer.
 - **Scene** — The *creative unit*. The author's narrative atom: dramatic goal, conflict, beats, character arcs. Scenes are where the art happens. They are never optional.
 - **Chapter** — The *physical storage / publishing unit*. The reader's consumption boundary: linear text, page breaks, export artifacts. Chapters exist only because books need pagination.
 - A Chapter **aggregates** one or more Scenes, ordered by `sequence_number`.
-- **Current implementation is strictly 1:1** (`chapters.scene_id` → `scenes.id`, single-valued FK, Migration 37). **Target architecture is 1:N** (`scenes.chapter_id` FK, one Chapter contains multiple Scenes).
-- The 幕前 editor currently writes into a single Scene. In 1:N mode, it will aggregate multiple Scenes into a continuous editing surface with `scene-divider` Nodes.
-- The `chapters.content` field is a cached/aggregated view of its Scene(s) for export. In 1:N mode it becomes a read-only projection.
+- **Current implementation: v0.23.74 — Scene-first architecture complete.** `scenes.content` is the single source of truth for all narrative content. `chapters.content` is a read-only aggregated projection computed from Scene(s). One Chapter aggregates 1+ Scenes via `scenes.chapter_id` FK.
+- The 幕前 editor renders pure prose text — Scene contents are concatenated seamlessly with no divider markers. Users read/write as a continuous book page.
+- `chapters.content` is never directly written; all content writes go through `SceneRepository::update()`.
+- `ChapterRepository::get_content(chapter_id)` aggregates Scene contents by `sequence_number` into a single continuous string.
+- `SceneCommitDebouncer` (30s idle) triggers `SceneCommitService::auto_commit` from Scene saves, not Chapter saves.
 
 ## Known gaps (intention — to be resolved)
 
@@ -136,11 +138,11 @@ The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) implementatio
 
 ### SCENE_COMMIT trigger mechanism
 
-**Status: Resolved.** Commit granularity is **Scene-only**.
+**Status: Implemented (v0.23.74).** Commit granularity is **Scene-only**.
 
-- **Scene-level commit** (text edits, content changes): `SCENE_COMMIT` fires on Scene save/update, debounced 30s idle delay. Drives all 5 Projection Writers.
+- **Scene-level commit** (text edits, content changes): `SceneCommitDebouncer` fires on Scene save/update via `SceneService::on_scene_updated()`, debounced 30s idle delay. Drives all 5 Projection Writers.
 - **Chapter-level events** (structural changes: divider insert/delete, scene reorder): do **not** trigger Projection Writers. They only update the Chapter's read-only aggregated content view.
-- `ChapterCommitService::auto_commit` (v0.7.1) was a transitional artifact. Target: rename to `SceneCommitService`, migrate `chapter_commits` table to `scene_commits`.
+- `ChapterCommitDebouncer` (v0.7.1–v0.23.73) has been superseded by `SceneCommitDebouncer`. `SceneCommitService` is the canonical commit service.
 - Projection Writers operate on Scene deltas (`state_deltas_json`, `entity_deltas_json`, etc.). Chapter has no deltas of its own.
 
 ### Orchestration layer boundaries
