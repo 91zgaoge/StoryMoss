@@ -355,11 +355,13 @@ pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryM
     /// 从文本中按中文/英文标签提取单行字符串值。
     /// 匹配模式：标签后跟冒号（中/英），然后取冒号后到行尾/下一标签的内容。
     fn extract_field(text: &str, labels: &[&str]) -> Option<String> {
+        let text_lower = text.to_lowercase();
         for label in labels {
+            let label_lower = label.to_lowercase();
             // 中英文冒号
             for sep in [":", "："] {
-                let prefix = format!("{}{}", label, sep);
-                if let Some(pos) = text.find(&prefix) {
+                let prefix = format!("{}{}", label_lower, sep);
+                if let Some(pos) = text_lower.find(&prefix) {
                     let start = pos + prefix.len();
                     let rest = &text[start..];
                     // 取到行尾或下一明显标签
@@ -425,15 +427,25 @@ pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryM
     )
     .or_else(|| extract_title_fallback(text))
     .or_else(|| {
-        // 最后兜底：取第一行非空文本
+        // 最后兜底：取第一行非空文本（前提是它看起来像标题：短于 30
+        // 字且不含常见字段标签）
         text.lines()
-            .find(|l| !l.trim().is_empty() && l.trim().len() > 3)
+            .find(|l| {
+                let t = l.trim();
+                !t.is_empty()
+                    && t.len() > 3
+                    && t.len() < 30
+                    && !t.contains("标题")
+                    && !t.contains("简介")
+                    && !t.contains("题材")
+                    && !t.contains("故事")
+                    && !t.contains("小说")
+            })
             .map(|l| {
                 l.trim()
                     .trim_matches(|c: char| c == '#' || c == ' ')
                     .to_string()
             })
-            .filter(|t| t.len() < 100)
     })?;
 
     if title.is_empty() || title.len() > 100 {
@@ -637,6 +649,89 @@ mod tests {
         assert_eq!(meta.genre, "科幻");
         assert_eq!(meta.tone, "暗黑");
         assert_eq!(meta.themes, vec!["生存", "希望"]);
+    }
+
+    // =========================================================================
+    // v0.23.66: extract_story_meta_from_prose 测试
+    // =========================================================================
+
+    #[test]
+    fn test_prose_chinese_labels() {
+        // 模拟 MN-Oblivion-26B 典型的自然语言输出格式
+        let prose = r#"好的，我为您构思一个异星末日生存拓荒的故事概念。
+
+标题：《荒星纪元》
+简介：在人类最后的殖民地，一群拓荒者面对未知星球的残酷生存挑战。
+题材：科幻末世
+基调：沉重中带着希望
+节奏：慢热，逐步展开世界观
+主题：生存、人性、希望、拓荒
+篇幅：长篇100万字"#;
+
+        let meta = extract_story_meta_from_prose(prose).unwrap();
+        assert_eq!(meta.title, "荒星纪元");
+        assert!(meta.description.contains("拓荒者"));
+        assert!(meta.genre.contains("科幻"));
+        assert!(meta.tone.contains("沉重"));
+        assert_eq!(meta.themes.len(), 4);
+        assert!(meta.themes.contains(&"生存".to_string()));
+    }
+
+    #[test]
+    fn test_prose_english_labels() {
+        // 部分模型混用中英文标签
+        let prose = "Title: Alien Dawn\nDescription: A survival story on a hostile planet.\ngenre: Sci-Fi\ntone: Dark\npacing: fast\n主题: survival, hope";
+
+        let meta = extract_story_meta_from_prose(prose).unwrap();
+        assert_eq!(meta.title, "Alien Dawn");
+        assert_eq!(meta.genre, "Sci-Fi");
+        assert_eq!(meta.tone, "Dark");
+        assert_eq!(meta.pacing, "fast");
+    }
+
+    #[test]
+    fn test_prose_title_in_book_marks() {
+        // 书名号提取
+        let prose = "我推荐的故事叫《星海迷途》，这是一个关于星际探索的故事。题材：科幻冒险";
+
+        let meta = extract_story_meta_from_prose(prose).unwrap();
+        assert_eq!(meta.title, "星海迷途");
+        assert!(meta.genre.contains("科幻"));
+    }
+
+    #[test]
+    fn test_prose_with_thinking_block() {
+        // 思考链内的内容被 strip_reasoning_blocks 处理后，
+        // extract_story_meta_from_prose 接收的是去除了 <thinking> 的文本
+        let prose = r#"<thinking>用户想要一个末世故事...</thinking>
+
+标题：《末日纪元》
+简介：核战后的废土世界，幸存者挣扎求生。
+题材：末世
+基调：暗黑"#;
+
+        let meta = extract_story_meta_from_prose(prose).unwrap();
+        assert_eq!(meta.title, "末日纪元");
+        assert_eq!(meta.genre, "末世");
+    }
+
+    #[test]
+    fn test_prose_minimal() {
+        // 最少信息——只要有标题就能创建故事
+        let prose = "标题：异星末日\n简介：末日星球上的生存故事";
+
+        let meta = extract_story_meta_from_prose(prose).unwrap();
+        assert_eq!(meta.title, "异星末日");
+        assert!(meta.description.contains("末日"));
+        // 未提供的字段应为空
+        assert!(meta.genre.is_empty());
+    }
+
+    #[test]
+    fn test_prose_no_title() {
+        // 没有标题 → 返回 None
+        let prose = "这是一个关于末世的故事，题材是科幻，基调暗黑沉重。";
+        assert!(extract_story_meta_from_prose(prose).is_none());
     }
 }
 
