@@ -1659,6 +1659,88 @@ AI自由度：{{ai_freedom}}
         ]
     );
 
+    // Phase 4: 场景优先创世模板 — 以 Scene 为单位生成，注入戏剧结构变量
+    reg_creation!(
+        "narrative_first_scene_generate",
+        "创世-第一场景正文生成",
+        "Bootstrap：根据故事概念+场景戏剧结构撰写第一个场景的正文",
+        r#"你是一名专业的小说作家，正在创作一部名为《{{story_title}}》的长篇小说。
+故事题材：{{genre}}
+基调：{{tone}}
+节奏：{{pacing}}
+简介：{{description}}
+主题：{{themes}}
+
+【当前场景的戏剧任务】
+- 场景目标：{{dramatic_goal}}
+- 冲突类型：{{conflict_type}}
+- 外部压力：{{external_pressure}}
+- 地点：{{setting_location}}
+- 时间：{{setting_time}}
+- 氛围：{{setting_atmosphere}}
+- 出场人物：{{characters_present}}
+
+【场景大纲】
+{{scene_outline}}
+
+【创作策略】
+{{strategy_notes}}
+
+【中文叙事四元组】
+{{narrative_quartet}}
+
+【写作策略】
+模式：{{run_mode}}
+冲突强度：{{conflict_level}}/100
+叙事节奏：{{pace}}
+AI自由度：{{ai_freedom}}
+
+【用户原始要求】
+{{user_premise}}
+
+{{genre_tips}}
+
+目标字数控制在{{word_count}}字左右（允许±15%）。
+
+【写作要求】
+写出一个完整的戏剧场景，要求：
+1. 人物带着明确目标进入场景 → 遭遇冲突/阻力 → 做出选择或发生转折
+2. 场景结束时至少有一个维度发生变化（处境/心理/关系/信息差）
+3. 在场景中自然融入世界观设定和伏笔
+
+【输出纪律（必须严格遵守）】
+- 只输出小说正文本身，禁止任何元评论、创作分析、策略说明、过渡语
+- 禁止使用 markdown 格式（# 标题、**加粗**、*** 分隔符、> 引用等）
+- 禁止添加【】方括号标注的小节标题
+- 禁止在正文末尾添加批注或括号说明
+- 直接以正文内容开始，段落之间用空行分隔"#,
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "tone".to_string(),
+            "pacing".to_string(),
+            "description".to_string(),
+            "themes".to_string(),
+            "dramatic_goal".to_string(),
+            "conflict_type".to_string(),
+            "external_pressure".to_string(),
+            "setting_location".to_string(),
+            "setting_time".to_string(),
+            "setting_atmosphere".to_string(),
+            "characters_present".to_string(),
+            "scene_outline".to_string(),
+            "strategy_notes".to_string(),
+            "narrative_quartet".to_string(),
+            "run_mode".to_string(),
+            "conflict_level".to_string(),
+            "pace".to_string(),
+            "ai_freedom".to_string(),
+            "user_premise".to_string(),
+            "word_count".to_string(),
+            "genre_tips".to_string(),
+        ]
+    );
+
     // ═══════════════════════════════════════════════════════
     // v0.21.0: 流水线 (Pipeline) — 从 pipeline/*.rs 接入
     // ═══════════════════════════════════════════════════════

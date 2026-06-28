@@ -6,7 +6,7 @@ use super::types::*;
 use crate::{
     db::{
         ChapterRepository, DbPool, DraftRepository, DraftStatus, PostProcessRepository,
-        PostProcessStatus, StepStatus,
+        PostProcessStatus, SceneRepository, SceneUpdate, StepStatus,
     },
     llm::LlmService,
     ports::VectorStore,
@@ -73,20 +73,33 @@ pub async fn finalize_draft(
 
     callbacks.progress("finalize", 0.2);
 
-    // 3. 同步到 chapters 表（向后兼容）
+    // 3. 同步到 scenes 表（Phase 1: Scene 为内容真相源）
     let chapter_repo = ChapterRepository::new(pool.clone());
+    let scene_repo = SceneRepository::new(pool.clone());
     if let Ok(chapters) = chapter_repo.get_by_story(story_id) {
         if let Some(chapter) = chapters
             .into_iter()
             .find(|c| c.chapter_number == draft.chapter_number)
         {
+            // 更新章元数据（不含 content）
             let _ = chapter_repo.update(
                 &chapter.id,
                 None,
                 None,
-                Some(draft.content.clone()),
                 Some(draft.word_count),
             );
+            // 内容写入关联 Scene
+            if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
+                if let Some(scene) = scenes.first() {
+                    let _ = scene_repo.update(
+                        &scene.id,
+                        &SceneUpdate {
+                            content: Some(draft.content.clone()),
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
         }
     }
 

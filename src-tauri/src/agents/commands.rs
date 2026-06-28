@@ -275,6 +275,7 @@ pub async fn writer_agent_execute(
         let event = crate::window::FrontstageEvent::ChapterSwitch {
             story_id: story_id.clone(),
             chapter_id: scene.id.clone(),
+            scene_id: Some(scene.id.clone()),
             title: "第一场景".to_string(),
             content: scene.content.clone(),
         };

@@ -301,7 +301,7 @@ impl SceneCommitService {
                             chapter_id: String::new(),
                             chapter_number,
                             text: vector_text,
-                            record_type: "chapter".to_string(),
+                            record_type: "scene".to_string(),
                             metadata: None,
                             embedding,
                         };

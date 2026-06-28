@@ -284,16 +284,17 @@ impl ChapterService {
             self.app_handle.clone(),
         );
 
-        // 5. Debounced auto commit
-        ChapterCommitDebouncer::from_app_handle(&self.app_handle).schedule(
-            chapter_id.to_string(),
-            story_id.to_string(),
-            chapter_number,
-            None, // content will be fetched inside debouncer
-            self.pool.clone(),
-            self.app_handle.clone(),
-            self.vector_store.clone(),
-        );
+        // 5. Phase 3: Chapter-level auto_commit 已废弃，由 SceneCommitDebouncer 接替
+        // 保留注释供参考：触发点从 Chapter 保存迁移到 Scene 保存
+        // ChapterCommitDebouncer::from_app_handle(&self.app_handle).schedule(
+        //     chapter_id.to_string(),
+        //     story_id.to_string(),
+        //     chapter_number,
+        //     None,
+        //     self.pool.clone(),
+        //     self.app_handle.clone(),
+        //     self.vector_store.clone(),
+        // );
     }
 
     /// `create_chapter` 成功后的后续业务处理。
@@ -344,6 +345,7 @@ impl ChapterService {
                         &chapter.story_id,
                         &scene.id,
                         title.as_deref(),
+                        false, // Phase 4: chapter 创建不改变 scene 内容
                     );
                 }
             }

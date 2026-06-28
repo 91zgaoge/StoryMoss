@@ -744,6 +744,69 @@ pub fn first_chapter_prompt(
     )
 }
 
+// ==================== 第一场景正文 Prompt (Phase 4) ====================
+
+/// Phase 4: 场景优先创世——以 Scene 为单位生成正文，
+/// 注入场景级戏剧结构变量（dramatic_goal, conflict_type, characters_present 等）。
+pub fn first_scene_prompt(
+    title: &str,
+    genre: &str,
+    tone: &str,
+    pacing: &str,
+    description: &str,
+    themes: &str,
+    dramatic_goal: &str,
+    conflict_type: &str,
+    external_pressure: &str,
+    setting_location: &str,
+    setting_time: &str,
+    setting_atmosphere: &str,
+    characters_present: &str,
+    scene_outline: &str,
+    strategy_notes: &str,
+    narrative_quartet: &str,
+    run_mode: &str,
+    conflict_level: i32,
+    pace: &str,
+    ai_freedom: &str,
+    user_premise: &str,
+    word_count: u32,
+    genre_tips: &str,
+    pool: Option<&DbPool>,
+) -> String {
+    let vars: &[(&str, &str)] = &[
+        ("story_title", title),
+        ("genre", genre),
+        ("tone", tone),
+        ("pacing", pacing),
+        ("description", description),
+        ("themes", themes),
+        ("dramatic_goal", dramatic_goal),
+        ("conflict_type", conflict_type),
+        ("external_pressure", external_pressure),
+        ("setting_location", setting_location),
+        ("setting_time", setting_time),
+        ("setting_atmosphere", setting_atmosphere),
+        ("characters_present", characters_present),
+        ("scene_outline", scene_outline),
+        ("strategy_notes", strategy_notes),
+        ("narrative_quartet", narrative_quartet),
+        ("run_mode", run_mode),
+        ("conflict_level", &conflict_level.to_string()),
+        ("pace", pace),
+        ("ai_freedom", ai_freedom),
+        ("user_premise", user_premise),
+        ("word_count", &word_count.to_string()),
+        ("genre_tips", genre_tips),
+    ];
+    resolve_and_render(
+        "narrative_first_scene_generate",
+        "你是一名专业的小说作家。请根据场景戏剧结构撰写正文，目标{{word_count}}字。",
+        vars,
+        pool,
+    )
+}
+
 // ==================== 提示词框架目录 (v0.23.61) ====================
 
 /// 生成紧凑的提示词框架目录 JSON，供 Call 1 最快模型选择创作框架。

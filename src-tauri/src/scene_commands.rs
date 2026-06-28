@@ -78,6 +78,7 @@ pub async fn create_scene(
         || has_setting_changes
         || content.is_some()
         || confidence_score.is_some();
+    let has_content = content.is_some(); // Phase 4: 记录后才 move
     if has_extra {
         let _ = repo.update(
             &scene.id,
@@ -104,6 +105,7 @@ pub async fn create_scene(
             &story_id,
             &scene.id,
             scene.title.as_deref(),
+            has_content, // Phase 4: 使用预先保存的值
         );
         // W2-F3: setting 字段变更同步触发 world_building 更新
         if has_setting_changes {
@@ -411,11 +413,13 @@ pub async fn update_scene(
             let _ =
                 crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
         }
+        let content_changed = updates.content.is_some();
         let _ = crate::state_sync::StateSync::emit_scene_updated(
             &app_handle,
             story_id,
             &scene_id,
             updates.title.as_deref(),
+            content_changed, // Phase 4
         );
         let word_count = updates
             .content
@@ -479,6 +483,7 @@ pub async fn reorder_scenes(
         &story_id,
         &scene_ids.first().cloned().unwrap_or_default(),
         None,
+        false, // Phase 4: reorder 不改变内容
     );
     Ok(())
 }

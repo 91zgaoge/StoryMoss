@@ -186,6 +186,7 @@ impl StateSync {
         story_id: &str,
         scene_id: &str,
         title: Option<&str>,
+        content_changed: bool,
     ) {
         Self::emit_event(
             app,
@@ -193,6 +194,7 @@ impl StateSync {
                 story_id: story_id.to_string(),
                 scene_id: scene_id.to_string(),
                 title: title.map(|s| s.to_string()),
+                content_changed,
             },
         );
     }

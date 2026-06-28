@@ -139,6 +139,8 @@ pub enum FrontstageEvent {
     ChapterSwitch {
         story_id: String,
         chapter_id: String,
+        /// Phase 1: Scene 为主要叙事单元，携带 scene_id 供前端按场景加载
+        scene_id: Option<String>,
         title: String,
         content: Option<String>,
     },

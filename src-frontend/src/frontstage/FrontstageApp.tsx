@@ -155,7 +155,7 @@ const FrontstageApp: React.FC = () => {
   const setContent = useFrontstageStore(state => state.setContent);
   const isSaved = useFrontstageStore(state => state.isSaved);
   const setSaveStatus = useFrontstageStore(state => state.setSaveStatus);
-  const setChapterInfo = useFrontstageStore(state => state.setChapterInfo);
+  const setSceneInfo = useFrontstageStore(state => state.setSceneInfo);
   const setIsSaved = useCallback(
     (saved: boolean) => setSaveStatus(saved, saved ? new Date().toISOString() : null),
     [setSaveStatus]
@@ -1038,6 +1038,7 @@ const FrontstageApp: React.FC = () => {
                 count: chapterSwitchCountRef.current,
                 story_id: payload.story_id,
                 chapter_id: payload.chapter_id,
+                scene_id: (payload as any).scene_id,
                 has_content: !!payload.content,
                 content_length: payload.content?.length || 0,
                 content_preview: payload.content?.slice(0, 60) ?? 'EMPTY',
@@ -1638,7 +1639,15 @@ const FrontstageApp: React.FC = () => {
     // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
     latestContentRef.current = formattedContent;
     setIsSaved(true);
-    setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
+    // Phase 2: 设置场景信息为主键，chapterId 为辅助
+    // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
+    const linkedSceneId = chapter.scene_id || scenes.find(s => s.chapter_id === chapter.id)?.id;
+    setSceneInfo(
+      linkedSceneId || chapter.id, // fallback to chapter.id for backward compat
+      chapter.title || '',
+      chapter.id,
+      currentStory?.title
+    );
 
     // Sync currentScene if chapter has associated scene
     if (chapter.scene_id) {
@@ -1742,18 +1751,22 @@ const FrontstageApp: React.FC = () => {
           setTotalWordCount(prev => prev + delta);
         }
         currentChapterPrevWordCountRef.current = newWordCount;
-        // W4-F7: 自动保存非阻塞化 — 使用 requestIdleCallback + startTransition
+        // W4-F7: 自动保存非阻塞化 — Phase 2: 保存走 Scene
+        const sceneIdForSave = useFrontstageStore.getState().sceneId;
+        const chapterIdForSave = useFrontstageStore.getState().chapterId;
+        const sceneTitleForSave = useFrontstageStore.getState().sceneTitle;
+        if (!sceneIdForSave) return;
         scheduleAutoSave(
           () => ({
-            chapterId: currentChapter.id,
-            title: currentChapter.title,
+            sceneId: sceneIdForSave,
+            title: sceneTitleForSave ?? undefined,
             content: latestContentRef.current,
             wordCount: computeWordCount(latestContentRef.current),
           }),
           async payload => {
             try {
-              await loggedInvoke<unknown>('update_chapter', {
-                id: payload.chapterId,
+              await loggedInvoke<unknown>('update_scene', {
+                id: payload.sceneId,
                 title: payload.title,
                 content: payload.content,
                 word_count: payload.wordCount,
@@ -1776,7 +1789,8 @@ const FrontstageApp: React.FC = () => {
           notifyTimeoutRef.current = null;
           loggedInvoke<unknown>('notify_backstage_content_changed', {
             text: latestContentRef.current,
-            chapter_id: currentChapter.id,
+            chapter_id: chapterIdForSave,
+            scene_id: sceneIdForSave,
           }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
         }, 350);
       }

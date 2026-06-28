@@ -8,8 +8,13 @@
 //! - 状态同步事件发射
 //! - 自动化服务触发
 //! - Skill Hook 执行
+//! - Phase 3: SceneCommitDebouncer — 场景保存后 30s 触发 auto_commit
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 
 use tauri::AppHandle;
 
@@ -20,7 +25,19 @@ use crate::{
     memory::ingest::{IngestContent, IngestPipeline},
     ports::VectorStore,
     state_sync::StateSync,
+    story_system::SceneCommitService,
 };
+
+/// Phase 3: 场景级 auto_commit 防抖状态（模块级共享）。
+static SCENE_COMMIT_DEBOUNCE: OnceLock<Arc<Mutex<HashMap<String, Instant>>>> = OnceLock::new();
+
+fn get_scene_debounce_map() -> Arc<Mutex<HashMap<String, Instant>>> {
+    SCENE_COMMIT_DEBOUNCE
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+const SCENE_COMMIT_DEBOUNCE_SECS: u64 = 30;
 
 // ==================== 组件 1: Scene Ingestor ====================
 
@@ -288,12 +305,14 @@ impl SceneService {
             let _ = StateSync::emit_world_building_updated(&self.app_handle, story_id);
         }
 
-        // 3. 场景更新同步事件
+        // 3. 场景更新同步事件（Phase 4: 标记内容是否变更）
+        let content_changed = updates.content.is_some();
         let _ = StateSync::emit_scene_updated(
             &self.app_handle,
             story_id,
             scene_id,
             updates.title.as_deref(),
+            content_changed,
         );
 
         // 4. 自动化触发
@@ -308,6 +327,66 @@ impl SceneService {
             scene_id.to_string(),
             word_count,
         );
+
+        // 5. Phase 3: Scene-level debounced auto_commit (30s idle)
+        let scene_id_for_commit = scene_id.to_string();
+        let story_id_for_commit = story_id.to_string();
+        let pool = self.pool.clone();
+        let app_handle = self.app_handle.clone();
+        let vector_store = self.vector_store.clone();
+
+        let scheduled_time = Instant::now();
+        {
+            let debounce_arc = get_scene_debounce_map();
+            let mut debounce = debounce_arc.lock().unwrap();
+            debounce.insert(scene_id_for_commit.clone(), scheduled_time);
+            // 清理超过 24 小时的过期条目
+            debounce.retain(|_, last_time| {
+                Instant::now().duration_since(*last_time)
+                    < Duration::from_secs(24 * 3600)
+            });
+        }
+
+        let debounce_map = get_scene_debounce_map();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(SCENE_COMMIT_DEBOUNCE_SECS)).await;
+            let should_commit = {
+                let debounce = debounce_map.lock().unwrap();
+                debounce
+                    .get(&scene_id_for_commit)
+                    .map(|t| *t == scheduled_time)
+                    .unwrap_or(false)
+            };
+
+            if should_commit {
+                let scene_repo = SceneRepository::new(pool.clone());
+                if let Ok(Some(scene)) = scene_repo.get_by_id(&scene_id_for_commit) {
+                    let chapter_number = scene.sequence_number;
+                    let chapter_id = scene.chapter_id.clone();
+                    let service = SceneCommitService::new(pool);
+                    let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
+                    if let Err(e) = service
+                        .auto_commit(
+                            &story_id_for_commit,
+                            Some(&scene_id_for_commit),
+                            chapter_id.as_deref(),
+                            chapter_number,
+                            scene.content.as_deref(),
+                            None,
+                            Some(app_handle),
+                            store,
+                        )
+                        .await
+                    {
+                        log::warn!(
+                            "[SceneCommit] auto_commit failed for scene {}: {}",
+                            scene_id_for_commit,
+                            e
+                        );
+                    }
+                }
+            }
+        });
     }
 
     /// `create_scene` 成功后的后续业务处理。
@@ -345,6 +424,7 @@ impl SceneService {
                 &scene.story_id,
                 &scene.id,
                 scene.title.as_deref(),
+                scene.content.is_some(), // Phase 4
             );
         }
 

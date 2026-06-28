@@ -66,12 +66,12 @@ pub trait ChapterRepo {
     fn create(&self, req: CreateChapterRequest) -> Result<Chapter, rusqlite::Error>;
     fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error>;
     fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error>;
+    /// Phase 1: content 参数已移除。内容以 Scene 为真相源。
     fn update(
         &self,
         id: &str,
         title: Option<String>,
         outline: Option<String>,
-        content: Option<String>,
         word_count: Option<i32>,
     ) -> Result<usize, rusqlite::Error>;
     fn delete(&self, id: &str) -> Result<usize, rusqlite::Error>;

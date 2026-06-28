@@ -726,15 +726,54 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .map(|q| format!("\n\n【中文叙事四元组】\n{}\n", q))
                 .unwrap_or_default();
 
+            // Phase 4: 场景优先创世 — 加载 Scene 1 的戏剧结构注入 prompt
+            let scene_repo_for_prompt = SceneRepository::new(ctx.pool.clone());
+            let scene_dramatic_goal;
+            let scene_conflict_type;
+            let scene_external_pressure;
+            let scene_setting_location;
+            let scene_setting_time;
+            let scene_setting_atmosphere;
+            let scene_characters_present;
+            let scene_outline;
+            if let Ok(scenes) = scene_repo_for_prompt.get_by_story(&ctx.story_id) {
+                let scene1 = scenes.into_iter().find(|s| s.sequence_number == 1);
+                scene_dramatic_goal = scene1.as_ref().and_then(|s| s.dramatic_goal.clone()).unwrap_or_default();
+                scene_conflict_type = scene1.as_ref().and_then(|s| s.conflict_type.map(|c| c.to_string())).unwrap_or_default();
+                scene_external_pressure = scene1.as_ref().and_then(|s| s.external_pressure.clone()).unwrap_or_default();
+                scene_setting_location = scene1.as_ref().and_then(|s| s.setting_location.clone()).unwrap_or_default();
+                scene_setting_time = scene1.as_ref().and_then(|s| s.setting_time.clone()).unwrap_or_default();
+                scene_setting_atmosphere = scene1.as_ref().and_then(|s| s.setting_atmosphere.clone()).unwrap_or_default();
+                scene_characters_present = scene1.as_ref().map(|s| s.characters_present.join("、")).unwrap_or_default();
+                scene_outline = scene1.as_ref().and_then(|s| s.outline_content.clone()).unwrap_or_default();
+            } else {
+                scene_dramatic_goal = String::new();
+                scene_conflict_type = String::new();
+                scene_external_pressure = String::new();
+                scene_setting_location = String::new();
+                scene_setting_time = String::new();
+                scene_setting_atmosphere = String::new();
+                scene_characters_present = String::new();
+                scene_outline = String::new();
+            }
+
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
-            // v0.23.61: 使用 PromptRegistry 条目替代硬编码 format!
-            let chapter_prompt = first_chapter_prompt(
+            // Phase 4: 使用场景优先模板替代旧章级模板
+            let chapter_prompt = first_scene_prompt(
                 &meta.title,
                 &meta.genre,
                 &meta.tone,
                 &meta.pacing,
                 &meta.description,
                 &meta.themes.join(", "),
+                &scene_dramatic_goal,
+                &scene_conflict_type,
+                &scene_external_pressure,
+                &scene_setting_location,
+                &scene_setting_time,
+                &scene_setting_atmosphere,
+                &scene_characters_present,
+                &scene_outline,
                 &strategy_notes,
                 &quartet_section,
                 &writing_strategy.run_mode,
@@ -743,7 +782,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 &writing_strategy.ai_freedom,
                 &ctx.user_premise,
                 word_count_target as u32,
-                "", // genre_tips: v0.23.61 Gap 3 will populate
+                "",
                 Some(&ctx.pool),
             );
             let task = crate::domain::agent_types::AgentTask {
@@ -803,14 +842,12 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 );
             }
 
-            // 保存到 Chapter（自动补齐可能已创建 chapter_number=1 的 Chapter，需要检查）
-            // v0.23.29: spawn_blocking 包裹同步 DB 操作，防连接池满时阻塞 tokio worker。
-            // v0.23.60: stall diagnostic — 添加前后日志排查 DB 保存阻塞点。
+            // Phase 1: 内容保存到 Scene（Scene 为真相源），Chapter 仅存元数据
             let save_content = result.content.clone();
             let save_story_id = ctx.story_id.clone();
             let save_pool = ctx.pool.clone();
             log::warn!(
-                "[Genesis-DIAG] About to spawn_blocking for chapter save, story_id={} content_len={}",
+                "[Genesis-DIAG] About to spawn_blocking for scene save, story_id={} content_len={}",
                 save_story_id, save_content.len()
             );
             if let Some(logger) = ctx
@@ -818,49 +855,84 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
             {
                 logger.info(
-                    "genesis.chapter.save.start",
-                    "保存第一章到 DB",
+                    "genesis.scene.save.start",
+                    "保存第一个场景到 DB",
                     Some(serde_json::json!({
                         "story_id": save_story_id,
                         "content_len": save_content.len(),
                     })),
                 );
             }
-            let (chapter_id, chapter_number) = tokio::task::spawn_blocking(move || {
-                let chapter_repo = ChapterRepository::new(save_pool);
+            let (chapter_id, scene_id, chapter_number) = tokio::task::spawn_blocking(move || {
+                let chapter_repo = ChapterRepository::new(save_pool.clone());
+                let scene_repo = SceneRepository::new(save_pool.clone());
                 let existing = chapter_repo
                     .get_by_story(&save_story_id)
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?
                     .into_iter()
                     .find(|c| c.chapter_number == 1);
-                if let Some(ref ch) = existing {
+                let (ch_id, ch_num) = if let Some(ref ch) = existing {
+                    // 更新章元数据（标题），内容走 Scene
                     chapter_repo
-                        .update(
-                            &ch.id,
-                            Some("第一章".to_string()),
-                            None,
-                            Some(save_content),
-                            None,
-                        )
+                        .update(&ch.id, Some("第一章".to_string()), None, None)
                         .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-                    Ok::<_, PipelineError>((ch.id.clone(), ch.chapter_number))
+                    (ch.id.clone(), ch.chapter_number)
                 } else {
+                    let story_id_for_ch = save_story_id.clone();
                     let ch = chapter_repo
                         .create(crate::db::CreateChapterRequest {
-                            story_id: save_story_id,
+                            story_id: story_id_for_ch,
                             chapter_number: 1,
                             title: Some("第一章".to_string()),
                             outline: None,
-                            content: Some(save_content),
+                            content: None, // 内容由 Scene 管理
                         })
                         .map_err(|e| PipelineError::StorageError(e.to_string()))?;
-                    Ok((ch.id, ch.chapter_number))
-                }
+                    (ch.id, ch.chapter_number)
+                };
+                // 查找或创建 Scene 并写入内容
+                let sid = {
+                    let scenes = scene_repo
+                        .get_by_chapter(&ch_id)
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                    if let Some(scene) = scenes.first() {
+                        scene_repo
+                            .update(
+                                &scene.id,
+                                &SceneUpdate {
+                                    content: Some(save_content.clone()),
+                                    ..Default::default()
+                                },
+                            )
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        scene.id.clone()
+                    } else {
+                        // 创建新 Scene 并关联到 Chapter
+                        let mut conn = save_pool
+                            .get()
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        let tx = conn
+                            .transaction()
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        let scene = scene_repo
+                            .create_in_tx(&tx, &save_story_id, ch_num, Some("第一章"))
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        tx.execute(
+                            "UPDATE scenes SET chapter_id = ?1, content = ?2 WHERE id = ?3",
+                            rusqlite::params![&ch_id, &save_content, &scene.id],
+                        )
+                        .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        tx.commit()
+                            .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                        scene.id
+                    }
+                };
+                Ok::<_, PipelineError>((ch_id, sid, ch_num))
             })
             .await
             .map_err(|e| PipelineError::StepFailed {
                 step_name: "撰写开篇".to_string(),
-                reason: format!("章节保存 spawn_blocking 失败: {}", e),
+                reason: format!("场景保存 spawn_blocking 失败: {}", e),
             })??;
 
             // v0.23.60 stall diagnostic: DB save completed
@@ -948,6 +1020,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     Some(serde_json::json!({
                         "story_id": &ctx.story_id,
                         "chapter_id": &chapter_id,
+                        "scene_id": &scene_id,
                         "content_len": result.content.len(),
                         "content_preview": result.content.chars().take(120).collect::<String>(),
                     })),
@@ -958,6 +1031,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 crate::window::FrontstageEvent::ChapterSwitch {
                     story_id: ctx.story_id.clone(),
                     chapter_id: chapter_id.clone(),
+                    scene_id: Some(scene_id.clone()),
                     title: "第一章".to_string(),
                     content: Some(result.content.clone()),
                 },

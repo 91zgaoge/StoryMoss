@@ -20,7 +20,7 @@ export type FrontstageEvent =
   | { type: 'ContentUpdate'; payload: { text: string; chapter_id: string } }
   | { type: 'AiHint'; payload: { hint: string; position: HintPosition; duration_ms: number } }
   | { type: 'AiPreview'; payload: { text: string; insert_position: number } }
-  | { type: 'ChapterSwitch'; payload: { story_id: string; chapter_id: string; title: string } }
+  | { type: 'ChapterSwitch'; payload: { story_id: string; chapter_id: string; scene_id?: string; title: string; content?: string } }
   | { type: 'SaveStatus'; payload: { saved: boolean; timestamp?: string } };
 
 export type BackstageEvent =

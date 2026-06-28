@@ -392,15 +392,14 @@ mod tests {
                 &chapter.id,
                 Some("新标题".to_string()),
                 Some("新大纲".to_string()),
-                Some("新内容，更长一些".to_string()),
-                None, // word_count 应该从 content 自动计算
+                None, // Phase 1: word_count 手动指定
             )
             .unwrap();
         assert_eq!(count, 1);
 
         let updated = chapter_repo.get_by_id(&chapter.id).unwrap().unwrap();
         assert_eq!(updated.title, Some("新标题".to_string()));
-        assert_eq!(updated.content, Some("新内容，更长一些".to_string()));
+        // Phase 1: content 走 Scene 表，get_by_id 会自动 fallback 到 scenes
     }
 
     #[test]

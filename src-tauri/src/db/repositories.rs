@@ -589,8 +589,9 @@ impl SceneRepository {
             ],
         )?;
 
-        // Sync associated chapter if title or content changed
-        if updates.title.is_some() || updates.content.is_some() {
+        // Phase 1: 仅同步标题到关联 Chapter（标题是共享元数据）。
+        // 内容不再反向同步到 chapters.content（Scene 为唯一内容真相源）。
+        if updates.title.is_some() {
             let chapter_id: Option<String> = tx
                 .query_row("SELECT chapter_id FROM scenes WHERE id = ?1", [id], |row| {
                     row.get(0)
@@ -598,9 +599,8 @@ impl SceneRepository {
                 .optional()?;
             if let Some(cid) = chapter_id {
                 tx.execute(
-                    "UPDATE chapters SET title = COALESCE(?2, title), content = COALESCE(?3, \
-                     content), updated_at = ?4 WHERE id = ?1",
-                    params![cid, &updates.title, &updates.content, &now],
+                    "UPDATE chapters SET title = COALESCE(?2, title), updated_at = ?3 WHERE id = ?1",
+                    params![cid, &updates.title, &now],
                 )?;
             }
         }
@@ -5700,7 +5700,6 @@ impl ChapterRepository {
     pub fn create(&self, req: CreateChapterRequest) -> Result<Chapter, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
-        let word_count = req.content.as_ref().map(|c| c.len() as i32);
 
         let mut conn = self
             .pool
@@ -5708,19 +5707,18 @@ impl ChapterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
-        // 1. 插入 Chapter
+        // 1. 插入 Chapter（Phase 1: content 不再写入 chapters 表，Scene 为真相源）
         tx.execute(
             "INSERT INTO chapters (id, story_id, chapter_number, title, outline, content, \
              word_count, model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, \
-             ?6, ?7, ?8, ?9, ?10, ?11)",
+             '', ?6, ?7, ?8, ?9, ?10)",
             params![
                 &id,
                 &req.story_id,
                 req.chapter_number,
                 req.title,
                 req.outline,
-                req.content,
-                word_count,
+                0, // word_count 从 Scene 聚合计算
                 "",
                 0.0,
                 now.to_rfc3339(),
@@ -5728,7 +5726,7 @@ impl ChapterRepository {
             ],
         )?;
 
-        // 2. 查找或创建关联的 Scene
+        // 2. 查找或创建关联的 Scene（内容写入 Scene 表）
         let _scene_id = match tx
             .query_row(
                 "SELECT id FROM scenes WHERE story_id = ?1 AND sequence_number = ?2",
@@ -5738,15 +5736,15 @@ impl ChapterRepository {
             .optional()?
         {
             Some(sid) => {
-                // 关联已有 Scene
+                // 关联已有 Scene，同时写入内容
                 tx.execute(
-                    "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
-                    params![&id, &sid],
+                    "UPDATE scenes SET chapter_id = ?1, content = COALESCE(?2, content), title = COALESCE(?3, title) WHERE id = ?4",
+                    params![&id, req.content, req.title, &sid],
                 )?;
                 Some(sid)
             }
             None => {
-                // 创建新 Scene
+                // 创建新 Scene 并写入内容
                 let sid = Uuid::new_v4().to_string();
                 tx.execute(
                     "INSERT INTO scenes (id, story_id, sequence_number, title, content, \
@@ -5773,13 +5771,14 @@ impl ChapterRepository {
 
         tx.commit()?;
 
+        let word_count = req.content.as_ref().map(|c| c.len() as i32);
         Ok(Chapter {
             id,
             story_id: req.story_id,
             chapter_number: req.chapter_number,
             title: req.title,
             outline: req.outline,
-            content: req.content,
+            content: req.content, // 从请求参数传回（Scene 为真相源，此处为便利字段）
             word_count,
             model_used: None,
             cost: None,
@@ -5788,6 +5787,8 @@ impl ChapterRepository {
         })
     }
 
+    /// Phase 1: content 字段优先读 chapters.content（兼容旧数据），
+    /// 为空时从 scenes 表聚合（新数据路径）。
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
         let conn = self
             .pool
@@ -5799,7 +5800,7 @@ impl ChapterRepository {
              chapter_number",
         )?;
 
-        let chapters = stmt
+        let mut chapters: Vec<Chapter> = stmt
             .query_map([story_id], |row| {
                 let created_str: String = row.get(9)?;
                 let updated_str: String = row.get(10)?;
@@ -5818,6 +5819,17 @@ impl ChapterRepository {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Phase 1: 当 chapters.content 为空时，从 scenes 表聚合
+        for chapter in &mut chapters {
+            if chapter.content.as_ref().map_or(true, |c| c.is_empty()) {
+                chapter.content = Some(self.get_content(&chapter.id)?);
+                // 同步更新 word_count
+                if chapter.word_count.unwrap_or(0) == 0 {
+                    chapter.word_count = Some(chapter.content.as_ref().map_or(0, |c| c.len() as i32));
+                }
+            }
+        }
 
         Ok(chapters)
     }
@@ -5876,21 +5888,40 @@ impl ChapterRepository {
         Ok(count)
     }
 
-    /// 聚合 story 下所有章节 content 字段的总长度（用于总字数统计，避免全量
+    /// 聚合 story 下所有场景 content 字段的总长度（用于总字数统计，避免全量
     /// IPC）。
+    /// Phase 1: 改为从 scenes 表聚合（Scene 为内容真相源）。
     pub fn total_content_length_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
         let conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let total: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chapters WHERE story_id = ?1",
+            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM scenes WHERE story_id = ?1",
             [story_id],
             |row| row.get(0),
         )?;
         Ok(total)
     }
 
+    /// Phase 1: 从 scenes 表聚合章节内容（Scene 为唯一内容真相源）。
+    /// 按 sequence_number 排序，多个 Scene 内容直接拼接，无分隔符。
+    pub fn get_content(&self, chapter_id: &str) -> Result<String, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(content, '') FROM scenes WHERE chapter_id = ?1 ORDER BY sequence_number",
+        )?;
+        let parts: Vec<String> = stmt
+            .query_map([chapter_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(parts.concat())
+    }
+
+    /// Phase 1: content 字段优先读 chapters.content（兼容旧数据），
+    /// 为空时从 scenes 表聚合（新数据路径）。
     pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
         let conn = self
             .pool
@@ -5901,7 +5932,7 @@ impl ChapterRepository {
              model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1",
         )?;
 
-        let chapter = stmt
+        let mut chapter = stmt
             .query_row([id], |row| {
                 let created_str: String = row.get(9)?;
                 let updated_str: String = row.get(10)?;
@@ -5921,15 +5952,27 @@ impl ChapterRepository {
             })
             .optional()?;
 
+        // Phase 1: 当 chapters.content 为空时，从 scenes 表聚合
+        if let Some(ref mut ch) = chapter {
+            if ch.content.as_ref().map_or(true, |c| c.is_empty()) {
+                ch.content = Some(self.get_content(&ch.id)?);
+                if ch.word_count.unwrap_or(0) == 0 {
+                    ch.word_count = Some(ch.content.as_ref().map_or(0, |c| c.len() as i32));
+                }
+            }
+        }
+
         Ok(chapter)
     }
 
+    /// Phase 1: content 参数已移除。章内容以 Scene 为唯一真相源，
+    /// 请使用 SceneRepository 写入内容。本方法仅更新章级元数据（title/outline/word_count）。
+    /// title 变更会同步到关联的 Scene(s)。
     pub fn update(
         &self,
         id: &str,
         title: Option<String>,
         outline: Option<String>,
-        content: Option<String>,
         word_count: Option<i32>,
     ) -> Result<usize, rusqlite::Error> {
         let mut conn = self
@@ -5937,28 +5980,25 @@ impl ChapterRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
-        let word_count = word_count.or_else(|| content.as_ref().map(|c| c.len() as i32));
 
         let tx = conn.transaction()?;
 
         let count = tx.execute(
             "UPDATE chapters SET title = COALESCE(?2, title), outline = COALESCE(?3, outline),
-             content = COALESCE(?4, content), word_count = COALESCE(?5, word_count), updated_at = \
-             ?6 WHERE id = ?1",
-            params![id, title, outline, content, word_count, now],
+             word_count = COALESCE(?4, word_count), updated_at = ?5 WHERE id = ?1",
+            params![id, title, outline, word_count, now],
         )?;
 
-        // 同步更新关联的 Scene(s)
-        if title.is_some() || content.is_some() {
+        // 同步标题到关联的 Scene(s)（标题是共享元数据）
+        if title.is_some() {
             let scene_ids: Vec<String> = tx
                 .prepare("SELECT id FROM scenes WHERE chapter_id = ?1")?
                 .query_map([id], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
             for sid in scene_ids {
                 tx.execute(
-                    "UPDATE scenes SET title = COALESCE(?2, title), content = COALESCE(?3, \
-                     content), updated_at = ?4 WHERE id = ?1",
-                    params![sid, title, content, now],
+                    "UPDATE scenes SET title = COALESCE(?2, title), updated_at = ?3 WHERE id = ?1",
+                    params![sid, title, now],
                 )?;
             }
         }
@@ -6444,10 +6484,9 @@ impl ChapterRepo for ChapterRepository {
         id: &str,
         title: Option<String>,
         outline: Option<String>,
-        content: Option<String>,
         word_count: Option<i32>,
     ) -> Result<usize, rusqlite::Error> {
-        self.update(id, title, outline, content, word_count)
+        self.update(id, title, outline, word_count)
     }
     fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         self.delete(id)

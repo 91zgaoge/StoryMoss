@@ -3,7 +3,7 @@
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{
-    db::{ChapterRepository, DbPool},
+    db::{DbPool, SceneRepository, SceneUpdate},
     error::AppError,
 };
 
@@ -25,7 +25,6 @@ pub async fn rollback_ai_operation(
 ) -> Result<(), AppError> {
     let pool = pool.inner().clone();
     let op_repo = crate::db::AiOperationRepository::new(pool.clone());
-    let chapter_repo = ChapterRepository::new(pool.clone());
 
     let operation = op_repo
         .get_by_id(&operation_id)
@@ -36,12 +35,25 @@ pub async fn rollback_ai_operation(
     // previous_content
     let prev_content = operation.previous_content.ok_or("此操作不支持回滚")?;
 
+    // Phase 1: 回滚内容恢复走 SceneRepository（Scene 为真相源）
     let chapter_id = operation.chapter_id.ok_or("此操作没有关联章节")?;
 
-    // Restore previous content
-    chapter_repo
-        .update(&chapter_id, None, None, Some(prev_content), None)
-        .map_err(AppError::from)?;
+    {
+        let scene_repo = SceneRepository::new(pool.clone());
+        if let Ok(scenes) = scene_repo.get_by_chapter(&chapter_id) {
+            if let Some(scene) = scenes.first() {
+                scene_repo
+                    .update(
+                        &scene.id,
+                        &SceneUpdate {
+                            content: Some(prev_content),
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(AppError::from)?;
+            }
+        }
+    }
 
     // Mark operation as rolled back
     op_repo

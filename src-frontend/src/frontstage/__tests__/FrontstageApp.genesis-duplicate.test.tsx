@@ -105,7 +105,7 @@ describe('Bug A: 创世后正文不应重复', () => {
     for (const k of Object.keys(listenCallbacks)) delete listenCallbacks[k];
     captured.content = '';
     useFrontstageStore.getState().setContent('');
-    useFrontstageStore.getState().setChapterInfo('', '', undefined);
+    useFrontstageStore.getState().setSceneInfo('', '', undefined);
     mockSmartExecute.mockResolvedValue({
       success: true,
       steps_completed: 1,

@@ -123,6 +123,7 @@ pub async fn apply_cascade_rewrite(
                 &scene.story_id,
                 &scene_id,
                 scene.title.as_deref(),
+                true, // Phase 4: cascade rewrite changes content
             );
         }
     }

@@ -67,6 +67,11 @@ pub struct SceneOutline {
     pub conflict_type: Option<String>,
     pub external_pressure: Option<String>,
     pub setting_location: Option<String>,
+    // Phase 4: 补全场景级字段
+    pub characters_present: Vec<String>,
+    pub setting_time: Option<String>,
+    pub setting_atmosphere: Option<String>,
+    pub outline_content: Option<String>,
 }
 
 /// Phase 3.1: 参考场景 few-shot（用于拆书功能关联写作）。

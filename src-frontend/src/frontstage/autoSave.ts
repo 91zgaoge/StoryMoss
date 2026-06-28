@@ -16,7 +16,8 @@ export interface AutoSaveTask {
 }
 
 interface SavePayload {
-  chapterId: string;
+  /** Phase 2: 编辑主键改为 sceneId */
+  sceneId: string;
   title?: string;
   content: string;
   wordCount: number;

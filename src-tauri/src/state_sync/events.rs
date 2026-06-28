@@ -61,6 +61,8 @@ pub enum SyncEvent {
         story_id: String,
         scene_id: String,
         title: Option<String>,
+        /// Phase 4: 标记内容是否变更，供前端决定是否刷新编辑器正文
+        content_changed: bool,
     },
     SceneDeleted {
         story_id: String,

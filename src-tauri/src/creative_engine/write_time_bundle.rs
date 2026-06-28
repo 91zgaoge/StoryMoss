@@ -112,6 +112,7 @@ impl WriteTimeBundle {
 
         // 4. 场景大纲
         let scene_repo = SceneRepository::new(pool.clone());
+        // Phase 4: 使用 scene_id 直接查找（1:N 兼容）
         let scene_outline = match scene_repo.get_by_story(story_id) {
             Ok(scenes) => {
                 let scene = scenes.iter().find(|s| s.sequence_number == chapter_number);
@@ -120,6 +121,11 @@ impl WriteTimeBundle {
                     conflict_type: s.conflict_type.as_ref().map(|c| format!("{:?}", c)),
                     external_pressure: s.external_pressure.clone(),
                     setting_location: s.setting_location.clone(),
+                    // Phase 4: 补全场景级字段
+                    characters_present: s.characters_present.clone(),
+                    setting_time: s.setting_time.clone(),
+                    setting_atmosphere: s.setting_atmosphere.clone(),
+                    outline_content: s.outline_content.clone(),
                 })
             }
             Err(e) => {
@@ -523,6 +529,19 @@ impl WriteTimeBundle {
             }
             if let Some(ref s) = outline.setting_location {
                 outline_parts.push(format!("场景地点：{}", s));
+            }
+            // Phase 4: 补全场景级字段
+            if let Some(ref t) = outline.setting_time {
+                outline_parts.push(format!("时间：{}", t));
+            }
+            if let Some(ref a) = outline.setting_atmosphere {
+                outline_parts.push(format!("氛围：{}", a));
+            }
+            if !outline.characters_present.is_empty() {
+                outline_parts.push(format!("出场人物：{}", outline.characters_present.join("、")));
+            }
+            if let Some(ref o) = outline.outline_content {
+                outline_parts.push(format!("场景大纲：{}", o));
             }
             if !outline_parts.is_empty() {
                 sections.push(format!("【本场景任务】\n{}", outline_parts.join("\n")));

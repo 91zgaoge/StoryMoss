@@ -37,7 +37,8 @@ import { createLogger } from '@/utils/logger';
 const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
 import { smartExecute, formatText } from '@/services/tauri';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
-import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
+// Phase 4: SceneDividerNode 不再在幕前编辑器中渲染
+// import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
 
 interface RichTextEditorProps {
@@ -204,7 +205,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         Underline,
         Highlight.configure({ multicolor: true }),
         AiSuggestionNode,
-        SceneDividerNode,
+        // Phase 4: SceneDividerNode 从幕前编辑器移除——幕前为纯正文阅读/写作界面，
+        // 场景边界标记仅保留在数据库层供后台使用。
       ],
       content,
       onUpdate: ({ editor }) => {
