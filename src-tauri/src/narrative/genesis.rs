@@ -349,8 +349,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             let json_str = match super::extract_and_sanitize_json(content) {
                 Ok(s) => s,
                 Err(first_err) => {
-                    // v0.23.66: 一次重试——部分本地量化模型无视"只输出JSON"指令，
-                    // 返回纯文本/散文而非 JSON。用更严格的提示词重试一次。
+                    // v0.23.66: 一次重试 + 散文兜底。
+                    // 部分本地量化模型无视"只输出JSON"指令，返回纯文本/散文。
                     log::warn!(
                         "[GenesisDiag] ConceptGenerationStep: 首次JSON提取失败({})，准备重试。content_preview={}",
                         first_err,
@@ -373,18 +373,72 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                         .await
                         .map_err(|e| PipelineError::LlmError(e.to_string()))?;
                     let retry_content = retry_response.content.trim();
-                    super::extract_and_sanitize_json(retry_content)
-                        .map_err(|retry_err| {
-                            log::error!(
-                                "[GenesisDiag] ConceptGenerationStep: 重试也失败({})。retry_content_preview={}",
-                                retry_err,
+
+                    match super::extract_and_sanitize_json(retry_content) {
+                        Ok(s) => s,
+                        Err(retry_err) => {
+                            // v0.23.66: 散文兜底——JSON+重试都失败后，从自然语言中提取。
+                            // 模型可能以 "标题：XXX" 等标签形式给出信息。
+                            log::warn!(
+                                "[GenesisDiag] ConceptGenerationStep: JSON+重试均失败，尝试散文兜底。retry_preview={}",
                                 &retry_content[..retry_content.len().min(200)]
                             );
-                            PipelineError::ParseError(format!(
-                                "JSON解析失败（含1次重试）: 首次={}, 重试={}",
-                                first_err, retry_err
-                            ))
-                        })?
+                            let prose_meta = super::extract_story_meta_from_prose(retry_content)
+                                .or_else(|| super::extract_story_meta_from_prose(content));
+                            match prose_meta {
+                                Some(meta) => {
+                                    log::info!(
+                                        "[GenesisDiag] ConceptGenerationStep: 散文兜底提取成功 title={}",
+                                        meta.title
+                                    );
+                                    // 散文兜底提取成功，跳过 serde 反序列化，直接使用 meta
+                                    let pool = ctx.pool.clone();
+                                    let req = CreateStoryRequest {
+                                        title: meta.title.clone(),
+                                        description: Some(meta.description.clone()),
+                                        genre: Some(meta.genre.clone()),
+                                        style_dna_id: None,
+                                        genre_profile_id: meta.genre_profile_ids.first().cloned(),
+                                        methodology_id: None,
+                                        reference_book_id: None,
+                                    };
+                                    let story = tokio::task::spawn_blocking(move || {
+                                        let story_repo = StoryRepository::new(pool);
+                                        story_repo.create(req)
+                                    })
+                                    .await
+                                    .map_err(|e| {
+                                        PipelineError::StorageError(format!(
+                                            "spawn_blocking 失败: {}",
+                                            e
+                                        ))
+                                    })?
+                                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                                    log::warn!(
+                                        "[GenesisDiag] ConceptGenerationStep: Story 创建成功 id={}（散文兜底）",
+                                        story.id
+                                    );
+                                    ctx.story_id = story.id.clone();
+                                    let mut bundle = ctx.bundle.write().await;
+                                    *bundle = bundle.clone().with_story_meta(StoryMetaElement {
+                                        id: story.id.clone(),
+                                        ..meta
+                                    });
+                                    return Ok(());
+                                }
+                                None => {
+                                    log::error!(
+                                        "[GenesisDiag] ConceptGenerationStep: 所有提取方式均失败。first_err={}, retry_err={}",
+                                        first_err, retry_err
+                                    );
+                                    return Err(PipelineError::ParseError(format!(
+                                        "JSON解析失败（含1次重试+散文兜底）: 首次={}, 重试={}",
+                                        first_err, retry_err
+                                    )));
+                                }
+                            }
+                        }
+                    }
                 }
             };
             log::warn!(

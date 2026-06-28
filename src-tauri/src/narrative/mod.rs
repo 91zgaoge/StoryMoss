@@ -344,6 +344,159 @@ pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::Stor
     })
 }
 
+/// v0.23.66: 从自然语言散文中提取故事概念字段。
+///
+/// 部分本地量化模型无视"只输出 JSON"指令，以自然语言返回概念（如
+/// "标题：《荒星纪元》\n简介：...\n题材：科幻末世..."）。
+/// 本函数用中文/英文关键词匹配逐字段提取，作为 JSON 解析失败后的最后兜底。
+pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryMetaElement> {
+    use crate::domain::{ElementSource, StoryMetaElement};
+
+    /// 从文本中按中文/英文标签提取单行字符串值。
+    /// 匹配模式：标签后跟冒号（中/英），然后取冒号后到行尾/下一标签的内容。
+    fn extract_field(text: &str, labels: &[&str]) -> Option<String> {
+        for label in labels {
+            // 中英文冒号
+            for sep in [":", "："] {
+                let prefix = format!("{}{}", label, sep);
+                if let Some(pos) = text.find(&prefix) {
+                    let start = pos + prefix.len();
+                    let rest = &text[start..];
+                    // 取到行尾或下一明显标签
+                    let end = rest.find('\n').unwrap_or(rest.len());
+                    let mut val = rest[..end].trim().to_string();
+                    // 去除包裹的引号、书名号
+                    val = val
+                        .trim_matches(|c: char| {
+                            c == '"'
+                                || c == '"'
+                                || c == '\''
+                                || c == '《'
+                                || c == '》'
+                                || c == '【'
+                                || c == '】'
+                        })
+                        .to_string();
+                    // 去除 markdown 加粗标记
+                    val = val.replace("**", "").replace('*', "");
+                    val = val.trim().to_string();
+                    if !val.is_empty() && val.len() < 200 {
+                        return Some(val);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// 提取行内《书名号》包裹的标题
+    fn extract_title_fallback(text: &str) -> Option<String> {
+        if let Some(start) = text.find('《') {
+            if let Some(end) = text[start + 3..].find('》') {
+                let title = &text[start + 3..start + 3 + end];
+                if !title.is_empty() && title.len() < 100 {
+                    return Some(title.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// 提取逗号/顿号分隔的主题列表
+    fn extract_themes_fallback(text: &str) -> Vec<String> {
+        let raw = extract_field(text, &["主题", "themes", "核心主题"]);
+        raw.map(|s| {
+            s.split(|c: char| c == '、' || c == '，' || c == ',')
+                .map(|t| {
+                    t.trim()
+                        .trim_matches(|c: char| c == '"' || c == '\'')
+                        .to_string()
+                })
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    // 按优先级尝试提取标题：标签 > 书名号 > 首行
+    let title = extract_field(
+        text,
+        &["标题", "书名", "小说名", "title", "作品名", "故事标题"],
+    )
+    .or_else(|| extract_title_fallback(text))
+    .or_else(|| {
+        // 最后兜底：取第一行非空文本
+        text.lines()
+            .find(|l| !l.trim().is_empty() && l.trim().len() > 3)
+            .map(|l| {
+                l.trim()
+                    .trim_matches(|c: char| c == '#' || c == ' ')
+                    .to_string()
+            })
+            .filter(|t| t.len() < 100)
+    })?;
+
+    if title.is_empty() || title.len() > 100 {
+        return None;
+    }
+
+    let description = extract_field(
+        text,
+        &[
+            "简介",
+            "一句话简介",
+            "描述",
+            "description",
+            "概要",
+            "故事简介",
+        ],
+    )
+    .unwrap_or_default();
+
+    let genre =
+        extract_field(text, &["题材", "类型", "genre", "类别", "小说类型"]).unwrap_or_default();
+
+    let tone =
+        extract_field(text, &["基调", "文风", "tone", "风格", "文风基调"]).unwrap_or_default();
+
+    let pacing = extract_field(text, &["节奏", "pacing", "叙事节奏"]).unwrap_or_default();
+
+    let themes = extract_themes_fallback(text);
+
+    let target_length = extract_field(
+        text,
+        &[
+            "篇幅",
+            "长度",
+            "target_length",
+            "预计篇幅",
+            "字数",
+            "目标字数",
+        ],
+    )
+    .unwrap_or_default();
+
+    log::warn!(
+        "[extract_story_meta_from_prose] 从散文提取成功: title={}, genre={}",
+        title,
+        genre
+    );
+
+    Some(StoryMetaElement {
+        id: String::new(),
+        title,
+        description,
+        genre,
+        genre_profile_ids: vec![],
+        tone,
+        pacing,
+        themes,
+        target_length,
+        source: ElementSource::Generated,
+        source_ref_id: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
