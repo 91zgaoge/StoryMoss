@@ -3239,7 +3239,56 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
     if !result.is_empty() {
         result.push('\n');
     }
+
+    // v0.23.66: 全文重复检测——部分推理模型会在单次生成中输出两遍完全相同的内容。
+    // 检测方法：取前 ~55% 与后 ~55%
+    // 比较（有重叠容忍度），若高度相似则只保留前一半。
+    result = deduplicate_full_text(&result);
+
     result
+}
+
+/// v0.23.66: 检测并去除 LLM 单次生成中的全文重复。
+///
+/// 部分模型在长文本生成时会从头重复已生成的内容（类似"循环输出"）。
+/// 检测策略：取前半段与后半段比较，若前 200 字符完全匹配则判定为重复，
+/// 只保留前半段。
+fn deduplicate_full_text(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() < 200 {
+        return text.to_string();
+    }
+    let mid = chars.len() / 2;
+    // 取前半段前 200 字符作为指纹
+    let head_fingerprint: String = chars[..200.min(chars.len())].iter().collect();
+    // 在后半段开头查找这个指纹
+    let second_half_start = mid;
+    if second_half_start + 200 <= chars.len() {
+        let second_half_head: String = chars[second_half_start..second_half_start + 200]
+            .iter()
+            .collect();
+        // 比较前 200 字符是否相同（容差：允许少量空白差异）
+        let similarity = head_fingerprint
+            .chars()
+            .zip(second_half_head.chars())
+            .filter(|(a, b)| a == b)
+            .count() as f64
+            / 200.0;
+        if similarity > 0.85 {
+            log::warn!(
+                "[sanitize] 检测到全文重复（相似度={:.2}），保留前半段（{}→{} 字符）",
+                similarity,
+                chars.len(),
+                mid
+            );
+            return chars[..second_half_start]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_string();
+        }
+    }
+    text.to_string()
 }
 
 /// 判断一行是否为前导元评论（LLM 过渡语/开场白）。

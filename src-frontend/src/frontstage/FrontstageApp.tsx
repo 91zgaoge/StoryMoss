@@ -1000,15 +1000,9 @@ const FrontstageApp: React.FC = () => {
               // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
               // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
               // 在 ChapterSwitch（正文加载点）清空是最可靠的时机。
-              if (generatedText) {
-                frontstageLogger.info(
-                  '[ChapterSwitch] Clearing generatedText to prevent duplicate',
-                  {
-                    genTextLen: generatedText.length,
-                  }
-                );
-                setGeneratedText('');
-              }
+              // v0.23.66: 无条件清空——即使 stale closure 中 generatedText 为空，
+              // 实际渲染时可能已有内容。setGeneratedText('') 是幂等操作，安全。
+              setGeneratedText('');
               // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
               chapterSwitchCountRef.current += 1;
               chapterSwitchTimestampRef.current = Date.now(); // v0.23.62: post-ChapterSwitch quiet period
@@ -2556,6 +2550,11 @@ const FrontstageApp: React.FC = () => {
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
+                  // v0.23.66: 在 selectChapter 前强制清空 generatedText。
+                  // 根因：line 2462 的 setGeneratedText('') 与 selectChapter 之间有
+                  // async loadStories 间隙，期间可能被其他事件重新设置幽灵文本。
+                  // 在内容加载点前再次清空是最可靠的时机。
+                  setGeneratedText('');
                   // [DEBUG-dup] 回滚 v0.23.37 跳过 selectChapter —— 跳过会导致 currentChapter
                   // 未设置，后续渲染依赖可能崩溃（页面空白）。先用诊断日志定位根因再修。
                   frontstageLogger.info('[DEBUG-dup] story_created calling selectChapter', {

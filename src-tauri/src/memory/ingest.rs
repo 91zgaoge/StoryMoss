@@ -58,16 +58,21 @@ pub struct IngestContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAnalysis {
     /// 识别出的实体
+    #[serde(default)]
     pub entities: Vec<AnalyzedEntity>,
     /// 实体间的关系
+    #[serde(default)]
     pub relationships: Vec<AnalyzedRelation>,
     /// 关键事件
+    #[serde(default)]
     pub events: Vec<AnalyzedEvent>,
     /// 情感分析
     pub sentiment: SentimentAnalysis,
     /// 伏笔和照应
+    #[serde(default)]
     pub foreshadowing: Vec<Foreshadowing>,
     /// 主题标签
+    #[serde(default)]
     pub themes: Vec<String>,
 }
 

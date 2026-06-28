@@ -123,7 +123,11 @@ export async function setActiveModel(
   modelId: string,
   role?: 'creative' | 'tool' | 'background'
 ): Promise<void> {
-  await loggedInvoke<void>('set_active_model', { modelType: type, modelId, role: role ?? null });
+  const params: Record<string, string | null> = { modelType: type, modelId };
+  if (role) {
+    params.role = role;
+  }
+  await loggedInvoke<void>('set_active_model', params);
 }
 
 // 获取Agent模型映射
