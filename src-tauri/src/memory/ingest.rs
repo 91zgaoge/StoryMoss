@@ -83,6 +83,7 @@ pub struct AnalyzedEntity {
     pub entity_type: String,
     #[serde(default)]
     pub mentions: Vec<serde_json::Value>,
+    #[serde(default)]
     pub attributes: serde_json::Value,
 }
 
@@ -124,6 +125,7 @@ fn default_importance() -> i32 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentimentAnalysis {
+    #[serde(default)]
     pub overall: String,
     #[serde(default = "default_intensity")]
     pub intensity: f32,
@@ -139,6 +141,7 @@ fn default_intensity() -> f32 {
 pub struct SentimentPoint {
     #[serde(default)]
     pub position: f32,
+    #[serde(default)]
     pub sentiment: String,
     #[serde(default = "default_intensity")]
     pub intensity: f32,
@@ -146,6 +149,7 @@ pub struct SentimentPoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Foreshadowing {
+    #[serde(default)]
     pub content: String,
     #[serde(default = "default_fore_type")]
     pub type_: String,
@@ -160,35 +164,51 @@ fn default_fore_type() -> String {
 /// Step 2: 生成的知识
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratedKnowledge {
+    #[serde(default)]
     pub entities: Vec<EntityProfile>,
+    #[serde(default)]
     pub relations: Vec<RelationProfile>,
+    #[serde(default)]
     pub events: Vec<EventProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityProfile {
+    #[serde(default)]
     pub name: String,
     pub entity_type: EntityType,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub attributes: serde_json::Value,
-    pub importance: i32, // 1-10
+    #[serde(default = "default_importance")]
+    pub importance: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationProfile {
+    #[serde(default)]
     pub source: String,
+    #[serde(default)]
     pub target: String,
     pub relation_type: RelationType,
+    #[serde(default)]
     pub description: String,
+    #[serde(default = "default_strength")]
     pub strength: f32,
-    pub evolution: String, // 关系如何发展
+    #[serde(default)]
+    pub evolution: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventProfile {
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default = "default_importance")]
     pub importance: i32,
+    #[serde(default)]
     pub impact: String,
 }
 
