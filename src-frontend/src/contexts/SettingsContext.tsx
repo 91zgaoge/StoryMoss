@@ -229,7 +229,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       toast.error('设置活跃模型失败: ' + error.message);
     },
     onSuccess: (_data, vars) => {
-      toast.success(vars.role ? `已设为${vars.role === 'creative' ? '创作' : vars.role === 'tool' ? '工具' : '后台'}模型` : '已设为当前模型');
+      toast.success(
+        vars.role
+          ? `已设为${vars.role === 'creative' ? '创作' : vars.role === 'tool' ? '工具' : '后台'}模型`
+          : '已设为当前模型'
+      );
     },
     onSettled: () => {
       invalidateSettingsFamily();

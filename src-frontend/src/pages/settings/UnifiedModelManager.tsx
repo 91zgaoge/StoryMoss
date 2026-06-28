@@ -1,5 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Database, MessageSquare, Sparkles, Image, Filter, Cpu, Paintbrush, Wrench, Settings } from 'lucide-react';
+import {
+  Plus,
+  Database,
+  MessageSquare,
+  Sparkles,
+  Image,
+  Filter,
+  Cpu,
+  Paintbrush,
+  Wrench,
+  Settings,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
@@ -269,7 +280,10 @@ function FilterButton({
 
 type ModelRoleKey = 'creative' | 'tool' | 'background';
 
-const ROLE_CONFIG: Record<ModelRoleKey, { label: string; desc: string; icon: React.ReactNode; color: string }> = {
+const ROLE_CONFIG: Record<
+  ModelRoleKey,
+  { label: string; desc: string; icon: React.ReactNode; color: string }
+> = {
   creative: {
     label: '创作模型',
     desc: '正文生成、Writer、改写 — 质量优先',
@@ -310,44 +324,51 @@ function ModelRoleCard({
           为不同任务类型指定默认模型。未设置时网关自动分配（快模型→工具，闲置→后台，创作回退当前模型）。
         </p>
         <div className="space-y-3">
-        {(Object.entries(ROLE_CONFIG) as [ModelRoleKey, typeof ROLE_CONFIG['creative']][]).map(
-          ([role, config]) => {
-            const currentId = activeModels[role];
-            const currentModel = chatModels.find(m => m.id === currentId);
-            return (
-              <div key={role} className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
-                <span className={cn('flex items-center gap-1.5 text-sm font-medium min-w-[120px]', config.color)}>
-                  {config.icon}
-                  {config.label}
-                </span>
-                <span className="text-xs text-gray-600 hidden sm:block flex-1">{config.desc}</span>
-                <select
-                  className="bg-cinema-800 border border-cinema-700 rounded-md text-sm text-white px-2 py-1.5 min-w-[160px] focus:border-cinema-gold focus:outline-none"
-                  value={currentId || ''}
-                  onChange={e => {
-                    if (e.target.value) {
-                      onSetRole(e.target.value, role);
-                    }
-                  }}
-                >
-                  <option value="">自动分配（网关判断）</option>
-                  {chatModels.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                {currentModel && (
-                  <span className="text-xs text-cinema-gold bg-cinema-gold/10 px-2 py-0.5 rounded">
-                    {currentModel.name.length > 15
-                      ? currentModel.name.slice(0, 15) + '...'
-                      : currentModel.name}
+          {(Object.entries(ROLE_CONFIG) as [ModelRoleKey, (typeof ROLE_CONFIG)['creative']][]).map(
+            ([role, config]) => {
+              const currentId = activeModels[role];
+              const currentModel = chatModels.find(m => m.id === currentId);
+              return (
+                <div key={role} className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
+                  <span
+                    className={cn(
+                      'flex items-center gap-1.5 text-sm font-medium min-w-[120px]',
+                      config.color
+                    )}
+                  >
+                    {config.icon}
+                    {config.label}
                   </span>
-                )}
-              </div>
-            );
-          }
-        )}
+                  <span className="text-xs text-gray-600 hidden sm:block flex-1">
+                    {config.desc}
+                  </span>
+                  <select
+                    className="bg-cinema-800 border border-cinema-700 rounded-md text-sm text-white px-2 py-1.5 min-w-[160px] focus:border-cinema-gold focus:outline-none"
+                    value={currentId || ''}
+                    onChange={e => {
+                      if (e.target.value) {
+                        onSetRole(e.target.value, role);
+                      }
+                    }}
+                  >
+                    <option value="">自动分配（网关判断）</option>
+                    {chatModels.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                  {currentModel && (
+                    <span className="text-xs text-cinema-gold bg-cinema-gold/10 px-2 py-0.5 rounded">
+                      {currentModel.name.length > 15
+                        ? currentModel.name.slice(0, 15) + '...'
+                        : currentModel.name}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+          )}
         </div>
       </CardContent>
     </Card>

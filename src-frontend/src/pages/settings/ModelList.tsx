@@ -87,19 +87,20 @@ export function ModelList({
             if (activeModels?.tool === model.id) roles.push('工具');
             if (activeModels?.background === model.id) roles.push('后台');
             return (
-            <ModelCard
-              key={model.id}
-              model={model}
-              isActive={model.id === activeModelId}
-              connectionStatus={connectionStatus[model.id]}
-              isDeleting={deletingId === model.id}
-              onEdit={() => onEdit(model)}
-              onSetActive={() => onSetActive(model.id)}
-              onRetry={onRetry ? () => onRetry(model.id) : undefined}
-              onDelete={onDelete ? () => onDelete(model.id) : undefined}
-              roleBadges={roles}
-            />
-          )})}
+              <ModelCard
+                key={model.id}
+                model={model}
+                isActive={model.id === activeModelId}
+                connectionStatus={connectionStatus[model.id]}
+                isDeleting={deletingId === model.id}
+                onEdit={() => onEdit(model)}
+                onSetActive={() => onSetActive(model.id)}
+                onRetry={onRetry ? () => onRetry(model.id) : undefined}
+                onDelete={onDelete ? () => onDelete(model.id) : undefined}
+                roleBadges={roles}
+              />
+            );
+          })}
         </div>
       )}
     </div>
