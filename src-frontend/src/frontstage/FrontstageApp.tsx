@@ -140,6 +140,9 @@ const FrontstageApp: React.FC = () => {
   const chapterSwitchCountRef = useRef(0);
   // v0.23.62: 追踪 ChapterSwitch 时间戳，用于 post-ChapterSwitch 5s 静默期
   const chapterSwitchTimestampRef = useRef(0);
+  // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
+  // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
+  const skipChapterContentRef = useRef(false);
   useEffect(() => {
     currentStoryRef.current = currentStory;
   }, [currentStory]);
@@ -1046,19 +1049,27 @@ const FrontstageApp: React.FC = () => {
                 is_saved: useFrontstageStore.getState().isSaved,
                 store_content_length: useFrontstageStore.getState().content.length,
               });
-              // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
-              // W2-F1: 切换不同章节时无条件加载；同一章节且有未保存更改时不覆盖，避免内容回滚
-              if (payload?.content && payload.content.trim().length > 0) {
-                const isSameChapter = payload.chapter_id === currentChapterRef.current?.id;
-                if (!isSameChapter || isSaved) {
-                  frontstageLogger.info('[ChapterSwitch] Using content from event directly');
-                  setContent(autoFormatText(payload.content));
-                } else {
-                  frontstageLogger.info(
-                    '[ChapterSwitch] Skipping content overwrite (unsaved changes)'
-                  );
-                }
-              }
+              // Phase 4 fix: genesis 发送 auto_accept=false，不自动加载内容。
+              // 内容通过 generatedText + Tab 确认流程进入编辑器。
+              const autoAccept = (payload as any).auto_accept !== false; // 默认 true（向后兼容）
+              skipChapterContentRef.current = !autoAccept;
+
+              // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
+              chapterSwitchCountRef.current += 1;
+              chapterSwitchTimestampRef.current = Date.now();
+              frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
+                count: chapterSwitchCountRef.current,
+                story_id: payload.story_id,
+                chapter_id: payload.chapter_id,
+                scene_id: (payload as any).scene_id,
+                has_content: !!payload.content,
+                content_length: payload.content?.length || 0,
+                content_preview: payload.content?.slice(0, 60) ?? 'EMPTY',
+                current_chapter_id: currentChapterRef.current?.id ?? 'null',
+                is_saved: useFrontstageStore.getState().isSaved,
+                store_content_length: useFrontstageStore.getState().content.length,
+                auto_accept: autoAccept,
+              });
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
                 (async () => {
@@ -1568,13 +1579,16 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  const selectChapter = (chapter: Chapter) => {
-    // [DEBUG-dup] 诊断日志保留，guard 回滚 —— v0.23.37 的同章同内容跳过 guard
-    // 可能与竞态交互导致状态不一致。先回到 v0.23.37 之前的行为。
+  const selectChapter = (chapter: Chapter, opts?: { skipContent?: boolean }) => {
+    const skipContent = opts?.skipContent === true || skipChapterContentRef.current;
+    // Phase 4 fix: 重置跳过标志（只影响一次 selectChapter 调用）
+    skipChapterContentRef.current = false;
+    // [DEBUG-dup] 诊断日志保留
     frontstageLogger.info('[DEBUG-dup] selectChapter called', {
       chapter_id: chapter.id,
       content_length: chapter.content?.length ?? 0,
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
+      skipContent,
     });
 
     // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
@@ -1631,14 +1645,16 @@ const FrontstageApp: React.FC = () => {
     cancelAutoSave();
     setCurrentChapter(chapter);
     const formattedContent = autoFormatText(chapter.content || '');
-    setContent(formattedContent);
-    // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
-    // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
-    // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
-    setGeneratedText('');
-    // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
-    latestContentRef.current = formattedContent;
-    setIsSaved(true);
+    if (!skipContent) {
+      setContent(formattedContent);
+      // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
+      // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
+      // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
+      setGeneratedText('');
+      // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
+      latestContentRef.current = formattedContent;
+      setIsSaved(true);
+    }
     // Phase 2: 设置场景信息为主键，chapterId 为辅助
     // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
     const linkedSceneId = chapter.scene_id || scenes.find(s => s.chapter_id === chapter.id)?.id;

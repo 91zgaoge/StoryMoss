@@ -143,6 +143,10 @@ pub enum FrontstageEvent {
         scene_id: Option<String>,
         title: String,
         content: Option<String>,
+        /// Phase 4 fix: false 时前端不自动将章节内容塞入编辑器，等
+        /// generatedText + Tab 确认。 Genesis 创世时设为
+        /// false，续写/正常切章保持 true。
+        auto_accept: bool,
     },
     /// 保存状态更新
     SaveStatus {

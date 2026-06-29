@@ -28,6 +28,8 @@ export type FrontstageEvent =
         scene_id?: string;
         title: string;
         content?: string;
+        /** Phase 4 fix: false → 创世走 Tab 确认，不自动加载内容到编辑器 */
+        auto_accept?: boolean;
       };
     }
   | { type: 'SaveStatus'; payload: { saved: boolean; timestamp?: string } };

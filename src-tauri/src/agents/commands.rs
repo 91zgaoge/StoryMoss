@@ -278,6 +278,7 @@ pub async fn writer_agent_execute(
             scene_id: Some(scene.id.clone()),
             title: "第一场景".to_string(),
             content: scene.content.clone(),
+            auto_accept: true,
         };
         let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
 

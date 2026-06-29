@@ -1060,7 +1060,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     chapter_id: chapter_id.clone(),
                     scene_id: Some(scene_id.clone()),
                     title: "第一章".to_string(),
-                    content: None, // Phase 4 fix: Tab 确认流程，不直接塞入编辑器
+                    content: None,      // Phase 4 fix: Tab 确认流程，不直接塞入编辑器
+                    auto_accept: false, // Phase 4 fix: 创世走 Tab 确认，不让前端自动加载内容
                 },
             ) {
                 Ok(()) => tracing::info!(

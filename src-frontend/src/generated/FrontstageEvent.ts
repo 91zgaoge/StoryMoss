@@ -7,4 +7,9 @@ export type FrontstageEvent = { "type": "contentUpdate", "payload": { text: stri
 /**
  * Phase 1: Scene 为主要叙事单元，携带 scene_id 供前端按场景加载
  */
-scene_id: string | null, title: string, content: string | null, } } | { "type": "saveStatus", "payload": { saved: boolean, timestamp: string | null, } } | { "type": "dataRefresh", "payload": { entity: string, } };
+scene_id: string | null, title: string, content: string | null, 
+/**
+ * Phase 4 fix: false 时前端不自动将章节内容塞入编辑器，等 generatedText + Tab 确认。
+ * Genesis 创世时设为 false，续写/正常切章保持 true。
+ */
+auto_accept: boolean, } } | { "type": "saveStatus", "payload": { saved: boolean, timestamp: string | null, } } | { "type": "dataRefresh", "payload": { entity: string, } };
