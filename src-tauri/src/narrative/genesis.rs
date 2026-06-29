@@ -1033,7 +1033,9 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 }
             });
 
-            // 发送 ChapterSwitch 事件
+            // Phase 4 fix: 不再通过 ChapterSwitch 携带 content。
+            // 创世内容走续写同样的 Tab 确认流程——前端通过 generatedText 显示，
+            // 用户按 Tab 接受。避免直接塞入编辑器导致"双眼皮"重复。
             // [DEBUG] Bug A 关键日志：ChapterSwitch 事件发送时的内容
             if let Some(logger) = ctx
                 .app_handle
@@ -1041,7 +1043,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             {
                 logger.info(
                     "genesis.chapter_switch.sent",
-                    "ChapterSwitch 事件发送到前端",
+                    "ChapterSwitch 事件发送到前端（不含 content，走 Tab 确认流程）",
                     Some(serde_json::json!({
                         "story_id": &ctx.story_id,
                         "chapter_id": &chapter_id,
@@ -1058,7 +1060,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     chapter_id: chapter_id.clone(),
                     scene_id: Some(scene_id.clone()),
                     title: "第一章".to_string(),
-                    content: Some(result.content.clone()),
+                    content: None, // Phase 4 fix: Tab 确认流程，不直接塞入编辑器
                 },
             ) {
                 Ok(()) => tracing::info!(

@@ -2021,10 +2021,10 @@ const FrontstageApp: React.FC = () => {
           return;
         }
 
-        // v0.23.15: 第一章已就绪——正文已通过 ChapterSwitch 加载，直接完成
+        // Phase 4 fix: 创世和续写统一走 generatedText + Tab 确认
         if (isFirstChapterReady) {
-          frontstageLogger.info('[Bootstrap] Story created, first chapter ready');
-          toast.success('小说已创建！第一章已生成，您可以开始写作了', { duration: 4000 });
+          frontstageLogger.info('[Bootstrap] Story created, first chapter ready — Tab to accept');
+          // 不再自动加载：generatedText 已在上面设置，用户按 Tab 接受
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -2514,36 +2514,24 @@ const FrontstageApp: React.FC = () => {
           isBootstrapCompleted,
         });
         if (hasContent) {
-          // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
-          // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
-          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
-          if (isBootstrapCompleted) {
-            frontstageLogger.info(
-              '[DEBUG-dup] isBootstrapCompleted=true, NOT setting generatedText'
-            );
-            toast.success('小说已创建！第一章已生成，您可以开始写作了');
-          } else {
-            // v5.4.0: 去除与当前编辑器内容重复的部分，防止 LLM 返回完整文本导致"重复输出"
-            let finalContent = result.final_content!;
-            const currentText = editorRef.current?.getText() || '';
-            frontstageLogger.info('[DEBUG-dup] !! NON-bootstrap path, WILL setGeneratedText', {
-              finalContent_length: finalContent.length,
-              currentText_length: currentText.length,
-              startsWith: currentText ? finalContent.startsWith(currentText) : false,
-            });
-            if (currentText && finalContent.startsWith(currentText)) {
-              finalContent = finalContent.slice(currentText.length).trimStart();
-              frontstageLogger.info(
-                '[SmartGeneration] Removed duplicate prefix from generated text',
-                {
-                  prefix_len: currentText.length,
-                  remaining_len: finalContent.length,
-                }
-              );
-            }
-            setGeneratedText(finalContent);
-            toast.success('创作完成！');
+          // Phase 4 fix: 创世和续写统一走 generatedText + Tab 确认流程。
+          // 不再区分 bootstrap/非bootstrap——所有生成内容都先设为幽灵文本，
+          // 用户按 Tab 接受后才进入编辑器。
+          smartExecuteNeedDiagnosticRef.current = false;
+
+          let finalContent = result.final_content!;
+          const currentText = editorRef.current?.getText() || '';
+          frontstageLogger.info('[SmartGeneration] Setting generatedText', {
+            finalContent_length: finalContent.length,
+            currentText_length: currentText.length,
+            isBootstrapCompleted,
+          });
+          // 去重前缀
+          if (currentText && finalContent.startsWith(currentText)) {
+            finalContent = finalContent.slice(currentText.length).trimStart();
           }
+          setGeneratedText(finalContent);
+          toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户
           smartExecuteNeedDiagnosticRef.current = false; // v0.13.3

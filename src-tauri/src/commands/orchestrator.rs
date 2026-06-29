@@ -268,19 +268,20 @@ async fn smart_execute_inner(
                 );
                 // 从上下文读取第一章正文内容（已在 FirstChapterGenerationStep
                 // 中保存到数据库并发射 ChapterSwitch 事件）
-                let final_content = {
+                // Phase 4 fix: final_content 优先用实际正文（走 Tab 确认），
+                // 其次用摘要消息。之前优先级颠倒——正文被摘要覆盖，导致前端拿不到
+                // 实际内容走 generatedText 流程。
+                let final_content = if let Some(content) = ctx.first_chapter_content.clone() {
+                    Some(content)
+                } else {
                     let bundle = ctx.bundle.read().await;
-                    bundle
-                        .story_meta
-                        .as_ref()
-                        .and_then(|meta| {
-                            if meta.title.is_empty() {
-                                None
-                            } else {
-                                Some(format!("故事《{}》已创建，第一章正文已生成。", meta.title))
-                            }
-                        })
-                        .or_else(|| ctx.first_chapter_content.clone())
+                    bundle.story_meta.as_ref().and_then(|meta| {
+                        if meta.title.is_empty() {
+                            None
+                        } else {
+                            Some(format!("故事《{}》已创建，第一章正文已生成。", meta.title))
+                        }
+                    })
                 };
 
                 // [DEBUG] Bug A 关键日志：final_content 是摘要还是完整正文？
