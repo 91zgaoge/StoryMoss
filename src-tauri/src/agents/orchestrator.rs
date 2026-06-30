@@ -3575,6 +3575,27 @@ mod tests {
     }
 
     #[test]
+    fn test_deduplicate_real_world_chapter_double_copy() {
+        let raw = include_str!("test_fixtures/duplicated_chapter.txt");
+        let cleaned = sanitize_novel_output(raw);
+        let raw_count = raw.matches("外面的风很大。").count();
+        let cleaned_count = cleaned.matches("外面的风很大。").count();
+        assert!(
+            raw_count >= 2,
+            "测试素材本身应包含重复；实际出现 {} 次",
+            raw_count
+        );
+        assert_eq!(
+            cleaned_count,
+            1,
+            "去重后应只剩 1 次；实际 {} 次。清洗后长度：raw={}, cleaned={}",
+            cleaned_count,
+            raw.chars().count(),
+            cleaned.chars().count()
+        );
+    }
+
+    #[test]
     fn test_deduplicate_preserves_legitimate_repetition() {
         // 角色名、短句在文中正常出现多次不应被误删
         let raw = "小明走进房间。\n\n房间里很安静。\n\n小明看着窗外。\n\n窗外下着雨。";
