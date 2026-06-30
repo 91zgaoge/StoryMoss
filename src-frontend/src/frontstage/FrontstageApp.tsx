@@ -688,6 +688,8 @@ const FrontstageApp: React.FC = () => {
   const mainGenerationCompletedRef = useRef<boolean>(false);
   // v0.13.3: 用户主动取消时跳过安全网诊断
   const lastGenerationCancelledRef = useRef<boolean>(false);
+  // v0.23.82: 防止 Tab 确认被快速触发两次导致内容重复追加
+  const isAcceptingRef = useRef<boolean>(false);
   // v0.23.7: 记录后端最近一次实际发给 LLM 的提示词与模型，用于诊断卡片
   const lastLlmPromptRef = useRef<string>('未捕获（可能生成未进入 LLM 调用）');
   const lastLlmModelRef = useRef<string>('未知');
@@ -2165,27 +2167,42 @@ const FrontstageApp: React.FC = () => {
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
+    if (isAcceptingRef.current) {
+      frontstageLogger.warn('[handleAcceptGeneration] 正在处理中，忽略重复触发');
+      return;
+    }
     if (generatedText && editorRef.current) {
+      isAcceptingRef.current = true;
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
       // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
-      // v0.23.79: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮
+      // v0.23.82: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮。
+      // 去重比较时忽略所有空白与标点，并取生成内容前 500 字符作为指纹，降低误判。
       const formatted = autoFormatText(generatedText);
       const existingText = editorRef.current.getText().trim();
-      const normalizedExisting = existingText
-        .replace(/\s+/g, '')
-        .replace(/[\u3002\uff01\uff1f.!?，、；：""''（）《》]/g, '');
-      const normalizedGenerated = generatedText
-        .replace(/\s+/g, '')
-        .replace(/[\u3002\uff01\uff1f.!?，、；：""''（）《》]/g, '');
-      if (
+      const normalize = (s: string) =>
+        s
+          .replace(/\s+/g, '')
+          .replace(
+            /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
+            ''
+          );
+      const normalizedExisting = normalize(existingText);
+      const normalizedGenerated = normalize(generatedText);
+      const fingerprintLen = Math.min(500, normalizedGenerated.length);
+      const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
+      const isAlreadyPresent =
         existingText.length > 0 &&
-        normalizedExisting.includes(
-          normalizedGenerated.slice(0, Math.min(120, normalizedGenerated.length))
-        )
-      ) {
+        (normalizedExisting.includes(generatedFingerprint) ||
+          (normalizedGenerated.length > 0 &&
+            normalizedExisting.length >= normalizedGenerated.length * 0.9 &&
+            normalizedGenerated.includes(
+              normalizedExisting.slice(0, Math.min(200, normalizedExisting.length))
+            )));
+      if (isAlreadyPresent) {
         frontstageLogger.warn('[handleAcceptGeneration] 编辑器已包含该生成内容，跳过追加', {
           existingLen: existingText.length,
           generatedLen: generatedText.length,
+          fingerprintLen,
         });
       } else {
         editorRef.current.appendText(formatted);
@@ -2206,6 +2223,10 @@ const FrontstageApp: React.FC = () => {
         toast.success('已记录接受偏好');
       }
       setGeneratedText('');
+      // 在下一个微任务中重置标记，确保本次 Tab 触发的 onUpdate/保存完成前不会再次进入
+      queueMicrotask(() => {
+        isAcceptingRef.current = false;
+      });
     }
   }, [generatedText, currentStory, currentChapter]);
 

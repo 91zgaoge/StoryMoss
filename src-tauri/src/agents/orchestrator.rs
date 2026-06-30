@@ -3310,10 +3310,11 @@ fn normalize_for_dedup(text: &str) -> String {
         .collect()
 }
 
-/// v0.23.66: 检测并去除 LLM 单次生成中的全文重复。
+/// v0.23.82: 检测并去除 LLM 单次生成中的全文重复。
 ///
 /// 部分模型在长文本生成时会从头重复已生成的内容（类似"循环输出"）。
 /// 检测策略：取文本开头的指纹，在全文后半段搜索相同指纹。
+/// 为兼容 LLM 两遍拷贝之间空格/换行数量不一致，指纹比较时完全忽略空白字符。
 /// 若在中间某处找到且不太靠近末尾，则判定为重复，截断保留前半段。
 fn deduplicate_full_text(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -3322,42 +3323,48 @@ fn deduplicate_full_text(text: &str) -> String {
         return text.to_string();
     }
 
+    // 构建"去空白"文本，并保留每个非空白字符在原串中的索引，
+    // 这样可以把匹配位置精确映射回原串。
+    let mut no_ws_chars: Vec<char> = Vec::with_capacity(total);
+    let mut orig_indices: Vec<usize> = Vec::with_capacity(total);
+    for (i, &c) in chars.iter().enumerate() {
+        if !c.is_whitespace() {
+            no_ws_chars.push(c);
+            orig_indices.push(i);
+        }
+    }
+    let no_ws_total = no_ws_chars.len();
+    if no_ws_total < 300 {
+        return text.to_string();
+    }
+
     // 动态指纹长度：文本越长指纹越长，但不超过 200
-    let fingerprint_len = (total / 10).clamp(60, 200).min(total / 3);
+    let fingerprint_len = (no_ws_total / 10).clamp(60, 200).min(no_ws_total / 3);
     if fingerprint_len < 30 {
         return text.to_string();
     }
-    // v0.23.66: 空白归一化——将换行/连续空白替换为单个空格。
-    // LLM 第一遍输出用 \n 分段，第二遍用空格，精确匹配会失败。
-    // 归一化后两遍指纹一致。
-    let fingerprint: Vec<char> = chars[..fingerprint_len]
-        .iter()
-        .map(|&c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    // 也归一化搜索目标
-    let normalized: Vec<char> = chars
-        .iter()
-        .map(|&c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
+    let fingerprint = &no_ws_chars[..fingerprint_len];
 
-    // 从文本 1/3 处开始搜索（给前半段留足空间，也能覆盖"后半段整体重复"）
-    let search_start = total / 3;
-    if search_start + fingerprint_len > total {
+    // 从去空白文本 1/3 处开始搜索（给前半段留足空间）
+    let search_start = no_ws_total / 3;
+    if search_start + fingerprint_len > no_ws_total {
         return text.to_string();
     }
-    if let Some(pos) = normalized[search_start..]
+
+    if let Some(pos) = no_ws_chars[search_start..]
         .windows(fingerprint_len)
-        .rposition(|w| w == fingerprint.as_slice())
+        .rposition(|w| w == fingerprint)
     {
-        let match_pos = search_start + pos;
+        let match_pos_no_ws = search_start + pos;
+        let match_pos_orig = orig_indices[match_pos_no_ws];
         // 确保匹配点不在文本末尾附近（避免误伤正常结尾呼应）
-        if match_pos + fingerprint_len + 50 < total {
+        if match_pos_orig + 50 < total {
             log::warn!(
-                "[sanitize] 检测到全文重复：指纹在位置 {} 再次出现（总长={}），截断保留前段",
-                match_pos,
+                "[sanitize] 检测到全文重复：指纹在原位置 {} 再次出现（总长={}），截断保留前段",
+                match_pos_orig,
                 total,
             );
-            return chars[..match_pos]
+            return chars[..match_pos_orig]
                 .iter()
                 .collect::<String>()
                 .trim()
@@ -3590,6 +3597,27 @@ mod tests {
         let cleaned = sanitize_novel_output(raw);
         let raw_count = raw.matches("外面的风很大。").count();
         let cleaned_count = cleaned.matches("外面的风很大。").count();
+        assert!(
+            raw_count >= 2,
+            "测试素材本身应包含重复；实际出现 {} 次",
+            raw_count
+        );
+        assert_eq!(
+            cleaned_count,
+            1,
+            "去重后应只剩 1 次；实际 {} 次。清洗后长度：raw={}, cleaned={}",
+            cleaned_count,
+            raw.chars().count(),
+            cleaned.chars().count()
+        );
+    }
+
+    #[test]
+    fn test_deduplicate_real_world_chapter_double_copy_2() {
+        let raw = include_str!("test_fixtures/duplicated_chapter_2.txt");
+        let cleaned = sanitize_novel_output(raw);
+        let raw_count = raw.matches("卡纳斯驾驶着悬浮飞艇").count();
+        let cleaned_count = cleaned.matches("卡纳斯驾驶着悬浮飞艇").count();
         assert!(
             raw_count >= 2,
             "测试素材本身应包含重复；实际出现 {} 次",
