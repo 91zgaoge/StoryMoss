@@ -2012,6 +2012,8 @@ const FrontstageApp: React.FC = () => {
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
+                  // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
+                  skipChapterContentRef.current = true;
                   selectChapter(storyChapters[0]);
                 }
               }
@@ -2600,39 +2602,17 @@ const FrontstageApp: React.FC = () => {
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
-                  // v0.23.66: 在 selectChapter 前强制清空 generatedText。
-                  // 根因：line 2462 的 setGeneratedText('') 与 selectChapter 之间有
-                  // async loadStories 间隙，期间可能被其他事件重新设置幽灵文本。
-                  // 在内容加载点前再次清空是最可靠的时机。
-                  setGeneratedText('');
-                  // [DEBUG-dup] 回滚 v0.23.37 跳过 selectChapter —— 跳过会导致 currentChapter
-                  // 未设置，后续渲染依赖可能崩溃（页面空白）。先用诊断日志定位根因再修。
-                  frontstageLogger.info('[DEBUG-dup] story_created calling selectChapter', {
-                    chapter_id: storyChapters[0].id,
-                    content_length: storyChapters[0].content?.length ?? 0,
-                    content_preview: storyChapters[0].content?.slice(0, 50) ?? 'EMPTY',
-                    is_first_chapter_ready: isFirstChapterReady,
-                  });
-                  selectChapter(storyChapters[0]);
-                  // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
-                  if (
-                    (!firstChapter?.content || firstChapter.content.trim().length === 0) &&
-                    result.final_content &&
-                    result.final_content.trim().length > 0
-                  ) {
-                    frontstageLogger.warn(
-                      '[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback'
-                    );
-                    setGeneratedText(''); // v0.23.64: 清空幽灵文本，避免格式版+无格式版重复
-                    setContent(autoFormatText(result.final_content));
-                  }
-                } else if (result.final_content && result.final_content.trim().length > 0) {
-                  // v5.4.1 fix: 极端情况——DB 中没有章节但 result.final_content 有内容，直接显示
-                  frontstageLogger.warn(
-                    '[SmartGeneration] No chapters in DB but final_content exists, displaying content directly'
+                  // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
+                  skipChapterContentRef.current = true;
+                  frontstageLogger.info(
+                    '[DEBUG-dup] story_created calling selectChapter (skipContent=true)',
+                    {
+                      chapter_id: storyChapters[0].id,
+                      content_length: storyChapters[0].content?.length ?? 0,
+                      is_first_chapter_ready: isFirstChapterReady,
+                    }
                   );
-                  setGeneratedText(''); // v0.23.64: 清空幽灵文本，避免格式版+无格式版重复
-                  setContent(autoFormatText(result.final_content));
+                  selectChapter(storyChapters[0]);
                 }
               } else {
                 frontstageLogger.error('[SmartGeneration] New story not found in list_stories', {
