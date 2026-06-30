@@ -1601,7 +1601,7 @@ const FrontstageApp: React.FC = () => {
               chapter_id: full.id,
               content_length: full.content?.length ?? 0,
             });
-            selectChapter(full);
+            selectChapter(full, opts);
           }
         } catch (e) {
           frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
@@ -1622,7 +1622,7 @@ const FrontstageApp: React.FC = () => {
               map.set(full.id, full);
               return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
             });
-            selectChapter(full);
+            selectChapter(full, opts);
           }
         } catch (e) {
           frontstageLogger.error('Failed to load missing chapter', { error: e });
@@ -2013,8 +2013,8 @@ const FrontstageApp: React.FC = () => {
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
                   // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
-                  skipChapterContentRef.current = true;
-                  selectChapter(storyChapters[0]);
+                  // 显式传 skipContent=true，避免 ChapterSwitch 事件已消耗 ref 后此处误加载 DB 正文
+                  selectChapter(storyChapters[0], { skipContent: true });
                 }
               }
             } catch (e) {
@@ -2603,7 +2603,7 @@ const FrontstageApp: React.FC = () => {
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
                   // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
-                  skipChapterContentRef.current = true;
+                  // 显式传 skipContent=true，避免 ChapterSwitch 事件已消耗 ref 后此处误加载 DB 正文
                   frontstageLogger.info(
                     '[DEBUG-dup] story_created calling selectChapter (skipContent=true)',
                     {
@@ -2612,7 +2612,7 @@ const FrontstageApp: React.FC = () => {
                       is_first_chapter_ready: isFirstChapterReady,
                     }
                   );
-                  selectChapter(storyChapters[0]);
+                  selectChapter(storyChapters[0], { skipContent: true });
                 }
               } else {
                 frontstageLogger.error('[SmartGeneration] New story not found in list_stories', {

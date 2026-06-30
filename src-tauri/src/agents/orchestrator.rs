@@ -3277,18 +3277,33 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
         result.push('\n');
     }
 
-    // v0.23.66: 全文重复检测——部分推理模型会在单次生成中输出两遍完全相同的内容。
-    // 检测方法：取前 ~55% 与后 ~55%
-    // 比较（有重叠容忍度），若高度相似则只保留前一半。
+    // v0.23.79: 多层重复检测——部分模型会在单次生成中输出重复内容。
+    // 1. 全文指纹：检测"整篇复制一份"的循环输出
+    // 2. 段落块：检测大段重复（即使有轻微格式差异）
+    // 3. 连续段落：删除紧挨着的完全重复段落
     result = deduplicate_full_text(&result);
+    result = deduplicate_paragraph_blocks(&result);
+    result = deduplicate_consecutive_paragraphs(&result);
 
     result
+}
+
+/// 归一化文本用于重复检测：忽略空白、标点、大小写。
+fn normalize_for_dedup(text: &str) -> String {
+    const CJK_PUNCTUATION: &[char] = &[
+        '。', '，', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '（', '）', '《', '》', '【',
+        '】', '…', '—', '～', '·', '｜', '「', '」', '『', '』',
+    ];
+    text.chars()
+        .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && !CJK_PUNCTUATION.contains(c))
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
 /// v0.23.66: 检测并去除 LLM 单次生成中的全文重复。
 ///
 /// 部分模型在长文本生成时会从头重复已生成的内容（类似"循环输出"）。
-/// 检测策略：取文本开头的指纹（前 200 字符），在全文剩余部分搜索相同指纹。
+/// 检测策略：取文本开头的指纹，在全文后半段搜索相同指纹。
 /// 若在中间某处找到且不太靠近末尾，则判定为重复，截断保留前半段。
 fn deduplicate_full_text(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -3297,8 +3312,8 @@ fn deduplicate_full_text(text: &str) -> String {
         return text.to_string();
     }
 
-    // 取开头 100 字符作为指纹（短指纹避免后半段窗口不足，同时足够唯一）
-    let fingerprint_len = 100.min(total / 3);
+    // 动态指纹长度：文本越长指纹越长，但不超过 200
+    let fingerprint_len = (total / 10).clamp(60, 200).min(total / 3);
     if fingerprint_len < 30 {
         return text.to_string();
     }
@@ -3315,9 +3330,8 @@ fn deduplicate_full_text(text: &str) -> String {
         .map(|&c| if c == '\n' || c == '\r' { ' ' } else { c })
         .collect();
 
-    // 从文本中点开始搜索，用 rposition 找最后一个匹配（真正的重复起点），
-    // 而非第一个（可能是故事内部的巧合重复，如角色名再次出现）。
-    let search_start = total / 2;
+    // 从文本 1/3 处开始搜索（给前半段留足空间，也能覆盖"后半段整体重复"）
+    let search_start = total / 3;
     if search_start + fingerprint_len > total {
         return text.to_string();
     }
@@ -3326,19 +3340,91 @@ fn deduplicate_full_text(text: &str) -> String {
         .rposition(|w| w == fingerprint.as_slice())
     {
         let match_pos = search_start + pos;
-        log::warn!(
-            "[sanitize] 检测到全文重复：指纹在位置 {} 再次出现（总长={}），截断保留前段",
-            match_pos,
-            total,
-        );
-        return chars[..match_pos]
-            .iter()
-            .collect::<String>()
-            .trim()
-            .to_string();
+        // 确保匹配点不在文本末尾附近（避免误伤正常结尾呼应）
+        if match_pos + fingerprint_len + 50 < total {
+            log::warn!(
+                "[sanitize] 检测到全文重复：指纹在位置 {} 再次出现（总长={}），截断保留前段",
+                match_pos,
+                total,
+            );
+            return chars[..match_pos]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_string();
+        }
     }
 
     text.to_string()
+}
+
+/// v0.23.79: 检测并去除重复的段落块。
+///
+/// 模型有时不会整篇复制，而是把某个段落块（2 段以上）重复一次。
+/// 将文本按段落拆分（sanitize_novel_output 输出用单 \n 分隔段落），
+/// 对每段做归一化指纹，滑动窗口查找相同段落序列。
+/// 若找到重复块，则截断到第一次出现的位置。
+fn deduplicate_paragraph_blocks(text: &str) -> String {
+    let paragraphs: Vec<&str> = text
+        .lines()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // 至少要有 4 段才可能存在"2 段重复"（ABAB 模式）
+    if paragraphs.len() < 4 {
+        return text.to_string();
+    }
+
+    let hashes: Vec<String> = paragraphs.iter().map(|p| normalize_for_dedup(p)).collect();
+    let n = hashes.len();
+
+    // 从较大的块开始找，优先处理大段重复
+    for block_len in (2..=n / 2).rev() {
+        for start in 0..=n - 2 * block_len {
+            let block = &hashes[start..start + block_len];
+            for other_start in (start + block_len)..=n - block_len {
+                if hashes[other_start..other_start + block_len] == *block {
+                    log::warn!(
+                        "[sanitize] 检测到重复段落块：段落 {}-{} 与 {}-{} 重复，截断保留前段",
+                        start,
+                        start + block_len,
+                        other_start,
+                        other_start + block_len,
+                    );
+                    return paragraphs[..other_start].join("\n");
+                }
+            }
+        }
+    }
+
+    text.to_string()
+}
+
+/// v0.23.79: 删除紧挨着的重复段落。
+///
+/// 模型偶尔会在段落边界重复输出同一段。保留第一段，删除后续完全相同的段落。
+fn deduplicate_consecutive_paragraphs(text: &str) -> String {
+    let paragraphs: Vec<&str> = text
+        .lines()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if paragraphs.len() < 2 {
+        return text.to_string();
+    }
+
+    let mut result = vec![paragraphs[0]];
+    for p in paragraphs.iter().skip(1) {
+        let prev_norm = normalize_for_dedup(result.last().unwrap());
+        let curr_norm = normalize_for_dedup(p);
+        if !curr_norm.is_empty() && prev_norm == curr_norm {
+            log::warn!("[sanitize] 跳过连续重复段落");
+            continue;
+        }
+        result.push(*p);
+    }
+
+    result.join("\n")
 }
 
 /// 判断一行是否为前导元评论（LLM 过渡语/开场白）。
@@ -3454,6 +3540,48 @@ mod tests {
         let cleaned = sanitize_novel_output(raw);
         assert!(!cleaned.starts_with("好的"));
         assert!(cleaned.contains("寂静是最大的谎言。"));
+    }
+
+    #[test]
+    fn test_deduplicate_full_text_exact_double_copy() {
+        let first = "寂静是最大的谎言。\n\n这不是那种宁静的寂静。\n\n我蜷缩在舱室里。";
+        let raw = format!("{}\n\n{}", first, first);
+        let cleaned = sanitize_novel_output(&raw);
+        assert!(cleaned.contains("寂静是最大的谎言。"));
+        assert!(cleaned.contains("我蜷缩在舱室里。"));
+        // 第二份拷贝被去除
+        assert!(!cleaned.contains("我蜷缩在舱室里。\n\n寂静是最大的谎言"));
+    }
+
+    #[test]
+    fn test_deduplicate_paragraph_blocks_partial_repeat() {
+        let raw = "第一段正文。\n\n第二段正文。\n\n第三段正文。\n\n第一段正文。\n\n第二段正文。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("第一段正文。"));
+        assert!(cleaned.contains("第二段正文。"));
+        assert!(cleaned.contains("第三段正文。"));
+        // 重复的块只保留一次
+        let count = cleaned.matches("第一段正文。").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_deduplicate_consecutive_paragraphs() {
+        let raw = "寂静是最大的谎言。\n\n寂静是最大的谎言。\n\n我蜷缩在舱室里。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("寂静是最大的谎言。"));
+        assert!(cleaned.contains("我蜷缩在舱室里。"));
+        assert_eq!(cleaned.matches("寂静是最大的谎言。").count(), 1);
+    }
+
+    #[test]
+    fn test_deduplicate_preserves_legitimate_repetition() {
+        // 角色名、短句在文中正常出现多次不应被误删
+        let raw = "小明走进房间。\n\n房间里很安静。\n\n小明看着窗外。\n\n窗外下着雨。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("小明走进房间。"));
+        assert!(cleaned.contains("小明看着窗外。"));
+        assert!(cleaned.contains("窗外下着雨。"));
     }
 
     #[test]

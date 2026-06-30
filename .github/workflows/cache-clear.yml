@@ -1,0 +1,36 @@
+name: Clear GitHub Actions Caches
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '输入 DELETE 以确认清除所有 Actions 缓存'
+        required: true
+        default: ''
+
+jobs:
+  clear-caches:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clear all Actions caches
+        if: github.event.inputs.confirm == 'DELETE'
+        run: |
+          echo "正在列出并删除所有 GitHub Actions 缓存..."
+          gh cache list --limit 100 --json id --jq '.[].id' | while read -r id; do
+            echo "删除缓存: $id"
+            gh cache delete "$id" || true
+          done
+          echo "缓存清理完成"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cancel if not confirmed
+        if: github.event.inputs.confirm != 'DELETE'
+        run: |
+          echo "未确认。请在 workflow_dispatch 输入框中输入 DELETE 后重试。"
+          exit 1

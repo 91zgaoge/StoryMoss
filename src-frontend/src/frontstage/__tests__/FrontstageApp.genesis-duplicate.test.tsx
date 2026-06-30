@@ -17,7 +17,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 // 捕获 listen 回调，以便测试中手动触发 ChapterSwitch 事件
 const { listenCallbacks, captured, mockSmartExecute, CHAPTER_TEXT } = vi.hoisted(() => ({
   listenCallbacks: {} as Record<string, (e: { payload: unknown }) => void>,
-  captured: { content: '' },
+  captured: { content: '', generatedText: '' },
   mockSmartExecute: vi.fn(),
   CHAPTER_TEXT:
     '空气是粘稠的，带着一种金属锈蚀和腐败的甜腥味。\n\n凯尔的呼吸声在头盔内部被放大成粗重的喘息。\n\n他紧紧贴着那块破损的合金墙壁。',
@@ -31,8 +31,10 @@ vi.mock('@tauri-apps/api/event', () => ({
   emit: vi.fn(),
 }));
 
+let mockChaptersHaveContent = true;
+
 vi.mock('@/services/tauri', () => ({
-  loggedInvoke: vi.fn((cmd: string) => {
+  loggedInvoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
     if (cmd === 'get_gateway_status') {
       return Promise.resolve({
         last_probe_at: undefined,
@@ -45,16 +47,25 @@ vi.mock('@/services/tauri', () => ({
       return Promise.resolve([{ id: 'story-1', title: '测试小说' }]);
     }
     if (cmd === 'get_story_chapters') {
-      // 与 ChapterSwitch 事件携带的 content 完全相同
+      // 默认模拟 B2 分页返回 content；可通过 mockChaptersHaveContent 切换为 null 测试懒加载路径
       return Promise.resolve([
         {
           id: 'ch-1',
           story_id: 'story-1',
           chapter_number: 1,
           title: '第一章',
-          content: CHAPTER_TEXT,
+          content: mockChaptersHaveContent ? CHAPTER_TEXT : null,
         },
       ]);
+    }
+    if (cmd === 'get_chapter') {
+      return Promise.resolve({
+        id: 'ch-1',
+        story_id: 'story-1',
+        chapter_number: 1,
+        title: '第一章',
+        content: CHAPTER_TEXT,
+      });
     }
     if (cmd === 'get_story_scenes') {
       return Promise.resolve([]);
@@ -70,11 +81,12 @@ vi.mock('@/services/tauri', () => ({
   getPipelineActiveDraft: vi.fn(),
 }));
 
-// 捕获传给 RichTextEditor 的内容 prop（用于断言是否重复）
+// 捕获 generatedText 与 RichTextEditor 的内容 prop（用于断言 Tab 确认流程）
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
-  default: function MockRichTextEditor(props: { content: string }) {
+  default: function MockRichTextEditor(props: { content: string; generatedText?: string }) {
     captured.content = props.content;
+    captured.generatedText = props.generatedText ?? '';
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, props.content);
   },
 }));
@@ -98,12 +110,17 @@ vi.mock('@/stores/modelConnectionStore', () => ({
   useModelConnectionStore: () => ({ states: {} }),
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('@/utils/errorHandler', () => ({
+  parseStructuredError: vi.fn((e: unknown) => e),
+}));
 
 describe('Bug A: 创世后正文不应重复', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     for (const k of Object.keys(listenCallbacks)) delete listenCallbacks[k];
     captured.content = '';
+    captured.generatedText = '';
+    mockChaptersHaveContent = true;
     useFrontstageStore.getState().setContent('');
     useFrontstageStore.getState().setSceneInfo('', '', undefined);
     mockSmartExecute.mockResolvedValue({
@@ -119,17 +136,66 @@ describe('Bug A: 创世后正文不应重复', () => {
     });
   });
 
-  it('创世成功后正文只渲染一次，不出现重复', async () => {
+  const submitCreationPrompt = async () => {
     render(<FrontstageApp />, { wrapper });
-
     const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
     await userEvent.type(input, '写一部关于废土幸存者的小说');
     await userEvent.keyboard('{Enter}');
-
-    // 等 smartExecute 被调用
     await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled());
+  };
 
-    // 模拟后端在快速阶段发射 ChapterSwitch 事件，携带正文
+  it('ChapterSwitch 先到达时，显式 selectChapter 仍跳过 DB 内容，走 Tab 确认', async () => {
+    await submitCreationPrompt();
+
+    // 模拟后端先发射 ChapterSwitch（auto_accept=false, content=None），与真实 genesis.rs 一致
+    await act(async () => {
+      listenCallbacks['frontstage-event']?.({
+        payload: {
+          type: 'ChapterSwitch',
+          story_id: 'story-1',
+          chapter_id: 'ch-1',
+          title: '第一章',
+          content: null,
+          auto_accept: false,
+        },
+      });
+    });
+
+    // 等待 story_created 触发的显式 selectChapter 完成
+    await new Promise(r => setTimeout(r, 200));
+
+    // 走 Tab 确认流程：编辑器不应加载 DB 正文，generatedText 应持有正文
+    expect(captured.content).not.toContain(CHAPTER_TEXT);
+    expect(captured.generatedText).toBe(CHAPTER_TEXT);
+  });
+
+  it('B2 分页返回无 content 时，懒加载完整章节仍尊重 skipContent，不导致重复', async () => {
+    mockChaptersHaveContent = false;
+    await submitCreationPrompt();
+
+    // 模拟后端 ChapterSwitch 事件
+    await act(async () => {
+      listenCallbacks['frontstage-event']?.({
+        payload: {
+          type: 'ChapterSwitch',
+          story_id: 'story-1',
+          chapter_id: 'ch-1',
+          title: '第一章',
+          content: null,
+          auto_accept: false,
+        },
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(captured.content).not.toContain(CHAPTER_TEXT);
+    expect(captured.generatedText).toBe(CHAPTER_TEXT);
+  });
+
+  it('旧版 ChapterSwitch 携带正文时，仍不会出现重复内容', async () => {
+    await submitCreationPrompt();
+
     await act(async () => {
       listenCallbacks['frontstage-event']?.({
         payload: {
@@ -142,16 +208,10 @@ describe('Bug A: 创世后正文不应重复', () => {
       });
     });
 
-    // 等待所有异步加载（list_stories / get_story_chapters / selectChapter）完成
     await new Promise(r => setTimeout(r, 200));
 
-    // 关键断言 1：正文文本不应出现两次（重复 bug 的特征）
     const plainTextCount = (captured.content.match(/空气是粘稠的/g) || []).length;
     expect(plainTextCount).toBeLessThanOrEqual(1);
-
-    // 关键断言 2：isFirstChapterReady 时，generatedText 必须被清空，
-    // 防止 ghost-paragraph 与编辑器正文并存导致"段落版 + 连成一坨版"重复。
-    // captured.content 可能因 ChapterSwitch 竞态为空，但 ghost text 绝不能保留正文。
     expect(captured.content).not.toContain(CHAPTER_TEXT + CHAPTER_TEXT);
   });
 });
