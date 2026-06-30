@@ -2381,6 +2381,26 @@ const FrontstageApp: React.FC = () => {
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
+
+      // v0.23.82: 新建小说时强制初始化幕前状态，避免旧故事的内容/幽灵文本/章节引用残留，
+      // 导致后续 ChapterSwitch、ContentUpdate、Tab 确认等流程误判或重复追加。
+      if (isBootstrap) {
+        frontstageLogger.info('[SmartGeneration] 新建小说意图，初始化幕前状态');
+        setGeneratedText('');
+        setCurrentStory(null);
+        setCurrentChapter(null);
+        setChapters([]);
+        setScenes([]);
+        setIsSaved(true);
+        skipChapterContentRef.current = false;
+        chapterSwitchCountRef.current = 0;
+        chapterSwitchTimestampRef.current = 0;
+        if (editorRef.current) {
+          editorRef.current.setContent('');
+        }
+        useFrontstageStore.getState().setContent('');
+      }
+
       // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。
       // v0.15.5/v0.23.7: 从设置读取，避免用户已调整超时后文案仍显示 200/180。
       const timeoutSeconds = settings?.frontend_timeout_secs ?? 200;
