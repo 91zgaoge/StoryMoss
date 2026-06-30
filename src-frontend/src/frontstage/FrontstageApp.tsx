@@ -168,6 +168,7 @@ const FrontstageApp: React.FC = () => {
     isSavedRef.current = isSaved;
   }, [isSaved]);
   const [generatedText, _setGeneratedText] = useState('');
+  const generatedTextRef = useRef('');
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   const setGeneratedText = (text: string) => {
     if (text && text.length > 50) {
@@ -180,6 +181,7 @@ const FrontstageApp: React.FC = () => {
     } else if (text === '') {
       frontstageLogger.info('[GEN-TEXT] setGeneratedText cleared');
     }
+    generatedTextRef.current = text;
     _setGeneratedText(text);
   };
   const [wordCount, setWordCount] = useState(0);
@@ -990,8 +992,15 @@ const FrontstageApp: React.FC = () => {
         switch (type) {
           case 'ContentUpdate':
             // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
-            if (payload?.text !== undefined && isSavedRef.current) {
+            // v0.23.79: 若当前有未确认的 generatedText，跳过 ContentUpdate，防止 Tab 确认时形成双眼皮
+            if (
+              payload?.text !== undefined &&
+              isSavedRef.current &&
+              generatedTextRef.current.length === 0
+            ) {
               setContent(autoFormatText(payload.text));
+            } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
+              frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
             }
             break;
           case 'AppendContent':
@@ -1717,8 +1726,13 @@ const FrontstageApp: React.FC = () => {
         const activeChapter =
           storyChapters.find(c => c.id === currentChapter?.id) || storyChapters[0];
         if (activeChapter) {
-          selectChapter(activeChapter);
-          toast.success('第一章生成完成，已开始写作');
+          // v0.23.79: 后台阶段完成时若用户尚未确认 generatedText，直接加载 DB 正文
+          // 会与幽灵文本形成两份重复。此处跳过内容加载，让用户继续走 Tab 确认流程。
+          const hasPendingGeneration = generatedTextRef.current.length > 0;
+          selectChapter(activeChapter, { skipContent: hasPendingGeneration });
+          if (!hasPendingGeneration) {
+            toast.success('第一章生成完成，已开始写作');
+          }
         }
       } catch (e) {
         frontstageLogger.error('[PipelineComplete] Failed to refresh story after genesis', {
@@ -2165,8 +2179,28 @@ const FrontstageApp: React.FC = () => {
     if (generatedText && editorRef.current) {
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
       // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
+      // v0.23.79: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮
       const formatted = autoFormatText(generatedText);
-      editorRef.current.appendText(formatted);
+      const existingText = editorRef.current.getText().trim();
+      const normalizedExisting = existingText
+        .replace(/\s+/g, '')
+        .replace(/[\u3002\uff01\uff1f.!?，、；：""''（）《》]/g, '');
+      const normalizedGenerated = generatedText
+        .replace(/\s+/g, '')
+        .replace(/[\u3002\uff01\uff1f.!?，、；：""''（）《》]/g, '');
+      if (
+        existingText.length > 0 &&
+        normalizedExisting.includes(
+          normalizedGenerated.slice(0, Math.min(120, normalizedGenerated.length))
+        )
+      ) {
+        frontstageLogger.warn('[handleAcceptGeneration] 编辑器已包含该生成内容，跳过追加', {
+          existingLen: existingText.length,
+          generatedLen: generatedText.length,
+        });
+      } else {
+        editorRef.current.appendText(formatted);
+      }
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,
