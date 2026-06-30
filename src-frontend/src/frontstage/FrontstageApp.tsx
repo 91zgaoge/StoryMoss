@@ -1036,34 +1036,14 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              // v0.23.55: 正文通过 ChapterSwitch 加载到编辑器时，必须清空 generatedText。
-              // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
-              // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
-              // 在 ChapterSwitch（正文加载点）清空是最可靠的时机。
-              // v0.23.66: 无条件清空——即使 stale closure 中 generatedText 为空，
-              // 实际渲染时可能已有内容。setGeneratedText('') 是幂等操作，安全。
-              setGeneratedText('');
-              // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
-              chapterSwitchCountRef.current += 1;
-              chapterSwitchTimestampRef.current = Date.now(); // v0.23.62: post-ChapterSwitch quiet period
-              frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
-                count: chapterSwitchCountRef.current,
-                story_id: payload.story_id,
-                chapter_id: payload.chapter_id,
-                scene_id: (payload as any).scene_id,
-                has_content: !!payload.content,
-                content_length: payload.content?.length || 0,
-                content_preview: payload.content?.slice(0, 60) ?? 'EMPTY',
-                current_chapter_id: currentChapterRef.current?.id ?? 'null',
-                is_saved: useFrontstageStore.getState().isSaved,
-                store_content_length: useFrontstageStore.getState().content.length,
-              });
-              // Phase 4 fix: genesis 发送 auto_accept=false，不自动加载内容。
-              // 内容通过 generatedText + Tab 确认流程进入编辑器。
-              const autoAccept = (payload as any).auto_accept !== false; // 默认 true（向后兼容）
+              // v0.23.82: 先判断 auto_accept，再决定是否清空 generatedText。
+              // 只有 ChapterSwitch 真正加载正文时（auto_accept=true），才需要清空幽灵文本；
+              // genesis 发送 auto_accept=false 时，必须保留 generatedText，让用户走 Tab 确认。
+              const rawAutoAccept =
+                (payload as any).auto_accept ?? (payload as any).autoAccept ?? true;
+              const autoAccept = rawAutoAccept !== false;
               skipChapterContentRef.current = !autoAccept;
 
-              // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
               chapterSwitchCountRef.current += 1;
               chapterSwitchTimestampRef.current = Date.now();
               frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
@@ -1077,8 +1057,17 @@ const FrontstageApp: React.FC = () => {
                 current_chapter_id: currentChapterRef.current?.id ?? 'null',
                 is_saved: useFrontstageStore.getState().isSaved,
                 store_content_length: useFrontstageStore.getState().content.length,
-                auto_accept: autoAccept,
+                raw_auto_accept: rawAutoAccept,
+                resolved_auto_accept: autoAccept,
+                skip_content: !autoAccept,
               });
+
+              if (autoAccept) {
+                // v0.23.55: 正文通过 ChapterSwitch 加载到编辑器时，清空 generatedText。
+                // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
+                // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
+                setGeneratedText('');
+              }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
                 (async () => {

@@ -3277,13 +3277,23 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
         result.push('\n');
     }
 
-    // v0.23.79: 多层重复检测——部分模型会在单次生成中输出重复内容。
+    // v0.23.82: 多层重复检测——部分模型会在单次生成中输出重复内容。
     // 1. 全文指纹：检测"整篇复制一份"的循环输出
     // 2. 段落块：检测大段重复（即使有轻微格式差异）
     // 3. 连续段落：删除紧挨着的完全重复段落
+    let before_dedup = result.chars().count();
     result = deduplicate_full_text(&result);
     result = deduplicate_paragraph_blocks(&result);
     result = deduplicate_consecutive_paragraphs(&result);
+    let after_dedup = result.chars().count();
+    if after_dedup < before_dedup {
+        log::warn!(
+            "[sanitize_novel_output] 去重生效：{} -> {} 字符（移除 {} 字符）",
+            before_dedup,
+            after_dedup,
+            before_dedup - after_dedup
+        );
+    }
 
     result
 }
