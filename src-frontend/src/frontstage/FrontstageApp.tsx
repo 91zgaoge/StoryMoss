@@ -995,33 +995,41 @@ const FrontstageApp: React.FC = () => {
           case 'ContentUpdate':
             // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
             // v0.23.79: 若当前有未确认的 generatedText，跳过 ContentUpdate，防止 Tab 确认时形成双眼皮
-            if (
-              payload?.text !== undefined &&
-              isSavedRef.current &&
-              generatedTextRef.current.length === 0
-            ) {
-              setContent(autoFormatText(payload.text));
-            } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
-              frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
+            try {
+              if (
+                payload?.text !== undefined &&
+                isSavedRef.current &&
+                generatedTextRef.current.length === 0
+              ) {
+                setContent(autoFormatText(payload.text));
+              } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
+                frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
+              }
+            } catch (e) {
+              frontstageLogger.error('[ContentUpdate] 处理失败', { error: e, payload });
             }
             break;
           case 'AppendContent':
             if (payload?.text !== undefined) {
-              const formatted = autoFormatText(payload.text);
-              // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
-              // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
-              // 可能重发相同内容，或前端重复接收事件）
-              setContent(prev => {
-                const prevText = prev.replace(/<[^>]*>/g, '').trim();
-                const formattedText = formatted.replace(/<[^>]*>/g, '').trim();
-                if (formattedText && prevText.endsWith(formattedText.slice(-200))) {
-                  frontstageLogger.warn('[AppendContent] Skipped duplicate append', {
-                    formattedLen: formattedText.length,
-                  });
-                  return prev;
-                }
-                return prev + formatted;
-              });
+              try {
+                const formatted = autoFormatText(payload.text);
+                // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
+                // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
+                // 可能重发相同内容，或前端重复接收事件）
+                setContent(prev => {
+                  const prevText = prev.replace(/<[^>]*>/g, '').trim();
+                  const formattedText = formatted.replace(/<[^>]*>/g, '').trim();
+                  if (formattedText && prevText.endsWith(formattedText.slice(-200))) {
+                    frontstageLogger.warn('[AppendContent] Skipped duplicate append', {
+                      formattedLen: formattedText.length,
+                    });
+                    return prev;
+                  }
+                  return prev + formatted;
+                });
+              } catch (e) {
+                frontstageLogger.error('[AppendContent] 处理失败', { error: e, payload });
+              }
             }
             break;
           case 'DataRefresh':
@@ -1644,9 +1652,25 @@ const FrontstageApp: React.FC = () => {
 
     cancelAutoSave();
     setCurrentChapter(chapter);
-    const formattedContent = autoFormatText(chapter.content || '');
+    let formattedContent = '';
+    try {
+      formattedContent = autoFormatText(chapter.content || '');
+    } catch (e) {
+      frontstageLogger.error('[selectChapter] autoFormatText 失败', {
+        error: e,
+        content_length: chapter.content?.length,
+      });
+      formattedContent = `<p>${(chapter.content || '').replace(/\n/g, '</p><p>')}</p>`;
+    }
     if (!skipContent) {
-      setContent(formattedContent);
+      try {
+        setContent(formattedContent);
+      } catch (e) {
+        frontstageLogger.error('[selectChapter] setContent 失败', {
+          error: e,
+          formatted_length: formattedContent.length,
+        });
+      }
       // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
       // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
       // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
@@ -2171,8 +2195,10 @@ const FrontstageApp: React.FC = () => {
       frontstageLogger.warn('[handleAcceptGeneration] 正在处理中，忽略重复触发');
       return;
     }
-    if (generatedText && editorRef.current) {
-      isAcceptingRef.current = true;
+    if (!generatedText || !editorRef.current) return;
+
+    isAcceptingRef.current = true;
+    try {
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
       // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
       // v0.23.82: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮。
@@ -2223,6 +2249,13 @@ const FrontstageApp: React.FC = () => {
         toast.success('已记录接受偏好');
       }
       setGeneratedText('');
+    } catch (e) {
+      frontstageLogger.error('[handleAcceptGeneration] 处理失败', {
+        error: e,
+        generatedLen: generatedText?.length,
+      });
+      toast.error('接受生成内容时出错，请尝试重新生成');
+    } finally {
       // 在下一个微任务中重置标记，确保本次 Tab 触发的 onUpdate/保存完成前不会再次进入
       queueMicrotask(() => {
         isAcceptingRef.current = false;
@@ -3156,10 +3189,18 @@ const FrontstageApp: React.FC = () => {
                   }}
                   onReviseResult={text => {
                     if (editorRef.current) {
-                      // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
-                      const html = autoFormatText(text);
-                      editorRef.current.insertText(html);
-                      toast.success('修改内容已应用到编辑器');
+                      try {
+                        // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
+                        const html = autoFormatText(text);
+                        editorRef.current.insertText(html);
+                        toast.success('修改内容已应用到编辑器');
+                      } catch (e) {
+                        frontstageLogger.error('[onReviseResult] 应用修稿结果失败', {
+                          error: e,
+                          text_length: text?.length,
+                        });
+                        toast.error('应用修改内容时出错');
+                      }
                     }
                   }}
                   onFreePrompt={prompt => {

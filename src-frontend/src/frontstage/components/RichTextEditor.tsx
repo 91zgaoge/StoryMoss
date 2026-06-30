@@ -365,19 +365,28 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.23.23: 用 isExternalSyncRef 标记外部同步，跳过 onUpdate 中的 onChange 回调，
     // 防止启动加载/章节切换时触发伪"保存中"和自动保存
     useEffect(() => {
-      if (editor && content !== editor.getHTML() && !editor.isFocused) {
-        // [DEBUG-dup] 编辑器外部 setContent 实际触发
-        console.warn('[DEBUG-dup] RichTextEditor external setContent triggered', {
+      if (!editor || editor.isDestroyed) return;
+      try {
+        const editorHtml = editor.getHTML();
+        if (content !== editorHtml && !editor.isFocused) {
+          // [DEBUG-dup] 编辑器外部 setContent 实际触发
+          console.warn('[DEBUG-dup] RichTextEditor external setContent triggered', {
+            content_length: content.length,
+            content_preview: content.slice(0, 60),
+            editor_html_length: editorHtml.length,
+            is_focused: editor.isFocused,
+          });
+          isExternalSyncRef.current = true;
+          editor.commands.setContent(content || '<p></p>');
+          // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
+          queueMicrotask(() => {
+            isExternalSyncRef.current = false;
+          });
+        }
+      } catch (e) {
+        rtEditorLogger.error('[RichTextEditor] 外部 setContent 失败', {
+          error: e,
           content_length: content.length,
-          content_preview: content.slice(0, 60),
-          editor_html_length: editor.getHTML().length,
-          is_focused: editor.isFocused,
-        });
-        isExternalSyncRef.current = true;
-        editor.commands.setContent(content);
-        // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
-        queueMicrotask(() => {
-          isExternalSyncRef.current = false;
         });
       }
     }, [content, editor]);
@@ -704,12 +713,29 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         },
         appendText: (text: string) => {
-          if (editor) {
+          if (!editor || editor.isDestroyed) return;
+          try {
             const endPos = editor.state.doc.content.size;
-            editor.chain().focus().insertContentAt(endPos, text).run();
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(endPos, text || '')
+              .run();
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.appendText] 失败', {
+              error: e,
+              text_length: text?.length,
+            });
           }
         },
-        getText: () => editor?.getText() || '',
+        getText: () => {
+          try {
+            return editor?.getText() || '';
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.getText] 失败', { error: e });
+            return '';
+          }
+        },
         getSelectedText: () => {
           if (!editor) return '';
           const { from, to } = editor.state.selection;
@@ -718,11 +744,18 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         },
         focus: () => editor?.commands.focus(),
         setContent: (text: string) => {
-          if (editor) {
+          if (!editor || editor.isDestroyed) return;
+          try {
             isExternalSyncRef.current = true;
-            editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
+            const safeText = text || '';
+            editor.commands.setContent(`<p>${safeText.replace(/\n/g, '</p><p>')}</p>`);
             queueMicrotask(() => {
               isExternalSyncRef.current = false;
+            });
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.setContent] 失败', {
+              error: e,
+              text_length: text?.length,
             });
           }
         },
