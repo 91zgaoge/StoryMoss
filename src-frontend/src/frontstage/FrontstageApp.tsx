@@ -252,19 +252,9 @@ const FrontstageApp: React.FC = () => {
 
   const [smartGhostText, setSmartGhostText] = useState('');
 
-  // v0.23.70: 反应式安全网——editor 有内容时自动清 generatedText。
-  // 续写走 Tab 确认天然保证 generatedText 在内容加载后被清空，
-  // 但创世第一章跳过了确认步骤。此 effect 在任何 content 变更后
-  // 检查 generatedText 是否残留，有则清空，彻底消除"有排版+无排版"双副本。
-  useEffect(() => {
-    if (content && content.length > 100 && generatedText && generatedText.length > 50) {
-      frontstageLogger.info('[GEN-TEXT] useEffect: content present, clearing stale generatedText', {
-        contentLen: content.length,
-        generatedTextLen: generatedText.length,
-      });
-      setGeneratedText('');
-    }
-  }, [content, generatedText]);
+  // v0.23.91: 移除 v0.23.70 的自动清空 effect。根据新规则，AI 输出必须经 Tab 确认才能进编辑器，
+  // ContentUpdate/AppendContent 只更新 generatedText（幽灵文本），不会直接修改 content。
+  // 因此不再需要 content 存在时自动清空 generatedText，否则会在续写场景下误杀合法幽灵文本。
   const [inlineSuggestion, setInlineSuggestion] = useState<{
     instruction: string;
     targetText: string;
@@ -328,6 +318,13 @@ const FrontstageApp: React.FC = () => {
         frontstageLogger.info('[onChapterUpdated] Skipped in post-ChapterSwitch quiet period', {
           chapterId,
           msSinceChapterSwitch: Date.now() - chapterSwitchTimestampRef.current,
+        });
+        return;
+      }
+      // v0.23.91: 有未确认的 AI 生成内容时，禁止后台同步覆盖编辑器，避免绕过 Tab 确认。
+      if (generatedTextRef.current.length > 0) {
+        frontstageLogger.info('[onChapterUpdated] Skipped: generatedText pending confirmation', {
+          chapterId,
         });
         return;
       }
@@ -1063,34 +1060,32 @@ const FrontstageApp: React.FC = () => {
 
         switch (type) {
           case 'ContentUpdate':
-            // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
-            // v0.23.79: 若当前有未确认的 generatedText，跳过 ContentUpdate，防止 Tab 确认时形成双眼皮
-            // v0.23.89: 若内容与最近 Tab 确认接受的内容相同，也跳过，防止后台事件重复写入
+            // v0.23.91: AI 输出必须经 Tab 确认才能进编辑器。ContentUpdate 只更新
+            // generatedText（幽灵文本），不再直接写入 content。
             try {
               if (payload?.text !== undefined && isRecentlyAccepted(payload.text)) {
                 logToBackend('frontstage:content_update_blocked', 'matches recently accepted', {
                   preview: payload.text.slice(0, 80),
                 });
-              } else if (
-                payload?.text !== undefined &&
-                isSavedRef.current &&
-                generatedTextRef.current.length === 0
-              ) {
+              } else if (payload?.text !== undefined) {
                 const formatted = autoFormatText(payload.text);
-                logToBackend('frontstage:content_update_set', 'ContentUpdate setContent', {
-                  preview: payload.text.slice(0, 80),
-                  formattedLen: formatted.length,
-                });
-                setContent(`〔CU〕${formatted}`);
-              } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
-                frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
-                logToBackend('frontstage:content_update_skip', 'generatedText still present');
+                logToBackend(
+                  'frontstage:content_update_to_ghost',
+                  'ContentUpdate -> generatedText',
+                  {
+                    preview: payload.text.slice(0, 80),
+                    formattedLen: formatted.length,
+                  }
+                );
+                setGeneratedText(`〔CU〕${formatted}`);
               }
             } catch (e) {
               frontstageLogger.error('[ContentUpdate] 处理失败', { error: e, payload });
             }
             break;
           case 'AppendContent':
+            // v0.23.91: AI 输出必须经 Tab 确认才能进编辑器。AppendContent 只追加到
+            // generatedText（幽灵文本），不再直接写入 content。
             if (payload?.text !== undefined) {
               const appendText = payload.text;
               try {
@@ -1101,27 +1096,27 @@ const FrontstageApp: React.FC = () => {
                   break;
                 }
                 const formatted = autoFormatText(appendText);
-                // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
-                // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
-                // 可能重发相同内容，或前端重复接收事件）
-                setContent(prev => {
-                  const prevText = prev.replace(/<[^>]*>/g, '').trim();
-                  const formattedText = formatted.replace(/<[^>]*>/g, '').trim();
-                  if (formattedText && prevText.endsWith(formattedText.slice(-200))) {
-                    frontstageLogger.warn('[AppendContent] Skipped duplicate append', {
-                      formattedLen: formattedText.length,
-                    });
-                    logToBackend('frontstage:append_content_skip_tail', 'tail already present', {
-                      formattedLen: formattedText.length,
-                    });
-                    return prev;
-                  }
-                  logToBackend('frontstage:append_content_append', 'appended via event', {
-                    formattedLen: formatted.length,
-                    preview: appendText.slice(0, 80),
+                const prevGhost = generatedTextRef.current;
+                const prevText = prevGhost.replace(/<[^>]*>/g, '').trim();
+                const formattedText = formatted.replace(/<[^>]*>/g, '').trim();
+                if (formattedText && prevText.endsWith(formattedText.slice(-200))) {
+                  frontstageLogger.warn('[AppendContent] Skipped duplicate append to ghost', {
+                    formattedLen: formattedText.length,
                   });
-                  return prev + `〔AC〕${formatted}`;
-                });
+                  logToBackend('frontstage:append_content_skip_tail', 'tail already in ghost', {
+                    formattedLen: formattedText.length,
+                  });
+                } else {
+                  logToBackend(
+                    'frontstage:append_content_to_ghost',
+                    'AppendContent -> generatedText',
+                    {
+                      formattedLen: formatted.length,
+                      preview: appendText.slice(0, 80),
+                    }
+                  );
+                  setGeneratedText(prevGhost + `〔AC〕${formatted}`);
+                }
               } catch (e) {
                 frontstageLogger.error('[AppendContent] 处理失败', { error: e, payload });
               }
