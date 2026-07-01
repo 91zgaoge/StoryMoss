@@ -47,6 +47,62 @@ import { createLogger } from '@/utils/logger';
 
 const frontstageLogger = createLogger('ui:FrontstageApp');
 
+// v0.23.89: 前端关键事件直接写入后端工作流日志，便于无 devtools 时定位问题
+const logToBackend = (phase: string, message: string, details?: Record<string, unknown>) => {
+  try {
+    invoke('log_frontend_event', {
+      phase,
+      message,
+      details: details ?? {},
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+};
+
+// v0.23.89: 最近接受的生成内容指纹，用于屏蔽后台事件重复写入同一内容
+const useRecentAcceptGuard = () => {
+  const acceptedRef = useRef<{ fingerprint: string; acceptedAt: number } | null>(null);
+  // 先剥离临时调试标记，再归一化，避免标记导致指纹不一致
+  const stripMarkers = (s: string) => s.replace(/〔[A-Z0-9]+〕/g, '');
+  const normalize = (s: string) =>
+    stripMarkers(s)
+      .replace(/<[^>]*>/g, '')
+      .replace(/\s+/g, '')
+      .replace(
+        /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
+        ''
+      );
+  const markAccepted = useCallback((text: string) => {
+    acceptedRef.current = {
+      fingerprint: normalize(text).slice(0, 500),
+      acceptedAt: Date.now(),
+    };
+    logToBackend('frontstage:accept_guard', 'marked accepted fingerprint', {
+      fingerprintLen: acceptedRef.current.fingerprint.length,
+      preview: text.slice(0, 80),
+    });
+  }, []);
+  const isRecentlyAccepted = useCallback((text: string, windowMs = 10000) => {
+    const last = acceptedRef.current;
+    if (!last) return false;
+    if (Date.now() - last.acceptedAt > windowMs) return false;
+    const fp = normalize(text).slice(0, 500);
+    const match =
+      fp === last.fingerprint ||
+      (fp.length > 200 && last.fingerprint.includes(fp.slice(0, 200))) ||
+      (last.fingerprint.length > 200 && fp.includes(last.fingerprint.slice(0, 200)));
+    if (match) {
+      logToBackend('frontstage:accept_guard', 'blocked recently accepted content', {
+        preview: text.slice(0, 80),
+        windowMs,
+      });
+    }
+    return match;
+  }, []);
+  return { markAccepted, isRecentlyAccepted };
+};
+
 import FrontstageHeader from './components/FrontstageHeader';
 import FrontstageBottomBar from './components/FrontstageBottomBar';
 
@@ -133,6 +189,7 @@ const FrontstageApp: React.FC = () => {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const { markAccepted, isRecentlyAccepted } = useRecentAcceptGuard();
 
   // v5.4.1: 使用 ref 跟踪最新状态，避免 event listener 中的 stale closure
   const currentStoryRef = useRef(currentStory);
@@ -299,8 +356,19 @@ const FrontstageApp: React.FC = () => {
                 frontstageLogger.warn('[onChapterUpdated] autoFormatText returned empty');
                 return;
               }
+              if (isRecentlyAccepted(dbContent)) {
+                logToBackend('frontstage:on_chapter_updated_blocked', 'matches recently accepted', {
+                  chapterId,
+                  preview: dbContent.slice(0, 80),
+                });
+                return;
+              }
               setContent(prev => {
                 if (prev !== formatted) {
+                  logToBackend('frontstage:on_chapter_updated_set', 'onChapterUpdated setContent', {
+                    chapterId,
+                    formattedLen: formatted.length,
+                  });
                   // 使用底部状态栏替代黑色 toast
                   setGenerationStatus('📝 幕后已更新本章内容');
                   setTimeout(() => {
@@ -309,7 +377,7 @@ const FrontstageApp: React.FC = () => {
                     );
                   }, 2000);
                 }
-                return formatted;
+                return `〔OCU〕${formatted}`;
               });
             }
           } catch (e) {
@@ -997,15 +1065,26 @@ const FrontstageApp: React.FC = () => {
           case 'ContentUpdate':
             // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
             // v0.23.79: 若当前有未确认的 generatedText，跳过 ContentUpdate，防止 Tab 确认时形成双眼皮
+            // v0.23.89: 若内容与最近 Tab 确认接受的内容相同，也跳过，防止后台事件重复写入
             try {
-              if (
+              if (payload?.text !== undefined && isRecentlyAccepted(payload.text)) {
+                logToBackend('frontstage:content_update_blocked', 'matches recently accepted', {
+                  preview: payload.text.slice(0, 80),
+                });
+              } else if (
                 payload?.text !== undefined &&
                 isSavedRef.current &&
                 generatedTextRef.current.length === 0
               ) {
-                setContent(autoFormatText(payload.text));
+                const formatted = autoFormatText(payload.text);
+                logToBackend('frontstage:content_update_set', 'ContentUpdate setContent', {
+                  preview: payload.text.slice(0, 80),
+                  formattedLen: formatted.length,
+                });
+                setContent(`〔CU〕${formatted}`);
               } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
                 frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
+                logToBackend('frontstage:content_update_skip', 'generatedText still present');
               }
             } catch (e) {
               frontstageLogger.error('[ContentUpdate] 处理失败', { error: e, payload });
@@ -1013,8 +1092,15 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'AppendContent':
             if (payload?.text !== undefined) {
+              const appendText = payload.text;
               try {
-                const formatted = autoFormatText(payload.text);
+                if (isRecentlyAccepted(appendText)) {
+                  logToBackend('frontstage:append_content_blocked', 'matches recently accepted', {
+                    preview: appendText.slice(0, 80),
+                  });
+                  break;
+                }
+                const formatted = autoFormatText(appendText);
                 // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
                 // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
                 // 可能重发相同内容，或前端重复接收事件）
@@ -1025,9 +1111,16 @@ const FrontstageApp: React.FC = () => {
                     frontstageLogger.warn('[AppendContent] Skipped duplicate append', {
                       formattedLen: formattedText.length,
                     });
+                    logToBackend('frontstage:append_content_skip_tail', 'tail already present', {
+                      formattedLen: formattedText.length,
+                    });
                     return prev;
                   }
-                  return prev + formatted;
+                  logToBackend('frontstage:append_content_append', 'appended via event', {
+                    formattedLen: formatted.length,
+                    preview: appendText.slice(0, 80),
+                  });
+                  return prev + `〔AC〕${formatted}`;
                 });
               } catch (e) {
                 frontstageLogger.error('[AppendContent] 处理失败', { error: e, payload });
@@ -1072,6 +1165,13 @@ const FrontstageApp: React.FC = () => {
                 raw_auto_accept: rawAutoAccept,
                 resolved_auto_accept: autoAccept,
                 skip_content: !autoAccept,
+              });
+              logToBackend('frontstage:chapter_switch', 'ChapterSwitch received', {
+                count: chapterSwitchCountRef.current,
+                chapter_id: payload.chapter_id,
+                auto_accept: autoAccept,
+                has_content: !!payload.content,
+                content_length: payload.content?.length || 0,
               });
 
               if (autoAccept) {
@@ -1670,7 +1770,12 @@ const FrontstageApp: React.FC = () => {
     }
     if (!skipContent) {
       try {
-        setContent(formattedContent);
+        logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
+          chapterId: chapter.id,
+          formattedLen: formattedContent.length,
+          skipContent,
+        });
+        setContent(`〔SC〕${formattedContent}`);
       } catch (e) {
         frontstageLogger.error('[selectChapter] setContent 失败', {
           error: e,
@@ -1684,6 +1789,10 @@ const FrontstageApp: React.FC = () => {
       // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
       latestContentRef.current = formattedContent;
       setIsSaved(true);
+    } else {
+      logToBackend('frontstage:select_chapter_skip', 'selectChapter skipped content load', {
+        chapterId: chapter.id,
+      });
     }
     // Phase 2: 设置场景信息为主键，chapterId 为辅助
     // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
@@ -2206,12 +2315,17 @@ const FrontstageApp: React.FC = () => {
     isAcceptingRef.current = true;
     // 先快照当前要接受的文本，随后立刻清空 generatedText，避免幽灵文本残留。
     const textToAccept = generatedText;
+    logToBackend('frontstage:accept_start', 'Tab accept started', {
+      textLen: textToAccept.length,
+      preview: textToAccept.slice(0, 100),
+    });
     try {
       // v0.23.86: 用 flushSync 强制同步清空幽灵文本，确保在 appendText 之前
       // 幽灵文本已经从 DOM 中移除，从根上消除"排版正文 + 幽灵文本"双份显示。
       flushSync(() => {
         setGeneratedText('');
       });
+      logToBackend('frontstage:accept_cleared', 'generatedText cleared via flushSync');
 
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
       // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
@@ -2244,9 +2358,20 @@ const FrontstageApp: React.FC = () => {
           generatedLen: textToAccept.length,
           fingerprintLen,
         });
+        logToBackend('frontstage:accept_skip', 'content already present, skip append', {
+          existingLen: existingText.length,
+          generatedLen: textToAccept.length,
+        });
       } else {
-        editorRef.current.appendText(formatted);
+        // v0.23.89: 临时标记，用于区分 Tab 确认追加的内容来源
+        editorRef.current.appendText(`〔A〕${formatted}`);
+        logToBackend('frontstage:accept_append', 'appended formatted content', {
+          formattedLen: formatted.length,
+          existingLen: existingText.length,
+        });
       }
+      // 标记最近已接受，10s 内屏蔽相同内容的后台事件
+      markAccepted(textToAccept);
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,
@@ -2267,6 +2392,7 @@ const FrontstageApp: React.FC = () => {
         error: e,
         generatedLen: textToAccept?.length,
       });
+      logToBackend('frontstage:accept_error', 'accept failed', { error: String(e) });
       toast.error('接受生成内容时出错，请尝试重新生成');
     } finally {
       // 在下一个微任务中重置标记，确保本次 Tab 触发的 onUpdate/保存完成前不会再次进入
@@ -2274,7 +2400,7 @@ const FrontstageApp: React.FC = () => {
         isAcceptingRef.current = false;
       });
     }
-  }, [generatedText, currentStory, currentChapter]);
+  }, [generatedText, currentStory, currentChapter, markAccepted]);
 
   // Reject AI generation
   const handleRejectGeneration = useCallback(() => {
@@ -2681,7 +2807,14 @@ const FrontstageApp: React.FC = () => {
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
-          setGeneratedText(finalContent);
+          // v0.23.89: 临时标记，区分 generatedText 来源
+          const markedFinalContent = `〔GT〕${finalContent}`;
+          logToBackend('frontstage:set_generated_text', 'setting generatedText', {
+            finalLen: finalContent.length,
+            markedLen: markedFinalContent.length,
+            isBootstrapCompleted,
+          });
+          setGeneratedText(markedFinalContent);
           toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户

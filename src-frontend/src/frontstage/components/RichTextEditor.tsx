@@ -360,12 +360,24 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       };
     }, [editor]);
 
+    // v0.23.89: 记录 generatedText 变化，便于无 devtools 时追踪幽灵文本生命周期
+    useEffect(() => {
+      if (generatedText && generatedText.length > 10) {
+        rtEditorLogger.warn('[RichTextEditor] ghost text rendered', {
+          len: generatedText.length,
+          preview: generatedText.slice(0, 80),
+        });
+      }
+    }, [generatedText]);
+
     // 同步外部内容变化
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
     // v0.23.23: 用 isExternalSyncRef 标记外部同步，跳过 onUpdate 中的 onChange 回调，
     // 防止启动加载/章节切换时触发伪"保存中"和自动保存
-    // v0.23.88: 增加 lastExternalContentRef，避免 TipTap 规范化后触发无限 setContent 循环。
+    // v0.23.89: 更严格地防止 React error #185 无限循环：用文本指纹 + 同步次数熔断。
     const lastExternalContentRef = useRef(content);
+    const syncAttemptsRef = useRef(0);
+    const lastSyncAtRef = useRef(0);
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
       if (editor.isFocused) return;
@@ -373,24 +385,49 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // 回写的 onUpdate，不需要再次 setContent，防止 React error #185 无限循环。
       if (content === lastExternalContentRef.current) return;
 
+      // 熔断：1 秒内同步超过 3 次则停止，避免极端情况下的无限循环
+      const now = Date.now();
+      if (now - lastSyncAtRef.current > 1000) {
+        syncAttemptsRef.current = 0;
+      }
+      syncAttemptsRef.current += 1;
+      lastSyncAtRef.current = now;
+      if (syncAttemptsRef.current > 3) {
+        rtEditorLogger.error('[RichTextEditor] 外部同步熔断：1 秒内超过 3 次', {
+          content_preview: content.slice(0, 80),
+          attempts: syncAttemptsRef.current,
+        });
+        return;
+      }
+
       try {
         const editorHtml = editor.getHTML();
-        // 额外防御：忽略空白差异后若仍相同，也不重新设置
-        const normalizeHtml = (s: string) =>
-          s.replace(/\s+/g, ' ').replace(/\s*<p\s*><\/p>\s*/g, '');
-        if (normalizeHtml(content) === normalizeHtml(editorHtml)) {
+        // 用纯文本指纹比较，避免 TipTap HTML 结构差异导致反复同步
+        const textFingerprint = (s: string) =>
+          s
+            .replace(/<[^>]*>/g, '')
+            .replace(/\s+/g, '')
+            .replace(
+              /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
+              ''
+            )
+            .slice(0, 500);
+        if (textFingerprint(content) === textFingerprint(editorHtml)) {
           lastExternalContentRef.current = content;
           return;
         }
-        if (content !== editorHtml) {
-          isExternalSyncRef.current = true;
-          editor.commands.setContent(content || '<p></p>');
-          lastExternalContentRef.current = content;
-          // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
-          queueMicrotask(() => {
-            isExternalSyncRef.current = false;
-          });
-        }
+        rtEditorLogger.warn('[RichTextEditor] 外部 setContent 触发', {
+          content_preview: content.slice(0, 80),
+          editor_preview: editorHtml.slice(0, 80),
+          attempt: syncAttemptsRef.current,
+        });
+        isExternalSyncRef.current = true;
+        editor.commands.setContent(content || '<p></p>');
+        lastExternalContentRef.current = content;
+        // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
+        queueMicrotask(() => {
+          isExternalSyncRef.current = false;
+        });
       } catch (e) {
         rtEditorLogger.error('[RichTextEditor] 外部 setContent 失败', {
           error: e,
@@ -672,13 +709,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     }, [editor]);
 
     const handleAcceptAndContinue = useCallback(() => {
+      rtEditorLogger.warn('[RichTextEditor] Tab pressed, calling onAcceptGeneration', {
+        generatedTextLen: generatedText?.length ?? 0,
+        wensiMode,
+      });
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {
         setTimeout(() => {
           onRequestGeneration?.('续写');
         }, 300);
       }
-    }, [onAcceptGeneration, wensiMode, isZenMode, onRequestGeneration]);
+    }, [onAcceptGeneration, wensiMode, isZenMode, onRequestGeneration, generatedText]);
 
     // 键盘快捷键（全局，用于接受/拒绝 AI 生成）
     useEffect(() => {
@@ -887,7 +928,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText && <p className="ghost-paragraph">{generatedText}</p>}
+              {generatedText && (
+                <p className="ghost-paragraph" data-testid="ghost-paragraph">
+                  {generatedText}
+                </p>
+              )}
               {generatedText && (
                 <div className="ghost-hint-bar">
                   <kbd className="ghost-kbd">Tab</kbd>
