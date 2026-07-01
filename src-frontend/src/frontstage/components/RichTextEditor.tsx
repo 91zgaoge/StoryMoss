@@ -364,20 +364,28 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
     // v0.23.23: 用 isExternalSyncRef 标记外部同步，跳过 onUpdate 中的 onChange 回调，
     // 防止启动加载/章节切换时触发伪"保存中"和自动保存
+    // v0.23.88: 增加 lastExternalContentRef，避免 TipTap 规范化后触发无限 setContent 循环。
+    const lastExternalContentRef = useRef(content);
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
+      if (editor.isFocused) return;
+      // 如果当前要同步的内容就是我们最近一次外部设置的内容，说明是 TipTap 规范化
+      // 回写的 onUpdate，不需要再次 setContent，防止 React error #185 无限循环。
+      if (content === lastExternalContentRef.current) return;
+
       try {
         const editorHtml = editor.getHTML();
-        if (content !== editorHtml && !editor.isFocused) {
-          // [DEBUG-dup] 编辑器外部 setContent 实际触发
-          console.warn('[DEBUG-dup] RichTextEditor external setContent triggered', {
-            content_length: content.length,
-            content_preview: content.slice(0, 60),
-            editor_html_length: editorHtml.length,
-            is_focused: editor.isFocused,
-          });
+        // 额外防御：忽略空白差异后若仍相同，也不重新设置
+        const normalizeHtml = (s: string) =>
+          s.replace(/\s+/g, ' ').replace(/\s*<p\s*><\/p>\s*/g, '');
+        if (normalizeHtml(content) === normalizeHtml(editorHtml)) {
+          lastExternalContentRef.current = content;
+          return;
+        }
+        if (content !== editorHtml) {
           isExternalSyncRef.current = true;
           editor.commands.setContent(content || '<p></p>');
+          lastExternalContentRef.current = content;
           // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
           queueMicrotask(() => {
             isExternalSyncRef.current = false;
