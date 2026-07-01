@@ -203,7 +203,9 @@ const FrontstageApp: React.FC = () => {
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
-  const appendAiContentRef = useRef<(rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void>(() => {});
+  const appendAiContentRef = useRef<
+    (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
+  >(() => {});
   useEffect(() => {
     currentStoryRef.current = currentStory;
   }, [currentStory]);
