@@ -202,6 +202,8 @@ const FrontstageApp: React.FC = () => {
   // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
+  // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
+  const appendAiContentRef = useRef<(rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void>(() => {});
   useEffect(() => {
     currentStoryRef.current = currentStory;
   }, [currentStory]);
@@ -249,6 +251,10 @@ const FrontstageApp: React.FC = () => {
 
   // 文思三态：关闭 / 被动提示 / 主动辅助
   const [wensiMode, setWensiMode] = useState<WensiMode>('passive');
+  const wensiModeRef = useRef(wensiMode);
+  useEffect(() => {
+    wensiModeRef.current = wensiMode;
+  }, [wensiMode]);
 
   const [smartGhostText, setSmartGhostText] = useState('');
 
@@ -1060,32 +1066,41 @@ const FrontstageApp: React.FC = () => {
 
         switch (type) {
           case 'ContentUpdate':
-            // v0.23.91: AI 输出必须经 Tab 确认才能进编辑器。ContentUpdate 只更新
-            // generatedText（幽灵文本），不再直接写入 content。
+            // v0.23.92: 文思活跃模式直接追加到编辑器；否则只更新 generatedText（幽灵文本）。
             try {
               if (payload?.text !== undefined && isRecentlyAccepted(payload.text)) {
                 logToBackend('frontstage:content_update_blocked', 'matches recently accepted', {
                   preview: payload.text.slice(0, 80),
                 });
               } else if (payload?.text !== undefined) {
-                const formatted = autoFormatText(payload.text);
-                logToBackend(
-                  'frontstage:content_update_to_ghost',
-                  'ContentUpdate -> generatedText',
-                  {
-                    preview: payload.text.slice(0, 80),
-                    formattedLen: formatted.length,
-                  }
-                );
-                setGeneratedText(`〔CU〕${formatted}`);
+                if (wensiModeRef.current === 'active') {
+                  logToBackend(
+                    'frontstage:content_update_auto',
+                    'ContentUpdate auto-accept (wensi active)',
+                    {
+                      preview: payload.text.slice(0, 80),
+                    }
+                  );
+                  appendAiContentRef.current(payload.text, 'ContentUpdate');
+                } else {
+                  const formatted = autoFormatText(payload.text);
+                  logToBackend(
+                    'frontstage:content_update_to_ghost',
+                    'ContentUpdate -> generatedText',
+                    {
+                      preview: payload.text.slice(0, 80),
+                      formattedLen: formatted.length,
+                    }
+                  );
+                  setGeneratedText(`〔CU〕${formatted}`);
+                }
               }
             } catch (e) {
               frontstageLogger.error('[ContentUpdate] 处理失败', { error: e, payload });
             }
             break;
           case 'AppendContent':
-            // v0.23.91: AI 输出必须经 Tab 确认才能进编辑器。AppendContent 只追加到
-            // generatedText（幽灵文本），不再直接写入 content。
+            // v0.23.92: 文思活跃模式直接追加到编辑器；否则只追加到 generatedText（幽灵文本）。
             if (payload?.text !== undefined) {
               const appendText = payload.text;
               try {
@@ -1093,6 +1108,17 @@ const FrontstageApp: React.FC = () => {
                   logToBackend('frontstage:append_content_blocked', 'matches recently accepted', {
                     preview: appendText.slice(0, 80),
                   });
+                  break;
+                }
+                if (wensiModeRef.current === 'active') {
+                  logToBackend(
+                    'frontstage:append_content_auto',
+                    'AppendContent auto-accept (wensi active)',
+                    {
+                      preview: appendText.slice(0, 80),
+                    }
+                  );
+                  appendAiContentRef.current(appendText, 'AppendContent');
                   break;
                 }
                 const formatted = autoFormatText(appendText);
@@ -2308,65 +2334,17 @@ const FrontstageApp: React.FC = () => {
     if (!generatedText || !editorRef.current) return;
 
     isAcceptingRef.current = true;
-    // 先快照当前要接受的文本，随后立刻清空 generatedText，避免幽灵文本残留。
     const textToAccept = generatedText;
     logToBackend('frontstage:accept_start', 'Tab accept started', {
       textLen: textToAccept.length,
       preview: textToAccept.slice(0, 100),
     });
     try {
-      // v0.23.86: 用 flushSync 强制同步清空幽灵文本，确保在 appendText 之前
-      // 幽灵文本已经从 DOM 中移除，从根上消除"排版正文 + 幽灵文本"双份显示。
       flushSync(() => {
         setGeneratedText('');
       });
       logToBackend('frontstage:accept_cleared', 'generatedText cleared via flushSync');
-
-      // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
-      // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
-      // v0.23.82: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮。
-      // 去重比较时忽略所有空白与标点，并取生成内容前 500 字符作为指纹，降低误判。
-      const formatted = autoFormatText(textToAccept);
-      const existingText = editorRef.current.getText().trim();
-      const normalize = (s: string) =>
-        s
-          .replace(/\s+/g, '')
-          .replace(
-            /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
-            ''
-          );
-      const normalizedExisting = normalize(existingText);
-      const normalizedGenerated = normalize(textToAccept);
-      const fingerprintLen = Math.min(500, normalizedGenerated.length);
-      const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
-      const isAlreadyPresent =
-        existingText.length > 0 &&
-        (normalizedExisting.includes(generatedFingerprint) ||
-          (normalizedGenerated.length > 0 &&
-            normalizedExisting.length >= normalizedGenerated.length * 0.9 &&
-            normalizedGenerated.includes(
-              normalizedExisting.slice(0, Math.min(200, normalizedExisting.length))
-            )));
-      if (isAlreadyPresent) {
-        frontstageLogger.warn('[handleAcceptGeneration] 编辑器已包含该生成内容，跳过追加', {
-          existingLen: existingText.length,
-          generatedLen: textToAccept.length,
-          fingerprintLen,
-        });
-        logToBackend('frontstage:accept_skip', 'content already present, skip append', {
-          existingLen: existingText.length,
-          generatedLen: textToAccept.length,
-        });
-      } else {
-        // v0.23.89: 临时标记，用于区分 Tab 确认追加的内容来源
-        editorRef.current.appendText(`〔A〕${formatted}`);
-        logToBackend('frontstage:accept_append', 'appended formatted content', {
-          formattedLen: formatted.length,
-          existingLen: existingText.length,
-        });
-      }
-      // 标记最近已接受，10s 内屏蔽相同内容的后台事件
-      markAccepted(textToAccept);
+      appendAiContentRef.current(textToAccept, 'tab');
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,
@@ -2390,12 +2368,11 @@ const FrontstageApp: React.FC = () => {
       logToBackend('frontstage:accept_error', 'accept failed', { error: String(e) });
       toast.error('接受生成内容时出错，请尝试重新生成');
     } finally {
-      // 在下一个微任务中重置标记，确保本次 Tab 触发的 onUpdate/保存完成前不会再次进入
       queueMicrotask(() => {
         isAcceptingRef.current = false;
       });
     }
-  }, [generatedText, currentStory, currentChapter, markAccepted]);
+  }, [generatedText, currentStory, currentChapter]);
 
   // Reject AI generation
   const handleRejectGeneration = useCallback(() => {
@@ -2416,6 +2393,69 @@ const FrontstageApp: React.FC = () => {
     }
     setGeneratedText('');
   }, [generatedText, currentStory, currentChapter]);
+
+  // v0.23.92: 文思活跃模式下，AI 输出直接追加到编辑器并自动继续
+  const pendingAutoContinueRef = useRef(false);
+  const appendAiContent = useCallback(
+    (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => {
+      if (!editorRef.current) return;
+      const formatted = autoFormatText(rawText);
+      const existingText = editorRef.current.getText().trim();
+      const normalize = (s: string) =>
+        s
+          .replace(/\s+/g, '')
+          .replace(
+            /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
+            ''
+          );
+      const normalizedExisting = normalize(existingText);
+      const normalizedGenerated = normalize(rawText);
+      const fingerprintLen = Math.min(500, normalizedGenerated.length);
+      const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
+      const isAlreadyPresent =
+        existingText.length > 0 &&
+        (normalizedExisting.includes(generatedFingerprint) ||
+          (normalizedGenerated.length > 0 &&
+            normalizedExisting.length >= normalizedGenerated.length * 0.9 &&
+            normalizedGenerated.includes(
+              normalizedExisting.slice(0, Math.min(200, normalizedExisting.length))
+            )));
+      if (isAlreadyPresent) {
+        frontstageLogger.warn('[appendAiContent] 编辑器已包含该内容，跳过追加', {
+          source,
+          existingLen: existingText.length,
+          generatedLen: rawText.length,
+        });
+        logToBackend('frontstage:append_ai_skip', 'content already present', { source });
+      } else {
+        const marker = source === 'tab' ? '〔A〕' : source === 'auto' ? '〔AUTO〕' : '〔EVT〕';
+        editorRef.current.appendText(`${marker}${formatted}`);
+        logToBackend('frontstage:append_ai_done', 'appended AI content', {
+          source,
+          formattedLen: formatted.length,
+        });
+      }
+      markAccepted(rawText);
+      // 使用 ref 读取最新 wensiMode，避免 listener stale closure
+      if (wensiModeRef.current === 'active') {
+        pendingAutoContinueRef.current = true;
+        logToBackend('frontstage:auto_continue_queued', 'wensi active, queue next continuation');
+      }
+    },
+    [markAccepted]
+  );
+  useEffect(() => {
+    appendAiContentRef.current = appendAiContent;
+  }, [appendAiContent]);
+
+  // 文思活跃模式：生成结束后自动请求下一次续写
+  useEffect(() => {
+    if (wensiMode === 'active' && !isGenerating && pendingAutoContinueRef.current) {
+      pendingAutoContinueRef.current = false;
+      logToBackend('frontstage:auto_continue_trigger', 'triggering next continuation');
+      handleRequestGeneration('续写');
+    }
+  }, [wensiMode, isGenerating, handleRequestGeneration]);
 
   // 处理内联修改建议
   const handleInlineSuggestion = useCallback((suggestion: any, targetText: string) => {
@@ -2794,31 +2834,44 @@ const FrontstageApp: React.FC = () => {
           isBootstrapCompleted,
         });
         if (hasContent) {
-          // Phase 4 fix: 创世和续写统一走 generatedText + Tab 确认流程。
-          // 不再区分 bootstrap/非bootstrap——所有生成内容都先设为幽灵文本，
-          // 用户按 Tab 接受后才进入编辑器。
           smartExecuteNeedDiagnosticRef.current = false;
 
           let finalContent = result.final_content!;
           const currentText = editorRef.current?.getText() || '';
-          frontstageLogger.info('[SmartGeneration] Setting generatedText', {
-            finalContent_length: finalContent.length,
-            currentText_length: currentText.length,
-            isBootstrapCompleted,
-          });
           // 去重前缀
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
-          // v0.23.89: 临时标记，区分 generatedText 来源
-          const markedFinalContent = `〔GT〕${finalContent}`;
-          logToBackend('frontstage:set_generated_text', 'setting generatedText', {
-            finalLen: finalContent.length,
-            markedLen: markedFinalContent.length,
-            isBootstrapCompleted,
-          });
-          setGeneratedText(markedFinalContent);
-          toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
+
+          // v0.23.92: 文思活跃模式直接追加；否则走 generatedText + Tab 确认
+          if (wensiModeRef.current === 'active') {
+            logToBackend(
+              'frontstage:smart_execute_auto',
+              'smart_execute auto-accept (wensi active)',
+              {
+                finalLen: finalContent.length,
+                isBootstrapCompleted,
+              }
+            );
+            appendAiContent(finalContent, 'auto');
+            toast.success(
+              isBootstrapCompleted ? '小说已创建，文思活跃中...' : '续写已追加，文思活跃中...'
+            );
+          } else {
+            frontstageLogger.info('[SmartGeneration] Setting generatedText', {
+              finalContent_length: finalContent.length,
+              currentText_length: currentText.length,
+              isBootstrapCompleted,
+            });
+            const markedFinalContent = `〔GT〕${finalContent}`;
+            logToBackend('frontstage:set_generated_text', 'setting generatedText', {
+              finalLen: finalContent.length,
+              markedLen: markedFinalContent.length,
+              isBootstrapCompleted,
+            });
+            setGeneratedText(markedFinalContent);
+            toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
+          }
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户
           smartExecuteNeedDiagnosticRef.current = false; // v0.13.3

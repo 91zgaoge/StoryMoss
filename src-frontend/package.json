@@ -1,7 +1,7 @@
 {
   "name": "storyforge-frontend",
   "private": true,
-  "version": "0.23.91",
+  "version": "0.23.92",
   "type": "module",
   "scripts": {
     "dev": "vite",
