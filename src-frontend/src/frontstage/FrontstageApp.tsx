@@ -2419,6 +2419,29 @@ const FrontstageApp: React.FC = () => {
       // 导致后续 ChapterSwitch、ContentUpdate、Tab 确认等流程误判或重复追加。
       if (isBootstrap) {
         frontstageLogger.info('[SmartGeneration] 新建小说意图，初始化幕前状态');
+
+        // 保护性保存：若当前场景有未保存内容，先落盘再清空，避免用户输入丢失
+        const currentSceneId = useFrontstageStore.getState().sceneId;
+        if (!isSavedRef.current && currentSceneId && latestContentRef.current) {
+          frontstageLogger.info('[SmartGeneration] 新建小说前保护性保存当前场景', {
+            sceneId: currentSceneId,
+          });
+          cancelAutoSave();
+          try {
+            const contentToSave = latestContentRef.current;
+            await loggedInvoke<unknown>('update_scene', {
+              id: currentSceneId,
+              title: useFrontstageStore.getState().sceneTitle ?? undefined,
+              content: contentToSave,
+              word_count: computeWordCount(contentToSave),
+            });
+            setIsSaved(true);
+            justSavedRef.current = Date.now();
+          } catch (e) {
+            frontstageLogger.error('[SmartGeneration] 保护性保存失败，继续初始化', { error: e });
+          }
+        }
+
         setGeneratedText('');
         setCurrentStory(null);
         setCurrentChapter(null);
