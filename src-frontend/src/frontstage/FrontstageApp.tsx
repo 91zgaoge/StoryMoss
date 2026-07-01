@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { loggedInvoke } from '@/services/tauri';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -2203,12 +2204,20 @@ const FrontstageApp: React.FC = () => {
     if (!generatedText || !editorRef.current) return;
 
     isAcceptingRef.current = true;
+    // 先快照当前要接受的文本，随后立刻清空 generatedText，避免幽灵文本残留。
+    const textToAccept = generatedText;
     try {
+      // v0.23.86: 用 flushSync 强制同步清空幽灵文本，确保在 appendText 之前
+      // 幽灵文本已经从 DOM 中移除，从根上消除"排版正文 + 幽灵文本"双份显示。
+      flushSync(() => {
+        setGeneratedText('');
+      });
+
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
       // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
       // v0.23.82: 若编辑器已有该生成内容（如后台阶段完成时误加载），则不再追加，避免双眼皮。
       // 去重比较时忽略所有空白与标点，并取生成内容前 500 字符作为指纹，降低误判。
-      const formatted = autoFormatText(generatedText);
+      const formatted = autoFormatText(textToAccept);
       const existingText = editorRef.current.getText().trim();
       const normalize = (s: string) =>
         s
@@ -2218,7 +2227,7 @@ const FrontstageApp: React.FC = () => {
             ''
           );
       const normalizedExisting = normalize(existingText);
-      const normalizedGenerated = normalize(generatedText);
+      const normalizedGenerated = normalize(textToAccept);
       const fingerprintLen = Math.min(500, normalizedGenerated.length);
       const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
       const isAlreadyPresent =
@@ -2232,7 +2241,7 @@ const FrontstageApp: React.FC = () => {
       if (isAlreadyPresent) {
         frontstageLogger.warn('[handleAcceptGeneration] 编辑器已包含该生成内容，跳过追加', {
           existingLen: existingText.length,
-          generatedLen: generatedText.length,
+          generatedLen: textToAccept.length,
           fingerprintLen,
         });
       } else {
@@ -2244,7 +2253,7 @@ const FrontstageApp: React.FC = () => {
           chapter_id: currentChapter?.id,
           feedback_type: 'accept',
           agent_type: 'writer',
-          original_ai_text: generatedText,
+          original_ai_text: textToAccept,
         })
           .then(() => {
             toast.success('已记录接受偏好，系统将学习此方向');
@@ -2253,11 +2262,10 @@ const FrontstageApp: React.FC = () => {
       } else {
         toast.success('已记录接受偏好');
       }
-      setGeneratedText('');
     } catch (e) {
       frontstageLogger.error('[handleAcceptGeneration] 处理失败', {
         error: e,
-        generatedLen: generatedText?.length,
+        generatedLen: textToAccept?.length,
       });
       toast.error('接受生成内容时出错，请尝试重新生成');
     } finally {
