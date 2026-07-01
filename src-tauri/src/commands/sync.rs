@@ -39,10 +39,7 @@ pub fn notify_frontstage_content_changed(
     chapter_id: String,
     app: AppHandle,
 ) -> Result<(), AppError> {
-    let event = crate::window::FrontstageEvent::ContentUpdate {
-        text: format!("〔B5〕{}", text),
-        chapter_id,
-    };
+    let event = crate::window::FrontstageEvent::ContentUpdate { text, chapter_id };
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
 

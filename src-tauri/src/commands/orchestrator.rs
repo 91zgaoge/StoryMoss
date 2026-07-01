@@ -272,8 +272,7 @@ async fn smart_execute_inner(
                 // 其次用摘要消息。之前优先级颠倒——正文被摘要覆盖，导致前端拿不到
                 // 实际内容走 generatedText 流程。
                 let final_content = if let Some(content) = ctx.first_chapter_content.clone() {
-                    // DEBUG v0.23.84: 给最终正文加标记，便于定位前端重复追加来源
-                    Some(format!("〔B〕{}", content))
+                    Some(content)
                 } else {
                     let bundle = ctx.bundle.read().await;
                     bundle.story_meta.as_ref().and_then(|meta| {

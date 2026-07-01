@@ -3344,7 +3344,7 @@ fn deduplicate_full_text(text: &str) -> String {
         return text.to_string();
     }
 
-    // v0.23.84: 取多个指纹起始位置，避免第二遍拷贝缺少标题前缀（如"第一章\n"）
+    // v0.23.85: 取多个指纹起始位置，避免第二遍拷贝缺少标题前缀（如"第一章\n"）
     // 导致从位置 0 开始的指纹无法匹配。
     let search_start = no_ws_total / 3;
     if search_start + fingerprint_len > no_ws_total {

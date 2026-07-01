@@ -216,10 +216,7 @@ pub fn update_frontstage_content(
     text: String,
     chapter_id: String,
 ) -> Result<(), AppError> {
-    let event = FrontstageEvent::ContentUpdate {
-        text: format!("〔B6〕{}", text),
-        chapter_id,
-    };
+    let event = FrontstageEvent::ContentUpdate { text, chapter_id };
     WindowManager::send_to_frontstage(&app, event)
 }
 

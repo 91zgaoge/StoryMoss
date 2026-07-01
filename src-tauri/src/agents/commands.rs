@@ -376,7 +376,7 @@ pub async fn writer_agent_execute(
 
                 // 同时推送内容更新事件到幕前
                 let event = crate::window::FrontstageEvent::ContentUpdate {
-                    text: format!("〔B3〕{}", workflow_result.final_content.clone()),
+                    text: workflow_result.final_content.clone(),
                     chapter_id: scene_id.clone(),
                 };
                 let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
@@ -733,7 +733,7 @@ pub async fn auto_write(
 
                     // 推送内容追加事件到幕前
                     let event = crate::window::FrontstageEvent::AppendContent {
-                        text: format!("〔B4〕{}", generated),
+                        text: generated,
                         chapter_id: chapter_id.clone(),
                     };
                     let _ =

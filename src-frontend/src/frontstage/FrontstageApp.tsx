@@ -1002,8 +1002,7 @@ const FrontstageApp: React.FC = () => {
                 isSavedRef.current &&
                 generatedTextRef.current.length === 0
               ) {
-                // DEBUG v0.23.84: 给 ContentUpdate 内容加标记
-                setContent(autoFormatText(`〔F3〕${payload.text}`));
+                setContent(autoFormatText(payload.text));
               } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
                 frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
               }
@@ -1014,8 +1013,7 @@ const FrontstageApp: React.FC = () => {
           case 'AppendContent':
             if (payload?.text !== undefined) {
               try {
-                // DEBUG v0.23.84: 给 AppendContent 内容加标记
-                const formatted = autoFormatText(`〔F4〕${payload.text}`);
+                const formatted = autoFormatText(payload.text);
                 // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
                 // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
                 // 可能重发相同内容，或前端重复接收事件）
@@ -1123,7 +1121,8 @@ const FrontstageApp: React.FC = () => {
                           chapter_id: targetChapter.id,
                           content_length: targetChapter.content?.length || 0,
                         });
-                        selectChapter(targetChapter);
+                        // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
+                        selectChapter(targetChapter, { skipContent: !autoAccept });
                       } else {
                         frontstageLogger.error(
                           '[ChapterSwitch] No chapters available for new story'
@@ -1156,7 +1155,8 @@ const FrontstageApp: React.FC = () => {
                     chapter_id: chapter.id,
                     content_length: chapter.content?.length || 0,
                   });
-                  selectChapter(chapter);
+                  // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
+                  selectChapter(chapter, { skipContent: !autoAccept });
                 } else {
                   // v5.4.1 fix: chaptersRef 可能为空（Bootstrap 竞态：storyCreated→loadStories→selectStory 在 ChapterSwitch 之前设置了空 chapters）
                   // 此时必须重新查询数据库获取最新章节
@@ -1176,14 +1176,16 @@ const FrontstageApp: React.FC = () => {
                           content_length: freshChapter.content?.length || 0,
                         });
                         setChapters(freshChapters);
-                        selectChapter(freshChapter);
+                        // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
+                        selectChapter(freshChapter, { skipContent: !autoAccept });
                       } else if (freshChapters.length > 0) {
                         frontstageLogger.warn(
                           '[ChapterSwitch] Target chapter not found after re-fetch, falling back to first',
                           { expected_id: payload.chapter_id, fallback_id: freshChapters[0].id }
                         );
                         setChapters(freshChapters);
-                        selectChapter(freshChapters[0]);
+                        // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
+                        selectChapter(freshChapters[0], { skipContent: !autoAccept });
                       } else {
                         frontstageLogger.error(
                           '[ChapterSwitch] No chapters available after re-fetch'
@@ -1667,8 +1669,7 @@ const FrontstageApp: React.FC = () => {
     }
     if (!skipContent) {
       try {
-        // DEBUG v0.23.84: 给 selectChapter 加载内容加标记
-        setContent(formattedContent.replace(/^<p>/, '<p>〔F5〕'));
+        setContent(formattedContent);
       } catch (e) {
         frontstageLogger.error('[selectChapter] setContent 失败', {
           error: e,
@@ -2235,8 +2236,7 @@ const FrontstageApp: React.FC = () => {
           fingerprintLen,
         });
       } else {
-        // DEBUG v0.23.84: 给追加内容加标记，便于定位重复追加来源
-        editorRef.current.appendText(`〔F2〕${formatted}`);
+        editorRef.current.appendText(formatted);
       }
       if (currentStory?.id) {
         recordFeedback({
@@ -2673,8 +2673,7 @@ const FrontstageApp: React.FC = () => {
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
-          // DEBUG v0.23.84: 给 generatedText 加标记，便于定位重复追加来源
-          setGeneratedText(`〔F1〕${finalContent}`);
+          setGeneratedText(finalContent);
           toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户
