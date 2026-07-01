@@ -3338,37 +3338,45 @@ fn deduplicate_full_text(text: &str) -> String {
         return text.to_string();
     }
 
-    // 动态指纹长度：文本越长指纹越长，但不超过 200
-    let fingerprint_len = (no_ws_total / 10).clamp(60, 200).min(no_ws_total / 3);
+    // 动态指纹长度：文本越长指纹越长，但不超过 300
+    let fingerprint_len = (no_ws_total / 10).clamp(60, 300).min(no_ws_total / 3);
     if fingerprint_len < 30 {
         return text.to_string();
     }
-    let fingerprint = &no_ws_chars[..fingerprint_len];
 
-    // 从去空白文本 1/3 处开始搜索（给前半段留足空间）
+    // v0.23.84: 取多个指纹起始位置，避免第二遍拷贝缺少标题前缀（如"第一章\n"）
+    // 导致从位置 0 开始的指纹无法匹配。
     let search_start = no_ws_total / 3;
     if search_start + fingerprint_len > no_ws_total {
         return text.to_string();
     }
 
-    if let Some(pos) = no_ws_chars[search_start..]
-        .windows(fingerprint_len)
-        .rposition(|w| w == fingerprint)
-    {
-        let match_pos_no_ws = search_start + pos;
-        let match_pos_orig = orig_indices[match_pos_no_ws];
-        // 确保匹配点不在文本末尾附近（避免误伤正常结尾呼应）
-        if match_pos_orig + 50 < total {
-            log::warn!(
-                "[sanitize] 检测到全文重复：指纹在原位置 {} 再次出现（总长={}），截断保留前段",
-                match_pos_orig,
-                total,
-            );
-            return chars[..match_pos_orig]
-                .iter()
-                .collect::<String>()
-                .trim()
-                .to_string();
+    let candidate_starts: [usize; 5] = [0, 20, 40, 80, 120];
+    for start in candidate_starts {
+        if start + fingerprint_len > no_ws_total {
+            continue;
+        }
+        let fingerprint = &no_ws_chars[start..start + fingerprint_len];
+        if let Some(pos) = no_ws_chars[search_start..]
+            .windows(fingerprint_len)
+            .rposition(|w| w == fingerprint)
+        {
+            let match_pos_no_ws = search_start + pos;
+            let match_pos_orig = orig_indices[match_pos_no_ws];
+            // 确保匹配点不在文本末尾附近（避免误伤正常结尾呼应）
+            if match_pos_orig + 50 < total {
+                log::warn!(
+                    "[sanitize] 检测到全文重复：指纹（起始于 {}）在原位置 {} 再次出现（总长={}），截断保留前段",
+                    start,
+                    match_pos_orig,
+                    total,
+                );
+                return chars[..match_pos_orig]
+                    .iter()
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
+            }
         }
     }
 
@@ -3618,6 +3626,27 @@ mod tests {
         let cleaned = sanitize_novel_output(raw);
         let raw_count = raw.matches("卡纳斯驾驶着悬浮飞艇").count();
         let cleaned_count = cleaned.matches("卡纳斯驾驶着悬浮飞艇").count();
+        assert!(
+            raw_count >= 2,
+            "测试素材本身应包含重复；实际出现 {} 次",
+            raw_count
+        );
+        assert_eq!(
+            cleaned_count,
+            1,
+            "去重后应只剩 1 次；实际 {} 次。清洗后长度：raw={}, cleaned={}",
+            cleaned_count,
+            raw.chars().count(),
+            cleaned.chars().count()
+        );
+    }
+
+    #[test]
+    fn test_deduplicate_real_world_chapter_double_copy_3() {
+        let raw = include_str!("test_fixtures/duplicated_chapter_3.txt");
+        let cleaned = sanitize_novel_output(raw);
+        let raw_count = raw.matches("彻底被奴役。").count();
+        let cleaned_count = cleaned.matches("彻底被奴役。").count();
         assert!(
             raw_count >= 2,
             "测试素材本身应包含重复；实际出现 {} 次",

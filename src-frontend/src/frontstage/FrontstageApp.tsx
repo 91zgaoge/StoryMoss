@@ -19,6 +19,7 @@ import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
@@ -1001,7 +1002,8 @@ const FrontstageApp: React.FC = () => {
                 isSavedRef.current &&
                 generatedTextRef.current.length === 0
               ) {
-                setContent(autoFormatText(payload.text));
+                // DEBUG v0.23.84: 给 ContentUpdate 内容加标记
+                setContent(autoFormatText(`〔F3〕${payload.text}`));
               } else if (payload?.text !== undefined && generatedTextRef.current.length > 0) {
                 frontstageLogger.warn('[ContentUpdate] 存在未确认生成内容，跳过同步事件');
               }
@@ -1012,7 +1014,8 @@ const FrontstageApp: React.FC = () => {
           case 'AppendContent':
             if (payload?.text !== undefined) {
               try {
-                const formatted = autoFormatText(payload.text);
+                // DEBUG v0.23.84: 给 AppendContent 内容加标记
+                const formatted = autoFormatText(`〔F4〕${payload.text}`);
                 // v0.23.64: 去重守卫——检查 formatted 尾部是否已存在于 prev 中，
                 // 避免同一正文被 AppendContent 事件拼接两次（根因：auto_write 循环
                 // 可能重发相同内容，或前端重复接收事件）
@@ -1664,7 +1667,8 @@ const FrontstageApp: React.FC = () => {
     }
     if (!skipContent) {
       try {
-        setContent(formattedContent);
+        // DEBUG v0.23.84: 给 selectChapter 加载内容加标记
+        setContent(formattedContent.replace(/^<p>/, '<p>〔F5〕'));
       } catch (e) {
         frontstageLogger.error('[selectChapter] setContent 失败', {
           error: e,
@@ -2231,7 +2235,8 @@ const FrontstageApp: React.FC = () => {
           fingerprintLen,
         });
       } else {
-        editorRef.current.appendText(formatted);
+        // DEBUG v0.23.84: 给追加内容加标记，便于定位重复追加来源
+        editorRef.current.appendText(`〔F2〕${formatted}`);
       }
       if (currentStory?.id) {
         recordFeedback({
@@ -2668,7 +2673,8 @@ const FrontstageApp: React.FC = () => {
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
-          setGeneratedText(finalContent);
+          // DEBUG v0.23.84: 给 generatedText 加标记，便于定位重复追加来源
+          setGeneratedText(`〔F1〕${finalContent}`);
           toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户
@@ -3118,40 +3124,42 @@ const FrontstageApp: React.FC = () => {
                 </div>
               )}
 
-              <RichTextEditor
-                ref={editorRef}
-                content={content}
-                onChange={handleContentChange}
-                wensiMode={wensiMode}
-                generatedText={generatedText}
-                isGenerating={isGenerating}
-                onAcceptGeneration={handleAcceptGeneration}
-                onRejectGeneration={handleRejectGeneration}
-                onRequestGeneration={handleRequestGeneration}
-                onSmartGeneration={handleSmartGeneration}
-                onSlashCommand={handleSlashCommand}
-                onShowStatus={message => {
-                  setOrchestratorStatus({ stepType: 'editor', message });
-                  setTimeout(() => {
-                    setOrchestratorStatus(current =>
-                      current?.message === message ? null : current
-                    );
-                  }, 3000);
-                }}
-                placeholder="开始写作..."
-                characters={characters}
-                fontSize={fontSize}
-                onFontSizeChange={setFontSize}
-                isZenMode={isZenMode}
-                onZenModeChange={setIsZenMode}
-                storyId={currentStory?.id}
-                chapterId={currentChapter?.id}
-                chapterNumber={currentChapter?.chapter_number}
-                smartGhostText={smartGhostText}
-                inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
-                onClearInlineSuggestion={() => setInlineSuggestion(null)}
-                subscription={subscription}
-              />
+              <ErrorBoundary>
+                <RichTextEditor
+                  ref={editorRef}
+                  content={content}
+                  onChange={handleContentChange}
+                  wensiMode={wensiMode}
+                  generatedText={generatedText}
+                  isGenerating={isGenerating}
+                  onAcceptGeneration={handleAcceptGeneration}
+                  onRejectGeneration={handleRejectGeneration}
+                  onRequestGeneration={handleRequestGeneration}
+                  onSmartGeneration={handleSmartGeneration}
+                  onSlashCommand={handleSlashCommand}
+                  onShowStatus={message => {
+                    setOrchestratorStatus({ stepType: 'editor', message });
+                    setTimeout(() => {
+                      setOrchestratorStatus(current =>
+                        current?.message === message ? null : current
+                      );
+                    }, 3000);
+                  }}
+                  placeholder="开始写作..."
+                  characters={characters}
+                  fontSize={fontSize}
+                  onFontSizeChange={setFontSize}
+                  isZenMode={isZenMode}
+                  onZenModeChange={setIsZenMode}
+                  storyId={currentStory?.id}
+                  chapterId={currentChapter?.id}
+                  chapterNumber={currentChapter?.chapter_number}
+                  smartGhostText={smartGhostText}
+                  inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
+                  onClearInlineSuggestion={() => setInlineSuggestion(null)}
+                  subscription={subscription}
+                />
+              </ErrorBoundary>
             </main>
 
             <FrontstageBottomBar
