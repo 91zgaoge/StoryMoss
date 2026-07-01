@@ -2590,10 +2590,18 @@ const FrontstageApp: React.FC = () => {
         skipChapterContentRef.current = false;
         chapterSwitchCountRef.current = 0;
         chapterSwitchTimestampRef.current = 0;
-        if (editorRef.current) {
-          editorRef.current.setContent('');
-        }
+        // v0.23.90: 先清空 store content，确保 RichTextEditor 外部同步 effect 收到空内容
         useFrontstageStore.getState().setContent('');
+        useFrontstageStore.getState().setSceneInfo('', '');
+        latestContentRef.current = '';
+        if (editorRef.current) {
+          try {
+            editorRef.current.setContent('');
+          } catch (e) {
+            frontstageLogger.error('[SmartGeneration] editorRef.setContent 清空失败', { error: e });
+          }
+        }
+        logToBackend('frontstage:init_for_new_story', 'cleared editor and store content');
       }
 
       // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。

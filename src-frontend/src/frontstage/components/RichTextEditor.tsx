@@ -142,6 +142,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
     const [isAiThinking, setIsAiThinking] = useState(false);
+    // v0.23.90: Tab 按下瞬间立即隐藏幽灵文本，避免 flushSync/异步状态更新延迟导致双份显示
+    const [isHidingGhost, setIsHidingGhost] = useState(false);
 
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{
@@ -368,7 +370,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           preview: generatedText.slice(0, 80),
         });
       }
-    }, [generatedText]);
+      // v0.23.90: generatedText 真正清空后，解除本地隐藏锁定
+      if (!generatedText && isHidingGhost) {
+        setIsHidingGhost(false);
+      }
+    }, [generatedText, isHidingGhost]);
 
     // 同步外部内容变化
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
@@ -713,6 +719,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         generatedTextLen: generatedText?.length ?? 0,
         wensiMode,
       });
+      // v0.23.90: 立即本地隐藏幽灵文本，不等待父组件状态刷新
+      setIsHidingGhost(true);
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {
         setTimeout(() => {
@@ -928,7 +936,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText && (
+              {generatedText && !isHidingGhost && (
                 <p className="ghost-paragraph" data-testid="ghost-paragraph">
                   {generatedText}
                 </p>
