@@ -63,8 +63,8 @@ export function scheduleAutoSave(
           const resolvedPayload = typeof payload === 'function' ? payload() : payload;
           await saveFn(resolvedPayload);
         } catch (err) {
-          // 保存失败时由调用方处理（如 toast、重试）
-          throw err;
+          // v0.23.87: 不再向上抛出；保存失败已在 saveFn 内处理，抛出会导致未捕获 Promise 拒绝。
+          // 调用方如需感知失败，应在 saveFn 内部自行处理。
         } finally {
           isSaving = false;
           idleCallbackId = null;
