@@ -83,7 +83,7 @@ const useRecentAcceptGuard = () => {
       preview: text.slice(0, 80),
     });
   }, []);
-  const isRecentlyAccepted = useCallback((text: string, windowMs = 10000) => {
+  const isRecentlyAccepted = useCallback((text: string, windowMs = 300000) => {
     const last = acceptedRef.current;
     if (!last) return false;
     if (Date.now() - last.acceptedAt > windowMs) return false;
@@ -100,7 +100,10 @@ const useRecentAcceptGuard = () => {
     }
     return match;
   }, []);
-  return { markAccepted, isRecentlyAccepted };
+  const clearAccepted = useCallback(() => {
+    acceptedRef.current = null;
+  }, []);
+  return { markAccepted, isRecentlyAccepted, clearAccepted };
 };
 
 import FrontstageHeader from './components/FrontstageHeader';
@@ -189,7 +192,7 @@ const FrontstageApp: React.FC = () => {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
-  const { markAccepted, isRecentlyAccepted } = useRecentAcceptGuard();
+  const { markAccepted, isRecentlyAccepted, clearAccepted } = useRecentAcceptGuard();
 
   // v5.4.1: 使用 ref 跟踪最新状态，避免 event listener 中的 stale closure
   const currentStoryRef = useRef(currentStory);
@@ -2005,6 +2008,8 @@ const FrontstageApp: React.FC = () => {
   // Request AI generation -- now routes through backend smart_execute
   const handleRequestGeneration = useCallback(
     async (context?: string) => {
+      // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
+      clearAccepted();
       if (isGenerating) {
         // 使用顶部状态栏替代黑色 toast
         setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
@@ -2324,7 +2329,7 @@ const FrontstageApp: React.FC = () => {
         setOrchestratorStatus(null);
       }
     },
-    [isGenerating, settings]
+    [isGenerating, settings, clearAccepted]
   );
 
   // Accept AI generation
@@ -2576,6 +2581,8 @@ const FrontstageApp: React.FC = () => {
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
   const handleSmartGeneration = useCallback(
     async (userInput: string) => {
+      // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
+      clearAccepted();
       if (isGenerating) {
         // 使用顶部状态栏替代黑色 toast
         setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
@@ -3000,7 +3007,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
     },
-    [isGenerating, settings]
+    [isGenerating, settings, clearAccepted]
   );
 
   // 底部输入栏提交
