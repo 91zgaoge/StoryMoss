@@ -235,9 +235,28 @@ const FrontstageApp: React.FC = () => {
   }, [isSaved]);
   const [generatedText, _setGeneratedText] = useState('');
   const generatedTextRef = useRef('');
+  // v0.23.95: Tab 接受后 5 分钟内禁止任何来源重新设置 generatedText，
+  // 从根上杜绝幽灵文本在 Tab 确认后再次显示。
+  const postAcceptLockRef = useRef(0);
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   const setGeneratedText = (text: string) => {
     if (text && text.length > 50) {
+      if (Date.now() < postAcceptLockRef.current) {
+        frontstageLogger.warn('[GEN-TEXT] post-accept lock active, ignoring generatedText set', {
+          textLen: text.length,
+          preview: text.slice(0, 80),
+          lockMsRemaining: postAcceptLockRef.current - Date.now(),
+        });
+        logToBackend(
+          'frontstage:post_accept_lock_block',
+          'blocked generatedText set after accept',
+          {
+            preview: text.slice(0, 80),
+            lockMsRemaining: postAcceptLockRef.current - Date.now(),
+          }
+        );
+        return;
+      }
       const stack = new Error().stack?.split('\n').slice(1, 5).join(' <- ');
       frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
         textLen: text.length,
@@ -2010,6 +2029,8 @@ const FrontstageApp: React.FC = () => {
     async (context?: string) => {
       // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
       clearAccepted();
+      // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
+      postAcceptLockRef.current = 0;
       if (isGenerating) {
         // 使用顶部状态栏替代黑色 toast
         setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
@@ -2352,6 +2373,9 @@ const FrontstageApp: React.FC = () => {
       });
       logToBackend('frontstage:accept_cleared', 'generatedText cleared via flushSync');
       appendAiContentRef.current(textToAccept, 'tab');
+      // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
+      postAcceptLockRef.current = Date.now() + 300000;
+      logToBackend('frontstage:post_accept_lock', 'post-accept lock set', { lockMs: 300000 });
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,
@@ -2583,6 +2607,8 @@ const FrontstageApp: React.FC = () => {
     async (userInput: string) => {
       // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
       clearAccepted();
+      // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
+      postAcceptLockRef.current = 0;
       if (isGenerating) {
         // 使用顶部状态栏替代黑色 toast
         setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
