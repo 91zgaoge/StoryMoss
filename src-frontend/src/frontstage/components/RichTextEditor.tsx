@@ -144,6 +144,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [isAiThinking, setIsAiThinking] = useState(false);
     // v0.23.90: Tab 按下瞬间立即隐藏幽灵文本，避免 flushSync/异步状态更新延迟导致双份显示
     const [isHidingGhost, setIsHidingGhost] = useState(false);
+    // v0.23.96: Tab 接受后 30s 内强制不渲染幽灵文本，作为 post-accept lock 的渲染层兜底
+    const postAcceptHideUntilRef = useRef(0);
 
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{
@@ -365,10 +367,18 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.23.89: 记录 generatedText 变化，便于无 devtools 时追踪幽灵文本生命周期
     useEffect(() => {
       if (generatedText && generatedText.length > 10) {
-        rtEditorLogger.warn('[RichTextEditor] ghost text rendered', {
-          len: generatedText.length,
-          preview: generatedText.slice(0, 80),
-        });
+        if (Date.now() < postAcceptHideUntilRef.current) {
+          rtEditorLogger.warn('[RichTextEditor] ghost text suppressed by post-accept hide', {
+            len: generatedText.length,
+            preview: generatedText.slice(0, 80),
+            hideMsRemaining: postAcceptHideUntilRef.current - Date.now(),
+          });
+        } else {
+          rtEditorLogger.warn('[RichTextEditor] ghost text rendered', {
+            len: generatedText.length,
+            preview: generatedText.slice(0, 80),
+          });
+        }
       }
       // v0.23.90: generatedText 真正清空后，解除本地隐藏锁定
       if (!generatedText && isHidingGhost) {
@@ -720,7 +730,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         wensiMode,
       });
       // v0.23.90: 立即本地隐藏幽灵文本，不等待父组件状态刷新
+      // v0.23.96: 同时设置 30s 渲染层强制隐藏，防止任何竞态导致幽灵文本复现
       setIsHidingGhost(true);
+      postAcceptHideUntilRef.current = Date.now() + 30000;
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {
         setTimeout(() => {
@@ -936,7 +948,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText && !isHidingGhost && (
+              {generatedText && !isHidingGhost && Date.now() > postAcceptHideUntilRef.current && (
                 <p className="ghost-paragraph" data-testid="ghost-paragraph">
                   {generatedText}
                 </p>

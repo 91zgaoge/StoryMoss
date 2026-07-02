@@ -2368,10 +2368,10 @@ const FrontstageApp: React.FC = () => {
       preview: textToAccept.slice(0, 100),
     });
     try {
-      flushSync(() => {
-        setGeneratedText('');
-      });
-      logToBackend('frontstage:accept_cleared', 'generatedText cleared via flushSync');
+      // v0.23.96: 不再使用 flushSync，避免 React 18 批处理异常；
+      // 依赖 RichTextEditor 本地 isHidingGhost 立即隐藏幽灵文本。
+      setGeneratedText('');
+      logToBackend('frontstage:accept_cleared', 'generatedText cleared');
       appendAiContentRef.current(textToAccept, 'tab');
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
