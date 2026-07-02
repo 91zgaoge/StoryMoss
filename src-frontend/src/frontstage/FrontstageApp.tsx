@@ -235,6 +235,8 @@ const FrontstageApp: React.FC = () => {
   }, [isSaved]);
   const [generatedText, _setGeneratedText] = useState('');
   const generatedTextRef = useRef('');
+  // v0.23.97: Tab 接受后强制 RichTextEditor remount，彻底清除可能残留的幽灵文本 DOM
+  const [editorRemountKey, setEditorRemountKey] = useState(0);
   // v0.23.95: Tab 接受后 5 分钟内禁止任何来源重新设置 generatedText，
   // 从根上杜绝幽灵文本在 Tab 确认后再次显示。
   const postAcceptLockRef = useRef(0);
@@ -2372,7 +2374,15 @@ const FrontstageApp: React.FC = () => {
       // 依赖 RichTextEditor 本地 isHidingGhost 立即隐藏幽灵文本。
       setGeneratedText('');
       logToBackend('frontstage:accept_cleared', 'generatedText cleared');
+      // v0.23.97: 记录追加前编辑器是否为空，用于决定是否需要强制 remount
+      const wasEmptyBeforeAppend = editorRef.current?.getText().trim().length === 0;
       appendAiContentRef.current(textToAccept, 'tab');
+      // v0.23.97: 如果追加前编辑器为空（典型创世第一章场景），强制 remount RichTextEditor
+      // 以彻底清除可能残留的幽灵文本 DOM，避免双份显示。
+      if (wasEmptyBeforeAppend) {
+        setEditorRemountKey(prev => prev + 1);
+        logToBackend('frontstage:editor_remount', 'forcing RichTextEditor remount after accept');
+      }
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
       logToBackend('frontstage:post_accept_lock', 'post-accept lock set', { lockMs: 300000 });
@@ -3357,6 +3367,7 @@ const FrontstageApp: React.FC = () => {
 
               <ErrorBoundary>
                 <RichTextEditor
+                  key={editorRemountKey}
                   ref={editorRef}
                   content={content}
                   onChange={handleContentChange}
