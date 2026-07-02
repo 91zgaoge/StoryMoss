@@ -68,6 +68,8 @@ interface RichTextEditorProps {
   onSlashCommand?: (commandId: string) => void;
   /** 智能文思 Ghost Text 建议 */
   smartGhostText?: string;
+  /** v0.23.98: 父组件控制的幽灵文本隐藏截止时间戳（跨 remount 有效） */
+  hideGhostUntil?: number;
   /** 统一状态提示回调（替代黑色 toast） */
   onShowStatus?: (message: string) => void;
   /** 内联修改建议 */
@@ -132,6 +134,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onSmartGeneration,
       onSlashCommand,
       smartGhostText,
+      hideGhostUntil = 0,
       onShowStatus,
       inlineSuggestion,
       onClearInlineSuggestion,
@@ -145,7 +148,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.23.90: Tab 按下瞬间立即隐藏幽灵文本，避免 flushSync/异步状态更新延迟导致双份显示
     const [isHidingGhost, setIsHidingGhost] = useState(false);
     // v0.23.96: Tab 接受后 30s 内强制不渲染幽灵文本，作为 post-accept lock 的渲染层兜底
-    const postAcceptHideUntilRef = useRef(0);
+    // v0.23.98: 与父组件 hideGhostUntil 合并，确保 remount 后仍然强制隐藏
+    const postAcceptHideUntilRef = useRef(hideGhostUntil);
 
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{
@@ -366,6 +370,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // v0.23.89: 记录 generatedText 变化，便于无 devtools 时追踪幽灵文本生命周期
     useEffect(() => {
+      // v0.23.98: 父组件 hideGhostUntil 可能 remount 后才到达，同步到本地 ref
+      if (hideGhostUntil > postAcceptHideUntilRef.current) {
+        postAcceptHideUntilRef.current = hideGhostUntil;
+      }
       if (generatedText && generatedText.length > 10) {
         if (Date.now() < postAcceptHideUntilRef.current) {
           rtEditorLogger.warn('[RichTextEditor] ghost text suppressed by post-accept hide', {
@@ -384,7 +392,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       if (!generatedText && isHidingGhost) {
         setIsHidingGhost(false);
       }
-    }, [generatedText, isHidingGhost]);
+    }, [generatedText, isHidingGhost, hideGhostUntil]);
 
     // 同步外部内容变化
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
@@ -948,11 +956,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText && !isHidingGhost && Date.now() > postAcceptHideUntilRef.current && (
-                <p className="ghost-paragraph" data-testid="ghost-paragraph">
-                  {generatedText}
-                </p>
-              )}
+              {generatedText &&
+                !isHidingGhost &&
+                Date.now() > postAcceptHideUntilRef.current &&
+                Date.now() > hideGhostUntil && (
+                  <p className="ghost-paragraph" data-testid="ghost-paragraph">
+                    {generatedText}
+                  </p>
+                )}
               {generatedText && (
                 <div className="ghost-hint-bar">
                   <kbd className="ghost-kbd">Tab</kbd>

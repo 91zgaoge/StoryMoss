@@ -240,6 +240,8 @@ const FrontstageApp: React.FC = () => {
   // v0.23.95: Tab 接受后 5 分钟内禁止任何来源重新设置 generatedText，
   // 从根上杜绝幽灵文本在 Tab 确认后再次显示。
   const postAcceptLockRef = useRef(0);
+  // v0.23.98: 由父组件持有幽灵文本渲染锁，remount 后仍然有效
+  const [hideGhostUntil, setHideGhostUntil] = useState(0);
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   const setGeneratedText = (text: string) => {
     if (text && text.length > 50) {
@@ -2385,6 +2387,8 @@ const FrontstageApp: React.FC = () => {
       }
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
+      // v0.23.98: 父组件设置 30s 幽灵文本渲染锁，跨 RichTextEditor remount 仍然有效
+      setHideGhostUntil(Date.now() + 30000);
       logToBackend('frontstage:post_accept_lock', 'post-accept lock set', { lockMs: 300000 });
       if (currentStory?.id) {
         recordFeedback({
@@ -3373,6 +3377,7 @@ const FrontstageApp: React.FC = () => {
                   onChange={handleContentChange}
                   wensiMode={wensiMode}
                   generatedText={generatedText}
+                  hideGhostUntil={hideGhostUntil}
                   isGenerating={isGenerating}
                   onAcceptGeneration={handleAcceptGeneration}
                   onRejectGeneration={handleRejectGeneration}
