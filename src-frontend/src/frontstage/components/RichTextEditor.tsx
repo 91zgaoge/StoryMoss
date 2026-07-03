@@ -8,6 +8,7 @@
  */
 
 import React, {
+  Component,
   useEffect,
   useCallback,
   forwardRef,
@@ -110,6 +111,67 @@ export interface RichTextEditorRef {
       content?: string | null;
     }>
   ) => void;
+}
+
+// v0.24.9: 包裹 EditorContent 的局部错误边界，TipTap 渲染异常时只让编辑器区域降级，
+// 而不是让整个 Frontstage 被顶层 ErrorBoundary 捕获白屏。同时把错误详情写回后端日志。
+interface EditorContentBoundaryProps {
+  children: React.ReactNode;
+  editorProps?: {
+    logToBackend?: (phase: string, message: string, details?: Record<string, unknown>) => void;
+  };
+  onError?: (error: Error, info: { componentStack: string }) => void;
+}
+
+class EditorContentBoundary extends Component<EditorContentBoundaryProps, { hasError: boolean }> {
+  constructor(props: EditorContentBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
+    rtEditorLogger.error('[RichTextEditor.EditorContentBoundary] TipTap render error', {
+      error,
+      errorInfo,
+    });
+    try {
+      this.props.editorProps?.logToBackend?.(
+        'frontstage:crash:tiptap_render',
+        `${error.name || 'Error'}: ${error.message || String(error)}`,
+        {
+          stack: (error.stack || '').slice(0, 4000),
+          componentStack: (errorInfo.componentStack || '').slice(0, 2000),
+        }
+      );
+    } catch {
+      // ignore
+    }
+    this.props.onError?.(error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center h-full p-8 text-center">
+          <div>
+            <p className="text-gray-400 mb-4">编辑器渲染出现异常</p>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false })}
+              className="px-4 py-2 bg-cinema-gold text-cinema-950 rounded-lg hover:bg-cinema-gold-light transition-colors"
+            >
+              重试
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
@@ -410,6 +472,15 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
       if (editor.isFocused) return;
+      // v0.24.9: Tab 接受后 30s 内禁止外部 setContent，避免后台同步/保存回写与
+      // 刚追加的 AI 正文冲突，导致内容重复或 TipTap 渲染异常。
+      if (Date.now() < hideGhostUntil) {
+        rtEditorLogger.warn('[RichTextEditor] 外部 setContent 被 hideGhostUntil 拦截', {
+          remainingMs: hideGhostUntil - Date.now(),
+          content_preview: content.slice(0, 80),
+        });
+        return;
+      }
       // 如果当前要同步的内容就是我们最近一次外部设置的内容，说明是 TipTap 规范化
       // 回写的 onUpdate，不需要再次 setContent，防止 React error #185 无限循环。
       if (content === lastExternalContentRef.current) return;
@@ -811,12 +882,31 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         appendText: (text: string) => {
           if (!editor || editor.isDestroyed) return;
           try {
+            const beforeText = editor.getText();
             const endPos = editor.state.doc.content.size;
             editor
               .chain()
               .focus()
               .insertContentAt(endPos, text || '')
               .run();
+            // v0.24.9: 追加后立即检查是否出现重复，便于定位“内容重复”根因
+            queueMicrotask(() => {
+              try {
+                const afterText = editor.getText();
+                const plain = text.replace(/<[^>]+>/g, '').replace(/\s+/g, '');
+                const afterPlain = afterText.replace(/\s+/g, '');
+                const occurrences = plain.length > 0 ? afterPlain.split(plain).length - 1 : 0;
+                logToBackend?.('frontstage:append_text_check', 'post-append duplicate check', {
+                  beforeLen: beforeText.length,
+                  afterLen: afterText.length,
+                  appendedLen: text.length,
+                  occurrences,
+                  hasDuplicate: occurrences >= 2,
+                });
+              } catch {
+                // ignore
+              }
+            });
           } catch (e) {
             rtEditorLogger.error('[RichTextEditor.appendText] 失败', {
               error: e,
@@ -856,21 +946,25 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         },
         loadAggregatedScenes: scenes => {
-          if (!editor) return;
-          isExternalSyncRef.current = true;
-          const fragments: string[] = [];
-          for (const scene of scenes) {
-            const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
-            fragments.push(dividerHtml);
-            if (scene.content) {
-              fragments.push(scene.content);
+          if (!editor || editor.isDestroyed) return;
+          try {
+            isExternalSyncRef.current = true;
+            const fragments: string[] = [];
+            for (const scene of scenes) {
+              const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
+              fragments.push(dividerHtml);
+              if (scene.content) {
+                fragments.push(scene.content);
+              }
             }
+            const html = fragments.join('');
+            editor.commands.setContent(html || '<p></p>');
+            queueMicrotask(() => {
+              isExternalSyncRef.current = false;
+            });
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.loadAggregatedScenes] 失败', { error: e });
           }
-          const html = fragments.join('');
-          editor.commands.setContent(html || '<p></p>');
-          queueMicrotask(() => {
-            isExternalSyncRef.current = false;
-          });
         },
       }),
       [editor, selectedRange]
@@ -926,7 +1020,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       >
         {/* 编辑器内容区 */}
         <div className="flex-1 overflow-auto relative min-h-0">
-          <EditorContent editor={editor} />
+          <EditorContentBoundary editorProps={{ logToBackend }}>
+            <EditorContent editor={editor} />
+          </EditorContentBoundary>
 
           {/* 编辑器内 Slash 指令输入框 */}
           {showSlashInput && (

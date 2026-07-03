@@ -2,6 +2,23 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.24.9] - TipTap 渲染错误边界 + 接受后 30s 禁止外部 setContent + 重复根因诊断（2026-07-03）
+
+### 修复
+
+- **EditorContent 局部错误边界**：在 `RichTextEditor` 内为 `EditorContent` 增加 `EditorContentBoundary`，TipTap 渲染异常时仅编辑器区域降级为“重试”按钮，避免整个 Frontstage 被顶层 ErrorBoundary 捕获白屏；错误详情写入 `frontstage:crash:tiptap_render`。
+- **接受后 30s 禁止外部 setContent**：`RichTextEditor` 的外部同步 effect 在 `hideGhostUntil` 期间直接返回，避免后台 `ChapterCommitted` / `DataRefresh` / `onChapterUpdated` 等同步事件在 Tab 接受后立即重写编辑器内容，减少内容重复和渲染异常风险。
+- **ErrorBoundary 日志增强**：记录 `name`、`message`、`stack`、`componentStack` 四个字段，便于 source-map 缺失时也能判断错误类型。
+- **追加后重复检测日志**：`appendText` 追加成功后通过 `queueMicrotask` 检查编辑器纯文本中是否出现追加内容两次以上，写入 `frontstage:append_text_check`，帮助确认“内容重复”发生在追加阶段还是渲染阶段。
+- **setContent/loadAggregatedScenes 异常兜底**：所有直接调用 `editor.commands.setContent` 的路径补 try-catch，防止单次命令异常扩散为整页白屏。
+
+### 验证
+
+- `cargo test --lib`：**599 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+
 ## [v0.24.5] - 幽灵文本从 React 树中彻底移除，根治 Tab 接受后内容重复（2026-07-03）
 
 ### 修复

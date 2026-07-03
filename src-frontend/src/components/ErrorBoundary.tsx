@@ -4,13 +4,20 @@ import { createLogger } from '@/utils/logger';
 
 const errorBoundaryLogger = createLogger('ui:ErrorBoundary');
 
-const logCrashToBackend = (phase: string, detail: string, info?: string) => {
+const logCrashToBackend = (phase: string, error: Error | unknown, info?: string) => {
   try {
-    invoke('log_frontend_event', {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const payload = {
       phase: `frontstage:crash:${phase}`,
-      message: detail.slice(0, 2000),
-      details: info ? { componentStack: info.slice(0, 2000) } : {},
-    }).catch(() => {});
+      message: `${err.name || 'Error'}: ${err.message || String(error)}`.slice(0, 2000),
+      details: {
+        name: err.name,
+        message: err.message,
+        stack: (err.stack || '').slice(0, 4000),
+        componentStack: (info || '').slice(0, 2000),
+      },
+    };
+    invoke('log_frontend_event', payload).catch(() => {});
   } catch {
     // ignore
   }
@@ -37,11 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
     errorBoundaryLogger.error('ErrorBoundary caught an error', { error, errorInfo });
-    logCrashToBackend(
-      'error_boundary',
-      error?.stack || error?.message || String(error),
-      errorInfo?.componentStack
-    );
+    logCrashToBackend('error_boundary', error, errorInfo?.componentStack);
   }
 
   render() {
@@ -56,12 +59,20 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error.message}
               </pre>
             )}
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-6 px-6 py-3 bg-cinema-gold text-cinema-950 font-medium rounded-lg hover:bg-cinema-gold-light transition-colors"
-            >
-              刷新页面
-            </button>
+            <div className="flex gap-4 justify-center mt-6">
+              <button
+                onClick={() => this.setState({ hasError: false, error: undefined })}
+                className="px-6 py-3 bg-cinema-800 text-white font-medium rounded-lg hover:bg-cinema-700 transition-colors"
+              >
+                尝试恢复
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-6 py-3 bg-cinema-gold text-cinema-950 font-medium rounded-lg hover:bg-cinema-gold-light transition-colors"
+              >
+                刷新页面
+              </button>
+            </div>
           </div>
         </div>
       );
