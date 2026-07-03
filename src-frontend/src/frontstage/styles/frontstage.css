@@ -2618,7 +2618,10 @@ body {
 }
 
 /* v0.23.99: Tab 接受后由 JS 立即添加，浏览器层面强制隐藏幽灵文本，防止 React 批处理延迟导致双份显示 */
-.editor-ghost-continuation.force-hide-ghost {
+/* v0.24.1: 同时支持 body 级全局隐藏，确保任何时机渲染出的幽灵段落都不可见 */
+.editor-ghost-continuation.force-hide-ghost,
+body.force-hide-ghost .editor-ghost-continuation,
+body.force-hide-ghost .ghost-paragraph {
   display: none !important;
 }
 

@@ -2390,6 +2390,9 @@ const FrontstageApp: React.FC = () => {
       setGeneratedText('');
       logToBackend('frontstage:accept_cleared', 'generatedText cleared');
       appendAiContentRef.current(textToAccept, 'tab');
+      // v0.24.1: 兜底清理编辑器中可能残留的幽灵文本段落
+      const sanitized = editorRef.current?.sanitizeGhostText();
+      logToBackend('frontstage:sanitize_ghost', 'sanitized editor ghost text', { sanitized });
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
       // v0.23.98: 父组件设置 30s 幽灵文本渲染锁

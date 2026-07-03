@@ -101,6 +101,8 @@ export interface RichTextEditorRef {
   getSelectedText: () => string;
   focus: () => void;
   setContent: (text: string) => void;
+  /** 清理编辑器中残留的幽灵文本段落（兜底） */
+  sanitizeGhostText: () => boolean;
   /** 加载聚合场景内容 — 将多个 Scene 用 divider 拼接后写入编辑器 */
   loadAggregatedScenes: (
     scenes: Array<{
@@ -744,11 +746,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // v0.23.96: 同时设置 30s 渲染层强制隐藏，防止任何竞态导致幽灵文本复现
       // v0.23.99: 直接操作 DOM 给幽灵容器加 force-hide-ghost 类，浏览器立即生效，不受 React 批处理延迟影响
       // v0.24.00: 升级为 document 级 querySelectorAll，确保一定能命中幽灵容器；并记录诊断日志
+      // v0.24.1: 提升到 body 级 ghost-hidden，任何时机渲染出的幽灵段落都会被全局 CSS 隐藏
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
+      document.body.classList.add('force-hide-ghost');
+      setTimeout(() => {
+        document.body.classList.remove('force-hide-ghost');
+      }, 30000);
       const ghostContainers = document.querySelectorAll('.editor-ghost-continuation');
       logToBackend?.('frontstage:force_hide_ghost', 'attempting to hide ghost containers', {
         found: ghostContainers.length,
+        bodyHidden: document.body.classList.contains('force-hide-ghost'),
       });
       ghostContainers.forEach(el => {
         el.classList.add('force-hide-ghost');
@@ -867,6 +875,26 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           queueMicrotask(() => {
             isExternalSyncRef.current = false;
           });
+        },
+        // v0.24.1: 兜底清理编辑器中残留的幽灵文本段落（极少见的 DOM 污染场景）
+        sanitizeGhostText: () => {
+          if (!editor || editor.isDestroyed) return false;
+          try {
+            const html = editor.getHTML();
+            if (!html.includes('〔GT〕')) return false;
+            // 删除任何以 〔GT〕 开头的段落/文本块
+            const cleaned = html.replace(/<p>〔GT〕[\s\S]*?<\/p>/g, '');
+            if (cleaned === html) return false;
+            isExternalSyncRef.current = true;
+            editor.commands.setContent(cleaned || '<p></p>');
+            queueMicrotask(() => {
+              isExternalSyncRef.current = false;
+            });
+            return true;
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.sanitizeGhostText] 失败', { error: e });
+            return false;
+          }
         },
       }),
       [editor, selectedRange]
