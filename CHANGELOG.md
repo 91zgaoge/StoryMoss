@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.25.1] - 修复 React #185 无限渲染 + 统一版本号（2026-07-03）
+
+### 修复
+
+- **backendActivityStore 订阅去抖**：`FrontstageApp` 中对 `useBackendActivityStore` 的订阅原本监听整个 store 状态，每次后台进度事件（`pipeline-progress` / `generation-status` 等）都会触发 `setIsGenerating`。当后台任务密集时，连续状态更新可能触发 React #185（Maximum update depth exceeded）。v0.25.1 改为在回调内缓存 `getIsAnyActive()` 的上一次结果，仅当布尔值真正变化时才调用 `setIsGenerating`，显著降低重绘频率。
+- **版本号统一**：修正 `src-tauri/tauri.conf.json` 仍停留在 `0.24.9` 的问题，与 `package.json`、`Cargo.toml` 统一为 `0.25.1`。
+
+### 验证
+
+- `cargo test --lib`：**611 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+
 ## [v0.25.0] - Context Rot 显式防御 + 四级错误分类恢复（2026-07-03）
 
 ### Context Rot 显式防御

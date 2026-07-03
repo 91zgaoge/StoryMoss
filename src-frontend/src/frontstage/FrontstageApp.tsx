@@ -626,9 +626,15 @@ const FrontstageApp: React.FC = () => {
   useBackendActivityListener();
 
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
+  // v0.24.10: 手动缓存 getIsAnyActive() 的上一次结果，只在布尔值变化时才调用
+  // setIsGenerating，避免 store 内部任何字段更新都触发状态更新，降低 React #185
+  // 无限渲染风险。
   useEffect(() => {
+    let lastIsAnyActive = useBackendActivityStore.getState().getIsAnyActive();
     const unsub = useBackendActivityStore.subscribe(state => {
       const isAnyActive = state.getIsAnyActive();
+      if (isAnyActive === lastIsAnyActive) return;
+      lastIsAnyActive = isAnyActive;
       setIsGenerating(prev => {
         if (prev && !isAnyActive) {
           // v0.13.2: smart_execute 仍在飞行中则不清空
