@@ -807,6 +807,17 @@ const FrontstageApp: React.FC = () => {
   // v0.23.7: 记录后端最近一次实际发给 LLM 的提示词与模型，用于诊断卡片
   const lastLlmPromptRef = useRef<string>('未捕获（可能生成未进入 LLM 调用）');
   const lastLlmModelRef = useRef<string>('未知');
+  // v0.24.3: handleGenerationStatus 节流相关 refs
+  const pendingGenerationStatusRef = useRef<{
+    phase: string;
+    progress: number;
+    message: string;
+    elapsed_ms: number;
+    task_id: string;
+    request_id?: string | null;
+  } | null>(null);
+  const generationStatusThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastGenerationStatusUpdateRef = useRef(0);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
 
@@ -1019,7 +1030,8 @@ const FrontstageApp: React.FC = () => {
   }, [scheduleFallbackPrompt]);
 
   // C1: 处理统一生成状态事件，更新底部状态栏与 orchestratorStatus
-  const handleGenerationStatus = useCallback(
+  // v0.24.3: 对 running 状态做 200ms 节流，完成/失败立即处理，降低高频进度事件导致的前端渲染负载
+  const flushGenerationStatus = useCallback(
     (p: {
       phase: string;
       progress: number;
@@ -1052,8 +1064,49 @@ const FrontstageApp: React.FC = () => {
         detail: p.request_id || undefined,
       });
       updateGenerationPhase(message);
+      lastGenerationStatusUpdateRef.current = Date.now();
     },
     [formatStatusWithElapsed, mapPrecisePhase, updateGenerationPhase, updateLastEventTime]
+  );
+
+  const handleGenerationStatus = useCallback(
+    (p: {
+      phase: string;
+      progress: number;
+      message: string;
+      elapsed_ms: number;
+      task_id: string;
+      request_id?: string | null;
+    }) => {
+      const isTerminal = p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
+      if (isTerminal) {
+        if (generationStatusThrottleTimerRef.current) {
+          clearTimeout(generationStatusThrottleTimerRef.current);
+          generationStatusThrottleTimerRef.current = null;
+        }
+        pendingGenerationStatusRef.current = null;
+        flushGenerationStatus(p);
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastGenerationStatusUpdateRef.current >= 200) {
+        flushGenerationStatus(p);
+        return;
+      }
+
+      pendingGenerationStatusRef.current = p;
+      if (!generationStatusThrottleTimerRef.current) {
+        generationStatusThrottleTimerRef.current = setTimeout(() => {
+          generationStatusThrottleTimerRef.current = null;
+          if (pendingGenerationStatusRef.current) {
+            flushGenerationStatus(pendingGenerationStatusRef.current);
+            pendingGenerationStatusRef.current = null;
+          }
+        }, 200);
+      }
+    },
+    [flushGenerationStatus]
   );
 
   // W2-F2: 监听编辑器配置变化（同步幕后设置到幕前），替代 editor-config-changed DOM CustomEvent
@@ -1082,6 +1135,11 @@ const FrontstageApp: React.FC = () => {
         clearTimeout(notifyTimeoutRef.current);
         notifyTimeoutRef.current = null;
       }
+      if (generationStatusThrottleTimerRef.current) {
+        clearTimeout(generationStatusThrottleTimerRef.current);
+        generationStatusThrottleTimerRef.current = null;
+      }
+      pendingGenerationStatusRef.current = null;
     };
   }, []);
 

@@ -132,6 +132,10 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
   const storeRef = useRef(useBackendActivityStore.getState());
   // C1: 记录最近一次收到 generation-status 的时间，用于跳过重叠的旧事件
   const lastGenerationStatusAtRef = useRef(0);
+  // v0.24.3: running 状态更新节流相关 refs
+  const pendingPayloadRef = useRef<ProgressPayload | null>(null);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastUpdateAtRef = useRef(0);
 
   // 保持 store 引用最新
   useEffect(() => {
@@ -146,7 +150,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
     const store = storeRef.current;
     const unlistens: (() => void)[] = [];
 
-    const updatePrimary = (payload: ProgressPayload) => {
+    const flushPrimary = (payload: ProgressPayload) => {
       const existing = store.activities.find(a => a.id === PRIMARY_ACTIVITY_ID);
       const priority = CATEGORY_PRIORITY[payload.category] ?? 99;
 
@@ -172,6 +176,37 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       } else if (payload.status === 'failed') {
         store.failActivity(PRIMARY_ACTIVITY_ID, payload.message);
       }
+      lastUpdateAtRef.current = Date.now();
+    };
+
+    const updatePrimary = (payload: ProgressPayload) => {
+      // 完成/失败立即处理；running 状态做节流
+      if (payload.status === 'completed' || payload.status === 'failed') {
+        if (throttleTimerRef.current) {
+          clearTimeout(throttleTimerRef.current);
+          throttleTimerRef.current = null;
+        }
+        pendingPayloadRef.current = null;
+        flushPrimary(payload);
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastUpdateAtRef.current >= 200) {
+        flushPrimary(payload);
+        return;
+      }
+
+      pendingPayloadRef.current = payload;
+      if (!throttleTimerRef.current) {
+        throttleTimerRef.current = setTimeout(() => {
+          throttleTimerRef.current = null;
+          if (pendingPayloadRef.current) {
+            flushPrimary(pendingPayloadRef.current);
+            pendingPayloadRef.current = null;
+          }
+        }, 200);
+      }
     };
 
     // C1: 判断旧版重叠事件是否应被跳过（统一事件已覆盖）
@@ -187,13 +222,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           const p = event.payload;
           lastGenerationStatusAtRef.current = Date.now();
           const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
-          // [DEBUG-act] 追踪 generation-status 事件，诊断活动卡死
-          console.warn('[DEBUG-act] generation-status', {
-            phase: p.phase,
-            message: p.message,
-            precise,
-            progress: p.progress,
-          });
+
           // v0.23.46: 状态文案追加模型名称
           const messageWithModel = appendModelName(precise || p.message);
           const status: ProgressPayload['status'] =
@@ -321,14 +350,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
             : p.stage === 'timeout' || p.stage === 'error'
               ? 'failed'
               : 'running';
-        // [DEBUG-act] 追踪 smart-execute-progress 事件流
-        console.warn('[DEBUG-act] smart-execute-progress', {
-          stage: p.stage,
-          message: p.message,
-          step: p.step_number,
-          total: p.total_steps,
-          mapped_status: status,
-        });
+
         // v0.23.46: smart-execute-progress 消息追加模型名称
         const smartMsgWithModel = appendModelName(p.message);
         updatePrimary({
@@ -448,6 +470,11 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
 
     return () => {
       unlistens.forEach(u => u());
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      pendingPayloadRef.current = null;
     };
   }, [enabled]);
 }
