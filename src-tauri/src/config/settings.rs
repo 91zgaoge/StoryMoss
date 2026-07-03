@@ -74,10 +74,8 @@ fn env_or_default(var: &str, default: &str) -> String {
 /// 避免前端已超时但后端仍在重试的错配。需要更长时间的用户可在模型配置中
 /// 手动调高单个 profile 的 timeout_seconds。
 ///
-/// v0.14.3: 从 240 降至 120 秒。生成 1500 tokens × 30 tokens/s ≈ 50s，
-/// 120s 留 2.4× 余量。配合 v0.14.2 的首字节超时 60s 与绝对超时 1.5x，
-/// 整个 LLM 调用最多 180s，远低于 smart_execute 整体 180s 超时。
-pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 120;
+/// v0.24.8: 默认从 120 上调至 300 秒，适配本地大模型首次加载/慢生成场景。
+pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 300;
 
 /// 判断 URL 是否指向本地/局域网地址（localhost / 127.0.0.1 / 私有网段）。
 pub fn is_private_url(url: &str) -> bool {
@@ -353,19 +351,19 @@ fn default_auto_rewrite_severity_threshold() -> String {
 }
 
 fn default_llm_connect_timeout() -> u64 {
-    30
+    60
 }
 fn default_smart_execute_timeout() -> u64 {
-    180
+    600
 }
 fn default_executor_step_timeout() -> u64 {
-    90
+    300
 }
 fn default_frontend_timeout() -> u64 {
-    200
+    600
 }
 fn default_llm_first_chunk_timeout() -> u64 {
-    60
+    180
 }
 
 fn default_rewrite_threshold() -> f32 {
@@ -409,11 +407,11 @@ fn default_creation_workflow_max_iterations() -> u32 {
 }
 
 fn default_candidate_timeout_seconds() -> u64 {
-    120
+    180
 }
 
 fn default_candidate_timeout_local_seconds() -> u64 {
-    60
+    120
 }
 
 fn default_candidate_max_retries() -> u32 {

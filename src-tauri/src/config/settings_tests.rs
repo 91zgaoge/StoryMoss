@@ -487,8 +487,8 @@ mod tests {
     #[test]
     fn test_default_candidate_timeout_values() {
         let config = AppConfig::default();
-        assert_eq!(config.candidate_timeout_seconds, 120);
-        assert_eq!(config.candidate_timeout_local_seconds, 60);
+        assert_eq!(config.candidate_timeout_seconds, 180);
+        assert_eq!(config.candidate_timeout_local_seconds, 120);
         assert_eq!(config.candidate_count, 1);
         assert_eq!(config.candidate_max_retries, 0);
     }

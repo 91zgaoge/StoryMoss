@@ -101,22 +101,22 @@ export function GeneralSettings() {
 
   // 超时设置本地状态（避免输入过程中频繁保存）
   const [timeoutValues, setTimeoutValues] = useState({
-    llm_connect_timeout_secs: settings?.llm_connect_timeout_secs ?? 30,
-    llm_first_chunk_timeout_secs: settings?.llm_first_chunk_timeout_secs ?? 60,
-    executor_step_timeout_secs: settings?.executor_step_timeout_secs ?? 90,
-    smart_execute_total_timeout_secs: settings?.smart_execute_total_timeout_secs ?? 180,
-    frontend_timeout_secs: settings?.frontend_timeout_secs ?? 200,
+    llm_connect_timeout_secs: settings?.llm_connect_timeout_secs ?? 60,
+    llm_first_chunk_timeout_secs: settings?.llm_first_chunk_timeout_secs ?? 180,
+    executor_step_timeout_secs: settings?.executor_step_timeout_secs ?? 300,
+    smart_execute_total_timeout_secs: settings?.smart_execute_total_timeout_secs ?? 600,
+    frontend_timeout_secs: settings?.frontend_timeout_secs ?? 600,
   });
 
   // 当 settings 从服务端更新时，同步本地状态
   useEffect(() => {
     if (settings) {
       setTimeoutValues({
-        llm_connect_timeout_secs: settings.llm_connect_timeout_secs ?? 30,
-        llm_first_chunk_timeout_secs: settings.llm_first_chunk_timeout_secs ?? 60,
-        executor_step_timeout_secs: settings.executor_step_timeout_secs ?? 90,
-        smart_execute_total_timeout_secs: settings.smart_execute_total_timeout_secs ?? 180,
-        frontend_timeout_secs: settings.frontend_timeout_secs ?? 200,
+        llm_connect_timeout_secs: settings.llm_connect_timeout_secs ?? 60,
+        llm_first_chunk_timeout_secs: settings.llm_first_chunk_timeout_secs ?? 180,
+        executor_step_timeout_secs: settings.executor_step_timeout_secs ?? 300,
+        smart_execute_total_timeout_secs: settings.smart_execute_total_timeout_secs ?? 600,
+        frontend_timeout_secs: settings.frontend_timeout_secs ?? 600,
       });
     }
   }, [

@@ -841,10 +841,10 @@ const FrontstageApp: React.FC = () => {
       const lastEvt = lastProgressEventRef.current;
       const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
 
-      const feTimeout = settings?.frontend_timeout_secs ?? 200;
-      const beTimeout = settings?.smart_execute_total_timeout_secs ?? 180;
-      const firstChunkTimeout = settings?.llm_first_chunk_timeout_secs ?? 60;
-      const connectTimeout = settings?.llm_connect_timeout_secs ?? 30;
+      const feTimeout = settings?.frontend_timeout_secs ?? 600;
+      const beTimeout = settings?.smart_execute_total_timeout_secs ?? 600;
+      const firstChunkTimeout = settings?.llm_first_chunk_timeout_secs ?? 180;
+      const connectTimeout = settings?.llm_connect_timeout_secs ?? 60;
       const promptText = lastLlmPromptRef.current;
       const promptPreview =
         promptText.length > 12000 ? `${promptText.substring(0, 12000)}\n...（已截断）` : promptText;
@@ -2207,10 +2207,10 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      // v0.14.0: 前端超时从 330 秒降至 200 秒，后端 smart_execute 整体超时为 180 秒。
-      // v0.23.7: 改为从 settings 读取，避免用户已调整超时后文案仍显示 200/180。
-      const feTimeoutSeconds = settings?.frontend_timeout_secs ?? 200;
-      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 180;
+      // v0.24.8: 默认超时上调，本地大模型首次加载/慢生成场景更稳健。
+      // 数值从 settings 读取，未设置时使用新默认值。
+      const feTimeoutSeconds = settings?.frontend_timeout_secs ?? 600;
+      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 600;
       const feTimeoutMs = feTimeoutSeconds * 1000;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -2750,10 +2750,10 @@ const FrontstageApp: React.FC = () => {
         logToBackend('frontstage:init_for_new_story', 'cleared editor and store content');
       }
 
-      // v0.14.0: 前端超时统一降至 200 秒，后端 smart_execute 整体超时为 180 秒。
-      // v0.15.5/v0.23.7: 从设置读取，避免用户已调整超时后文案仍显示 200/180。
-      const timeoutSeconds = settings?.frontend_timeout_secs ?? 200;
-      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 180;
+      // v0.24.8: 默认超时上调，本地大模型首次加载/慢生成场景更稳健。
+      // 数值从 settings 读取，未设置时使用新默认值。
+      const timeoutSeconds = settings?.frontend_timeout_secs ?? 600;
+      const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 600;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
