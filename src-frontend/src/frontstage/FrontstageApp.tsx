@@ -3409,6 +3409,7 @@ const FrontstageApp: React.FC = () => {
                   inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
                   onClearInlineSuggestion={() => setInlineSuggestion(null)}
                   subscription={subscription}
+                  logToBackend={logToBackend}
                 />
               </ErrorBoundary>
             </main>

@@ -70,6 +70,8 @@ interface RichTextEditorProps {
   smartGhostText?: string;
   /** v0.23.98: 父组件控制的幽灵文本隐藏截止时间戳（跨 remount 有效） */
   hideGhostUntil?: number;
+  /** v0.24.00: 父组件传入的后端日志函数，用于在 RichTextEditor 内部记录关键诊断 */
+  logToBackend?: (phase: string, message: string, details?: Record<string, unknown>) => void;
   /** 统一状态提示回调（替代黑色 toast） */
   onShowStatus?: (message: string) => void;
   /** 内联修改建议 */
@@ -135,6 +137,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onSlashCommand,
       smartGhostText,
       hideGhostUntil = 0,
+      logToBackend,
       onShowStatus,
       inlineSuggestion,
       onClearInlineSuggestion,
@@ -740,15 +743,19 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // v0.23.90: 立即本地隐藏幽灵文本，不等待父组件状态刷新
       // v0.23.96: 同时设置 30s 渲染层强制隐藏，防止任何竞态导致幽灵文本复现
       // v0.23.99: 直接操作 DOM 给幽灵容器加 force-hide-ghost 类，浏览器立即生效，不受 React 批处理延迟影响
+      // v0.24.00: 升级为 document 级 querySelectorAll，确保一定能命中幽灵容器；并记录诊断日志
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
-      const ghostContainer = containerRef.current?.querySelector('.editor-ghost-continuation');
-      if (ghostContainer) {
-        ghostContainer.classList.add('force-hide-ghost');
+      const ghostContainers = document.querySelectorAll('.editor-ghost-continuation');
+      logToBackend?.('frontstage:force_hide_ghost', 'attempting to hide ghost containers', {
+        found: ghostContainers.length,
+      });
+      ghostContainers.forEach(el => {
+        el.classList.add('force-hide-ghost');
         setTimeout(() => {
-          ghostContainer.classList.remove('force-hide-ghost');
+          el.classList.remove('force-hide-ghost');
         }, 30000);
-      }
+      });
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {
         setTimeout(() => {

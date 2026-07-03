@@ -2585,6 +2585,9 @@ body {
   margin: 0 auto;
   padding: 0.5rem 2rem 2rem;
   animation: ghost-fade-in 0.4s ease-out;
+  /* v0.24.00: 幽灵文本不可被用户选中/复制，即使可见也不会混入正文 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 @keyframes ghost-fade-in {
