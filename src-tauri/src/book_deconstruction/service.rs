@@ -540,11 +540,12 @@ impl BookDeconstructionService {
             story_id
         );
 
-        // 2. 创建世界观（world_setting 是 WorldBuildingElement 的 JSON，需提取 concept）
+        // 2. 创建世界观（world_setting 是 WorldBuildingElement 的 JSON，需提取
+        //    concept）
         if let Some(world_setting) = analysis.book.world_setting.as_deref() {
-            let concept = serde_json::from_str::<
-                crate::narrative::elements::WorldBuildingElement,
-            >(world_setting)
+            let concept = serde_json::from_str::<crate::narrative::elements::WorldBuildingElement>(
+                world_setting,
+            )
             .ok()
             .map(|w| w.concept)
             .unwrap_or_else(|| world_setting.to_string());

@@ -274,7 +274,9 @@ export function useDeleteBook() {
 export function useConvertToStory() {
   return useMutation({
     mutationFn: async (bookId: string) => {
-      const storyId: string = await loggedInvoke<string>('convert_book_to_story', { book_id: bookId });
+      const storyId: string = await loggedInvoke<string>('convert_book_to_story', {
+        book_id: bookId,
+      });
       return storyId;
     },
   });

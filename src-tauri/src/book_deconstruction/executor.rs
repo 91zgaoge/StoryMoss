@@ -174,9 +174,8 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         let llm = self.llm_service.clone();
         let steps = crate::narrative::analysis::AnalysisPipeline::steps();
-        let pipeline_executor =
-            crate::narrative::pipeline::NarrativePipelineExecutor::new(steps)
-                .with_cancel_flag(cancel_flag);
+        let pipeline_executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(steps)
+            .with_cancel_flag(cancel_flag);
 
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = self.app_handle.clone();
