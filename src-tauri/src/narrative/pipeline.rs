@@ -84,6 +84,7 @@ pub trait StepContext: Send {
     fn story_id(&self) -> Option<&str>;
     fn set_current_step(&mut self, step_name: &str);
     fn current_step(&self) -> &str;
+    fn pipeline_type(&self) -> super::progress::PipelineType;
 }
 
 /// 单个处理步骤
@@ -159,7 +160,7 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
                     log::info!("[NarrativePipeline] Pipeline 已取消，中断执行");
                     progress_callback(PipelineProgressEvent {
                         pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
-                        pipeline_type: super::progress::PipelineType::Genesis,
+                        pipeline_type: ctx.pipeline_type(),
                         step_name: step.name().to_string(),
                         step_number: step_num,
                         total_steps: self.total_steps,
@@ -176,7 +177,7 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
             // 报告步骤开始
             progress_callback(PipelineProgressEvent {
                 pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
-                pipeline_type: super::progress::PipelineType::Genesis,
+                pipeline_type: ctx.pipeline_type(),
                 step_name: step.name().to_string(),
                 step_number: step_num,
                 total_steps: self.total_steps,
@@ -220,7 +221,7 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
                     );
                     progress_callback(PipelineProgressEvent {
                         pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
-                        pipeline_type: super::progress::PipelineType::Genesis,
+                        pipeline_type: ctx.pipeline_type(),
                         step_name: step.name().to_string(),
                         step_number: step_num,
                         total_steps: self.total_steps,
@@ -235,7 +236,7 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
                     log::warn!("[NarrativePipeline] 步骤 '{}' 失败: {}", step.name(), e);
                     progress_callback(PipelineProgressEvent {
                         pipeline_id: ctx.story_id().unwrap_or("unknown").to_string(),
-                        pipeline_type: super::progress::PipelineType::Genesis,
+                        pipeline_type: ctx.pipeline_type(),
                         step_name: step.name().to_string(),
                         step_number: step_num,
                         total_steps: self.total_steps,
@@ -350,6 +351,9 @@ mod tests {
         }
         fn current_step(&self) -> &str {
             &self.current_step
+        }
+        fn pipeline_type(&self) -> crate::narrative::progress::PipelineType {
+            crate::narrative::progress::PipelineType::Genesis
         }
     }
 }

@@ -72,6 +72,10 @@ impl StepContext for AnalysisContext {
     fn current_step(&self) -> &str {
         &self.current_step
     }
+
+    fn pipeline_type(&self) -> crate::narrative::progress::PipelineType {
+        crate::narrative::progress::PipelineType::Analysis
+    }
 }
 
 impl AnalysisContext {

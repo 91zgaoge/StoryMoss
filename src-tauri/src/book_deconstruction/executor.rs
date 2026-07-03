@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 use super::{chunker::create_chunks, models::*, parser::parse_book, repository::*};
 use crate::{
@@ -86,6 +86,31 @@ impl TaskExecutor for BookDeconstructionExecutor {
             .ok_or("Missing file_path in task payload")?;
         let file_path = std::path::Path::new(file_path_str);
 
+        // 注册 Pipeline 取消标志，并桥接任务系统取消到 Pipeline 取消
+        let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(book_id);
+        let loop_book_id = book_id.to_string();
+        let loop_task_id = task.id.clone();
+        let loop_pool = self.pool.clone();
+        let loop_app_handle = self.app_handle.clone();
+        let cancel_monitor = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                let check_ctx = TaskExecutionContext::new(
+                    loop_task_id.clone(),
+                    loop_pool.clone(),
+                    loop_app_handle.clone(),
+                );
+                if check_ctx.is_cancelled() {
+                    log::info!(
+                        "[BookDeconstructionExecutor] Task cancelled, cancelling pipeline {}",
+                        loop_book_id
+                    );
+                    crate::narrative::pipeline::cancel_pipeline(&loop_book_id);
+                    break;
+                }
+            }
+        });
+
         ctx.update_progress("parsing", 0, "正在解析文件...");
         ctx.heartbeat();
 
@@ -149,7 +174,9 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         let llm = self.llm_service.clone();
         let steps = crate::narrative::analysis::AnalysisPipeline::steps();
-        let pipeline_executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(steps);
+        let pipeline_executor =
+            crate::narrative::pipeline::NarrativePipelineExecutor::new(steps)
+                .with_cancel_flag(cancel_flag);
 
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = self.app_handle.clone();
@@ -191,6 +218,11 @@ impl TaskExecutor for BookDeconstructionExecutor {
         let pipeline_result = pipeline_executor
             .execute(&mut analysis_ctx, &llm, progress_callback)
             .await;
+
+        // 清理 Pipeline 取消监控
+        cancel_monitor.abort();
+        let _ = cancel_monitor.await;
+        crate::narrative::pipeline::unregister_pipeline_cancel(book_id);
 
         // ========== LitSeg 后处理阶段 ==========
         // 在 7 步 Pipeline 完成后，对提取的叙事元素进行结构分析

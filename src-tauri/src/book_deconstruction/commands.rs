@@ -41,7 +41,7 @@ fn get_user_id(app_handle: &AppHandle) -> String {
 }
 
 /// 上传文件并开始分析
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let user_id = get_user_id(&app_handle);
@@ -62,7 +62,7 @@ pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<Str
 }
 
 /// 获取分析状态
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_analysis_status(
     book_id: String,
     app_handle: AppHandle,
@@ -73,7 +73,7 @@ pub async fn get_analysis_status(
 }
 
 /// 获取完整分析结果
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn get_book_analysis(
     book_id: String,
     app_handle: AppHandle,
@@ -84,7 +84,7 @@ pub async fn get_book_analysis(
 }
 
 /// 获取已拆书籍列表
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn list_reference_books(
     app_handle: AppHandle,
 ) -> Result<Vec<ReferenceBookListItem>, AppError> {
@@ -94,7 +94,7 @@ pub async fn list_reference_books(
 }
 
 /// 删除参考书籍
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn delete_reference_book(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let service = new_service(&app_handle)?;
 
@@ -102,7 +102,7 @@ pub async fn delete_reference_book(book_id: String, app_handle: AppHandle) -> Re
 }
 
 /// 一键转为故事项目
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn convert_book_to_story(
     book_id: String,
     app_handle: AppHandle,
@@ -113,7 +113,7 @@ pub async fn convert_book_to_story(
 }
 
 /// 取消拆书分析
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn cancel_book_analysis(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let service = new_service(&app_handle)?;
 

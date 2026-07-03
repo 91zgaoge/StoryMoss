@@ -21,7 +21,7 @@ export function useUploadBook() {
 
   return useMutation({
     mutationFn: async (filePath: string) => {
-      const bookId: string = await loggedInvoke<string>('upload_book', { filePath });
+      const bookId: string = await loggedInvoke<string>('upload_book', { file_path: filePath });
       return bookId;
     },
     onSuccess: () => {
@@ -205,7 +205,7 @@ export function useBookAnalysisStatus(bookId: string | null) {
       if (!bookId) return null;
       const status: AnalysisStatusResponse = await loggedInvoke<AnalysisStatusResponse>(
         'get_analysis_status',
-        { bookId }
+        { book_id: bookId }
       );
       return status;
     },
@@ -233,7 +233,7 @@ export function useBookAnalysis(bookId: string | null) {
       if (!bookId) return null;
       const result: BookAnalysisResult = await loggedInvoke<BookAnalysisResult>(
         'get_book_analysis',
-        { bookId }
+        { book_id: bookId }
       );
       return result;
     },
@@ -261,7 +261,7 @@ export function useDeleteBook() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await loggedInvoke<void>('delete_reference_book', { bookId });
+      await loggedInvoke<void>('delete_reference_book', { book_id: bookId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [BOOKS_KEY] });
@@ -274,7 +274,7 @@ export function useDeleteBook() {
 export function useConvertToStory() {
   return useMutation({
     mutationFn: async (bookId: string) => {
-      const storyId: string = await loggedInvoke<string>('convert_book_to_story', { bookId });
+      const storyId: string = await loggedInvoke<string>('convert_book_to_story', { book_id: bookId });
       return storyId;
     },
   });
@@ -287,7 +287,7 @@ export function useCancelBookAnalysis() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await loggedInvoke<void>('cancel_book_analysis', { bookId });
+      await loggedInvoke<void>('cancel_book_analysis', { book_id: bookId });
     },
     onSuccess: (_, bookId) => {
       queryClient.invalidateQueries({ queryKey: [STATUS_KEY, bookId] });

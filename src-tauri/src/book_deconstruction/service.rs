@@ -98,10 +98,10 @@ impl BookDeconstructionService {
             .await
             .map_err(|e| ParseError::IoError(format!("Failed to copy file: {}", e)))?;
 
-        // 6. 解析文件
+        // 6. 解析文件（使用已复制到应用数据目录的 dest_path）
         self.emit_progress(&book_id, "extracting", 0, "正在解析文件...")
             .await;
-        let parsed = parse_book(file_path, None)?;
+        let parsed = parse_book(&dest_path, None)?;
 
         // 7. 创建数据库记录
         let now = Local::now();
@@ -497,6 +497,14 @@ impl BookDeconstructionService {
             }
         }
 
+        // 直接触发 Pipeline 取消标志，确保即使任务系统延迟也能立即中断 LLM
+        if crate::narrative::pipeline::cancel_pipeline(book_id) {
+            log::info!(
+                "[BookDeconstruction] Pipeline cancel flag set for book {}",
+                book_id
+            );
+        }
+
         // 更新 book 状态为已取消
         book_repo
             .update_status(book_id, AnalysisStatus::Cancelled, book.analysis_progress)
@@ -532,11 +540,17 @@ impl BookDeconstructionService {
             story_id
         );
 
-        // 2. 创建世界观
-        if let Some(ref world_setting) = analysis.book.world_setting {
+        // 2. 创建世界观（world_setting 是 WorldBuildingElement 的 JSON，需提取 concept）
+        if let Some(world_setting) = analysis.book.world_setting.as_deref() {
+            let concept = serde_json::from_str::<
+                crate::narrative::elements::WorldBuildingElement,
+            >(world_setting)
+            .ok()
+            .map(|w| w.concept)
+            .unwrap_or_else(|| world_setting.to_string());
             let wb_repo = WorldBuildingRepository::new(pool.clone());
             wb_repo
-                .create(&story_id, world_setting)
+                .create(&story_id, &concept)
                 .map_err(AppError::from)?;
             log::info!(
                 "[BookDeconstruction] Convert step {}: created {}",
@@ -588,10 +602,14 @@ impl BookDeconstructionService {
                         title: None,
                         content: scene.summary.clone(),
                         characters_present: scene.characters_present.as_ref().map(|s| {
-                            s.split(',')
-                                .map(|x| x.trim().to_string())
-                                .filter(|x| !x.is_empty())
-                                .collect()
+                            serde_json::from_str::<Vec<String>>(s)
+                                .ok()
+                                .unwrap_or_else(|| {
+                                    s.split(',')
+                                        .map(|x| x.trim().to_string())
+                                        .filter(|x| !x.is_empty())
+                                        .collect()
+                                })
                         }),
                         ..Default::default()
                     },
