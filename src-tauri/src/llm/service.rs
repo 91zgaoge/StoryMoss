@@ -1466,6 +1466,10 @@ impl LlmService {
                 | "生成角色"
                 | "生成场景大纲"
                 | "生成伏笔"
+                // v0.24.4: SceneCommitService 在 auto_commit 中调用的 mini_review
+                // 属后台静默质检，不应向前端发射进度事件。实测其在正文返回后仍
+                // 每 10s 发射心跳，导致前端在后台任务期间持续重绘，增加崩溃风险。
+                | "mini_review"
         );
 
         // v0.23.11: 只有非静默/非探测调用才更新诊断提示词，避免 probe prompt

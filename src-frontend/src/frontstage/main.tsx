@@ -41,6 +41,37 @@ window.addEventListener('unhandledrejection', event => {
   logCrashToBackend('unhandledrejection', detail);
 });
 
+// v0.24.4: 页面卸载/刷新/崩溃恢复时记录，帮助判断是否是 WebKit 进程重启
+window.addEventListener('beforeunload', () => {
+  logCrashToBackend('beforeunload', 'frontstage window is about to unload');
+});
+
+// v0.24.4: 定时心跳 + 内存快照，便于在崩溃前观察内存趋势
+// Chrome/Electron WebView 提供 performance.memory
+const logMemorySnapshot = () => {
+  try {
+    const memory = (performance as any).memory;
+    const payload: Record<string, unknown> = {
+      url: window.location.href,
+      ts: Date.now(),
+    };
+    if (memory) {
+      payload.usedJSHeapSize = memory.usedJSHeapSize;
+      payload.totalJSHeapSize = memory.totalJSHeapSize;
+      payload.jsHeapSizeLimit = memory.jsHeapSizeLimit;
+    }
+    invoke('log_frontend_event', {
+      phase: 'frontstage:heartbeat',
+      message: 'frontstage heartbeat',
+      details: payload,
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+};
+setInterval(logMemorySnapshot, 30000);
+logMemorySnapshot();
+
 // React Query client
 const queryClient = new QueryClient({
   defaultOptions: {

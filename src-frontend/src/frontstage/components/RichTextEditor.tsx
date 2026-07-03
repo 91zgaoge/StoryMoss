@@ -378,6 +378,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         postAcceptHideUntilRef.current = hideGhostUntil;
       }
       if (generatedText && generatedText.length > 10) {
+        // v0.24.4: 新的生成内容到达时，解除永久隐藏，让幽灵文本正常渲染
+        document.body.classList.remove('force-hide-ghost');
         if (Date.now() < postAcceptHideUntilRef.current) {
           rtEditorLogger.warn('[RichTextEditor] ghost text suppressed by post-accept hide', {
             len: generatedText.length,
@@ -745,12 +747,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // v0.23.99: 直接操作 DOM 给幽灵容器加 force-hide-ghost 类，浏览器立即生效，不受 React 批处理延迟影响
       // v0.24.00: 升级为 document 级 querySelectorAll，确保一定能命中幽灵容器；并记录诊断日志
       // v0.24.1: 提升到 body 级 ghost-hidden，任何时机渲染出的幽灵段落都会被全局 CSS 隐藏
+      // v0.24.4: 改为永久隐藏（直到新一次生成开始或页面刷新），杜绝 30s 后 CSS
+      // 类被移除、幽灵文本重新露出的可能性。
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
       document.body.classList.add('force-hide-ghost');
-      setTimeout(() => {
-        document.body.classList.remove('force-hide-ghost');
-      }, 30000);
       const ghostContainers = document.querySelectorAll('.editor-ghost-continuation');
       logToBackend?.('frontstage:force_hide_ghost', 'attempting to hide ghost containers', {
         found: ghostContainers.length,
@@ -758,9 +759,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       });
       ghostContainers.forEach(el => {
         el.classList.add('force-hide-ghost');
-        setTimeout(() => {
-          el.classList.remove('force-hide-ghost');
-        }, 30000);
       });
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {

@@ -1,7 +1,20 @@
 import { Component, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { createLogger } from '@/utils/logger';
 
 const errorBoundaryLogger = createLogger('ui:ErrorBoundary');
+
+const logCrashToBackend = (phase: string, detail: string, info?: string) => {
+  try {
+    invoke('log_frontend_event', {
+      phase: `frontstage:crash:${phase}`,
+      message: detail.slice(0, 2000),
+      details: info ? { componentStack: info.slice(0, 2000) } : {},
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+};
 
 interface Props {
   children: ReactNode;
@@ -24,6 +37,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
     errorBoundaryLogger.error('ErrorBoundary caught an error', { error, errorInfo });
+    logCrashToBackend(
+      'error_boundary',
+      error?.stack || error?.message || String(error),
+      errorInfo?.componentStack
+    );
   }
 
   render() {

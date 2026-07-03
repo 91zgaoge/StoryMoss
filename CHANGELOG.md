@@ -2,6 +2,25 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.24.4] - 后台 mini_review 静默化 + 幽灵文本永久隐藏 + 崩溃诊断增强（2026-07-03）
+
+### 修复
+
+- **后台 `mini_review` 静默化**：`SceneCommitService::auto_commit` 在正文返回后调用的 `mini_review` 此前未进入静默列表，每 10s 向前端发射心跳，导致后台任务期间前端持续重绘。现已加入 `is_silent_background`，不再向前端发送进度/心跳事件。
+- **幽灵文本永久隐藏**：Tab 接受后原本 30s 会移除 `body.force-hide-ghost` 类，若 DOM 移除竞态则幽灵文本会重新露出（v0.24.3 已移除调试标记，视觉上与正文完全一致，造成“重复”错觉）。现改为永久隐藏，直到新一次生成开始才自动解除。
+- **ErrorBoundary 后端日志**：React 错误边界捕获的异常现在通过 `log_frontend_event` 写入 `creative_workflow.log`（`frontstage:crash:error_boundary`），便于无 devtools 时定位渲染崩溃。
+- **前端心跳与内存快照**：`frontstage/main.tsx` 每 30s 记录一次 `frontstage:heartbeat`，并附带 `performance.memory` 的 JS 堆内存用量；页面 unload 前记录 `frontstage:crash:beforeunload`，帮助判断 WebKit 进程是否重启。
+
+### 验证
+
+- `cargo check`：零错误
+- `cargo test --lib`：**599 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+- `npm test`：**34 passed / 5 skipped**
+- `python3 scripts/architecture_guard.py`：通过
+
 ## [v0.23.74] - 场景优先架构迁移——Scene 成为唯一叙事真相源（2026-06-28）
 
 ### 架构变更
