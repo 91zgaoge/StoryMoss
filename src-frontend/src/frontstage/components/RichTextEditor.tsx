@@ -973,10 +973,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           )}
 
           {/* Ghost Text 正文延续 + 生成中指示器 */}
-          {(generatedText || isGenerating) && (
+          {/* v0.24.5: 外层也受 isHidingGhost 控制。Tab 接受后整棵幽灵树从 React 树中移除，
+              不再依赖 CSS 隐藏兜底，避免任何竞态下幽灵文本继续占位或显示。 */}
+          {(generatedText || isGenerating) && !isHidingGhost && (
             <div className="editor-ghost-continuation">
               {generatedText &&
-                !isHidingGhost &&
                 Date.now() > postAcceptHideUntilRef.current &&
                 Date.now() > hideGhostUntil && (
                   <p className="ghost-paragraph" data-testid="ghost-paragraph">

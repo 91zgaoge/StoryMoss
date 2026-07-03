@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.24.5] - 幽灵文本从 React 树中彻底移除，根治 Tab 接受后内容重复（2026-07-03）
+
+### 修复
+
+- **幽灵文本整棵移除**：之前外层 `editor-ghost-continuation` 仍依赖 `generatedText || isGenerating`，Tab 接受后只要 `isGenerating` 仍为 true，容器就会继续占位；内部段落虽被 CSS 隐藏，但容器内若残留任何渲染物都会造成“内容重复”。v0.24.5 改为外层条件也判断 `!isHidingGhost`，Tab 接受后整棵幽灵树从 React 树中移除，不再依赖 CSS 兜底。
+- **保留永久隐藏兜底**：`body.force-hide-ghost` 仍保留，作为双保险。
+
+### 验证
+
+- `npx tsc --noEmit`：零错误
+- `npx vitest run`：**129 passed / 3 skipped**
+- `npm run format:check`：零差异
+
 ## [v0.24.4] - 后台 mini_review 静默化 + 幽灵文本永久隐藏 + 崩溃诊断增强（2026-07-03）
 
 ### 修复
