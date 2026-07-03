@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::creative_engine::context_prioritizer::ContextHealthMetrics;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LastLlmPrompt {
     pub request_id: String,
@@ -25,12 +27,14 @@ pub struct LastLlmPrompt {
 #[derive(Debug, Default)]
 pub struct DiagnosticStore {
     last_llm_prompt: Mutex<Option<LastLlmPrompt>>,
+    context_health: Mutex<Option<ContextHealthMetrics>>,
 }
 
 impl DiagnosticStore {
     pub fn new() -> Self {
         Self {
             last_llm_prompt: Mutex::new(None),
+            context_health: Mutex::new(None),
         }
     }
 
@@ -48,5 +52,17 @@ impl DiagnosticStore {
         if let Ok(mut guard) = self.last_llm_prompt.lock() {
             *guard = None;
         }
+    }
+
+    /// v0.25.0: 记录最近一次 Writer 系统提示词的上下文健康度指标。
+    pub fn set_context_health(&self, metrics: ContextHealthMetrics) {
+        if let Ok(mut guard) = self.context_health.lock() {
+            *guard = Some(metrics);
+        }
+    }
+
+    /// v0.25.0: 获取最近一次 Writer 系统提示词的上下文健康度指标。
+    pub fn get_context_health(&self) -> Option<ContextHealthMetrics> {
+        self.context_health.lock().ok().and_then(|g| g.clone())
     }
 }

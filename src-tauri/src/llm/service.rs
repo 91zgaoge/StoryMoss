@@ -1707,10 +1707,9 @@ impl LlmService {
                         Err(e) => {
                             let err_msg = e.to_string();
                             if err_msg.contains(super::adapter::CONNECTION_TIMEOUT_MARKER) {
-                                Err(AppError::internal(format!(
-                                    "无法连接到模型 {}（{}ms 内未响应），请检查该模型的服务端是否正常运行",
-                                    model_name, connect_timeout_seconds * 1000
-                                )))
+                                Err(AppError::llm_connection_timeout(
+                                    connect_timeout_seconds * 1000,
+                                ))
                             } else if err_msg.contains(super::adapter::GENERATION_TIMEOUT_MARKER) {
                                 Err(AppError::llm_generation_timeout(timeout_seconds * 1000))
                             } else {

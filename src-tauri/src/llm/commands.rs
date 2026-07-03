@@ -10,6 +10,7 @@ use tauri::{command, AppHandle, State};
 
 use super::service::LlmService;
 use crate::{
+    creative_engine::context_prioritizer::ContextHealthMetrics,
     diagnostics::{DiagnosticStore, LastLlmPrompt},
     error::AppError,
 };
@@ -123,6 +124,14 @@ pub async fn get_last_llm_prompt(
     store: State<'_, Arc<DiagnosticStore>>,
 ) -> Result<Option<LastLlmPrompt>, AppError> {
     Ok(store.get_last_llm_prompt())
+}
+
+/// v0.25.0: 获取最近一次 Writer 系统提示词的上下文健康度指标（诊断用）。
+#[command(rename_all = "snake_case")]
+pub async fn get_context_health(
+    store: State<'_, Arc<DiagnosticStore>>,
+) -> Result<Option<ContextHealthMetrics>, AppError> {
+    Ok(store.get_context_health())
 }
 
 /// v0.23.12: 获取智能创作流程最近 N 条日志（诊断用）。

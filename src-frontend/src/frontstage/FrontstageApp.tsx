@@ -16,10 +16,12 @@ import {
   getPipelineActiveDraft,
 } from '@/services/tauri';
 import { parseStructuredError } from '@/utils/errorHandler';
+import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
+import AgentInterruptionModal from './components/AgentInterruptionModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -820,6 +822,8 @@ const FrontstageApp: React.FC = () => {
   const lastGenerationStatusUpdateRef = useRef(0);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
+  const [showInterruptionModal, setShowInterruptionModal] = useState(false);
+  const [interruptionError, setInterruptionError] = useState<StructuredError | null>(null);
 
   // A4-1.7: 根据生成开始时间计算已用秒数
   const getElapsedSeconds = useCallback(() => {
@@ -927,6 +931,30 @@ const FrontstageApp: React.FC = () => {
           const logs = await invoke<string[]>('get_workflow_logs', { count: 30 });
           updates['工作流日志路径'] = logPath;
           updates['智能创作流程最近日志'] = logs.length ? logs.join('\n') : '（暂无日志）';
+
+          // v0.25.0: 读取 Writer 系统提示词的上下文健康度指标
+          try {
+            const health = await invoke<{
+              total_tokens: number;
+              critical_tokens: number;
+              high_tokens: number;
+              normal_tokens: number;
+              background_tokens: number;
+              final_chunk_count: number;
+              was_critical_truncated: boolean;
+            } | null>('get_context_health');
+            if (health) {
+              updates['上下文总Token数'] = String(health.total_tokens);
+              updates['Critical Token数'] = String(health.critical_tokens);
+              updates['High Token数'] = String(health.high_tokens);
+              updates['Normal Token数'] = String(health.normal_tokens);
+              updates['Background Token数'] = String(health.background_tokens);
+              updates['上下文块数'] = String(health.final_chunk_count);
+              updates['Critical是否被截断'] = health.was_critical_truncated ? '是' : '否';
+            }
+          } catch (e) {
+            frontstageLogger.warn('[captureDiagnosticInfo] 读取上下文健康度失败', e);
+          }
 
           if (Object.keys(updates).length > 0) {
             setDiagnosticData(prev => ({ ...prev, ...updates }));
@@ -2393,6 +2421,19 @@ const FrontstageApp: React.FC = () => {
         frontstageLogger.error('Generation request failed', { error });
         const structured = parseStructuredError(error);
         const msg = error instanceof Error ? error.message : String(error);
+
+        // v0.25.0: 致命/需用户干预错误直接弹出中断模态，避免淹没在诊断卡片里
+        if (structured?.severity === 'Fatal' || structured?.severity === 'UserAction') {
+          setInterruptionError(structured);
+          setShowInterruptionModal(true);
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          return;
+        }
+
         if (structured?.code === 'PREFLIGHT_FAILED') {
           const issues = (structured.data?.issues as string[]) || [];
           const firstIssue = issues[0] || structured.message || '写作前检查未通过';
@@ -3076,6 +3117,16 @@ const FrontstageApp: React.FC = () => {
         frontstageLogger.error('Smart execution failed', { error: e });
         const structured = parseStructuredError(e);
         const msg = e?.message || String(e);
+
+        // v0.25.0: 致命/需用户干预错误直接弹出中断模态
+        if (structured?.severity === 'Fatal' || structured?.severity === 'UserAction') {
+          setInterruptionError(structured);
+          setShowInterruptionModal(true);
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          return;
+        }
+
         if (structured?.code === 'PREFLIGHT_FAILED') {
           const issues = (structured.data?.issues as string[]) || [];
           const firstIssue = issues[0] || structured.message || '写作前检查未通过';
@@ -3720,6 +3771,14 @@ const FrontstageApp: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* v0.25.0: 致命/需用户干预错误的中断模态 */}
+      <AgentInterruptionModal
+        isOpen={showInterruptionModal}
+        onClose={() => setShowInterruptionModal(false)}
+        error={interruptionError}
+        onOpenBackstage={openBackstage}
+      />
     </>
   );
 };

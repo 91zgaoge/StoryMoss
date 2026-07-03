@@ -10,6 +10,7 @@ pub mod asset_snapshot;
 pub mod beat_cards;
 pub mod cascade_rewriter;
 pub mod context_builder;
+pub mod context_prioritizer;
 pub mod continuity;
 pub mod foreshadowing;
 pub mod methodology;

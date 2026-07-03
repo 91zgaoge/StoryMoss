@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
     error::AppError,
+    error_recovery::retry_with_backoff,
     is_novel_creation_intent, record_ai_operation,
 };
 
@@ -124,34 +125,68 @@ async fn smart_execute_inner(
 
     // 构建 PlanContext：从当前系统状态推断
     // v0.9.5: 将同步 DB 查询移入 spawn_blocking，避免阻塞 tokio worker
-    let pool_for_loader = pool.clone();
-    log::info!("[smart_execute] STEP 1/5 loading stories+chapters (spawn_blocking)...");
+    // v0.25.0: 对 DB 查询加 retry_with_backoff，容忍偶发锁定
+    log::info!("[smart_execute] STEP 1/5 loading stories+chapters (spawn_blocking + retry)...");
     let t1 = std::time::Instant::now();
-    let (stories, current_story, current_story_id, chapters) =
-        tokio::task::spawn_blocking(move || -> Result<SmartExecuteContext, AppError> {
-            let stories = StoryRepository::new(pool_for_loader.clone())
-                .get_all()
+    let pool_for_loader = pool.clone();
+    let context_load = retry_with_backoff(
+        move || {
+            let pool = pool_for_loader.clone();
+            async move {
+                // flatten Result<Result<...>, JoinError> into Result<SmartExecuteContext,
+                // AppError>
+                let inner = tokio::task::spawn_blocking(
+                    move || -> Result<SmartExecuteContext, AppError> {
+                        let stories =
+                            StoryRepository::new(pool.clone()).get_all().map_err(|e| {
+                                AppError::internal(format!(
+                                    "[smart_execute] Failed to load stories: {}",
+                                    e
+                                ))
+                            })?;
+                        let current_story = stories.first().cloned();
+                        let current_story_id = current_story.as_ref().map(|s| s.id.clone());
+                        let chapters = if let Some(ref story_id) = current_story_id {
+                            ChapterRepository::new(pool.clone())
+                                .get_by_story(story_id)
+                                .map_err(|e| {
+                                    AppError::internal(format!(
+                                        "[smart_execute] Failed to load chapters: {}",
+                                        e
+                                    ))
+                                })?
+                        } else {
+                            vec![]
+                        };
+                        Ok((stories, current_story, current_story_id, chapters))
+                    },
+                )
+                .await
                 .map_err(|e| {
-                    AppError::internal(format!("[smart_execute] Failed to load stories: {}", e))
+                    AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e))
                 })?;
-            let current_story = stories.first().cloned();
-            let current_story_id = current_story.as_ref().map(|s| s.id.clone());
-            let chapters = if let Some(ref story_id) = current_story_id {
-                ChapterRepository::new(pool_for_loader.clone())
-                    .get_by_story(story_id)
-                    .map_err(|e| {
-                        AppError::internal(format!(
-                            "[smart_execute] Failed to load chapters: {}",
-                            e
-                        ))
-                    })?
-            } else {
-                vec![]
-            };
-            Ok((stories, current_story, current_story_id, chapters))
-        })
-        .await
-        .map_err(|e| AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e)))??;
+                inner
+            }
+        },
+        2,
+        50,
+        500,
+        "smart_execute context load",
+    )
+    .await;
+
+    let (stories, current_story, current_story_id, chapters) = match context_load {
+        crate::error_recovery::RecoveryOutcome::Success(ctx) => ctx,
+        crate::error_recovery::RecoveryOutcome::RetriedSuccess(ctx, attempts) => {
+            log::warn!("[smart_execute] 上下文加载经 {} 次重试后成功", attempts);
+            ctx
+        }
+        crate::error_recovery::RecoveryOutcome::DegradedSuccess(ctx, reason) => {
+            log::warn!("[smart_execute] 上下文加载降级成功: {}", reason);
+            ctx
+        }
+        crate::error_recovery::RecoveryOutcome::Failed(e) => return Err(e),
+    };
     log::info!(
         "[smart_execute] STEP 1/5 done in {:?} (stories={}, chapters={}, story_id={:?})",
         t1.elapsed(),

@@ -24,6 +24,7 @@ mod db;
 mod diagnostics;
 pub(crate) mod embeddings;
 mod error;
+mod error_recovery;
 mod events;
 mod export;
 mod intent;

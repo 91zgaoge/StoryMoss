@@ -15,6 +15,7 @@ use super::{
 use crate::{
     db::DbPool,
     error::AppError,
+    error_recovery::retry_with_backoff,
     llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
 };
 
@@ -955,23 +956,51 @@ impl GatewayExecutor {
             // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
             // 以支持 OpenAI/Ollama 的 JSON mode。
             // v0.23.65: 透传请求级 system_prompt（writer_system 写作准则）。
-            let context_label = request.context_label.as_deref();
-            let (_, result) = self
-                .llm_service
-                .generate_with_profile_and_request_id_with_format(
-                    &profile.id,
-                    request.prompt.clone(),
-                    request.max_tokens,
-                    request.temperature,
-                    context_label,
-                    Some(request.request_id.clone()),
-                    request.timeout_seconds_override,
-                    request.max_retries_override,
-                    request.response_format,
-                    request.system_prompt.clone(),
-                )
-                .await;
-            match result {
+            let max_retries = request.max_retries_override.unwrap_or(1);
+            let candidate_idx = idx + 1;
+            let outcome = retry_with_backoff(
+                || {
+                    let service = self.llm_service.clone();
+                    let profile_id = profile.id.clone();
+                    let prompt = request.prompt.clone();
+                    let max_tokens = request.max_tokens;
+                    let temperature = request.temperature;
+                    let context_label_owned = request.context_label.clone();
+                    let request_id = request.request_id.clone();
+                    let timeout_override = request.timeout_seconds_override;
+                    let retries_override = Some(0u32); // 网关外层接管重试，内层不再重复
+                    let response_format = request.response_format;
+                    let system_prompt = request.system_prompt.clone();
+                    async move {
+                        let (_, result) = service
+                            .generate_with_profile_and_request_id_with_format(
+                                &profile_id,
+                                prompt,
+                                max_tokens,
+                                temperature,
+                                context_label_owned.as_deref(),
+                                Some(request_id),
+                                timeout_override,
+                                retries_override,
+                                response_format,
+                                system_prompt,
+                            )
+                            .await;
+                        result
+                    }
+                },
+                max_retries,
+                200,
+                2000,
+                &format!(
+                    "gateway.generate candidate [{}/{}] {}",
+                    candidate_idx,
+                    decision.candidates.len(),
+                    candidate.model_id
+                ),
+            )
+            .await;
+            match outcome.into_result() {
                 Ok(resp) => {
                     // v0.23.59: 真实调用成功，重置连续失败计数，恢复强制置顶资格
                     self.record_gateway_success(&candidate.model_id, &candidate.model_name);
@@ -979,9 +1008,9 @@ impl GatewayExecutor {
                 }
                 Err(e) => {
                     log::warn!(
-                        "[Gateway] 模型 {} 调用失败（第 {} 候选）: {}",
+                        "[Gateway] 模型 {} 调用失败（第 {} 候选，含重试）: {}",
                         candidate.model_id,
-                        idx + 1,
+                        candidate_idx,
                         e
                     );
                     // v0.23.59: 真实调用失败标记 Degraded（保留在候选池受 -20 惩罚），

@@ -12,6 +12,7 @@ import { createLogger, type Logger } from './logger';
 export interface StructuredError {
   code: string;
   message: string;
+  severity?: 'Fatal' | 'Retry' | 'Degraded' | 'UserAction';
   data?: Record<string, unknown>;
 }
 
@@ -40,9 +41,13 @@ const defaultLogger = createLogger('error:handler');
  * Tauri 会把 Rust 的 Err(AppError) 序列化为 JSON 字符串放在 Error.message 中，
  * 也可能在某些版本下直接反序列化为对象。
  */
-function isStructuredError(
-  obj: Record<string, unknown>
-): obj is Record<'code' | 'message', string> & { data?: Record<string, unknown> } {
+function isStructuredError(obj: Record<string, unknown>): obj is Record<
+  'code' | 'message',
+  string
+> & {
+  severity?: string;
+  data?: Record<string, unknown>;
+} {
   return typeof obj.code === 'string' && typeof obj.message === 'string';
 }
 
@@ -54,6 +59,7 @@ export function parseStructuredError(error: unknown): StructuredError | null {
       return {
         code: obj.code,
         message: obj.message,
+        severity: obj.severity as StructuredError['severity'],
         data:
           obj.data && typeof obj.data === 'object'
             ? (obj.data as Record<string, unknown>)
@@ -80,6 +86,7 @@ export function parseStructuredError(error: unknown): StructuredError | null {
           return {
             code: parsed.code,
             message: parsed.message,
+            severity: parsed.severity as StructuredError['severity'],
             data:
               parsed.data && typeof parsed.data === 'object'
                 ? (parsed.data as Record<string, unknown>)
@@ -125,12 +132,12 @@ function extractStack(error: unknown): string | undefined {
 }
 
 /**
- * 根据 code 返回推荐的用户提示文案和动作类型
+ * 根据 code/severity 返回推荐的用户提示文案和动作类型
  */
 function resolveUserFacingMessage(
   structured: StructuredError | null,
   fallback: string
-): { text: string; action?: 'upgrade' | 'check_model' | 'retry' | 'none' } {
+): { text: string; action?: 'upgrade' | 'check_model' | 'retry' | 'degraded' | 'none' } {
   if (!structured) {
     return { text: fallback, action: 'none' };
   }
@@ -139,6 +146,8 @@ function resolveUserFacingMessage(
     case 'FEATURE_LOCKED':
       return { text: structured.message || '此功能需专业版', action: 'upgrade' };
     case 'LLM_TIMEOUT':
+    case 'LLM_CONNECTION_TIMEOUT':
+    case 'LLM_GENERATION_TIMEOUT':
       return {
         text: structured.message || '模型响应超时，请检查模型配置或网络',
         action: 'check_model',
@@ -148,7 +157,7 @@ function resolveUserFacingMessage(
     case 'CANCELLATION':
       return { text: structured.message || '操作已取消', action: 'none' };
     case 'CONTEXT_UNAVAILABLE':
-      return { text: structured.message || '上下文不足，建议补充前文信息', action: 'none' };
+      return { text: structured.message || '上下文不足，建议补充前文信息', action: 'degraded' };
     case 'VALIDATION_FAILED':
       return { text: structured.message || '输入校验失败', action: 'none' };
     case 'NOT_FOUND':
@@ -157,9 +166,21 @@ function resolveUserFacingMessage(
       return { text: structured.message || '写作前检查未通过，请先完善故事设定', action: 'none' };
     case 'NETWORK_OFFLINE':
       return { text: '网络异常，请检查网络连接', action: 'retry' };
-    default:
+  }
+
+  // v0.25.0: 按四级严重度兜底
+  switch (structured.severity) {
+    case 'Retry':
+      return { text: structured.message || fallback, action: 'retry' };
+    case 'UserAction':
+      return { text: structured.message || fallback, action: 'upgrade' };
+    case 'Degraded':
+      return { text: structured.message || fallback, action: 'degraded' };
+    case 'Fatal':
       return { text: structured.message || fallback, action: 'none' };
   }
+
+  return { text: structured.message || fallback, action: 'none' };
 }
 
 /**

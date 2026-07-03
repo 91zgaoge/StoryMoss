@@ -14,6 +14,10 @@ use super::Agent;
 pub use crate::domain::agent_types::{AgentResult, AgentTask, AgentType};
 use crate::{
     config::settings::AppConfig,
+    creative_engine::context_prioritizer::{
+        prioritize_system_prompt, ContextChunk, ContextPriority,
+    },
+    diagnostics::DiagnosticStore,
     domain::{
         agent_context::AgentContext, asset_snapshot::AssetSnapshot, continuity::Severity,
         creative_engine::CreativeEnginePort, methodology::MethodologyConfig,
@@ -1823,7 +1827,8 @@ impl AgentService {
         emit_and_yield("正在渲染系统提示词...", 0.16);
         // v0.17.1: 通过 PromptRegistry 读取，支持用户在前端覆盖
         let writer_system_tpl = self.resolve_prompt("writer_system");
-        let mut system_prompt = TemplateEngine::render_with_conditions(&writer_system_tpl, &vars);
+        let base_prompt = TemplateEngine::render_with_conditions(&writer_system_tpl, &vars);
+        let mut system_chunks: Vec<ContextChunk> = Vec::new();
         tokio::task::yield_now().await;
 
         // v0.22.5: 注入叙事事件历史（节奏/情绪一致性参考）
@@ -1833,8 +1838,11 @@ impl AgentService {
             let eh_template = self.resolve_prompt("writer_narrative_event_history");
             let eh_section = TemplateEngine::render_with_conditions(&eh_template, &eh_vars);
             if !eh_section.trim().is_empty() {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(&eh_section);
+                system_chunks.push(ContextChunk::new(
+                    eh_section,
+                    ContextPriority::Normal,
+                    "narrative_event_history",
+                ));
             }
         }
         tokio::task::yield_now().await;
@@ -1888,11 +1896,16 @@ impl AgentService {
             }
 
             if !strategy_lines.is_empty() {
-                system_prompt.push_str("\n\n【写作策略约束】\n");
+                let mut section = "【写作策略约束】\n".to_string();
                 for line in strategy_lines {
-                    system_prompt.push_str(line);
-                    system_prompt.push('\n');
+                    section.push_str(line);
+                    section.push('\n');
                 }
+                system_chunks.push(ContextChunk::new(
+                    section,
+                    ContextPriority::High,
+                    "writing_strategy",
+                ));
             }
         }
         tokio::task::yield_now().await;
@@ -1930,8 +1943,13 @@ impl AgentService {
                 if let Some(typical_structure) = &profile.typical_structure_json {
                     lines.push(format!("典型结构参考：\n{}", typical_structure));
                 }
-                system_prompt.push_str("\n\n【体裁画像策略】\n");
-                system_prompt.push_str(&lines.join("\n"));
+                if !lines.is_empty() {
+                    system_chunks.push(ContextChunk::new(
+                        format!("【体裁画像策略】\n{}", lines.join("\n")),
+                        ContextPriority::High,
+                        "genre_profile",
+                    ));
+                }
             }
         }
         tokio::task::yield_now().await;
@@ -1960,8 +1978,11 @@ impl AgentService {
                         .creative_engine
                         .build_methodology_prompt_extension(&config);
                     if !extension.is_empty() {
-                        system_prompt.push_str("\n\n【创作方法论约束】\n");
-                        system_prompt.push_str(&extension);
+                        system_chunks.push(ContextChunk::new(
+                            format!("【创作方法论约束】\n{}", extension),
+                            ContextPriority::High,
+                            "methodology",
+                        ));
                     }
                 }
             }
@@ -1976,8 +1997,11 @@ impl AgentService {
             let contract_section =
                 TemplateEngine::render_with_conditions(&contract_template, &contract_vars);
             if !contract_section.trim().is_empty() {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(&contract_section);
+                system_chunks.push(ContextChunk::new(
+                    contract_section,
+                    ContextPriority::High,
+                    "runtime_contract",
+                ));
             }
         }
         tokio::task::yield_now().await;
@@ -2005,8 +2029,11 @@ impl AgentService {
         let chase_debt_section =
             TemplateEngine::render_with_conditions(&chase_debt_template, &debt_vars);
         if !chase_debt_section.trim().is_empty() {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&chase_debt_section);
+            system_chunks.push(ContextChunk::new(
+                chase_debt_section,
+                ContextPriority::High,
+                "chase_debt",
+            ));
         }
 
         let mut goal_vars = HashMap::new();
@@ -2046,8 +2073,11 @@ impl AgentService {
         let reading_power_section =
             TemplateEngine::render_with_conditions(&reading_power_template, &goal_vars);
         if !reading_power_section.trim().is_empty() {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&reading_power_section);
+            system_chunks.push(ContextChunk::new(
+                reading_power_section,
+                ContextPriority::High,
+                "reading_power",
+            ));
         }
         tokio::task::yield_now().await;
 
@@ -2056,8 +2086,13 @@ impl AgentService {
         // - Pro 用户：额外可用 StyleBlend（多风格融合）
         emit_and_yield("正在加载风格 DNA...", 0.175);
         if let Some(ref extension) = ctx.style.style_dna_extension {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(extension);
+            if !extension.is_empty() {
+                system_chunks.push(ContextChunk::new(
+                    extension.clone(),
+                    ContextPriority::High,
+                    "style_dna",
+                ));
+            }
         } else if let Some(ref blend) = ctx.style.style_blend {
             // StyleBlend（多风格融合）仍为 Pro-only
             if is_pro {
@@ -2084,8 +2119,11 @@ impl AgentService {
                 if !dnas.is_empty() {
                     let extension = blend.to_prompt_extension(&dnas);
                     if !extension.is_empty() {
-                        system_prompt.push_str("\n\n");
-                        system_prompt.push_str(&extension);
+                        system_chunks.push(ContextChunk::new(
+                            extension,
+                            ContextPriority::High,
+                            "style_blend",
+                        ));
                     }
                 }
             }
@@ -2098,8 +2136,11 @@ impl AgentService {
                     if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
                         let extension = dna.to_prompt_extension();
                         if !extension.is_empty() {
-                            system_prompt.push_str("\n\n");
-                            system_prompt.push_str(&extension);
+                            system_chunks.push(ContextChunk::new(
+                                extension,
+                                ContextPriority::High,
+                                "style_dna",
+                            ));
                         }
                     }
                 }
@@ -2133,20 +2174,22 @@ impl AgentService {
             }
         }
         if !style_detail_lines.is_empty() {
-            system_prompt.push_str("\n\n【写作风格约束】\n");
-            for line in style_detail_lines {
-                system_prompt.push_str(&line);
-                system_prompt.push('\n');
-            }
+            system_chunks.push(ContextChunk::new(
+                format!("【写作风格约束】\n{}", style_detail_lines.join("\n")),
+                ContextPriority::High,
+                "writing_style",
+            ));
         }
         tokio::task::yield_now().await;
 
         // 注入作品简介（P3-1: 所有用户可用，移出 is_pro 守卫）
         if let Some(ref desc) = ctx.story.description {
             if !desc.is_empty() {
-                system_prompt.push_str("\n\n【作品简介】\n");
-                system_prompt.push_str(desc);
-                system_prompt.push('\n');
+                system_chunks.push(ContextChunk::new(
+                    format!("【作品简介】\n{}", desc),
+                    ContextPriority::Normal,
+                    "story_description",
+                ));
             }
         }
         tokio::task::yield_now().await;
@@ -2155,31 +2198,34 @@ impl AgentService {
         // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
         if is_pro {
             emit_and_yield("正在加载个性化偏好...", 0.18);
-            if let Some(ref extension) = ctx.story.personalizer_extension {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(extension);
-            } else {
-                let story_id = ctx.story.story_id.clone();
-                let extension = match self
-                    .creative_engine
-                    .build_prompt_personalizer_extension(&story_id)
-                    .await
-                {
-                    Ok(ext) => Some(ext),
-                    Err(e) => {
-                        log::warn!(
-                            "[build_writer_prompt] Failed to build personalizer extension: {}",
-                            e
-                        );
-                        None
+            let personalizer_extension =
+                if let Some(ref extension) = ctx.story.personalizer_extension {
+                    Some(extension.clone())
+                } else {
+                    let story_id = ctx.story.story_id.clone();
+                    match self
+                        .creative_engine
+                        .build_prompt_personalizer_extension(&story_id)
+                        .await
+                    {
+                        Ok(ext) if !ext.is_empty() => Some(ext),
+                        Ok(_) => None,
+                        Err(e) => {
+                            log::warn!(
+                                "[build_writer_prompt] Failed to build personalizer extension: {}",
+                                e
+                            );
+                            None
+                        }
                     }
                 };
-
-                if let Some(extension) = extension {
-                    if !extension.is_empty() {
-                        system_prompt.push_str("\n\n");
-                        system_prompt.push_str(&extension);
-                    }
+            if let Some(extension) = personalizer_extension {
+                if !extension.is_empty() {
+                    system_chunks.push(ContextChunk::new(
+                        extension,
+                        ContextPriority::Background,
+                        "personalizer",
+                    ));
                 }
             }
             tokio::task::yield_now().await;
@@ -2223,8 +2269,11 @@ impl AgentService {
         };
 
         if let Some(ref section) = fingerprint_text {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(section);
+            system_chunks.push(ContextChunk::new(
+                section.clone(),
+                ContextPriority::High,
+                "style_fingerprint",
+            ));
             log::info!(
                 "[build_writer_prompt] Injected style fingerprint for story {}",
                 ctx.story.story_id
@@ -2254,54 +2303,59 @@ impl AgentService {
         emit_and_yield("正在读取故事与场景数据...", 0.187);
         tokio::task::yield_now().await;
 
+        let mut snapshot_parts = Vec::new();
         if let Some(snapshot) = snapshot {
             emit_and_yield("正在注入叙事阶段指导...", 0.188);
-            system_prompt.push_str("\n\n【叙事阶段指导】\n");
-            system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
-            system_prompt.push('\n');
+            snapshot_parts.push(format!(
+                "【叙事阶段指导】\n{}",
+                snapshot.narrative_phase.writer_guidance()
+            ));
             tokio::task::yield_now().await;
 
             if !snapshot.story_context.active_conflicts.is_empty() {
                 emit_and_yield("正在注入活跃冲突信息...", 0.189);
-                system_prompt.push_str("\n【当前活跃冲突】\n");
+                let mut lines = vec!["【当前活跃冲突】".to_string()];
                 for conflict in &snapshot.story_context.active_conflicts {
-                    system_prompt.push_str(&format!(
-                        "- {}: 涉及 {}, 赌注: {}\n",
+                    lines.push(format!(
+                        "- {}: 涉及 {}, 赌注: {}",
                         conflict.conflict_type,
                         conflict.parties.join(", "),
                         conflict.stakes
                     ));
                 }
+                snapshot_parts.push(lines.join("\n"));
                 tokio::task::yield_now().await;
             }
 
             if !snapshot.story_context.pending_payoffs.is_empty() {
                 emit_and_yield("正在注入待回收伏笔...", 0.19);
-                system_prompt.push_str("\n【待回收伏笔】\n");
+                let mut lines = vec!["【待回收伏笔】".to_string()];
                 for payoff in &snapshot.story_context.pending_payoffs {
-                    system_prompt.push_str(&format!(
-                        "- {}（重要度: {}）\n",
+                    lines.push(format!(
+                        "- {}（重要度: {}）",
                         payoff.content, payoff.importance
                     ));
                 }
+                snapshot_parts.push(lines.join("\n"));
                 tokio::task::yield_now().await;
             }
 
             if !snapshot.story_context.overdue_payoffs.is_empty() {
                 emit_and_yield("正在注入逾期伏笔警告...", 0.191);
-                system_prompt.push_str("\n【⚠️ 逾期伏笔——请在续写中优先回收】\n");
+                let mut lines = vec!["【⚠️ 逾期伏笔——请在续写中优先回收】".to_string()];
                 for payoff in &snapshot.story_context.overdue_payoffs {
-                    system_prompt.push_str(&format!(
-                        "- {}（重要度: {}）\n",
+                    lines.push(format!(
+                        "- {}（重要度: {}）",
                         payoff.content, payoff.importance
                     ));
                 }
+                snapshot_parts.push(lines.join("\n"));
                 tokio::task::yield_now().await;
             }
 
             if !snapshot.character_states.is_empty() {
                 emit_and_yield("正在注入角色当前状态...", 0.192);
-                system_prompt.push_str("\n【角色当前状态】\n");
+                let mut lines = vec!["【角色当前状态】".to_string()];
                 for cs in &snapshot.character_states {
                     let mut parts = vec![format!("{}:", cs.name)];
                     if let Some(ref loc) = cs.current_location {
@@ -2320,18 +2374,27 @@ impl AgentService {
                         parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", ")));
                     }
                     parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
-                    system_prompt.push_str(&format!("- {}\n", parts.join(" ")));
+                    lines.push(format!("- {}", parts.join(" ")));
                 }
+                snapshot_parts.push(lines.join("\n"));
                 tokio::task::yield_now().await;
             }
+        }
+        if !snapshot_parts.is_empty() {
+            system_chunks.push(ContextChunk::new(
+                snapshot_parts.join("\n\n"),
+                ContextPriority::Critical,
+                "canonical_state",
+            ));
         }
 
         // Phase 3.1: 注入参考场景 few-shots（来自关联拆书）
         if !bundle.reference_scene_fewshots.is_empty() {
             emit_and_yield("正在注入参考场景 few-shots...", 0.193);
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&WriteTimeBundle::render_reference_scene_fewshots(
-                &bundle.reference_scene_fewshots,
+            system_chunks.push(ContextChunk::new(
+                WriteTimeBundle::render_reference_scene_fewshots(&bundle.reference_scene_fewshots),
+                ContextPriority::Background,
+                "reference_fewshots",
             ));
             tokio::task::yield_now().await;
         }
@@ -2343,14 +2406,31 @@ impl AgentService {
         // 数据来自 PlanExecutor::execute_writer 注入的 `narrative_quartet` 参数。
         if let Some(quartet) = task.parameters.get("narrative_quartet") {
             if let Some(section) = render_narrative_quartet_section(quartet) {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(&section);
+                system_chunks.push(ContextChunk::new(
+                    section,
+                    ContextPriority::High,
+                    "narrative_quartet",
+                ));
             }
+        }
+
+        // v0.25.0: 按优先级排序系统提示词组件，缓解 Lost-in-the-Middle
+        let model_family = self
+            .llm_service
+            .get_active_profile()
+            .map(|p| p.model)
+            .unwrap_or_else(|| "cl100k".to_string());
+        let prioritized = prioritize_system_prompt(base_prompt, system_chunks, &model_family);
+
+        // v0.25.0: 将上下文健康度指标写入诊断存储，供超时/失败时排查 Lost-in-the-Middle
+        if let Some(store) = self.app_handle.try_state::<Arc<DiagnosticStore>>() {
+            store.set_context_health(prioritized.metrics.clone());
         }
 
         // v0.17.1: Living Author Guard —— 在最终 prompt 组装后，扫描并替换在世作者
         // 姓名为「具备相同手工艺特征的写作风格」+ 手工艺滑块描述。
         // 目的：1) 不直接对在世作者点名模仿；2) 把模仿型描述拆解为可量化维度。
+        let mut system_prompt = prioritized.prompt;
         let guard_outcome = self.creative_engine.sanitize_style_brief(&system_prompt);
         system_prompt = guard_outcome.sanitized;
         if guard_outcome.require_craft_sliders {

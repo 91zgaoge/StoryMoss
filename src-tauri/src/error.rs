@@ -5,6 +5,19 @@
 
 use serde::{Deserialize, Serialize};
 
+/// v0.25.0: 四级错误严重度——决定前端恢复 UI 与后端策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorSeverity {
+    /// 致命错误：无法自动恢复，需要开发者介入或重启应用
+    Fatal,
+    /// 可重试：通常是 transient 错误，适合自动重试/切换模型/指数退避
+    Retry,
+    /// 可降级：功能可用但质量或上下文受限，可回退到简化路径
+    Degraded,
+    /// 需用户处理：订阅、输入校验、配置问题等，需要用户显式操作
+    UserAction,
+}
+
 /// 应用级错误枚举
 ///
 /// 每个变体对应一种可恢复或不可恢复的错误场景，携带结构化上下文。
@@ -70,6 +83,25 @@ impl AppError {
         }
     }
 
+    /// v0.25.0: 错误四级分类——决定恢复策略与前端 UI。
+    pub fn severity(&self) -> ErrorSeverity {
+        match self {
+            AppError::SubscriptionRequired { .. }
+            | AppError::ValidationFailed { .. }
+            | AppError::NotFound { .. }
+            | AppError::PreflightFailed { .. } => ErrorSeverity::UserAction,
+            AppError::LlmTimeout { .. }
+            | AppError::LlmConnectionTimeout { .. }
+            | AppError::LlmGenerationTimeout { .. }
+            | AppError::DbLocked { .. }
+            | AppError::NetworkOffline { .. } => ErrorSeverity::Retry,
+            AppError::ContextUnavailable { .. } | AppError::Cancellation { .. } => {
+                ErrorSeverity::Degraded
+            }
+            AppError::Internal { .. } => ErrorSeverity::Fatal,
+        }
+    }
+
     /// 人类可读的错误消息
     pub fn message(&self) -> String {
         match self {
@@ -107,6 +139,7 @@ impl AppError {
         ErrorResponse {
             code: self.code().to_string(),
             message: self.message(),
+            severity: self.severity(),
             data,
         }
     }
@@ -252,6 +285,7 @@ impl From<std::time::SystemTimeError> for AppError {
 pub struct ErrorResponse {
     pub code: String,
     pub message: String,
+    pub severity: ErrorSeverity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -350,9 +384,10 @@ impl Serialize for AppError {
     {
         use serde::ser::SerializeMap;
 
-        let mut map = serializer.serialize_map(Some(3))?;
+        let mut map = serializer.serialize_map(Some(4))?;
         map.serialize_entry("code", self.code())?;
         map.serialize_entry("message", &self.message())?;
+        map.serialize_entry("severity", &self.severity())?;
 
         let data: Option<serde_json::Value> = match self {
             AppError::SubscriptionRequired {
