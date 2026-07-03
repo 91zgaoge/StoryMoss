@@ -101,8 +101,6 @@ export interface RichTextEditorRef {
   getSelectedText: () => string;
   focus: () => void;
   setContent: (text: string) => void;
-  /** 清理编辑器中残留的幽灵文本段落（兜底） */
-  sanitizeGhostText: () => boolean;
   /** 加载聚合场景内容 — 将多个 Scene 用 divider 拼接后写入编辑器 */
   loadAggregatedScenes: (
     scenes: Array<{
@@ -875,26 +873,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           queueMicrotask(() => {
             isExternalSyncRef.current = false;
           });
-        },
-        // v0.24.1: 兜底清理编辑器中残留的幽灵文本段落（极少见的 DOM 污染场景）
-        sanitizeGhostText: () => {
-          if (!editor || editor.isDestroyed) return false;
-          try {
-            const html = editor.getHTML();
-            if (!html.includes('〔GT〕')) return false;
-            // 删除任何以 〔GT〕 开头的段落/文本块
-            const cleaned = html.replace(/<p>〔GT〕[\s\S]*?<\/p>/g, '');
-            if (cleaned === html) return false;
-            isExternalSyncRef.current = true;
-            editor.commands.setContent(cleaned || '<p></p>');
-            queueMicrotask(() => {
-              isExternalSyncRef.current = false;
-            });
-            return true;
-          } catch (e) {
-            rtEditorLogger.error('[RichTextEditor.sanitizeGhostText] 失败', { error: e });
-            return false;
-          }
         },
       }),
       [editor, selectedRange]

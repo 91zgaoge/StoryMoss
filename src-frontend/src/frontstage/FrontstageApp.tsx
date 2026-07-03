@@ -421,7 +421,7 @@ const FrontstageApp: React.FC = () => {
                     );
                   }, 2000);
                 }
-                return `〔OCU〕${formatted}`;
+                return formatted;
               });
             }
           } catch (e) {
@@ -1133,7 +1133,7 @@ const FrontstageApp: React.FC = () => {
                       formattedLen: formatted.length,
                     }
                   );
-                  setGeneratedText(`〔CU〕${formatted}`);
+                  setGeneratedText(formatted);
                 }
               }
             } catch (e) {
@@ -1182,7 +1182,7 @@ const FrontstageApp: React.FC = () => {
                       preview: appendText.slice(0, 80),
                     }
                   );
-                  setGeneratedText(prevGhost + `〔AC〕${formatted}`);
+                  setGeneratedText(prevGhost + formatted);
                 }
               } catch (e) {
                 frontstageLogger.error('[AppendContent] 处理失败', { error: e, payload });
@@ -1837,7 +1837,7 @@ const FrontstageApp: React.FC = () => {
           formattedLen: formattedContent.length,
           skipContent,
         });
-        setContent(`〔SC〕${formattedContent}`);
+        setContent(formattedContent);
       } catch (e) {
         frontstageLogger.error('[selectChapter] setContent 失败', {
           error: e,
@@ -2390,9 +2390,6 @@ const FrontstageApp: React.FC = () => {
       setGeneratedText('');
       logToBackend('frontstage:accept_cleared', 'generatedText cleared');
       appendAiContentRef.current(textToAccept, 'tab');
-      // v0.24.1: 兜底清理编辑器中可能残留的幽灵文本段落
-      const sanitized = editorRef.current?.sanitizeGhostText();
-      logToBackend('frontstage:sanitize_ghost', 'sanitized editor ghost text', { sanitized });
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
       // v0.23.98: 父组件设置 30s 幽灵文本渲染锁
@@ -2481,8 +2478,7 @@ const FrontstageApp: React.FC = () => {
         });
         logToBackend('frontstage:append_ai_skip', 'content already present', { source });
       } else {
-        const marker = source === 'tab' ? '〔A〕' : source === 'auto' ? '〔AUTO〕' : '〔EVT〕';
-        editorRef.current.appendText(`${marker}${formatted}`);
+        editorRef.current.appendText(formatted);
         logToBackend('frontstage:append_ai_done', 'appended AI content', {
           source,
           formattedLen: formatted.length,
@@ -2920,13 +2916,11 @@ const FrontstageApp: React.FC = () => {
               currentText_length: currentText.length,
               isBootstrapCompleted,
             });
-            const markedFinalContent = `〔GT〕${finalContent}`;
             logToBackend('frontstage:set_generated_text', 'setting generatedText', {
               finalLen: finalContent.length,
-              markedLen: markedFinalContent.length,
               isBootstrapCompleted,
             });
-            setGeneratedText(markedFinalContent);
+            setGeneratedText(finalContent);
             toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
           }
         } else if (isBackgroundBootstrap) {
