@@ -739,8 +739,16 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       });
       // v0.23.90: 立即本地隐藏幽灵文本，不等待父组件状态刷新
       // v0.23.96: 同时设置 30s 渲染层强制隐藏，防止任何竞态导致幽灵文本复现
+      // v0.23.99: 直接操作 DOM 给幽灵容器加 force-hide-ghost 类，浏览器立即生效，不受 React 批处理延迟影响
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
+      const ghostContainer = containerRef.current?.querySelector('.editor-ghost-continuation');
+      if (ghostContainer) {
+        ghostContainer.classList.add('force-hide-ghost');
+        setTimeout(() => {
+          ghostContainer.classList.remove('force-hide-ghost');
+        }, 30000);
+      }
       onAcceptGeneration?.();
       if (wensiMode === 'active' && !isZenMode) {
         setTimeout(() => {

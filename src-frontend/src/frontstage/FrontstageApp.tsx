@@ -235,12 +235,10 @@ const FrontstageApp: React.FC = () => {
   }, [isSaved]);
   const [generatedText, _setGeneratedText] = useState('');
   const generatedTextRef = useRef('');
-  // v0.23.97: Tab 接受后强制 RichTextEditor remount，彻底清除可能残留的幽灵文本 DOM
-  const [editorRemountKey, setEditorRemountKey] = useState(0);
   // v0.23.95: Tab 接受后 5 分钟内禁止任何来源重新设置 generatedText，
   // 从根上杜绝幽灵文本在 Tab 确认后再次显示。
   const postAcceptLockRef = useRef(0);
-  // v0.23.98: 由父组件持有幽灵文本渲染锁，remount 后仍然有效
+  // v0.23.98: 由父组件持有幽灵文本渲染锁，确保 Tab 接受后 30s 内绝对不渲染幽灵文本
   const [hideGhostUntil, setHideGhostUntil] = useState(0);
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   const setGeneratedText = (text: string) => {
@@ -273,6 +271,21 @@ const FrontstageApp: React.FC = () => {
     generatedTextRef.current = text;
     _setGeneratedText(text);
   };
+
+  // v0.23.99: 父组件层监控 generatedText 渲染窗口，便于在 backend log 中确认幽灵文本是否应该出现
+  useEffect(() => {
+    if (generatedText && generatedText.length > 10) {
+      const now = Date.now();
+      const shouldRender = now > hideGhostUntil;
+      logToBackend('frontstage:generated_text_window', 'generatedText lifecycle', {
+        len: generatedText.length,
+        preview: generatedText.slice(0, 80),
+        hideGhostUntil,
+        hideMsRemaining: hideGhostUntil - now,
+        shouldRender,
+      });
+    }
+  }, [generatedText, hideGhostUntil]);
   const [wordCount, setWordCount] = useState(0);
   const [fontSize, setFontSize] = useState(() => loadEditorConfig().fontSize);
   const [isZenMode, setIsZenMode] = useState(false);
@@ -2376,18 +2389,10 @@ const FrontstageApp: React.FC = () => {
       // 依赖 RichTextEditor 本地 isHidingGhost 立即隐藏幽灵文本。
       setGeneratedText('');
       logToBackend('frontstage:accept_cleared', 'generatedText cleared');
-      // v0.23.97: 记录追加前编辑器是否为空，用于决定是否需要强制 remount
-      const wasEmptyBeforeAppend = editorRef.current?.getText().trim().length === 0;
       appendAiContentRef.current(textToAccept, 'tab');
-      // v0.23.97: 如果追加前编辑器为空（典型创世第一章场景），强制 remount RichTextEditor
-      // 以彻底清除可能残留的幽灵文本 DOM，避免双份显示。
-      if (wasEmptyBeforeAppend) {
-        setEditorRemountKey(prev => prev + 1);
-        logToBackend('frontstage:editor_remount', 'forcing RichTextEditor remount after accept');
-      }
       // v0.23.95: Tab 接受后立即加锁 5 分钟，禁止任何来源重新设置 generatedText
       postAcceptLockRef.current = Date.now() + 300000;
-      // v0.23.98: 父组件设置 30s 幽灵文本渲染锁，跨 RichTextEditor remount 仍然有效
+      // v0.23.98: 父组件设置 30s 幽灵文本渲染锁
       setHideGhostUntil(Date.now() + 30000);
       logToBackend('frontstage:post_accept_lock', 'post-accept lock set', { lockMs: 300000 });
       if (currentStory?.id) {
@@ -3371,7 +3376,6 @@ const FrontstageApp: React.FC = () => {
 
               <ErrorBoundary>
                 <RichTextEditor
-                  key={editorRemountKey}
                   ref={editorRef}
                   content={content}
                   onChange={handleContentChange}

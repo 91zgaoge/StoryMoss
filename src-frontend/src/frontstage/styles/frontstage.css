@@ -2614,6 +2614,11 @@ body {
   opacity: 0.55;
 }
 
+/* v0.23.99: Tab 接受后由 JS 立即添加，浏览器层面强制隐藏幽灵文本，防止 React 批处理延迟导致双份显示 */
+.editor-ghost-continuation.force-hide-ghost {
+  display: none !important;
+}
+
 .ghost-hint-bar {
   display: flex;
   align-items: center;
