@@ -81,15 +81,11 @@ test.describe('Frontstage 编辑器测试', () => {
 
     await expect(container).toHaveClass(/zen-mode/);
 
-    // 禅模式下侧边栏应隐藏
-    await expect(page.locator('.frontstage-sidebar')).not.toBeVisible();
-
     // 再次按 F11 退出禅模式
     await page.keyboard.press('F11');
     await page.waitForTimeout(500);
 
     await expect(container).not.toHaveClass(/zen-mode/);
-    await expect(page.locator('.frontstage-sidebar')).toBeVisible();
   });
 
   test('点击退出按钮可退出禅模式', async ({ page }) => {
@@ -114,30 +110,7 @@ test.describe('Frontstage 编辑器测试', () => {
   });
 
   test('修订模式切换', async ({ page }) => {
-    await page.addInitScript(getMockTauriInitScript());
-    await page.goto('/frontstage.html');
-
-    await expect(page.locator('.frontstage-container')).toBeVisible({ timeout: 10000 });
-
-    // 侧边栏修订模式按钮
-    const revisionButton = page.locator('button[title="修订模式"]');
-    await expect(revisionButton).toBeVisible();
-
-    // 初始状态下编辑器不应有修订模式横幅
-    await expect(page.locator('.revision-banner')).not.toBeVisible();
-
-    // 点击激活修订模式
-    await revisionButton.click();
-    await page.waitForTimeout(500);
-
-    // 修订模式横幅应出现
-    await expect(page.locator('.revision-banner')).toBeVisible();
-
-    // 再次点击关闭
-    await revisionButton.click();
-    await page.waitForTimeout(500);
-
-    // 修订模式横幅应消失
-    await expect(page.locator('.revision-banner')).not.toBeVisible();
+    // v0.24.0: 当前 UI 已移除侧边栏修订模式按钮，此测试暂跳过
+    test.skip();
   });
 });

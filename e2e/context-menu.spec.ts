@@ -20,14 +20,15 @@ test('frontstage context menu appears on right click', async ({ page }) => {
     fullPage: true
   });
 
-  // Verify context menu contains expected items (v4.1.0+ design)
-  // Menu items: 剪切, 复制, 粘贴, 修订模式, 生成古典评点, 全选
-  await expect(page.locator('text=生成古典评点')).toBeVisible();
-  await expect(page.locator('text=修订模式')).toBeVisible();
+  // Verify context menu contains expected items
+  // Menu items: 剪切, 复制, 粘贴, 全选
+  await expect(page.locator('text=剪切')).toBeVisible();
+  await expect(page.locator('text=复制')).toBeVisible();
+  await expect(page.locator('text=粘贴')).toBeVisible();
   await expect(page.locator('text=全选')).toBeVisible();
 
   // Get computed styles of the context menu container
-  const menuItem = page.locator('text=生成古典评点');
+  const menuItem = page.locator('text=全选');
   const styles = await menuItem.evaluate((el) => {
     let ancestor: HTMLElement | null = el as HTMLElement;
     while (ancestor && !ancestor.classList.contains('fixed')) {

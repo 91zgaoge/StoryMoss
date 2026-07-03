@@ -91,6 +91,29 @@ export function getMockTauriInitScript() {
               sessionStorage.setItem(STORAGE_KEY, mockContent);
             }
             return null;
+          case 'update_scene': {
+            // v0.24.0: 幕前自动保存走 update_scene，mock 需要同时更新 chapter 内容以支持 E2E 重载断言
+            const sceneContent = args?.content || '';
+            mockContent = sceneContent;
+            mockChapter.content = mockContent;
+            if (enablePersistence) {
+              sessionStorage.setItem(STORAGE_KEY, mockContent);
+            }
+            return null;
+          }
+          case 'get_scene': {
+            mockContent = enablePersistence
+              ? (sessionStorage.getItem(STORAGE_KEY) || '')
+              : '';
+            return {
+              id: args?.scene_id || 'test-scene-1',
+              chapter_id: 'test-chapter-1',
+              title: '测试场景',
+              content: mockContent,
+              word_count: mockContent.length,
+              order_index: 0,
+            };
+          }
           case 'notify_backstage_content_changed':
             return null;
           case 'show_backstage':
