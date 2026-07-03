@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.74
+- **版本**: v0.25.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -191,6 +191,13 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.25.0 Context Rot 显式防御 + 四级错误分类与恢复** (2026-07-03) — 在既有智能创作链路之上增加两道防御性基础设施，减少长系统提示词约束遗忘与错误恢复不当导致的用户体验中断。核心变更：
+    - **Context Rot 显式防御**：新建 `creative_engine/context_prioritizer.rs`，将系统提示词拆分为 `ContextChunk`（Critical/High/Normal/Background 四级），按优先级排序并在结尾对 Critical 约束做轻量摘要双重锚定。`build_writer_prompt` 全面改用 `ContextChunk` 收集并调用 `prioritize_system_prompt`。`ContextHealthMetrics` 记录 token 分布与丢弃率，`DiagnosticStore` 扩展 `context_health` 字段，新增 `get_context_health` 命令；前端诊断卡片显示上下文健康指标
+    - **四级错误分类**：`AppError` 新增 `ErrorSeverity`（Fatal/Retry/Degraded/UserAction），每种错误变体提供 `severity()` 分类；`ErrorResponse` 透传 severity，前端 `parseStructuredError` 可读取
+    - **四级恢复策略**：新建 `error_recovery.rs`，提供 `retry_with_backoff`（指数退避）与 `with_degraded_fallback`（降级回退）。`commands/orchestrator.rs` 中 `smart_execute` 初始上下文加载（stories + chapters）接入重试；`model_gateway/executor.rs` 中 `GatewayExecutor::generate` 对每个候选模型调用外层包裹 `retry_with_backoff`（默认 1 次重试、200–2000 ms 退避）。`llm/service.rs` 把连接阶段超时映射为 `AppError::LlmConnectionTimeout`（severity=Retry），让网关重试真正生效
+    - **前端中断模态**：新建 `AgentInterruptionModal` 组件；`FrontstageApp` 在 `handleRequestGeneration` 与 `handleSmartGeneration` 的错误捕获中，对 `severity === Fatal || UserAction` 直接打开中断模态，避免被通用诊断卡片淹没。`errorHandler.ts` 按 severity 兜底推荐动作
+    - 验证：`cargo test --lib` **611 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`npm run format:check` ✓；`cargo +nightly fmt -- --check` ✓
 
   - **v0.23.74 场景优先架构迁移——Scene 成为唯一叙事真相源** (2026-06-28) — 四阶段完整迁移，对齐 CONTEXT.md 设计意图。核心变更：
     - **Phase 1 消灭内容双写**：`scenes.content` 为唯一真相源。`ChapterRepository::update()` 移除 content 参数，不再写入 `chapters.content`；`SceneRepository::update_in_tx()` 移除 reverse-cascade；`ChapterRepository::create()` 不写 content 列。新增 `get_content(chapter_id)` 从 scenes 聚合。`get_by_id/get_by_story` 自动 fallback 到 scenes。`total_content_length_by_story()` 改为查 scenes 表

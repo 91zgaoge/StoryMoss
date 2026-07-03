@@ -2,6 +2,37 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.25.0] - Context Rot 显式防御 + 四级错误分类恢复（2026-07-03）
+
+### Context Rot 显式防御
+
+- 新增 `creative_engine/context_prioritizer.rs`：把系统提示词拆分为 `ContextChunk`，按 `Critical / High / Normal / Background` 四级优先级排序，并把 Critical 约束同时前置和后置（轻量摘要），减少长系统提示词中的 "Lost in the Middle"。
+- `build_writer_prompt` 全面改用 `ContextChunk` 收集各系统提示词段落，最后调用 `prioritize_system_prompt` 生成最终系统提示词。
+- `ContextHealthMetrics` 记录 `critical/high/normal/background` token 数、总 token 数、预算使用率、Critical 信息丢弃数量。
+- `DiagnosticStore` 扩展 `context_health` 字段，新增 `get_context_health` / `set_context_health`。
+- 新增 `llm::commands::get_context_health` 命令并注册到 `handlers.rs`。
+- 前端诊断卡片在 `captureDiagnosticInfo` 中调用 `get_context_health`，显示上下文健康指标。
+
+### 四级错误分类与恢复
+
+- `AppError` 新增 `ErrorSeverity`（Fatal / Retry / Degraded / UserAction），并为每种错误变体提供 `severity()` 分类。
+- `ErrorResponse` 新增 `severity` 字段，前端 `parseStructuredError` 可读取该字段。
+- 新建 `error_recovery.rs`：提供 `retry_with_backoff` 与 `with_degraded_fallback`，`RecoveryOutcome` 区分首次成功 / 重试成功 / 降级成功 / 失败。
+- `commands/orchestrator.rs` 的 `smart_execute` 初始上下文加载（stories + chapters）外层包裹 `retry_with_backoff`，容忍偶发 DB 锁定。
+- `model_gateway/executor.rs` 的 `GatewayExecutor::generate` 对每个候选模型调用外层包裹 `retry_with_backoff`（默认 1 次重试、200–2000 ms 退避）。
+- `llm/service.rs` 的连接阶段超时映射为 `AppError::LlmConnectionTimeout`（severity=Retry），让网关重试真正生效。
+- 前端 `utils/errorHandler.ts` 的 `resolveUserFacingMessage` 按 severity 兜底，返回 `retry / upgrade / degraded / none` 动作。
+- 新建 `AgentInterruptionModal` 组件：Fatal 错误显示“创作引擎遇到致命错误”，UserAction 错误显示“需要您先处理”，并支持一键打开幕后设置。
+- `FrontstageApp` 的 `handleRequestGeneration` 与 `handleSmartGeneration` 错误捕获中，对 `severity === Fatal || UserAction` 直接打开 `AgentInterruptionModal`，不再只显示通用诊断卡片。
+
+### 验证
+
+- `cargo check --lib`：通过
+- `cargo test --lib`：**611 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `cargo +nightly fmt -- --check`：通过
+
 ## [v0.24.9] - TipTap 渲染错误边界 + 接受后 30s 禁止外部 setContent + 重复根因诊断（2026-07-03）
 
 ### 修复

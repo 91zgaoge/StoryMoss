@@ -8,10 +8,14 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.74-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.25.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.74 场景优先架构迁移——`scenes.content` 为唯一叙事真相源，Chapter 降级为只读出版容器。创世提示词场景化（目标→冲突→转折），幕前编辑器纯正文无缝拼接。v0.23.73 全文重复根治。
+**最新动态**：v0.25.0 上线两大底层防御能力：
+- **Context Rot 显式防御**：`ContextPrioritizer` 把系统提示词拆分为 Critical/High/Normal/Background 四类块，按优先级排序并在结尾再次锚定 Critical 约束，缓解长系统提示词中的 "Lost in the Middle"；同时把上下文健康指标（token 分布、丢弃率）写入 `DiagnosticStore`，诊断卡片可实时查看。
+- **四级错误分类与恢复**：`ErrorSeverity` 把后端错误分为 Fatal / Retry / Degraded / UserAction；`error_recovery.rs` 提供指数退避重试与降级回退；`GatewayExecutor` 对每个候选模型调用外层自动重试，`smart_execute` 初始 DB 加载也具备重试能力。前端新增 `AgentInterruptionModal`，Fatal / UserAction 错误直接弹出中断模态，避免被通用诊断卡片淹没。
+
+> **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 
@@ -418,6 +422,8 @@ npm run dev
 - **LLM 适配**：OpenAI / Anthropic / Ollama / 自定义本地 API
 - **提示词注册表**（v0.19.0）：35+ 内置提示词统一注册表，15 分类，前端完整管理，运行时覆盖生效
 - **分时介入架构**（v0.13.0）：三条时间线（写作/审计/洞察）解耦，解开质量与速度矛盾
+- **Context Rot 显式防御**（v0.25.0）：`ContextPrioritizer` 按 Critical/High/Normal/Background 排序系统提示词，并在结尾双重锚定关键约束，缓解长上下文中的 "Lost in the Middle"
+- **四级错误分类与恢复**（v0.25.0）：`ErrorSeverity`  Fatal/Retry/Degraded/UserAction + 指数退避重试 + 降级回退 + `AgentInterruptionModal` 显式中断 UI
 
 ---
 
