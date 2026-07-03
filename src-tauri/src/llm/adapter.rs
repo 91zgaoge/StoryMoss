@@ -129,6 +129,9 @@ pub struct GenerateRequest {
     /// AppConfig.writer_system_prompt_override > 适配器内置默认。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
+    /// v0.26.0: 生成链路 trace_id，透传到进度事件与 trace 存储
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

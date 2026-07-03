@@ -21,7 +21,9 @@ pub struct FeedbackEvent {
     pub final_text: String,
     pub ai_score: Option<f32>,
     pub user_satisfaction: Option<i32>,
-    pub metadata: Option<serde_json::Value>,
+    pub original_prompt: Option<String>,
+    pub generated_content: Option<String>,
+    pub subsequent_edit_diff: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +76,11 @@ impl FeedbackRecorder {
     /// 记录一条反馈
     pub fn record(&self, event: FeedbackEvent) -> Result<(), AppError> {
         let repo = UserFeedbackRepository::new(self.pool.clone());
+        let metadata = serde_json::json!({
+            "original_prompt": event.original_prompt,
+            "generated_content": event.generated_content,
+            "subsequent_edit_diff": event.subsequent_edit_diff,
+        });
         repo.create(
             &event.story_id,
             event.scene_id.as_deref(),
@@ -84,7 +91,7 @@ impl FeedbackRecorder {
             &event.final_text,
             event.ai_score,
             event.user_satisfaction,
-            event.metadata.as_ref(),
+            Some(&metadata),
         )
         .map_err(|e| format!("记录反馈失败: {}", e))?;
 
@@ -108,7 +115,9 @@ impl FeedbackRecorder {
             final_text: original_text.to_string(),
             ai_score: None,
             user_satisfaction: None,
-            metadata: None,
+            original_prompt: None,
+            generated_content: None,
+            subsequent_edit_diff: None,
         })
     }
 
@@ -129,7 +138,9 @@ impl FeedbackRecorder {
             final_text: String::new(),
             ai_score: None,
             user_satisfaction: None,
-            metadata: None,
+            original_prompt: None,
+            generated_content: None,
+            subsequent_edit_diff: None,
         })
     }
 
@@ -151,7 +162,9 @@ impl FeedbackRecorder {
             final_text: final_text.to_string(),
             ai_score: None,
             user_satisfaction: None,
-            metadata: None,
+            original_prompt: None,
+            generated_content: None,
+            subsequent_edit_diff: None,
         })
     }
 
@@ -172,17 +185,38 @@ impl FeedbackRecorder {
         let logs = repo.get_recent(story_id, days).map_err(AppError::from)?;
         Ok(logs
             .into_iter()
-            .map(|l| FeedbackEvent {
-                story_id: l.story_id,
-                scene_id: l.scene_id,
-                chapter_id: l.chapter_id,
-                feedback_type: l.feedback_type.into(),
-                agent_type: l.agent_type,
-                original_ai_text: l.original_ai_text,
-                final_text: l.final_text,
-                ai_score: l.ai_score,
-                user_satisfaction: l.user_satisfaction,
-                metadata: l.metadata,
+            .map(|l| {
+                let (original_prompt, generated_content, subsequent_edit_diff) = l
+                    .metadata
+                    .as_ref()
+                    .map(|m| {
+                        (
+                            m.get("original_prompt")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            m.get("generated_content")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            m.get("subsequent_edit_diff")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                        )
+                    })
+                    .unwrap_or((None, None, None));
+                FeedbackEvent {
+                    story_id: l.story_id,
+                    scene_id: l.scene_id,
+                    chapter_id: l.chapter_id,
+                    feedback_type: l.feedback_type.into(),
+                    agent_type: l.agent_type,
+                    original_ai_text: l.original_ai_text,
+                    final_text: l.final_text,
+                    ai_score: l.ai_score,
+                    user_satisfaction: l.user_satisfaction,
+                    original_prompt,
+                    generated_content,
+                    subsequent_edit_diff,
+                }
             })
             .collect())
     }

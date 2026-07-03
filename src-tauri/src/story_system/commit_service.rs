@@ -405,7 +405,7 @@ impl SceneCommitService {
 
         // v0.23.1: commit（含 projections）完成后发射统一事件，通知前后台刷新
         // read-model
-        if let (Some(ref app), Some(ref ch_id)) = (app_handle, &commit.chapter_id) {
+        if let (Some(ref app), Some(ref ch_id)) = (&app_handle, &commit.chapter_id) {
             let projection_status_map: std::collections::HashMap<String, String> =
                 projection_status
                     .as_object()
@@ -429,6 +429,25 @@ impl SceneCommitService {
                 commit.chapter_number,
                 projection_status_map,
             );
+
+            // v0.26.0: 同步文件系统工作空间
+            if let Some(ref handle) = app_handle {
+                if let Ok(svc) = crate::workspace::WorkspaceService::new(handle, self.pool.clone())
+                {
+                    let story_id = commit.story_id.clone();
+                    let chapter_number = commit.chapter_number;
+                    let content = chapter_content.map(|s| s.to_string());
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = svc
+                            .sync_after_commit(&story_id, chapter_number, content.as_deref())
+                            .await
+                        {
+                            log::warn!("[workspace] sync after commit failed: {}", e);
+                        }
+                    });
+                }
+            }
         }
 
         Ok(())

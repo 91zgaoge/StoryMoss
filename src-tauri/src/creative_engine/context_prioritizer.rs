@@ -67,6 +67,8 @@ pub struct ContextHealthMetrics {
     pub final_chunk_count: usize,
     /// Critical 信息是否因预算被截断
     pub was_critical_truncated: bool,
+    /// v0.26.0: 每个来源/模块的 token 占用，用于诊断面板的上下文预算可视化
+    pub source_tokens: std::collections::HashMap<String, usize>,
 }
 
 /// 经过优先级排序后的系统提示词
@@ -99,9 +101,17 @@ pub fn prioritize_system_prompt(
     let mut back_reminders: Vec<String> = Vec::new();
     let mut metrics = ContextHealthMetrics::default();
     metrics.total_tokens = count_tokens(&base_prompt, model_family);
+    metrics
+        .source_tokens
+        .insert("writer_system".to_string(), metrics.total_tokens);
 
     for chunk in sorted {
         let tokens = count_tokens(&chunk.text, model_family);
+        // v0.26.0: 按来源统计 token，便于诊断面板展示上下文预算占比
+        *metrics
+            .source_tokens
+            .entry(chunk.source.to_string())
+            .or_insert(0) += tokens;
         match chunk.priority {
             ContextPriority::Critical => {
                 front_parts.push(chunk.text.clone());

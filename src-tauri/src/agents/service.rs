@@ -757,6 +757,7 @@ impl AgentService {
                         discovered_asset_ids.clone(),
                         None,
                         None,
+                        None,
                     )
                     .await;
                 (rid, result?)
@@ -794,6 +795,7 @@ impl AgentService {
                     intent_object,
                     asset_tags.clone(),
                     discovered_asset_ids.clone(),
+                    None,
                     None,
                     None,
                 )

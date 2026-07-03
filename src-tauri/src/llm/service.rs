@@ -225,6 +225,9 @@ pub struct LlmGeneratingProgress {
     pub response_tokens: Option<usize>,
     /// Pipeline步骤上下文（可选）— 用于Bootstrap等长流程，显示"步骤名 X/Y"
     pub pipeline_context: Option<PipelineContext>,
+    /// v0.26.0: 生成链路 trace_id
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace_id: Option<String>,
 }
 
 /// Pipeline步骤上下文 — 让进度消息显示当前所处的Pipeline步骤
@@ -478,6 +481,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -513,6 +517,8 @@ impl LlmService {
         response_format: Option<ResponseFormat>,
         // v0.23.65: 请求级 system_prompt（来自 PromptRegistry writer_system 渲染）
         system_prompt: Option<String>,
+        // v0.26.0: 生成链路 trace_id，用于全链路可观测性
+        trace_id: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -522,7 +528,7 @@ impl LlmService {
         self.workflow_log(
             "llm.generate.pre_gateway",
             "准备调用 gateway.generate",
-            Some(serde_json::json!({"request_id": req_id, "context_label": context_label})),
+            Some(serde_json::json!({"request_id": req_id, "context_label": context_label, "trace_id": trace_id})),
         );
         let gateway = self
             .app_handle
@@ -557,6 +563,8 @@ impl LlmService {
             // 伏笔/图谱/后台/审计/洞察/入库/记忆"等关键字的标注为 Background，
             // 确保后台任务不抢占创作/工具模型。
             model_role: derive_model_role_from_label(context_label),
+            // v0.26.0: 生成链路 trace_id 透传
+            trace_id: trace_id.clone(),
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => {
@@ -588,6 +596,7 @@ impl LlmService {
             None,
             response_format,
             system_prompt,
+            trace_id,
         )
         .await
     }
@@ -601,21 +610,26 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        self.generate_for_task_with_format_impl(
-            task,
-            prompt,
-            max_tokens,
-            temperature,
-            context_label,
-            None,
-            None,
-        )
-        .await
+        let (_, result) = self
+            .generate_for_task_with_format_impl(
+                task,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+                None,
+                None,
+            )
+            .await;
+        result
     }
 
     /// v0.23.65: 带 system_prompt 的简化入口——供 TimeSliced/TriShot 等
     /// 需要注入 writer_system 写作准则的路径使用。其余 ~40 处
     /// `generate_for_task` 调用不受影响（保持 5 参数签名）。
+    /// v0.26.0: 返回 (request_id, response)，并透传 trace_id
+    /// 用于全链路可观测性。
     pub async fn generate_for_task_with_system_prompt(
         &self,
         task: TaskType,
@@ -624,7 +638,8 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         system_prompt: Option<String>,
-    ) -> Result<GenerateResponse, AppError> {
+        trace_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
         self.generate_for_task_with_format_impl(
             task,
             prompt,
@@ -633,6 +648,7 @@ impl LlmService {
             context_label,
             None,
             system_prompt,
+            trace_id,
         )
         .await
     }
@@ -648,19 +664,23 @@ impl LlmService {
         context_label: Option<&str>,
         response_format: Option<ResponseFormat>,
     ) -> Result<GenerateResponse, AppError> {
-        self.generate_for_task_with_format_impl(
-            task,
-            prompt,
-            max_tokens,
-            temperature,
-            context_label,
-            response_format,
-            None,
-        )
-        .await
+        let (_, result) = self
+            .generate_for_task_with_format_impl(
+                task,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                response_format,
+                None,
+                None,
+            )
+            .await;
+        result
     }
 
     /// v0.23.65: 带 system_prompt + response_format 的版本。
+    /// v0.26.0: 返回 (request_id, response) 并透传 trace_id。
     async fn generate_for_task_with_format_impl(
         &self,
         task: TaskType,
@@ -670,7 +690,8 @@ impl LlmService {
         context_label: Option<&str>,
         response_format: Option<ResponseFormat>,
         system_prompt: Option<String>,
-    ) -> Result<GenerateResponse, AppError> {
+        trace_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
         let request = RoutingRequest {
             task,
             complexity: Complexity::Medium,
@@ -679,25 +700,24 @@ impl LlmService {
             estimated_input_tokens: 0,
             constraints: vec![],
         };
-        let (_, result) = self
-            .generate_for_request_with_request_id(
-                request,
-                prompt,
-                max_tokens,
-                temperature,
-                context_label,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                response_format,
-                system_prompt,
-            )
-            .await;
-        result
+        self.generate_for_request_with_request_id(
+            request,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            response_format,
+            system_prompt,
+            trace_id,
+        )
+        .await
     }
 
     /// v0.23.9: 生成任务并携带资产标签/已发现资产 ID，供 ModelGateway
@@ -737,21 +757,25 @@ impl LlmService {
         discovered_asset_ids: Vec<String>,
         timeout_seconds_override: Option<u64>,
     ) -> Result<GenerateResponse, AppError> {
-        self.generate_for_task_with_tags_and_timeout_impl(
-            task,
-            prompt,
-            max_tokens,
-            temperature,
-            context_label,
-            asset_tags,
-            discovered_asset_ids,
-            timeout_seconds_override,
-            None,
-        )
-        .await
+        let (_, result) = self
+            .generate_for_task_with_tags_and_timeout_impl(
+                task,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                asset_tags,
+                discovered_asset_ids,
+                timeout_seconds_override,
+                None,
+                None,
+            )
+            .await;
+        result
     }
 
     /// v0.23.65: 带 system_prompt + timeout 的版本，供 TriShot Call 3 使用。
+    /// v0.26.0: 返回 (request_id, response) 并透传 trace_id。
     pub async fn generate_for_task_with_tags_timeout_and_system_prompt(
         &self,
         task: TaskType,
@@ -763,7 +787,8 @@ impl LlmService {
         discovered_asset_ids: Vec<String>,
         timeout_seconds_override: Option<u64>,
         system_prompt: Option<String>,
-    ) -> Result<GenerateResponse, AppError> {
+        trace_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
         self.generate_for_task_with_tags_and_timeout_impl(
             task,
             prompt,
@@ -774,11 +799,13 @@ impl LlmService {
             discovered_asset_ids,
             timeout_seconds_override,
             system_prompt,
+            trace_id,
         )
         .await
     }
 
     /// v0.23.65: 带 timeout + system_prompt 的实现（内部共享）。
+    /// v0.26.0: 返回 (request_id, response) 并透传 trace_id。
     async fn generate_for_task_with_tags_and_timeout_impl(
         &self,
         task: TaskType,
@@ -790,7 +817,8 @@ impl LlmService {
         discovered_asset_ids: Vec<String>,
         timeout_seconds_override: Option<u64>,
         system_prompt: Option<String>,
-    ) -> Result<GenerateResponse, AppError> {
+        trace_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
         let request = RoutingRequest {
             task,
             complexity: Complexity::Medium,
@@ -799,25 +827,24 @@ impl LlmService {
             estimated_input_tokens: 0,
             constraints: vec![],
         };
-        let (_, result) = self
-            .generate_for_request_with_request_id(
-                request,
-                prompt,
-                max_tokens,
-                temperature,
-                context_label,
-                None,
-                timeout_seconds_override,
-                None,
-                None,
-                None,
-                Some(asset_tags),
-                Some(discovered_asset_ids),
-                None,
-                system_prompt,
-            )
-            .await;
-        result
+        self.generate_for_request_with_request_id(
+            request,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            None,
+            timeout_seconds_override,
+            None,
+            None,
+            None,
+            Some(asset_tags),
+            Some(discovered_asset_ids),
+            None,
+            system_prompt,
+            trace_id,
+        )
+        .await
     }
 
     /// v0.23 TriShot：用「最快可用模型」生成文本，用于 Call 1 路由合成器。
@@ -920,6 +947,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -989,6 +1017,7 @@ impl LlmService {
                 None,
                 intent_verb,
                 intent_object,
+                None,
                 None,
                 None,
                 None,
@@ -1221,6 +1250,13 @@ impl LlmService {
         pipeline_ctx: Option<&PipelineContext>,
         request_id: Option<&str>,
     ) {
+        let trace_id = request_id
+            .and_then(|req_id| {
+                self.app_handle
+                    .try_state::<crate::tracing::TraceStore>()
+                    .and_then(|store| store.trace_id_for_request(req_id))
+            })
+            .map(|s| s.to_string());
         let _ = self.app_handle.emit(
             "llm-generating-progress",
             LlmGeneratingProgress {
@@ -1234,6 +1270,7 @@ impl LlmService {
                 prompt_tokens,
                 response_tokens,
                 pipeline_context: pipeline_ctx.cloned(),
+                trace_id,
             },
         );
 
@@ -1307,6 +1344,7 @@ impl LlmService {
     }
 
     /// 同步生成核心逻辑：使用指定 profile，支持 pipeline 上下文与 request_id。
+    /// v0.26.0: 透传 trace_id，用于全链路可观测性。
     async fn execute_generation(
         &self,
         profile: LlmProfile,
@@ -1321,6 +1359,8 @@ impl LlmService {
         response_format: Option<ResponseFormat>,
         // v0.23.65: 请求级 system_prompt（来自 PromptRegistry writer_system 渲染）
         request_system_prompt: Option<String>,
+        // v0.26.0: 生成链路 trace_id 透传
+        trace_id: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         if !profile.enabled {
             let msg = format!("模型 {} 已被禁用，请在设置中启用或切换可用模型", profile.id);
@@ -1415,6 +1455,7 @@ impl LlmService {
             presence_penalty: profile.presence_penalty,
             response_format,
             system_prompt,
+            trace_id: trace_id.clone(),
         };
 
         let label = context_label.unwrap_or("");
@@ -1575,6 +1616,14 @@ impl LlmService {
         let pipeline_ctx_for_heartbeat = pipeline_ctx.clone();
         let prompt_chars_hb = prompt_chars;
         let prompt_tokens_hb = prompt_tokens_est;
+        let trace_id_for_hb = request_id
+            .as_ref()
+            .and_then(|req_id| {
+                self.app_handle
+                    .try_state::<crate::tracing::TraceStore>()
+                    .and_then(|store| store.trace_id_for_request(req_id))
+            })
+            .map(|s| s.to_string());
         let heartbeat_handle = if is_silent_background {
             tokio::spawn(async {
                 // 静默调用：不发心跳
@@ -1614,6 +1663,7 @@ impl LlmService {
                             prompt_tokens: Some(prompt_tokens_hb),
                             response_tokens: None,
                             pipeline_context: pipeline_ctx_for_heartbeat.clone(),
+                            trace_id: trace_id_for_hb.clone(),
                         },
                     );
                     // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
@@ -1951,6 +2001,7 @@ impl LlmService {
             None,
             None,
             None,
+            None,
         )
         .await
     }
@@ -2043,12 +2094,14 @@ impl LlmService {
             max_retries_override,
             None,
             None,
+            None,
         )
         .await
     }
 
     /// 使用指定模型配置同步生成文本，返回 (request_id, Result)，并显式指定
     /// `response_format`。供模型网关/审稿等需要结构化输出的路径使用。
+    /// v0.26.0: 透传 trace_id 用于全链路可观测性。
     pub async fn generate_with_profile_and_request_id_with_format(
         &self,
         profile_id: &str,
@@ -2062,6 +2115,8 @@ impl LlmService {
         response_format: Option<ResponseFormat>,
         // v0.23.65: 请求级 system_prompt 透传
         system_prompt: Option<String>,
+        // v0.26.0: 生成链路 trace_id 透传
+        trace_id: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={} format={:?}",
@@ -2093,6 +2148,7 @@ impl LlmService {
             max_retries_override,
             response_format,
             system_prompt,
+            trace_id,
         )
         .await
     }
@@ -2119,6 +2175,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -2138,6 +2195,8 @@ impl LlmService {
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
         response_format: Option<ResponseFormat>,
+        // v0.26.0: 生成链路 trace_id 透传
+        trace_id: Option<String>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={}",
@@ -2168,6 +2227,7 @@ impl LlmService {
             max_retries_override,
             response_format,
             None,
+            trace_id,
         )
         .await
     }
@@ -2223,6 +2283,7 @@ impl LlmService {
             presence_penalty: profile.presence_penalty,
             response_format: None,
             system_prompt: None,
+            trace_id: None,
         };
 
         // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
@@ -2736,6 +2797,7 @@ mod tests {
             prompt_tokens: Some(600),
             response_tokens: None,
             pipeline_context: Some(pipeline_ctx),
+            trace_id: None,
         };
         let json = serde_json::to_string(&progress).unwrap();
         let deserialized: LlmGeneratingProgress = serde_json::from_str(&json).unwrap();
@@ -2762,6 +2824,7 @@ mod tests {
             prompt_tokens: Some(0),
             response_tokens: None,
             pipeline_context: None,
+            trace_id: None,
         };
         let json = serde_json::to_string(&progress).unwrap();
         let deserialized: LlmGeneratingProgress = serde_json::from_str(&json).unwrap();
@@ -2779,6 +2842,7 @@ mod tests {
             presence_penalty: None,
             response_format: None,
             system_prompt: None,
+            trace_id: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();

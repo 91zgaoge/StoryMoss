@@ -8,12 +8,16 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.25.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.25.0 上线两大底层防御能力：
-- **Context Rot 显式防御**：`ContextPrioritizer` 把系统提示词拆分为 Critical/High/Normal/Background 四类块，按优先级排序并在结尾再次锚定 Critical 约束，缓解长系统提示词中的 "Lost in the Middle"；同时把上下文健康指标（token 分布、丢弃率）写入 `DiagnosticStore`，诊断卡片可实时查看。
-- **四级错误分类与恢复**：`ErrorSeverity` 把后端错误分为 Fatal / Retry / Degraded / UserAction；`error_recovery.rs` 提供指数退避重试与降级回退；`GatewayExecutor` 对每个候选模型调用外层自动重试，`smart_execute` 初始 DB 加载也具备重试能力。前端新增 `AgentInterruptionModal`，Fatal / UserAction 错误直接弹出中断模态，避免被通用诊断卡片淹没。
+**最新动态**：v0.26.0 完成「从能生成到可持续生成」的三大基础设施：
+- **数据飞轮与共同进化**：接受/拒绝续写时记录原始提示词、生成内容与后续编辑差异，导出为 `.storyforge/feedback/preference_pairs.jsonl`，为后续 RLHF / DPO 提供成对偏好数据。
+- **Harness 可观测性**：新增 `TraceStore` 与全链路 `trace_id`，`GatewayRequest`/`GenerateRequest`/`LlmGeneratingProgress` 全程透传；前端新增「生成链路」面板，实时查看候选模型、探测、LLM 调用、步骤耗时与失败回退。
+- **子代理协作模型**：定义 `Subagent` trait，实现 `ContinuityAgent` / `StyleAgent` / `WorldAgent` 三类子代理，通过 `ReviewNotes` 对正文进行异步连续性感知审查，并接入生成链路。
+- **文件系统工作空间**：`WorkspaceService` 在应用数据目录下初始化 `.storyforge/` 工作空间，自动生成 `AGENTS.md` / `MEMORY.md` / `LOOPS.md` / `PROGRESS.md` 并执行 Git 自动提交，让创作过程可追踪、可回滚。
+
+> **上一版**：v0.25.0 上线 Context Rot 显式防御与四级错误分类恢复，减少长系统提示词约束遗忘与错误恢复不当导致的中断。
 
 > **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
 

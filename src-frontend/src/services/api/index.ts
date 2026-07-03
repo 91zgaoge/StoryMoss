@@ -16,3 +16,4 @@ export * from './genesis';
 export * from './storySystem';
 export * from './stream';
 export * from './subscription';
+export * from './tracing';

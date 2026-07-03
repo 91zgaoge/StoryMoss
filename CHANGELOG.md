@@ -2,6 +2,51 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.0] - 数据飞轮 + Harness 可观测性 + 子代理协作（2026-07-04）
+
+### 数据飞轮与共同进化
+
+- `RecordFeedbackRequest` 与 `FeedbackEvent` 扩展 `original_prompt` / `generated_content` / `subsequent_edit_diff` 字段，让每一次接受/拒绝都携带完整上下文。
+- 新建 `creative_engine/adaptive/preference_pair_exporter.rs`，将近期反馈导出为 `.storyforge/feedback/preference_pairs.jsonl`，格式兼容 RLHF / DPO 训练。
+- `commands/intent::record_feedback` 直接构建 `FeedbackEvent` 并调用 `PreferencePairExporter::export`，写入工作空间反馈目录。
+- 前端 `handleAcceptGeneration` / `handleRejectGeneration` 在 `FrontstageApp.tsx` 中自动收集原始提示词与生成内容，并透传 `subsequent_edit_diff`（接受后的编辑差异）。
+
+### Harness 可观测性
+
+- 新建 `tracing.rs`：定义 `TraceStep` / `GenerationTrace` / `TraceStore`，内存保留最近 200 条 trace，并持久化到 `app_data_dir/logs/traces/{trace_id}.json`。
+- `TraceStore` 提供 `start_trace` / `add_step` / `finish_last_step` / `record_step_detail` / `associate_request_id` / `trace_id_for_request` 等 API。
+- `GatewayRequest` / `GenerateRequest` / `LlmGeneratingProgress` / `ErrorResponse` 新增 `trace_id` 字段，实现从 orchestrator 到模型网关、LLM 适配器、前端进度事件的全链路透传。
+- `AgentOrchestrator::generate` 启动 trace，并在 `execute_time_sliced` / `execute_trishot` 返回后将 LLM `request_id` 与 `trace_id` 关联。
+- `GatewayExecutor::generate` 在 trace 存在时记录 `gateway.generate` 步骤，包括候选链、探测结果、候选失败与最终成功信息。
+- `LlmService::emit_llm_progress` 通过 `request_id` 反查 `trace_id`，并将 `trace_id` 注入进度事件，前端可按 trace 聚合。
+- 新增 IPC 命令 `get_generation_trace` / `list_recent_generation_traces`。
+- 前端新增「生成链路」页面 `TracingPanel`，位于侧边栏「生成链路」，支持查看最近 30 条 trace、步骤树、耗时、模型、token 与错误详情。
+
+### 子代理协作模型
+
+- 新增 `Subagent` trait 与 `ReviewNotes` 抽象，统一子代理审查接口。
+- 实现 `ContinuityAgent`（连续性检查：伏笔回收、角色一致性、时间线断裂）、`StyleAgent`（文风漂移、在世作者保护、Anti-AI 陈词）、`WorldAgent`（世界观规则、地理/组织一致性）。
+- 新增 `PreGenerationGate` / `InGenerationChecker` / `MiniRewrite` 三个阶段检查，在生成前/中/后注入质量门。
+- 子代理通过 `ReviewNotes` 汇总问题与建议，供后续 `AuditExecutor` 或 `MiniRewrite` 消费。
+
+### 文件系统工作空间
+
+- 新增 `workspace/` 模块与 `WorkspaceService`，启动时自动在应用数据目录下创建 `.storyforge/` 工作空间。
+- 自动生成 `AGENTS.md` / `MEMORY.md` / `LOOPS.md` / `PROGRESS.md` 等上下文文件，为 AI 协作与长期记忆提供锚点。
+- 集成 `git2` 进行自动 `git init`、初始提交与后续变更自动提交，使创作过程可追踪、可回滚。
+- 新增 `commands/workspace.rs` 提供工作空间初始化与状态查询命令。
+- `AssetCapabilityManifest` 支持按 `AssetTaskType` 懒加载，减少启动时加载大量资产的能力描述。
+
+### 验证
+
+- `cargo test --lib`：**631 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npx vitest run`：**129 passed / 3 skipped**
+- `npm run format:check`：零差异
+- `cargo +nightly fmt -- --check`：通过
+- 版本号统一至 `v0.26.0`（`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
+- `README.md` / `ARCHITECTURE.md` / `AGENTS.md` 已同步 v0.26.0 内容
+
 ## [v0.25.1] - 修复 React #185 无限渲染 + 统一版本号（2026-07-03）
 
 ### 修复

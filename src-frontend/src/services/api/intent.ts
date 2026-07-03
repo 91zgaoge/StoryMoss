@@ -67,6 +67,12 @@ export interface RecordFeedbackRequest {
   agent_type?: string;
   original_ai_text: string;
   final_text?: string;
+  /** 最后发给模型的完整提示词，用于 RLHF / 诊断 */
+  original_prompt?: string;
+  /** AI 生成的原始文本 */
+  generated_content?: string;
+  /** 用户在 AI 生成基础上的后续编辑差异（modify 场景） */
+  subsequent_edit_diff?: string;
 }
 
 export interface LearningPoint {

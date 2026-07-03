@@ -221,16 +221,58 @@ impl WorkflowStepType {
 /// 结构化 generation trace 日志辅助。
 /// v0.11.x (C2): 按 request_id/task_id 聚合各阶段耗时，info 输出总体，debug
 /// 输出详细阶段。
+/// v0.26.0: 同时写入 TraceStore，供前端 Tracing 面板追溯。
 #[derive(Clone)]
 pub(crate) struct GenerationTrace {
     request_id: String,
+    trace_id: Option<String>,
+    app_handle: Option<tauri::AppHandle>,
 }
 
 impl GenerationTrace {
     fn new(request_id: impl Into<String>) -> Self {
         Self {
             request_id: request_id.into(),
+            trace_id: None,
+            app_handle: None,
         }
+    }
+
+    fn with_observability(
+        mut self,
+        trace_id: impl Into<String>,
+        app_handle: tauri::AppHandle,
+    ) -> Self {
+        self.trace_id = Some(trace_id.into());
+        self.app_handle = Some(app_handle);
+        self
+    }
+
+    fn trace_store(&self) -> Option<crate::tracing::TraceStore> {
+        self.app_handle.as_ref().and_then(|app| {
+            app.try_state::<crate::tracing::TraceStore>()
+                .map(|s| s.inner().clone())
+        })
+    }
+
+    fn record_step(&self, name: &str, phase: &str, details: Option<&str>, status: &str) {
+        if let Some(trace_id) = self.trace_id.as_ref() {
+            if let Some(store) = self.trace_store() {
+                if let Ok(step_idx) = store.add_step(trace_id, name, phase).map(|s| s.name.len()) {
+                    // finish immediately for simple log_phase points
+                    let _ = store.finish_last_step(trace_id, status, None);
+                }
+                if let Some(d) = details {
+                    let _ = store.record_step_detail(trace_id, 0, |step| {
+                        step.details = Some(serde_json::json!({"details": d}));
+                    });
+                }
+            }
+        }
+    }
+
+    fn trace_id(&self) -> Option<&String> {
+        self.trace_id.as_ref()
     }
 
     fn log_phase(&self, phase: &str, elapsed_ms: u128, details: Option<&str>) {
@@ -245,6 +287,7 @@ impl GenerationTrace {
                 "details": details.unwrap_or(""),
             })
         );
+        self.record_step(phase, "orchestrator", details, "completed");
     }
 
     fn log_total(&self, elapsed_ms: u128, details: Option<&str>) {
@@ -259,6 +302,19 @@ impl GenerationTrace {
                 "details": details.unwrap_or(""),
             })
         );
+        if let Some(trace_id) = self.trace_id.as_ref() {
+            if let Some(store) = self.trace_store() {
+                let _ = store.finish_trace(trace_id, "completed", None);
+            }
+        }
+    }
+
+    fn log_error(&self, error: &AppError) {
+        if let Some(trace_id) = self.trace_id.as_ref() {
+            if let Some(store) = self.trace_store() {
+                let _ = store.finish_trace(trace_id, "failed", Some(error.to_string()));
+            }
+        }
     }
 }
 
@@ -390,20 +446,118 @@ impl AgentOrchestrator {
             });
         }
 
-        let trace = GenerationTrace::new(task.id.clone());
+        let trace_id = crate::tracing::new_trace_id();
+        if let Some(store) = self
+            .app_handle
+            .try_state::<crate::tracing::TraceStore>()
+            .map(|s| s.inner().clone())
+        {
+            let _ = store.start_trace(
+                &trace_id,
+                Some(task.id.clone()),
+                Some(task.context.story.story_id.clone()),
+                Some(task.input.clone()),
+            );
+        }
+        let trace = GenerationTrace::new(task.id.clone())
+            .with_observability(trace_id.clone(), self.app_handle.clone());
         let generation_start = std::time::Instant::now();
 
         let result = match mode {
             GenerationMode::Fast => self.execute_fast(task.clone(), &trace).await,
-            GenerationMode::TimeSliced => self.execute_time_sliced(task.clone(), &trace).await,
+            GenerationMode::TimeSliced => {
+                self.execute_time_sliced(task.clone(), &trace, Some(trace_id.clone()))
+                    .await
+            }
             GenerationMode::Full => self.execute_full(task.clone(), &trace).await,
-            GenerationMode::TriShot => self.execute_trishot(task.clone(), &trace).await,
+            GenerationMode::TriShot => {
+                self.execute_trishot(task.clone(), &trace, Some(trace_id.clone()))
+                    .await
+            }
         };
 
-        trace.log_total(
-            generation_start.elapsed().as_millis(),
-            Some(&format!("mode={:?}", mode)),
-        );
+        // v0.26.0: 生成中自检——在最终结果返回前按规则检查与 MiniRewrite
+        let mut result = result;
+        if let Ok(ref mut workflow_result) = result {
+            let in_gen_check = crate::agents::in_generation_checker::check_and_rewrite(
+                &task.context,
+                &workflow_result.final_content,
+            )
+            .await;
+            if in_gen_check.triggered {
+                log::warn!(
+                    "[AgentOrchestrator] 生成中自检触发 {} 项问题: {:?}",
+                    in_gen_check.issues.len(),
+                    in_gen_check.issues
+                );
+                if in_gen_check.mutated {
+                    workflow_result.final_content = in_gen_check.rewritten_content;
+                }
+            }
+        }
+
+        // v0.26.0: 子代理协作审查——非阻塞，结果写入诊断存储与工作空间
+        if let Ok(ref workflow_result) = result {
+            let app = self.app_handle.clone();
+            let context = task.context.clone();
+            let content = workflow_result.final_content.clone();
+            let story_id = task.context.story.story_id.clone();
+            tauri::async_runtime::spawn(async move {
+                let notes = crate::agents::subagents::run_subagent_review(&context, &content).await;
+                let high_suggestions: Vec<String> = notes
+                    .iter()
+                    .flat_map(|n| {
+                        n.issues.iter().filter_map(|i| {
+                            if i.severity >= crate::agents::subagents::ReviewSeverity::High {
+                                Some(format!("[{}] {}: {}", n.agent, i.category, i.description))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+                if !high_suggestions.is_empty() {
+                    crate::state_sync::service::StateSync::emit_revision_suggested(
+                        &app,
+                        &story_id,
+                        None,
+                        None,
+                        &high_suggestions,
+                    );
+                }
+                if let Some(store) =
+                    app.try_state::<std::sync::Arc<crate::diagnostics::DiagnosticStore>>()
+                {
+                    if let Ok(value) = serde_json::to_value(&notes) {
+                        store.set_review_notes(value);
+                    }
+                }
+                if let Ok(svc) = crate::workspace::WorkspaceService::new(
+                    &app,
+                    app.state::<crate::db::DbPool>().inner().clone(),
+                ) {
+                    let md = crate::agents::subagents::render_notes_to_markdown(&notes);
+                    if let Err(e) = svc.write_loops(&story_id, &md).await {
+                        log::warn!("[subagent] failed to write loops: {}", e);
+                    }
+                }
+                log::info!(
+                    "[AgentOrchestrator] Subagent review completed for story {}",
+                    story_id
+                );
+            });
+        }
+
+        if result.is_err() {
+            if let Err(ref e) = result {
+                trace.log_error(e);
+            }
+        } else {
+            trace.log_total(
+                generation_start.elapsed().as_millis(),
+                Some(&format!("mode={:?}", mode)),
+            );
+        }
 
         // v0.8.0: 自动写入记忆（创作完成后）
         // v0.9.5: 同时触发完整采摘（IngestPipeline → KG + 向量索引）
@@ -681,6 +835,7 @@ impl AgentOrchestrator {
         &self,
         task: AgentTask,
         trace: &GenerationTrace,
+        trace_id: Option<String>,
     ) -> Result<WorkflowResult, AppError> {
         self.emit_step_event(
             &task.id,
@@ -865,7 +1020,7 @@ impl AgentOrchestrator {
             &bundle,
             &user_instruction,
         );
-        let gen_response = self
+        let (request_id, gen_response) = self
             .service
             .llm_service_ref()
             .generate_for_task_with_system_prompt(
@@ -889,16 +1044,23 @@ impl AgentOrchestrator {
                 },
                 Some("time-sliced-writer"),
                 writer_system_prompt,
+                trace_id.clone(),
             )
-            .await?;
+            .await;
         trace.log_phase(
             "writer",
             writer_start.elapsed().as_millis(),
             Some("time-sliced direct generate_for_task"),
         );
 
+        // v0.26.0: 将 LLM request_id 与 trace_id 关联，使后续进度事件可追溯到 trace
+        if let (Some(trace_id), Some(store)) = (trace_id.as_ref(), trace.trace_store()) {
+            let _ = store.associate_request_id(trace_id, request_id.clone());
+        }
+
+        let gen_response = gen_response?;
         let raw_content = gen_response.content;
-        let request_id = gen_response.model.clone();
+        let request_id = request_id; // 保留真实 request_id
 
         // v0.23.66: TimeSliced 路径也走 sanitize_novel_output（之前只有 TriShot 走），
         // 确保全文重复检测（deduplicate_full_text）对所有生成路径生效。
@@ -1064,6 +1226,7 @@ impl AgentOrchestrator {
         &self,
         task: AgentTask,
         trace: &GenerationTrace,
+        trace_id: Option<String>,
     ) -> Result<WorkflowResult, AppError> {
         log::info!("[TriShot] execute_trishot START task={}", task.id);
         self.emit_step_event(
@@ -1245,8 +1408,14 @@ impl AgentOrchestrator {
         let bundle_prompt = engine.render_bundle_prompt(&bundle);
 
         // v0.23.9: 读取运行时创作资产能力清单，让 Call 1 知道系统有哪些可选资产
+        // v0.26.0: 按任务类型渲染动态范围摘要，减少非当前内容 token
         let capability_manifest = self.app_handle.try_state::<Arc<AssetCapabilityManifest>>();
-        let capability_summary = capability_manifest.as_ref().map(|m| m.summary());
+        let capability_summary = capability_manifest
+            .as_ref()
+            .map(|m| m.summary_for_task(crate::creative_engine::asset_capability_manifest::AssetTaskType::from_instruction_and_context(
+                &user_instruction,
+                task.context.narrative.chapter_number,
+            )));
 
         // v0.23.15: Call 1 预算守卫——用 total_start（含预检/auto-fill/bundle 加载）
         // 计算已耗时间，而非 t_synth（刚创建，elapsed≈0 导致守卫永远不触发）。
@@ -1291,7 +1460,7 @@ impl AgentOrchestrator {
                     current_content_preview,
                     &manifest,
                     &bundle_prompt,
-                    capability_summary,
+                    capability_summary.as_deref(),
                 )
                 .await;
             syn_result
@@ -1472,7 +1641,7 @@ impl AgentOrchestrator {
             (None, Some(ag)) => Some(ag),
             (None, None) => None,
         };
-        let gen_response = self
+        let (request_id, gen_response) = self
             .service
             .llm_service_ref()
             .generate_for_task_with_tags_timeout_and_system_prompt(
@@ -1504,13 +1673,21 @@ impl AgentOrchestrator {
                 selected_ids,
                 Some(call3_timeout),
                 system_prompt,
+                trace_id.clone(),
             )
-            .await?;
+            .await;
         trace.log_phase(
             "call3_writer",
             writer_start.elapsed().as_millis(),
             Some("trishot writer generate_for_task_with_tags_and_timeout"),
         );
+
+        // v0.26.0: 将 Call 3 的 request_id 与 trace_id 关联
+        if let (Some(trace_id), Some(store)) = (trace_id.as_ref(), trace.trace_store()) {
+            let _ = store.associate_request_id(trace_id, request_id.clone());
+        }
+
+        let gen_response = gen_response?;
         self.workflow_log(
             "trishot.call3.done",
             "Call 3 作家模型生成完成",
@@ -2156,6 +2333,22 @@ impl AgentOrchestrator {
             "整理最终输出...",
             request_id.clone(),
         );
+
+        // v0.26.0: 生成中自检——在最终内容返回前做规则检查与轻量 MiniRewrite
+        let mut final_content = final_content;
+        let in_gen_check =
+            crate::agents::in_generation_checker::check_and_rewrite(&task.context, &final_content)
+                .await;
+        if in_gen_check.triggered {
+            log::warn!(
+                "[execute_full] 生成中自检触发 {} 项问题: {:?}",
+                in_gen_check.issues.len(),
+                in_gen_check.issues
+            );
+            if in_gen_check.mutated {
+                final_content = in_gen_check.rewritten_content;
+            }
+        }
 
         Ok(WorkflowResult {
             final_content,
@@ -3016,15 +3209,61 @@ const NOVEL_OUTPUT_DISCIPLINE: &str = "\n\n【输出纪律（必须严格遵守�
 - 禁止在正文末尾添加（第X幕结束）等批注或括号说明\n\
 - 直接以正文内容开始，段落之间用空行分隔，不输出任何标题或分隔线";
 
-/// 构建续写上下文：近章摘要 + 当前章尾部预览。
+/// 从文本中提取前 n 个句子，并限制总字符数。
+///
+/// 句子按中文句号、问号、感叹号、英文句末标点切分。如果句子数不足 n，
+/// 则返回全部可用句子；如果没有任何句子，返回空字符串。
+fn first_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
+    if text.trim().is_empty() || n == 0 {
+        return None;
+    }
+
+    let delimiters: &[char] = &['。', '？', '！', '.', '?', '!'];
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
+        if delimiters.contains(&c) {
+            let end = i + c.len_utf8();
+            let sentence = text[start..end].trim();
+            if !sentence.is_empty() {
+                sentences.push(sentence.to_string());
+            }
+            start = end;
+        }
+    }
+    // 结尾无标点的剩余部分，如果构成有效句子也保留
+    if start < text.len() {
+        let tail = text[start..].trim();
+        if !tail.is_empty() {
+            sentences.push(tail.to_string());
+        }
+    }
+
+    let selected: Vec<String> = sentences.into_iter().take(n).collect();
+    if selected.is_empty() {
+        return None;
+    }
+
+    let joined = selected.join("");
+    let result: String = if joined.chars().count() > max_chars {
+        joined.chars().take(max_chars).collect::<String>() + "..."
+    } else {
+        joined
+    };
+
+    Some(result)
+}
+
+/// 构建续写上下文：分层历史摘要 + 当前章尾部预览。
 ///
 /// 解决"Writer LLM 看不到前文正文"的根因——TimeSliced/TriShot 路径绕过
 /// `build_writer_prompt`，Writer 只收到 WriteTimeBundle 结构化约束，
 /// 导致每次续写生成全新故事而非延续。
 ///
-/// 三层策略（总预算 ~3000 字）：
-/// 1. 近章摘要（scene_commits.summary_text，最近 3 章，每章截断 300 字）
-/// 2. 当前章尾部预览（task.parameters["current_content"] 的尾部 2000 字）
+/// 分层摘要策略（Lost in the Middle 防御）：
+/// - 远端场景（> 当前章前 3 章）：一句话摘要
+/// - 中距离场景（前 1-3 章）：3 句话摘要
+/// - 当前场景：完整尾部预览（2000 字）
 ///
 /// 明确标注"请衔接续写，不要重复已有内容"。
 fn build_continuation_context(
@@ -3035,27 +3274,49 @@ fn build_continuation_context(
 ) -> String {
     let mut sections = Vec::new();
 
-    // 1. 近章摘要：从 scene_commits 读取已沉淀的摘要
+    // 1. 分层历史摘要：从 scene_commits 读取全部已沉淀摘要
     let commit_repo =
         crate::db::repositories_story_system::SceneCommitRepository::new(pool.clone());
     if let Ok(commits) = commit_repo.get_by_story(story_id) {
-        let recent_summaries: Vec<_> = commits
+        let prior_commits: Vec<_> = commits
             .into_iter()
             .filter(|c| c.chapter_number < chapter_number)
-            .take(3)
             .collect();
-        if !recent_summaries.is_empty() {
-            let mut summary_lines = Vec::new();
-            for commit in recent_summaries {
-                if let Some(summary) = &commit.summary_text {
-                    if !summary.trim().is_empty() {
-                        let truncated: String = summary.chars().take(300).collect();
-                        summary_lines.push(format!("第{}章: {}", commit.chapter_number, truncated));
+
+        if !prior_commits.is_empty() {
+            let mut far_lines = Vec::new();
+            let mut near_lines = Vec::new();
+
+            for commit in prior_commits {
+                let distance = chapter_number - commit.chapter_number;
+                if let Some(summary) = commit
+                    .summary_text
+                    .as_ref()
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    if distance > 3 {
+                        // 远端：一句话摘要
+                        if let Some(one_sentence) = first_n_sentences(summary, 1, 120) {
+                            far_lines
+                                .push(format!("第{}章: {}", commit.chapter_number, one_sentence));
+                        }
+                    } else {
+                        // 中距离：3 句话摘要（最多 300 字）
+                        if let Some(three_sentences) = first_n_sentences(summary, 3, 300) {
+                            near_lines.push(format!(
+                                "第{}章: {}",
+                                commit.chapter_number, three_sentences
+                            ));
+                        }
                     }
                 }
             }
-            if !summary_lines.is_empty() {
-                sections.push(format!("【近章摘要】\n{}", summary_lines.join("\n")));
+
+            if !near_lines.is_empty() {
+                sections.push(format!("【近章摘要（3句话）】\n{}", near_lines.join("\n")));
+            }
+            if !far_lines.is_empty() {
+                sections.push(format!("【远章摘要（1句话）】\n{}", far_lines.join("\n")));
             }
         }
     }
@@ -3839,9 +4100,37 @@ mod tests {
     }
 
     #[test]
-    fn test_dedup_too_short() {
-        let content = "短文本";
-        let result = deduplicate_full_text(content);
-        assert_eq!(result, content); // 太短，不处理
+    fn test_first_n_sentences_extracts_chinese_sentences() {
+        let text = "第一章开始。主角登场。发生了一件大事。随后进入第二章。最后收尾。";
+        let one = first_n_sentences(text, 1, 120).unwrap();
+        assert!(one.starts_with("第一章开始。"));
+        assert!(!one.contains("主角登场"));
+
+        let three = first_n_sentences(text, 3, 300).unwrap();
+        assert!(three.contains("第一章开始。"));
+        assert!(three.contains("主角登场。"));
+        assert!(three.contains("发生了一件大事。"));
+        assert!(!three.contains("随后进入第二章"));
+    }
+
+    #[test]
+    fn test_first_n_sentences_truncates_long_line() {
+        let text = "这是一句非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的句子。";
+        let result = first_n_sentences(text, 1, 20).unwrap();
+        assert!(result.ends_with("..."));
+        assert_eq!(result.chars().count(), 23);
+    }
+
+    #[test]
+    fn test_first_n_sentences_falls_back_to_line_without_punctuation() {
+        let text = "没有标点的长文本片段";
+        let result = first_n_sentences(text, 1, 120).unwrap();
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn test_first_n_sentences_returns_none_for_empty() {
+        assert!(first_n_sentences("", 1, 120).is_none());
+        assert!(first_n_sentences("   ", 1, 120).is_none());
     }
 }

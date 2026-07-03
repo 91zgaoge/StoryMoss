@@ -143,6 +143,9 @@ pub struct GatewayRequest {
     /// (Creative/Tool/Background)。网关据此选择角色指定模型或自动分配。
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model_role: Option<crate::config::settings::ModelRole>,
+    /// v0.26.0: 生成链路 trace_id，用于全链路可观测性
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace_id: Option<String>,
 }
 
 impl GatewayRequest {
@@ -175,6 +178,7 @@ impl GatewayRequest {
             response_format: None,
             system_prompt: None,
             model_role: None,
+            trace_id: None,
         }
     }
 }

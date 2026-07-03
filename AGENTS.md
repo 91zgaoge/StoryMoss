@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.25.0
+- **版本**: v0.26.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -191,6 +191,13 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.26.0 从能生成到可持续生成：数据飞轮、Harness 可观测性与子代理协作** (2026-07-04) — 在 v0.25.0 防御性基础设施之上，补齐生成后反馈、全链路可观测与多代理协作，为 RLHF 与持续迭代奠定基础。核心变更：
+    - **文件系统工作空间**：新建 `workspace/` 模块与 `WorkspaceService`，应用启动时自动初始化 `.storyforge/` 工作空间；生成 `AGENTS.md` / `MEMORY.md` / `LOOPS.md` / `PROGRESS.md` 等上下文文件；并通过 `git2` 自动创建初始提交与后续自动提交，保证创作过程可追踪、可回滚
+    - **数据飞轮与共同进化**：`RecordFeedbackRequest` 扩展 `original_prompt` / `generated_content` / `subsequent_edit_diff` 字段；`FeedbackEvent` 与 `FeedbackRecorder` 记录完整反馈上下文；新增 `PreferencePairExporter` 将反馈导出为 `.storyforge/feedback/preference_pairs.jsonl`，为 RLHF / DPO 提供成对偏好数据；`handleAcceptGeneration` / `handleRejectGeneration` 在幕前自动收集 prompt 与生成内容
+    - **Harness 可观测性**：新建 `tracing.rs` 与 `TraceStore`（Tauri State），为每次生成请求生成 `trace_id`；`GatewayRequest` / `GenerateRequest` / `LlmGeneratingProgress` / `ErrorResponse` 全链路透传 `trace_id`；`AgentOrchestrator::generate` 启动 trace 并将 LLM `request_id` 关联到 `trace_id`；`GatewayExecutor::generate` 记录候选链、探测与重试步骤；新增 `get_generation_trace` / `list_recent_generation_traces` 命令；前端新增「生成链路」面板（`TracingPanel`），展示最近 trace、步骤耗时、模型、token 与失败信息
+    - **子代理协作模型**：新增 `Subagent` trait 与 `ReviewNotes`，实现 `ContinuityAgent`（连续性）、`StyleAgent`（文风）、`WorldAgent`（世界观）三类子代理；`PreGenerationGate` / `InGenerationChecker` / `MiniRewrite` 在生成前/中/后注入检查与轻量改写；`commands/workspace.rs` 与 `WorkspaceService` 提供工作空间命令；`AssetCapabilityManifest` 支持懒加载与 `AssetTaskType` 细粒度分类
+    - 验证：`cargo test --lib` **631 passed / 0 failed / 2 ignored**；`cargo check` ✓；`npx tsc --noEmit` ✓；`npx vitest run` **129 passed / 3 skipped**；`npm run format:check` ✓；`cargo +nightly fmt -- --check` ✓；版本号统一至 `v0.26.0`（`package.json` / `Cargo.toml` / `tauri.conf.json`）
 
   - **v0.25.0 Context Rot 显式防御 + 四级错误分类与恢复** (2026-07-03) — 在既有智能创作链路之上增加两道防御性基础设施，减少长系统提示词约束遗忘与错误恢复不当导致的用户体验中断。核心变更：
     - **Context Rot 显式防御**：新建 `creative_engine/context_prioritizer.rs`，将系统提示词拆分为 `ContextChunk`（Critical/High/Normal/Background 四级），按优先级排序并在结尾对 Critical 约束做轻量摘要双重锚定。`build_writer_prompt` 全面改用 `ContextChunk` 收集并调用 `prioritize_system_prompt`。`ContextHealthMetrics` 记录 token 分布与丢弃率，`DiagnosticStore` 扩展 `context_health` 字段，新增 `get_context_health` 命令；前端诊断卡片显示上下文健康指标

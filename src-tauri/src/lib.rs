@@ -51,6 +51,7 @@ mod studio_commands;
 mod subscription;
 mod task_system;
 mod telemetry;
+mod tracing;
 mod updater;
 mod utils;
 mod vector;
@@ -58,6 +59,7 @@ mod versions;
 mod window;
 mod workflow;
 mod workflow_logger;
+mod workspace;
 
 #[cfg(test)]
 mod test_utils;
@@ -668,6 +670,17 @@ pub fn run() {
             // v0.23.8: 注入诊断数据存储，供前端超时/失败时获取最后 LLM 提示词全文
             app.manage(std::sync::Arc::new(crate::diagnostics::DiagnosticStore::new()));
 
+            // v0.26.0: 注入生成链路 Trace 存储
+            match crate::tracing::TraceStore::new(&app.handle().clone()) {
+                Ok(trace_store) => {
+                    app.manage(trace_store);
+                    log::info!("[TraceStore] initialized");
+                }
+                Err(e) => {
+                    log::warn!("[TraceStore] failed to initialize: {}", e);
+                }
+            }
+
             // v0.23.12: 注入智能创作流程详细日志记录器
             match crate::workflow_logger::WorkflowLogger::new(&app_dir) {
                 Ok(logger) => {
@@ -718,9 +731,8 @@ pub fn run() {
                         ) {
                             Ok(manifest) => {
                                 log::info!(
-                                    "[AssetCapabilityManifest] Built summary with {} assets ({} chars)",
-                                    manifest.assets.len(),
-                                    manifest.compact_summary.chars().count()
+                                    "[AssetCapabilityManifest] Built index with {} assets (summary rendered on demand)",
+                                    manifest.assets.len()
                                 );
                                 app.manage(std::sync::Arc::new(manifest));
                             }
@@ -1107,6 +1119,13 @@ pub(crate) struct RecordFeedbackRequest {
     agent_type: Option<String>,
     original_ai_text: String,
     final_text: Option<String>,
+    /// 最后发给模型的完整提示词（诊断用）
+    original_prompt: Option<String>,
+    /// AI 生成的原始文本（通常与 original_ai_text
+    /// 相同，保留独立字段方便后续扩展）
+    generated_content: Option<String>,
+    /// 用户在 original_ai_text 基础上的后续编辑差异（modify 场景由前端提供）
+    subsequent_edit_diff: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

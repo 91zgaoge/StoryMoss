@@ -2,7 +2,12 @@
 
 use tauri::{AppHandle, State};
 
-use crate::{db::DbPool, error::AppError, LearningPoint, RecordFeedbackRequest};
+use crate::{
+    creative_engine::adaptive::{FeedbackEvent, FeedbackType, PreferencePairExporter},
+    db::DbPool,
+    error::AppError,
+    LearningPoint, RecordFeedbackRequest,
+};
 
 // Intent Parser Command
 #[tauri::command(rename_all = "snake_case")]
@@ -39,33 +44,57 @@ pub async fn record_feedback(
     app: AppHandle,
 ) -> Result<Vec<LearningPoint>, AppError> {
     let pool = pool.inner().clone();
-    let recorder = crate::creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
-    let result = match request.feedback_type.as_str() {
-        "accept" => recorder.record_accept(
-            &request.story_id,
-            &request.original_ai_text,
-            request.agent_type.as_deref(),
-        ),
-        "reject" => recorder.record_reject(
-            &request.story_id,
-            &request.original_ai_text,
-            request.agent_type.as_deref(),
-        ),
-        "modify" => recorder.record_modify(
-            &request.story_id,
-            &request.original_ai_text,
-            request.final_text.as_deref().unwrap_or(""),
-            request.agent_type.as_deref(),
-        ),
-        _ => Err(AppError::validation_failed(
-            "Unknown feedback type",
-            None::<String>,
-        )),
+
+    let feedback_type = match request.feedback_type.as_str() {
+        "accept" => FeedbackType::Accept,
+        "reject" => FeedbackType::Reject,
+        "modify" => FeedbackType::Modify,
+        _ => {
+            return Err(AppError::validation_failed(
+                "Unknown feedback type",
+                None::<String>,
+            ))
+        }
     };
 
-    if result.is_err() {
-        return Err(result.err().unwrap());
+    let final_text = request
+        .final_text
+        .clone()
+        .unwrap_or_else(|| request.original_ai_text.clone());
+    let subsequent_edit_diff = request.subsequent_edit_diff.clone().or_else(|| {
+        if feedback_type == FeedbackType::Modify {
+            Some(final_text.clone())
+        } else {
+            None
+        }
+    });
+
+    let event = FeedbackEvent {
+        story_id: request.story_id.clone(),
+        scene_id: request.scene_id.clone(),
+        chapter_id: request.chapter_id.clone(),
+        feedback_type,
+        agent_type: request.agent_type.clone(),
+        original_ai_text: request.original_ai_text.clone(),
+        final_text,
+        ai_score: None,
+        user_satisfaction: None,
+        original_prompt: request.original_prompt.clone(),
+        generated_content: request
+            .generated_content
+            .clone()
+            .or(Some(request.original_ai_text.clone())),
+        subsequent_edit_diff,
+    };
+
+    let recorder = crate::creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
+    recorder.record(event.clone())?;
+
+    // 导出偏好对到 `.storyforge/feedback/preference_pairs.jsonl`
+    if let Err(e) = PreferencePairExporter::export(&app, &event) {
+        log::warn!("[record_feedback] Preference pair export failed: {}", e);
     }
+
     let miner = crate::creative_engine::adaptive::PreferenceMiner::new(pool.clone());
     let learnings = match miner.mine(&request.story_id) {
         Ok(prefs) => prefs

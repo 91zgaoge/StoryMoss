@@ -226,6 +226,7 @@ impl Agent for PlotComplexityAgent {
             prompt: input.to_string(),
             max_tokens: Some(2000),
             temperature: Some(0.3),
+            ..Default::default()
         };
 
         let response = adapter.generate(request).await?;

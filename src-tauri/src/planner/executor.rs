@@ -1101,6 +1101,26 @@ impl PlanExecutor {
             );
         }
 
+        // v0.26.0: 生成前约束门——在调用 Writer 前做轻量规则检查
+        let gate = crate::agents::pre_generation_gate::check(&context);
+        if !gate.can_proceed {
+            let issues: Vec<String> = gate
+                .warnings
+                .iter()
+                .chain(gate.constraints.iter())
+                .cloned()
+                .collect();
+            return Err(crate::error::AppError::PreflightFailed {
+                message: "生成前检查未通过".to_string(),
+                issues,
+            });
+        }
+        let instruction = if gate.constraints.is_empty() && gate.warnings.is_empty() {
+            instruction
+        } else {
+            format!("{}{}", instruction, gate.render_constraints())
+        };
+
         let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::domain::agent_types::AgentType::Writer,

@@ -141,6 +141,7 @@ impl AppError {
             message: self.message(),
             severity: self.severity(),
             data,
+            trace_id: None,
         }
     }
 }
@@ -288,6 +289,17 @@ pub struct ErrorResponse {
     pub severity: ErrorSeverity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+    /// v0.26.0: 生成链路 trace_id，便于前端 Tracing 面板追溯
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace_id: Option<String>,
+}
+
+impl ErrorResponse {
+    /// 附加 trace_id，用于命令层在返回错误前绑定当前 trace
+    pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
+        self.trace_id = Some(trace_id.into());
+        self
+    }
 }
 
 /// 便捷构造函数

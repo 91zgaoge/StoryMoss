@@ -309,6 +309,7 @@ mod tests {
             response_format: None,
             system_prompt: None,
             model_role: None,
+            trace_id: None,
         };
         // 即使意图是 generate prose，mcp_tool 标签也应将其降级为 LightTool
         assert_eq!(TaskClassifier::classify_task(&req), TaskClass::LightTool);

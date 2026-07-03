@@ -22,6 +22,7 @@ import { UsageStats } from '@/pages/UsageStats';
 import { WritingStats } from '@/pages/WritingStats';
 import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
 import { Logs } from '@/pages/Logs';
+import { TracingPanel } from '@/pages/TracingPanel';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -267,6 +268,8 @@ function App() {
         return <IntentionGraphDiagnostics />;
       case 'logs':
         return <Logs />;
+      case 'tracing':
+        return <TracingPanel />;
       default:
         return <Dashboard />;
     }

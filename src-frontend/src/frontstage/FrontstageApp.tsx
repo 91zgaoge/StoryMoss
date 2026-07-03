@@ -938,7 +938,7 @@ const FrontstageApp: React.FC = () => {
           updates['工作流日志路径'] = logPath;
           updates['智能创作流程最近日志'] = logs.length ? logs.join('\n') : '（暂无日志）';
 
-          // v0.25.0: 读取 Writer 系统提示词的上下文健康度指标
+          // v0.26.0: 读取 Writer 系统提示词的上下文健康度指标（含按来源/模块的预算分布）
           try {
             const health = await invoke<{
               total_tokens: number;
@@ -948,6 +948,7 @@ const FrontstageApp: React.FC = () => {
               background_tokens: number;
               final_chunk_count: number;
               was_critical_truncated: boolean;
+              source_tokens: Record<string, number>;
             } | null>('get_context_health');
             if (health) {
               updates['上下文总Token数'] = String(health.total_tokens);
@@ -957,6 +958,18 @@ const FrontstageApp: React.FC = () => {
               updates['Background Token数'] = String(health.background_tokens);
               updates['上下文块数'] = String(health.final_chunk_count);
               updates['Critical是否被截断'] = health.was_critical_truncated ? '是' : '否';
+              // v0.26.0: 将按来源的 token 占用格式化为可视化文本
+              if (health.source_tokens && health.total_tokens > 0) {
+                const sourceLines = Object.entries(health.source_tokens)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([source, tokens]) => {
+                    const pct = ((tokens / health.total_tokens) * 100).toFixed(1);
+                    const barLength = Math.max(1, Math.round((tokens / health.total_tokens) * 20));
+                    const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+                    return `${bar} ${source}: ${tokens} (${pct}%)`;
+                  });
+                updates['上下文预算按来源'] = sourceLines.join('\n');
+              }
             }
           } catch (e) {
             frontstageLogger.warn('[captureDiagnosticInfo] 读取上下文健康度失败', e);
@@ -2507,6 +2520,8 @@ const FrontstageApp: React.FC = () => {
           feedback_type: 'accept',
           agent_type: 'writer',
           original_ai_text: textToAccept,
+          generated_content: textToAccept,
+          original_prompt: lastLlmPromptRef.current,
         })
           .then(() => {
             toast.success('已记录接受偏好，系统将学习此方向');
@@ -2538,6 +2553,8 @@ const FrontstageApp: React.FC = () => {
         feedback_type: 'reject',
         agent_type: 'writer',
         original_ai_text: generatedText,
+        generated_content: generatedText,
+        original_prompt: lastLlmPromptRef.current,
       })
         .then(() => {
           toast.success('已记录拒绝偏好，系统将调整生成策略');

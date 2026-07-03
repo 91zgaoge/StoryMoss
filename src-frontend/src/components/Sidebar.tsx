@@ -20,6 +20,7 @@ import {
   PenLine,
   BrainCircuit,
   ScrollText,
+  Activity,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -54,6 +55,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'writing-stats', label: '写作统计', icon: PenLine },
   { id: 'intention-graph', label: '意图图', icon: BrainCircuit },
   { id: 'logs', label: '日志', icon: ScrollText },
+  { id: 'tracing', label: '生成链路', icon: Activity },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 

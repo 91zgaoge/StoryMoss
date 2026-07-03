@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.25.0 架构文档
+# StoryForge (草苔) v0.26.0 架构文档
 
-> 本文档反映 v0.25.0 最新架构状态（2026-07-03）
+> 本文档反映 v0.26.0 最新架构状态（2026-07-04）
+> **v0.26.0 重大变更**：数据飞轮 + Harness 可观测性 + 子代理协作。`WorkspaceService` 初始化 `.storyforge/` 工作空间并自动 Git 提交；`PreferencePairExporter` 把用户接受/拒绝反馈导出为 RLHF 成对数据；`TraceStore` 为每次生成请求建立 `trace_id`，在 `GatewayRequest` / `GenerateRequest` / `LlmGeneratingProgress` 全链路透传，前端新增「生成链路」面板；`Subagent` trait 与 `ContinuityAgent` / `StyleAgent` / `WorldAgent` 提供异步协作审查。
 > **v0.25.0 重大变更**：Context Rot 显式防御 + 四级错误分类与恢复。`ContextPrioritizer` 按 Critical/High/Normal/Background 排序系统提示词并双重锚定关键约束；`ErrorSeverity` 把错误分为 Fatal/Retry/Degraded/UserAction，后端支持指数退避重试与降级回退，前端 `AgentInterruptionModal` 显式中断 Fatal/UserAction 错误。
 > **v0.23.74 重大变更**：场景优先架构迁移完成——`scenes.content` 为唯一叙事真相源，`chapters.content` 为只读聚合投影。创世提示词场景化，幕前编辑器纯正文无缝拼接。
 

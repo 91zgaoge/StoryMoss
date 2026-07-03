@@ -53,6 +53,18 @@ pub fn create_story(
             );
         }
     });
+
+    // v0.26.0: 初始化故事文件系统工作空间
+    let workspace_svc = crate::workspace::WorkspaceService::new(&app, pool.inner().clone());
+    if let Ok(svc) = workspace_svc {
+        let story_for_workspace = story.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = svc.ensure_workspace(&story_for_workspace).await {
+                log::warn!("[create_story] Failed to initialize workspace: {}", e);
+            }
+        });
+    }
+
     Ok(story)
 }
 

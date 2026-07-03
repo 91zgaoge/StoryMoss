@@ -16,11 +16,13 @@ pub mod feedback;
 pub mod generator;
 pub mod miner;
 pub mod personalizer;
+pub mod preference_pair_exporter;
 
-pub use feedback::{FeedbackEvent, FeedbackRecorder};
+pub use feedback::{FeedbackEvent, FeedbackRecorder, FeedbackType};
 pub use generator::{AdaptiveGenerator, GenerationStrategy};
 pub use miner::{MinedPreference, PreferenceMiner};
 pub use personalizer::PromptPersonalizer;
+pub use preference_pair_exporter::PreferencePairExporter;
 
 use crate::db::DbPool;
 

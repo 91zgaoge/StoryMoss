@@ -1,11 +1,11 @@
-//! 运行时创作资产能力清单
+//! 运行时创作资产能力清单（按需加载 + 任务动态范围）
 //!
-//! 在应用启动时，把 strategy::load_all_assets 得到的全部 SelectableAsset
-//! 组装成一份紧凑的文本摘要，供 PromptSynthesizer（TriShot Call 1）和
-//! ModelGateway 调度参考。清单在每次启动时重新生成，因此新增/修改的技能、
-//! 体裁画像、工作流等都能自动反映。
+//! 在应用启动时仅加载资产索引（不渲染完整文本摘要），避免启动时一次性
+//! 把全部创作资产文本塞进内存。清单在首次需要摘要时按任务类型懒渲染，
+//! 并支持按续写/改写/创世/审计等任务类型过滤资产范围，减少 Writer 提示词
+//! 中的非当前内容 token。
 
-use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::{
     db::{DbPool, GenreProfileRepository},
@@ -13,26 +13,93 @@ use crate::{
     strategy::{load_all_assets, models::SelectableAsset},
 };
 
+/// 任务类型，用于动态选择资产范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetTaskType {
+    /// 续写：只需风格、近章摘要、少量相关角色/伏笔
+    Continuation,
+    /// 改写：风格 DNA、选中段上下文、Anti-AI 规则
+    Rewrite,
+    /// 创世/新场景：体裁画像、方法论文、四元组、桥段卡/引擎
+    Genesis,
+    /// 审计/分析：全量资产
+    Audit,
+    /// 其他/默认：全量资产
+    Other,
+}
+
+impl AssetTaskType {
+    pub fn from_instruction_and_context(instruction: &str, chapter_number: u32) -> Self {
+        let s = instruction.to_lowercase();
+        if s.contains("改") || s.contains("重写") || s.contains("润色") || s.contains("改写")
+        {
+            return Self::Rewrite;
+        }
+        if s.contains("大纲") || s.contains("规划") || s.contains("计划") || s.contains("设计")
+        {
+            return Self::Genesis;
+        }
+        if chapter_number <= 1 && s.contains("创") || s.contains("开始") || s.contains("新开")
+        {
+            return Self::Genesis;
+        }
+        if s.contains("审计") || s.contains("检查") || s.contains("质检") {
+            return Self::Audit;
+        }
+        Self::Continuation
+    }
+
+    /// 该任务类型默认需要关注的资产 kind 集合。空表示全量。
+    fn relevant_kinds(&self) -> Vec<crate::strategy::models::AssetKind> {
+        use crate::strategy::models::AssetKind;
+        match self {
+            Self::Continuation => vec![
+                AssetKind::GenreProfile,
+                AssetKind::StyleDna,
+                AssetKind::Methodology,
+                AssetKind::BeatCard,
+                AssetKind::StoryEngine,
+                AssetKind::PressureRelationship,
+            ],
+            Self::Rewrite => vec![
+                AssetKind::StyleDna,
+                AssetKind::Methodology,
+                AssetKind::Skill,
+                AssetKind::BeatCard,
+            ],
+            Self::Genesis => vec![
+                AssetKind::GenreProfile,
+                AssetKind::Methodology,
+                AssetKind::BeatCard,
+                AssetKind::StoryEngine,
+                AssetKind::PressureRelationship,
+                AssetKind::StyleDna,
+            ],
+            Self::Audit => vec![],
+            Self::Other => vec![],
+        }
+    }
+}
+
 /// 运行时创作资产能力清单
 #[derive(Debug, Default)]
 pub struct AssetCapabilityManifest {
     /// 原始资产列表（保留给代码查询）
     pub assets: Vec<SelectableAsset>,
-    /// 注入 LLM prompt 的紧凑文本摘要
-    pub compact_summary: String,
+    /// 注入 LLM prompt 的紧凑文本摘要（懒渲染）
+    compact_summary: Mutex<Option<String>>,
 }
 
 impl AssetCapabilityManifest {
-    /// 从数据库和技能管理器构建清单
+    /// 从数据库和技能管理器构建清单（不预先渲染摘要）
     pub fn build_from(
         repo: &GenreProfileRepository,
         skills: &[Skill],
     ) -> Result<Self, crate::error::AppError> {
         let assets = load_all_assets(repo, skills)?;
-        let compact_summary = build_compact_summary(&assets, 6000);
         Ok(Self {
             assets,
-            compact_summary,
+            compact_summary: Mutex::new(None),
         })
     }
 
@@ -42,9 +109,39 @@ impl AssetCapabilityManifest {
         Self::build_from(&repo, skills)
     }
 
-    /// 获取摘要文本
-    pub fn summary(&self) -> &str {
-        &self.compact_summary
+    /// 获取完整摘要（首次调用时懒渲染）
+    pub fn summary(&self) -> String {
+        {
+            let guard = self.compact_summary.lock();
+            if let Ok(locked) = guard {
+                if let Some(ref s) = *locked {
+                    return s.clone();
+                }
+            }
+        }
+        let rendered = build_compact_summary(&self.assets, 6000);
+        if let Ok(mut guard) = self.compact_summary.lock() {
+            *guard = Some(rendered.clone());
+        }
+        rendered
+    }
+
+    /// 按任务类型渲染动态范围的资产摘要
+    pub fn summary_for_task(&self, task_type: AssetTaskType) -> String {
+        let relevant = task_type.relevant_kinds();
+        if relevant.is_empty() {
+            return self.summary();
+        }
+        let filtered: Vec<SelectableAsset> = self
+            .assets
+            .iter()
+            .filter(|a| relevant.contains(&a.kind))
+            .cloned()
+            .collect();
+        if filtered.is_empty() {
+            return self.summary();
+        }
+        build_compact_summary(&filtered, 4000)
     }
 
     /// 按 ID 查找资产
@@ -168,10 +265,60 @@ mod tests {
                 "",
                 "",
             )],
-            compact_summary: String::new(),
+            compact_summary: Mutex::new(None),
         };
         let tags = manifest.tags_for_selected(&["methodology.snowflake".to_string()]);
         assert!(tags.contains(&"snowflake".to_string()));
         assert!(tags.contains(&"methodology".to_string()));
+    }
+
+    #[test]
+    fn test_summary_lazy_renders_on_first_call() {
+        let manifest = AssetCapabilityManifest {
+            assets: vec![dummy_asset(
+                "methodology.snowflake",
+                AssetKind::Methodology,
+                "雪花法",
+                "自顶向下扩展",
+                "从概念开始",
+            )],
+            compact_summary: Mutex::new(None),
+        };
+        assert_eq!(
+            manifest.compact_summary.lock().unwrap().as_ref().is_none(),
+            true
+        );
+        let summary = manifest.summary();
+        assert!(summary.contains("methodology.snowflake"));
+        assert_eq!(
+            manifest.compact_summary.lock().unwrap().as_ref().is_some(),
+            true
+        );
+    }
+
+    #[test]
+    fn test_summary_for_task_filters_by_kind() {
+        let manifest = AssetCapabilityManifest {
+            assets: vec![
+                dummy_asset(
+                    "methodology.snowflake",
+                    AssetKind::Methodology,
+                    "雪花法",
+                    "自顶向下扩展",
+                    "从概念开始",
+                ),
+                dummy_asset(
+                    "beat_card.reversal",
+                    AssetKind::BeatCard,
+                    "反转桥段",
+                    "制造反转",
+                    "需要反转时",
+                ),
+            ],
+            compact_summary: Mutex::new(None),
+        };
+        let rewrite_summary = manifest.summary_for_task(AssetTaskType::Rewrite);
+        assert!(rewrite_summary.contains("methodology.snowflake"));
+        assert!(!rewrite_summary.contains("story_engine"));
     }
 }

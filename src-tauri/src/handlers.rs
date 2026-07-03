@@ -300,4 +300,11 @@ tauri::generate_handler![
     // SING 意图图诊断命令
     intention_graph::commands::get_intention_graph_diagnostics,
     intention_graph::commands::get_execution_graph_detail,
+    // Workspace commands
+    commands::workspace::get_workspace_files,
+    commands::workspace::sync_workspace_memory,
+    commands::workspace::get_workspace_file,
+    // Tracing commands
+    commands::tracing::get_generation_trace,
+    commands::tracing::list_recent_generation_traces,
 ]

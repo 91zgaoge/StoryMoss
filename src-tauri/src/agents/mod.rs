@@ -20,9 +20,12 @@ pub mod context_optimizer;
 // Agent（inspector/distiller/memory_compressor/outline_planner/style_mimic）
 // 这些 Agent 的功能已由 agents/service.rs 统一实现
 pub mod executor;
+pub mod in_generation_checker;
 pub mod novel_creation;
 pub mod orchestrator;
+pub mod pre_generation_gate;
 pub mod service;
+pub mod subagents;
 
 // 数据类型已下沉到中性 domain 层以打破循环依赖；agents
 // 继续重新导出保持向后兼容。

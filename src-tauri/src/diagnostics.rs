@@ -28,6 +28,7 @@ pub struct LastLlmPrompt {
 pub struct DiagnosticStore {
     last_llm_prompt: Mutex<Option<LastLlmPrompt>>,
     context_health: Mutex<Option<ContextHealthMetrics>>,
+    review_notes: Mutex<Option<serde_json::Value>>,
 }
 
 impl DiagnosticStore {
@@ -35,6 +36,7 @@ impl DiagnosticStore {
         Self {
             last_llm_prompt: Mutex::new(None),
             context_health: Mutex::new(None),
+            review_notes: Mutex::new(None),
         }
     }
 
@@ -64,5 +66,17 @@ impl DiagnosticStore {
     /// v0.25.0: 获取最近一次 Writer 系统提示词的上下文健康度指标。
     pub fn get_context_health(&self) -> Option<ContextHealthMetrics> {
         self.context_health.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// v0.26.0: 记录最近一次子代理审查笔记。
+    pub fn set_review_notes(&self, notes: serde_json::Value) {
+        if let Ok(mut guard) = self.review_notes.lock() {
+            *guard = Some(notes);
+        }
+    }
+
+    /// v0.26.0: 获取最近一次子代理审查笔记。
+    pub fn get_review_notes(&self) -> Option<serde_json::Value> {
+        self.review_notes.lock().ok().and_then(|g| g.clone())
     }
 }

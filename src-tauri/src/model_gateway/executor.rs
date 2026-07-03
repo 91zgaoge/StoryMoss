@@ -776,6 +776,14 @@ impl GatewayExecutor {
     /// 统一生成入口：选择候选链并顺序执行 fallback
     pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
         let request_id = request.request_id.clone();
+        let trace_store = self
+            .app_handle
+            .try_state::<crate::tracing::TraceStore>()
+            .map(|s| s.inner().clone());
+        if let (Some(trace_id), Some(store)) = (request.trace_id.as_ref(), trace_store.as_ref()) {
+            let _ = store.add_step(trace_id, "gateway.generate", "model_gateway");
+            let _ = store.associate_request_id(trace_id, &request_id);
+        }
         log::debug!("[Gateway] generate.enter request_id={}", request_id);
 
         // v0.23.28: 用 spawn_blocking 预加载能力档案（同步 DB 查询），
@@ -799,6 +807,22 @@ impl GatewayExecutor {
             "[Gateway] select_candidates 完成: 候选数={}",
             decision.candidates.len()
         );
+
+        // v0.26.0: 记录候选链信息到 trace
+        if let (Some(trace_id), Some(store)) = (request.trace_id.as_ref(), trace_store.as_ref()) {
+            let candidate_ids: Vec<String> = decision
+                .candidates
+                .iter()
+                .map(|c| c.model_id.clone())
+                .collect();
+            let _ = store.record_step_detail(trace_id, 0, |step| {
+                step.details = Some(serde_json::json!({
+                    "candidates": candidate_ids,
+                    "primary_model": decision.candidates.first().map(|c| c.model_id.clone()),
+                    "candidate_count": decision.candidates.len(),
+                }));
+            });
+        }
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
@@ -958,6 +982,7 @@ impl GatewayExecutor {
             // v0.23.65: 透传请求级 system_prompt（writer_system 写作准则）。
             let max_retries = request.max_retries_override.unwrap_or(1);
             let candidate_idx = idx + 1;
+            let trace_id_for_retry = request.trace_id.clone();
             let outcome = retry_with_backoff(
                 || {
                     let service = self.llm_service.clone();
@@ -971,6 +996,7 @@ impl GatewayExecutor {
                     let retries_override = Some(0u32); // 网关外层接管重试，内层不再重复
                     let response_format = request.response_format;
                     let system_prompt = request.system_prompt.clone();
+                    let trace_id = trace_id_for_retry.clone();
                     async move {
                         let (_, result) = service
                             .generate_with_profile_and_request_id_with_format(
@@ -984,6 +1010,7 @@ impl GatewayExecutor {
                                 retries_override,
                                 response_format,
                                 system_prompt,
+                                trace_id,
                             )
                             .await;
                         result
@@ -1004,6 +1031,19 @@ impl GatewayExecutor {
                 Ok(resp) => {
                     // v0.23.59: 真实调用成功，重置连续失败计数，恢复强制置顶资格
                     self.record_gateway_success(&candidate.model_id, &candidate.model_name);
+                    if let (Some(trace_id), Some(store)) =
+                        (request.trace_id.as_ref(), trace_store.as_ref())
+                    {
+                        let _ = store.record_step_detail(trace_id, 0, |step| {
+                            step.model_id = Some(candidate.model_id.clone());
+                            step.provider = candidate
+                                .model_name
+                                .split('/')
+                                .next()
+                                .map(|s| s.to_string());
+                        });
+                        let _ = store.finish_last_step(trace_id, "completed", None);
+                    }
                     return Ok(resp);
                 }
                 Err(e) => {
@@ -1026,6 +1066,15 @@ impl GatewayExecutor {
                     continue;
                 }
             }
+        }
+
+        // v0.26.0: 网关失败时标记 trace 步骤失败
+        if let (Some(trace_id), Some(store)) = (request.trace_id.as_ref(), trace_store.as_ref()) {
+            let error_msg = last_error
+                .as_ref()
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "所有候选模型均调用失败".to_string());
+            let _ = store.finish_last_step(trace_id, "failed", Some(error_msg));
         }
 
         Err(last_error.unwrap_or_else(|| AppError::Internal {
