@@ -23,6 +23,9 @@ const { listenCallbacks, captured, mockSmartExecute, CHAPTER_TEXT } = vi.hoisted
     '空气是粘稠的，带着一种金属锈蚀和腐败的甜腥味。\n\n凯尔的呼吸声在头盔内部被放大成粗重的喘息。\n\n他紧紧贴着那块破损的合金墙壁。',
 }));
 
+// 真实 FrontstageApp 监听的是 'frontstage-update' 事件
+const FRONTSTAGE_EVENT = 'frontstage-update';
+
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((event: string, cb: (e: { payload: unknown }) => void) => {
     listenCallbacks[event] = cb;
@@ -32,6 +35,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 let mockChaptersHaveContent = true;
+let mockWordCountReturnUndefined = false;
 
 vi.mock('@/services/tauri', () => ({
   loggedInvoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
@@ -69,6 +73,11 @@ vi.mock('@/services/tauri', () => ({
     }
     if (cmd === 'get_story_scenes') {
       return Promise.resolve([]);
+    }
+    if (cmd === 'get_story_word_count') {
+      return Promise.resolve(
+        mockWordCountReturnUndefined ? undefined : { total_chars: CHAPTER_TEXT.length }
+      );
     }
     return Promise.resolve(undefined);
   }),
@@ -114,6 +123,21 @@ vi.mock('@/utils/errorHandler', () => ({
   parseStructuredError: vi.fn((e: unknown) => e),
 }));
 
+// 后端 FrontstageEvent 通过 #[serde(tag = "type", content = "payload")] 序列化，
+// TypeScript 侧结构为 { type: 'chapterSwitch', payload: { story_id, chapter_id, ... } }
+const chapterSwitchPayload = (overrides: Record<string, unknown> = {}) => ({
+  type: 'chapterSwitch',
+  payload: {
+    story_id: 'story-1',
+    chapter_id: 'ch-1',
+    scene_id: null,
+    title: '第一章',
+    content: null,
+    auto_accept: false,
+    ...overrides,
+  },
+});
+
 describe('Bug A: 创世后正文不应重复', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -121,6 +145,7 @@ describe('Bug A: 创世后正文不应重复', () => {
     captured.content = '';
     captured.generatedText = '';
     mockChaptersHaveContent = true;
+    mockWordCountReturnUndefined = false;
     useFrontstageStore.getState().setContent('');
     useFrontstageStore.getState().setSceneInfo('', '', undefined);
     mockSmartExecute.mockResolvedValue({
@@ -149,15 +174,8 @@ describe('Bug A: 创世后正文不应重复', () => {
 
     // 模拟后端先发射 ChapterSwitch（auto_accept=false, content=None），与真实 genesis.rs 一致
     await act(async () => {
-      listenCallbacks['frontstage-event']?.({
-        payload: {
-          type: 'ChapterSwitch',
-          story_id: 'story-1',
-          chapter_id: 'ch-1',
-          title: '第一章',
-          content: null,
-          auto_accept: false,
-        },
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: null, auto_accept: false }),
       });
     });
 
@@ -176,15 +194,8 @@ describe('Bug A: 创世后正文不应重复', () => {
 
     // 模拟后端 ChapterSwitch 事件
     await act(async () => {
-      listenCallbacks['frontstage-event']?.({
-        payload: {
-          type: 'ChapterSwitch',
-          story_id: 'story-1',
-          chapter_id: 'ch-1',
-          title: '第一章',
-          content: null,
-          auto_accept: false,
-        },
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: null, auto_accept: false }),
       });
     });
 
@@ -199,14 +210,8 @@ describe('Bug A: 创世后正文不应重复', () => {
     await submitCreationPrompt();
 
     await act(async () => {
-      listenCallbacks['frontstage-event']?.({
-        payload: {
-          type: 'ChapterSwitch',
-          story_id: 'story-1',
-          chapter_id: 'ch-1',
-          title: '第一章',
-          content: CHAPTER_TEXT,
-        },
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: CHAPTER_TEXT }),
       });
     });
 
@@ -215,5 +220,50 @@ describe('Bug A: 创世后正文不应重复', () => {
     const plainTextCount = (captured.content.match(/空气是粘稠的/g) || []).length;
     expect(plainTextCount).toBeLessThanOrEqual(1);
     expect(captured.content).not.toContain(CHAPTER_TEXT + CHAPTER_TEXT);
+  });
+
+  it('ChapterSwitch 自动接受正文后，smart_execute 结果不再恢复 generatedText', async () => {
+    await submitCreationPrompt();
+
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: CHAPTER_TEXT, auto_accept: true }),
+      });
+    });
+
+    // 等待 smart_execute 结果处理完成
+    await new Promise(r => setTimeout(r, 200));
+
+    // 正文已自动加载到编辑器（HTML 格式）
+    expect(captured.content).toContain('空气是粘稠的');
+    // 正文已自动加载，generatedText 必须保持清空，避免重复渲染
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+  });
+
+  it('get_story_word_count 返回 undefined 时不应抛出未捕获异常', async () => {
+    mockWordCountReturnUndefined = true;
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await submitCreationPrompt();
+
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: null, auto_accept: false }),
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    // 关键断言：不应因为 result.total_chars 抛出未捕获异常
+    expect(captured.generatedText).toContain(CHAPTER_TEXT);
+    // 允许日志记录失败，但不能是读取 undefined.total_chars 的 TypeError
+    const totalCharsErrors = consoleErrorSpy.mock.calls.filter(
+      call =>
+        typeof call[0] === 'string' &&
+        call[0].includes("Cannot read properties of undefined (reading 'total_chars')")
+    );
+    expect(totalCharsErrors).toHaveLength(0);
+
+    consoleErrorSpy.mockRestore();
   });
 });

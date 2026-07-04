@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.6] - 彻底修复第一章重复与页面崩溃（2026-07-04）
+
+### 修复
+
+- **修复 frontstage-update 事件类型匹配错误（根因）**：`FrontstageApp` 监听 `frontstage-update` 事件时，所有 `switch case` 使用了 PascalCase（`'ChapterSwitch'`、`'ContentUpdate'`、`'AppendContent'`、`'DataRefresh'`、`'SaveStatus'`），但后端通过 `#[serde(tag = "type", content = "payload", rename_all = "camelCase")]` 序列化后实际类型为 `chapterSwitch`、`contentUpdate`、`appendContent`、`dataRefresh`、`saveStatus`。这导致所有 frontstage-update 事件被静默忽略，是「第一章内容未正确加载/重复」与「写完后状态异常崩溃」的深层根因。已统一修正为 camelCase。
+- **修复 Genesis 第一章内容重复**：当 `ChapterSwitch` 以 `auto_accept=true` 自动加载正文到编辑器后，新增 `genesisAutoAcceptedRef` 标记，禁止后续 `smart_execute` 结果再把 `final_content` 恢复为幽灵文本，避免「编辑器一份排版正文 + 幽灵文本一份纯文本」的重复渲染。
+- **修复 `handleRequestGeneration` 的 Genesis 路径**：此前该路径在 `isFirstChapterReady` 时把 `generatedText` 清空后直接返回，若 `ChapterSwitch` 未加载内容则用户看不到正文。现在会正确将 `final_content` 设为幽灵文本供 Tab 接受。
+- **修复 `loadStoryWordCount` 崩溃**：后端返回 `undefined` 或异常时，访问 `result.total_chars` 会抛出未捕获 `TypeError`。已改为 `result?.total_chars ?? 0`。
+- **修复 `onChapterUpdated` 不必要的状态更新**：`setContent` 回调在 `prev === formatted` 时仍返回 `formatted`，导致无意义重渲染。现在相同内容时返回 `prev`。
+- **修复 `selectChapter` 懒加载无限递归**：对缺少 `content` 的章节按需调用 `get_chapter` 后递归调用 `selectChapter`；若数据异常返回的章节仍无 content，会无限循环。已增加 `lazyLoadingChapterIdsRef` 集合，同一章节只尝试懒加载一次。
+
+### 测试
+
+- 修正 `FrontstageApp.genesis-duplicate.test.tsx`：
+  - 事件名称从错误的 `frontstage-event` 改为真实的 `frontstage-update`。
+  - 事件结构改为后端真实序列化结构 `{ type: 'chapterSwitch', payload: { ... } }`。
+  - 新增「ChapterSwitch 自动接受正文后不再恢复 generatedText」测试。
+  - 新增「`get_story_word_count` 返回 undefined 时不抛未捕获异常」测试。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**136 passed / 3 skipped**
+
 ## [v0.26.5] - 彻底切断 React #185 同步循环 + 正文完整性修复（2026-07-04）
 
 ### 修复

@@ -207,6 +207,10 @@ const FrontstageApp: React.FC = () => {
   // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
+  // v0.26.6 fix: 防止 selectChapter 对缺少 content 的 chapter 无限递归懒加载
+  const lazyLoadingChapterIdsRef = useRef<Set<string>>(new Set());
+  // v0.26.6 fix: Genesis ChapterSwitch 已自动加载正文时，禁止 smart_execute 结果再恢复 generatedText
+  const genesisAutoAcceptedRef = useRef(false);
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
   const appendAiContentRef = useRef<
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
@@ -421,19 +425,20 @@ const FrontstageApp: React.FC = () => {
                 return;
               }
               setContent(prev => {
-                if (prev !== formatted) {
-                  logToBackend('frontstage:on_chapter_updated_set', 'onChapterUpdated setContent', {
-                    chapterId,
-                    formattedLen: formatted.length,
-                  });
-                  // 使用底部状态栏替代黑色 toast
-                  setGenerationStatus('📝 幕后已更新本章内容');
-                  setTimeout(() => {
-                    setGenerationStatus(current =>
-                      current === '📝 幕后已更新本章内容' ? '' : current
-                    );
-                  }, 2000);
+                if (prev === formatted) {
+                  return prev;
                 }
+                logToBackend('frontstage:on_chapter_updated_set', 'onChapterUpdated setContent', {
+                  chapterId,
+                  formattedLen: formatted.length,
+                });
+                // 使用底部状态栏替代黑色 toast
+                setGenerationStatus('📝 幕后已更新本章内容');
+                setTimeout(() => {
+                  setGenerationStatus(current =>
+                    current === '📝 幕后已更新本章内容' ? '' : current
+                  );
+                }, 2000);
                 return formatted;
               });
             }
@@ -1256,7 +1261,7 @@ const FrontstageApp: React.FC = () => {
         const { type, payload } = event.payload;
 
         switch (type) {
-          case 'ContentUpdate':
+          case 'contentUpdate':
             // v0.23.92: 文思活跃模式直接追加到编辑器；否则只更新 generatedText（幽灵文本）。
             try {
               if (payload?.text !== undefined && isRecentlyAccepted(payload.text)) {
@@ -1290,7 +1295,7 @@ const FrontstageApp: React.FC = () => {
               frontstageLogger.error('[ContentUpdate] 处理失败', { error: e, payload });
             }
             break;
-          case 'AppendContent':
+          case 'appendContent':
             // v0.23.92: 文思活跃模式直接追加到编辑器；否则只追加到 generatedText（幽灵文本）。
             if (payload?.text !== undefined) {
               const appendText = payload.text;
@@ -1339,7 +1344,7 @@ const FrontstageApp: React.FC = () => {
               }
             }
             break;
-          case 'DataRefresh':
+          case 'dataRefresh':
             // v0.11.2: 模型配置变更时刷新 settings/models，让幕前立即感知新活跃模型
             if (payload?.entity === 'model_config') {
               queryClient.invalidateQueries({ queryKey: ['settings'] });
@@ -1348,10 +1353,10 @@ const FrontstageApp: React.FC = () => {
             loadStories();
             // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理
             break;
-          case 'SaveStatus':
+          case 'saveStatus':
             setIsSaved(payload?.saved ?? true);
             break;
-          case 'ChapterSwitch':
+          case 'chapterSwitch':
             if (payload?.chapter_id) {
               // v0.23.82: 先判断 auto_accept，再决定是否清空 generatedText。
               // 只有 ChapterSwitch 真正加载正文时（auto_accept=true），才需要清空幽灵文本；
@@ -1394,6 +1399,11 @@ const FrontstageApp: React.FC = () => {
                 // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
                 // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
                 setGeneratedText('');
+                // v0.26.6 fix: 标记 Genesis 正文已通过 ChapterSwitch 自动加载，后续
+                // smart_execute 结果不得再恢复 generatedText，防止内容重复。
+                if (payload.content) {
+                  genesisAutoAcceptedRef.current = true;
+                }
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
@@ -1868,10 +1878,10 @@ const FrontstageApp: React.FC = () => {
   // B2: 从后端聚合获取全文字数，避免全量 chapters content 上传统计
   const loadStoryWordCount = useCallback(async (storyId: string) => {
     try {
-      const result = await loggedInvoke<{ total_chars: number }>('get_story_word_count', {
+      const result = await loggedInvoke<{ total_chars?: number }>('get_story_word_count', {
         story_id: storyId,
       });
-      setTotalWordCount(result.total_chars);
+      setTotalWordCount(result?.total_chars ?? 0);
     } catch (e) {
       frontstageLogger.error('Failed to load story word count', { error: e });
     }
@@ -1922,6 +1932,13 @@ const FrontstageApp: React.FC = () => {
 
     // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
     if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
+      if (lazyLoadingChapterIdsRef.current.has(chapter.id)) {
+        frontstageLogger.warn('[selectChapter] Already attempted lazy-load for chapter', {
+          chapter_id: chapter.id,
+        });
+        return;
+      }
+      lazyLoadingChapterIdsRef.current.add(chapter.id);
       (async () => {
         try {
           const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
@@ -2297,6 +2314,7 @@ const FrontstageApp: React.FC = () => {
       }
 
       setGeneratedText('');
+      genesisAutoAcceptedRef.current = false;
       setIsGenerating(true);
       setGenerationStatus('正在续写...');
       setOrchestratorStatus(null);
@@ -2405,7 +2423,18 @@ const FrontstageApp: React.FC = () => {
         // Phase 4 fix: 创世和续写统一走 generatedText + Tab 确认
         if (isFirstChapterReady) {
           frontstageLogger.info('[Bootstrap] Story created, first chapter ready — Tab to accept');
-          // 不再自动加载：generatedText 已在上面设置，用户按 Tab 接受
+          // v0.26.6 fix: 若 ChapterSwitch 已自动加载正文，则不再恢复 generatedText；
+          // 否则将 final_content 设为幽灵文本供用户 Tab 确认。
+          if (!genesisAutoAcceptedRef.current && result.final_content?.trim()) {
+            let finalContent = result.final_content!;
+            const currentText = editorRef.current?.getText() || '';
+            if (currentText && finalContent.startsWith(currentText)) {
+              finalContent = finalContent.slice(currentText.length).trimStart();
+            }
+            if (finalContent.trim()) {
+              setGeneratedText(finalContent);
+            }
+          }
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -2866,6 +2895,7 @@ const FrontstageApp: React.FC = () => {
         skipChapterContentRef.current = false;
         chapterSwitchCountRef.current = 0;
         chapterSwitchTimestampRef.current = 0;
+        genesisAutoAcceptedRef.current = false;
         // v0.23.90: 先清空 store content，确保 RichTextEditor 外部同步 effect 收到空内容
         useFrontstageStore.getState().setContent('');
         useFrontstageStore.getState().setSceneInfo('', '');
@@ -3084,8 +3114,15 @@ const FrontstageApp: React.FC = () => {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
 
-          // v0.23.92: 文思活跃模式直接追加；否则走 generatedText + Tab 确认
-          if (wensiModeRef.current === 'active') {
+          // v0.26.6 fix: Genesis 正文已通过 ChapterSwitch 自动加载到编辑器时，
+          // 禁止再设置 generatedText 或直接追加，避免内容重复。
+          if (isBootstrapCompleted && genesisAutoAcceptedRef.current) {
+            frontstageLogger.info(
+              '[SmartGeneration] Genesis content already loaded via ChapterSwitch, skipping ghost text'
+            );
+            smartExecuteNeedDiagnosticRef.current = false;
+          } else if (wensiModeRef.current === 'active') {
+            // v0.23.92: 文思活跃模式直接追加；否则走 generatedText + Tab 确认
             logToBackend(
               'frontstage:smart_execute_auto',
               'smart_execute auto-accept (wensi active)',
@@ -3517,11 +3554,11 @@ const FrontstageApp: React.FC = () => {
       return;
     }
     let cancelled = false;
-    loggedInvoke<{ total_chars: number }>('get_story_word_count', {
+    loggedInvoke<{ total_chars?: number }>('get_story_word_count', {
       story_id: currentStory.id,
     })
       .then(result => {
-        if (!cancelled) setTotalWordCount(result.total_chars);
+        if (!cancelled) setTotalWordCount(result?.total_chars ?? 0);
       })
       .catch(e => frontstageLogger.error('Failed to load story word count', { error: e }));
     return () => {

@@ -8,16 +8,14 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.6-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.0 完成「从能生成到可持续生成」的三大基础设施：
-- **数据飞轮与共同进化**：接受/拒绝续写时记录原始提示词、生成内容与后续编辑差异，导出为 `.storyforge/feedback/preference_pairs.jsonl`，为后续 RLHF / DPO 提供成对偏好数据。
-- **Harness 可观测性**：新增 `TraceStore` 与全链路 `trace_id`，`GatewayRequest`/`GenerateRequest`/`LlmGeneratingProgress` 全程透传；前端新增「生成链路」面板，实时查看候选模型、探测、LLM 调用、步骤耗时与失败回退。
-- **子代理协作模型**：定义 `Subagent` trait，实现 `ContinuityAgent` / `StyleAgent` / `WorldAgent` 三类子代理，通过 `ReviewNotes` 对正文进行异步连续性感知审查，并接入生成链路。
-- **文件系统工作空间**：`WorkspaceService` 在应用数据目录下初始化 `.storyforge/` 工作空间，自动生成 `AGENTS.md` / `MEMORY.md` / `LOOPS.md` / `PROGRESS.md` 并执行 Git 自动提交，让创作过程可追踪、可回滚。
+**最新动态**：v0.26.6 彻底修复两个长期稳定性问题：
+- **修复「新写小说时第一章内容重复」**：根因是前端 `frontstage-update` 事件类型匹配错误（使用了 PascalCase 而非后端序列化后的 camelCase），导致 `ChapterSwitch` 等事件被静默忽略。已统一修正为 `chapterSwitch` / `contentUpdate` / `appendContent` / `dataRefresh` / `saveStatus` 等 camelCase 标签，并在 Genesis 自动加载正文后禁止 `smart_execute` 结果再次恢复幽灵文本，防止「编辑器一份 + 幽灵文本一份」的重复。
+- **修复「写完后过一会儿页面崩溃」**：`loadStoryWordCount` 在后端返回异常/undefined 时访问 `result.total_chars` 会抛出未捕获 `TypeError`；`onChapterUpdated` 的内容同步回调在内容未变化时仍返回新对象，可能导致无意义重渲染。已增加空安全兜底，并在未变化时直接返回 `prev`；同时为 `selectChapter` 的懒加载路径增加递归防护，避免数据异常时无限循环。
 
-> **上一版**：v0.25.0 上线 Context Rot 显式防御与四级错误分类恢复，减少长系统提示词约束遗忘与错误恢复不当导致的中断。
+> **上一版**：v0.26.0 完成「从能生成到可持续生成」的三大基础设施：数据飞轮与共同进化、Harness 全链路可观测性、子代理协作模型与文件系统工作空间。
 
 > **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
 
