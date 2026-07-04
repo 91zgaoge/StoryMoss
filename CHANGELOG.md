@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.8] - 彻底修复 Genesis 第一章重复（竞态路径覆盖）（2026-07-04）
+
+### 修复
+
+- **彻底修复 Genesis 第一章内容重复**：v0.26.7 已修复 ChapterSwitch 自动加载正文后的重复，但用户反馈在 pipeline-complete 先加载 DB 正文、smart_execute 后返回 final_content 的竞态下，仍会生成幽灵文本并与编辑器正文叠加。根因是 `genesisAutoAcceptedRef` 仅在 ChapterSwitch 路径设置，无法覆盖 pipeline-complete 先完成的情况。
+  - 新增 `isTextDuplicate` / `normalizeForDuplicateCheck` 纯文本去重工具（`src-frontend/src/frontstage/utils/isTextDuplicate.ts`），基于归一化后的最长指纹做双向包含检测。
+  - 在 `FrontstageApp` 中提取 `isTextAlreadyInEditor` helper，统一检测编辑器当前内容是否已包含生成文本。
+  - `pipeline-complete` effect 在加载 DB 正文后设置 `genesisAutoAcceptedRef.current = true`。
+  - `handleRequestGeneration` 与 `handleSmartGeneration` 在设置 `generatedText` 前，先调用 `isTextAlreadyInEditor`；若已包含则跳过幽灵文本并标记 Genesis 已自动接受。
+  - `appendAiContent` 改用共享的 `isTextDuplicate`，与设置幽灵文本的去重逻辑保持一致。
+
+### 测试
+
+- 新增 `src-frontend/src/frontstage/utils/__tests__/isTextDuplicate.test.ts`：覆盖完全相同、前缀包含、部分重复、标点差异、HTML 标签等场景。
+- 更新 `FrontstageApp.pipeline-loop.test.tsx` 的 `MockRichTextEditor` 为 `forwardRef`，提供 `getText`/`appendText`/`setContent` 以支持去重检测测试。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**138 passed / 3 skipped**
+
 ## [v0.26.7] - 修复 React #185 无限循环与 Genesis 第一章重复（2026-07-04）
 
 ### 修复

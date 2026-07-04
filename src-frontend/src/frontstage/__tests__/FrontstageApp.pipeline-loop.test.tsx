@@ -77,12 +77,28 @@ vi.mock('@/services/tauri', () => ({
 
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
-  default: function MockRichTextEditor(props: { content: string; generatedText?: string }) {
+  default: React.forwardRef(function MockRichTextEditor(
+    props: { content: string; generatedText?: string; onAcceptGeneration?: () => void },
+    ref: React.ForwardedRef<{
+      getText: () => string;
+      appendText: (html: string) => void;
+      setContent: (html: string) => void;
+    }>
+  ) {
     captured.content = props.content;
     captured.generatedText = props.generatedText ?? '';
     captured.renderCount += 1;
+    React.useImperativeHandle(ref, () => ({
+      getText: () => props.content.replace(/<[^>]+>/g, ''),
+      appendText: (html: string) => {
+        captured.content = (captured.content || '') + html;
+      },
+      setContent: (html: string) => {
+        captured.content = html;
+      },
+    }));
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, props.content);
-  },
+  }),
 }));
 
 vi.mock('../components/IngestHealthIndicator', () => ({

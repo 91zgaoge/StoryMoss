@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.7 项目完成状态
+# StoryForge (草苔) v0.26.8 项目完成状态
 
-> 最后更新: 2026-07-04（v0.26.7 修复 React #185 无限循环与 Genesis 第一章重复）
+> 最后更新: 2026-07-04（v0.26.8 彻底修复 Genesis 第一章重复竞态路径）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.8 — 彻底修复 Genesis 第一章重复（竞态路径覆盖）（2026-07-04）
+
+- 🎯 **症状**：v0.26.7 后，在 pipeline-complete 先加载 DB 正文、smart_execute 后返回 final_content 的竞态下，新小说第一章仍会重复显示。
+- 🎯 **根因**：`genesisAutoAcceptedRef` 仅在 ChapterSwitch 自动加载正文时设置，无法覆盖 pipeline-complete 先完成的路径；后续 smart_execute 把 `final_content` 恢复为幽灵文本，与编辑器正文叠加。
+- 🎯 **修复**：新增 `isTextDuplicate` 归一化去重工具；提取 `isTextAlreadyInEditor` helper；`pipeline-complete` 加载正文后标记 Genesis 已自动接受；`handleRequestGeneration` / `handleSmartGeneration` 设置 `generatedText` 前检测编辑器是否已包含该内容，已包含则跳过。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 138 passed / 3 skipped；`npx tsc --noEmit` 零错误。
 
 ### v0.26.7 — 修复 React #185 无限循环与 Genesis 第一章重复（2026-07-04）
 

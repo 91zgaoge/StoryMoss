@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.7
+- **版本**: v0.26.8
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -77,6 +77,14 @@ type:
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
+## 最近完成的功能
+
+### v0.26.8 — 彻底修复 Genesis 第一章重复（竞态路径覆盖）
+- 修复 `genesisAutoAcceptedRef` 无法覆盖 pipeline-complete 先加载 DB 正文竞态的问题。
+- 新增 `isTextDuplicate` 归一化去重工具与 `isTextAlreadyInEditor` helper。
+- `handleRequestGeneration` / `handleSmartGeneration` 设置幽灵文本前检测编辑器是否已包含生成内容。
+- `pipeline-complete` 加载正文后标记 Genesis 已自动接受。
+
 ---
 
-*最后更新: 2026-07-04 - v0.26.7*
+*最后更新: 2026-07-04 - v0.26.8*

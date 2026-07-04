@@ -19,6 +19,7 @@ import { parseStructuredError } from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
+import { isTextDuplicate } from './utils/isTextDuplicate';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
@@ -2142,6 +2143,9 @@ const FrontstageApp: React.FC = () => {
           const hasPendingGeneration = generatedTextRef.current.length > 0;
           selectChapter(activeChapter, { skipContent: hasPendingGeneration });
           if (!hasPendingGeneration) {
+            // v0.26.8 fix: pipeline-complete 加载 DB 正文后，标记 Genesis 已自动接受，
+            // 防止后续 smart_execute 返回时再次把 final_content 恢复为幽灵文本。
+            genesisAutoAcceptedRef.current = true;
             toast.success('第一章生成完成，已开始写作');
           }
         }
@@ -2477,13 +2481,31 @@ const FrontstageApp: React.FC = () => {
           frontstageLogger.info('[Bootstrap] Story created, first chapter ready — Tab to accept');
           // v0.26.6 fix: 若 ChapterSwitch 已自动加载正文，则不再恢复 generatedText；
           // 否则将 final_content 设为幽灵文本供用户 Tab 确认。
+          // v0.26.8 fix: 增加编辑器包含检测，覆盖 pipeline-complete / 其他路径先加载正文的竞态。
           if (!genesisAutoAcceptedRef.current && result.final_content?.trim()) {
             let finalContent = result.final_content!;
             const currentText = editorRef.current?.getText() || '';
             if (currentText && finalContent.startsWith(currentText)) {
               finalContent = finalContent.slice(currentText.length).trimStart();
             }
-            if (finalContent.trim()) {
+            const isAlreadyPresent = isTextAlreadyInEditor(finalContent, {
+              log: true,
+              source: 'request_generation',
+            });
+            if (isAlreadyPresent) {
+              frontstageLogger.info(
+                '[Bootstrap] Editor already contains generated content, skipping ghost text'
+              );
+              logToBackend(
+                'frontstage:request_gen_skip_duplicate',
+                'editor already contains generated content',
+                {
+                  finalLen: finalContent.length,
+                  currentLen: currentText.length,
+                }
+              );
+              genesisAutoAcceptedRef.current = true;
+            } else if (finalContent.trim()) {
               setGeneratedText(finalContent);
             }
           }
@@ -2704,30 +2726,35 @@ const FrontstageApp: React.FC = () => {
 
   // v0.23.92: 文思活跃模式下，AI 输出直接追加到编辑器并自动继续
   const pendingAutoContinueRef = useRef(false);
+
+  // v0.26.8 fix: 提取编辑器内容包含检测，供 append / setGeneratedText / pipeline-complete 复用，
+  // 避免 DB 正文与幽灵文本叠加显示。
+  const isTextAlreadyInEditor = useCallback(
+    (text: string, opts?: { log?: boolean; source?: string }) => {
+      if (!editorRef.current || !text?.trim()) return false;
+      const existingText = editorRef.current.getText().trim();
+      const isAlreadyPresent = isTextDuplicate(existingText, text);
+      if (opts?.log) {
+        logToBackend('frontstage:duplicate_check', 'checking editor duplication', {
+          source: opts.source || 'unknown',
+          existingLen: existingText.length,
+          textLen: text.length,
+          isAlreadyPresent,
+          existingPreview: existingText.slice(0, 120),
+          textPreview: text.slice(0, 120),
+        });
+      }
+      return isAlreadyPresent;
+    },
+    []
+  );
+
   const appendAiContent = useCallback(
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => {
       if (!editorRef.current) return;
       const formatted = autoFormatText(rawText);
       const existingText = editorRef.current.getText().trim();
-      const normalize = (s: string) =>
-        s
-          .replace(/\s+/g, '')
-          .replace(
-            /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
-            ''
-          );
-      const normalizedExisting = normalize(existingText);
-      const normalizedGenerated = normalize(rawText);
-      const fingerprintLen = Math.min(500, normalizedGenerated.length);
-      const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
-      const isAlreadyPresent =
-        existingText.length > 0 &&
-        (normalizedExisting.includes(generatedFingerprint) ||
-          (normalizedGenerated.length > 0 &&
-            normalizedExisting.length >= normalizedGenerated.length * 0.9 &&
-            normalizedGenerated.includes(
-              normalizedExisting.slice(0, Math.min(200, normalizedExisting.length))
-            )));
+      const isAlreadyPresent = isTextDuplicate(existingText, rawText);
       logToBackend('frontstage:append_ai_check', 'checking duplication before append', {
         source,
         existingLen: existingText.length,
@@ -2740,7 +2767,6 @@ const FrontstageApp: React.FC = () => {
       if (isAlreadyPresent) {
         frontstageLogger.warn('[appendAiContent] 编辑器已包含该内容，跳过追加', {
           source,
-          existingLen: existingText.length,
           generatedLen: rawText.length,
         });
         logToBackend('frontstage:append_ai_skip', 'content already present', { source });
@@ -3166,9 +3192,30 @@ const FrontstageApp: React.FC = () => {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
 
-          // v0.26.6 fix: Genesis 正文已通过 ChapterSwitch 自动加载到编辑器时，
-          // 禁止再设置 generatedText 或直接追加，避免内容重复。
-          if (isBootstrapCompleted && genesisAutoAcceptedRef.current) {
+          // v0.26.8 fix: 无论通过何种路径（ChapterSwitch / pipeline-complete / 直接加载），
+          // 只要编辑器已包含生成内容，就禁止再设 generatedText，避免正文与幽灵文本叠加。
+          const isAlreadyPresent = isTextAlreadyInEditor(finalContent, {
+            log: true,
+            source: 'smart_execute',
+          });
+          if (isAlreadyPresent) {
+            frontstageLogger.info(
+              '[SmartGeneration] Editor already contains generated content, skipping ghost text'
+            );
+            logToBackend(
+              'frontstage:smart_execute_skip_duplicate',
+              'editor already contains generated content',
+              {
+                finalLen: finalContent.length,
+                currentLen: currentText.length,
+              }
+            );
+            smartExecuteNeedDiagnosticRef.current = false;
+            // 标记 Genesis 正文已加载，防止后续任何路径再次恢复 generatedText
+            if (isBootstrapCompleted) {
+              genesisAutoAcceptedRef.current = true;
+            }
+          } else if (isBootstrapCompleted && genesisAutoAcceptedRef.current) {
             frontstageLogger.info(
               '[SmartGeneration] Genesis content already loaded via ChapterSwitch, skipping ghost text'
             );
