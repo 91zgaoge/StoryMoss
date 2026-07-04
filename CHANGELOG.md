@@ -2,6 +2,29 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.7] - 修复 React #185 无限循环与 Genesis 第一章重复（2026-07-04）
+
+### 修复
+
+- **修复 React #185 页面崩溃（根因）**：`FrontstageApp` 中监听 `pipeline-complete` 的 `useEffect` 依赖了未 memo 的 `selectChapter`，导致每次渲染都重新执行 effect → 无限 `setState` → React 报 `Maximum update depth exceeded`。已将该 effect 改为通过 ref 读取最新状态，并增加 `lastPipelineCompleteRef` 单次处理守卫，彻底切断循环。
+- **修复 Genesis 新小说第一章重复**：`loadStories` 在 Genesis 新故事异步装配期间可能自动选择第一个 story 并加载 DB 正文，而此时 `generatedText` 仍持有同样的第一章文本，造成「DB 正文 + 幽灵文本」叠加。新增 `isGenesisSettingUpRef` 守卫，装配期间禁止自动选择 story。
+- **稳定化关键回调引用**：`setGeneratedText`、`loadStoryScenes`、`loadStoryChapters`、`selectChapter`、`selectStory`、`loadStories` 全部用 `useCallback` 或 ref 稳定化，避免下游 hook/effect 因依赖不稳定函数而反复触发。
+- **修复 mount effect 重复订阅**：`loadStories` / `setupEventListeners` 的初始化 effect 改为只在 mount 执行一次，并显式禁用 `react-hooks/exhaustive-deps` 警告，避免每次依赖变化都重新订阅事件。
+
+### 测试
+
+- 新增 `FrontstageApp.pipeline-loop.test.tsx`：
+  - 验证 genesis pipeline complete 不会导致无限渲染循环。
+  - 验证 Genesis 装配期间触发 `dataRefresh` 不会自动选择 story 加载正文。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**138 passed / 3 skipped**
+
 ## [v0.26.6] - 彻底修复第一章重复与页面崩溃（2026-07-04）
 
 ### 修复

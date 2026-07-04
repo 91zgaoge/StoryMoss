@@ -211,6 +211,11 @@ const FrontstageApp: React.FC = () => {
   const lazyLoadingChapterIdsRef = useRef<Set<string>>(new Set());
   // v0.26.6 fix: Genesis ChapterSwitch 已自动加载正文时，禁止 smart_execute 结果再恢复 generatedText
   const genesisAutoAcceptedRef = useRef(false);
+  // v0.26.7 fix: pipeline-complete effect 只处理一次，避免依赖不稳定函数导致循环
+  const lastPipelineCompleteRef = useRef<string | null>(null);
+  // v0.26.7 fix: Genesis 创建新故事异步装配期间，禁止 loadStories 自动选择并加载 DB 正文，
+  // 否则会在 generatedText 仍为幽灵文本时把 DB 正文塞进编辑器，造成第一章重复。
+  const isGenesisSettingUpRef = useRef(false);
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
   const appendAiContentRef = useRef<
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
@@ -247,7 +252,8 @@ const FrontstageApp: React.FC = () => {
   // v0.23.98: 由父组件持有幽灵文本渲染锁，确保 Tab 接受后 30s 内绝对不渲染幽灵文本
   const [hideGhostUntil, setHideGhostUntil] = useState(0);
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
-  const setGeneratedText = (text: string) => {
+  // v0.26.7 fix: 用 useCallback 稳定引用，避免 selectChapter 等 memo 回调因依赖它而失效
+  const setGeneratedText = useCallback((text: string) => {
     const stack = new Error().stack?.split('\n').slice(1, 6).join(' <- ');
     if (text && text.length > 50) {
       if (Date.now() < postAcceptLockRef.current) {
@@ -287,7 +293,7 @@ const FrontstageApp: React.FC = () => {
     }
     generatedTextRef.current = text;
     _setGeneratedText(text);
-  };
+  }, []);
 
   // v0.23.99: 父组件层监控 generatedText 渲染窗口，便于在 backend log 中确认幽灵文本是否应该出现
   useEffect(() => {
@@ -472,6 +478,11 @@ const FrontstageApp: React.FC = () => {
   const setGenerationStatus = useGenerationStore(s => s.setGenerationStatus);
   const setOrchestratorStatus = useGenerationStore(s => s.setOrchestratorStatus);
   const setBootstrapProgress = useBootstrapStore(s => s.setBootstrapProgress);
+  // v0.26.7 fix: 用 ref 持有 isGenerating，使 loadStories 等回调在 memo 后仍能读到最新状态
+  const isGeneratingRef = useRef(isGenerating);
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
 
   // v0.23.54: 安全网已在 ChapterSwitch 处理器中清空 generatedText（正文加载到
   // 编辑器的时刻）。此处不再用 isGenerating 转换检测，因为会误伤正常续写流程
@@ -1238,6 +1249,9 @@ const FrontstageApp: React.FC = () => {
       }
       pendingGenerationStatusRef.current = null;
     };
+    // v0.26.7 fix: loadStories/setupEventListeners 已用 useCallback/ref 稳定化，
+    // 此处故意只在 mount 执行一次，避免每次依赖变化都重新订阅事件。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Setup Tauri event listeners
@@ -1811,22 +1825,7 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  const loadStories = async () => {
-    try {
-      const result = await loggedInvoke<Story[]>('list_stories');
-      setStories(result);
-      // v5.4.1 fix: Bootstrap 期间（isGenerating=true）不要自动选择 story，
-      // 避免 FirstChapterGenerationStep 尚未完成时 selectStory 拿到空 chapters 导致编辑器被清空
-      if (result.length > 0 && !currentStory && !isGenerating) {
-        await selectStory(result[0]);
-      }
-    } catch (e) {
-      frontstageLogger.error('Failed to load stories', { error: e });
-    }
-  };
-
-  // B2: 刷新当前故事的 scenes 列表；传入 page 则使用分页接口并合并到本地状态
-  const loadStoryScenes = async (storyId: string, page?: number) => {
+  const loadStoryScenes = useCallback(async (storyId: string, page?: number) => {
     try {
       const result =
         page && page > 0
@@ -1848,10 +1847,10 @@ const FrontstageApp: React.FC = () => {
     } catch (e) {
       frontstageLogger.error('Failed to load scenes', { error: e });
     }
-  };
+  }, []);
 
   // B2: 刷新当前故事的 chapters 列表；传入 page 则使用分页接口并合并到本地状态
-  const loadStoryChapters = async (storyId: string, page?: number) => {
+  const loadStoryChapters = useCallback(async (storyId: string, page?: number) => {
     try {
       const result =
         page && page > 0
@@ -1873,7 +1872,7 @@ const FrontstageApp: React.FC = () => {
     } catch (e) {
       frontstageLogger.error('Failed to load chapters', { error: e });
     }
-  };
+  }, []);
 
   // B2: 从后端聚合获取全文字数，避免全量 chapters content 上传统计
   const loadStoryWordCount = useCallback(async (storyId: string) => {
@@ -1887,206 +1886,256 @@ const FrontstageApp: React.FC = () => {
     }
   }, []);
 
-  const selectStory = async (story: Story) => {
-    setCurrentStory(story);
-    try {
-      // B2: 初始仅加载当前章附近内容，降低大 story 的 IPC payload
-      const [result, scenesResult] = await Promise.all([
-        loggedInvoke<Chapter[]>('get_story_chapters_paged', {
-          story_id: story.id,
-          limit: CHAPTERS_PAGE_SIZE,
-          offset: 0,
-        }),
-        loggedInvoke<Scene[]>('get_story_scenes_paged', {
-          story_id: story.id,
-          limit: SCENES_PAGE_SIZE,
-          offset: 0,
-        }),
-      ]);
-      setChapters(result);
-      setScenes(scenesResult);
-      loadStoryWordCount(story.id);
-      if (result.length > 0) {
-        selectChapter(result[0]);
-      } else {
-        setCurrentChapter(null);
-        setCurrentScene(null);
-        setContent('');
-      }
-    } catch (e) {
-      console.error('Failed to load chapters:', e);
-    }
-  };
-
-  const selectChapter = (chapter: Chapter, opts?: { skipContent?: boolean }) => {
-    const skipContent = opts?.skipContent === true || skipChapterContentRef.current;
-    // Phase 4 fix: 重置跳过标志（只影响一次 selectChapter 调用）
-    skipChapterContentRef.current = false;
-    // [DEBUG-dup] 诊断日志保留
-    frontstageLogger.info('[DEBUG-dup] selectChapter called', {
-      chapter_id: chapter.id,
-      content_length: chapter.content?.length ?? 0,
-      content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
-      skipContent,
-    });
-
-    // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
-    if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
-      if (lazyLoadingChapterIdsRef.current.has(chapter.id)) {
-        frontstageLogger.warn('[selectChapter] Already attempted lazy-load for chapter', {
-          chapter_id: chapter.id,
-        });
-        return;
-      }
-      lazyLoadingChapterIdsRef.current.add(chapter.id);
-      (async () => {
-        try {
-          const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
-          if (full) {
-            frontstageLogger.info('[selectChapter] Lazy-loaded full chapter', {
-              chapter_id: full.id,
-              content_length: full.content?.length ?? 0,
-            });
-            selectChapter(full, opts);
-          }
-        } catch (e) {
-          frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
-        }
-      })();
-      return;
-    }
-
-    // B2: 若本地尚未加载该章节（跨章切换），加载其所在分页
-    const chapterIndex = chapters.findIndex(c => c.id === chapter.id);
-    if (chapterIndex === -1 && currentStory) {
-      (async () => {
-        try {
-          const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
-          if (full) {
-            setChapters(prev => {
-              const map = new Map(prev.map(c => [c.id, c]));
-              map.set(full.id, full);
-              return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
-            });
-            selectChapter(full, opts);
-          }
-        } catch (e) {
-          frontstageLogger.error('Failed to load missing chapter', { error: e });
-        }
-      })();
-      return;
-    }
-
-    // B2: 接近已加载章节末尾时预加载下一页
-    if (
-      chapterIndex >= 0 &&
-      chapters.length > 0 &&
-      chapterIndex >= chapters.length - 1 &&
-      currentStory
-    ) {
-      const nextPage = Math.floor(chapters.length / CHAPTERS_PAGE_SIZE) + 1;
-      loadStoryChapters(currentStory.id, nextPage);
-    }
-
-    cancelAutoSave();
-    setCurrentChapter(chapter);
-    let formattedContent = '';
-    try {
-      formattedContent = autoFormatText(chapter.content || '');
-    } catch (e) {
-      frontstageLogger.error('[selectChapter] autoFormatText 失败', {
-        error: e,
-        content_length: chapter.content?.length,
+  const selectChapter = useCallback(
+    (chapter: Chapter, opts?: { skipContent?: boolean }) => {
+      const skipContent = opts?.skipContent === true || skipChapterContentRef.current;
+      // Phase 4 fix: 重置跳过标志（只影响一次 selectChapter 调用）
+      skipChapterContentRef.current = false;
+      // [DEBUG-dup] 诊断日志保留
+      frontstageLogger.info('[DEBUG-dup] selectChapter called', {
+        chapter_id: chapter.id,
+        content_length: chapter.content?.length ?? 0,
+        content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
+        skipContent,
       });
-      formattedContent = `<p>${(chapter.content || '').replace(/\n/g, '</p><p>')}</p>`;
-    }
-    if (!skipContent) {
-      try {
-        logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
-          chapterId: chapter.id,
-          formattedLen: formattedContent.length,
-          skipContent,
-        });
-        setContent(formattedContent);
-      } catch (e) {
-        frontstageLogger.error('[selectChapter] setContent 失败', {
-          error: e,
-          formatted_length: formattedContent.length,
-        });
-      }
-      // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
-      // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
-      // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
-      setGeneratedText('');
-      // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
-      latestContentRef.current = formattedContent;
-      setIsSaved(true);
-    } else {
-      logToBackend('frontstage:select_chapter_skip', 'selectChapter skipped content load', {
-        chapterId: chapter.id,
-      });
-    }
-    // Phase 2: 设置场景信息为主键，chapterId 为辅助
-    // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
-    const linkedSceneId = chapter.scene_id || scenes.find(s => s.chapter_id === chapter.id)?.id;
-    setSceneInfo(
-      linkedSceneId || chapter.id, // fallback to chapter.id for backward compat
-      chapter.title || '',
-      chapter.id,
-      currentStory?.title
-    );
 
-    // Sync currentScene if chapter has associated scene
-    if (chapter.scene_id) {
-      const associatedScene = scenes.find(s => s.id === chapter.scene_id);
-      if (!associatedScene) {
+      // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
+      if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
+        if (lazyLoadingChapterIdsRef.current.has(chapter.id)) {
+          frontstageLogger.warn('[selectChapter] Already attempted lazy-load for chapter', {
+            chapter_id: chapter.id,
+          });
+          return;
+        }
+        lazyLoadingChapterIdsRef.current.add(chapter.id);
         (async () => {
           try {
-            const fullScene = await loggedInvoke<Scene | null>('get_scene', {
-              scene_id: chapter.scene_id,
-            });
-            if (fullScene) {
-              setScenes(prev => {
-                const map = new Map(prev.map(s => [s.id, s]));
-                map.set(fullScene.id, fullScene);
-                return Array.from(map.values()).sort(
-                  (a, b) => a.sequence_number - b.sequence_number
-                );
+            const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+            if (full) {
+              frontstageLogger.info('[selectChapter] Lazy-loaded full chapter', {
+                chapter_id: full.id,
+                content_length: full.content?.length ?? 0,
               });
-              setCurrentScene(fullScene);
+              selectChapter(full, opts);
             }
           } catch (e) {
-            frontstageLogger.error('Failed to lazy-load associated scene', { error: e });
+            frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
           }
         })();
-      } else {
-        setCurrentScene(associatedScene);
+        return;
       }
-    } else {
-      setCurrentScene(null);
+
+      // B2: 若本地尚未加载该章节（跨章切换），加载其所在分页
+      const chapterIndex = chapters.findIndex(c => c.id === chapter.id);
+      if (chapterIndex === -1 && currentStory) {
+        (async () => {
+          try {
+            const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+            if (full) {
+              setChapters(prev => {
+                const map = new Map(prev.map(c => [c.id, c]));
+                map.set(full.id, full);
+                return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
+              });
+              selectChapter(full, opts);
+            }
+          } catch (e) {
+            frontstageLogger.error('Failed to load missing chapter', { error: e });
+          }
+        })();
+        return;
+      }
+
+      // B2: 接近已加载章节末尾时预加载下一页
+      if (
+        chapterIndex >= 0 &&
+        chapters.length > 0 &&
+        chapterIndex >= chapters.length - 1 &&
+        currentStory
+      ) {
+        const nextPage = Math.floor(chapters.length / CHAPTERS_PAGE_SIZE) + 1;
+        loadStoryChapters(currentStory.id, nextPage);
+      }
+
+      cancelAutoSave();
+      setCurrentChapter(chapter);
+      let formattedContent = '';
+      try {
+        formattedContent = autoFormatText(chapter.content || '');
+      } catch (e) {
+        frontstageLogger.error('[selectChapter] autoFormatText 失败', {
+          error: e,
+          content_length: chapter.content?.length,
+        });
+        formattedContent = `<p>${(chapter.content || '').replace(/\n/g, '</p><p>')}</p>`;
+      }
+      if (!skipContent) {
+        try {
+          logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
+            chapterId: chapter.id,
+            formattedLen: formattedContent.length,
+            skipContent,
+          });
+          setContent(formattedContent);
+        } catch (e) {
+          frontstageLogger.error('[selectChapter] setContent 失败', {
+            error: e,
+            formatted_length: formattedContent.length,
+          });
+        }
+        // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
+        // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
+        // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
+        setGeneratedText('');
+        // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
+        latestContentRef.current = formattedContent;
+        setIsSaved(true);
+      } else {
+        logToBackend('frontstage:select_chapter_skip', 'selectChapter skipped content load', {
+          chapterId: chapter.id,
+        });
+      }
+      // Phase 2: 设置场景信息为主键，chapterId 为辅助
+      // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
+      const linkedSceneId = chapter.scene_id || scenes.find(s => s.chapter_id === chapter.id)?.id;
+      setSceneInfo(
+        linkedSceneId || chapter.id, // fallback to chapter.id for backward compat
+        chapter.title || '',
+        chapter.id,
+        currentStory?.title
+      );
+
+      // Sync currentScene if chapter has associated scene
+      if (chapter.scene_id) {
+        const associatedScene = scenes.find(s => s.id === chapter.scene_id);
+        if (!associatedScene) {
+          (async () => {
+            try {
+              const fullScene = await loggedInvoke<Scene | null>('get_scene', {
+                scene_id: chapter.scene_id,
+              });
+              if (fullScene) {
+                setScenes(prev => {
+                  const map = new Map(prev.map(s => [s.id, s]));
+                  map.set(fullScene.id, fullScene);
+                  return Array.from(map.values()).sort(
+                    (a, b) => a.sequence_number - b.sequence_number
+                  );
+                });
+                setCurrentScene(fullScene);
+              }
+            } catch (e) {
+              frontstageLogger.error('Failed to lazy-load associated scene', { error: e });
+            }
+          })();
+        } else {
+          setCurrentScene(associatedScene);
+        }
+      } else {
+        setCurrentScene(null);
+      }
+    },
+    [
+      chapters,
+      currentStory,
+      scenes,
+      loadStoryChapters,
+      setContent,
+      setCurrentChapter,
+      setCurrentScene,
+      setIsSaved,
+      setSceneInfo,
+      setGeneratedText,
+    ]
+  );
+
+  const selectStory = useCallback(
+    async (story: Story) => {
+      setCurrentStory(story);
+      try {
+        // B2: 初始仅加载当前章附近内容，降低大 story 的 IPC payload
+        const [result, scenesResult] = await Promise.all([
+          loggedInvoke<Chapter[]>('get_story_chapters_paged', {
+            story_id: story.id,
+            limit: CHAPTERS_PAGE_SIZE,
+            offset: 0,
+          }),
+          loggedInvoke<Scene[]>('get_story_scenes_paged', {
+            story_id: story.id,
+            limit: SCENES_PAGE_SIZE,
+            offset: 0,
+          }),
+        ]);
+        setChapters(result);
+        setScenes(scenesResult);
+        loadStoryWordCount(story.id);
+        if (result.length > 0) {
+          selectChapter(result[0]);
+        } else {
+          setCurrentChapter(null);
+          setCurrentScene(null);
+          setContent('');
+        }
+      } catch (e) {
+        console.error('Failed to load chapters:', e);
+      }
+    },
+    [
+      loadStoryWordCount,
+      selectChapter,
+      setChapters,
+      setContent,
+      setCurrentChapter,
+      setCurrentScene,
+      setScenes,
+    ]
+  );
+
+  const loadStories = useCallback(async () => {
+    try {
+      const result = await loggedInvoke<Story[]>('list_stories');
+      setStories(result);
+      // v5.4.1 fix: Bootstrap 期间（isGenerating=true）不要自动选择 story，
+      // 避免 FirstChapterGenerationStep 尚未完成时 selectStory 拿到空 chapters 导致编辑器被清空
+      // v0.26.7 fix: 使用 ref 读取 currentStory/isGenerating，避免 memo 后 stale closure；
+      // 同时阻塞 Genesis 新故事装配期间的自动选择，防止 DB 正文与 generatedText 叠加导致重复。
+      if (
+        result.length > 0 &&
+        !currentStoryRef.current &&
+        !isGeneratingRef.current &&
+        !isGenesisSettingUpRef.current
+      ) {
+        await selectStory(result[0]);
+      }
+    } catch (e) {
+      frontstageLogger.error('Failed to load stories', { error: e });
     }
-  };
+  }, [selectStory]);
 
   // v0.9.5: Genesis 后台阶段完成后自动刷新当前故事内容
   useEffect(() => {
     if (!lastPipelineComplete || lastPipelineComplete.pipelineType !== 'genesis') return;
+    // v0.26.7 fix: 同一 pipelineComplete 只处理一次，配合 selectChapter memo 彻底杜绝循环
+    if (lastPipelineComplete.pipelineId === lastPipelineCompleteRef.current) return;
+    lastPipelineCompleteRef.current = lastPipelineComplete.pipelineId;
     if (!lastPipelineComplete.success) {
       toast.error('第一章后台生成失败，请检查模型配置或稍后重试');
       return;
     }
-    if (!currentStory?.id) return;
+    const storyId = currentStoryRef.current?.id;
+    if (!storyId) return;
     (async () => {
       try {
         const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', {
-          story_id: currentStory.id,
+          story_id: storyId,
         });
         const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', {
-          story_id: currentStory.id,
+          story_id: storyId,
         });
         setChapters(storyChapters);
         setScenes(storyScenes);
         const activeChapter =
-          storyChapters.find(c => c.id === currentChapter?.id) || storyChapters[0];
+          storyChapters.find(c => c.id === currentChapterRef.current?.id) || storyChapters[0];
         if (activeChapter) {
           // v0.23.79: 后台阶段完成时若用户尚未确认 generatedText，直接加载 DB 正文
           // 会与幽灵文本形成两份重复。此处跳过内容加载，让用户继续走 Tab 确认流程。
@@ -2102,7 +2151,7 @@ const FrontstageApp: React.FC = () => {
         });
       }
     })();
-  }, [lastPipelineComplete, currentStory?.id, currentChapter?.id, selectChapter]);
+  }, [lastPipelineComplete, selectChapter]);
 
   // A4-1.8: 单次遍历计算中文字数 + 英文词数，避免两次正则 match
   const computeWordCount = useCallback((html: string): number => {
@@ -2378,6 +2427,7 @@ const FrontstageApp: React.FC = () => {
 
         if (storyCreatedMsg) {
           const newStoryId = storyCreatedMsg.replace('story_created:', '');
+          isGenesisSettingUpRef.current = true;
           (async () => {
             try {
               const allStories = await loggedInvoke<Story[]>('list_stories');
@@ -2400,6 +2450,8 @@ const FrontstageApp: React.FC = () => {
               }
             } catch (e) {
               frontstageLogger.error('[Bootstrap] Failed to auto-load new story', { error: e });
+            } finally {
+              isGenesisSettingUpRef.current = false;
             }
           })();
         }
@@ -2562,7 +2614,7 @@ const FrontstageApp: React.FC = () => {
         setOrchestratorStatus(null);
       }
     },
-    [isGenerating, settings, clearAccepted]
+    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText]
   );
 
   // Accept AI generation
@@ -3177,6 +3229,7 @@ const FrontstageApp: React.FC = () => {
             story_id: storyId,
           });
           // 直接加载新创建的故事和章节
+          isGenesisSettingUpRef.current = true;
           (async () => {
             try {
               const allStories = await loggedInvoke<Story[]>('list_stories');
@@ -3219,6 +3272,8 @@ const FrontstageApp: React.FC = () => {
               }
             } catch (e) {
               frontstageLogger.error('[SmartGeneration] Failed to load new story', { error: e });
+            } finally {
+              isGenesisSettingUpRef.current = false;
             }
           })();
         }
@@ -3284,7 +3339,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
     },
-    [isGenerating, settings, clearAccepted]
+    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText]
   );
 
   // 底部输入栏提交

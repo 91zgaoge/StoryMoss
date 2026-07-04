@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.23.49 项目完成状态
+# StoryForge (草苔) v0.26.7 项目完成状态
 
-> 最后更新: 2026-06-26（v0.23.49 推理模型思考链导致 JSON 提取出空对象修复）
+> 最后更新: 2026-07-04（v0.26.7 修复 React #185 无限循环与 Genesis 第一章重复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.7 — 修复 React #185 无限循环与 Genesis 第一章重复（2026-07-04）
+
+- 🎯 **症状**：新写小说后过一会儿页面崩溃（React #185 Maximum update depth exceeded）；新小说第一章内容重复显示。
+- 🎯 **根因**：`pipeline-complete` effect 依赖未 memo 的 `selectChapter`，每次渲染重复触发；Genesis 异步装配期间 `loadStories` 自动选择新 story 并把 DB 正文加载进编辑器，与 `generatedText` 幽灵文本叠加。
+- 🎯 **修复**：关键回调全部 `useCallback`/ref 稳定化；`pipeline-complete` effect 增加单次处理守卫并改用 ref 读状态；新增 `isGenesisSettingUpRef` 禁止装配期间自动选择 story。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 138 passed / 3 skipped；`npx tsc --noEmit` 零错误。
 
 ### v0.23.49 — 推理模型思考链导致 JSON 提取出空对象修复（2026-06-26）
 

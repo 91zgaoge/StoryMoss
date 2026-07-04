@@ -8,14 +8,14 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.6-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.7-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.6 彻底修复两个长期稳定性问题：
-- **修复「新写小说时第一章内容重复」**：根因是前端 `frontstage-update` 事件类型匹配错误（使用了 PascalCase 而非后端序列化后的 camelCase），导致 `ChapterSwitch` 等事件被静默忽略。已统一修正为 `chapterSwitch` / `contentUpdate` / `appendContent` / `dataRefresh` / `saveStatus` 等 camelCase 标签，并在 Genesis 自动加载正文后禁止 `smart_execute` 结果再次恢复幽灵文本，防止「编辑器一份 + 幽灵文本一份」的重复。
-- **修复「写完后过一会儿页面崩溃」**：`loadStoryWordCount` 在后端返回异常/undefined 时访问 `result.total_chars` 会抛出未捕获 `TypeError`；`onChapterUpdated` 的内容同步回调在内容未变化时仍返回新对象，可能导致无意义重渲染。已增加空安全兜底，并在未变化时直接返回 `prev`；同时为 `selectChapter` 的懒加载路径增加递归防护，避免数据异常时无限循环。
+**最新动态**：v0.26.7 在前端稳定性上再次加固：
+- **修复「写完后过一会儿页面崩溃」**：根因是 `FrontstageApp` 中 `pipeline-complete` 的 `useEffect` 依赖了未 memo 的 `selectChapter`，每次渲染都会重新触发 effect，最终触发 React #185（`Maximum update depth exceeded`）。已将该 effect 改为通过 ref 读取最新状态，并增加单次处理守卫；同时把 `setGeneratedText`、`selectChapter`、`selectStory`、`loadStories` 等关键回调用 `useCallback` 或 ref 稳定化，从源头切断循环。
+- **修复「新写小说时第一章内容重复」**：Genesis 创建新故事后的异步装配期间，`loadStories` 可能自动选择新 story 并把 DB 正文加载进编辑器，而此时 `generatedText` 仍持有同一段第一章文本，造成「DB 正文 + 幽灵文本」叠加。新增 `isGenesisSettingUpRef` 守卫，装配期间禁止自动选择 story。
 
-> **上一版**：v0.26.0 完成「从能生成到可持续生成」的三大基础设施：数据飞轮与共同进化、Harness 全链路可观测性、子代理协作模型与文件系统工作空间。
+> **上一版**：v0.26.6 修复 `frontstage-update` 事件类型匹配错误（PascalCase → camelCase）、`loadStoryWordCount` 空安全、`onChapterUpdated` 不必要状态更新与 `selectChapter` 懒加载无限递归。
 
 > **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
 
