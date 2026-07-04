@@ -3467,8 +3467,10 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
         .collect();
     let mut text = demd.join("\n");
 
-    // 2. 去除尾部元评论：找元评论强信号标记，截断其后所有内容。
-    //    这些标记正文不会整句出现，不限制位置。
+    // 2. 去除尾部元评论：找元评论强信号标记，截断其后所有内容。 v0.26.5:
+    //    为避免误伤正文（用户反馈幽灵文本结尾被截断、正文完整性受损），
+    //    只对出现在文本末尾 20% 或最后 500 字符范围内的标记进行截断。
+    //    如果标记出现在正文中间，保留正文，不移除。
     let tail_markers = [
         "【创作分析",
         "【创作分析与策略说明",
@@ -3478,11 +3480,26 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
         "（全章结束",
         "（全篇结束",
     ];
-    let mut cut = text.len();
+    let text_len = text.len();
+    // v0.26.5: 阈值取文本长度 20%，但最少 100 字符、最多 1500
+    // 字符，防止短文本/长文本阈值不合理
+    let tail_threshold = (text_len as f32 * 0.2).clamp(100.0, 1500.0) as usize;
+    let mut cut = text_len;
     for marker in &tail_markers {
         if let Some(pos) = text.find(marker) {
-            cut = cut.min(pos);
+            // 标记必须位于尾部阈值范围内才截断
+            if pos + marker.len() >= text_len.saturating_sub(tail_threshold) {
+                cut = cut.min(pos);
+            }
         }
+    }
+    if cut < text_len {
+        log::warn!(
+            "[sanitize_novel_output] 尾部元评论截断：在位置 {}（末尾 {} 字符内）触发，移除 {} 字符",
+            cut,
+            tail_threshold,
+            text_len - cut
+        );
     }
     text.truncate(cut);
     text = text.trim_end().to_string();
@@ -3792,6 +3809,17 @@ mod tests {
         // 第一幕结束标记之后的批注被截断
         assert!(!cleaned.contains("第一幕结束"));
         assert!(!cleaned.contains("后续不应保留"));
+    }
+
+    #[test]
+    fn test_sanitize_preserves_body_when_marker_in_middle() {
+        // v0.26.5: 标记出现在正文中间（不在末尾 20%）时不应截断后续正文
+        let raw = "第一章开始。\n\n这是中间的一段正文，提到了（第一幕结束）这个词。\n\n然后故事继续发展，这是第二章的内容，应该被保留。\n\n最后才是结局。";
+        let cleaned = sanitize_novel_output(raw);
+        assert!(cleaned.contains("第一章开始。"));
+        assert!(cleaned.contains("然后故事继续发展"));
+        assert!(cleaned.contains("最后才是结局。"));
+        // 内联出现的标记不做截断，保留上下文完整性
     }
 
     #[test]

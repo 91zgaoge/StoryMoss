@@ -2,6 +2,45 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.5] - 彻底切断 React #185 同步循环 + 正文完整性修复（2026-07-04）
+
+### 修复
+
+- **React #185 最终防御**：v0.26.3 的 `useBackendActivityStore(selector) + setTimeout(...,0)` 在部分高频进度事件场景下仍被触发。v0.26.5 改为 Zustand 原生 `subscribe`（回调在 React 渲染周期外执行），并加入 100ms 防抖 + `startTransition`，确保 `backendActivityStore → isGenerating` 的同步永不进入 React 同步 setState 链。
+- **幽灵文本重复检测增强**：v0.26.4 的指纹 LCS 检测仍受限于只比较前 500 字符。v0.26.5 增加完整文本直接包含检测（归一化空白后），覆盖"编辑器含用户提示词 + 完整正文 / 幽灵文本只有正文片段"的场景，进一步避免重复显示。
+- **`sanitize_novel_output` 尾部截断只作用于末尾 20%**：此前元评论标记（如 `（第一幕结束`）出现在正文任意位置都会被截断，导致正文结尾被误伤。v0.26.5 将截断范围限制在文本末尾 20%（ clamp 100–1500 字符），保留正文完整性。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**134 passed / 3 skipped**
+
+## [v0.26.4] - 幽灵文本重复检测支持前缀/片段匹配（2026-07-04）
+
+### 修复
+
+- **幽灵文本重复检测改用最长公共子串（LCS）**：用户反馈幽灵文本往往是正文内容的前缀（结尾少一部分），原来的 `includes` 全匹配在这种情况下会失败，导致幽灵文本继续显示。v0.26.4 新增 `longestCommonSubstringLength`，当编辑器内容与生成内容指纹的重叠度 ≥80% 时就隐藏幽灵文本，覆盖前缀/片段场景。
+- 保留 v0.26.3 的 React #185 修复和密集诊断日志。
+
+### 测试
+
+- 新增 `RichTextEditor.duplicate.test.tsx`：
+  - 空编辑器显示幽灵文本
+  - Tab 接受后幽灵文本从 DOM 移除
+  - 相同 generatedText 已存在时不显示幽灵文本
+  - 不同 generatedText 仍显示幽灵文本
+  - 幽灵文本是正文前缀/片段时也不显示幽灵文本
+
+### 验证
+
+- `cargo test --lib`：**631 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**134 passed / 3 skipped**
+
 ## [v0.26.3] - React #185 最终修复：异步化 isGenerating 同步 + 幽灵文本重复兜底（2026-07-04）
 
 ### 修复

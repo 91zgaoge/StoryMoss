@@ -1084,9 +1084,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 幽灵文本可能是正文的前缀/片段（用户观察：幽灵文本往往比正文少一部分结尾）。
     // 用最长公共子串判断：若编辑器内容与生成内容有 ≥80% 重叠，就认为已经包含，不再显示幽灵文本。
     const lcsLen = longestCommonSubstringLength(editorFingerprint, generatedTextFingerprint);
+    // v0.26.5: 增加完整文本直接包含检测，避免 fingerprint 只取前 500 字符时漏掉
+    // "编辑器含用户提示词 + 完整正文 / 幽灵文本只有正文片段" 的场景。
+    const normalizedEditorText = editorText.replace(/\s+/g, '');
+    const normalizedGeneratedText = generatedText.replace(/\s+/g, '');
     const editorContainsGeneratedText =
-      generatedTextFingerprint.length > 0 &&
-      (editorFingerprint.includes(generatedTextFingerprint) ||
+      generatedText.length > 0 &&
+      (normalizedEditorText.includes(normalizedGeneratedText) ||
+        editorText.includes(generatedText) ||
         lcsLen / generatedTextFingerprint.length >= 0.8);
     const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
     const shouldShowGhostParagraph = !!(

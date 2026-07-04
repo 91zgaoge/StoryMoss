@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition } from 'react';
 import { flushSync } from 'react-dom';
 import { loggedInvoke } from '@/services/tauri';
 import { invoke } from '@tauri-apps/api/core';
@@ -637,45 +637,66 @@ const FrontstageApp: React.FC = () => {
   useBackendActivityListener();
 
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
-  // v0.26.3: 使用 useBackendActivityStore(selector) 派生布尔值，并通过 setTimeout(...,0)
-  // 异步同步到本地 isGenerating。这样即使 store 高频更新，也不会在 React 同一次
-  // 渲染/批处理链中连续触发 setState，从而彻底切断 React #185 的同步循环。
-  const isAnyBackendActive = useBackendActivityStore(state => state.getIsAnyActive());
-  const pendingIsAnyBackendActiveRef = useRef(isAnyBackendActive);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // v0.26.5: 不再使用 useBackendActivityStore(selector) hook，因为 hook 会在
+  // backendActivityStore 每次更新时评估 selector，高频进度事件下仍会触发
+  // FrontstageApp 重新渲染，并在某些竞态下诱发 React #185。
+  // 改为使用 Zustand 原生 subscribe，回调在 React 渲染周期外执行；仅在
+  // getIsAnyActive() 实际变化时，通过 setTimeout 异步同步到 useGenerationStore。
+  // 同时加入 100ms 防抖和 startTransition，彻底切断同步 setState 链。
+  const lastIsAnyBackendActiveRef = useRef(useBackendActivityStore.getState().getIsAnyActive());
+  const backendActivitySyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingBackendActivityRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (isAnyBackendActive === pendingIsAnyBackendActiveRef.current) return;
-    pendingIsAnyBackendActiveRef.current = isAnyBackendActive;
-    logToBackend('frontstage:backend_activity_sync', 'isAnyBackendActive changed', {
-      isAnyBackendActive,
-    });
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null;
-      setIsGenerating(prev => {
-        if (prev && !isAnyBackendActive) {
-          // v0.13.2: smart_execute 仍在飞行中则不清空
-          if (smartExecuteInFlightRef.current) return prev;
-          stopElapsedTimer();
-          setGenerationStatus('');
-          return false;
-        }
-        if (!prev && isAnyBackendActive) {
-          startElapsedTimer();
-          return true;
-        }
-        return prev;
+    const syncToGenerationStore = (isActive: boolean) => {
+      pendingBackendActivityRef.current = isActive;
+      if (backendActivitySyncTimerRef.current) {
+        clearTimeout(backendActivitySyncTimerRef.current);
+      }
+      backendActivitySyncTimerRef.current = setTimeout(() => {
+        backendActivitySyncTimerRef.current = null;
+        const target = pendingBackendActivityRef.current;
+        pendingBackendActivityRef.current = null;
+        if (target === null) return;
+        startTransition(() => {
+          setIsGenerating(prev => {
+            if (prev === target) return prev;
+            if (prev && !target) {
+              // v0.13.2: smart_execute 仍在飞行中则不清空
+              if (smartExecuteInFlightRef.current) return prev;
+              stopElapsedTimer();
+              setGenerationStatus('');
+              return false;
+            }
+            if (!prev && target) {
+              startElapsedTimer();
+              return true;
+            }
+            return prev;
+          });
+        });
+      }, 100);
+    };
+
+    // 同步初始状态
+    syncToGenerationStore(lastIsAnyBackendActiveRef.current);
+
+    const unsub = useBackendActivityStore.subscribe(state => {
+      const isActive = state.getIsAnyActive();
+      if (isActive === lastIsAnyBackendActiveRef.current) return;
+      lastIsAnyBackendActiveRef.current = isActive;
+      logToBackend('frontstage:backend_activity_sync', 'isAnyBackendActive changed', {
+        isAnyBackendActive: isActive,
       });
-    }, 0);
+      syncToGenerationStore(isActive);
+    });
     return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
+      unsub();
+      if (backendActivitySyncTimerRef.current) {
+        clearTimeout(backendActivitySyncTimerRef.current);
+        backendActivitySyncTimerRef.current = null;
       }
     };
-  }, [isAnyBackendActive]);
+  }, []);
 
   // v0.13.3: 诊断卡片安全网——任何非用户取消的异常结束都兜底弹出诊断卡片
   useEffect(() => {
