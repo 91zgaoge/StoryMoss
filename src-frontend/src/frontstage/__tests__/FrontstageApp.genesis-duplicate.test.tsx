@@ -90,14 +90,34 @@ vi.mock('@/services/tauri', () => ({
   getPipelineActiveDraft: vi.fn(),
 }));
 
+// 模拟 TipTap 编辑器在某些竞态下 DOM 状态滞后于 React content prop，
+// 用于验证重复检测必须依赖同步的 latestContentRef 而非 editorRef.getText()
+let mockEditorTextStale = false;
+
 // 捕获 generatedText 与 RichTextEditor 的内容 prop（用于断言 Tab 确认流程）
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
-  default: function MockRichTextEditor(props: { content: string; generatedText?: string }) {
+  default: React.forwardRef(function MockRichTextEditor(
+    props: { content: string; generatedText?: string },
+    ref: React.ForwardedRef<{
+      getText: () => string;
+      appendText: (html: string) => void;
+      setContent: (html: string) => void;
+    }>
+  ) {
     captured.content = props.content;
     captured.generatedText = props.generatedText ?? '';
+    React.useImperativeHandle(ref, () => ({
+      getText: () => (mockEditorTextStale ? '' : props.content.replace(/<[^>]+>/g, '')),
+      appendText: (html: string) => {
+        captured.content = (captured.content || '') + html;
+      },
+      setContent: (html: string) => {
+        captured.content = html;
+      },
+    }));
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, props.content);
-  },
+  }),
 }));
 
 vi.mock('../components/IngestHealthIndicator', () => ({
@@ -146,6 +166,7 @@ describe('Bug A: 创世后正文不应重复', () => {
     captured.generatedText = '';
     mockChaptersHaveContent = true;
     mockWordCountReturnUndefined = false;
+    mockEditorTextStale = false;
     useFrontstageStore.getState().setContent('');
     useFrontstageStore.getState().setSceneInfo('', '', undefined);
     mockSmartExecute.mockResolvedValue({
@@ -265,5 +286,52 @@ describe('Bug A: 创世后正文不应重复', () => {
     expect(totalCharsErrors).toHaveLength(0);
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('编辑器 DOM 滞后时仍不应恢复 generatedText（避免正文与幽灵文本叠加）', async () => {
+    // 使用 deferred promise 让 smart_execute 在 ChapterSwitch 之后返回，模拟真实竞态
+    let resolveSmartExecute: (value: unknown) => void = () => {};
+    mockSmartExecute.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSmartExecute = resolve;
+        })
+    );
+
+    render(<FrontstageApp />, { wrapper });
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '写一部关于废土幸存者的小说');
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled(), { timeout: 3000 });
+
+    // 先让 ChapterSwitch 自动接受正文（模拟后端先加载正文到编辑器）
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: CHAPTER_TEXT, auto_accept: true }),
+      });
+    });
+
+    // 关键：模拟 TipTap 编辑器 DOM 尚未同步，getText() 仍返回空/旧内容
+    mockEditorTextStale = true;
+
+    // 现在让 smart_execute 返回
+    await act(async () => {
+      resolveSmartExecute({
+        success: true,
+        steps_completed: 1,
+        final_content: CHAPTER_TEXT,
+        messages: [
+          'story_created:story-1',
+          'session_id:ses-1',
+          'novel_bootstrap_first_chapter_ready',
+        ],
+        error: null,
+      });
+      await new Promise(r => setTimeout(r, 100));
+    });
+
+    // 即使 editorRef.getText() 滞后，只要 React state 已加载正文，就不应再设置 generatedText
+    expect(captured.content).toContain('空气是粘稠的');
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
   });
 });

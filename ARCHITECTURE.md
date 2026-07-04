@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.8 架构文档
+# StoryForge (草苔) v0.26.9 架构文档
 
-> 本文档反映 v0.26.8 最新架构状态（2026-07-04）
+> 本文档反映 v0.26.9 最新架构状态（2026-07-04）
+> **v0.26.9 稳定性补丁**：在 v0.26.8 基础上进一步根治 Genesis 新小说第一章内容重复问题。重复检测与前缀去重统一改用 `latestContentRef.current`（React state 同步快照），避免 TipTap DOM 滞后导致已有正文被再次追加或恢复为幽灵文本；`RichTextEditor` 幽灵文本直接包含检测剥离 HTML 标签，覆盖 ContentUpdate/AppendContent 路径。
 > **v0.26.8 稳定性补丁**：在 v0.26.7 基础上彻底修复 Genesis 新小说第一章内容重复问题。新增 `isTextDuplicate` 归一化去重工具与 `isTextAlreadyInEditor` helper，覆盖 pipeline-complete / ChapterSwitch / smart_execute 等多条竞态路径，确保 DB 正文不会与幽灵文本叠加。
 > **v0.26.7 稳定性补丁**：修复 `FrontstageApp` pipeline-complete effect 无限循环（React #185）与 Genesis 新小说第一章内容重复问题，核心回调全部稳定化。
 > **v0.26.0 重大变更**：数据飞轮 + Harness 可观测性 + 子代理协作。`WorkspaceService` 初始化 `.storyforge/` 工作空间并自动 Git 提交；`PreferencePairExporter` 把用户接受/拒绝反馈导出为 RLHF 成对数据；`TraceStore` 为每次生成请求建立 `trace_id`，在 `GatewayRequest` / `GenerateRequest` / `LlmGeneratingProgress` 全链路透传，前端新增「生成链路」面板；`Subagent` trait 与 `ContinuityAgent` / `StyleAgent` / `WorldAgent` 提供异步协作审查。

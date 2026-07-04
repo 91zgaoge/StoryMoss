@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.8 项目完成状态
+# StoryForge (草苔) v0.26.9 项目完成状态
 
-> 最后更新: 2026-07-04（v0.26.8 彻底修复 Genesis 第一章重复竞态路径）
+> 最后更新: 2026-07-04（v0.26.9 根治 Genesis 第一章重复 DOM 竞态与追加去重）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.9 — 根治 Genesis 第一章重复（DOM 竞态与追加去重）（2026-07-04）
+
+- 🎯 **症状**：v0.26.8 后用户反馈第一章内容仍会重复显示，日志显示重复检测在 `appendAiContent` 与 `setGeneratedText` 路径上失效。
+- 🎯 **根因**：所有重复检测与前缀去重都依赖 `editorRef.current.getText()`，而 TipTap DOM/Text 状态滞后于 React `content` prop。在 ChapterSwitch / pipeline-complete 刚加载正文后、`onChange` debounce 触发前，`getText()` 返回空/旧文本，导致已有正文被当成新内容追加或恢复为幽灵文本。
+- 🎯 **修复**：`isTextAlreadyInEditor`、`handleRequestGeneration`、`handleSmartGeneration`、`appendAiContent` 统一改用 `latestContentRef.current` 作为内容基准；`appendAiContent` 追加后立即同步 `latestContentRef`；`RichTextEditor` 幽灵文本直接包含检测剥离 HTML 标签。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 146 passed / 3 skipped；`npx tsc --noEmit` 零错误。
 
 ### v0.26.8 — 彻底修复 Genesis 第一章重复（竞态路径覆盖）（2026-07-04）
 

@@ -2484,7 +2484,8 @@ const FrontstageApp: React.FC = () => {
           // v0.26.8 fix: 增加编辑器包含检测，覆盖 pipeline-complete / 其他路径先加载正文的竞态。
           if (!genesisAutoAcceptedRef.current && result.final_content?.trim()) {
             let finalContent = result.final_content!;
-            const currentText = editorRef.current?.getText() || '';
+            // v0.26.9 fix: 使用 latestContentRef 替代 editorRef.getText()，避免 DOM 竞态。
+            const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
             if (currentText && finalContent.startsWith(currentText)) {
               finalContent = finalContent.slice(currentText.length).trimStart();
             }
@@ -2530,8 +2531,10 @@ const FrontstageApp: React.FC = () => {
           return;
         }
         // v5.6.4 fix: 去除与当前编辑器内容重复的前缀，防止 LLM 返回完整文本导致"重复输出"
+        // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
+        // 状态滞后于 React state 时误把已有正文再次塞进幽灵文本。
         let displayText = text;
-        const currentText = editorRef.current?.getText() || '';
+        const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
         if (currentText && displayText.startsWith(currentText)) {
           displayText = displayText.slice(currentText.length).trimStart();
           frontstageLogger.info(
@@ -2729,10 +2732,14 @@ const FrontstageApp: React.FC = () => {
 
   // v0.26.8 fix: 提取编辑器内容包含检测，供 append / setGeneratedText / pipeline-complete 复用，
   // 避免 DB 正文与幽灵文本叠加显示。
+  // v0.26.9 fix: 使用 latestContentRef（React state 的同步快照）替代 editorRef.getText()。
+  // 原因：TipTap 编辑器的 DOM/Text 状态可能滞后于 React content prop 更新，在 ChapterSwitch
+  // 或 pipeline-complete 刚加载正文后、编辑器尚未重渲染时，editorRef.getText() 会返回空/旧文本，
+  // 导致重复检测失效并把已有正文恢复为幽灵文本。
   const isTextAlreadyInEditor = useCallback(
     (text: string, opts?: { log?: boolean; source?: string }) => {
-      if (!editorRef.current || !text?.trim()) return false;
-      const existingText = editorRef.current.getText().trim();
+      if (!text?.trim()) return false;
+      const existingText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
       const isAlreadyPresent = isTextDuplicate(existingText, text);
       if (opts?.log) {
         logToBackend('frontstage:duplicate_check', 'checking editor duplication', {
@@ -2753,7 +2760,9 @@ const FrontstageApp: React.FC = () => {
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => {
       if (!editorRef.current) return;
       const formatted = autoFormatText(rawText);
-      const existingText = editorRef.current.getText().trim();
+      // v0.26.9 fix: 使用 latestContentRef 替代 editorRef.getText()，避免 DOM 滞后导致
+      // 刚刚加载/追加过的内容被再次追加。
+      const existingText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
       const isAlreadyPresent = isTextDuplicate(existingText, rawText);
       logToBackend('frontstage:append_ai_check', 'checking duplication before append', {
         source,
@@ -2772,6 +2781,9 @@ const FrontstageApp: React.FC = () => {
         logToBackend('frontstage:append_ai_skip', 'content already present', { source });
       } else {
         editorRef.current.appendText(formatted);
+        // v0.26.9 fix: 立即同步 latestContentRef，避免 200ms onChange debounce 期间
+        // 收到另一个 append 事件导致同一段内容被追加两次。
+        latestContentRef.current = (latestContentRef.current || '') + formatted;
         logToBackend('frontstage:append_ai_done', 'appended AI content', {
           source,
           formattedLen: formatted.length,
@@ -3186,7 +3198,9 @@ const FrontstageApp: React.FC = () => {
           smartExecuteNeedDiagnosticRef.current = false;
 
           let finalContent = result.final_content!;
-          const currentText = editorRef.current?.getText() || '';
+          // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
+          // 状态滞后于 React state 时重复输出已有正文。
+          const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
           // 去重前缀
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
@@ -3194,6 +3208,7 @@ const FrontstageApp: React.FC = () => {
 
           // v0.26.8 fix: 无论通过何种路径（ChapterSwitch / pipeline-complete / 直接加载），
           // 只要编辑器已包含生成内容，就禁止再设 generatedText，避免正文与幽灵文本叠加。
+          // v0.26.9 fix: isTextAlreadyInEditor 内部改用 latestContentRef，避免 DOM 竞态。
           const isAlreadyPresent = isTextAlreadyInEditor(finalContent, {
             log: true,
             source: 'smart_execute',

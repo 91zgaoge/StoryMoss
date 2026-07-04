@@ -1086,12 +1086,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const lcsLen = longestCommonSubstringLength(editorFingerprint, generatedTextFingerprint);
     // v0.26.5: 增加完整文本直接包含检测，避免 fingerprint 只取前 500 字符时漏掉
     // "编辑器含用户提示词 + 完整正文 / 幽灵文本只有正文片段" 的场景。
+    // v0.26.9 fix: generatedText 可能为 HTML（ContentUpdate/AppendContent 路径会先 autoFormat），
+    // 直接包含检测前必须剥离 HTML 标签，否则 plain-text 编辑器内容永远匹配不上 HTML 幽灵文本。
     const normalizedEditorText = editorText.replace(/\s+/g, '');
-    const normalizedGeneratedText = generatedText.replace(/\s+/g, '');
+    const normalizedGeneratedText = generatedText.replace(/<[^>]*>/g, '').replace(/\s+/g, '');
     const editorContainsGeneratedText =
       generatedText.length > 0 &&
       (normalizedEditorText.includes(normalizedGeneratedText) ||
-        editorText.includes(generatedText) ||
+        editorText.includes(generatedText.replace(/<[^>]*>/g, '')) ||
         lcsLen / generatedTextFingerprint.length >= 0.8);
     const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
     const shouldShowGhostParagraph = !!(

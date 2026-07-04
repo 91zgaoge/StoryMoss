@@ -2,6 +2,27 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.9] - 根治 Genesis 第一章重复（DOM 竞态与追加去重）（2026-07-04）
+
+### 修复
+
+- **彻底修复 Genesis 第一章内容重复（DOM 竞态）**：v0.26.8 已覆盖 pipeline-complete / ChapterSwitch 多数竞态，但重复检测仍依赖 `editorRef.current.getText()`。TipTap 编辑器的 DOM/Text 状态可能滞后于 React `content` prop，在 ChapterSwitch 或 pipeline-complete 刚加载正文后、编辑器尚未重渲染时，`getText()` 返回空/旧文本，导致去重失效并把已有正文恢复为幽灵文本或再次追加。
+  - `isTextAlreadyInEditor`、`handleRequestGeneration`、`handleSmartGeneration` 的前缀去重统一改用 `latestContentRef.current`（React state 的同步快照）作为内容基准。
+  - `appendAiContent` 的去重检测与追加后同步均改用 `latestContentRef.current`，避免 200ms onChange debounce 期间收到另一个 append 事件导致同一段内容被追加两次。
+  - `RichTextEditor` 中 `editorContainsGeneratedText` 对 `generatedText` 剥离 HTML 标签后再做直接包含检测，避免 ContentUpdate/AppendContent 路径传入 HTML 时幽灵文本永远显示。
+
+### 测试
+
+- 新增 `FrontstageApp.genesis-duplicate.test.tsx` 用例「编辑器 DOM 滞后时仍不应恢复 generatedText」：用 deferred promise 让 ChapterSwitch 先于 smart_execute 返回，并模拟 `getText()` 滞后，验证 `latestContentRef` 路径下不会叠加幽灵文本。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**146 passed / 3 skipped**
+
 ## [v0.26.8] - 彻底修复 Genesis 第一章重复（竞态路径覆盖）（2026-07-04）
 
 ### 修复
