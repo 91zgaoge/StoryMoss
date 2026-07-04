@@ -216,6 +216,33 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.23.98: 与父组件 hideGhostUntil 合并，确保 remount 后仍然强制隐藏
     const postAcceptHideUntilRef = useRef(hideGhostUntil);
 
+    // v0.25.2: 密集诊断日志计数器，用于追踪渲染和状态变化
+    const renderCountRef = useRef(0);
+    const lastLogTsRef = useRef(0);
+    const logRenderDiagnostics = useCallback(
+      (label: string, extra?: Record<string, unknown>) => {
+        const now = Date.now();
+        // 限制日志频率，避免诊断本身影响性能
+        if (now - lastLogTsRef.current < 50 && label !== 'render') return;
+        lastLogTsRef.current = now;
+        const ed = editorRef.current;
+        logToBackend?.('frontstage:rich_editor_diag', `${label}`, {
+          renderCount: renderCountRef.current,
+          generatedTextLen: generatedText?.length ?? 0,
+          isHidingGhost,
+          isGenerating,
+          hideGhostUntilRemaining: hideGhostUntil - now,
+          postAcceptHideRemaining: postAcceptHideUntilRef.current - now,
+          editorHtmlLen: ed?.getHTML()?.length ?? 0,
+          editorTextLen: ed?.getText()?.length ?? 0,
+          editorEmpty: ed?.isEmpty ?? null,
+          hasFocus: ed?.isFocused ?? null,
+          ...extra,
+        });
+      },
+      [generatedText, isHidingGhost, isGenerating, hideGhostUntil, logToBackend]
+    );
+
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{
       from: number;
@@ -285,16 +312,26 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onUpdate: ({ editor }) => {
         // v0.23.23: 外部内容同步（editor.commands.setContent）触发的 onUpdate 不调 onChange
         if (isExternalSyncRef.current) {
+          logRenderDiagnostics('onUpdate_skipped_external_sync', {
+            htmlLen: editor.getHTML().length,
+          });
           return;
         }
         // 轻量文本更新（字数/状态等低耗时场景）
         latestTextRef.current = editor.getText();
+        logRenderDiagnostics('onUpdate_fired', {
+          htmlLen: editor.getHTML().length,
+          textLen: editor.getText().length,
+        });
 
         if (htmlDebounceRef.current) {
           clearTimeout(htmlDebounceRef.current);
         }
         htmlDebounceRef.current = setTimeout(() => {
           htmlDebounceRef.current = null;
+          logRenderDiagnostics('onChange_debounced_fired', {
+            htmlLen: editor.getHTML().length,
+          });
           onChangeRef.current(editor.getHTML());
         }, 200);
       },
@@ -457,9 +494,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
       // v0.23.90: generatedText 真正清空后，解除本地隐藏锁定
       if (!generatedText && isHidingGhost) {
+        logRenderDiagnostics('unlock_hiding_ghost');
         setIsHidingGhost(false);
       }
-    }, [generatedText, isHidingGhost, hideGhostUntil]);
+    }, [generatedText, isHidingGhost, hideGhostUntil, logRenderDiagnostics]);
 
     // 同步外部内容变化
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
@@ -471,11 +509,20 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const lastSyncAtRef = useRef(0);
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
-      if (editor.isFocused) return;
+      logRenderDiagnostics('setContent_effect_entry', {
+        contentLen: content?.length ?? 0,
+        lastExternalContentLen: lastExternalContentRef.current?.length ?? 0,
+        isFocused: editor.isFocused,
+        hideGhostUntilRemaining: hideGhostUntil - Date.now(),
+      });
+      if (editor.isFocused) {
+        logRenderDiagnostics('setContent_effect_skipped_focused');
+        return;
+      }
       // v0.24.9: Tab 接受后 30s 内禁止外部 setContent，避免后台同步/保存回写与
       // 刚追加的 AI 正文冲突，导致内容重复或 TipTap 渲染异常。
       if (Date.now() < hideGhostUntil) {
-        rtEditorLogger.warn('[RichTextEditor] 外部 setContent 被 hideGhostUntil 拦截', {
+        logRenderDiagnostics('setContent_effect_blocked_hideGhostUntil', {
           remainingMs: hideGhostUntil - Date.now(),
           content_preview: content.slice(0, 80),
         });
@@ -483,7 +530,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
       // 如果当前要同步的内容就是我们最近一次外部设置的内容，说明是 TipTap 规范化
       // 回写的 onUpdate，不需要再次 setContent，防止 React error #185 无限循环。
-      if (content === lastExternalContentRef.current) return;
+      if (content === lastExternalContentRef.current) {
+        logRenderDiagnostics('setContent_effect_skipped_same_ref');
+        return;
+      }
 
       // 熔断：1 秒内同步超过 3 次则停止，避免极端情况下的无限循环
       const now = Date.now();
@@ -513,10 +563,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             )
             .slice(0, 500);
         if (textFingerprint(content) === textFingerprint(editorHtml)) {
+          logRenderDiagnostics('setContent_effect_skipped_fingerprint_match', {
+            contentLen: content.length,
+            editorHtmlLen: editorHtml.length,
+          });
           lastExternalContentRef.current = content;
           return;
         }
-        rtEditorLogger.warn('[RichTextEditor] 外部 setContent 触发', {
+        logRenderDiagnostics('setContent_effect_executing', {
           content_preview: content.slice(0, 80),
           editor_preview: editorHtml.slice(0, 80),
           attempt: syncAttemptsRef.current,
@@ -524,6 +578,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         isExternalSyncRef.current = true;
         editor.commands.setContent(content || '<p></p>');
         lastExternalContentRef.current = content;
+        logRenderDiagnostics('setContent_effect_executed', {
+          newEditorHtmlLen: editor.getHTML().length,
+        });
         // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
         queueMicrotask(() => {
           isExternalSyncRef.current = false;
@@ -822,6 +879,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // 类被移除、幽灵文本重新露出的可能性。
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
+      logRenderDiagnostics('accept_start', {
+        generatedTextPreview: generatedText?.slice(0, 100) ?? '',
+        editorTextLenBeforeAccept: editor?.getText()?.length ?? 0,
+      });
       document.body.classList.add('force-hide-ghost');
       const ghostContainers = document.querySelectorAll('.editor-ghost-continuation');
       logToBackend?.('frontstage:force_hide_ghost', 'attempting to hide ghost containers', {
@@ -902,6 +963,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   appendedLen: text.length,
                   occurrences,
                   hasDuplicate: occurrences >= 2,
+                  beforePreview: beforeText.slice(0, 120),
+                  afterPreview: afterText.slice(0, 120),
+                  appendedPreview: text.replace(/<[^>]+>/g, '').slice(0, 120),
                 });
               } catch {
                 // ignore
@@ -989,6 +1053,36 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     if (!editor) return null;
 
+    // v0.25.2: 每次渲染记录关键状态，用于定位幽灵文本/重复内容根因
+    renderCountRef.current += 1;
+    const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
+    const shouldShowGhostParagraph = !!(
+      generatedText &&
+      Date.now() > postAcceptHideUntilRef.current &&
+      Date.now() > hideGhostUntil
+    );
+    if (renderCountRef.current <= 100 || generatedText?.length || isHidingGhost) {
+      logRenderDiagnostics('render', {
+        shouldShowGhostTree,
+        shouldShowGhostParagraph,
+        generatedTextPreview: generatedText?.slice(0, 60) || '',
+      });
+    }
+
+    // v0.25.2: 幽灵树可见性变化时单独记录，便于精确追踪
+    useEffect(() => {
+      logRenderDiagnostics('ghost_visibility_changed', {
+        shouldShowGhostTree,
+        shouldShowGhostParagraph,
+        generatedTextLen: generatedText?.length ?? 0,
+      });
+    }, [
+      shouldShowGhostTree,
+      shouldShowGhostParagraph,
+      generatedText?.length,
+      logRenderDiagnostics,
+    ]);
+
     const currentStyle = defaultStyle;
     const themeColors = getCurrentEditorColors();
 
@@ -1071,15 +1165,18 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {/* v0.24.5: 外层也受 isHidingGhost 控制。Tab 接受后整棵幽灵树从 React 树中移除，
               不再依赖 CSS 隐藏兜底，避免任何竞态下幽灵文本继续占位或显示。 */}
-          {(generatedText || isGenerating) && !isHidingGhost && (
+          {/* v0.25.2: 增加渲染条件日志和 user-select:none，即使异常渲染也不会被复制。 */}
+          {shouldShowGhostTree && (
             <div className="editor-ghost-continuation">
-              {generatedText &&
-                Date.now() > postAcceptHideUntilRef.current &&
-                Date.now() > hideGhostUntil && (
-                  <p className="ghost-paragraph" data-testid="ghost-paragraph">
-                    {generatedText}
-                  </p>
-                )}
+              {shouldShowGhostParagraph && (
+                <p
+                  className="ghost-paragraph"
+                  data-testid="ghost-paragraph"
+                  style={{ userSelect: 'none' }}
+                >
+                  {generatedText}
+                </p>
+              )}
               {generatedText && (
                 <div className="ghost-hint-bar">
                   <kbd className="ghost-kbd">Tab</kbd>

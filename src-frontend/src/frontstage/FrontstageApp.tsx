@@ -244,6 +244,7 @@ const FrontstageApp: React.FC = () => {
   const [hideGhostUntil, setHideGhostUntil] = useState(0);
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   const setGeneratedText = (text: string) => {
+    const stack = new Error().stack?.split('\n').slice(1, 6).join(' <- ');
     if (text && text.length > 50) {
       if (Date.now() < postAcceptLockRef.current) {
         frontstageLogger.warn('[GEN-TEXT] post-accept lock active, ignoring generatedText set', {
@@ -257,18 +258,28 @@ const FrontstageApp: React.FC = () => {
           {
             preview: text.slice(0, 80),
             lockMsRemaining: postAcceptLockRef.current - Date.now(),
+            stack,
           }
         );
         return;
       }
-      const stack = new Error().stack?.split('\n').slice(1, 5).join(' <- ');
       frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
         textLen: text.length,
         preview: text.slice(0, 80),
         stack: stack || 'unknown',
       });
+      logToBackend('frontstage:set_generated_text', 'setting generatedText', {
+        textLen: text.length,
+        preview: text.slice(0, 120),
+        postAcceptLockActive: Date.now() < postAcceptLockRef.current,
+        stack,
+      });
     } else if (text === '') {
       frontstageLogger.info('[GEN-TEXT] setGeneratedText cleared');
+      logToBackend('frontstage:set_generated_text', 'clearing generatedText', {
+        previousRefLen: generatedTextRef.current.length,
+        stack,
+      });
     }
     generatedTextRef.current = text;
     _setGeneratedText(text);
@@ -635,6 +646,11 @@ const FrontstageApp: React.FC = () => {
       const isAnyActive = state.getIsAnyActive();
       if (isAnyActive === lastIsAnyActive) return;
       lastIsAnyActive = isAnyActive;
+      logToBackend('frontstage:backend_activity_sync', 'isAnyActive changed', {
+        isAnyActive,
+        activeCount: state.getActiveCount(),
+        primaryActivity: state.getPrimaryActivity()?.message || null,
+      });
       setIsGenerating(prev => {
         if (prev && !isAnyActive) {
           // v0.13.2: smart_execute 仍在飞行中则不清空
@@ -1339,6 +1355,9 @@ const FrontstageApp: React.FC = () => {
                 auto_accept: autoAccept,
                 has_content: !!payload.content,
                 content_length: payload.content?.length || 0,
+                generatedTextLenAtReceive: generatedTextRef.current.length,
+                postAcceptLockActive: Date.now() < postAcceptLockRef.current,
+                hideGhostUntilRemaining: hideGhostUntil - Date.now(),
               });
 
               if (autoAccept) {
@@ -2498,9 +2517,16 @@ const FrontstageApp: React.FC = () => {
 
     isAcceptingRef.current = true;
     const textToAccept = generatedText;
+    const editorTextBefore = editorRef.current?.getText?.() ?? '';
     logToBackend('frontstage:accept_start', 'Tab accept started', {
       textLen: textToAccept.length,
       preview: textToAccept.slice(0, 100),
+      editorTextLenBefore: editorTextBefore.length,
+      generatedTextFingerprint: textToAccept
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, '')
+        .slice(0, 200),
+      editorTextFingerprint: editorTextBefore.replace(/\s+/g, '').slice(0, 200),
     });
     try {
       // v0.23.96: 不再使用 flushSync，避免 React 18 批处理异常；
@@ -2592,6 +2618,15 @@ const FrontstageApp: React.FC = () => {
             normalizedGenerated.includes(
               normalizedExisting.slice(0, Math.min(200, normalizedExisting.length))
             )));
+      logToBackend('frontstage:append_ai_check', 'checking duplication before append', {
+        source,
+        existingLen: existingText.length,
+        generatedLen: rawText.length,
+        formattedLen: formatted.length,
+        isAlreadyPresent,
+        existingPreview: existingText.slice(0, 120),
+        generatedPreview: rawText.slice(0, 120),
+      });
       if (isAlreadyPresent) {
         frontstageLogger.warn('[appendAiContent] 编辑器已包含该内容，跳过追加', {
           source,
@@ -2604,6 +2639,8 @@ const FrontstageApp: React.FC = () => {
         logToBackend('frontstage:append_ai_done', 'appended AI content', {
           source,
           formattedLen: formatted.length,
+          rawLen: rawText.length,
+          formattedPreview: formatted.replace(/<[^>]+>/g, '').slice(0, 120),
         });
       }
       markAccepted(rawText);

@@ -2,6 +2,31 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.1] - 内容重复问题诊断日志增强（2026-07-04）
+
+### 诊断
+
+- **RichTextEditor 密集诊断日志**：
+  - 每次渲染记录 `generatedText` 长度、`isHidingGhost`、`isGenerating`、`hideGhostUntil` 剩余时间、编辑器 HTML/纯文本长度等关键状态。
+  - 幽灵文本渲染条件（外层 `shouldShowGhostTree` / 内层 `shouldShowGhostParagraph`）求值结果写入日志。
+  - `setContent` effect 记录入口、被 `hideGhostUntil` 拦截、跳过（same ref / fingerprint match）、执行等分支。
+  - `onUpdate` / `onChange` debounce 触发记录。
+  - `appendText` 追加前后增加内容预览和指纹信息。
+- **FrontstageApp 诊断日志增强**：
+  - `setGeneratedText` 每次调用记录文本长度、调用栈、post-accept lock 状态。
+  - `handleAcceptGeneration` 记录编辑器接受前的文本长度和指纹。
+  - `appendAiContent` 记录重复检测详情（现有内容预览、生成内容预览、是否已存在）。
+  - `ChapterSwitch` 事件记录接收时的 `generatedTextRef` 长度和锁状态。
+  - `backendActivityStore` 订阅记录 `isAnyActive` 变化，验证 v0.25.1 去抖效果。
+- **UX 加固**：幽灵文本段落增加 `user-select: none`，即使异常渲染也不会被复制进剪贴板。
+
+### 验证
+
+- `cargo test --lib`：**631 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+
 ## [v0.26.0] - 数据飞轮 + Harness 可观测性 + 子代理协作（2026-07-04）
 
 ### 数据飞轮与共同进化
