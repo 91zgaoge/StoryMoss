@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.2] - 彻底修复 React #185：改用 Zustand selector 同步 isGenerating（2026-07-04）
+
+### 修复
+
+- **backendActivityStore 订阅改为 selector 派生**：`FrontstageApp` 不再使用 `useBackendActivityStore.subscribe` 回调，改为 `useBackendActivityStore(state => state.getIsAnyActive())` 派生布尔值，并在 `useEffect` 中同步到本地 `isGenerating`。这彻底消除了订阅回调在 React render 阶段触发 `setState` 的可能性，从架构上避免 React #185。
+- 保留 v0.26.1 全部密集诊断日志，用于同时定位内容重复根因。
+
+### 验证
+
+- `cargo test --lib`：**631 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+
 ## [v0.26.1] - 内容重复问题诊断日志增强（2026-07-04）
 
 ### 诊断

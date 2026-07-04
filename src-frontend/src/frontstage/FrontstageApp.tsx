@@ -637,37 +637,32 @@ const FrontstageApp: React.FC = () => {
   useBackendActivityListener();
 
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
-  // v0.24.10: 手动缓存 getIsAnyActive() 的上一次结果，只在布尔值变化时才调用
-  // setIsGenerating，避免 store 内部任何字段更新都触发状态更新，降低 React #185
-  // 无限渲染风险。
+  // v0.26.2: 改用 useBackendActivityStore(selector) 派生布尔值，再同步到本地 isGenerating。
+  // 这样 React 只在 getIsAnyActive() 返回值变化时重绘，且 setIsGenerating 在 useEffect 中
+  // 执行，彻底避免订阅回调在 render 阶段触发 setState 导致 React #185。
+  const isAnyBackendActive = useBackendActivityStore(state => state.getIsAnyActive());
+  const prevIsAnyBackendActiveRef = useRef(isAnyBackendActive);
   useEffect(() => {
-    let lastIsAnyActive = useBackendActivityStore.getState().getIsAnyActive();
-    const unsub = useBackendActivityStore.subscribe(state => {
-      const isAnyActive = state.getIsAnyActive();
-      if (isAnyActive === lastIsAnyActive) return;
-      lastIsAnyActive = isAnyActive;
-      logToBackend('frontstage:backend_activity_sync', 'isAnyActive changed', {
-        isAnyActive,
-        activeCount: state.getActiveCount(),
-        primaryActivity: state.getPrimaryActivity()?.message || null,
-      });
-      setIsGenerating(prev => {
-        if (prev && !isAnyActive) {
-          // v0.13.2: smart_execute 仍在飞行中则不清空
-          if (smartExecuteInFlightRef.current) return prev;
-          stopElapsedTimer();
-          setGenerationStatus('');
-          return false;
-        }
-        if (!prev && isAnyActive) {
-          startElapsedTimer();
-          return true;
-        }
-        return prev;
-      });
+    if (isAnyBackendActive === prevIsAnyBackendActiveRef.current) return;
+    prevIsAnyBackendActiveRef.current = isAnyBackendActive;
+    logToBackend('frontstage:backend_activity_sync', 'isAnyBackendActive changed', {
+      isAnyBackendActive,
     });
-    return unsub;
-  }, []);
+    setIsGenerating(prev => {
+      if (prev && !isAnyBackendActive) {
+        // v0.13.2: smart_execute 仍在飞行中则不清空
+        if (smartExecuteInFlightRef.current) return prev;
+        stopElapsedTimer();
+        setGenerationStatus('');
+        return false;
+      }
+      if (!prev && isAnyBackendActive) {
+        startElapsedTimer();
+        return true;
+      }
+      return prev;
+    });
+  }, [isAnyBackendActive]);
 
   // v0.13.3: 诊断卡片安全网——任何非用户取消的异常结束都兜底弹出诊断卡片
   useEffect(() => {
