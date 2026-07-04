@@ -180,6 +180,27 @@ describe('RichTextEditor 内容重复防护', () => {
     expect(screen.queryByTestId('ghost-paragraph')).not.toBeInTheDocument();
   });
 
+  it('幽灵文本是正文前缀/片段时（缺少结尾），也不应显示幽灵文本', () => {
+    // 编辑器里有完整生成内容
+    fakeHTML = `<p>${GENERATED_TEXT.replace(/\n\n/g, '</p><p>')}</p>`;
+    fakeText = GENERATED_TEXT.replace(/\n\n/g, '');
+    fakeEditor.isEmpty = false;
+
+    // 但 generatedText 只包含前半部分（缺少结尾），模拟用户观察到的现象
+    const partialGeneratedText = GENERATED_TEXT.slice(0, GENERATED_TEXT.length - 20);
+
+    render(
+      <RichTextEditor
+        content={fakeHTML}
+        generatedText={partialGeneratedText}
+        isGenerating={false}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('ghost-paragraph')).not.toBeInTheDocument();
+  });
+
   it('编辑器已包含生成内容时，传入不同 generatedText 仍应显示幽灵文本', () => {
     fakeHTML = `<p>${GENERATED_TEXT.replace(/\n\n/g, '</p><p>')}</p>`;
     fakeText = GENERATED_TEXT.replace(/\n\n/g, '');

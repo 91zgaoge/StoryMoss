@@ -47,6 +47,27 @@ const textFingerprint = (s: string) =>
       ''
     )
     .slice(0, 500);
+
+// v0.26.3: 计算两个字符串的最长公共子串长度，用于判断幽灵文本是否已被编辑器包含（即使幽灵文本是正文的前缀/片段）
+const longestCommonSubstringLength = (a: string, b: string) => {
+  if (!a || !b) return 0;
+  let max = 0;
+  const dp = Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = dp[j];
+      if (a[i - 1] === b[j - 1]) {
+        dp[j] = prev + 1;
+        max = Math.max(max, dp[j]);
+      } else {
+        dp[j] = 0;
+      }
+      prev = temp;
+    }
+  }
+  return max;
+};
 import { smartExecute, formatText } from '@/services/tauri';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 // Phase 4: SceneDividerNode 不再在幕前编辑器中渲染
@@ -1058,10 +1079,15 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.25.2: 每次渲染记录关键状态，用于定位幽灵文本/重复内容根因
     renderCountRef.current += 1;
     const editorText = editor.getText();
+    const editorFingerprint = textFingerprint(editorText);
     const generatedTextFingerprint = generatedText ? textFingerprint(generatedText) : '';
+    // 幽灵文本可能是正文的前缀/片段（用户观察：幽灵文本往往比正文少一部分结尾）。
+    // 用最长公共子串判断：若编辑器内容与生成内容有 ≥80% 重叠，就认为已经包含，不再显示幽灵文本。
+    const lcsLen = longestCommonSubstringLength(editorFingerprint, generatedTextFingerprint);
     const editorContainsGeneratedText =
       generatedTextFingerprint.length > 0 &&
-      textFingerprint(editorText).includes(generatedTextFingerprint);
+      (editorFingerprint.includes(generatedTextFingerprint) ||
+        lcsLen / generatedTextFingerprint.length >= 0.8);
     const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
     const shouldShowGhostParagraph = !!(
       generatedText &&
@@ -1074,6 +1100,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         shouldShowGhostTree,
         shouldShowGhostParagraph,
         editorContainsGeneratedText,
+        lcsLen,
+        generatedTextFingerprintLen: generatedTextFingerprint.length,
         generatedTextPreview: generatedText?.slice(0, 60) || '',
       });
     }
