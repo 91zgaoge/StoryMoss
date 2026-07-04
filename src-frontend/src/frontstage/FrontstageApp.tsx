@@ -637,31 +637,44 @@ const FrontstageApp: React.FC = () => {
   useBackendActivityListener();
 
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
-  // v0.26.2: 改用 useBackendActivityStore(selector) 派生布尔值，再同步到本地 isGenerating。
-  // 这样 React 只在 getIsAnyActive() 返回值变化时重绘，且 setIsGenerating 在 useEffect 中
-  // 执行，彻底避免订阅回调在 render 阶段触发 setState 导致 React #185。
+  // v0.26.3: 使用 useBackendActivityStore(selector) 派生布尔值，并通过 setTimeout(...,0)
+  // 异步同步到本地 isGenerating。这样即使 store 高频更新，也不会在 React 同一次
+  // 渲染/批处理链中连续触发 setState，从而彻底切断 React #185 的同步循环。
   const isAnyBackendActive = useBackendActivityStore(state => state.getIsAnyActive());
-  const prevIsAnyBackendActiveRef = useRef(isAnyBackendActive);
+  const pendingIsAnyBackendActiveRef = useRef(isAnyBackendActive);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (isAnyBackendActive === prevIsAnyBackendActiveRef.current) return;
-    prevIsAnyBackendActiveRef.current = isAnyBackendActive;
+    if (isAnyBackendActive === pendingIsAnyBackendActiveRef.current) return;
+    pendingIsAnyBackendActiveRef.current = isAnyBackendActive;
     logToBackend('frontstage:backend_activity_sync', 'isAnyBackendActive changed', {
       isAnyBackendActive,
     });
-    setIsGenerating(prev => {
-      if (prev && !isAnyBackendActive) {
-        // v0.13.2: smart_execute 仍在飞行中则不清空
-        if (smartExecuteInFlightRef.current) return prev;
-        stopElapsedTimer();
-        setGenerationStatus('');
-        return false;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      setIsGenerating(prev => {
+        if (prev && !isAnyBackendActive) {
+          // v0.13.2: smart_execute 仍在飞行中则不清空
+          if (smartExecuteInFlightRef.current) return prev;
+          stopElapsedTimer();
+          setGenerationStatus('');
+          return false;
+        }
+        if (!prev && isAnyBackendActive) {
+          startElapsedTimer();
+          return true;
+        }
+        return prev;
+      });
+    }, 0);
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
-      if (!prev && isAnyBackendActive) {
-        startElapsedTimer();
-        return true;
-      }
-      return prev;
-    });
+    };
   }, [isAnyBackendActive]);
 
   // v0.13.3: 诊断卡片安全网——任何非用户取消的异常结束都兜底弹出诊断卡片

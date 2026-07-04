@@ -36,6 +36,17 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { createLogger } from '@/utils/logger';
 
 const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
+
+// v0.26.3: 纯文本指纹比较函数，用于 setContent 去抖和幽灵文本重复检测
+const textFingerprint = (s: string) =>
+  s
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, '')
+    .replace(
+      /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
+      ''
+    )
+    .slice(0, 500);
 import { smartExecute, formatText } from '@/services/tauri';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 // Phase 4: SceneDividerNode 不再在幕前编辑器中渲染
@@ -552,16 +563,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
       try {
         const editorHtml = editor.getHTML();
-        // 用纯文本指纹比较，避免 TipTap HTML 结构差异导致反复同步
-        const textFingerprint = (s: string) =>
-          s
-            .replace(/<[^>]*>/g, '')
-            .replace(/\s+/g, '')
-            .replace(
-              /[\u3002\uff01\uff1f.!?，、；：""''（）《》\[\]【】…—～·\u201c\u201d\u2018\u2019]/g,
-              ''
-            )
-            .slice(0, 500);
+
         if (textFingerprint(content) === textFingerprint(editorHtml)) {
           logRenderDiagnostics('setContent_effect_skipped_fingerprint_match', {
             contentLen: content.length,
@@ -1055,16 +1057,23 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // v0.25.2: 每次渲染记录关键状态，用于定位幽灵文本/重复内容根因
     renderCountRef.current += 1;
+    const editorText = editor.getText();
+    const generatedTextFingerprint = generatedText ? textFingerprint(generatedText) : '';
+    const editorContainsGeneratedText =
+      generatedTextFingerprint.length > 0 &&
+      textFingerprint(editorText).includes(generatedTextFingerprint);
     const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
     const shouldShowGhostParagraph = !!(
       generatedText &&
       Date.now() > postAcceptHideUntilRef.current &&
-      Date.now() > hideGhostUntil
+      Date.now() > hideGhostUntil &&
+      !editorContainsGeneratedText
     );
     if (renderCountRef.current <= 100 || generatedText?.length || isHidingGhost) {
       logRenderDiagnostics('render', {
         shouldShowGhostTree,
         shouldShowGhostParagraph,
+        editorContainsGeneratedText,
         generatedTextPreview: generatedText?.slice(0, 60) || '',
       });
     }

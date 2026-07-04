@@ -2,6 +2,21 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.3] - React #185 最终修复：异步化 isGenerating 同步 + 幽灵文本重复兜底（2026-07-04）
+
+### 修复
+
+- **彻底切断 React #185 同步链**：v0.26.2 改用 selector 后仍 crash，因为 `backendActivityStore` 高频更新时，Zustand selector 触发的重绘与 `setIsGenerating` 仍可能落在 React 同一次批处理链中。v0.26.3 将 `setIsGenerating` 包装在 `setTimeout(..., 0)` 中异步执行，强制跳出 React 批处理，从机制上消除同步循环。
+- **幽灵文本重复兜底**：`RichTextEditor` 渲染时计算 `editorContainsGeneratedText`；如果编辑器当前内容已包含 `generatedText` 的文本指纹，则强制不渲染幽灵段落，避免用户看到两份相同内容。
+- **textFingerprint 提取为模块级函数**：供 setContent 去抖和幽灵文本重复检测共用。
+
+### 验证
+
+- `cargo test --lib`：**631 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**129 passed / 3 skipped**
+
 ## [v0.26.2] - 彻底修复 React #185：改用 Zustand selector 同步 isGenerating（2026-07-04）
 
 ### 修复
