@@ -318,5 +318,9 @@ test.describe("Genesis 第一章重复回归测试", () => {
     const doubled =
       CHAPTER_TEXT.replace(/\n/g, "") + CHAPTER_TEXT.replace(/\n/g, "");
     expect(text.replace(/\s+/g, "")).not.toContain(doubled.replace(/\s+/g, ""));
+
+    // 关键断言：自动接受后幽灵段落（ghost-paragraph）不可见，防止"正文+幽灵文本"同框
+    const ghostParagraph = page.locator('[data-testid="ghost-paragraph"]').first();
+    await expect(ghostParagraph).toBeHidden({ timeout: 2000 });
   });
 });

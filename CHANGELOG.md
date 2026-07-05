@@ -2,6 +2,29 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.13] - 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）（2026-07-05）
+
+### 修复
+
+- **修复 v0.26.12 仍偶发的「新写小说第一章内容重复」视觉问题**：日志显示 `append_ai_done` 只触发一次、`append_text_check` 的 `occurrences: 1`、`hasDuplicate: false`，说明**数据层只写了一次**；重复来自渲染层幽灵文本/空幽灵容器与正文同框。
+  - `RichTextEditor` 的 `shouldShowGhostTree` 从 `!!(generatedText || isGenerating)` 改为 `!!generatedText`，避免 `generatedText` 为空但 `isGenerating=true` 时渲染空幽灵容器；该容器若残留旧内容或 React 复用 DOM 节点异常，就会造成「正文 + 幽灵文本」同框。
+  - `FrontstageApp` Genesis 自动接受路径里，在 `setGeneratedText('')` / `appendAiContent` 之前先调用 `setIsGenerating(false)`，确保 RichTextEditor 的幽灵树条件立即失效。
+  - 渲染诊断日志增加 `isGenerating`、`isHidingGhost`、`bodyHidingGhost`、`generatedTextLen`，便于后续定位。
+
+### 测试
+
+- 增强 Playwright E2E 回归测试 `e2e/genesis-duplicate.spec.ts`：在原有「第一章正文只出现一次」断言基础上，新增 `[data-testid="ghost-paragraph"]` 必须隐藏的断言，从渲染层防止视觉重复。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**148 passed / 3 skipped**
+- `npx playwright test --project=chromium`：**35 passed / 5 skipped**
+- `python3 scripts/architecture_guard.py`：通过
+
 ## [v0.26.12] - 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值（2026-07-05）
 
 ### 修复

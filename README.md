@@ -8,15 +8,18 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.12-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.13-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值：
+**最新动态**：v0.26.13 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）：
 
-- **修复「打开已有故事或新写小说后页面白屏崩溃」**：当角色数据尚未加载完成或返回 `null` 时，`RichTextEditor` 的「角色名点击」effect 访问 `characters.length` 会抛出 `Cannot read properties of null (reading 'length')`，被 ErrorBoundary 捕获后导致整个幕前界面白屏。v0.26.12 在该 effect 中增加 `characters` 空值守卫，并同步加固 `useSubscription` 对 `null` 订阅状态的兼容。
-- **新增 Genesis 重复回归 E2E 测试**：`e2e/genesis-duplicate.spec.ts` 模拟「故事列表已存在小说，用户输入『新写一部末世小说』」的完整流程，验证第一章正文只出现一次且页面不崩溃。
+- **修复「新写小说时第一章内容重复」仍未彻底解决**：v0.26.9–v0.26.12 已确保数据层只追加一次，但用户仍看到「前一段分行、后一段挤成一大段」的虚假重复。日志显示 `append_ai_done` 只触发一次、去重检测通过，说明重复来自**渲染层**。原因是 `RichTextEditor` 的幽灵树条件包含 `isGenerating`，当 `generatedText` 为空但生成状态仍为 true 时会渲染一个空幽灵容器；该容器若残留旧内容或 React 复用 DOM 节点异常，就会出现「正文 + 幽灵文本」同框。
+  - `RichTextEditor` 的 `shouldShowGhostTree` 从 `!!(generatedText || isGenerating)` 改为 `!!generatedText`，仅在真正有幽灵文本时才渲染。
+  - `FrontstageApp` Genesis 自动接受路径里，先 `setIsGenerating(false)` 再清空 `generatedText` / 追加正文，确保幽灵树立即卸载。
+  - 新增 `frontstage:rich_editor_diag` 诊断字段 `isGenerating`、`isHidingGhost`、`bodyHidingGhost`、`generatedTextLen`。
+  - E2E 回归测试新增断言：自动接受后 `[data-testid="ghost-paragraph"]` 必须隐藏。
 
-**上一版**：v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患：
+**上一版**：v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值；v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患：
 
 - **修复「新写小说时第一章内容重复」深层根因**：v0.26.10 已确保数据层面只追加一次，但追加后 store 依赖 200ms onChange debounce 回写，当 `latestContentRef` 与编辑器 HTML 指纹相同时 `handleContentChange` 会提前返回，导致 store 长期为空，后续外部同步/章节切换可能引发视觉重复或内容抖动。v0.26.11 在 `appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent。
 - **修复「写完后过会儿页面崩溃」**：确认 `src-tauri/tauri.conf.json` 的 `devUrl` 指向 `http://localhost:5173`，避免 `cargo tauri dev` 加载陈旧 `dist` 中的旧代码触发崩溃；同时通过 store-editor 同步消除状态漂移引发的渲染异常。

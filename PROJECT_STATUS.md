@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.12 项目完成状态
+# StoryForge (草苔) v0.26.13 项目完成状态
 
-> 最后更新: 2026-07-05（v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值）
+> 最后更新: 2026-07-05（v0.26.13 修复 Genesis 第一章渲染层视觉重复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.13 — 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）（2026-07-05）
+
+- 🎯 **症状**：v0.26.12 后日志显示 `append_ai_done` 只触发一次、`hasDuplicate: false`，但用户仍看到第一章「前一段分行、后一段挤成一大段」的虚假重复。
+- 🎯 **根因**：数据层只写一次；`RichTextEditor` 的 `shouldShowGhostTree` 条件为 `!!(generatedText || isGenerating)`，当 `generatedText` 为空但 `isGenerating=true` 时会渲染空幽灵容器。该容器若残留旧内容或 React 复用 DOM 节点异常，就会导致「正文 + 幽灵文本」同框。
+- 🎯 **修复**：`shouldShowGhostTree` 改为 `!!generatedText`；`FrontstageApp` Genesis 自动接受路径先 `setIsGenerating(false)` 再清空 `generatedText` / 追加正文；增强 `frontstage:rich_editor_diag` 诊断字段；E2E 回归测试新增 `ghost-paragraph` 隐藏断言。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 148 passed / 3 skipped；`npx playwright test --project=chromium` 35 passed / 5 skipped；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过。
 
 ### v0.26.12 — 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值（2026-07-05）
 

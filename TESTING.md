@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.12)
+# 🧪 StoryForge 自动化测试环境 (v0.26.13)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -19,7 +19,7 @@
 | 前端单元测试   | 148       | ✅ 全部通过 (`vitest run`)                   |
 | 前端构建测试   | —         | ✅ `npm run build` 通过                      |
 | Tauri 构建测试 | —         | ✅ `cargo tauri build` 通过                  |
-| Playwright E2E | 40 (35+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`） |
+| Playwright E2E | 40 (35+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`），其中 `genesis-duplicate.spec.ts` 验证自动接受后幽灵段落隐藏 |
 
 ### 测试文件分布
 

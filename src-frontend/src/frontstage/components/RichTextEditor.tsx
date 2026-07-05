@@ -1152,8 +1152,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 类还在，React 树里就不渲染幽灵容器，从渲染层根上消除"正文 + 幽灵文本"同框。
     const bodyHidingGhost =
       typeof document !== 'undefined' && document.body.classList.contains('force-hide-ghost');
-    const shouldShowGhostTree =
-      !!(generatedText || isGenerating) && !isHidingGhost && !bodyHidingGhost;
+    // v0.26.13 fix: 幽灵树只在有实际幽灵文本时才渲染。
+    // 之前依赖 `generatedText || isGenerating`，导致生成中（generatedText 为空）时也会渲染
+    // 空幽灵容器；若该容器残留旧内容或 React 复用 DOM 节点异常，就会出现"正文 + 幽灵文本"
+    // 同框的虚假重复。生成状态有独立的 `generationStatus` / 后台活动指示器，无需空容器占位。
+    const shouldShowGhostTree = !!generatedText && !isHidingGhost && !bodyHidingGhost;
     const shouldShowGhostParagraph = !!(
       generatedText &&
       Date.now() > postAcceptHideUntilRef.current &&
@@ -1165,7 +1168,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         shouldShowGhostTree,
         shouldShowGhostParagraph,
         editorContainsGeneratedText,
+        isGenerating,
+        isHidingGhost,
+        bodyHidingGhost,
         lcsLen,
+        generatedTextLen: generatedText?.length ?? 0,
         generatedTextFingerprintLen: generatedTextFingerprint.length,
         generatedTextPreview: generatedText?.slice(0, 60) || '',
       });

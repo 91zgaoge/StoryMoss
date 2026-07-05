@@ -3474,6 +3474,8 @@ const FrontstageApp: React.FC = () => {
             // "正文 + 幽灵文本" 同框以及同一内容被追加两次的风险。
             // v0.26.12 fix: 在 append 之前先设置 genesisAutoAcceptedRef 与 hideGhostUntil，
             // 阻塞并发的 ChapterSwitch / pipeline-complete 把 DB 正文再次 setContent。
+            // v0.26.13 fix: 先把 isGenerating 置为 false，确保 RichTextEditor 的幽灵树条件
+            // 立即失效，避免生成中状态导致空幽灵容器残留或复用旧内容，造成"正文+幽灵文本"同框。
             if (finalContent.trim()) {
               logToBackend(
                 'frontstage:genesis_auto_accept_smart',
@@ -3482,6 +3484,7 @@ const FrontstageApp: React.FC = () => {
                   finalLen: finalContent.length,
                 }
               );
+              setIsGenerating(false);
               setGeneratedText('');
               genesisAutoAcceptedRef.current = true;
               postAcceptLockRef.current = Date.now() + 300000;
