@@ -33,9 +33,9 @@ export function useSubscription() {
     try {
       const status = await getSubscriptionStatus();
       setState({
-        tier: (status.tier as 'free' | 'pro' | 'enterprise') || 'free',
-        status: status.status,
-        expiresAt: status.expires_at,
+        tier: (status?.tier as 'free' | 'pro' | 'enterprise') || 'free',
+        status: status?.status || 'active',
+        expiresAt: status?.expires_at,
         isLoading: false,
         error: null,
       });

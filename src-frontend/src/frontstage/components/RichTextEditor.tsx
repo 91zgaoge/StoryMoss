@@ -641,7 +641,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // 处理角色名点击
     useEffect(() => {
-      if (!editor || !containerRef.current || characters.length === 0) return;
+      if (!editor || !containerRef.current || !characters || characters.length === 0) return;
 
       const editorElement = containerRef.current?.querySelector('.ProseMirror');
       if (!editorElement) return;

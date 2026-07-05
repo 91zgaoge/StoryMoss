@@ -330,6 +330,20 @@ describe('Bug A: 创世后正文不应重复', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('smart_execute 先返回并自动接受 Genesis 第一章时，编辑器内容只出现一次', async () => {
+    await submitCreationPrompt();
+
+    // 不触发 ChapterSwitch，模拟 genesis.rs 中 smart_execute 先返回、ChapterSwitch 迟到/缺失的竞态
+    await new Promise(r => setTimeout(r, 200));
+
+    const plain = captured.content.replace(/<[^>]+>/g, '');
+    // 关键断言：第一章正文只应写入一次
+    const matchCount = (plain.match(/空气是粘稠的/g) || []).length;
+    expect(matchCount).toBeLessThanOrEqual(1);
+    expect(plain).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+  });
+
   it('编辑器 DOM 滞后时仍不应恢复 generatedText（避免正文与幽灵文本叠加）', async () => {
     // 使用 deferred promise 让 smart_execute 在 ChapterSwitch 之后返回，模拟真实竞态
     let resolveSmartExecute: (value: unknown) => void = () => {};

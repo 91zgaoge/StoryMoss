@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.11 架构文档
+# StoryForge (草苔) v0.26.12 架构文档
 
-> 本文档反映 v0.26.11 最新架构状态（2026-07-05）
+> 本文档反映 v0.26.12 最新架构状态（2026-07-05）
+> **v0.26.12 稳定性补丁**：修复 `RichTextEditor` 角色点击 effect 在 `characters` 为 `null` 时访问 `.length` 导致的幕前白屏崩溃；加固 `useSubscription` 对 `null` 订阅状态的兼容；新增 Playwright E2E 回归测试覆盖「已有故事 + 新写末世小说」完整流程；`frontstage/main.tsx` 与 `ErrorBoundary` 增强崩溃诊断输出。
 > **v0.26.11 稳定性补丁**：修复 Genesis 自动接受第一章后 store-editor 失步问题。`appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent；`RichTextEditorRef` 新增 `getHTML()`。同时确认 `tauri.conf.json` `devUrl` 指向 dev server，避免开发模式加载陈旧 dist 崩溃。
 > **v0.26.9 稳定性补丁**：在 v0.26.8 基础上进一步根治 Genesis 新小说第一章内容重复问题。重复检测与前缀去重统一改用 `latestContentRef.current`（React state 同步快照），避免 TipTap DOM 滞后导致已有正文被再次追加或恢复为幽灵文本；`RichTextEditor` 幽灵文本直接包含检测剥离 HTML 标签，覆盖 ContentUpdate/AppendContent 路径。
 > **v0.26.8 稳定性补丁**：在 v0.26.7 基础上彻底修复 Genesis 新小说第一章内容重复问题。新增 `isTextDuplicate` 归一化去重工具与 `isTextAlreadyInEditor` helper，覆盖 pipeline-complete / ChapterSwitch / smart_execute 等多条竞态路径，确保 DB 正文不会与幽灵文本叠加。
@@ -134,12 +135,12 @@ v0.25.0 在原有智能创作链路之上增加了两道防御性基础设施：
 
 后端错误统一注入 `ErrorSeverity`：
 
-| Severity | 含义 | 典型场景 | 恢复策略 |
-|---|---|---|---|
-| **Fatal** | 无法自动恢复 | 未知内部 panic | 记录并终止，前端弹 `AgentInterruptionModal` |
-| **Retry** | 瞬态错误 | 模型连接超时、DB 锁定 | 指数退避重试，或切换候选模型 |
-| **Degraded** | 可降级继续 | 上下文缺失 | 执行简化路径并提示用户 |
-| **UserAction** | 需要用户处理 | 订阅、校验、模型禁用 | 前端弹 `AgentInterruptionModal` 引导设置 |
+| Severity       | 含义         | 典型场景              | 恢复策略                                    |
+| -------------- | ------------ | --------------------- | ------------------------------------------- |
+| **Fatal**      | 无法自动恢复 | 未知内部 panic        | 记录并终止，前端弹 `AgentInterruptionModal` |
+| **Retry**      | 瞬态错误     | 模型连接超时、DB 锁定 | 指数退避重试，或切换候选模型                |
+| **Degraded**   | 可降级继续   | 上下文缺失            | 执行简化路径并提示用户                      |
+| **UserAction** | 需要用户处理 | 订阅、校验、模型禁用  | 前端弹 `AgentInterruptionModal` 引导设置    |
 
 `error_recovery.rs` 提供 `retry_with_backoff` 与 `with_degraded_fallback`；`GatewayExecutor` 与 `smart_execute` 的 DB 加载已接入重试。前端 `errorHandler.ts` 按 `severity` 兜底推荐动作，`AgentInterruptionModal` 对 Fatal/UserAction 直接中断当前流程。
 
@@ -165,27 +166,32 @@ SQLite / LanceDB / File System
 ```
 
 #### Command 层 (`src-tauri/src/commands/`)
+
 - 按领域拆分为 20 个文件：`story.rs`、`chapter.rs`、`scene_commands.rs`、`character.rs`、`memory.rs`、`story_system.rs`、`pipeline.rs` 等
 - 统一使用 `State<'_, DbPool>` 注入，返回 `Result<T, AppError>`
 - 通过 `commands/utils.rs` 的 `EmitSync` trait 在变更后发射 `sync-event`
 
 #### DTO 层 (`src-tauri/src/db/dto.rs`)
+
 - v0.9.0 新增：将 18+ 个请求/响应结构体从 `models.rs` 迁出
 - 包括：`CreateSceneRequest`、`UpdateSceneRequest`、`CreateStoryRequest`、`UpdateStoryRequest`、`CreateCharacterRequest`、`CreateChapterRequest`、`CreateAiOperationRequest`、`StudioExportRequest` 等
 - 原则：贫血模型（`models.rs`）只保留数据库实体，DTO 只承担序列化/反序列化职责
 
 #### 领域服务层 (`src-tauri/src/story_system/`)
+
 - `chapter_service.rs`：章节变更后的伏笔检测、自动化触发（v0.23.74: `ChapterCommitDebouncer` 已由 `SceneCommitDebouncer` 接替）
 - `scene_service.rs`：场景内容变更后的 KG Ingest、向量索引、world_building 刷新、**SceneCommitDebouncer**（30s 防抖 auto_commit）
 - `commit_service.rs`：`SceneCommitService` — 场景级 commit，驱动 5 个 Projection Writer
 - `mod.rs`：`StorySystemEngine`、ContractTree / RuntimeContract
 
 #### Repository 层 (`src-tauri/src/db/repositories*.rs`)
+
 - `repositories.rs`：Story / Scene / Chapter / Character 通用仓库
 - `repositories_story_system.rs`：StoryContract / SceneCommit / MemoryItem / ReadingPower 等专用仓库
 - `repositories_narrative.rs` / `repositories_pipeline.rs` / `repositories_export.rs`：各垂直域仓库
 
 #### PromptRegistry 层 (`src-tauri/src/prompts/`)
+
 - v0.19.0 新增：统一 LLM 提示词注册表，所有硬编码提示词提取为可配置项
 - `registry.rs`：35+ 内置 prompt，15 个 `PromptCategory` 分类，支持 `resolve_prompt()` 运行时读取覆盖
 - `commands.rs`：IPC 命令（`list_prompt_entries`、`save_prompt_override`、`reset_prompt_override`、`reset_all_prompt_overrides`、`resolve_prompt_content`）
@@ -196,16 +202,18 @@ SQLite / LanceDB / File System
 ### 🗄️ 数据库与迁移框架 (v0.19.0)
 
 #### 数据层组件
-| 组件 | 路径 | 职责 |
-|------|------|------|
-| `connection.rs` | `src-tauri/src/db/connection.rs` | `DbPool`、初始 Schema、`init_db()`、遗留内联迁移 |
-| `migrations.rs` | `src-tauri/src/db/migrations.rs` | 自定义 `MigrationRunner`，扫描 `.sql` 文件 |
-| `migrations/V007~V027*.sql` | `src-tauri/src/db/migrations/` | 21 个版本化 SQL 迁移 |
-| `dto.rs` | `src-tauri/src/db/dto.rs` | 请求/响应 DTO |
-| `models.rs` | `src-tauri/src/db/models.rs` | 数据库实体模型 |
-| `traits.rs` | `src-tauri/src/db/traits.rs` | 仓库 trait 抽象 |
+
+| 组件                        | 路径                             | 职责                                             |
+| --------------------------- | -------------------------------- | ------------------------------------------------ |
+| `connection.rs`             | `src-tauri/src/db/connection.rs` | `DbPool`、初始 Schema、`init_db()`、遗留内联迁移 |
+| `migrations.rs`             | `src-tauri/src/db/migrations.rs` | 自定义 `MigrationRunner`，扫描 `.sql` 文件       |
+| `migrations/V007~V027*.sql` | `src-tauri/src/db/migrations/`   | 21 个版本化 SQL 迁移                             |
+| `dto.rs`                    | `src-tauri/src/db/dto.rs`        | 请求/响应 DTO                                    |
+| `models.rs`                 | `src-tauri/src/db/models.rs`     | 数据库实体模型                                   |
+| `traits.rs`                 | `src-tauri/src/db/traits.rs`     | 仓库 trait 抽象                                  |
 
 #### MigrationRunner 设计
+
 - 因项目使用 rusqlite 0.39，**自定义实现** `MigrationRunner`（未使用 refinery 默认 rusqlite 特性）
 - 扫描 `V{version}__{description}.sql` 文件名，按版本排序
 - 通过 `schema_migrations` 表追踪已应用版本
@@ -218,26 +226,27 @@ SQLite / LanceDB / File System
 ### 🎪 场景化叙事系统 (Scene System)
 
 #### 场景模型
+
 ```rust
 pub struct Scene {
     pub id: String,
     pub story_id: String,
     pub sequence_number: i32,      // 场景序号
     pub title: String,
-    
+
     // 戏剧结构
     pub dramatic_goal: String,      // 戏剧目标
     pub external_pressure: String,  // 外部压迫
     pub conflict_type: ConflictType, // 冲突类型
-    
+
     // 角色参与
     pub characters_present: Vec<String>,
     pub character_conflicts: Vec<CharacterConflict>,
-    
+
     // 内容
     pub content: String,
     pub setting: Setting,
-    
+
     // 关联
     pub previous_scene_id: Option<String>,
     pub next_scene_id: Option<String>,
@@ -255,12 +264,12 @@ pub enum ConflictType {
 
 #### 场景 vs 章节
 
-| 特性 | 章节 (Chapter) | 场景 (Scene) |
-|------|----------------|--------------|
-| 驱动方式 | 时间/长度驱动 | 戏剧冲突驱动 |
-| 结构 | 线性序列 | 网络化关联 |
-| AI 理解 | 文本内容 | 戏剧目标 + 冲突 |
-|  reorder | 简单排序 | 依赖关系维护 |
+| 特性     | 章节 (Chapter) | 场景 (Scene)    |
+| -------- | -------------- | --------------- |
+| 驱动方式 | 时间/长度驱动  | 戏剧冲突驱动    |
+| 结构     | 线性序列       | 网络化关联      |
+| AI 理解  | 文本内容       | 戏剧目标 + 冲突 |
+| reorder  | 简单排序       | 依赖关系维护    |
 
 ---
 
@@ -305,15 +314,15 @@ impl IngestPipeline {
         // Step 1: 分析阶段
         let analysis = self.analyze_content(content).await?;
         // 提取：实体、关系、事件、情感、伏笔
-        
+
         // Step 2: 生成阶段
         let knowledge = self.generate_knowledge(&analysis).await?;
         // 生成：实体档案、关系强度、事件重要性
-        
+
         // 保存
         self.save_to_graph(&knowledge).await?;
         self.save_to_vector_store(&knowledge).await?;
-        
+
         Ok(())
     }
 }
@@ -326,19 +335,19 @@ impl QueryPipeline {
     pub async fn query(&self, query: &str) -> Result<QueryResult, Error> {
         // Stage 1: CJK二元组分词搜索
         let search_results = self.token_search(query).await?;
-        
+
         // Stage 2: 图谱扩展（基于关系强度）
         let graph_expansion = self.graph_expansion(&search_results).await?;
-        
+
         // Stage 3: 预算控制（4K-1M tokens可配）
         let selected = self.budget_control(
-            &search_results, 
+            &search_results,
             &graph_expansion
         ).await?;
-        
+
         // Stage 4: 带引用编号的上下文组装
         let context = self.assemble_context(&selected).await?;
-        
+
         Ok(QueryResult { context, citations })
     }
 }
@@ -361,20 +370,20 @@ impl NovelCreationAgent {
         &self,
         user_input: &str,
     ) -> Result<Vec<WorldBuilding>, Error>;
-    
+
     /// 根据世界观生成角色谱选项
     async fn generate_character_profiles(
         &self,
         world_building: &WorldBuilding,
     ) -> Result<Vec<Vec<CharacterProfile>>, Error>;
-    
+
     /// 生成文字风格选项
     async fn generate_writing_styles(
         &self,
         genre: &str,
         world_building: &WorldBuilding,
     ) -> Result<Vec<WritingStyle>, Error>;
-    
+
     /// 生成首个场景
     async fn generate_first_scene(
         &self,
@@ -386,9 +395,9 @@ impl NovelCreationAgent {
 #### 引导式创建流程
 
 ```
-用户输入类型 → AI生成世界观选项 → 用户选择/编辑 → 
-AI生成角色谱选项 → 用户选择/编辑 → 
-AI生成文字风格选项 → 用户选择/编辑 → 
+用户输入类型 → AI生成世界观选项 → 用户选择/编辑 →
+AI生成角色谱选项 → 用户选择/编辑 →
+AI生成文字风格选项 → 用户选择/编辑 →
 AI生成首个场景 → 开始创作
 ```
 
@@ -422,7 +431,7 @@ impl StudioManager {
         story_id: &str,
         output_path: &Path,
     ) -> Result<()>;
-    
+
     /// 从 .storyforge ZIP 导入工作室配置
     pub async fn import_studio(
         &self,
@@ -464,24 +473,25 @@ impl StudioManager {
 ```
 
 **版本模型**
+
 ```rust
 pub struct SceneVersion {
     pub id: String,
     pub scene_id: String,
     pub version_number: i32,        // 版本号 (v1, v2, ...)
-    
+
     // 内容快照
     pub title: Option<String>,
     pub content: Option<String>,
     pub dramatic_goal: Option<String>,
     pub conflict_type: Option<ConflictType>,
-    
+
     // 版本元数据
     pub word_count: i32,
     pub change_summary: String,
     pub created_by: CreatorType,    // user/ai/system
     pub confidence_score: Option<f32>,
-    
+
     // 版本链
     pub previous_version_id: Option<String>,
     pub superseded_by: Option<String>,
@@ -491,6 +501,7 @@ pub struct SceneVersion {
 ### 🔍 混合搜索系统 (Phase 1.3)
 
 **RRF 融合排序**
+
 ```
 ┌─────────────────────────────────────────┐
 │          Hybrid Search                  │
@@ -520,6 +531,7 @@ pub struct SceneVersion {
 ### 🧠 记忆保留系统 (Phase 1.4)
 
 **艾宾浩斯遗忘曲线**
+
 ```
 R(t) = R₀ × e^(-λt) + Σ(强化奖励)
 
@@ -531,6 +543,7 @@ R(t) = R₀ × e^(-λt) + Σ(强化奖励)
 ```
 
 **优先级分级**
+
 ```rust
 pub enum PriorityLevel {
     Critical,    // > 0.8  - 必须保留
@@ -546,6 +559,7 @@ pub enum PriorityLevel {
 ### 🏛️ Story System 合同驱动体系 (v6.0.0)
 
 **四级合同架构**
+
 ```
 ┌─────────────────────────────────────────┐
 │           Story System                  │
@@ -576,6 +590,7 @@ pub enum PriorityLevel {
 ```
 
 **领域服务下沉 (v0.9.0)**
+
 - `story_system/chapter_service.rs`：`ChapterService` 统一处理 `on_chapter_updated` / `on_chapter_created`
   - `ChapterCommitDebouncer`：30 秒 debounce 后调用 `SceneCommitService::auto_commit`
   - `PayoffDetector`：检测逾期伏笔并发射 `PayoffOverdue` 事件
@@ -586,6 +601,7 @@ pub enum PriorityLevel {
 - 原 `commands/chapter.rs` 与 `scene_commands.rs` 只保留薄封装：参数校验 → 调用 Service → 发射同步事件
 
 **防幻觉三定律**
+
 1. 合同即法律 — 所有生成内容受合同约束
 2. 设定即物理 — 世界观设定如物理定律般不可违背
 3. 发明需识别 — 新实体必须被明确识别并记录
@@ -595,6 +611,7 @@ pub enum PriorityLevel {
 ### 🧠 三层记忆编排器 (v6.0.0)
 
 **MemoryOrchestrator 架构**
+
 ```
 ┌─────────────────────────────────────────┐
 │      MemoryOrchestrator                 │
@@ -628,6 +645,7 @@ pub enum PriorityLevel {
 ### 📈 追读力评估系统 (v6.0.0)
 
 **ReadingPowerEvaluator 五维评估**
+
 ```rust
 pub struct ReadingPowerEvaluation {
     pub overall_score: f32,        // 0-100
@@ -640,6 +658,7 @@ pub struct ReadingPowerEvaluation {
 ```
 
 **DebtManager 债务追踪**
+
 - 创建债务 → 逾期计息（每日 5%）→ 覆盖合同跳过 → 兑现销账
 
 ---
@@ -647,6 +666,7 @@ pub struct ReadingPowerEvaluation {
 ### 📚 体裁模板库 (v6.0.0)
 
 **GenreProfile 外部化**
+
 - 启动时优先读取 `{app_data_dir}/templates/genres.json`
 - 内置 37 个网文体裁模板，支持自定义编辑
 - 模板五要素：核心基调、节奏策略、反模式清单、参考数据表、典型结构
@@ -656,6 +676,7 @@ pub struct ReadingPowerEvaluation {
 ### 🔍 Anti-AI 五维审查 (v6.0.0)
 
 **AntiAiReviewer 架构**
+
 - 词汇维度：Cliché 检测 + 重复用词
 - 语法维度：句式多样性 + 被动语态
 - 叙事维度：段落均匀度 + 感官密度
@@ -670,6 +691,7 @@ pub struct ReadingPowerEvaluation {
 **解决的核心矛盾**：AI 长篇小说创作中"质量与速度不可兼得"——强化专业资产介入导致生成过慢，放松则质量低劣。
 
 **根因诊断（B + E）**：
+
 - **B（资产被错误同步化）**：合同、伏笔、Inspector、记忆各有最佳发力时机，却全压在"Writer 一次 LLM 调用"那个点上
 - **E（写与审被错误耦合）**：写（快）和审（深）被焊死在一条同步链路，用户全程干等
 
@@ -704,16 +726,19 @@ pub struct ReadingPowerEvaluation {
 ```
 
 **GenerationMode 三值**：
+
 - `Fast`：Ghost Text 等实时补全（原有，不变）
 - `TimeSliced`：**默认**，走三时间线（普通生成/auto_write/auto_revise）
 - `Full`：同步审计+Rewrite 闭环（向导/Genesis/Planner/Workflow）
 
 **Phase 0 实测验证**（qwen3.6-35b，3 场景 A/B 盲测）：
+
 - 最小约束 vs 全量资产平均质量差距 **7.9%**（< 30% 阈值）→ 架构成立
 - prompt 长 160% 仅耗时多 7% → 证实"慢在同步链路而非 Writer 本身"
 - 三条实证改进：红线突出注入、题材自适应 bundle、memory 维度优先审计
 
 **前端可见物**：
+
 - 顶栏 **DebtIndicator**（债务指示器）：未处理 annotation 计数，超阈值红色警告
 - 编辑器内 **TextAnnotationMark**：ai_audit 类型按 severity 动态着色（high=红/medium=琥珀/low=蓝）
 - 叙事分析页 **深度洞察 section**：健康度仪表盘 + 追读力趋势柱状图
@@ -725,16 +750,19 @@ pub struct ReadingPowerEvaluation {
 ### 📊 可观测性系统 (v6.0.0)
 
 **Ingest 作业追踪**
+
 - `ingest_jobs` 表：pending → running → completed/failed
 - `ingest-job-updated` Tauri 事件推送状态变更
 - 幕前顶栏 🧠 图标实时显示最近 Ingest 健康状态
 
 **功能使用度量**
+
 - `feature_usage_logs` 表：feature_id / action / story_id / metadata
 - `telemetry/mod.rs`：本地 SQLite 记录，零网络传输
 - Settings 页面「数据统计」标签：30 天柱状图
 
 **Projection 健康检查**
+
 - 解析 `scene_commits.projection_status_json`
 - 逐 Writer 展示成功/失败状态与错误原因
 
@@ -743,10 +771,12 @@ pub struct ReadingPowerEvaluation {
 ### 🔒 类型安全基座 (v6.0.0)
 
 **ts-rs 自动生成**
+
 - Rust `SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]`
 - 编译时生成 TypeScript 绑定到 `src-frontend/src/generated/`
 
 **前端穷尽匹配**
+
 ```typescript
 function assertUnreachable(x: never): never {
   throw new Error(`Unhandled case: ${x}`);
@@ -755,6 +785,7 @@ function assertUnreachable(x: never): never {
 ```
 
 **IPC 一致性检查**
+
 - `scripts/verify-ipc-manifest.py` 解析 `generate_handler![]` 与前端 `loggedInvoke`
 - 前端调用未注册命令时报 ERROR
 
@@ -958,6 +989,7 @@ StoryForge/
 ## 数据流
 
 ### 场景创建流程 (v0.9.0 分层)
+
 ```
 用户点击"新建场景" → StoryTimeline
 → invoke('create_scene', { story_id, sequence_number, title })
@@ -971,6 +1003,7 @@ StoryForge/
 ```
 
 ### AI 场景生成流程
+
 ```
 用户请求生成 → SceneGeneratorAgent
 → QueryPipeline::query() 获取上下文
@@ -980,6 +1013,7 @@ StoryForge/
 ```
 
 ### 记忆 Ingest 流程
+
 ```
 场景保存 → IngestPipeline::ingest()
 → Step 1: analyze_content() 提取实体关系
@@ -993,6 +1027,7 @@ StoryForge/
 ```
 
 ### SCENE_COMMIT 投影流程 (v6.0.0 → v0.9.0)
+
 ```
 场景保存
 → scene_service.rs / chapter_service.rs 领域编排
@@ -1005,6 +1040,7 @@ StoryForge/
   → projection_status_json 记录各 Writer 状态
 → 发射 sync-event: DataRefresh + IngestionCompleted
 ```
+
 > **v0.7.3 变更**：`ChapterCommitService` 重命名为 `SceneCommitService`，`chapter_commits` 表重命名为 `scene_commits`（Migration 70），提交粒度从 Chapter 对齐到 Scene。  
 > **v0.9.0 变更**：`SceneCommitService::auto_commit` 的调用从 Command 层下沉到 `story_system/chapter_service.rs` 的 `ChapterCommitDebouncer`，触发逻辑与 HTTP/IPC 层解耦。
 
@@ -1013,17 +1049,20 @@ StoryForge/
 ## 前端 IPC 与状态同步 (v0.9.0)
 
 ### API 服务层 (`src-frontend/src/services/api/`)
+
 - v0.9.0 将原 `services/tauri.ts`（1,340 行上帝文件）拆分为 17 个按域子模块
 - `core.ts` 仅保留 `loggedInvoke<T>`：参数脱敏 + 耗时日志 + 统一错误抛出
 - 历史导入 `import { ... } from '@/services/tauri'` 仍通过 3 行 barrel 兼容
 - 新增 `services/api/index.ts` barrel export，未来新模块推荐 `import { ... } from '@/services/api'`
 
 ### TanStack Query + Zustand 协作
+
 - `stores/appStore.ts`（Zustand）：保存 `currentStory`、`stories[]`、UI 状态
 - `hooks/useSyncStore.ts`：监听 Rust 发射的 `sync-event`，根据事件类型精确失效 TanStack Query 缓存
 - `App.tsx`：`currentStory` 变化时批量 `cancelQueries` + `invalidateQueries`，刷新关联数据
 
 ### 前后台通信
+
 - Rust `state_sync/events.rs` 定义 `SyncEvent`（`#[derive(TS)]` 自动生成到 `src-frontend/src/generated/SyncEvent.ts`）
 - 16+ 种事件覆盖：StoryCreated / StoryDeleted / CharacterUpdated / SceneCreated / ChapterUpdated / WorldBuildingUpdated / StyleDnaUpdated / TaskUpdated / AnnotationCreated / PayoffLedgerUpdated / DataRefresh 等
 - 幕前/幕后通过 Tauri 事件（`backstage-update`、`backstage-shown`）联动，逐步替代旧的 DOM CustomEvent
@@ -1033,12 +1072,14 @@ StoryForge/
 ## 性能优化
 
 ### 前端
+
 - **懒加载**: 幕前/幕后代码分割
 - **虚拟列表**: 故事线长列表优化
 - **防抖**: 自动保存 2 秒延迟
 - **增量更新**: 精确触发重新渲染
 
 ### 后端
+
 - **连接池**: r2d2 SQLite 连接复用
 - **异步**: Tokio 运行时处理 I/O
 - **缓存**: 向量索引内存缓存
@@ -1059,6 +1100,7 @@ StoryForge/
 ## 开发指南
 
 ### 启动开发服务器
+
 ```bash
 # 前端开发服务器（推荐单独启动）
 cd src-frontend && npm run dev
@@ -1072,6 +1114,7 @@ cd src-tauri && cargo tauri build
 ```
 
 ### 测试
+
 ```bash
 # Rust 单元测试
 cd src-tauri && cargo test
@@ -1084,6 +1127,7 @@ npm test
 ```
 
 ### 数据库迁移
+
 - 启动时 `init_db()` 自动调用 `MigrationRunner::run_with_legacy()`
 - SQL 迁移文件位置：`src-tauri/src/db/migrations/V###__*.sql`
 - 开发环境如需重置，可删除应用数据目录下的 SQLite 文件后重新启动

@@ -32,8 +32,9 @@ const logCrashToBackend = (phase: string, detail: string) => {
 
 window.addEventListener('error', event => {
   const detail = event.error?.stack || event.error?.message || event.message || String(event.error);
-  console.error('[FRONTSTAGE GLOBAL ERROR]', detail);
-  logCrashToBackend('error', detail);
+  const lastEffect = (window as any).__lastRichEditorEffect__ || 'unknown';
+  console.error('[FRONTSTAGE GLOBAL ERROR]', detail, { lastRichEditorEffect: lastEffect });
+  logCrashToBackend('error', `${detail}\n[lastRichEditorEffect: ${lastEffect}]`);
 });
 window.addEventListener('unhandledrejection', event => {
   const detail = event.reason?.stack || event.reason?.message || String(event.reason);

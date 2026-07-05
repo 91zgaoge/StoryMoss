@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.11
+- **版本**: v0.26.12
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -72,14 +72,23 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 632 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 147 passed / 3 skipped
+- `npx vitest run` ✅ 148 passed / 3 skipped
+- `npx playwright test --project=chromium` ✅ 35 passed / 5 skipped
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
 
+### v0.26.12 — 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值
+
+- 修复 `useCharacters` 返回 `null` 或未加载完成时，`RichTextEditor`「角色名点击」effect 访问 `characters.length` 导致白屏崩溃的问题。
+- `useSubscription` 增加空值防护，避免 `getSubscriptionStatus()` 返回 `null` 时产生错误日志。
+- 新增 Playwright E2E 回归测试 `e2e/genesis-duplicate.spec.ts`，覆盖「已有故事 + 新写末世小说」完整流程。
+- `frontstage/main.tsx` 与 `ErrorBoundary` 增强崩溃诊断输出。
+
 ### v0.26.11 — 修复 Genesis 第一章 store-editor 失步与崩溃隐患
+
 - 修复 Genesis 自动接受第一章后，store 依赖 200ms onChange debounce 回写导致的 store-editor 失步。
 - `appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`。
 - `RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被再次 setContent。
@@ -87,12 +96,14 @@ type:
 - 确认 `tauri.conf.json` `devUrl` 指向 dev server，避免开发时加载陈旧 dist 崩溃。
 
 ### v0.26.10 — 强化 Genesis 第一章重复防护（双重基准与追加最终防线）
+
 - 修复 v0.26.9 单一 `latestContentRef` 基准与编辑器 DOM 短暂失步时，重复检测仍可能失效的问题。
 - `isTextAlreadyInEditor`、`appendAiContent` 采用 `latestContentRef` + `editorRef.getText()` 双重基准。
 - `appendAiContent` 增加正文前缀剥离安全网，并在追加后用 DOM 文本校准 `latestContentRef`。
 - `RichTextEditor.appendText` 增加最终防线：编辑器尾部已包含待追加内容则直接跳过。
 
 ### v0.26.9 — 根治 Genesis 第一章重复（DOM 竞态与追加去重）
+
 - 修复 TipTap DOM 状态滞后于 React `content` prop 时，重复检测依赖 `editorRef.getText()` 导致失效的问题。
 - `isTextAlreadyInEditor`、`handleRequestGeneration`、`handleSmartGeneration`、`appendAiContent` 统一改用 `latestContentRef` 作为内容基准。
 - `appendAiContent` 追加后立即同步 `latestContentRef`，避免 onChange debounce 窗口期内重复追加。
@@ -100,6 +111,7 @@ type:
 - 新增 DOM 滞后竞态单元测试。
 
 ### v0.26.8 — 彻底修复 Genesis 第一章重复（竞态路径覆盖）
+
 - 修复 `genesisAutoAcceptedRef` 无法覆盖 pipeline-complete 先加载 DB 正文竞态的问题。
 - 新增 `isTextDuplicate` 归一化去重工具与 `isTextAlreadyInEditor` helper。
 - `handleRequestGeneration` / `handleSmartGeneration` 设置幽灵文本前检测编辑器是否已包含生成内容。
@@ -107,4 +119,4 @@ type:
 
 ---
 
-*最后更新: 2026-07-05 - v0.26.11*
+_最后更新: 2026-07-05 - v0.26.12_

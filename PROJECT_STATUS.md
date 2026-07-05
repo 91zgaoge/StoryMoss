@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.11 项目完成状态
+# StoryForge (草苔) v0.26.12 项目完成状态
 
-> 最后更新: 2026-07-05（v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患）
+> 最后更新: 2026-07-05（v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.12 — 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值（2026-07-05）
+
+- 🎯 **症状**：打开已有故事或新写小说后，幕前界面偶尔白屏崩溃，ErrorBoundary 显示 `Cannot read properties of null (reading 'length')`；订阅状态接口返回异常时日志出现 TypeError。
+- 🎯 **根因**：`RichTextEditor`「角色名点击」effect 在初始化时直接访问 `characters.length`，而 `useCharacters` 的 `data` 可能为 `null`（React Query 默认值仅对 `undefined` 生效）；`useSubscription` 未对 `getSubscriptionStatus()` 返回 `null` 做空值防护。
+- 🎯 **修复**：`RichTextEditor` 角色点击 effect 增加 `!characters || characters.length === 0` 守卫；`useSubscription` 使用 optional chaining 读取 `status?.tier`、`status?.status` 并回退默认值；新增 Playwright E2E 回归测试 `e2e/genesis-duplicate.spec.ts` 覆盖「已有故事 + 新写末世小说」完整流程。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 148 passed / 3 skipped；`npx playwright test --project=chromium` 35 passed / 5 skipped；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过。
 
 ### v0.26.11 — 修复 Genesis 第一章 store-editor 失步与崩溃隐患（2026-07-05）
 
@@ -328,43 +335,43 @@
 
 ## 🔧 编译状态
 
-| 检查项 | 状态 |
-|--------|------|
-| `cargo check` | ✅ 零错误 |
-| `cargo test --lib` | ✅ 538 passed / 0 failed / 2 ignored |
-| `cargo test --lib intention_graph` | ✅ 21/21 |
-| `cargo test --lib adaptive::asset_params` | ✅ 3/3 |
-| `cargo test --lib genre_resolver` | ✅ 5/5 |
-| `cargo test --lib selector` | ✅ 6/6 |
-| `cargo test --lib write_time_bundle` | ✅ 13/13 |
-| `cargo test --lib dispatcher` | ✅ 5/5 |
-| 真实模型测试（Gemma4-e2b） | ✅ 6/6 |
-| `npx tsc --noEmit` | ✅ 零错误 |
-| `npx vitest run` | ✅ 126 passed / 3 skipped |
-| `cargo +nightly fmt -- --check` | ✅ 零差异 |
-| `npm run format:check` | ✅ 零差异 |
-| `python3 scripts/architecture_guard.py` | ✅ 通过 |
-| 后台资产审计 | ✅ 完成，见 `docs/CREATIVE_ASSETS_AUDIT_v0.22.4.md` |
-| 已知测试失败 | ✅ 无（V092 基线问题已在 v0.23.3 清零） |
+| 检查项                                    | 状态                                                |
+| ----------------------------------------- | --------------------------------------------------- |
+| `cargo check`                             | ✅ 零错误                                           |
+| `cargo test --lib`                        | ✅ 538 passed / 0 failed / 2 ignored                |
+| `cargo test --lib intention_graph`        | ✅ 21/21                                            |
+| `cargo test --lib adaptive::asset_params` | ✅ 3/3                                              |
+| `cargo test --lib genre_resolver`         | ✅ 5/5                                              |
+| `cargo test --lib selector`               | ✅ 6/6                                              |
+| `cargo test --lib write_time_bundle`      | ✅ 13/13                                            |
+| `cargo test --lib dispatcher`             | ✅ 5/5                                              |
+| 真实模型测试（Gemma4-e2b）                | ✅ 6/6                                              |
+| `npx tsc --noEmit`                        | ✅ 零错误                                           |
+| `npx vitest run`                          | ✅ 126 passed / 3 skipped                           |
+| `cargo +nightly fmt -- --check`           | ✅ 零差异                                           |
+| `npm run format:check`                    | ✅ 零差异                                           |
+| `python3 scripts/architecture_guard.py`   | ✅ 通过                                             |
+| 后台资产审计                              | ✅ 完成，见 `docs/CREATIVE_ASSETS_AUDIT_v0.22.4.md` |
+| 已知测试失败                              | ✅ 无（V092 基线问题已在 v0.23.3 清零）             |
 
 ---
 
 ## 📊 提示词覆盖统计
 
-| 类别 | 数量 | 状态 |
-|------|------|------|
-| Writer/Inspector/Commentator | 5 | ✅ 全部可覆盖 |
-| Planner/Analyzer | 4 | ✅ 全部可覆盖 |
-| Pipeline（审稿/修稿/后处理） | 4 | ✅ v0.22.0 新增 |
-| Audit（质量审计） | 1 | ✅ v0.22.0 新增 |
-| Intent（意图解析） | 1 | ✅ v0.22.0 新增 |
-| Deconstruction（拆书） | 5 | ✅ v0.22.0 新增 |
-| Creation（创世流程） | 14 | ✅ v0.22.0 新增 |
-| Strategy（策略选择） | 1 | ✅ v0.22.0 新增 |
-| Methodology（方法论） | 19 | ✅ 全部可覆盖 |
-| Skill（技能） | 5 | ✅ 全部可覆盖 |
-| Memory/Knowledge/Probe | 7 | ✅ 全部可覆盖 |
-| Narrative（叙事） | 2 | ✅ 全部可覆盖 |
-| World/Character（世界/角色） | 6 | ✅ 全部可覆盖 |
-| System/Other | 5 | ✅ 全部可覆盖 |
-| **总计** | **79** | ✅ |
+| 类别                         | 数量   | 状态            |
+| ---------------------------- | ------ | --------------- |
+| Writer/Inspector/Commentator | 5      | ✅ 全部可覆盖   |
+| Planner/Analyzer             | 4      | ✅ 全部可覆盖   |
+| Pipeline（审稿/修稿/后处理） | 4      | ✅ v0.22.0 新增 |
+| Audit（质量审计）            | 1      | ✅ v0.22.0 新增 |
+| Intent（意图解析）           | 1      | ✅ v0.22.0 新增 |
+| Deconstruction（拆书）       | 5      | ✅ v0.22.0 新增 |
+| Creation（创世流程）         | 14     | ✅ v0.22.0 新增 |
+| Strategy（策略选择）         | 1      | ✅ v0.22.0 新增 |
+| Methodology（方法论）        | 19     | ✅ 全部可覆盖   |
+| Skill（技能）                | 5      | ✅ 全部可覆盖   |
+| Memory/Knowledge/Probe       | 7      | ✅ 全部可覆盖   |
+| Narrative（叙事）            | 2      | ✅ 全部可覆盖   |
+| World/Character（世界/角色） | 6      | ✅ 全部可覆盖   |
+| System/Other                 | 5      | ✅ 全部可覆盖   |
+| **总计**                     | **79** | ✅              |
