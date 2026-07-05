@@ -66,6 +66,7 @@ type:
 - [CHANGELOG.md](./CHANGELOG.md)
 - [ROADMAP.md](./ROADMAP.md)
 - [docs/archive/AGENTS_HISTORY.md](./docs/archive/AGENTS_HISTORY.md) — 完整历史版本记录
+- [docs/archive/LESSONS_LEARNED.md](./docs/archive/LESSONS_LEARNED.md) — 项目修复过程中积累的经验教训与反模式
 
 ## 当前编译状态
 
