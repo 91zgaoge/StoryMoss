@@ -8,17 +8,19 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.14-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.16-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.14 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力：
+**最新动态**：v0.26.16 根治 Genesis 第一章重复、修复 Issue #4 启动稳定性并清理代码格式：
 
-- **修复「新写小说时第一章内容重复」仍未彻底解决**：v0.26.9–v0.26.13 已确保数据层只追加一次、渲染层不会残留幽灵容器，但用户仍看到「开头段落与结尾段落相同」的重复。分析 `creative_workflow.log` 后确认，重复来自 **LLM 生成的正文自身首尾段落重复**（模型级循环），并非前端写入两次。
-  - 新增 `trimSelfRepetition` 工具：段落级检测「后半段 == 前半段」或「末段 == 首段」；字符级使用 KMP 最长 border 检测长尾重复，保守阈值下自动裁剪。
-  - 在 `FrontstageApp.appendAiContent` 入口及 `smart_execute.finalContent` 进入编辑器/幽灵文本前统一调用自重复清理，覆盖 Genesis 自动接受、Tab 接受、`ContentUpdate`/`AppendContent` 等全部路径。
-  - 新增 `trimSelfRepetition` 单元测试。
+- **根治「新写小说时第一章内容重复」**：替代 v0.26.7–v0.26.14 的散布补丁，从生成侧与前端的两个独立根因进行结构性修复。
+  - **生成侧验证闸门**：`genesis.rs` 检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试；prompt 模板新增「结构纪律」段，明确禁止首尾回环与整章重复。
+  - **前端单写者状态机**：`FrontstageApp` 将 `genesisAutoAcceptedRef` 布尔替换为 `idle → generating → delivered` 三态状态机，`generating` 态阻塞外部内容投递，`delivered` 态阻塞幽灵文本恢复，消除多路径并发导致的重复叠加。
+  - `textCleanup` 与 Rust `trim_self_repetition` 统一 KMP 最长 border 检测，覆盖全部写入路径。
 
-- **缓解「写完后过会儿页面崩溃」**：`RichTextEditor` 的 `frontstage:rich_editor_diag` 渲染诊断日志此前每帧都通过 IPC 写入后端，长时间写作或文思活跃模式下日志量与 IPC 调用激增。现改为仅前 20 次渲染 + 幽灵文本/隐藏锁状态变化时记录，并将 IPC 日志节流从 50ms 收紧到 200ms，降低前端压力。
+- **修复 Issue #4：应用启动 panic/Windows 闪退**：当应用数据目录不可写导致 `init_db` 失败时，`GatewayExecutor` 不再通过 `state::<DbPool>()` 读取未 manage 的 pool，改为由 `setup` 显式传入 pool 并仅在 pool 可用时初始化网关，避免启动时 panic。
+
+- **清理 CI 格式检查失败**：已全局运行 `cargo +nightly fmt` 与 `prettier --write`，`cargo +nightly fmt -- --check` 与 `npm run format:check` 均已通过。
 
 **上一版**：v0.26.13 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）；v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值；v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患：
 

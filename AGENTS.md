@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.14
+- **版本**: v0.26.16
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -70,15 +70,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 632 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 637 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 155 passed / 3 skipped
-- `npx playwright test` ✅ 35 passed / 5 skipped
+- `npx vitest run` ✅ 166 passed / 3 skipped
+- `npx playwright test` ✅ 36 passed / 5 skipped
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.16 — 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复
+
+- **根治 Genesis 第一章内容重复**：替代 v0.26.7–v0.26.14 的散布布尔守卫补丁模式，从两个独立根因进行结构性修复。
+  - **R2 生成侧验证闸门（`src-tauri/src/narrative/genesis.rs`）**：检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试一次；prompt 模板新增「结构纪律」段，明确禁止首尾回环与整章重复。
+  - **R1 前端单写者状态机（`src-frontend/src/frontstage/FrontstageApp.tsx`）**：将 `genesisAutoAcceptedRef` 布尔替换为 `idle → generating → delivered` 三态状态机；`generating` 态阻塞 `onChapterUpdated` 与 `loadStories` 自动选择；`delivered` 态阻塞 `setGeneratedText` 幽灵文本恢复。
+  - `textCleanup` 提升到 `src-frontend/src/utils` 共享；Rust `trim_self_repetition` 对齐前端 KMP 最长 border 检测；全路径统一调用 `trimSelfRepetition`。
+- **修复 Issue #4：init_db 失败时启动 panic/Windows 闪退**：`GatewayExecutor::new` 改为显式接收 `pool`，`setup` 仅在 pool 可用时初始化网关执行器，避免 `state::<DbPool>()` 在启动时 panic；新增不可写目录回归测试。
+- **修复 CI 格式检查失败**：`cargo +nightly fmt -- --check` 与 `npm run format:check` 现已通过。
 
 ### v0.26.14 — 修复 Genesis 第一章模型输出自重复与幕前诊断日志过载
 
@@ -137,4 +146,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-05 - v0.26.13_
+_最后更新: 2026-07-06 - v0.26.16_

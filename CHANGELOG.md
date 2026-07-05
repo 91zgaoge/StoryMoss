@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.16] - 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复（2026-07-06）
+
+### 修复
+
+- **根治 Genesis 第一章内容重复**：替代 v0.26.7–v0.26.14 的散布布尔守卫补丁模式，从两个独立根因进行结构性修复。
+  - **R2 生成侧验证闸门（`src-tauri/src/narrative/genesis.rs`）**：检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试一次；重试更干净则采用，否则保留首次清理结果；prompt 模板新增「结构纪律」段，明确禁止首尾回环与整章重复。
+  - **R1 前端单写者状态机（`src-frontend/src/frontstage/FrontstageApp.tsx`）**：将 `genesisAutoAcceptedRef` 布尔（10+ 处赋值）替换为 `idle → generating → delivered` 三态状态机；`generating` 态阻塞 `onChapterUpdated` 与 `loadStories` 自动选择；`delivered` 态阻塞 `setGeneratedText` 幽灵文本恢复；`selectChapter` 的 `skipContent` 由调用方按场景传入，不设硬闸门。
+  - `textCleanup` 提升到 `src-frontend/src/utils` 供渲染层与排版共享；Rust `trim_self_repetition` 对齐前端 KMP 最长 border 检测；全路径（`selectChapter` / `onChapterUpdated` / `ContentUpdate` / `AppendContent` / `autoFormatText`）统一调用 `trimSelfRepetition`。
+- **修复 Issue #4：init_db 失败时应用启动 panic/Windows 闪退**：当应用数据目录不可写时，`init_db` 返回错误但 `setup` 仍构造 `GatewayExecutor`，其内部 `state::<DbPool>()` 因 pool 未 manage 而在启动时 panic。现改为显式将 `pool` 传入 `GatewayExecutor::new`，并在 `setup` 中仅当 `pool` 存在时才初始化管理网关执行器与健康探测调度器；新增回归测试覆盖不可写目录场景。
+- **修复 CI 格式检查失败**：`src-tauri/src/utils/text.rs`、`src-frontend/src/frontstage/FrontstageApp.tsx`、`src-frontend/src/utils/__tests__/textCleanup.test.ts` 等文件未通过 `cargo +nightly fmt -- --check` 与 `npm run format:check`；已全局格式化并重新通过检查。
+
+### 验证
+
+- `cargo test --lib`：**637 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt -- --check`：✅ 通过
+- `npm run format:check`：✅ 零差异
+- `npx tsc --noEmit`：✅ 零错误
+- `cargo check`：✅ 通过
+- `python3 scripts/architecture_guard.py`：✅ 通过
+
 ## [v0.26.14] - 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力（2026-07-05）
 
 ### 修复

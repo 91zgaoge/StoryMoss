@@ -1,6 +1,21 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-05（v0.26.14 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力）
+> 最后更新: 2026-07-06（v0.26.16 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复）
+
+## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.16 Genesis 第一章重复根治 + Issue #4 启动稳定性修复 ✅ (2026-07-06)
+
+- [x] 生成侧验证闸门：`genesis.rs` 检测 LLM 自重复比例，≥8% 时 anti-repeat 重试
+- [x] Prompt 模板新增「结构纪律」段，禁止首尾回环与整章重复
+- [x] 前端单写者状态机：`idle → generating → delivered` 三态替换布尔守卫
+- [x] `generating` 态阻塞 `onChapterUpdated` 与 `loadStories` 自动选择
+- [x] `delivered` 态阻塞 `setGeneratedText` 幽灵文本恢复
+- [x] `textCleanup` 提升为 `src-frontend/src/utils` 共享工具
+- [x] Rust `trim_self_repetition` 对齐前端 KMP 最长 border 检测
+- [x] Issue #4：`GatewayExecutor::new` 显式接收 `pool`，`setup` 仅在 pool 可用时初始化网关
+- [x] 新增不可写应用目录回归测试
+- [x] 修复 CI `cargo +nightly fmt -- --check` 与 `npm run format:check` 失败
 
 ## ✅ v0.23.x 已实施完成
 

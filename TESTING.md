@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.14)
+# 🧪 StoryForge 自动化测试环境 (v0.26.16)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -6,7 +6,7 @@
 
 | 套件                                | 数量     | 状态                           |
 | ----------------------------------- | -------- | ------------------------------ |
-| `cargo test --lib`                  | 632      | ✅ 0 failed / 2 ignored        |
+| `cargo test --lib`                  | 637      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative`        | 11       | ✅（拆书/叙事元素 round-trip） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
@@ -16,7 +16,7 @@
 | 类型           | 数量      | 状态                                         |
 | -------------- | --------- | -------------------------------------------- |
 | Rust 单元测试  | 632       | ✅ 全部通过 (`cargo test --lib`)             |
-| 前端单元测试   | 151       | ✅ 全部通过 (`vitest run`)                   |
+| 前端单元测试   | 166       | ✅ 全部通过 (`vitest run`)                   |
 | 前端构建测试   | —         | ✅ `npm run build` 通过                      |
 | Tauri 构建测试 | —         | ✅ `cargo tauri build` 通过                  |
 | Playwright E2E | 41 (36+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`），其中 `genesis-duplicate.spec.ts` 验证自动接受后幽灵段落隐藏 |
@@ -44,7 +44,7 @@
 - `creative_engine/anti_ai/`：AntiAiRewriter 4 例、OpeningClarityGate 5 例、LivingAuthorGuard 6 例
 - `utils/validation_tests.rs`：16 例
 - `utils/style_align.rs`：3 例
-- `utils/text.rs`：7 例
+- `utils/text.rs`：12 例（新增 `trim_self_repetition` 自重复清理测试）
 - `utils/file.rs`：3 例
 - `pipeline/executor.rs`：9 例
 - `pipeline/refine.rs`：3 例

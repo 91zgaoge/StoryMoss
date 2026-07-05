@@ -518,11 +518,15 @@ const FrontstageApp: React.FC = () => {
               // v0.26.15: 从 DB 加载的内容也可能是模型自重复（旧数据或保存路径异常）。
               const dbContent = trimSelfRepetition(rawDbContent);
               if (dbContent.length < rawDbContent.length) {
-                logToBackend('frontstage:on_chapter_updated_trim', 'trimmed self-repeating DB content', {
-                  chapterId,
-                  originalLen: rawDbContent.length,
-                  cleanedLen: dbContent.length,
-                });
+                logToBackend(
+                  'frontstage:on_chapter_updated_trim',
+                  'trimmed self-repeating DB content',
+                  {
+                    chapterId,
+                    originalLen: rawDbContent.length,
+                    cleanedLen: dbContent.length,
+                  }
+                );
               }
               // v0.23.62: 与编辑器当前内容比较，相同则跳过（避免空操作触发渲染）
               const currentEditorText = editorRef.current?.getText() || '';
@@ -1534,7 +1538,8 @@ const FrontstageApp: React.FC = () => {
               // 加载到编辑器，ChapterSwitch 不再重复加载 DB 正文，避免同一内容被设置两次。
               // v0.26.12 fix: 必须先根据当前 genesisDeliveryRef 决定是否跳过，再在本事件
               // v0.26.16: 只有 delivered 态才跳过（内容已在编辑器中）。generating 态允许 ChapterSwitch 投递内容。
-              const chapterSwitchSkipContent = !autoAccept || genesisDeliveryRef.current === 'delivered';
+              const chapterSwitchSkipContent =
+                !autoAccept || genesisDeliveryRef.current === 'delivered';
               // v0.26.6 fix: 标记 Genesis 正文已通过 ChapterSwitch 自动加载，后续
               // smart_execute 结果不得再恢复 generatedText，防止内容重复。
               if (autoAccept && payload.content) {

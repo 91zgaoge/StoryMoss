@@ -38,8 +38,15 @@ pub struct GatewayExecutor {
 }
 
 impl GatewayExecutor {
-    pub fn new(app_handle: AppHandle, registry: GatewayRegistry, llm_service: LlmService) -> Self {
-        let pool = app_handle.state::<DbPool>().inner().clone();
+    /// Issue #4: `pool` must be passed explicitly — never `state::<DbPool>()`
+    /// here. When `init_db` fails, setup skips `manage(pool)` and must not
+    /// construct this type.
+    pub fn new(
+        app_handle: AppHandle,
+        registry: GatewayRegistry,
+        llm_service: LlmService,
+        pool: DbPool,
+    ) -> Self {
         Self {
             app_handle,
             registry: Arc::new(Mutex::new(registry)),

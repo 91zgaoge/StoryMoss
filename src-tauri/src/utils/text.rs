@@ -355,7 +355,8 @@ mod tests {
 
     #[test]
     fn test_trim_self_repetition_whole_chapter_duplicated() {
-        let copy = "他穿过废墟，脚步在碎石上发出轻微的响动。天空是铅灰色的，空气中弥漫着焦灼的味道。\n\n\
+        let copy =
+            "他穿过废墟，脚步在碎石上发出轻微的响动。天空是铅灰色的，空气中弥漫着焦灼的味道。\n\n\
                     远处传来一阵低沉的轰鸣，他停下脚步，握紧了手中的武器。";
         let text = format!("{copy}\n\n{copy}");
         assert_eq!(TextUtils::trim_self_repetition(&text), copy);
@@ -377,12 +378,16 @@ mod tests {
         let prefix = "在这个残酷的世界里，一个成功，也只是催生了更多的挑战。少年的目标是抓取一个正在勃勃生长的菌菇。";
         let middle = "他穿过狭窄的通道，避开那些潜伏在黑暗中的危险。";
         let text = format!("{prefix}{middle}{prefix}");
-        assert_eq!(TextUtils::trim_self_repetition(&text), format!("{prefix}{middle}"));
+        assert_eq!(
+            TextUtils::trim_self_repetition(&text),
+            format!("{prefix}{middle}")
+        );
     }
 
     #[test]
     fn test_trim_self_repetition_repeated_block_in_last_paragraph() {
-        let p1 = "他不知道自己多少岁，但这种生活让他感受到时间的流逝。疾风中的寂寞催作了他的心理崩溃。";
+        let p1 =
+            "他不知道自己多少岁，但这种生活让他感受到时间的流逝。疾风中的寂寞催作了他的心理崩溃。";
         let p2 = "当他的狗伴在他身前伸出一根粗糙的嘴，催促他抬头时，他顿悟了自己的位置。";
         let p3 = "这不是他的生活的终局，他要从这片凋零的地平线中夺回生命的意义。";
         let p4prefix = "辽东荒凉之中，一片狭窄的谷丘偶然掩蔽了世界的残留。此地尽是干枯的植物。";

@@ -832,7 +832,9 @@ pub fn run() {
             };
 
             // v0.14.0: 初始化模型网关执行器与健康探测调度器
-            {
+            // Issue #4: init_db 失败时 pool 未 manage，必须跳过 GatewayExecutor，
+            // 否则 state::<DbPool>() 会在启动时 panic（Windows 闪退）。
+            if let Some(ref db_pool) = pool {
                 let llm_service = app
                     .state::<crate::llm::service::LlmService>()
                     .inner()
@@ -844,6 +846,7 @@ pub fn run() {
                     app.handle().clone(),
                     gateway_registry,
                     llm_service,
+                    db_pool.clone(),
                 );
                 app.manage(gateway_executor.clone());
                 crate::model_gateway::scheduler::spawn_health_probe_scheduler(
@@ -851,6 +854,10 @@ pub fn run() {
                     gateway_executor,
                 );
                 log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
+            } else {
+                log::warn!(
+                    "[ModelGateway] No DB pool available, skipping gateway executor init"
+                );
             }
 
             // v0.23.14: 启动归零 —— 清空 llm_calls 历史表，避免死模型污染健康报告。

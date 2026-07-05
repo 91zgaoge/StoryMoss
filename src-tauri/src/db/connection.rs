@@ -3989,4 +3989,38 @@ mod tests {
         assert_eq!(char2_count, 1, "Other characters should remain");
         assert_eq!(scene_count, 1, "Scenes should remain");
     }
+
+    /// Issue #4 contract: when init_db fails, setup must not construct
+    /// GatewayExecutor (pool is not managed; calling state::<DbPool>()
+    /// would panic on startup).
+    #[test]
+    fn issue_4_init_db_failure_returns_err_on_unwritable_app_dir() {
+        let dir = std::env::temp_dir().join(format!("storyforge_issue4_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&dir).expect("metadata").permissions();
+            perms.set_mode(0o444);
+            std::fs::set_permissions(&dir, perms).expect("set read-only");
+        }
+
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("attrib");
+            cmd.args(["+R", &dir.to_string_lossy()]);
+            let status = cmd.status().expect("attrib +R");
+            assert!(status.success(), "failed to mark temp dir read-only");
+        }
+
+        let result = init_db(&dir);
+        assert!(
+            result.is_err(),
+            "init_db should fail when app data directory is not writable"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

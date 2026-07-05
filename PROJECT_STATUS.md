@@ -1,11 +1,23 @@
-# StoryForge (草苔) v0.26.14 项目完成状态
+# StoryForge (草苔) v0.26.16 项目完成状态
 
-> 最后更新: 2026-07-05（v0.26.14 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力）
+> 最后更新: 2026-07-06（v0.26.16 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.16 — 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复（2026-07-06）
+
+- 🎯 **症状**：v0.26.14 后 Genesis 第一章重复问题在部分模型/路径上仍偶发；部分 Windows 用户在应用数据目录不可写时遇到启动闪退/ panic。
+- 🎯 **根因 1（重复）**：LLM 可能生成自身首尾重复的正文；前端 Genesis 自动接受流程使用布尔守卫，多处赋值导致状态机混乱，多路径并发下内容被叠加。
+- 🎯 **根因 2（启动 panic）**：`init_db` 失败后 `setup` 仍构造 `GatewayExecutor`，其通过 `state::<DbPool>()` 读取未 manage 的 pool 导致启动 panic。
+- 🎯 **修复**：
+  - 生成侧验证闸门：自重复比例 ≥8% 时 anti-repeat 重试；prompt 新增「结构纪律」段。
+  - 前端单写者状态机：`idle → generating → delivered`，阻塞外部投递与幽灵恢复。
+  - `GatewayExecutor::new` 显式传 pool，`setup` 仅在 pool 可用时初始化网关。
+  - 全局代码格式化，修复 CI `fmt`/`prettier` 检查失败。
+- ✅ **验证**：`cargo test --lib` 637 passed / 0 failed / 2 ignored；`npx vitest run` 166 passed / 3 skipped；`npx tsc --noEmit` 零错误；`cargo +nightly fmt -- --check` 通过；`npm run format:check` 零差异；`python3 scripts/architecture_guard.py` 通过。
 
 ### v0.26.14 — 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力（2026-07-05）
 
