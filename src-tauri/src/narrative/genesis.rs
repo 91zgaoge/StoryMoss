@@ -822,6 +822,9 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 tier: None,
             };
 
+            // v0.26.16: 保留 task 副本用于自重复重试。AgentTask derives Clone.
+            let task_for_retry = task.clone();
+
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
@@ -844,7 +847,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 orchestrator_config,
                 ctx.app_handle.clone(),
             );
-            let result = match orchestrator.generate(task, genesis_mode).await {
+            let mut result = match orchestrator.generate(task, genesis_mode).await {
                 Ok(workflow_result) => crate::domain::agent_types::AgentResult {
                     content: workflow_result.final_content,
                     score: Some(workflow_result.final_score),
@@ -868,6 +871,110 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                         "score": result.score,
                     })),
                 );
+            }
+
+            // v0.26.16: 生成侧验证闸门——检测自重复并在显著时重试一次。
+            // 根因：v0.26.14 发现 LLM 会输出「首尾段落相同」的模型级循环。
+            // 后处理 trim 只能事后裁剪，且为避免误伤首尾呼应而阈值保守。
+            // 此处在生成侧主动检测：若 trim 裁掉量 ≥ 8%，判定为模型故障，
+            // 用更强 anti-repeat 指令重试一次。重试更干净则采用，否则保留首次清理结果。
+            let raw_content = result.content.clone();
+            let cleaned_content = crate::utils::text::TextUtils::trim_self_repetition(&raw_content);
+            let raw_chars = raw_content.chars().count();
+            let cleaned_chars = cleaned_content.chars().count();
+            let trim_ratio = if raw_chars > 0 {
+                1.0 - (cleaned_chars as f32 / raw_chars as f32)
+            } else {
+                0.0
+            };
+
+            if trim_ratio >= 0.08 && raw_chars > 100 {
+                log::warn!(
+                    "[Genesis-DIAG] self-repetition detected (ratio={:.2}, raw={} chars, cleaned={} chars), retrying with anti-repeat prompt",
+                    trim_ratio,
+                    raw_chars,
+                    cleaned_chars
+                );
+                if let Some(logger) = ctx
+                    .app_handle
+                    .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+                {
+                    logger.info(
+                        "genesis.self_repetition_retry",
+                        "检测到模型自重复，使用 anti-repeat 指令重试",
+                        Some(serde_json::json!({
+                            "story_id": &ctx.story_id,
+                            "trim_ratio": format!("{:.2}", trim_ratio),
+                            "raw_chars": raw_chars,
+                            "cleaned_chars": cleaned_chars,
+                        })),
+                    );
+                }
+
+                let mut retry_task = task_for_retry;
+                retry_task.id = Uuid::new_v4().to_string();
+                retry_task.input.push_str(
+                    "\n\n【绝对禁止 — 上一版违反了以下纪律，本次必须严格遵守】\n\
+                     - 严禁首段与末段相同或高度相似：结尾必须是新的情节推进，不得回环到开头\n\
+                     - 严禁整章内容写两遍或前后两半高度重叠\n\
+                     - 严禁任何段落、句子、情节块在文中出现两次\n\
+                     - 严禁在结尾复述开头的场景、意象或句式\n\
+                     请确保全文每一段都是全新的内容，首尾之间没有任何重复。",
+                );
+
+                match orchestrator.generate(retry_task, genesis_mode).await {
+                    Ok(retry_workflow_result) => {
+                        let retry_raw = retry_workflow_result.final_content;
+                        let retry_cleaned =
+                            crate::utils::text::TextUtils::trim_self_repetition(&retry_raw);
+                        let retry_raw_chars = retry_raw.chars().count();
+                        let retry_cleaned_chars = retry_cleaned.chars().count();
+                        let retry_trim_ratio = if retry_raw_chars > 0 {
+                            1.0 - (retry_cleaned_chars as f32 / retry_raw_chars as f32)
+                        } else {
+                            0.0
+                        };
+
+                        log::warn!(
+                            "[Genesis-DIAG] retry completed: retry_trim_ratio={:.2} (original={:.2}), retry_cleaned={} chars",
+                            retry_trim_ratio,
+                            trim_ratio,
+                            retry_cleaned_chars
+                        );
+
+                        if retry_trim_ratio < trim_ratio {
+                            result.content = retry_cleaned;
+                            log::info!(
+                                "[Genesis-DIAG] retry accepted: cleaner than original (ratio {} -> {})",
+                                trim_ratio,
+                                retry_trim_ratio
+                            );
+                        } else {
+                            result.content = cleaned_content;
+                            log::info!(
+                                "[Genesis-DIAG] retry rejected: not cleaner, keeping original trimmed content"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[Genesis-DIAG] retry failed (non-blocking): {}, keeping original trimmed content",
+                            e
+                        );
+                        result.content = cleaned_content;
+                    }
+                }
+            } else {
+                // v0.26.15: 无显著自重复，直接使用清理后内容
+                result.content = cleaned_content;
+                if result.content.len() < raw_content.len() {
+                    log::warn!(
+                        "[Genesis-DIAG] trimmed minor self-repetition: story_id={} original_len={} cleaned_len={}",
+                        ctx.story_id,
+                        raw_content.len(),
+                        result.content.len()
+                    );
+                }
             }
 
             // Phase 1: 内容保存到 Scene（Scene 为真相源），Chapter 仅存元数据

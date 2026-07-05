@@ -247,80 +247,92 @@ const getGenesisMockScript = () => {
   };
 };
 
+async function runGenesisDuplicateTest(
+  page: import("@playwright/test").Page,
+  chapterText: string,
+  screenshotName: string
+) {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.addInitScript(getGenesisMockScript(), chapterText);
+  await page.goto("/frontstage.html");
+
+  const consoleLogs: string[] = [];
+  page.on("console", (msg) => {
+    const text = `[${msg.type()}] ${msg.text()}`;
+    consoleLogs.push(text);
+    // eslint-disable-next-line no-console
+    console.log(text);
+  });
+  page.on("pageerror", (err) => {
+    const text = `PAGEERROR: ${err.message} | ${err.stack || "no stack"}`;
+    consoleLogs.push(text);
+    // eslint-disable-next-line no-console
+    console.log(text);
+  });
+
+  const editor = page.locator(".ProseMirror").first();
+  await expect(editor).toBeVisible({ timeout: 10000 });
+
+  const input = page
+    .locator('textarea[placeholder*="指令"], textarea[placeholder*="任意"]')
+    .first();
+  await expect(input).toBeVisible({ timeout: 10000 });
+  await input.fill("新写一部末世小说");
+  await input.press("Enter");
+
+  await page.waitForTimeout(1500);
+  // eslint-disable-next-line no-console
+  console.log("Captured console logs:", consoleLogs);
+
+  await page.screenshot({
+    path: `e2e/screenshots/${screenshotName}`,
+    fullPage: true,
+  });
+
+  return editor.innerText();
+}
+
 test.describe("Genesis 第一章重复回归测试", () => {
   test("新建末世小说后，编辑器中第一章正文只出现一次", async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.addInitScript(getGenesisMockScript(), CHAPTER_TEXT);
-    await page.goto("/frontstage.html");
+    const text = await runGenesisDuplicateTest(
+      page,
+      CHAPTER_TEXT,
+      "genesis_duplicate_test.png"
+    );
 
-    // 监听 console 输出以便调试（需在 goto 前注册以捕获初始化错误）
-    const consoleLogs: string[] = [];
-    page.on("console", (msg) => {
-      const text = `[${msg.type()}] ${msg.text()}`;
-      consoleLogs.push(text);
-      // 也打印到测试进程 stdout，便于本地调试
-      // eslint-disable-next-line no-console
-      console.log(text);
-    });
-    page.on("pageerror", (err) => {
-      const text = `PAGEERROR: ${err.message} | ${err.stack || "no stack"}`;
-      consoleLogs.push(text);
-      // eslint-disable-next-line no-console
-      console.log(text);
-    });
-
-    // 等待编辑器加载
-    const editor = page.locator(".ProseMirror").first();
-    try {
-      await expect(editor).toBeVisible({ timeout: 10000 });
-    } catch (e) {
-      await page.screenshot({
-        path: "e2e/screenshots/genesis_load_failed.png",
-        fullPage: true,
-      });
-      const errorText = await page
-        .locator("pre")
-        .first()
-        .innerText()
-        .catch(() => "no error pre");
-      // eslint-disable-next-line no-console
-      console.log("Error boundary text:", errorText);
-      throw e;
-    }
-
-    // 找到输入框并输入指令
-    const input = page
-      .locator('textarea[placeholder*="指令"], textarea[placeholder*="任意"]')
-      .first();
-    await expect(input).toBeVisible({ timeout: 10000 });
-    await input.fill("新写一部末世小说");
-    await input.press("Enter");
-
-    // 等待 smart_execute 响应被处理
-    await page.waitForTimeout(1500);
-    // eslint-disable-next-line no-console
-    console.log("Captured console logs:", consoleLogs);
-
-    // 截图保存
-    await page.screenshot({
-      path: "e2e/screenshots/genesis_duplicate_test.png",
-      fullPage: true,
-    });
-
-    // 获取编辑器纯文本
-    const text = await editor.innerText();
-
-    // 关键断言：核心句子只出现一次
     const matchCount = (text.match(/清晨，一缕微弱的光线/g) || []).length;
     expect(matchCount).toBeLessThanOrEqual(1);
 
-    // 关键断言：不会出现"一大段重复"拼接
     const doubled =
       CHAPTER_TEXT.replace(/\n/g, "") + CHAPTER_TEXT.replace(/\n/g, "");
     expect(text.replace(/\s+/g, "")).not.toContain(doubled.replace(/\s+/g, ""));
 
-    // 关键断言：自动接受后幽灵段落（ghost-paragraph）不可见，防止"正文+幽灵文本"同框
     const ghostParagraph = page.locator('[data-testid="ghost-paragraph"]').first();
     await expect(ghostParagraph).toBeHidden({ timeout: 2000 });
+  });
+
+  test("模型自重复正文经 trimSelfRepetition 后首段不会重复出现在末尾", async ({
+    page,
+  }) => {
+    const repeat =
+      "尽管他已经成功抓取了菌菇，但他知道，这只是开始。在这个残酷的世界里，一个成功，也只是催生了更多的挑战。";
+    const middle =
+      "幽暗中，窄窄的走道呈现出一道渐渐明亮的光线。在这瞬间，可以感受到一股腐烂的气味，仿佛世界的残余生物都在不断崩殖。" +
+      "少年的身影从黑暗中浮现出来，手持着一根闪耀的闪光灯。他的脸上泛着惊恐的光辉。这里的阴森气渐渐压迫了他。" +
+      "少年的目标是抓取一个正在勃勃生长的菌菇。这种菌菇在这个恶魔世界中具有重要的价值。";
+    const selfRepeatingChapter = `${repeat}\n\n${middle}\n\n${repeat}`;
+
+    const text = await runGenesisDuplicateTest(
+      page,
+      selfRepeatingChapter,
+      "genesis_self_repetition_trim_test.png"
+    );
+
+    const normalized = text.replace(/\s+/g, "");
+    const repeatNormalized = repeat.replace(/\s+/g, "");
+    const firstIdx = normalized.indexOf(repeatNormalized);
+    const lastIdx = normalized.lastIndexOf(repeatNormalized);
+    expect(firstIdx).toBeGreaterThanOrEqual(0);
+    expect(lastIdx).toBe(firstIdx);
   });
 });

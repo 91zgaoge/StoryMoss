@@ -1,3 +1,5 @@
+import { trimSelfRepetition } from './textCleanup';
+
 export function formatDate(dateString: string): string {
   const date = new Date(dateString);
   return date.toLocaleDateString('zh-CN', {
@@ -60,6 +62,11 @@ function normalizeQuotes(text: string): string {
  * 5. 输出标准 HTML —— 以 <p> 标签包裹每段
  */
 export function autoFormatText(input: string): string {
+  if (!input || !input.trim()) return '';
+
+  // v0.26.15: 模型可能生成自重复内容（首尾段落重复、后半部分重复前半部分等）。
+  // 在自动排版前先清理一次，作为渲染层的兜底防线。
+  input = trimSelfRepetition(input);
   if (!input || !input.trim()) return '';
 
   // 1. 如果已经是格式良好的 HTML（有 <p> 标签且数量 >= 2），只规范化引号后保留
