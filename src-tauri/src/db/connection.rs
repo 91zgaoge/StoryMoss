@@ -85,8 +85,27 @@ fn record_migration(conn: &rusqlite::Connection, version: i32) -> Result<(), rus
     Ok(())
 }
 
-pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
+pub fn init_db(
+    app_dir: &Path,
+    migrations_dir: Option<&Path>,
+) -> Result<DbPool, Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(app_dir).map_err(|e| {
+        format!(
+            "Failed to create app data directory {}: {}",
+            app_dir.display(),
+            e
+        )
+    })?;
+
     let db_path = app_dir.join("cinema_ai.db");
+    log::info!(
+        "[init_db] Opening database at {} (migrations_dir={})",
+        db_path.display(),
+        migrations_dir
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "auto-detect".to_string())
+    );
+
     let manager = SqliteConnectionManager::file(&db_path).with_init(|c| {
         c.execute_batch(
             "PRAGMA foreign_keys = ON; \
@@ -115,12 +134,17 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     )?;
 
     create_tables(&mut conn)?;
-    MigrationRunner::default_runner().run_with_legacy(
+    let runner = match migrations_dir {
+        Some(dir) => MigrationRunner::new(dir),
+        None => MigrationRunner::default_runner(),
+    };
+    runner.run_with_legacy(
         &mut conn,
         run_migrations,
         MAX_INLINE_MIGRATION_VERSION,
     )?;
 
+    log::info!("[init_db] Database initialized at {}", db_path.display());
     Ok(pool)
 }
 
@@ -4015,11 +4039,29 @@ mod tests {
             assert!(status.success(), "failed to mark temp dir read-only");
         }
 
-        let result = init_db(&dir);
+        let result = init_db(&dir, None);
         assert!(
             result.is_err(),
             "init_db should fail when app data directory is not writable"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Fresh app data directory should initialize successfully (Windows/macOS/Linux).
+    #[test]
+    fn init_db_succeeds_on_fresh_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "storyforge_fresh_init_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let pool = init_db(&dir, None).expect("fresh init_db should succeed");
+        assert!(pool.get().is_ok());
+
+        let db_file = dir.join("cinema_ai.db");
+        assert!(db_file.exists(), "cinema_ai.db should be created");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

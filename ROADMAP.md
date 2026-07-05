@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-06（v0.26.16 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复）
+> 最后更新: 2026-07-06（v0.26.17 Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.17 Issue #4 启动加固：打包 SQL 迁移 ✅ (2026-07-06)
+
+- [x] `tauri.conf.json` 打包 `src/db/migrations/` 到 `$RESOURCE/db/migrations/`
+- [x] `setup` 从 Resource 解析 bundled migrations 并传入 `init_db`
+- [x] `init_db` 启动前 `create_dir_all`；失败日志含 DB 路径
+- [x] 新增 `init_db_succeeds_on_fresh_directory` 回归测试
 
 ### 📝 v0.26.16 Genesis 第一章重复根治 + Issue #4 启动稳定性修复 ✅ (2026-07-06)
 

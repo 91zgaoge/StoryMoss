@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StoryForge",
-  "version": "0.26.16",
+  "version": "0.26.17",
   "identifier": "com.storyforge.app",
   "build": {
     "beforeBuildCommand": "npm run --prefix src-frontend build",
@@ -54,10 +54,13 @@
       }
     ]
   },
-  "bundle": {
+    "bundle": {
     "active": true,
     "category": "Productivity",
     "targets": ["msi", "nsis", "deb", "rpm", "dmg", "app"],
+    "resources": {
+      "src/db/migrations/": "db/migrations/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

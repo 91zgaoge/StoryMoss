@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.17] - Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强（2026-07-06）
+
+### 修复
+
+- **Issue #4 一级根因加固（init_db 失败路径）**：
+  - 生产安装包打包 `src/db/migrations/` 到 `$RESOURCE/db/migrations/`，避免 Release 仅依赖 inline 迁移导致 schema 不完整。
+  - `setup` 从 Tauri Resource 目录解析 bundled migrations 并传入 `init_db`。
+  - `init_db` 启动前确保 app data 目录存在；失败日志包含完整 DB 路径与 migrations 目录。
+  - `create_dir_all` 失败不再静默忽略；降级模式日志明确提示检查 `init_db` 错误。
+- **回归测试**：新增 `init_db_succeeds_on_fresh_directory`，覆盖全新目录初始化成功路径。
+
+### 验证
+
+- `cargo test --lib init_db`：**2 passed**（含 Issue #4 不可写目录 + fresh init）
+- `cargo check`：✅ 通过
+
 ## [v0.26.16] - 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复（2026-07-06）
 
 ### 修复

@@ -8,10 +8,15 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.16-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.17-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.16 根治 Genesis 第一章重复、修复 Issue #4 启动稳定性并清理代码格式：
+**最新动态**：v0.26.17 加固 Issue #4（Windows 启动闪退）并打包 SQL 迁移：
+
+- **Issue #4 一级根因加固**：生产安装包打包 `src/db/migrations/`；`init_db` 启动前确保 app data 目录存在；失败日志含完整 DB 路径；`create_dir_all` 失败不再静默忽略。
+- **v0.26.16 二级 panic 修复**（已含）：`init_db` 失败时跳过 `GatewayExecutor`，不再 `state::<DbPool>()` panic，应用以降级模式启动而非闪退。
+
+**上一版 v0.26.16**：根治 Genesis 第一章重复、修复启动 panic 并清理代码格式：
 
 - **根治「新写小说时第一章内容重复」**：替代 v0.26.7–v0.26.14 的散布补丁，从生成侧与前端的两个独立根因进行结构性修复。
   - **生成侧验证闸门**：`genesis.rs` 检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试；prompt 模板新增「结构纪律」段，明确禁止首尾回环与整章重复。

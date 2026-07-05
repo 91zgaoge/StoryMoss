@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.16
+- **版本**: v0.26.17
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,7 +71,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 637 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 639 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
 - `npx vitest run` ✅ 166 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped
@@ -80,6 +80,11 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.17 — Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强
+
+- **打包 SQL 迁移**：Release 安装包包含 `$RESOURCE/db/migrations/`。
+- **init_db 加固**：启动前确保 app data 目录；失败日志含 DB 路径；新增 fresh init 回归测试。
 
 ### v0.26.16 — 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复
 
@@ -147,4 +152,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-06 - v0.26.16_
+_最后更新: 2026-07-06 - v0.26.17_

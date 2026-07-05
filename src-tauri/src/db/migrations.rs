@@ -49,6 +49,8 @@ impl MigrationRunner {
             .unwrap_or_default();
 
         let candidates = [
+            // Production: Tauri bundled resources (see tauri.conf.json bundle.resources)
+            exe_dir.join("resources/db/migrations"),
             // Production: next to binary
             exe_dir.join("migrations"),
             exe_dir.join("../migrations"),

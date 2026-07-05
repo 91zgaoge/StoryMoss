@@ -1,11 +1,21 @@
-# StoryForge (草苔) v0.26.16 项目完成状态
+# StoryForge (草苔) v0.26.17 项目完成状态
 
-> 最后更新: 2026-07-06（v0.26.16 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复）
+> 最后更新: 2026-07-06（v0.26.17 Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.17 — Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强（2026-07-06）
+
+- 🎯 **背景**：v0.26.16 已修复 `init_db` 失败时的二级 panic（GatewayExecutor `state::<DbPool>()`），但 Windows 用户仍可能因 `init_db` 本身失败或 Release 缺 SQL 迁移而进入降级模式。
+- 🎯 **修复**：
+  - 打包 `src/db/migrations/` 到 `$RESOURCE/db/migrations/`。
+  - `setup` 解析 bundled migrations 并传入 `init_db`。
+  - `init_db` 启动前 `create_dir_all`；失败日志含 DB 路径与 migrations 目录。
+  - 新增 `init_db_succeeds_on_fresh_directory` 回归测试。
+- ✅ **验证**：`cargo test --lib init_db` 2 passed；`cargo check` 通过。
 
 ### v0.26.16 — 根治 Genesis 第一章重复、Issue #4 启动稳定性与代码格式修复（2026-07-06）
 

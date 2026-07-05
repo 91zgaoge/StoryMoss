@@ -76,7 +76,7 @@ use db::{init_db, DbPool};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::Manager;
+use tauri::{Manager, path::BaseDirectory};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -603,12 +603,30 @@ pub fn run() {
             let app_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
             });
-            std::fs::create_dir_all(&app_dir).ok();
+            if let Err(e) = std::fs::create_dir_all(&app_dir) {
+                log::error!(
+                    "Failed to create app data directory {}: {}",
+                    app_dir.display(),
+                    e
+                );
+            }
 
             // 初始化结构化日志系统（必须在其他操作之前）
             let _log_guard = logging::init_logger(&app_dir);
 
             log::info!("App directory: {:?}", app_dir);
+
+            let bundled_migrations = app
+                .path()
+                .resolve("db/migrations", BaseDirectory::Resource)
+                .ok()
+                .filter(|p| p.is_dir());
+            match &bundled_migrations {
+                Some(dir) => log::info!("[Setup] Bundled SQL migrations: {}", dir.display()),
+                None => log::warn!(
+                    "[Setup] Bundled SQL migrations not found; using inline migrations only"
+                ),
+            }
 
             // 设置 panic hook 以便记录崩溃信息，辅助诊断窗口最大化等异常退出
             std::panic::set_hook(Box::new(|info| {
@@ -628,14 +646,18 @@ pub fn run() {
             }));
 
             // 初始化数据库（必须在加载 pending vector indexes 之前）
-            let pool = match init_db(&app_dir) {
+            let pool = match init_db(&app_dir, bundled_migrations.as_deref()) {
                 Ok(pool) => {
                     log::info!("Database initialized successfully");
                     app.manage(pool.clone());
                     Some(pool)
                 }
                 Err(e) => {
-                    log::error!("Failed to initialize database: {}", e);
+                    log::error!(
+                        "Failed to initialize database at {}: {}",
+                        app_dir.join("cinema_ai.db").display(),
+                        e
+                    );
                     None
                 }
             };
@@ -856,7 +878,8 @@ pub fn run() {
                 log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
             } else {
                 log::warn!(
-                    "[ModelGateway] No DB pool available, skipping gateway executor init"
+                    "[ModelGateway] No DB pool available, skipping gateway executor init \
+                     (app will start in degraded mode — check logs for init_db error)"
                 );
             }
 
