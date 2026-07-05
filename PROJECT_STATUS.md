@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.13 项目完成状态
+# StoryForge (草苔) v0.26.14 项目完成状态
 
-> 最后更新: 2026-07-05（v0.26.13 修复 Genesis 第一章渲染层视觉重复）
+> 最后更新: 2026-07-05（v0.26.14 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.14 — 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力（2026-07-05）
+
+- 🎯 **症状**：v0.26.13 日志显示 `append_ai_done` 只触发一次、`append_text_check.occurrences=1`，但用户仍看到第一章「开头段落与结尾段落相同」的内容重复。
+- 🎯 **根因**：前端没有追加两次；LLM 生成的正文自身存在首尾段落重复（模型级循环/自重复）。
+- 🎯 **修复**：新增 `trimSelfRepetition` 工具，段落级检测「后半段 == 前半段」或「末段 == 首段」，字符级使用 KMP 最长 border 检测长尾重复；在 `appendAiContent` 入口及 `smart_execute.finalContent` 写入编辑器/幽灵文本前统一清理。同时降低 `RichTextEditor` 渲染诊断日志频率（前 20 帧 + 幽灵状态变化 + 200ms IPC 节流），缓解长时间写作后页面卡顿/崩溃。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 151 passed / 3 skipped；`npx playwright test` 36 passed / 5 skipped；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过。
 
 ### v0.26.13 — 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）（2026-07-05）
 

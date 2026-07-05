@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.13 架构文档
+# StoryForge (草苔) v0.26.14 架构文档
 
-> 本文档反映 v0.26.13 最新架构状态（2026-07-05）
+> 本文档反映 v0.26.14 最新架构状态（2026-07-05）
+> **v0.26.14 稳定性补丁**：修复 Genesis 新小说第一章模型输出自重复并降低幕前诊断日志压力。日志证实 v0.26.13 数据层与渲染层均未重复追加内容，用户看到的「首尾段落相同」来自 LLM 生成的正文自身循环。新增 `trimSelfRepetition` 工具，在 `appendAiContent` 与 `smart_execute.finalContent` 进入编辑器/幽灵文本前做段落级与 KMP border 级自重复清理；同时 `RichTextEditor` 的 `frontstage:rich_editor_diag` 渲染日志从每帧记录改为前 20 帧 + 幽灵状态变化 + 200ms IPC 节流，减少长时间写作或文思活跃模式下的 IPC 与日志开销。
 > **v0.26.13 稳定性补丁**：修复 Genesis 新小说第一章渲染层视觉重复。数据层已确保只追加一次，但 `RichTextEditor` 的幽灵树条件 `!!(generatedText || isGenerating)` 会在 `generatedText` 为空但 `isGenerating=true` 时渲染空幽灵容器；该容器若残留旧内容或 React 复用 DOM 节点异常，就会造成「正文 + 幽灵文本」同框的虚假重复。改为 `!!generatedText` 后幽灵树只在有实际幽灵文本时渲染；`FrontstageApp` Genesis 自动接受路径先 `setIsGenerating(false)` 确保幽灵树立即卸载；诊断日志增加 `isGenerating`、`isHidingGhost`、`bodyHidingGhost`、`generatedTextLen`。
 > **v0.26.12 稳定性补丁**：修复 `RichTextEditor` 角色点击 effect 在 `characters` 为 `null` 时访问 `.length` 导致的幕前白屏崩溃；加固 `useSubscription` 对 `null` 订阅状态的兼容；新增 Playwright E2E 回归测试覆盖「已有故事 + 新写末世小说」完整流程；`frontstage/main.tsx` 与 `ErrorBoundary` 增强崩溃诊断输出。
 > **v0.26.11 稳定性补丁**：修复 Genesis 自动接受第一章后 store-editor 失步问题。`appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent；`RichTextEditorRef` 新增 `getHTML()`。同时确认 `tauri.conf.json` `devUrl` 指向 dev server，避免开发模式加载陈旧 dist 崩溃。

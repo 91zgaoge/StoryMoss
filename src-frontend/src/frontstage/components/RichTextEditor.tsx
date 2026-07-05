@@ -248,7 +248,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       (label: string, extra?: Record<string, unknown>) => {
         const now = Date.now();
         // 限制日志频率，避免诊断本身影响性能
-        if (now - lastLogTsRef.current < 50 && label !== 'render') return;
+        if (now - lastLogTsRef.current < 200) return;
         lastLogTsRef.current = now;
         const ed = editorRef.current;
         logToBackend?.('frontstage:rich_editor_diag', `${label}`, {
@@ -1163,7 +1163,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       Date.now() > hideGhostUntil &&
       !editorContainsGeneratedText
     );
-    if (renderCountRef.current <= 100 || generatedText?.length || isHidingGhost) {
+    // v0.26.14 fix: 大幅降低渲染诊断日志频率。此前每帧都通过 IPC 写后端日志，
+    // 长时间写作/文思活跃模式下日志量激增，可能成为页面卡顿/崩溃诱因。
+    // 现在只在关键状态变化或幽灵文本可见时记录；普通渲染最多前 20 次且 200ms 节流。
+    const shouldLogRender =
+      renderCountRef.current <= 20 || generatedText?.length > 0 || isHidingGhost || bodyHidingGhost;
+    if (shouldLogRender) {
       logRenderDiagnostics('render', {
         shouldShowGhostTree,
         shouldShowGhostParagraph,

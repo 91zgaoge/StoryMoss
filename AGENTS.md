@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.13
+- **版本**: v0.26.14
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -72,13 +72,23 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 632 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 148 passed / 3 skipped
-- `npx playwright test --project=chromium` ✅ 35 passed / 5 skipped
+- `npx vitest run` ✅ 155 passed / 3 skipped
+- `npx playwright test` ✅ 35 passed / 5 skipped
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.14 — 修复 Genesis 第一章模型输出自重复与幕前诊断日志过载
+
+- **修复 v0.26.13 仍被用户感知的「新写小说第一章内容重复」**：通过分析 `creative_workflow.log` 中 13:43 的完整链路，确认前端 `append_ai_done` 只触发一次、`append_text_check.occurrences=1`，**不是前端把内容追加了两次**；重复来自 LLM 生成的 613 字正文自身首尾段落重复。
+- 新增 `trimSelfRepetition` 工具（`src/frontstage/utils/trimSelfRepetition.ts`）：
+  - 段落级：检测「后半段 == 前半段」或「末段 == 首段」并裁剪。
+  - 字符级：对归一化文本做 KMP 最长 border 检测，保守阈值（重复长度 ≥30 字符且 ≥ 全文 8%）下裁掉尾部重复前缀。
+- 在 `FrontstageApp` 的 `appendAiContent` 以及 `smart_execute` 返回的 `finalContent` 进入编辑器/幽灵文本前调用自重复清理，覆盖 Genesis 自动接受、Tab 接受、ContentUpdate/AppendContent 等全部路径。
+- **缓解「写完后过会儿页面崩溃」**：`RichTextEditor` 的 `frontstage:rich_editor_diag` 渲染诊断日志从每帧都记改为仅前 20 次渲染 + 幽灵文本/隐藏锁状态变化时记录，并将 IPC 日志节流从 50ms 收紧到 200ms，降低长时间写作或文思活跃模式下的 IPC 与日志压力。
+- 新增 `trimSelfRepetition` 单元测试，覆盖首尾段落重复、整章重复、单段内 suffix 重复、短文本不裁剪等场景。
 
 ### v0.26.13 — 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）
 

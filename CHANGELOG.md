@@ -2,6 +2,45 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.14] - 修复 Genesis 第一章模型输出自重复与降低幕前诊断日志压力（2026-07-05）
+
+### 修复
+
+- **修复 v0.26.13 用户仍报告的「新写小说第一章内容重复」**：分析 `creative_workflow.log` 中 13:43 的完整链路（故事《终极遗骸者：诞生者》）后发现：
+  - 后端 `genesis.first_chapter.generated` 与 `append_text_check` 均只生成/写入一次正文；
+  - 前端 `append_text_check.occurrences=1`、`hasDuplicate=false`；
+  - **重复不是前端追加两次造成的**，而是 LLM 输出的 613 字正文自身存在「首段与末段相同」的模型级循环/自重复。
+- 新增 `trimSelfRepetition` 工具（`src-frontend/src/frontstage/utils/trimSelfRepetition.ts`）：
+  - **段落级**：检测「后半段整体重复前半段」或「末段重复首段」，直接裁剪后半段/末段。
+  - **字符级 border**：对归一化文本使用 KMP 最长 border，当尾部与开头重复长度 ≥30 字符且 ≥ 全文 8% 时，裁掉尾部重复。
+- 在 `FrontstageApp.appendAiContent` 入口以及 `smart_execute` 返回的 `finalContent` 写入编辑器/幽灵文本前统一调用自重复清理，覆盖 Genesis 自动接受、Tab 接受、`ContentUpdate`/`AppendContent` 等所有路径。
+
+### 性能 / 稳定性
+
+- **缓解「写完后过会儿页面崩溃」**：`RichTextEditor` 的 `frontstage:rich_editor_diag` 渲染诊断日志此前每帧都通过 IPC 写入后端，长时间写作或文思活跃模式下日志量与 IPC 调用激增，可能成为页面卡顿/崩溃诱因。
+  - 普通渲染日志从最多 100 次缩减到 **前 20 次**。
+  - 仅当存在 `generatedText`、正在隐藏幽灵、或 body 级 `force-hide-ghost` 锁激活时才继续记录渲染日志。
+  - IPC 日志节流从 50ms 收紧到 **200ms**。
+
+### 测试
+
+- 新增 `src-frontend/src/frontstage/utils/__tests__/trimSelfRepetition.test.ts`，覆盖：
+  - 无重复文本保持不变；
+  - 首段与末段重复的段落级裁剪；
+  - 整章前后两半完全重复的裁剪；
+  - 单段内长 suffix 重复前缀的裁剪；
+  - 短文本/短 border 不触发裁剪。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**151 passed / 3 skipped**
+- `npx playwright test`：**36 passed / 5 skipped**
+- `python3 scripts/architecture_guard.py`：通过
+
 ## [v0.26.13] - 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）（2026-07-05）
 
 ### 修复

@@ -19,6 +19,7 @@ import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
+import { trimSelfRepetition } from './utils/trimSelfRepetition';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
@@ -2868,6 +2869,22 @@ const FrontstageApp: React.FC = () => {
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => {
       if (!editorRef.current) return;
 
+      // v0.26.14 fix: 某些模型会生成“自身首尾重复”的内容（不是前端追加两次），
+      // 在写入编辑器前先做一层自重复清理。
+      const cleanedRawText = trimSelfRepetition(rawText);
+      if (cleanedRawText.length < rawText.length) {
+        logToBackend(
+          'frontstage:self_repetition_trim',
+          'trimmed self-repeating generated content',
+          {
+            source,
+            originalLen: rawText.length,
+            cleanedLen: cleanedRawText.length,
+          }
+        );
+      }
+      rawText = cleanedRawText;
+
       // v0.26.10 fix: 使用 latestContentRef（React state 同步快照）与 editorRef.getText()
       //（TipTap 实时 DOM）双重基准。任何一方显示内容已存在，都禁止追加。
       const existingFromRef = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
@@ -3410,6 +3427,10 @@ const FrontstageApp: React.FC = () => {
           smartExecuteNeedDiagnosticRef.current = false;
 
           let finalContent = result.final_content!;
+          // v0.26.14 fix: 模型可能生成自身重复的内容（如首尾段落相同），
+          // 在后续去重/追加前先做一次自重复清理。
+          finalContent = trimSelfRepetition(finalContent);
+
           // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
           // 状态滞后于 React state 时重复输出已有正文。
           const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
