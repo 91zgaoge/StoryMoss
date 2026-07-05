@@ -2,6 +2,49 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.11] - 修复 Genesis 第一章 store-editor 失步与崩溃隐患（2026-07-05）
+
+### 修复
+
+- **修复 Genesis 第一章内容可能因 store-editor 失步而重复或丢失**：v0.26.10 已确保数据层面只追加一次，但追加后前端 store 仍依赖 200ms onChange debounce 回写。若 `latestContentRef` 与编辑器实际 HTML 恰好指纹相同，`handleContentChange` 会提前返回，导致 store 长期为空；后续章节切换、自动保存或外部同步可能引发内容重复、白屏或崩溃。
+  - `FrontstageApp.appendAiContent` 追加完成后立即读取 `editorRef.getHTML()`，并同步到 `useFrontstageStore.setContent` 与 `latestContentRef.current`，不再依赖 debounce 回写。
+  - `RichTextEditor.appendText` 空文档分支使用 `setContent` 时标记 `isExternalSyncRef`，并更新 `lastExternalContentRef` 为编辑器实际 HTML，避免父组件随后传入的 `content` prop 被外部同步 effect 再次 `setContent`，从而消除「正文 + 重设正文」的视觉抖动/重复。
+  - `RichTextEditorRef` 新增 `getHTML()` 方法，为上层同步提供可靠的编辑器 HTML 快照。
+
+- **修复开发模式下可能加载陈旧 dist 导致崩溃**：`src-tauri/tauri.conf.json` 已明确 `devUrl: http://localhost:5173`，确保 `cargo tauri dev` 始终加载最新 dev server 代码，避免旧 `dist` 中的 bug 代码在开发/调试时引发崩溃。
+
+### 测试
+
+- 新增并强化 `FrontstageApp.genesis-duplicate.test.tsx` 相关用例，验证 Genesis 自动接受后 store content 与编辑器内容一致。
+- `RichTextEditor.duplicate.test.tsx` 覆盖空文档追加后外部同步 effect 不再重复 setContent 的场景。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**147 passed / 3 skipped**
+- `python3 scripts/architecture_guard.py`：通过
+
+## [v0.26.10] - 强化 Genesis 第一章重复防护（双重基准与追加最终防线）（2026-07-04）
+
+### 修复
+
+- **强化 Genesis 第一章内容重复防护**：v0.26.9 改用 `latestContentRef.current` 作为内容基准后，用户反馈在特定竞态下仍有重复。根因是单一基准可能在 ref 与编辑器 DOM 之间短暂失步，且上游返回的 `final_content` 可能仍包含当前正文前缀。
+  - `isTextAlreadyInEditor` 改为双重检测：同时比对 `latestContentRef.current`（React state 同步快照）与 `editorRef.current?.getText()`（TipTap 实时 DOM），任一方显示内容已存在则跳过。
+  - `appendAiContent` 增加安全网：若 `rawText` 仍以当前正文开头（上游 prefix 去重因 ref 滞后失效），先剥离该前缀再追加；追加后再用 `editorRef.current?.getText()` 回写校准 `latestContentRef`。
+  - `RichTextEditor.appendText` 在插入前增加最终防线：若编辑器尾部已包含要追加的文本，直接跳过并记录 `frontstage:append_text_skip`。
+
+### 验证
+
+- `cargo test --lib`：**632 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check`：通过
+- `npx tsc --noEmit`：零错误
+- `npm run format:check`：零差异
+- `npx vitest run`：**146 passed / 3 skipped**
+- `python3 scripts/architecture_guard.py`：通过
+
 ## [v0.26.9] - 根治 Genesis 第一章重复（DOM 竞态与追加去重）（2026-07-04）
 
 ### 修复

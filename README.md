@@ -8,13 +8,14 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.9-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.11-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.9 根治 Genesis 第一章重复问题：
-- **彻底修复「新写小说时第一章内容重复」**：v0.26.8 已覆盖 pipeline-complete / ChapterSwitch 多数竞态，但重复检测仍依赖 `editorRef.current.getText()`，而 TipTap DOM 状态会滞后于 React state。在正文刚加载、编辑器尚未重渲染时，`getText()` 返回空/旧文本，导致已有正文被再次追加或恢复为幽灵文本。v0.26.9 将 `isTextAlreadyInEditor`、`handleRequestGeneration`、`handleSmartGeneration`、`appendAiContent` 统一改为使用 `latestContentRef.current`（React state 同步快照）作为内容基准，并在 `appendAiContent` 追加后立即同步 ref，杜绝 onChange debounce 窗口期内的二次追加；`RichTextEditor` 幽灵文本直接包含检测也剥离 HTML 标签，覆盖 ContentUpdate/AppendContent 路径。
+**最新动态**：v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患：
+- **修复「新写小说时第一章内容重复」深层根因**：v0.26.10 已确保数据层面只追加一次，但追加后 store 依赖 200ms onChange debounce 回写，当 `latestContentRef` 与编辑器 HTML 指纹相同时 `handleContentChange` 会提前返回，导致 store 长期为空，后续外部同步/章节切换可能引发视觉重复或内容抖动。v0.26.11 在 `appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent。
+- **修复「写完后过会儿页面崩溃」**：确认 `src-tauri/tauri.conf.json` 的 `devUrl` 指向 `http://localhost:5173`，避免 `cargo tauri dev` 加载陈旧 `dist` 中的旧代码触发崩溃；同时通过 store-editor 同步消除状态漂移引发的渲染异常。
 
-> **上一版**：v0.26.8 修复 pipeline-complete 先加载 DB 正文、smart_execute 后返回 final_content 的竞态重复；v0.26.7 修复 React #185 页面崩溃与 ChapterSwitch 路径下的重复。
+> **上一版**：v0.26.9 将重复检测基准从 `editorRef.getText()` 改为 `latestContentRef.current`，覆盖 DOM 滞后竞态；v0.26.8 修复 pipeline-complete 先加载 DB 正文、smart_execute 后返回 final_content 的竞态重复；v0.26.7 修复 React #185 页面崩溃与 ChapterSwitch 路径下的重复。
 
 > **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
 

@@ -15,6 +15,7 @@ import React, {
   useImperativeHandle,
   useRef,
   useState,
+  memo,
 } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -115,15 +116,6 @@ interface RichTextEditorProps {
     targetParagraphIndex: number;
   } | null;
   onClearInlineSuggestion?: () => void;
-  /** 订阅状态 */
-  subscription?: {
-    tier: string;
-    isPro: boolean;
-    isFree: boolean;
-    hasAutoWriteQuota?: (chars: number) => Promise<boolean>;
-    hasAutoReviseQuota?: (chars: number) => Promise<boolean>;
-    getQuotaText?: () => string;
-  };
 }
 
 export interface RichTextEditorRef {
@@ -131,6 +123,8 @@ export interface RichTextEditorRef {
   /** 在文档末尾追加文本（用于 AI 续写接受后始终追加到正文最后） */
   appendText: (text: string) => void;
   getText: () => string;
+  /** 获取编辑器当前 HTML（用于追加后同步 store） */
+  getHTML: () => string;
   getSelectedText: () => string;
   focus: () => void;
   setContent: (text: string) => void;
@@ -235,7 +229,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onShowStatus,
       inlineSuggestion,
       onClearInlineSuggestion,
-      subscription,
     },
     ref
   ) => {
@@ -326,94 +319,100 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.23.23: 标记外部内容同步（非用户编辑），防止 setContent 触发 onUpdate → 伪"保存中"
     const isExternalSyncRef = useRef(false);
 
-    const editor = useEditor({
-      extensions: [
-        StarterKit.configure({
-          heading: { levels: [1, 2, 3] },
-          bulletList: { keepMarks: true, keepAttributes: false },
-          orderedList: { keepMarks: true, keepAttributes: false },
-        }),
-        Placeholder.configure({ placeholder }),
-        Underline,
-        Highlight.configure({ multicolor: true }),
-        AiSuggestionNode,
-        // Phase 4: SceneDividerNode 从幕前编辑器移除——幕前为纯正文阅读/写作界面，
-        // 场景边界标记仅保留在数据库层供后台使用。
-      ],
-      content,
-      onUpdate: ({ editor }) => {
-        // v0.23.23: 外部内容同步（editor.commands.setContent）触发的 onUpdate 不调 onChange
-        if (isExternalSyncRef.current) {
-          logRenderDiagnostics('onUpdate_skipped_external_sync', {
+    // v0.26.11 fix: 给 useEditor 传入 deps=[placeholder]，避免每次 render 都触发
+    // Tiptap 内部 setOptions / view.setProps，减少编辑器抖动与潜在的重复渲染/崩溃风险。
+    // 内容同步仍由下方外部 content effect 负责，不在 useEditor 依赖链中。
+    const editor = useEditor(
+      {
+        extensions: [
+          StarterKit.configure({
+            heading: { levels: [1, 2, 3] },
+            bulletList: { keepMarks: true, keepAttributes: false },
+            orderedList: { keepMarks: true, keepAttributes: false },
+          }),
+          Placeholder.configure({ placeholder }),
+          Underline,
+          Highlight.configure({ multicolor: true }),
+          AiSuggestionNode,
+          // Phase 4: SceneDividerNode 从幕前编辑器移除——幕前为纯正文阅读/写作界面，
+          // 场景边界标记仅保留在数据库层供后台使用。
+        ],
+        content,
+        onUpdate: ({ editor }) => {
+          // v0.23.23: 外部内容同步（editor.commands.setContent）触发的 onUpdate 不调 onChange
+          if (isExternalSyncRef.current) {
+            logRenderDiagnostics('onUpdate_skipped_external_sync', {
+              htmlLen: editor.getHTML().length,
+            });
+            return;
+          }
+          // 轻量文本更新（字数/状态等低耗时场景）
+          latestTextRef.current = editor.getText();
+          logRenderDiagnostics('onUpdate_fired', {
             htmlLen: editor.getHTML().length,
+            textLen: editor.getText().length,
           });
-          return;
-        }
-        // 轻量文本更新（字数/状态等低耗时场景）
-        latestTextRef.current = editor.getText();
-        logRenderDiagnostics('onUpdate_fired', {
-          htmlLen: editor.getHTML().length,
-          textLen: editor.getText().length,
-        });
 
-        if (htmlDebounceRef.current) {
-          clearTimeout(htmlDebounceRef.current);
-        }
-        htmlDebounceRef.current = setTimeout(() => {
-          htmlDebounceRef.current = null;
-          logRenderDiagnostics('onChange_debounced_fired', {
-            htmlLen: editor.getHTML().length,
-          });
-          onChangeRef.current(editor.getHTML());
-        }, 200);
-      },
-      editorProps: {
-        attributes: {
-          class: 'prose prose-lg focus:outline-none',
+          if (htmlDebounceRef.current) {
+            clearTimeout(htmlDebounceRef.current);
+          }
+          htmlDebounceRef.current = setTimeout(() => {
+            htmlDebounceRef.current = null;
+            logRenderDiagnostics('onChange_debounced_fired', {
+              htmlLen: editor.getHTML().length,
+            });
+            onChangeRef.current(editor.getHTML());
+          }, 200);
         },
-        handleDOMEvents: {
-          mousedown: (view, event) => {
-            if ((event as MouseEvent).button === 0) {
-              setSelectedRange(null);
+        editorProps: {
+          attributes: {
+            class: 'prose prose-lg focus:outline-none',
+          },
+          handleDOMEvents: {
+            mousedown: (view, event) => {
+              if ((event as MouseEvent).button === 0) {
+                setSelectedRange(null);
+              }
+              return false;
+            },
+          },
+          handleKeyDown: (view, event) => {
+            // Slash 指令输入框 — 首次输入 /
+            if (
+              event.key === '/' &&
+              wensiMode !== 'off' &&
+              !isZenMode &&
+              !showSlashInputRef.current
+            ) {
+              // 删除刚输入的 / 字符
+              const { from } = view.state.selection;
+              const textBefore = view.state.doc.textBetween(Math.max(0, from - 1), from);
+              if (textBefore === '/') {
+                view.dispatch(view.state.tr.delete(from - 1, from));
+              }
+              // 计算浮动输入框位置
+              const pos = view.state.selection.from;
+              const coords = view.coordsAtPos(pos);
+              const containerRect = containerRef.current?.getBoundingClientRect();
+              if (containerRect) {
+                setSlashInputPos({
+                  x: coords.left - containerRect.left,
+                  y: coords.bottom - containerRect.top + 4,
+                });
+              }
+              setSlashInputText('');
+              setShowSlashInput(true);
+              // 聚焦输入框（下一轮渲染后）
+              setTimeout(() => slashInputRef.current?.focus(), 0);
+              return true;
             }
+
             return false;
           },
         },
-        handleKeyDown: (view, event) => {
-          // Slash 指令输入框 — 首次输入 /
-          if (
-            event.key === '/' &&
-            wensiMode !== 'off' &&
-            !isZenMode &&
-            !showSlashInputRef.current
-          ) {
-            // 删除刚输入的 / 字符
-            const { from } = view.state.selection;
-            const textBefore = view.state.doc.textBetween(Math.max(0, from - 1), from);
-            if (textBefore === '/') {
-              view.dispatch(view.state.tr.delete(from - 1, from));
-            }
-            // 计算浮动输入框位置
-            const pos = view.state.selection.from;
-            const coords = view.coordsAtPos(pos);
-            const containerRect = containerRef.current?.getBoundingClientRect();
-            if (containerRect) {
-              setSlashInputPos({
-                x: coords.left - containerRect.left,
-                y: coords.bottom - containerRect.top + 4,
-              });
-            }
-            setSlashInputText('');
-            setShowSlashInput(true);
-            // 聚焦输入框（下一轮渲染后）
-            setTimeout(() => slashInputRef.current?.focus(), 0);
-            return true;
-          }
-
-          return false;
-        },
       },
-    });
+      [placeholder]
+    );
 
     // 将 editor 实例同步到 ref，供卸载时 flush 最终 HTML
     editorRef.current = editor;
@@ -900,6 +899,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       // v0.24.1: 提升到 body 级 ghost-hidden，任何时机渲染出的幽灵段落都会被全局 CSS 隐藏
       // v0.24.4: 改为永久隐藏（直到新一次生成开始或页面刷新），杜绝 30s 后 CSS
       // 类被移除、幽灵文本重新露出的可能性。
+      // v0.26.10 fix: 不用 flushSync。React 18 嵌套 flushSync 会导致父子状态更新顺序
+      // 错乱，反而让幽灵文本在正文追加后仍残留在 DOM/状态中。先靠全局 CSS 类立即
+      // 隐藏幽灵容器，再触发父组件清空 generatedText，让 React 在下一帧正常移除
+      // 幽灵树。
       setIsHidingGhost(true);
       postAcceptHideUntilRef.current = Date.now() + 30000;
       logRenderDiagnostics('accept_start', {
@@ -966,20 +969,61 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         appendText: (text: string) => {
           if (!editor || editor.isDestroyed) return;
           try {
+            // v0.26.10 fix: DOM 级最终防线——追加前再次强制隐藏任何残留幽灵容器，
+            // 防止 RichTextEditor 状态与 DOM 不同步时幽灵文本与正文同时可见。
+            document.body.classList.add('force-hide-ghost');
+            document.querySelectorAll('.editor-ghost-continuation').forEach(el => {
+              el.classList.add('force-hide-ghost');
+            });
             const beforeText = editor.getText();
-            const endPos = editor.state.doc.content.size;
-            editor
-              .chain()
-              .focus()
-              .insertContentAt(endPos, text || '')
-              .run();
+            const plainToAppend = text.replace(/<[^>]+>/g, '').replace(/\s+/g, '');
+            const beforePlain = beforeText.replace(/\s+/g, '');
+            // v0.26.10: 最终防线——如果编辑器尾部已包含要追加的内容，直接跳过，避免任何
+            // 上层竞态或检测失效导致的内容重复。
+            if (plainToAppend && beforePlain.endsWith(plainToAppend)) {
+              logToBackend?.(
+                'frontstage:append_text_skip',
+                'editor already ends with appended text',
+                {
+                  beforeLen: beforeText.length,
+                  appendedLen: text.length,
+                  appendedPreview: text.replace(/<[^>]+>/g, '').slice(0, 120),
+                }
+              );
+              return;
+            }
+            // v0.26.10 fix: 空文档时用 setContent 替代 insertContentAt，避免 TipTap
+            // 在边界处把同一段内容解析/插入两次。非空文档时在尾部追加。
+            // v0.26.11 fix: 空文档 setContent 必须标记为外部同步，避免 onUpdate 把本次
+            // 追加当作用户输入回写 store；同时更新 lastExternalContentRef，使父组件
+            // 随后同步过来的 content prop 不会被外部同步 effect 再次 setContent，防止
+            // 竞态下出现“正文 + 重设正文”的视觉重复或内容抖动。
+            if (!beforePlain) {
+              isExternalSyncRef.current = true;
+              editor.commands.setContent(text || '');
+              try {
+                lastExternalContentRef.current = editor.getHTML();
+              } catch {
+                lastExternalContentRef.current = text || '';
+              }
+              queueMicrotask(() => {
+                isExternalSyncRef.current = false;
+              });
+            } else {
+              const endPos = editor.state.doc.content.size;
+              editor
+                .chain()
+                .focus()
+                .insertContentAt(endPos, text || '')
+                .run();
+            }
             // v0.24.9: 追加后立即检查是否出现重复，便于定位“内容重复”根因
             queueMicrotask(() => {
               try {
                 const afterText = editor.getText();
-                const plain = text.replace(/<[^>]+>/g, '').replace(/\s+/g, '');
                 const afterPlain = afterText.replace(/\s+/g, '');
-                const occurrences = plain.length > 0 ? afterPlain.split(plain).length - 1 : 0;
+                const occurrences =
+                  plainToAppend.length > 0 ? afterPlain.split(plainToAppend).length - 1 : 0;
                 logToBackend?.('frontstage:append_text_check', 'post-append duplicate check', {
                   beforeLen: beforeText.length,
                   afterLen: afterText.length,
@@ -1006,6 +1050,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             return editor?.getText() || '';
           } catch (e) {
             rtEditorLogger.error('[RichTextEditor.getText] 失败', { error: e });
+            return '';
+          }
+        },
+        getHTML: () => {
+          try {
+            return editor?.getHTML() || '';
+          } catch (e) {
+            rtEditorLogger.error('[RichTextEditor.getHTML] 失败', { error: e });
             return '';
           }
         },
@@ -1095,7 +1147,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       (normalizedEditorText.includes(normalizedGeneratedText) ||
         editorText.includes(generatedText.replace(/<[^>]*>/g, '')) ||
         lcsLen / generatedTextFingerprint.length >= 0.8);
-    const shouldShowGhostTree = !!(generatedText || isGenerating) && !isHidingGhost;
+    // v0.26.10 fix: 增加 body 级 CSS 隐藏锁作为 shouldShowGhostTree 的硬条件。
+    // 即使 isHidingGhost 因 React 状态竞态被意外重置，只要 Tab 接受时加的 force-hide-ghost
+    // 类还在，React 树里就不渲染幽灵容器，从渲染层根上消除"正文 + 幽灵文本"同框。
+    const bodyHidingGhost =
+      typeof document !== 'undefined' && document.body.classList.contains('force-hide-ghost');
+    const shouldShowGhostTree =
+      !!(generatedText || isGenerating) && !isHidingGhost && !bodyHidingGhost;
     const shouldShowGhostParagraph = !!(
       generatedText &&
       Date.now() > postAcceptHideUntilRef.current &&
@@ -1279,4 +1337,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
 RichTextEditor.displayName = 'RichTextEditor';
 
-export default RichTextEditor;
+const MemoizedRichTextEditor = memo(RichTextEditor);
+MemoizedRichTextEditor.displayName = 'RichTextEditor';
+
+export default MemoizedRichTextEditor;

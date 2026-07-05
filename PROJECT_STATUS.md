@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.9 项目完成状态
+# StoryForge (草苔) v0.26.11 项目完成状态
 
-> 最后更新: 2026-07-04（v0.26.9 根治 Genesis 第一章重复 DOM 竞态与追加去重）
+> 最后更新: 2026-07-05（v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.11 — 修复 Genesis 第一章 store-editor 失步与崩溃隐患（2026-07-05）
+
+- 🎯 **症状**：v0.26.10 后日志显示单次 `append_ai_done`，但用户仍看到第一章内容重复；写完后过一会儿页面可能崩溃。
+- 🎯 **根因**：追加后 store 依赖 200ms onChange debounce 回写，当 `latestContentRef` 与编辑器 HTML 指纹相同时 `handleContentChange` 提前返回，store 长期为空，导致后续外部同步/章节切换出现视觉重复或状态漂移；`RichTextEditor.appendText` 空文档 setContent 未更新 `lastExternalContentRef`，content prop 到达后外部同步 effect 可能再次 setContent；开发模式下可能加载陈旧 `dist`。
+- 🎯 **修复**：`appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`；`RichTextEditorRef` 新增 `getHTML()`；确认 `tauri.conf.json` `devUrl` 指向 dev server。
+- ✅ **验证**：`cargo test --lib` 632 passed / 0 failed / 2 ignored；`npx vitest run` 147 passed / 3 skipped；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过。
 
 ### v0.26.9 — 根治 Genesis 第一章重复（DOM 竞态与追加去重）（2026-07-04）
 

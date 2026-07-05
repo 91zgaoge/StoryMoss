@@ -78,7 +78,12 @@ vi.mock('@/services/tauri', () => ({
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
   default: React.forwardRef(function MockRichTextEditor(
-    props: { content: string; generatedText?: string; onAcceptGeneration?: () => void },
+    props: {
+      content: string;
+      onChange?: (content: string) => void;
+      generatedText?: string;
+      onAcceptGeneration?: () => void;
+    },
     ref: React.ForwardedRef<{
       getText: () => string;
       appendText: (html: string) => void;
@@ -91,10 +96,13 @@ vi.mock('../components/RichTextEditor', () => ({
     React.useImperativeHandle(ref, () => ({
       getText: () => props.content.replace(/<[^>]+>/g, ''),
       appendText: (html: string) => {
-        captured.content = (captured.content || '') + html;
+        const newContent = (props.content || '') + html;
+        captured.content = newContent;
+        props.onChange?.(newContent);
       },
       setContent: (html: string) => {
         captured.content = html;
+        props.onChange?.(html);
       },
     }));
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, props.content);
@@ -188,9 +196,9 @@ describe('Bug: pipeline complete effect infinite loop', () => {
     // 等待装配完成
     await act(async () => new Promise(r => setTimeout(r, 300)));
 
-    // 如果 loadStories 在装配期间自动选择并加载了 DB 正文，content 会包含正文；
-    // 正确行为是跳过自动选择，content 保持为空，generatedText 持有正文。
-    expect(captured.content).not.toContain(CHAPTER_TEXT);
-    expect(captured.generatedText).toContain(CHAPTER_TEXT);
+    // v0.26.11 fix: Genesis 第一章直接写入编辑器正文，不再保留 generatedText 幽灵文本。
+    // 自动选择应被跳过，正文由 smart_execute 的 final_content 直接追加到编辑器。
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
   });
 });

@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.9 架构文档
+# StoryForge (草苔) v0.26.11 架构文档
 
-> 本文档反映 v0.26.9 最新架构状态（2026-07-04）
+> 本文档反映 v0.26.11 最新架构状态（2026-07-05）
+> **v0.26.11 稳定性补丁**：修复 Genesis 自动接受第一章后 store-editor 失步问题。`appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent；`RichTextEditorRef` 新增 `getHTML()`。同时确认 `tauri.conf.json` `devUrl` 指向 dev server，避免开发模式加载陈旧 dist 崩溃。
 > **v0.26.9 稳定性补丁**：在 v0.26.8 基础上进一步根治 Genesis 新小说第一章内容重复问题。重复检测与前缀去重统一改用 `latestContentRef.current`（React state 同步快照），避免 TipTap DOM 滞后导致已有正文被再次追加或恢复为幽灵文本；`RichTextEditor` 幽灵文本直接包含检测剥离 HTML 标签，覆盖 ContentUpdate/AppendContent 路径。
 > **v0.26.8 稳定性补丁**：在 v0.26.7 基础上彻底修复 Genesis 新小说第一章内容重复问题。新增 `isTextDuplicate` 归一化去重工具与 `isTextAlreadyInEditor` helper，覆盖 pipeline-complete / ChapterSwitch / smart_execute 等多条竞态路径，确保 DB 正文不会与幽灵文本叠加。
 > **v0.26.7 稳定性补丁**：修复 `FrontstageApp` pipeline-complete effect 无限循环（React #185）与 Genesis 新小说第一章内容重复问题，核心回调全部稳定化。

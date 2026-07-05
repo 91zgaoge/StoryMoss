@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.9)
+# 🧪 StoryForge 自动化测试环境 (v0.26.11)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -15,7 +15,7 @@
 | 类型 | 数量 | 状态 |
 |------|------|------|
 | Rust 单元测试 | 632 | ✅ 全部通过 (`cargo test --lib`) |
-| 前端单元测试 | 146 | ✅ 全部通过 (`vitest run`) |
+| 前端单元测试 | 147 | ✅ 全部通过 (`vitest run`) |
 | 前端构建测试 | — | ✅ `npm run build` 通过 |
 | Tauri 构建测试 | — | ✅ `cargo tauri build` 通过 |
 | Playwright E2E | 36 (32+4) | ✅ 行为驱动测试（CI 中 `continue-on-error`） |

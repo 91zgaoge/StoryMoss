@@ -5,7 +5,7 @@
  * 软件订阅解锁功能，不介入模型用量计费。
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getSubscriptionStatus, type SubscriptionStatus } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 
@@ -86,17 +86,20 @@ export function useSubscription() {
     fetchStatus();
   }, [fetchStatus]);
 
-  return {
-    ...state,
-    isPro: state.tier === 'pro' || state.tier === 'enterprise',
-    isFree: state.tier === 'free',
-    fetchStatus,
-    canUseFeature,
-    // 向后兼容：保留旧 API 但行为改为功能门控
-    hasAutoWriteQuota,
-    hasAutoReviseQuota,
-    getQuotaText,
-  };
+  return useMemo(
+    () => ({
+      ...state,
+      isPro: state.tier === 'pro' || state.tier === 'enterprise',
+      isFree: state.tier === 'free',
+      fetchStatus,
+      canUseFeature,
+      // 向后兼容：保留旧 API 但行为改为功能门控
+      hasAutoWriteQuota,
+      hasAutoReviseQuota,
+      getQuotaText,
+    }),
+    [state, fetchStatus, canUseFeature, hasAutoWriteQuota, hasAutoReviseQuota, getQuotaText]
+  );
 }
 
 export default useSubscription;

@@ -1,12 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StoryForge",
-  "version": "0.26.9",
+  "version": "0.26.11",
   "identifier": "com.storyforge.app",
   "build": {
     "beforeBuildCommand": "npm run --prefix src-frontend build",
     "beforeDevCommand": "npm run --prefix src-frontend dev",
-    "frontendDist": "../src-frontend/dist"
+    "frontendDist": "../src-frontend/dist",
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "withGlobalTauri": true,

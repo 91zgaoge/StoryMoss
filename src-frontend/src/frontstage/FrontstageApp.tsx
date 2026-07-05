@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition } from 'react';
-import { flushSync } from 'react-dom';
 import { loggedInvoke } from '@/services/tauri';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -19,7 +18,7 @@ import { parseStructuredError } from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
-import { isTextDuplicate } from './utils/isTextDuplicate';
+import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
@@ -212,11 +211,18 @@ const FrontstageApp: React.FC = () => {
   const lazyLoadingChapterIdsRef = useRef<Set<string>>(new Set());
   // v0.26.6 fix: Genesis ChapterSwitch 已自动加载正文时，禁止 smart_execute 结果再恢复 generatedText
   const genesisAutoAcceptedRef = useRef(false);
+  // v0.26.11 fix: 记录最近一次追加的正文指纹，30s 内再次收到完全相同的内容时直接跳过，
+  // 作为 isTextAlreadyInEditor 之外的最终防线，防止任何上游竞态导致同一内容被追加两次。
+  const recentlyAppendedRef = useRef<{ fingerprint: string; appendedAt: number } | null>(null);
   // v0.26.7 fix: pipeline-complete effect 只处理一次，避免依赖不稳定函数导致循环
   const lastPipelineCompleteRef = useRef<string | null>(null);
   // v0.26.7 fix: Genesis 创建新故事异步装配期间，禁止 loadStories 自动选择并加载 DB 正文，
   // 否则会在 generatedText 仍为幽灵文本时把 DB 正文塞进编辑器，造成第一章重复。
   const isGenesisSettingUpRef = useRef(false);
+  // A4-1.9/A4-1.8: 编辑器引用与最新内容快照。前置到 setGeneratedText 之前，
+  // 使 centralized generatedText guard 能够直接调用 isTextAlreadyInEditor。
+  const editorRef = useRef<RichTextEditorRef>(null);
+  const latestContentRef = useRef<string>('');
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
   const appendAiContentRef = useRef<
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
@@ -252,49 +258,125 @@ const FrontstageApp: React.FC = () => {
   const postAcceptLockRef = useRef(0);
   // v0.23.98: 由父组件持有幽灵文本渲染锁，确保 Tab 接受后 30s 内绝对不渲染幽灵文本
   const [hideGhostUntil, setHideGhostUntil] = useState(0);
+
+  // v0.26.8 fix: 提取编辑器内容包含检测，供 append / setGeneratedText / pipeline-complete 复用，
+  // 避免 DB 正文与幽灵文本叠加显示。
+  // v0.26.9 fix: 使用 latestContentRef（React state 的同步快照）替代 editorRef.getText()。
+  // 原因：TipTap 编辑器的 DOM/Text 状态可能滞后于 React content prop 更新，在 ChapterSwitch
+  // 或 pipeline-complete 刚加载正文后、编辑器尚未重渲染时，editorRef.getText() 会返回空/旧文本，
+  // 导致重复检测失效并把已有正文恢复为幽灵文本。
+  // v0.26.10 fix: 同时检测 editorRef.getText()，覆盖 latestContentRef 短暂失步的场景。
+  // v0.26.13 fix: 前置到 setGeneratedText 之前，作为 centralized guard 拦截所有写入 generatedText 的路径。
+  const isTextAlreadyInEditor = useCallback(
+    (text: string, opts?: { log?: boolean; source?: string }) => {
+      if (!text?.trim()) return false;
+      const existingFromRef = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+      const existingFromEditor = (editorRef.current?.getText() || '')
+        .replace(/<[^>]*>/g, '')
+        .trim();
+      const duplicateFromRef = isTextDuplicate(existingFromRef, text);
+      const duplicateFromEditor = isTextDuplicate(existingFromEditor, text);
+      const isAlreadyPresent = duplicateFromRef || duplicateFromEditor;
+      if (opts?.log) {
+        logToBackend('frontstage:duplicate_check', 'checking editor duplication', {
+          source: opts.source || 'unknown',
+          existingFromRefLen: existingFromRef.length,
+          existingFromEditorLen: existingFromEditor.length,
+          textLen: text.length,
+          isAlreadyPresent,
+          duplicateFromRef,
+          duplicateFromEditor,
+          existingFromRefPreview: existingFromRef.slice(-120),
+          existingFromEditorPreview: existingFromEditor.slice(-120),
+          textPreview: text.slice(0, 120),
+        });
+      }
+      return isAlreadyPresent;
+    },
+    []
+  );
+
   // v0.23.66: 包装 setGeneratedText，每次非空赋值时记录调用栈便于诊断重复根因
   // v0.26.7 fix: 用 useCallback 稳定引用，避免 selectChapter 等 memo 回调因依赖它而失效
-  const setGeneratedText = useCallback((text: string) => {
-    const stack = new Error().stack?.split('\n').slice(1, 6).join(' <- ');
-    if (text && text.length > 50) {
-      if (Date.now() < postAcceptLockRef.current) {
-        frontstageLogger.warn('[GEN-TEXT] post-accept lock active, ignoring generatedText set', {
-          textLen: text.length,
-          preview: text.slice(0, 80),
-          lockMsRemaining: postAcceptLockRef.current - Date.now(),
-        });
-        logToBackend(
-          'frontstage:post_accept_lock_block',
-          'blocked generatedText set after accept',
-          {
+  // v0.26.13 fix: centralized guard——Genesis 已自动接受或编辑器已包含该内容时，禁止再恢复幽灵文本。
+  const setGeneratedText = useCallback(
+    (text: string) => {
+      const stack = new Error().stack?.split('\n').slice(1, 6).join(' <- ');
+      // v0.26.13 centralized guard: 任何非空 generatedText 在写入前都必须通过两道检查：
+      // 1) Genesis 已自动接受时禁止再恢复幽灵文本；
+      // 2) 编辑器（包括 React state 快照与 DOM）已包含该内容时直接忽略。
+      if (text && text.trim().length > 0) {
+        if (genesisAutoAcceptedRef.current) {
+          frontstageLogger.warn(
+            '[GEN-TEXT] Genesis already auto-accepted, ignoring generatedText set',
+            {
+              textLen: text.length,
+              preview: text.slice(0, 80),
+            }
+          );
+          logToBackend('frontstage:set_generated_text_skip', 'genesis already auto-accepted', {
+            preview: text.slice(0, 120),
+            stack,
+          });
+          return;
+        }
+        if (isTextAlreadyInEditor(text)) {
+          frontstageLogger.warn(
+            '[GEN-TEXT] editor already contains text, ignoring generatedText set',
+            {
+              textLen: text.length,
+              preview: text.slice(0, 80),
+            }
+          );
+          logToBackend('frontstage:set_generated_text_skip', 'editor already contains text', {
+            preview: text.slice(0, 120),
+            stack,
+          });
+          markAccepted(text);
+          return;
+        }
+      }
+      if (text && text.length > 50) {
+        if (Date.now() < postAcceptLockRef.current) {
+          frontstageLogger.warn('[GEN-TEXT] post-accept lock active, ignoring generatedText set', {
+            textLen: text.length,
             preview: text.slice(0, 80),
             lockMsRemaining: postAcceptLockRef.current - Date.now(),
-            stack,
-          }
-        );
-        return;
+          });
+          logToBackend(
+            'frontstage:post_accept_lock_block',
+            'blocked generatedText set after accept',
+            {
+              preview: text.slice(0, 80),
+              lockMsRemaining: postAcceptLockRef.current - Date.now(),
+              stack,
+            }
+          );
+          return;
+        }
+        frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
+          textLen: text.length,
+          preview: text.slice(0, 80),
+          stack: stack || 'unknown',
+        });
+        logToBackend('frontstage:set_generated_text', 'setting generatedText', {
+          textLen: text.length,
+          preview: text.slice(0, 120),
+          postAcceptLockActive: Date.now() < postAcceptLockRef.current,
+          stack,
+        });
+      } else if (text === '') {
+        frontstageLogger.info('[GEN-TEXT] setGeneratedText cleared');
+        logToBackend('frontstage:set_generated_text', 'clearing generatedText', {
+          previousRefLen: generatedTextRef.current.length,
+          stack,
+        });
       }
-      frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
-        textLen: text.length,
-        preview: text.slice(0, 80),
-        stack: stack || 'unknown',
-      });
-      logToBackend('frontstage:set_generated_text', 'setting generatedText', {
-        textLen: text.length,
-        preview: text.slice(0, 120),
-        postAcceptLockActive: Date.now() < postAcceptLockRef.current,
-        stack,
-      });
-    } else if (text === '') {
-      frontstageLogger.info('[GEN-TEXT] setGeneratedText cleared');
-      logToBackend('frontstage:set_generated_text', 'clearing generatedText', {
-        previousRefLen: generatedTextRef.current.length,
-        stack,
-      });
-    }
-    generatedTextRef.current = text;
-    _setGeneratedText(text);
-  }, []);
+      generatedTextRef.current = text;
+      _setGeneratedText(text);
+    },
+    [isTextAlreadyInEditor, markAccepted]
+  );
 
   // v0.23.99: 父组件层监控 generatedText 渲染窗口，便于在 backend log 中确认幽灵文本是否应该出现
   useEffect(() => {
@@ -840,15 +922,12 @@ const FrontstageApp: React.FC = () => {
 
   // AI 学习指示器
 
-  const editorRef = useRef<RichTextEditorRef>(null);
   // A4-1.9: 打字机效果改为 requestAnimationFrame 驱动
   const typewriterFrameRef = useRef<number | null>(null);
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
-  // A4-1.8: 最新内容 ref，供防抖后的自动保存读取，避免在输入关键路径创建大对象
-  const latestContentRef = useRef<string>('');
   // A4-1.8: notify_backstage_content_changed 节流定时器
   const notifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 备用机制：记录最后收到事件的时间，如果10秒内无新事件则显示提示
@@ -1414,11 +1493,17 @@ const FrontstageApp: React.FC = () => {
                 // 根因：创世/续写成功后 generatedText 可能仍持有正文（纯文本幽灵段落），
                 // 与编辑器正文（HTML排版）并存 → "有排版版+无排版版"两份重复。
                 setGeneratedText('');
-                // v0.26.6 fix: 标记 Genesis 正文已通过 ChapterSwitch 自动加载，后续
-                // smart_execute 结果不得再恢复 generatedText，防止内容重复。
-                if (payload.content) {
-                  genesisAutoAcceptedRef.current = true;
-                }
+              }
+              // v0.26.11 fix: 若 Genesis 正文已由 smart_execute / Tab 接受 / pipeline-complete
+              // 加载到编辑器，ChapterSwitch 不再重复加载 DB 正文，避免同一内容被设置两次。
+              // v0.26.12 fix: 必须先根据当前 genesisAutoAcceptedRef 决定是否跳过，再在本事件
+              // 真正加载正文后标记 Genesis 已自动接受。否则 auto_accept=true 且自带正文的事件
+              // 会先把 ref 置为 true，反而导致自己的 selectChapter 跳过加载，编辑器保持为空。
+              const chapterSwitchSkipContent = !autoAccept || genesisAutoAcceptedRef.current;
+              // v0.26.6 fix: 标记 Genesis 正文已通过 ChapterSwitch 自动加载，后续
+              // smart_execute 结果不得再恢复 generatedText，防止内容重复。
+              if (autoAccept && payload.content) {
+                genesisAutoAcceptedRef.current = true;
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
@@ -1463,7 +1548,7 @@ const FrontstageApp: React.FC = () => {
                           content_length: targetChapter.content?.length || 0,
                         });
                         // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
-                        selectChapter(targetChapter, { skipContent: !autoAccept });
+                        selectChapter(targetChapter, { skipContent: chapterSwitchSkipContent });
                       } else {
                         frontstageLogger.error(
                           '[ChapterSwitch] No chapters available for new story'
@@ -1497,7 +1582,7 @@ const FrontstageApp: React.FC = () => {
                     content_length: chapter.content?.length || 0,
                   });
                   // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
-                  selectChapter(chapter, { skipContent: !autoAccept });
+                  selectChapter(chapter, { skipContent: chapterSwitchSkipContent });
                 } else {
                   // v5.4.1 fix: chaptersRef 可能为空（Bootstrap 竞态：storyCreated→loadStories→selectStory 在 ChapterSwitch 之前设置了空 chapters）
                   // 此时必须重新查询数据库获取最新章节
@@ -1518,7 +1603,7 @@ const FrontstageApp: React.FC = () => {
                         });
                         setChapters(freshChapters);
                         // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
-                        selectChapter(freshChapter, { skipContent: !autoAccept });
+                        selectChapter(freshChapter, { skipContent: chapterSwitchSkipContent });
                       } else if (freshChapters.length > 0) {
                         frontstageLogger.warn(
                           '[ChapterSwitch] Target chapter not found after re-fetch, falling back to first',
@@ -1526,7 +1611,7 @@ const FrontstageApp: React.FC = () => {
                         );
                         setChapters(freshChapters);
                         // v0.23.85: 显式传递 skipContent，不依赖可能被竞态重置的 ref
-                        selectChapter(freshChapters[0], { skipContent: !autoAccept });
+                        selectChapter(freshChapters[0], { skipContent: chapterSwitchSkipContent });
                       } else {
                         frontstageLogger.error(
                           '[ChapterSwitch] No chapters available after re-fetch'
@@ -1836,6 +1921,14 @@ const FrontstageApp: React.FC = () => {
               offset: (page - 1) * SCENES_PAGE_SIZE,
             })
           : await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
+      if (!Array.isArray(result)) {
+        frontstageLogger.warn('loadStoryScenes received non-array result, ignoring', {
+          storyId,
+          page,
+          result,
+        });
+        return;
+      }
       if (page && page > 0) {
         setScenes(prev => {
           const map = new Map(prev.map(s => [s.id, s]));
@@ -1861,6 +1954,14 @@ const FrontstageApp: React.FC = () => {
               offset: (page - 1) * CHAPTERS_PAGE_SIZE,
             })
           : await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+      if (!Array.isArray(result)) {
+        frontstageLogger.warn('loadStoryChapters received non-array result, ignoring', {
+          storyId,
+          page,
+          result,
+        });
+        return;
+      }
       if (page && page > 0) {
         setChapters(prev => {
           const map = new Map(prev.map(c => [c.id, c]));
@@ -1927,7 +2028,9 @@ const FrontstageApp: React.FC = () => {
       }
 
       // B2: 若本地尚未加载该章节（跨章切换），加载其所在分页
-      const chapterIndex = chapters.findIndex(c => c.id === chapter.id);
+      // v0.26.11 fix: 使用 ref 快照，避免 selectChapter 在异步装配期间捕获到 undefined/stale chapters。
+      const chaptersSnapshot = chaptersRef.current || [];
+      const chapterIndex = chaptersSnapshot.findIndex(c => c.id === chapter.id);
       if (chapterIndex === -1 && currentStory) {
         (async () => {
           try {
@@ -1950,11 +2053,11 @@ const FrontstageApp: React.FC = () => {
       // B2: 接近已加载章节末尾时预加载下一页
       if (
         chapterIndex >= 0 &&
-        chapters.length > 0 &&
-        chapterIndex >= chapters.length - 1 &&
+        chaptersSnapshot.length > 0 &&
+        chapterIndex >= chaptersSnapshot.length - 1 &&
         currentStory
       ) {
-        const nextPage = Math.floor(chapters.length / CHAPTERS_PAGE_SIZE) + 1;
+        const nextPage = Math.floor(chaptersSnapshot.length / CHAPTERS_PAGE_SIZE) + 1;
         loadStoryChapters(currentStory.id, nextPage);
       }
 
@@ -1998,7 +2101,7 @@ const FrontstageApp: React.FC = () => {
       }
       // Phase 2: 设置场景信息为主键，chapterId 为辅助
       // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
-      const linkedSceneId = chapter.scene_id || scenes.find(s => s.chapter_id === chapter.id)?.id;
+      const linkedSceneId = chapter.scene_id || scenes?.find(s => s.chapter_id === chapter.id)?.id;
       setSceneInfo(
         linkedSceneId || chapter.id, // fallback to chapter.id for backward compat
         chapter.title || '',
@@ -2008,7 +2111,7 @@ const FrontstageApp: React.FC = () => {
 
       // Sync currentScene if chapter has associated scene
       if (chapter.scene_id) {
-        const associatedScene = scenes.find(s => s.id === chapter.scene_id);
+        const associatedScene = scenes?.find(s => s.id === chapter.scene_id);
         if (!associatedScene) {
           (async () => {
             try {
@@ -2037,7 +2140,6 @@ const FrontstageApp: React.FC = () => {
       }
     },
     [
-      chapters,
       currentStory,
       scenes,
       loadStoryChapters,
@@ -2067,6 +2169,14 @@ const FrontstageApp: React.FC = () => {
             offset: 0,
           }),
         ]);
+        if (!Array.isArray(result) || !Array.isArray(scenesResult)) {
+          frontstageLogger.warn('selectStory received non-array result, aborting', {
+            storyId: story.id,
+            result,
+            scenesResult,
+          });
+          return;
+        }
         setChapters(result);
         setScenes(scenesResult);
         loadStoryWordCount(story.id);
@@ -2095,6 +2205,10 @@ const FrontstageApp: React.FC = () => {
   const loadStories = useCallback(async () => {
     try {
       const result = await loggedInvoke<Story[]>('list_stories');
+      if (!Array.isArray(result)) {
+        frontstageLogger.warn('loadStories received non-array result, ignoring', { result });
+        return;
+      }
       setStories(result);
       // v5.4.1 fix: Bootstrap 期间（isGenerating=true）不要自动选择 story，
       // 避免 FirstChapterGenerationStep 尚未完成时 selectStory 拿到空 chapters 导致编辑器被清空
@@ -2140,9 +2254,12 @@ const FrontstageApp: React.FC = () => {
         if (activeChapter) {
           // v0.23.79: 后台阶段完成时若用户尚未确认 generatedText，直接加载 DB 正文
           // 会与幽灵文本形成两份重复。此处跳过内容加载，让用户继续走 Tab 确认流程。
+          // v0.26.11 fix: 若 Genesis 正文已由 smart_execute / Tab 接受加载，不再重复加载。
           const hasPendingGeneration = generatedTextRef.current.length > 0;
-          selectChapter(activeChapter, { skipContent: hasPendingGeneration });
-          if (!hasPendingGeneration) {
+          selectChapter(activeChapter, {
+            skipContent: hasPendingGeneration || genesisAutoAcceptedRef.current,
+          });
+          if (!hasPendingGeneration && !genesisAutoAcceptedRef.current) {
             // v0.26.8 fix: pipeline-complete 加载 DB 正文后，标记 Genesis 已自动接受，
             // 防止后续 smart_execute 返回时再次把 final_content 恢复为幽灵文本。
             genesisAutoAcceptedRef.current = true;
@@ -2478,10 +2595,13 @@ const FrontstageApp: React.FC = () => {
 
         // Phase 4 fix: 创世和续写统一走 generatedText + Tab 确认
         if (isFirstChapterReady) {
-          frontstageLogger.info('[Bootstrap] Story created, first chapter ready — Tab to accept');
-          // v0.26.6 fix: 若 ChapterSwitch 已自动加载正文，则不再恢复 generatedText；
-          // 否则将 final_content 设为幽灵文本供用户 Tab 确认。
-          // v0.26.8 fix: 增加编辑器包含检测，覆盖 pipeline-complete / 其他路径先加载正文的竞态。
+          frontstageLogger.info('[Bootstrap] Story created, first chapter ready');
+          // v0.26.10 fix: Genesis 第一章不再显示幽灵文本供 Tab 确认，而是直接写入编辑器正文。
+          // 多次修复 Tab 接受路径的视觉重复均未能根治；改为自动接受可彻底消除"正文 + 幽灵文本"
+          // 同框问题，同时保留编辑器尾部去重和 latestContentRef 同步等安全网。
+          // v0.26.12 fix: 在 append 之前先设置 genesisAutoAcceptedRef 与 hideGhostUntil，
+          // 确保并发到达的 ChapterSwitch / pipeline-complete 不会把 DB 正文再 setContent
+          // 到编辑器，避免同一内容被写入两次。
           if (!genesisAutoAcceptedRef.current && result.final_content?.trim()) {
             let finalContent = result.final_content!;
             // v0.26.9 fix: 使用 latestContentRef 替代 editorRef.getText()，避免 DOM 竞态。
@@ -2495,7 +2615,7 @@ const FrontstageApp: React.FC = () => {
             });
             if (isAlreadyPresent) {
               frontstageLogger.info(
-                '[Bootstrap] Editor already contains generated content, skipping ghost text'
+                '[Bootstrap] Editor already contains generated content, skipping append'
               );
               logToBackend(
                 'frontstage:request_gen_skip_duplicate',
@@ -2505,10 +2625,18 @@ const FrontstageApp: React.FC = () => {
                   currentLen: currentText.length,
                 }
               );
-              genesisAutoAcceptedRef.current = true;
             } else if (finalContent.trim()) {
-              setGeneratedText(finalContent);
+              logToBackend('frontstage:genesis_auto_accept', 'auto-accepting first chapter', {
+                finalLen: finalContent.length,
+                preview: finalContent.slice(0, 120),
+              });
+              setGeneratedText('');
+              genesisAutoAcceptedRef.current = true;
+              postAcceptLockRef.current = Date.now() + 300000;
+              setHideGhostUntil(Date.now() + 30000);
+              appendAiContentRef.current(finalContent, 'auto');
             }
+            genesisAutoAcceptedRef.current = true;
           }
           stopElapsedTimer();
           setIsGenerating(false);
@@ -2666,6 +2794,9 @@ const FrontstageApp: React.FC = () => {
     try {
       // v0.23.96: 不再使用 flushSync，避免 React 18 批处理异常；
       // 依赖 RichTextEditor 本地 isHidingGhost 立即隐藏幽灵文本。
+      // v0.26.10 fix: 移除 flushSync。嵌套 flushSync 会让 generatedText 状态在追加
+      // 正文后仍残留在子组件中，造成"正文 + 幽灵文本"同框。改为普通状态更新，
+      // 子组件已用全局 CSS 类兜底隐藏幽灵容器，直到 React 移除幽灵树。
       setGeneratedText('');
       logToBackend('frontstage:accept_cleared', 'generatedText cleared');
       appendAiContentRef.current(textToAccept, 'tab');
@@ -2673,6 +2804,9 @@ const FrontstageApp: React.FC = () => {
       postAcceptLockRef.current = Date.now() + 300000;
       // v0.23.98: 父组件设置 30s 幽灵文本渲染锁
       setHideGhostUntil(Date.now() + 30000);
+      // v0.26.13 fix: Tab 接受后标记 Genesis 正文已加载，防止 pipeline-complete / ChapterSwitch
+      // 后续再把 DB 正文 setContent，造成同一内容重复。
+      genesisAutoAcceptedRef.current = true;
       logToBackend('frontstage:post_accept_lock', 'post-accept lock set', { lockMs: 300000 });
       if (currentStory?.id) {
         recordFeedback({
@@ -2730,66 +2864,130 @@ const FrontstageApp: React.FC = () => {
   // v0.23.92: 文思活跃模式下，AI 输出直接追加到编辑器并自动继续
   const pendingAutoContinueRef = useRef(false);
 
-  // v0.26.8 fix: 提取编辑器内容包含检测，供 append / setGeneratedText / pipeline-complete 复用，
-  // 避免 DB 正文与幽灵文本叠加显示。
-  // v0.26.9 fix: 使用 latestContentRef（React state 的同步快照）替代 editorRef.getText()。
-  // 原因：TipTap 编辑器的 DOM/Text 状态可能滞后于 React content prop 更新，在 ChapterSwitch
-  // 或 pipeline-complete 刚加载正文后、编辑器尚未重渲染时，editorRef.getText() 会返回空/旧文本，
-  // 导致重复检测失效并把已有正文恢复为幽灵文本。
-  const isTextAlreadyInEditor = useCallback(
-    (text: string, opts?: { log?: boolean; source?: string }) => {
-      if (!text?.trim()) return false;
-      const existingText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
-      const isAlreadyPresent = isTextDuplicate(existingText, text);
-      if (opts?.log) {
-        logToBackend('frontstage:duplicate_check', 'checking editor duplication', {
-          source: opts.source || 'unknown',
-          existingLen: existingText.length,
-          textLen: text.length,
-          isAlreadyPresent,
-          existingPreview: existingText.slice(0, 120),
-          textPreview: text.slice(0, 120),
-        });
-      }
-      return isAlreadyPresent;
-    },
-    []
-  );
-
   const appendAiContent = useCallback(
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => {
       if (!editorRef.current) return;
-      const formatted = autoFormatText(rawText);
-      // v0.26.9 fix: 使用 latestContentRef 替代 editorRef.getText()，避免 DOM 滞后导致
-      // 刚刚加载/追加过的内容被再次追加。
-      const existingText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
-      const isAlreadyPresent = isTextDuplicate(existingText, rawText);
+
+      // v0.26.10 fix: 使用 latestContentRef（React state 同步快照）与 editorRef.getText()
+      //（TipTap 实时 DOM）双重基准。任何一方显示内容已存在，都禁止追加。
+      const existingFromRef = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+      const existingFromEditor = (editorRef.current?.getText() || '')
+        .replace(/<[^>]*>/g, '')
+        .trim();
+
+      // v0.26.10 fix: 安全网——如果 rawText 仍以当前正文开头（上游 prefix 去重因
+      // latestContentRef 滞后而失效），先剥离该前缀，避免把已有正文再追加上去。
+      let textToAppend = rawText;
+      const stripExistingPrefix = (existing: string) => {
+        if (!existing || existing.length < 10) return rawText;
+        const plainRaw = rawText.replace(/<[^>]*>/g, '');
+        const normalizedRaw = plainRaw.replace(/\s+/g, '');
+        const normalizedExisting = existing.replace(/\s+/g, '');
+        if (!normalizedRaw.startsWith(normalizedExisting)) return rawText;
+        // 找到 plainRaw 中忽略空白后与 existing 等长的位置
+        let rawIdx = 0;
+        let existingIdx = 0;
+        while (rawIdx < plainRaw.length && existingIdx < existing.length) {
+          if (/\s/.test(plainRaw[rawIdx])) {
+            rawIdx++;
+            continue;
+          }
+          if (/\s/.test(existing[existingIdx])) {
+            existingIdx++;
+            continue;
+          }
+          if (plainRaw[rawIdx] !== existing[existingIdx]) break;
+          rawIdx++;
+          existingIdx++;
+        }
+        return plainRaw.slice(rawIdx).trimStart();
+      };
+      textToAppend = stripExistingPrefix(existingFromRef);
+      if (textToAppend === rawText) {
+        textToAppend = stripExistingPrefix(existingFromEditor);
+      }
+      const prefixStripped = textToAppend !== rawText;
+
+      const formatted = autoFormatText(textToAppend);
+      const duplicateFromRef = isTextDuplicate(existingFromRef, textToAppend);
+      const duplicateFromEditor = isTextDuplicate(existingFromEditor, textToAppend);
+      const isAlreadyPresent = duplicateFromRef || duplicateFromEditor;
+
       logToBackend('frontstage:append_ai_check', 'checking duplication before append', {
         source,
-        existingLen: existingText.length,
+        existingFromRefLen: existingFromRef.length,
+        existingFromEditorLen: existingFromEditor.length,
         generatedLen: rawText.length,
+        textToAppendLen: textToAppend.length,
         formattedLen: formatted.length,
+        prefixStripped,
         isAlreadyPresent,
-        existingPreview: existingText.slice(0, 120),
+        duplicateFromRef,
+        duplicateFromEditor,
+        existingFromRefPreview: existingFromRef.slice(-120),
+        existingFromEditorPreview: existingFromEditor.slice(-120),
         generatedPreview: rawText.slice(0, 120),
       });
-      if (isAlreadyPresent) {
-        frontstageLogger.warn('[appendAiContent] 编辑器已包含该内容，跳过追加', {
+
+      // v0.26.11 fix: 30s 内已追加过完全相同的内容时直接跳过，防止任何竞态/多源调用
+      // 导致同一文本被写入两次。
+      const normalizedAppend = normalizeForDuplicateCheck(formatted);
+      const lastAppend = recentlyAppendedRef.current;
+      const isRecentlyAppended =
+        normalizedAppend.length > 0 &&
+        lastAppend !== null &&
+        Date.now() - lastAppend.appendedAt < 30000 &&
+        lastAppend.fingerprint === normalizedAppend.slice(0, 500);
+
+      if (isAlreadyPresent || !formatted.trim() || isRecentlyAppended) {
+        frontstageLogger.warn('[appendAiContent] 编辑器已包含该内容或近期已追加，跳过追加', {
           source,
           generatedLen: rawText.length,
+          textToAppendLen: textToAppend.length,
+          duplicateFromRef,
+          duplicateFromEditor,
+          emptyAfterStrip: !formatted.trim(),
+          isRecentlyAppended,
         });
-        logToBackend('frontstage:append_ai_skip', 'content already present', { source });
+        logToBackend('frontstage:append_ai_skip', 'content already present or recently appended', {
+          source,
+          duplicateFromRef,
+          duplicateFromEditor,
+          emptyAfterStrip: !formatted.trim(),
+          isRecentlyAppended,
+        });
       } else {
         editorRef.current.appendText(formatted);
-        // v0.26.9 fix: 立即同步 latestContentRef，避免 200ms onChange debounce 期间
-        // 收到另一个 append 事件导致同一段内容被追加两次。
-        latestContentRef.current = (latestContentRef.current || '') + formatted;
+        // v0.26.11 fix: 追加后立即用编辑器实际 HTML 同步 store 与 latestContentRef，
+        // 避免仅依赖 200ms onChange debounce 导致 store 与编辑器短暂/长期失步。
+        // store 失步会在后续外部同步、自动保存或章节切换时引发内容重复、丢失或白屏。
+        try {
+          const editorHtmlAfter = editorRef.current?.getHTML?.() || formatted;
+          useFrontstageStore.getState().setContent(editorHtmlAfter);
+          latestContentRef.current = editorHtmlAfter;
+          logToBackend('frontstage:append_ai_store_sync', 'synced store content after append', {
+            source,
+            htmlLen: editorHtmlAfter.length,
+          });
+        } catch (e) {
+          // fallback：保留旧同步方式，确保 latestContentRef 至少有内容
+          latestContentRef.current = (latestContentRef.current || '') + formatted;
+          logToBackend('frontstage:append_ai_store_sync_fallback', 'fallback to text concat', {
+            source,
+            error: String(e),
+          });
+        }
         logToBackend('frontstage:append_ai_done', 'appended AI content', {
           source,
           formattedLen: formatted.length,
           rawLen: rawText.length,
+          textToAppendLen: textToAppend.length,
           formattedPreview: formatted.replace(/<[^>]+>/g, '').slice(0, 120),
         });
+        recentlyAppendedRef.current = {
+          fingerprint: normalizedAppend.slice(0, 500),
+          appendedAt: Date.now(),
+        };
       }
       markAccepted(rawText);
       // 使用 ref 读取最新 wensiMode，避免 listener stale closure
@@ -2800,6 +2998,7 @@ const FrontstageApp: React.FC = () => {
     },
     [markAccepted]
   );
+
   useEffect(() => {
     appendAiContentRef.current = appendAiContent;
   }, [appendAiContent]);
@@ -2821,6 +3020,17 @@ const FrontstageApp: React.FC = () => {
       category: suggestion.category,
       targetParagraphIndex: suggestion.targetParagraphIndex ?? -1,
     });
+  }, []);
+
+  // v0.26.13 fix: 稳定回调引用，配合 RichTextEditor.memo 减少父组件重渲染导致的无意义渲染。
+  const handleShowEditorStatus = useCallback((message: string) => {
+    setOrchestratorStatus({ stepType: 'editor', message });
+    setTimeout(() => {
+      setOrchestratorStatus(current => (current?.message === message ? null : current));
+    }, 3000);
+  }, []);
+  const handleClearInlineSuggestion = useCallback(() => {
+    setInlineSuggestion(null);
   }, []);
 
   // 取消生成引用
@@ -2934,6 +3144,8 @@ const FrontstageApp: React.FC = () => {
       clearAccepted();
       // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
       postAcceptLockRef.current = 0;
+      // v0.26.13 fix: 新请求开始时重置 Genesis 自动接受标记，避免上一本小说的状态阻塞续写生成。
+      genesisAutoAcceptedRef.current = false;
       if (isGenerating) {
         // 使用顶部状态栏替代黑色 toast
         setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
@@ -2985,7 +3197,7 @@ const FrontstageApp: React.FC = () => {
         skipChapterContentRef.current = false;
         chapterSwitchCountRef.current = 0;
         chapterSwitchTimestampRef.current = 0;
-        genesisAutoAcceptedRef.current = false;
+        // genesisAutoAcceptedRef 已在 handleSmartGeneration 开头重置；此处不再重复。
         // v0.23.90: 先清空 store content，确保 RichTextEditor 外部同步 effect 收到空内容
         useFrontstageStore.getState().setContent('');
         useFrontstageStore.getState().setSceneInfo('', '');
@@ -3201,10 +3413,17 @@ const FrontstageApp: React.FC = () => {
           // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
           // 状态滞后于 React state 时重复输出已有正文。
           const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+          const rawFinalLen = finalContent.length;
           // 去重前缀
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
+          frontstageLogger.info('[DEBUG-dup] finalContent prefix strip', {
+            rawFinalLen,
+            currentTextLen: currentText.length,
+            strippedFinalLen: finalContent.length,
+            didStrip: finalContent.length !== rawFinalLen,
+          });
 
           // v0.26.8 fix: 无论通过何种路径（ChapterSwitch / pipeline-complete / 直接加载），
           // 只要编辑器已包含生成内容，就禁止再设 generatedText，避免正文与幽灵文本叠加。
@@ -3249,6 +3468,29 @@ const FrontstageApp: React.FC = () => {
             toast.success(
               isBootstrapCompleted ? '小说已创建，文思活跃中...' : '续写已追加，文思活跃中...'
             );
+          } else if (isFirstChapterReady) {
+            // v0.26.11 fix: Genesis 第一章不再走 generatedText + Tab 确认，而是直接写入编辑器正文。
+            // 多次修复 Tab 接受路径的重复问题均未能根治；改为自动接受可从流程上消除
+            // "正文 + 幽灵文本" 同框以及同一内容被追加两次的风险。
+            // v0.26.12 fix: 在 append 之前先设置 genesisAutoAcceptedRef 与 hideGhostUntil，
+            // 阻塞并发的 ChapterSwitch / pipeline-complete 把 DB 正文再次 setContent。
+            if (finalContent.trim()) {
+              logToBackend(
+                'frontstage:genesis_auto_accept_smart',
+                'auto-accepting first chapter from smart generation',
+                {
+                  finalLen: finalContent.length,
+                }
+              );
+              setGeneratedText('');
+              genesisAutoAcceptedRef.current = true;
+              postAcceptLockRef.current = Date.now() + 300000;
+              setHideGhostUntil(Date.now() + 30000);
+              appendAiContent(finalContent, 'auto');
+              toast.success('小说已创建，第一章已加载');
+            } else {
+              genesisAutoAcceptedRef.current = true;
+            }
           } else {
             frontstageLogger.info('[SmartGeneration] Setting generatedText', {
               finalContent_length: finalContent.length,
@@ -3737,14 +3979,7 @@ const FrontstageApp: React.FC = () => {
                   onRequestGeneration={handleRequestGeneration}
                   onSmartGeneration={handleSmartGeneration}
                   onSlashCommand={handleSlashCommand}
-                  onShowStatus={message => {
-                    setOrchestratorStatus({ stepType: 'editor', message });
-                    setTimeout(() => {
-                      setOrchestratorStatus(current =>
-                        current?.message === message ? null : current
-                      );
-                    }, 3000);
-                  }}
+                  onShowStatus={handleShowEditorStatus}
                   placeholder="开始写作..."
                   characters={characters}
                   fontSize={fontSize}
@@ -3756,8 +3991,7 @@ const FrontstageApp: React.FC = () => {
                   chapterNumber={currentChapter?.chapter_number}
                   smartGhostText={smartGhostText}
                   inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
-                  onClearInlineSuggestion={() => setInlineSuggestion(null)}
-                  subscription={subscription}
+                  onClearInlineSuggestion={handleClearInlineSuggestion}
                   logToBackend={logToBackend}
                 />
               </ErrorBoundary>

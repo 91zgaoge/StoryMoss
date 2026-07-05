@@ -98,7 +98,11 @@ let mockEditorTextStale = false;
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
   default: React.forwardRef(function MockRichTextEditor(
-    props: { content: string; generatedText?: string },
+    props: {
+      content: string;
+      onChange?: (content: string) => void;
+      generatedText?: string;
+    },
     ref: React.ForwardedRef<{
       getText: () => string;
       appendText: (html: string) => void;
@@ -110,10 +114,13 @@ vi.mock('../components/RichTextEditor', () => ({
     React.useImperativeHandle(ref, () => ({
       getText: () => (mockEditorTextStale ? '' : props.content.replace(/<[^>]+>/g, '')),
       appendText: (html: string) => {
-        captured.content = (captured.content || '') + html;
+        const newContent = (props.content || '') + html;
+        captured.content = newContent;
+        props.onChange?.(newContent);
       },
       setContent: (html: string) => {
         captured.content = html;
+        props.onChange?.(html);
       },
     }));
     return React.createElement('div', { 'data-testid': 'rich-text-editor' }, props.content);
@@ -190,7 +197,7 @@ describe('Bug A: 创世后正文不应重复', () => {
     await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled());
   };
 
-  it('ChapterSwitch 先到达时，显式 selectChapter 仍跳过 DB 内容，走 Tab 确认', async () => {
+  it('ChapterSwitch 先到达时，Genesis 第一章直接写入编辑器，不保留幽灵文本', async () => {
     await submitCreationPrompt();
 
     // 模拟后端先发射 ChapterSwitch（auto_accept=false, content=None），与真实 genesis.rs 一致
@@ -203,13 +210,12 @@ describe('Bug A: 创世后正文不应重复', () => {
     // 等待 story_created 触发的显式 selectChapter 完成
     await new Promise(r => setTimeout(r, 200));
 
-    // 走 Tab 确认流程：编辑器不应加载 DB 正文，generatedText 应持有正文
-    expect(captured.content).not.toContain(CHAPTER_TEXT);
-    // v0.23.89: generatedText 带临时诊断标记
-    expect(captured.generatedText).toContain(CHAPTER_TEXT);
+    // v0.26.11 fix: Genesis 第一章直接追加到编辑器正文，不再走 generatedText + Tab 确认。
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
   });
 
-  it('B2 分页返回无 content 时，懒加载完整章节仍尊重 skipContent，不导致重复', async () => {
+  it('B2 分页返回无 content 时，懒加载完整章节后直接写入编辑器，不保留幽灵文本', async () => {
     mockChaptersHaveContent = false;
     await submitCreationPrompt();
 
@@ -222,9 +228,9 @@ describe('Bug A: 创世后正文不应重复', () => {
 
     await new Promise(r => setTimeout(r, 200));
 
-    expect(captured.content).not.toContain(CHAPTER_TEXT);
-    // v0.23.89: generatedText 带临时诊断标记
-    expect(captured.generatedText).toContain(CHAPTER_TEXT);
+    // v0.26.11 fix: 即使 B2 分页未返回 content，最终也通过自动接受写入编辑器。
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
   });
 
   it('旧版 ChapterSwitch 携带正文时，仍不会出现重复内容', async () => {
@@ -261,6 +267,41 @@ describe('Bug A: 创世后正文不应重复', () => {
     expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
   });
 
+  it('ChapterSwitch 已加载正文后，相同内容的 ContentUpdate 不应再恢复 generatedText', async () => {
+    // 模拟后台生成路径：smart_execute 只返回 background_started，正文由 ChapterSwitch 加载
+    mockSmartExecute.mockResolvedValue({
+      success: true,
+      steps_completed: 1,
+      final_content: '',
+      messages: ['story_created:story-1', 'novel_bootstrap_background_started'],
+      error: null,
+    });
+
+    await submitCreationPrompt();
+
+    // 模拟旧版 ChapterSwitch 直接携带正文并自动接受
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: CHAPTER_TEXT, auto_accept: true }),
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
+
+    // 后端又发来相同内容的 ContentUpdate（例如流水线事件与 smart_execute 重复推送）
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: { type: 'contentUpdate', payload: { text: CHAPTER_TEXT } },
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+    // centralized guard：编辑器已包含该内容时，禁止再写回 generatedText
+    expect(captured.generatedText).toBe('');
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
+  });
+
   it('get_story_word_count 返回 undefined 时不应抛出未捕获异常', async () => {
     mockWordCountReturnUndefined = true;
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -275,8 +316,9 @@ describe('Bug A: 创世后正文不应重复', () => {
 
     await new Promise(r => setTimeout(r, 200));
 
-    // 关键断言：不应因为 result.total_chars 抛出未捕获异常
-    expect(captured.generatedText).toContain(CHAPTER_TEXT);
+    // 关键断言：不应因为 result.total_chars 抛出未捕获异常；Genesis 第一章已直接写入编辑器。
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+    expect(captured.content.replace(/<[^>]+>/g, '')).toContain(CHAPTER_TEXT.replace(/\n/g, ''));
     // 允许日志记录失败，但不能是读取 undefined.total_chars 的 TypeError
     const totalCharsErrors = consoleErrorSpy.mock.calls.filter(
       call =>
