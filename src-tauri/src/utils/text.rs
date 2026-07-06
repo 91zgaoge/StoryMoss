@@ -395,4 +395,38 @@ mod tests {
         let expected = format!("{p1}\n\n{p2}\n\n{p3}\n\n{p4prefix}");
         assert_eq!(TextUtils::trim_self_repetition(&text), expected);
     }
+
+    // v0.26.19 Phase 3.3: 跨层共享 trim golden fixture。
+    //   此测试加载仓库根 `tests/fixtures/trim_golden.json`，对每条用例断言
+    //   Rust `trim_self_repetition` 输出与 expected 一致。同一 fixture 也由
+    //   前端 vitest `textCleanup.golden.test.ts` 加载并断言 TS `trimSelfRepetition`
+    //   输出一致——双跑通过即证明两实现对同输入同输出（跨层一致性契约）。
+    #[derive(serde::Deserialize)]
+    struct TrimGoldenCase {
+        id: String,
+        input: String,
+        expected: String,
+        #[serde(default)]
+        description: String,
+    }
+
+    #[test]
+    fn trim_self_repetition_matches_shared_golden_fixture() {
+        let fixture_json: &str = include_str!("../../../tests/fixtures/trim_golden.json");
+        let cases: Vec<TrimGoldenCase> =
+            serde_json::from_str(fixture_json).expect("golden fixture must be valid JSON");
+        assert!(
+            cases.len() >= 7,
+            "golden fixture should contain at least 7 cases, got {}",
+            cases.len()
+        );
+        for case in &cases {
+            let actual = TextUtils::trim_self_repetition(&case.input);
+            assert_eq!(
+                actual, case.expected,
+                "golden case '{}' ({}) mismatch:\ninput: {}\nexpected: {}\nactual: {}",
+                case.id, case.description, case.input, case.expected, actual
+            );
+        }
+    }
 }

@@ -1,6 +1,7 @@
 //! Orchestrator commands
 
 use tauri::{AppHandle, Manager, State};
+use uuid::Uuid;
 
 use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
@@ -266,6 +267,26 @@ async fn smart_execute_inner(
         // 正文生成后立即返回给用户，策略选择与世界观/大纲/角色等推入后台。
         let quick_steps = crate::narrative::genesis::GenesisPipeline::quick_phase_steps();
         let quick_step_count = quick_steps.len();
+
+        // v0.26.19 P0-4: 接入 genesis_runs 表，记录创世运行状态机。
+        //   仪表盘「Genesis 运行记录」依赖此表；此前 GenesisPipeline 全程不写，
+        //   导致 USER_GUIDE 承诺的运行记录永远为空。
+        //   total_steps = quick(2) + background(6) = 8，覆盖完整创世流程。
+        let genesis_run_id = Uuid::new_v4().to_string();
+        let genesis_run_repo = crate::db::GenesisRunRepository::new(pool.clone());
+        let bg_step_count =
+            crate::narrative::genesis::GenesisPipeline::background_steps().len() as i32;
+        let total_steps = (quick_step_count as i32) + bg_step_count;
+        if let Err(e) =
+            genesis_run_repo.create(&genesis_run_id, &session_id, &user_input, total_steps)
+        {
+            log::warn!(
+                "[smart_execute] genesis_runs.create 失败（不阻塞主流程）: {}",
+                e
+            );
+        }
+        // 标记进入 running 态（create 默认 pending，显式切 running 以便仪表盘区分）
+        let _ = genesis_run_repo.update_step(&genesis_run_id, "构思故事", 1, "running", "{}");
         let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
             .with_cancel_flag(cancel_flag.clone());
 
@@ -338,6 +359,19 @@ async fn smart_execute_inner(
                 let session_id = ctx.session_id.clone();
                 let bundle = ctx.bundle.read().await.clone();
                 let selected_strategy = ctx.selected_strategy.clone();
+                // v0.26.19 Phase 2.2: 透传 quick phase 的 errors Arc 到后台 ctx，
+                //   让后台步骤的非致命错误累计到同一集合，最终一次性写入 genesis_runs。
+                let errors_arc = ctx.errors.clone();
+
+                // v0.26.19 P0-4: 概念生成完成、首章已就绪，记录 story_id 并切 quick_done。
+                //   后台阶段完成后再 complete；失败则 fail。
+                if !story_id.is_empty() {
+                    let _ = genesis_run_repo.set_story_id_and_status(
+                        &genesis_run_id,
+                        &story_id,
+                        "quick_done",
+                    );
+                }
 
                 // 发射 story_created 同步事件，让前端立即进入工作台
                 let _ = crate::state_sync::StateSync::emit_story_created(
@@ -354,6 +388,8 @@ async fn smart_execute_inner(
                 let story_id_bg = story_id.clone();
                 let session_id_bg = session_id.clone();
                 let user_input_bg = user_input.clone();
+                let genesis_run_id_bg = genesis_run_id.clone();
+                let pool_bg = pool.clone();
                 tauri::async_runtime::spawn(async move {
                     // v0.23.66: Genesis 后台流水线加 BACKGROUND_LLM_SEMAPHORE 保护。
                     // 后台 6 个步骤（含 ParallelWorldOutlineCharacterStep 的世界观/大纲/角色 3 路）
@@ -371,6 +407,7 @@ async fn smart_execute_inner(
                         user_input_bg,
                         bundle,
                         selected_strategy,
+                        errors_arc.clone(),
                     );
                     let llm_bg = crate::llm::LlmService::new(app_handle_bg.clone());
 
@@ -409,6 +446,47 @@ async fn smart_execute_inner(
                         .await;
                     let bg_elapsed = bg_start.elapsed().as_secs();
 
+                    // v0.26.19 Phase 2.2: 序列化累计的非致命错误到 genesis_runs.steps_json，
+                    //   供仪表盘「Genesis 运行记录」展示；若存在错误，发射前端 toast 事件。
+                    let step_errors = bg_ctx.snapshot_errors();
+                    if !step_errors.is_empty() {
+                        let errors_json = serde_json::to_string(&serde_json::json!({
+                            "errors": step_errors,
+                        }))
+                        .unwrap_or_else(|_| "{}".to_string());
+                        let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
+                        if let Err(e) = repo.update_steps_json(&genesis_run_id_bg, &errors_json) {
+                            log::warn!(
+                                "[GenesisPipeline] genesis_runs.update_steps_json 失败（不阻塞）: {}",
+                                e
+                            );
+                        }
+                        // 发射 genesis-warnings 事件，前端 toast 提示用户部分资产生成失败
+                        let warning_count = step_errors.len();
+                        let has_error_level = step_errors.iter().any(|e| e.severity == "error");
+                        let toast_msg = if has_error_level {
+                            format!(
+                                "创世完成，但有 {} 项资产生成失败（含关键错误），可在仪表盘查看详情",
+                                warning_count
+                            )
+                        } else {
+                            format!(
+                                "创世完成，但有 {} 项次要资产未完整生成，不影响写作",
+                                warning_count
+                            )
+                        };
+                        let _ = app_handle_for_emit.emit(
+                            "genesis-warnings",
+                            serde_json::json!({
+                                "session_id": session_id_bg,
+                                "story_id": story_id_for_emit,
+                                "count": warning_count,
+                                "has_error": has_error_level,
+                                "message": toast_msg,
+                            }),
+                        );
+                    }
+
                     let (success, error_message) = match &bg_result {
                         Ok(_) => {
                             log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
@@ -417,10 +495,28 @@ async fn smart_execute_inner(
                                 Some(&story_id_for_emit),
                                 "all",
                             );
+                            // v0.26.19 P0-4: 后台阶段成功，标记 genesis_run 完成。
+                            let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
+                            if let Err(e) =
+                                repo.complete(&genesis_run_id_bg, Some(&story_id_for_emit))
+                            {
+                                log::warn!(
+                                    "[GenesisPipeline] genesis_runs.complete 失败（不阻塞）: {}",
+                                    e
+                                );
+                            }
                             (true, None)
                         }
                         Err(e) => {
                             log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
+                            // v0.26.19 P0-4: 后台阶段失败，记录错误信息。
+                            let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
+                            if let Err(db_err) = repo.fail(&genesis_run_id_bg, &format!("{}", e)) {
+                                log::warn!(
+                                    "[GenesisPipeline] genesis_runs.fail 失败（不阻塞）: {}",
+                                    db_err
+                                );
+                            }
                             (false, Some(format!("{}", e)))
                         }
                     };
@@ -509,6 +605,13 @@ async fn smart_execute_inner(
                     "[smart_execute] GenesisPipeline concept generation failed: {}",
                     e
                 );
+                // v0.26.19 P0-4: 快速阶段失败，记录 genesis_run 失败状态。
+                if let Err(db_err) = genesis_run_repo.fail(&genesis_run_id, &format!("{}", e)) {
+                    log::warn!(
+                        "[smart_execute] genesis_runs.fail 失败（不阻塞）: {}",
+                        db_err
+                    );
+                }
                 // v0.23.37: 同样补发 error，避免主活动卡在 running。
                 emit_progress("error", &format!("小说初始化失败: {}", e), 5, 5);
                 // 将 PipelineError 转换为 AppError，保留 LLM 超时语义

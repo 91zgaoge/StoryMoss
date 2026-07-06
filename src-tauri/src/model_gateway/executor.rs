@@ -62,7 +62,11 @@ impl GatewayExecutor {
     }
 
     fn registry_guard(&self) -> std::sync::MutexGuard<'_, GatewayRegistry> {
-        self.registry.lock().expect("registry lock poisoned")
+        // v0.26.19 Phase 2.3: 中毒锁恢复——任一持有 registry 锁的线程 panic 后，
+        //   原 `.expect("registry lock poisoned")` 会让网关路由全部 panic。
+        //   改用 `into_inner()` 取回内部数据，避免级联 panic；数据可能不一致
+        //   但允许上层逻辑继续（健康探测/候选 fallback 仍可工作）。
+        self.registry.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // =========================================================================

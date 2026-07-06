@@ -1,11 +1,30 @@
-# StoryForge (草苔) v0.26.18 项目完成状态
+# StoryForge (草苔) v0.26.19 项目完成状态
 
-> 最后更新: 2026-07-06（v0.26.18 Genesis 第一章重复竞态路径加固）
+> 最后更新: 2026-07-06（v0.26.19 Genesis 创世流程全面审计与测试加固）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.19 — Genesis 创世流程全面审计与测试加固（2026-07-06）
+
+- 🎯 **背景**：对照项目文档对「智能创作流程-创世」进行全面审计，分 Phase 1–4 执行修复、加固与测试补齐。
+- 🎯 **Phase 1（P0 竞态与契约）**：
+  - **Gap B**：`isFirstChapterReady` 路径在 `finalContent` 为空时不锁 `delivered`，避免编辑器永久空白。
+  - **P0-2 角色世界观上下文**：`ParallelWorldOutlineCharacterStep` 中 character 提示词读取 `bundle.world_building` 恒为空（闭包捕获竞态），改为先 await world 拿真实 `world_concept` 再构造 character；提取 `world_concept_for_character_prompt` 纯函数 + 单测。
+  - **P0-3 ChapterSwitch delivered 时序**：`selectChapter` 懒加载失败时不标记 `delivered`（`markDeliveredOnLoad` 仅在 `setContent` 成功后标记）。
+- 🎯 **Phase 2（P1 架构对齐）**：
+  - **后台错误可观测性**：`GenesisContext.errors` 共享错误集合 → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast 区分 warning/error。
+  - **mutex 中毒锁加固**：`pipeline.rs` cancel flags 与 `model_gateway/executor.rs` registry 锁改用 `unwrap_or_else(|e| e.into_inner())` 恢复中毒锁 + 单测。
+  - **策略移入 quick phase**：经评估暂缓，记录为债务。
+  - **文档/类型对齐**：`window/mod.rs` 与 `FrontstageEvent.ts` 注释重写，明确创世第一章 `ChapterSwitch` 不携正文。
+- 🎯 **Phase 3（测试加固）**：
+  - 8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 边界/契约测试。
+  - 前端 Gap C 专用测试 + 状态机端点契约测试。
+  - **跨层共享 trim golden fixture**：`tests/fixtures/trim_golden.json`，Rust + TS 双跑锁定跨层一致性。
+- 🎯 **Phase 4（代码整洁）**：重命名 `*_future` → `*_gen`；去重 `AppConfig::load`；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent；评估不合并 `isGenesisSettingUpRef`。
+- ✅ **验证**：`cargo test --lib` 655 passed（+10）；`npx vitest run` 183 passed（+17）；`npx tsc --noEmit` 零错误；fmt 通过。
 
 ### v0.26.18 — Genesis 第一章重复：竞态路径加固（2026-07-06）
 

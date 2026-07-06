@@ -1,8 +1,44 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-06（v0.26.18 Genesis 第一章重复竞态路径加固）
+> 最后更新: 2026-07-06（v0.26.19 Genesis 流程审计与 Phase 1–4 优化）
+
+## 📌 已知债务（待量化后重评估）
+
+### 🏗️ 策略选择移入 quick_phase（暂缓） ⏸ (2026-07-06)
+
+- **现状**：`GenesisPipeline::quick_phase_steps()` = 概念 → 撰写开篇；策略选择（`StrategySelectionStep`）在后台阶段才执行。首章 `build_strategy_notes` 拿到 `selected_strategy = None`，仅以题材级 fallback 注入，缺乏方法论/体裁画像约束。
+- **暂缓原因**：`ROADMAP`/`CHANGELOG`/`AGENTS_HISTORY` 多处明文承诺 quick phase 30-60s 返回首章；移入策略选择（~10-20s LLM）让延迟进入 60-90s，跨越用户可感知阈值且违反多处文档契约，属低 reversibility 用户契约变更（R10）。当前 genre-profile fallback 使首章质量退化 bounded。
+- **重评估条件**：v0.26.19 P0 修复 + genesis_runs 接入后，用真实运行数据量化首章质量退化幅度（如首章与策略约束的契合度评分），若退化显著再决定迁移。
+- **关联**：`docs/plans/2026-07-06-genesis-audit-and-optimization-design.md` Phase 2.1。
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.19 Genesis 流程审计与 Phase 2 优化 ✅ (2026-07-06)
+
+**Phase 1 — P0 关键正确性修复**
+- [x] `handleSmartGeneration` Gap B 对齐：空 `finalContent` 不锁 `delivered`（与 `handleRequestGeneration` 一致）
+- [x] 角色生成世界观上下文修复：`character_future` 不再读取空 `bundle.world_building`，改为 await `world_future` 后用真实 `world_concept` 构造提示词
+- [x] `genesis_runs` 表接入：记录创世运行状态机（pending → quick_done → completed/failed）+ story_id + 错误累计
+- [x] 新增 `GenesisRunRepository::set_story_id_and_status` / `update_steps_json`
+
+**Phase 2 — P1 架构对齐**
+- [x] 后台错误可观测性：`GenesisContext.errors` 共享 `Arc<Mutex<Vec<GenesisStepError>>>`，收集 world update / character relations / scene update / KG relations / contract seeding 的非致命错误，写入 `genesis_runs.steps_json`，发射 `genesis-warnings` 事件供前端 toast
+- [x] mutex 中毒锁加固：`PIPELINE_CANCEL_FLAGS` 与 `GatewayExecutor::registry` 改用 `unwrap_or_else(|e| e.into_inner())` 恢复中毒锁，新增 `lock_cancel_flags_recovers_from_poison` 测试
+- [x] 文档/注释对齐：`genesis.rs` ChapterSwitch 注释、`window/mod.rs` `auto_accept` 文档、`USER_GUIDE.md` 创世章节更新为 auto-accept 真实路径
+- [x] 策略移入 quick_phase 暂缓，记为本节已知债务
+
+**Phase 3 — 测试加固**
+- [x] Rust Genesis 契约测试：`compute_trim_ratio`/`should_retry_self_repetition`/`select_first_chapter_content`/`build_first_chapter_chapter_switch` 纯函数边界 + payload 契约；`background_steps` 6 步固定顺序
+- [x] 前端 Gap B/C 专用测试 + 状态机端点契约（idle → delivered 可观测效果）
+- [x] 跨层共享 trim golden fixture：`tests/fixtures/trim_golden.json`，Rust + TS 双跑锁定 `trim_self_repetition`/`trimSelfRepetition` 跨层一致性
+- [x] 降低测试 brittleness：新 Gap C 测试用 `waitFor` 轮询替代固定 `setTimeout`
+
+**Phase 4 — 代码整洁**
+- [x] 重命名 `*_future` → `*_gen`（澄清顺序 await，非 tokio::join! 并行）+ 更新 `ParallelWorldOutlineCharacterStep` 注释（标注 world/outline 可并行化延迟债务）
+- [x] 去重 `AppConfig::load`（`FirstChapterGenerationStep` 内连续两次合并为单次）
+- [x] `appendAiContent` skip 路径不 `markAccepted`（移入实际追加成功的 else 分支）
+- [x] `selectChapter` Gap C 重复入站也跳过 setContent（移除 `!isTextAlreadyInEditor` 条件）
+- [x] 评估合并 `isGenesisSettingUpRef` → `genesisDeliveryRef`：不合并（覆盖窗口不同，前者覆盖续写 story_created bootstrap，后者仅创世 generating 态）
 
 ### 📝 v0.26.18 Genesis 第一章重复竞态加固 ✅ (2026-07-06)
 
