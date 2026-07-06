@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.20
+- **版本**: v0.26.21
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,17 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.21 — 修复 Windows MSI 构建（迁移文件名重命名）
+
+- v0.26.17 起打包 `src/db/migrations/` 为 Tauri resource，但 24 个迁移文件名含中文/全角逗号/破折号且最长 102 字符，导致 WiX `light.exe` 标识符生成失败（v0.26.14/v0.26.16 resources 引入前 Windows MSI 曾成功）。
+- 重命名 24 个迁移文件为 ASCII 短名（保留 `V###` 前缀与排序）。`schema_migrations` 按 version 跟踪，已应用迁移不受影响；`parse_filename` 仅解析 `V###` 前缀，无逻辑变更。
+- v0.26.20 尝试的 `wix.language: zh-CN` 无效（问题在标识符生成而非代码页）。
+
+### v0.26.20 — 修复 v0.26.19 CI 格式检查失败
+
+- `ParallelWorldOutlineCharacterStep` doc 注释超 `max_width=100`，`cargo +nightly fmt` 自动换行。仅注释格式变更。
+- macOS 公证随 Apple Developer 协议续签恢复成功。
 
 ### v0.26.19 — Genesis 创世流程全面审计与测试加固
 
@@ -172,4 +183,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-06 - v0.26.20_
+_最后更新: 2026-07-07 - v0.26.21_

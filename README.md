@@ -8,12 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.20-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.21-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.20 修复 v0.26.19 CI 格式检查失败（`ParallelWorldOutlineCharacterStep` doc 注释超 `max_width=100`，自动换行；仅注释格式变更）。
+**最新动态**：v0.26.21 修复 Windows MSI 构建——v0.26.17 起打包的中文迁移文件名导致 WiX `light.exe` 标识符生成失败，重命名 24 个迁移文件为 ASCII 短名（保留版本号与排序，无逻辑变更）。
 
-**上一版 v0.26.19** Genesis 创世流程全面审计与测试加固：
+**上一版 v0.26.20** 修复 v0.26.19 CI 格式检查失败（doc 注释超 `max_width=100`，自动换行）；macOS 公证随 Apple Developer 协议续签恢复成功。
 
 - **Phase 1（P0 竞态与契约）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
 - **Phase 2（P1 架构对齐）**：后台错误可观测性（`GenesisContext.errors` → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。

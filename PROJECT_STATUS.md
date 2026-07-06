@@ -1,17 +1,22 @@
-# StoryForge (草苔) v0.26.20 项目完成状态
+# StoryForge (草苔) v0.26.21 项目完成状态
 
-> 最后更新: 2026-07-06（v0.26.20 修复 v0.26.19 CI 格式检查失败）
+> 最后更新: 2026-07-07（v0.26.21 修复 Windows MSI 构建）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
 
-### v0.26.20 — 修复 v0.26.19 CI 格式检查失败（2026-07-06）
+### v0.26.21 — 修复 Windows MSI 构建（迁移文件名重命名）（2026-07-07）
 
-- 🎯 **背景**：v0.26.19 的 `ParallelWorldOutlineCharacterStep` doc 注释行超过 `max_width=100`，CI 端 rustfmt nightly 换行行为与本地差异导致 `cargo +nightly fmt -- --check` 失败。
-- 🎯 **修复**：运行 `cargo +nightly fmt` 自动换行该注释。仅注释格式变更，无逻辑改动。
-- ✅ **验证**：`cargo +nightly fmt -- --check` 通过；`cargo test --lib narrative::genesis::` 11 passed；`npm run format:check` 通过。
+- 🎯 **背景**：v0.26.17 起将 `src/db/migrations/` 打包为 Tauri resource，但 24 个迁移文件名含中文/全角逗号/破折号且最长 102 字符，导致 WiX `light.exe` 从文件名生成 `File/@Id` 标识符时失败。v0.26.14/v0.26.16（resources 引入前）Windows MSI 曾成功，根因确凿。v0.26.20 尝试的 `wix.language: zh-CN` 无效（问题在标识符生成而非代码页）。
+- 🎯 **修复**：将 24 个迁移文件重命名为 ASCII 短名（保留 `V###` 前缀与排序）。`schema_migrations` 按 version 跟踪，已应用迁移不受影响；`parse_filename` 仅解析 `V###` 前缀，无逻辑变更。
+- ✅ **验证**：`cargo test --lib migrations` 8 passed；本地 `cargo tauri build`（macOS）通过；CI Windows MSI 待验证。
+
+### v0.26.20 — 修复 v0.26.19 CI 格式检查失败与 Windows 打包（2026-07-06）
+
+- 🎯 **修复**：v0.26.19 的 `ParallelWorldOutlineCharacterStep` doc 注释行超过 `max_width=100`，运行 `cargo +nightly fmt` 自动换行。仅注释格式变更。
+- 🎯 **macOS 公证**：随 Apple Developer 协议续签已恢复成功。
 
 ### v0.26.19 — Genesis 创世流程全面审计与测试加固（2026-07-06）
 

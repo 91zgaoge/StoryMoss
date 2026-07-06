@@ -2,18 +2,41 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v0.26.20] - 修复 v0.26.19 CI 格式检查失败（2026-07-06）
+## [v0.26.21] - 修复 Windows MSI 构建（迁移文件名重命名）（2026-07-07）
+
+### 修复
+
+- **修复 v0.26.17 起 Windows MSI 构建持续失败（WiX `light.exe` 退出）**：v0.26.17 为 Issue #4 将 `src/db/migrations/` 打包为 Tauri resource，但 24 个迁移文件名含中文/全角逗号 `，`/破折号 `—` 且最长 102 字符。WiX `light.exe` 从文件名生成 `File/@Id` 标识符（限 72 字符、仅 `[A-Za-z0-9_]`），长中文文件名生成超长/非法标识符导致 `light.exe` 静默失败（stderr 被 tauri-action 吞掉）。
+- **根因确认**：v0.26.14/v0.26.16（resources 引入前）的 Windows MSI 曾成功发布；v0.26.17 引入 `resources` 打包中文迁移文件后持续失败。v0.26.20 尝试的 `wix.language: zh-CN`（代码页修复）无效——问题在标识符生成而非代码页编码。
+- **修复方式**：将 24 个迁移文件重命名为 ASCII 短名（保留 `V###` 前缀与排序，如 `V022__reference_books_add_task_id.sql`）。`schema_migrations` 按 version 跟踪（非文件名），已应用迁移不受影响；`parse_filename` 仅解析 `V###` 前缀，description 仅用于日志，无逻辑变更。
+- **macOS 公证**：v0.26.20 起随 Apple Developer 协议续签已恢复成功。
+
+### 验证
+
+- `cargo test --lib migrations`：8 passed ✅（含中文文件名解析测试，解析器仍兼容中文）
+- 本地 `cargo tauri build`（macOS）：✅
+- CI Windows MSI 构建待验证（v0.26.21 tag）
+
+## [v0.26.20] - 修复 v0.26.19 CI 格式检查失败与 Windows 打包（2026-07-06）
 
 ### 修复
 
 - **修复 v0.26.19 CI `cargo +nightly fmt -- --check` 失败**：v0.26.19 中 `ParallelWorldOutlineCharacterStep` 的 doc 注释行超过 `max_width=100`（`wrap_comments=true`），CI 端 rustfmt nightly 与本地 nightly 换行行为差异导致 CI 报 diff。运行 `cargo +nightly fmt` 自动换行该注释，本地 `--check` 与 CI 对齐。
-- 仅注释格式变更，无逻辑改动。
+- **修复 Windows MSI 打包失败**：v0.26.18 起在 `tauri.conf.json` 中通过 `bundle.resources` 打包 `src/db/migrations/` 下的 SQL 迁移文件，其中文件名包含中文字符。WiX 默认 `en-US` 语言/代码页无法处理这些文件名，导致 `light.exe` 在 `Running light` 阶段无详细错误地退出。在 `bundle.windows.wix.language` 显式设置为 `zh-CN`，使 MSI 使用支持中文的代码页。
+- 仅配置变更，无逻辑改动。
+
+### 已知/待处理
+
+- **macOS 公证失败（外部阻塞）**：`tauri-build (macos-latest)` 在代码签名成功后，`notarytool` 返回 `HTTP 403: A required agreement is missing or has expired`。这是 Apple Developer 团队的法律协议未签署或已过期，需要在 [Apple Developer](https://developer.apple.com/account) 中接受最新协议后方可恢复。在协议签署前，CI 的 macOS 构建无法完成公证。
 
 ### 验证
 
 - `cargo +nightly fmt -- --check`：✅
 - `cargo test --lib narrative::genesis::`：11 passed ✅
 - `npm run format:check`：✅
+- `cargo check`：✅（104 warnings，零错误）
+- `npx tsc --noEmit`：✅
+- Windows MSI 打包：待 GitHub Actions 验证
 
 ## [v0.26.19] - Genesis 创世流程全面审计与测试加固（2026-07-06）
 
