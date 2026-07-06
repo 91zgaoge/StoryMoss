@@ -76,7 +76,7 @@ use db::{init_db, DbPool};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::{Manager, path::BaseDirectory};
+use tauri::{path::BaseDirectory, Manager};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;

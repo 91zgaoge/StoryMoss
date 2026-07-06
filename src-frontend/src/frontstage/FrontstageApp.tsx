@@ -1541,7 +1541,8 @@ const FrontstageApp: React.FC = () => {
               // v0.26.18 fix (Gap A): autoAccept 但 payload.content 为空时，不能从 DB 加载正文
               //   （DB 可能也是空的或滞后），但仍需让 smart_execute 后续投递 final_content，
               //   因此只设 skipContent=true，不设 delivered。
-              const chapterSwitchHasContent = !!payload.content && payload.content.trim().length > 0;
+              const chapterSwitchHasContent =
+                !!payload.content && payload.content.trim().length > 0;
               const chapterSwitchSkipContent =
                 !autoAccept ||
                 genesisDeliveryRef.current === 'delivered' ||

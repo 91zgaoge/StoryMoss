@@ -138,11 +138,7 @@ pub fn init_db(
         Some(dir) => MigrationRunner::new(dir),
         None => MigrationRunner::default_runner(),
     };
-    runner.run_with_legacy(
-        &mut conn,
-        run_migrations,
-        MAX_INLINE_MIGRATION_VERSION,
-    )?;
+    runner.run_with_legacy(&mut conn, run_migrations, MAX_INLINE_MIGRATION_VERSION)?;
 
     log::info!("[init_db] Database initialized at {}", db_path.display());
     Ok(pool)
@@ -4048,13 +4044,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Fresh app data directory should initialize successfully (Windows/macOS/Linux).
+    /// Fresh app data directory should initialize successfully
+    /// (Windows/macOS/Linux).
     #[test]
     fn init_db_succeeds_on_fresh_directory() {
-        let dir = std::env::temp_dir().join(format!(
-            "storyforge_fresh_init_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("storyforge_fresh_init_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         let pool = init_db(&dir, None).expect("fresh init_db should succeed");
