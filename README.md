@@ -8,16 +8,17 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.18-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.19-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.18 加固 Genesis 第一章重复的三个残留竞态缺口：
+**最新动态**：v0.26.19 Genesis 创世流程全面审计与测试加固：
 
-- **Gap A（ChapterSwitch 空内容竞态）**：`auto_accept=true` 但 `content` 为空时不再从 DB 加载正文，避免与 `smart_execute` 叠加重复；同时不过早标记 `delivered`，让 `smart_execute` 仍能投递。
-- **Gap B（delivered 误锁）**：`isFirstChapterReady` 路径仅在「已 append」或「编辑器已有内容」时标记 `delivered`，避免空内容时锁死状态机导致编辑器空白。
-- **Gap C（selectChapter 咽喉点守卫）**：`selectChapter` 在 `delivered` 且编辑器已有非空内容时跳过 `setContent`，防止 DB 正文覆盖或叠加已投递正文。
+- **Phase 1（P0 竞态与契约）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
+- **Phase 2（P1 架构对齐）**：后台错误可观测性（`GenesisContext.errors` → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
+- **Phase 3（测试加固）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（Rust + TS 双跑锁定 `trim_self_repetition` 跨层一致性）。
+- **Phase 4（代码整洁）**：`*_future` → `*_gen` 重命名；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent。
 
-**上一版 v0.26.17**：Issue #4 启动加固——打包 SQL 迁移与 init_db 诊断增强：
+**上一版 v0.26.18**：加固 Genesis 第一章重复的三个残留竞态缺口：
 
 
 - **根治「新写小说时第一章内容重复」**：替代 v0.26.7–v0.26.14 的散布补丁，从生成侧与前端的两个独立根因进行结构性修复。

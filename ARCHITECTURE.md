@@ -1,6 +1,11 @@
-# StoryForge (草苔) v0.26.18 架构文档
+# StoryForge (草苔) v0.26.19 架构文档
 
-> 本文档反映 v0.26.18 最新架构状态（2026-07-06）
+> 本文档反映 v0.26.19 最新架构状态（2026-07-06）
+> **v0.26.19 创世流程审计与测试加固**：对照文档全面审计「智能创作流程-创世」，分 Phase 1–4 执行。
+> - **Phase 1（P0）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
+> - **Phase 2（P1）**：后台错误可观测性（`GenesisContext.errors` 共享集合 → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固（`unwrap_or_else(|e| e.into_inner())`）；策略移入 quick phase 经评估暂缓（记录为债务）；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
+> - **Phase 3（测试）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（`tests/fixtures/trim_golden.json`，Rust + TS 双跑锁定 `trim_self_repetition`/`trimSelfRepetition` 跨层一致性）。
+> - **Phase 4（整洁）**：`*_future` → `*_gen` 重命名（澄清顺序 await）；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent；`isGenesisSettingUpRef` 合并评估——不合并（覆盖窗口不同）。
 > **v0.26.18 稳定性补丁**：加固 Genesis 第一章重复的三个残留竞态缺口（ChapterSwitch 空内容、delivered 误锁、selectChapter 咽喉点缺守卫）。
 > **v0.26.17 稳定性补丁**：Issue #4 一级根因加固——生产包打包 SQL 迁移；`init_db` 启动前确保 app data 目录并增强失败诊断。
 > **v0.26.16 稳定性补丁**：根治 Genesis 新小说第一章内容重复，并修复 init_db 失败时启动 panic。

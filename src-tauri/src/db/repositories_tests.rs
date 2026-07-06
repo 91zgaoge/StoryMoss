@@ -940,4 +940,88 @@ mod tests {
         );
         assert_eq!(scene_repo.count_by_story(&story.id).unwrap(), 2);
     }
+
+    // ==================== GenesisRunRepository (P0-4) ====================
+
+    // v0.26.19 P0-4 契约：genesis_runs 表必须记录创世运行的完整状态机迁移：
+    //   pending → running → quick_done → completed（成功路径）
+    //   pending → running → failed（快速阶段失败路径）
+    //   仪表盘「Genesis 运行记录」依赖此表，此前 GenesisPipeline 不写导致永远为空。
+    #[test]
+    fn test_genesis_run_lifecycle_success() {
+        let pool = create_test_pool().unwrap();
+        let repo = GenesisRunRepository::new(pool);
+
+        let run = repo.create("run-1", "ses-1", "末世废土幸存者", 8).unwrap();
+        assert_eq!(run.status, "pending");
+        assert_eq!(run.total_steps, 8);
+        assert_eq!(run.premise, "末世废土幸存者");
+        assert!(run.story_id.is_none());
+
+        // 切 running
+        repo.update_step("run-1", "构思故事", 1, "running", "{}")
+            .unwrap();
+        // 概念生成完成，记录 story_id 并切 quick_done
+        repo.set_story_id_and_status("run-1", "story-abc", "quick_done")
+            .unwrap();
+        // 后台阶段完成
+        repo.complete("run-1", Some("story-abc")).unwrap();
+
+        let fetched = repo.get_by_id("run-1").unwrap().unwrap();
+        assert_eq!(fetched.status, "completed");
+        assert_eq!(fetched.story_id.as_deref(), Some("story-abc"));
+        assert_eq!(fetched.current_step.as_deref(), Some("构思故事"));
+        assert_eq!(fetched.current_step_number, 1);
+    }
+
+    #[test]
+    fn test_genesis_run_lifecycle_quick_fail() {
+        let pool = create_test_pool().unwrap();
+        let repo = GenesisRunRepository::new(pool);
+
+        repo.create("run-2", "ses-2", "科幻太空歌剧", 8).unwrap();
+        repo.update_step("run-2", "构思故事", 1, "running", "{}")
+            .unwrap();
+        // 快速阶段失败
+        repo.fail("run-2", "LLM gateway timeout").unwrap();
+
+        let fetched = repo.get_by_id("run-2").unwrap().unwrap();
+        assert_eq!(fetched.status, "failed");
+        assert_eq!(
+            fetched.error_message.as_deref(),
+            Some("LLM gateway timeout")
+        );
+        assert!(fetched.story_id.is_none());
+    }
+
+    #[test]
+    fn test_genesis_run_list_all_orders_by_created_desc() {
+        let pool = create_test_pool().unwrap();
+        let repo = GenesisRunRepository::new(pool);
+
+        repo.create("run-a", "ses-a", "first", 8).unwrap();
+        // 确保 created_at 不同（Local::now 精度到秒，简单 sleep）
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        repo.create("run-b", "ses-b", "second", 8).unwrap();
+        repo.complete("run-b", Some("story-b")).unwrap();
+
+        let list = repo.list_all(10).unwrap();
+        assert_eq!(list.len(), 2);
+        // 最近创建的在前
+        assert_eq!(list[0].id, "run-b");
+        assert_eq!(list[1].id, "run-a");
+    }
+
+    #[test]
+    fn test_genesis_run_update_steps_json() {
+        let pool = create_test_pool().unwrap();
+        let repo = GenesisRunRepository::new(pool);
+
+        repo.create("run-3", "ses-3", "推理悬疑", 8).unwrap();
+        let steps_json = r#"{"errors":["world_update_failed","kg_relation_failed"]}"#;
+        repo.update_steps_json("run-3", steps_json).unwrap();
+
+        let fetched = repo.get_by_id("run-3").unwrap().unwrap();
+        assert_eq!(fetched.steps_json, steps_json);
+    }
 }

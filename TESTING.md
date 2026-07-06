@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.18)
+# 🧪 StoryForge 自动化测试环境 (v0.26.19)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -6,20 +6,26 @@
 
 | 套件                                | 数量     | 状态                           |
 | ----------------------------------- | -------- | ------------------------------ |
-| `cargo test --lib`                  | 639      | ✅ 0 failed / 2 ignored        |
+| `cargo test --lib`                  | 655      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
-| `cargo test --lib narrative`        | 11       | ✅（拆书/叙事元素 round-trip） |
+| `cargo test --lib narrative::genesis` | 11     | ✅（创世步骤/重试闸门/payload 契约） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
 | `cargo check`                       | —        | ✅ 零错误                      |
 | `npm run format:check`              | 代码风格 | ✅ 零差异                      |
 
 | 类型           | 数量      | 状态                                         |
 | -------------- | --------- | -------------------------------------------- |
-| Rust 单元测试  | 632       | ✅ 全部通过 (`cargo test --lib`)             |
-| 前端单元测试   | 166       | ✅ 全部通过 (`vitest run`)                   |
+| Rust 单元测试  | 655       | ✅ 全部通过 (`cargo test --lib`)             |
+| 前端单元测试   | 183       | ✅ 全部通过 (`vitest run`)                   |
 | 前端构建测试   | —         | ✅ `npm run build` 通过                      |
 | Tauri 构建测试 | —         | ✅ `cargo tauri build` 通过                  |
 | Playwright E2E | 41 (36+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`），其中 `genesis-duplicate.spec.ts` 验证自动接受后幽灵段落隐藏 |
+
+### v0.26.19 新增测试
+
+- **Rust Genesis 契约测试**：`compute_trim_ratio`/`should_retry_self_repetition`/`select_first_chapter_content`/`build_first_chapter_chapter_switch` 纯函数边界与 payload 契约；`background_steps` 6 步固定顺序；`world_concept_for_character_prompt`；mutex 中毒恢复；`GenesisStepError` 严重度分级与累计；`genesis_runs` 状态流转。
+- **跨层共享 trim golden fixture**：`tests/fixtures/trim_golden.json`（7 条用例），Rust `trim_self_repetition_matches_shared_golden_fixture` 与 TS `textCleanup.golden.test.ts` 双跑同一 fixture，锁定跨层一致性。
+- **前端 Gap B/C + 状态机**：Gap B（空 finalContent 不锁 delivered）、P0-3（懒加载失败不锁 delivered）、Gap C（delivered + 编辑器有内容 → 跳过 setContent）、p4-4（重复入站也跳过）、状态机端点契约。
 
 ### 测试文件分布
 

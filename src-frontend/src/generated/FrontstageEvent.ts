@@ -7,10 +7,23 @@ export type FrontstageEvent = { "type": "contentUpdate", "payload": { text: stri
 /**
  * Phase 1: Scene 为主要叙事单元，携带 scene_id 供前端按场景加载
  */
-scene_id: string | null, title: string, content: string | null, 
+scene_id: string | null, title: string, 
 /**
- * Phase 4 fix: false 时前端不自动将章节内容塞入编辑器，等
- * generatedText + Tab 确认。 Genesis 创世时设为
- * false，续写/正常切章保持 true。
+ * 章节内容；创世第一章时不携带正文（None），正文由
+ * `smart_execute.final_content`
+ * 作为唯一写者经前端 `appendAiContent(..., 'auto')` 自动接受投递。
+ * 续写/正常切章时由前端按 `auto_accept` 决定是否自动加载。
+ */
+content: string | null, 
+/**
+ * v0.26.19 文档对齐：是否允许前端自动将章节内容塞入编辑器。
+ * - `false`：创世第一章。正文来源是 `smart_execute.final_content`，
+ *   此处 `false` 明确表示不触发前端自动加载正文，避免与 smart_execute
+ *   投递路径竞争导致"正文 + 幽灵文本"同框或重复追加。
+ * - `true`：续写/正常切章。前端按章节内容自动加载。
+ *
+ * 历史：v0.26.11 前 Genesis 走 generatedText + Tab 确认；v0.26.11+
+ * 改为 `appendAiContent` 自动接受，`ChapterSwitch` 仅切换 chapter
+ * 上下文。
  */
 auto_accept: boolean, } } | { "type": "saveStatus", "payload": { saved: boolean, timestamp: string | null, } } | { "type": "dataRefresh", "payload": { entity: string, } };

@@ -21,23 +21,37 @@ use crate::llm::LlmService;
 /// key: session_id, value: 取消标志
 static PIPELINE_CANCEL_FLAGS: Mutex<Option<HashMap<String, Arc<AtomicBool>>>> = Mutex::new(None);
 
+/// v0.26.19 Phase 2.3: 从中毒的 `Mutex` 守卫恢复。
+///
+/// 历史上 `PIPELINE_CANCEL_FLAGS.lock().unwrap()` 在任一持有锁的线程 panic 后
+/// 会让后续所有 cancel/register/unregister 全部
+/// panic，导致创世取消与网关路由彻底 不可用。改用 `unwrap_or_else(|e|
+/// e.into_inner())` 取回内部数据，让调用方继续 执行（数据可能不一致，但避免级联
+/// panic 把整个进程拖垮）。
+fn lock_cancel_flags() -> std::sync::MutexGuard<'static, Option<HashMap<String, Arc<AtomicBool>>>> {
+    match PIPELINE_CANCEL_FLAGS.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    }
+}
+
 /// 注册一个 Pipeline 的取消标志，返回 Arc<AtomicBool>
 pub fn register_pipeline_cancel(session_id: &str) -> Arc<AtomicBool> {
     let flag = Arc::new(AtomicBool::new(false));
-    let mut guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    let mut guard = lock_cancel_flags();
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
     guard
         .as_mut()
-        .unwrap()
+        .expect("cancel flags map 已在上一行初始化为 Some")
         .insert(session_id.to_string(), flag.clone());
     flag
 }
 
 /// 请求取消指定 session_id 的 Pipeline
 pub fn cancel_pipeline(session_id: &str) -> bool {
-    let guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    let guard = lock_cancel_flags();
     if let Some(ref flags) = *guard {
         if let Some(flag) = flags.get(session_id) {
             flag.store(true, Ordering::Relaxed);
@@ -49,7 +63,7 @@ pub fn cancel_pipeline(session_id: &str) -> bool {
 
 /// 清理已完成的 Pipeline 取消标志
 pub fn unregister_pipeline_cancel(session_id: &str) {
-    let mut guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+    let mut guard = lock_cancel_flags();
     if let Some(ref mut flags) = *guard {
         flags.remove(session_id);
     }
@@ -334,6 +348,29 @@ mod tests {
         // 设置取消标志不应 panic
         let flag = Arc::new(AtomicBool::new(false));
         let _ = executor.with_cancel_flag(flag);
+    }
+
+    // v0.26.19 Phase 2.3 契约：lock_cancel_flags 在 mutex 中毒时必须返回守卫而非
+    // panic。   模拟方式：人为制造一次 poison（在持锁时 panic），验证后续
+    // lock_cancel_flags 仍可用。   注意：此测试会污染全局 PIPELINE_CANCEL_FLAGS
+    // 的锁状态（中毒），但 lock_cancel_flags   会恢复，后续测试仍可正常
+    // register/cancel。
+    #[test]
+    fn lock_cancel_flags_recovers_from_poison() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        // 先制造一次 poison
+        let poison_result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = PIPELINE_CANCEL_FLAGS.lock().unwrap();
+            panic!("intentional poison for test");
+        }));
+        assert!(poison_result.is_err(), "panic 应被触发以制造中毒锁");
+
+        // 中毒后 lock_cancel_flags 不应 panic，且能正常注册/取消
+        let flag = register_pipeline_cancel("poison_test_session");
+        assert!(!flag.load(Ordering::Relaxed));
+        assert!(cancel_pipeline("poison_test_session"));
+        assert!(flag.load(Ordering::Relaxed));
+        unregister_pipeline_cancel("poison_test_session");
     }
 
     /// 测试用的 MockContext

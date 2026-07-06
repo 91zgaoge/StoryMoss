@@ -4,9 +4,12 @@
 //! 输入：用户概念 premise
 //! 输出：NarrativeBundle（包含故事的全部结构要素）
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
@@ -35,6 +38,42 @@ use crate::{
 
 // ==================== GenesisContext ====================
 
+/// v0.26.19 Phase 2.2: 创世步骤非致命错误记录。
+///
+/// 后台步骤中 `let _ =` 静默吞掉的失败（world update / outline create /
+/// character relations / scene update / KG relations / contract seeding）
+/// 改为收集到此结构，最终写入 `genesis_runs.steps_json` 的 `errors` 数组，
+/// 供仪表盘展示与用户 toast 提示。
+///
+/// 严重度分级：
+/// - `Warning`：单条记录写入失败，不影响整体创作产出（多数 `let _ =` 站点）。
+/// - `Error`：整个子步骤失败但仍允许流水线继续（如 contract seeding
+///   整体失败）。
+#[derive(Debug, Clone, Serialize)]
+pub struct GenesisStepError {
+    pub step: String,
+    pub message: String,
+    pub severity: String,
+}
+
+impl GenesisStepError {
+    pub fn warning(step: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            step: step.into(),
+            message: message.into(),
+            severity: "warning".to_string(),
+        }
+    }
+
+    pub fn error(step: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            step: step.into(),
+            message: message.into(),
+            severity: "error".to_string(),
+        }
+    }
+}
+
 /// 创世流水线上下文
 ///
 /// 在流水线执行过程中，各步骤通过此上下文共享数据和状态。
@@ -52,6 +91,11 @@ pub struct GenesisContext {
     pub first_chapter_content: Option<String>,
     /// 模型为当前故事选择的创作策略
     pub selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
+    /// v0.26.19 Phase 2.2: 后台步骤非致命错误累计。
+    /// 使用 `Arc<Mutex<...>>` 以便 quick phase 与 background phase 共享同一集合
+    /// （`for_background` 透传同一 Arc），最终在后台阶段结束时写入
+    /// `genesis_runs.steps_json`。
+    pub errors: Arc<Mutex<Vec<GenesisStepError>>>,
 }
 
 impl StepContext for GenesisContext {
@@ -87,6 +131,7 @@ impl GenesisContext {
             vector_store,
             first_chapter_content: None,
             selected_strategy: None,
+            errors: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -98,6 +143,7 @@ impl GenesisContext {
         user_premise: String,
         bundle: NarrativeBundle,
         selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
+        errors: Arc<Mutex<Vec<GenesisStepError>>>,
     ) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
         let vector_store = app_handle.state::<Arc<dyn VectorStore>>().inner().clone();
@@ -112,7 +158,37 @@ impl GenesisContext {
             vector_store,
             first_chapter_content: None,
             selected_strategy,
+            errors,
         }
+    }
+
+    /// v0.26.19 Phase 2.2: 记录一个非致命错误到共享错误集合。
+    /// 中毒锁视为致命：直接 panic（不应发生；若发生说明上游线程已 panic）。
+    pub fn record_error(&self, step: impl Into<String>, message: impl Into<String>) {
+        if let Ok(mut guard) = self.errors.lock() {
+            guard.push(GenesisStepError::warning(step, message));
+        }
+    }
+
+    /// v0.26.19 Phase 2.2: 记录一个 Error 级别的非致命错误。
+    pub fn record_error_level(
+        &self,
+        step: impl Into<String>,
+        message: impl Into<String>,
+        level: &str,
+    ) {
+        if let Ok(mut guard) = self.errors.lock() {
+            guard.push(if level == "error" {
+                GenesisStepError::error(step, message)
+            } else {
+                GenesisStepError::warning(step, message)
+            });
+        }
+    }
+
+    /// v0.26.19 Phase 2.2: 取出当前累计的错误快照（不清空）。
+    pub fn snapshot_errors(&self) -> Vec<GenesisStepError> {
+        self.errors.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     fn llm_pipeline_ctx(
@@ -691,8 +767,10 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // v0.22.3: 一次性加载 AppConfig，避免同一函数内原先 3 次 load()；
+            // v0.22.3: 一次性加载 AppConfig，避免同一函数内多次 load()；
             // 配合钥匙串内存缓存，大幅减少 macOS 钥匙串访问。
+            // v0.26.19 Phase 4.2: 去重——原先此处连续两次 AppConfig::load，
+            //   第一次结果未被使用即被第二次（含冗余 .map(|c| c)）覆盖。
             let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
             let app_config = crate::config::AppConfig::load(&app_dir).unwrap_or_default();
             log::warn!(
@@ -700,9 +778,6 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 ctx.story_id
             );
 
-            let app_config = crate::config::AppConfig::load(&app_dir)
-                .map(|c| c)
-                .unwrap_or_default();
             let word_count_target = app_config.genesis_first_chapter_word_count_target;
             let writing_strategy = app_config.writing_strategy.clone();
             let orchestrator_config =
@@ -882,13 +957,9 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let cleaned_content = crate::utils::text::TextUtils::trim_self_repetition(&raw_content);
             let raw_chars = raw_content.chars().count();
             let cleaned_chars = cleaned_content.chars().count();
-            let trim_ratio = if raw_chars > 0 {
-                1.0 - (cleaned_chars as f32 / raw_chars as f32)
-            } else {
-                0.0
-            };
+            let trim_ratio = compute_trim_ratio(raw_chars, cleaned_chars);
 
-            if trim_ratio >= 0.08 && raw_chars > 100 {
+            if should_retry_self_repetition(trim_ratio, raw_chars) {
                 log::warn!(
                     "[Genesis-DIAG] self-repetition detected (ratio={:.2}, raw={} chars, cleaned={} chars), retrying with anti-repeat prompt",
                     trim_ratio,
@@ -929,11 +1000,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                             crate::utils::text::TextUtils::trim_self_repetition(&retry_raw);
                         let retry_raw_chars = retry_raw.chars().count();
                         let retry_cleaned_chars = retry_cleaned.chars().count();
-                        let retry_trim_ratio = if retry_raw_chars > 0 {
-                            1.0 - (retry_cleaned_chars as f32 / retry_raw_chars as f32)
-                        } else {
-                            0.0
-                        };
+                        let retry_trim_ratio =
+                            compute_trim_ratio(retry_raw_chars, retry_cleaned_chars);
 
                         log::warn!(
                             "[Genesis-DIAG] retry completed: retry_trim_ratio={:.2} (original={:.2}), retry_cleaned={} chars",
@@ -942,15 +1010,20 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                             retry_cleaned_chars
                         );
 
-                        if retry_trim_ratio < trim_ratio {
-                            result.content = retry_cleaned;
+                        let accepted = retry_trim_ratio < trim_ratio;
+                        result.content = select_first_chapter_content(
+                            trim_ratio,
+                            retry_trim_ratio,
+                            cleaned_content.clone(),
+                            retry_cleaned,
+                        );
+                        if accepted {
                             log::info!(
                                 "[Genesis-DIAG] retry accepted: cleaner than original (ratio {} -> {})",
                                 trim_ratio,
                                 retry_trim_ratio
                             );
                         } else {
-                            result.content = cleaned_content;
                             log::info!(
                                 "[Genesis-DIAG] retry rejected: not cleaner, keeping original trimmed content"
                             );
@@ -1144,9 +1217,19 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 }
             });
 
-            // Phase 4 fix: 不再通过 ChapterSwitch 携带 content。
-            // 创世内容走续写同样的 Tab 确认流程——前端通过 generatedText 显示，
-            // 用户按 Tab 接受。避免直接塞入编辑器导致"双眼皮"重复。
+            // v0.26.19 文档对齐（Phase 2.4）：创世第一章正文投递契约
+            //   自 v0.26.11 起，创世第一章不再走 generatedText + Tab 确认流程，
+            //   而是由 `smart_execute` 把 `first_chapter_content` 作为 `final_content`
+            //   返回，前端 `handleSmartGeneration` / `handleRequestGeneration` 通过
+            //   `appendAiContent(..., 'auto')` 自动接受进编辑器（见 FrontstageApp.tsx
+            //   `genesisDeliveryRef` 三态状态机：idle → generating → delivered）。
+            //
+            //   此处的 `ChapterSwitch` 事件仅用于切换 chapter 上下文（让前端加载新故事
+            //   的章节列表并选中第一章），**不携带正文**，`auto_accept: false`。
+            //   正文来源唯一写者是 `smart_execute.final_content`，避免多通道写入导致
+            //   "正文 + 幽灵文本"同框或同一内容被追加两次（v0.26.7–v0.26.18 多轮修复
+            //   的根因）。Tab 接受仅作为续写/改写路径的回退。
+            //
             // [DEBUG] Bug A 关键日志：ChapterSwitch 事件发送时的内容
             if let Some(logger) = ctx
                 .app_handle
@@ -1154,7 +1237,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             {
                 logger.info(
                     "genesis.chapter_switch.sent",
-                    "ChapterSwitch 事件发送到前端（不含 content，走 Tab 确认流程）",
+                    "ChapterSwitch 事件发送到前端（不含 content，正文由 smart_execute.final_content 投递）",
                     Some(serde_json::json!({
                         "story_id": &ctx.story_id,
                         "chapter_id": &chapter_id,
@@ -1166,14 +1249,11 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             }
             match crate::window::WindowManager::send_to_frontstage(
                 &ctx.app_handle,
-                crate::window::FrontstageEvent::ChapterSwitch {
-                    story_id: ctx.story_id.clone(),
-                    chapter_id: chapter_id.clone(),
-                    scene_id: Some(scene_id.clone()),
-                    title: "第一章".to_string(),
-                    content: None,      // Phase 4 fix: Tab 确认流程，不直接塞入编辑器
-                    auto_accept: false, // Phase 4 fix: 创世走 Tab 确认，不让前端自动加载内容
-                },
+                build_first_chapter_chapter_switch(
+                    ctx.story_id.clone(),
+                    chapter_id.clone(),
+                    scene_id.clone(),
+                ),
             ) {
                 Ok(()) => tracing::info!(
                     "[FirstChapterGenerationStep] ChapterSwitch event sent: story_id={}, \
@@ -1207,10 +1287,98 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
     }
 }
 
-// ==================== Step 3: 世界观/大纲/角色并行生成 ====================
+// ==================== Step 3: 世界观/大纲/角色生成 ====================
 /// 原后台阶段的世界观、大纲、角色三步互相独立（均只依赖故事概念），
-/// 合并为一个步骤后内部使用 tokio::join! 并行调用 LLM，减少整体等待时间。
+/// 历史上用 tokio::join! 并行调用 LLM。
+///
+/// v0.26.19 P0-2 修复「角色提示词读取空 world_concept」后，执行顺序变为：
+///   1. world_gen（async 块，await 拿到 world_concept）
+///   2. outline_gen（async 块，await）
+///   3. character_gen（依赖 world_concept，最后构造并 await）
+/// 三者均为 `BoxFuture` 闭包，被**顺序** await（非 tokio::join! 并行）。
+///
+/// 已知延迟债务：world 与 outline 互相独立，理论上可用 `tokio::join!` 并行，
+/// 仅 character 需在 world 之后。当前顺序 await 是 P0-2 最小修复的产物，
+/// 未 reintroduce 并行以避免再次引入闭包捕获竞态。若首章生成延迟敏感，
+/// 可重构为 `let (w, o) = tokio::join!(world_gen, outline_gen); character_gen.await`，
+/// 但需确保 character_gen 闭包不再捕获共享 bundle（已改为传 world_concept 值）。
 struct ParallelWorldOutlineCharacterStep;
+
+/// v0.26.19 P0-2: 从 world 生成结果提取 world_concept，供角色提示词使用。
+/// 成功时返回真实 concept；失败时返回空串，让角色生成以 fallback 继续。
+/// 此函数存在的意义是把「world 必须先于 character 解析」这一不变量从闭包内部
+/// 提升为可测试的纯函数契约。
+fn world_concept_for_character_prompt(
+    world_res: &Result<WorldBuildingElement, PipelineError>,
+) -> String {
+    match world_res {
+        Ok(wb) => wb.concept.clone(),
+        Err(_) => String::new(),
+    }
+}
+
+/// v0.26.19 Phase 3.1: 计算自重复裁剪比例（纯函数，供测试编码 8% 闸门契约）。
+///
+/// `trim_ratio = 1 - cleaned/raw`；raw 为空时返回 0.0 避免除零。
+/// 此函数把 `FirstChapterGenerationStep::execute` 中内联的比例计算提升为
+/// 可独立测试的契约，确保 8% 重试闸门阈值不因实现漂移而失效。
+pub(crate) fn compute_trim_ratio(raw_chars: usize, cleaned_chars: usize) -> f32 {
+    if raw_chars == 0 {
+        return 0.0;
+    }
+    1.0 - (cleaned_chars as f32 / raw_chars as f32)
+}
+
+/// v0.26.19 Phase 3.1: 判定是否需要触发 anti-repeat 重试（纯函数）。
+///
+/// 契约：仅当 `trim_ratio >= 0.08` **且** `raw_chars > 100` 时触发。
+/// - 8% 阈值：低于此值视为首尾呼应等良性结构，不重试（避免误伤）。
+/// - 100 字下限：短文本的自重复比例波动大，不触发重试（与
+///   `trim_self_repetition` 的 40 字短文本旁路对齐，但此处更保守）。
+pub(crate) fn should_retry_self_repetition(trim_ratio: f32, raw_chars: usize) -> bool {
+    trim_ratio >= 0.08 && raw_chars > 100
+}
+
+/// v0.26.19 Phase 3.1: 选择最终第一章正文（纯函数，编码重试接受/拒绝契约）。
+///
+/// 重试更干净（`retry_trim_ratio < original_trim_ratio`）则采用重试清理结果；
+/// 否则保留首次清理结果。重试 LLM 失败由调用方在 `Err` 分支保留首次清理结果，
+/// 此函数仅处理 `Ok` 分支的选择逻辑。
+pub(crate) fn select_first_chapter_content(
+    original_trim_ratio: f32,
+    retry_trim_ratio: f32,
+    original_cleaned: String,
+    retry_cleaned: String,
+) -> String {
+    if retry_trim_ratio < original_trim_ratio {
+        retry_cleaned
+    } else {
+        original_cleaned
+    }
+}
+
+/// v0.26.19 Phase 3.1: 构造第一章 ChapterSwitch 事件（纯函数，编码 payload
+/// 契约）。
+///
+/// 契约：创世第一章的 ChapterSwitch **不携带正文**（`content: None`）且
+/// `auto_accept: false`。正文唯一写者是 `smart_execute.final_content`，
+/// 经前端 `appendAiContent(..., 'auto')` 自动接受。此函数把 payload 形状从
+/// 嵌套在 `WindowManager::send_to_frontstage` 调用中的字面量提升为可测试契约，
+/// 防止 v0.26.7–v0.26.18 多轮修复的「双眼皮」回归。
+pub(crate) fn build_first_chapter_chapter_switch(
+    story_id: String,
+    chapter_id: String,
+    scene_id: String,
+) -> crate::window::FrontstageEvent {
+    crate::window::FrontstageEvent::ChapterSwitch {
+        story_id,
+        chapter_id,
+        scene_id: Some(scene_id),
+        title: "第一章".to_string(),
+        content: None,
+        auto_accept: false,
+    }
+}
 
 impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
     fn name(&self) -> &'static str {
@@ -1260,10 +1428,12 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
             let pool = ctx.pool.clone();
             let bundle = ctx.bundle.clone();
             let llm = llm.clone();
+            // v0.26.19 Phase 2.2: 错误集合 Arc，透传到各子 future 以收集非致命错误。
+            let errors = ctx.errors.clone();
             let strategy_notes = build_strategy_notes(ctx, &meta.genre);
             let narrative_quartet = build_narrative_quartet(ctx);
 
-            let world_future = {
+            let world_gen = {
                 let meta = meta.clone();
                 let session_id = session_id.clone();
                 let story_id = story_id.clone();
@@ -1272,6 +1442,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let progress = progress.clone();
                 let strategy_notes = strategy_notes.clone();
                 let narrative_quartet = narrative_quartet.clone();
+                let errors = errors.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -1353,13 +1524,21 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         })
                         .collect();
 
-                    let _ = repo.update(
+                    if let Err(e) = repo.update(
                         &world_building.id,
                         None,
                         Some(&rules),
                         Some(&wb.history),
                         None,
-                    );
+                    ) {
+                        // v0.26.19 Phase 2.2: 收集而非吞掉，最终写入 genesis_runs
+                        if let Ok(mut guard) = errors.lock() {
+                            guard.push(GenesisStepError::warning(
+                                "构建世界与骨架",
+                                format!("世界观规则更新失败: {}", e),
+                            ));
+                        }
+                    }
 
                     let element = WorldBuildingElement {
                         id: world_building.id,
@@ -1384,7 +1563,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 }
             };
 
-            let outline_future = {
+            let outline_gen = {
                 let meta = meta.clone();
                 let session_id = session_id.clone();
                 let story_id = story_id.clone();
@@ -1393,6 +1572,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let progress = progress.clone();
                 let strategy_notes = strategy_notes.clone();
                 let narrative_quartet = narrative_quartet.clone();
+                let errors = errors.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -1492,15 +1672,25 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 }
             };
 
-            let character_future = {
+            // v0.26.19 fix (P0-2): 先 await world_gen 拿到真实 world_concept，
+            // 再构造 character_gen，避免角色提示词读取空 world（恒为空字符串）。
+            // 原实现 character_gen 闭包在构造时捕获 bundle，运行时读取
+            // bundle.world_building，但 world_gen.await 与 bundle 写入都在三个 gen
+            // 块全部构造之后，导致角色提示词 world 参数恒为空，角色与世界观脱钩。
+            let world_res = world_gen.await;
+            let world_concept = world_concept_for_character_prompt(&world_res);
+            let outline_res = outline_gen.await;
+
+            let character_gen = {
                 let meta = meta.clone();
                 let story_id = story_id.clone();
                 let pool = pool.clone();
-                let bundle = bundle.clone();
+                let world_concept = world_concept.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
                 let strategy_notes = strategy_notes.clone();
                 let narrative_quartet = narrative_quartet.clone();
+                let errors = errors.clone();
                 async move {
                     progress(PipelineProgressEvent {
                         pipeline_id: session_id.clone(),
@@ -1515,13 +1705,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         metadata: None,
                     });
 
-                    let world = {
-                        let b = bundle.read().await;
-                        b.world_building
-                            .as_ref()
-                            .map(|w| w.concept.clone())
-                            .unwrap_or_default()
-                    };
+                    // v0.26.19: 使用已解析的 world_concept，不再运行时读取 bundle
+                    let world = world_concept.clone();
 
                     let prompt = character_prompt(
                         PromptMode::Generate,
@@ -1607,14 +1792,26 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                             if let (Some(source_id), Some(target_id)) =
                                 (name_to_id.get(&c.name), name_to_id.get(&rel.target_name))
                             {
-                                let _ = rel_repo.create(
+                                if let Err(e) = rel_repo.create(
                                     &story_id,
                                     source_id,
                                     target_id,
                                     &rel.relation_type,
                                     rel.description.as_deref(),
                                     None,
-                                );
+                                ) {
+                                    // v0.26.19 Phase 2.2: 角色关系单条失败不阻断整体，
+                                    //   但记录到 errors 供仪表盘展示。
+                                    if let Ok(mut guard) = errors.lock() {
+                                        guard.push(GenesisStepError::warning(
+                                            "构建世界与骨架",
+                                            format!(
+                                                "角色关系创建失败 ({}→{}): {}",
+                                                c.name, rel.target_name, e
+                                            ),
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -1641,9 +1838,9 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
             // v0.23.71: 3 路 LLM 调用保持串行执行（已在 v0.23.66 从 tokio::join! 改为
             // 顺序 .await）。信号量由 commands/orchestrator.rs 的 genesis 后台 spawn 入口
             // 统一持有，此处不再重复 acquire（否则同一 task 内自死锁）。
-            let world_res = world_future.await;
-            let outline_res = outline_future.await;
-            let characters_res = character_future.await;
+            // v0.26.19: world_res / outline_res 已在 character_gen 构造前 await 完成，
+            // 此处仅 await character_gen。
+            let characters_res = character_gen.await;
 
             {
                 let mut bundle_guard = bundle.write().await;
@@ -1844,7 +2041,14 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                     style_blend_override: None,
                     foreshadowing_ids: None,
                 };
-                let _ = repo.update(&scene.id, &updates);
+                if let Err(e) = repo.update(&scene.id, &updates) {
+                    // v0.26.19 Phase 2.2: 场景戏剧字段更新失败不阻断流水线，
+                    //   但记录到 errors 供仪表盘展示与诊断。
+                    ctx.record_error(
+                        "生成场景大纲",
+                        format!("场景 {} 戏剧字段更新失败: {}", scene.id, e),
+                    );
+                }
 
                 generated.push(SceneElement {
                     id: scene.id,
@@ -2103,13 +2307,20 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                             entity_id_map.get(&format!("char:{}", c.id)),
                             entity_id_map.get(&format!("scene:{}", s.id)),
                         ) {
-                            let _ = kg_repo.create_relation(
+                            if let Err(e) = kg_repo.create_relation(
                                 &ctx.story_id,
                                 char_entity,
                                 scene_entity,
                                 "ParticipatesIn",
                                 0.7,
-                            );
+                            ) {
+                                // v0.26.19 Phase 2.2: KG 关系单条失败不阻断，
+                                //   但记录以便用户感知知识图谱不完整。
+                                ctx.record_error(
+                                    "构建知识图谱",
+                                    format!("KG 关系创建失败 ({}→{}): {}", c.name, s.title, e),
+                                );
+                            }
                         }
                     }
                 }
@@ -2174,6 +2385,9 @@ impl PipelineStep<GenesisContext> for ContractSeedingStep {
                     "[GenesisPipeline] Contract seeding failed (non-blocking): {}",
                     e
                 );
+                // v0.26.19 Phase 2.2: 记录为 Error 级非致命错误（合同真源缺失影响
+                //   后续 Story System Phase B/C），写入 genesis_runs 供仪表盘展示。
+                ctx.record_error_level("播种故事合同", format!("{}", e), "error");
             }
 
             progress(PipelineProgressEvent {
@@ -2339,5 +2553,211 @@ mod contract_seeding_tests {
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
         assert!(names.contains(&"播种故事合同"));
         assert_eq!(names.len(), 6);
+    }
+}
+
+#[cfg(test)]
+mod world_character_order_tests {
+    use super::*;
+    use crate::domain::narrative_elements::WorldBuildingElement;
+
+    // v0.26.19 P0-2 契约：world 生成成功时，world_concept 必须取真实 concept，
+    // 角色提示词据此构造，不得拿到空字符串。
+    #[test]
+    fn world_concept_resolves_to_real_concept_on_success() {
+        let wb = WorldBuildingElement {
+            id: "wb-1".to_string(),
+            story_id: "story-1".to_string(),
+            concept: "末世废土，水比黄金珍贵".to_string(),
+            rules: vec![],
+            history: String::new(),
+            key_locations: vec![],
+            power_system: String::new(),
+            source: Default::default(),
+            source_ref_id: None,
+            status: Default::default(),
+        };
+        let res: Result<WorldBuildingElement, PipelineError> = Ok(wb.clone());
+        let concept = world_concept_for_character_prompt(&res);
+        assert_eq!(concept, wb.concept);
+        assert!(!concept.is_empty());
+    }
+
+    // v0.26.19 P0-2 契约：world 生成失败时，world_concept 为空串，
+    // 角色生成以 fallback（题材级）继续，而非阻塞整个 step。
+    #[test]
+    fn world_concept_falls_back_to_empty_on_error() {
+        let res: Result<WorldBuildingElement, PipelineError> =
+            Err(PipelineError::LlmError("gateway timeout".to_string()));
+        let concept = world_concept_for_character_prompt(&res);
+        assert!(concept.is_empty());
+    }
+
+    // v0.26.19 P0-2 契约：quick_phase_steps 必须保持「概念 → 撰写开篇」两步，
+    // 策略选择仍在后台（暂缓迁移，见 ROADMAP 债务清单）。
+    #[test]
+    fn quick_phase_steps_remain_concept_then_first_chapter() {
+        let steps = GenesisPipeline::quick_phase_steps();
+        let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
+        assert_eq!(names, vec!["构思故事", "撰写开篇"]);
+        assert_eq!(names.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod error_collection_tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    // v0.26.19 Phase 2.2 契约：record_error 把非致命错误追加到共享集合，
+    // 不阻塞调用方流程；snapshot_errors 返回当前累计快照（不清空）。
+    #[test]
+    fn record_error_accumulates_into_shared_collection() {
+        let errors: Arc<Mutex<Vec<GenesisStepError>>> = Arc::new(Mutex::new(Vec::new()));
+        // 模拟两个独立步骤共享同一 errors Arc（对应 quick 与 background phase 透传）
+        let errors_a = errors.clone();
+        let errors_b = errors.clone();
+
+        if let Ok(mut g) = errors_a.lock() {
+            g.push(GenesisStepError::warning(
+                "构建世界与骨架",
+                "世界观规则更新失败: db locked",
+            ));
+        }
+        if let Ok(mut g) = errors_b.lock() {
+            g.push(GenesisStepError::error(
+                "播种故事合同",
+                "MASTER_SETTING 合同创建失败: invalid story_id",
+            ));
+        }
+
+        let snapshot = errors.lock().map(|g| g.clone()).unwrap_or_default();
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].severity, "warning");
+        assert_eq!(snapshot[1].severity, "error");
+        assert!(snapshot[0].message.contains("世界观规则更新失败"));
+        assert!(snapshot[1].message.contains("MASTER_SETTING"));
+    }
+
+    // v0.26.19 Phase 2.2 契约：GenesisStepError::warning / ::error 严重度分级正确，
+    //   供前端 toast 区分「次要资产未完整」与「关键错误」。
+    #[test]
+    fn genesis_step_error_severity_levels_are_distinct() {
+        let w = GenesisStepError::warning("s", "m");
+        let e = GenesisStepError::error("s", "m");
+        assert_eq!(w.severity, "warning");
+        assert_eq!(e.severity, "error");
+        assert_ne!(w.severity, e.severity);
+    }
+}
+
+#[cfg(test)]
+mod first_chapter_retry_gate_tests {
+    use super::*;
+
+    // v0.26.19 Phase 3.1 契约：compute_trim_ratio 在 raw 为空时返回 0.0（不除零），
+    //   在 cleaned == raw 时返回 0.0（无裁剪），在 cleaned = raw/2 时返回 0.5。
+    #[test]
+    fn compute_trim_ratio_handles_empty_and_half_trim() {
+        assert_eq!(compute_trim_ratio(0, 0), 0.0);
+        assert_eq!(compute_trim_ratio(100, 100), 0.0);
+        assert!((compute_trim_ratio(100, 50) - 0.5).abs() < f32::EPSILON);
+    }
+
+    // v0.26.19 Phase 3.1 契约：should_retry_self_repetition 仅在
+    //   trim_ratio >= 0.08 且 raw_chars > 100 时触发。
+    //   - 8% 阈值边界：0.079 不触发，0.08 触发。
+    //   - 100 字下限边界：trim_ratio 高但 raw=100 不触发，raw=101 触发。
+    #[test]
+    fn should_retry_self_repetition_threshold_boundary() {
+        // 8% 阈值边界
+        assert!(!should_retry_self_repetition(0.079, 500));
+        assert!(should_retry_self_repetition(0.08, 500));
+        assert!(should_retry_self_repetition(0.20, 500));
+        // 100 字下限边界
+        assert!(!should_retry_self_repetition(0.20, 100));
+        assert!(should_retry_self_repetition(0.20, 101));
+        // 短文本高比例不触发（与 trim_self_repetition 40 字旁路对齐，更保守）
+        assert!(!should_retry_self_repetition(0.50, 50));
+    }
+
+    // v0.26.19 Phase 3.1 契约：select_first_chapter_content 在重试更干净时
+    //   采用重试结果，否则保留首次清理结果。
+    #[test]
+    fn select_first_chapter_content_prefers_cleaner_retry() {
+        let original = "原清理结果".to_string();
+        let retry = "重试清理结果".to_string();
+        // 重试更干净 (0.02 < 0.10) → 采用重试
+        assert_eq!(
+            select_first_chapter_content(0.10, 0.02, original.clone(), retry.clone()),
+            retry
+        );
+        // 重试更脏 (0.15 > 0.10) → 保留原
+        assert_eq!(
+            select_first_chapter_content(0.10, 0.15, original.clone(), retry.clone()),
+            original
+        );
+        // 相等 → 保留原（严格 <，相等不算更干净）
+        assert_eq!(
+            select_first_chapter_content(0.10, 0.10, original.clone(), retry.clone()),
+            original
+        );
+    }
+
+    // v0.26.19 Phase 3.1 契约：build_first_chapter_chapter_switch 生成的
+    //   ChapterSwitch 事件必须 content=None 且 auto_accept=false，
+    //   标题为「第一章」，scene_id 为 Some。这是 v0.26.7–v0.26.18 多轮修复
+    //   「双眼皮」回归的硬契约——正文唯一写者是 smart_execute.final_content。
+    #[test]
+    fn first_chapter_chapter_switch_payload_contract() {
+        let evt = build_first_chapter_chapter_switch(
+            "story-1".to_string(),
+            "chapter-1".to_string(),
+            "scene-1".to_string(),
+        );
+        match evt {
+            crate::window::FrontstageEvent::ChapterSwitch {
+                story_id,
+                chapter_id,
+                scene_id,
+                title,
+                content,
+                auto_accept,
+            } => {
+                assert_eq!(story_id, "story-1");
+                assert_eq!(chapter_id, "chapter-1");
+                assert_eq!(scene_id, Some("scene-1".to_string()));
+                assert_eq!(title, "第一章");
+                assert!(
+                    content.is_none(),
+                    "content 必须为 None，正文由 smart_execute 投递"
+                );
+                assert!(
+                    !auto_accept,
+                    "auto_accept 必须为 false，避免与 smart_execute 竞争"
+                );
+            }
+            other => panic!("expected ChapterSwitch, got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod background_steps_order_tests {
+    use super::*;
+
+    // v0.26.19 Phase 3.1 契约：background_steps 必须保持 6 步且顺序固定，
+    //   策略选择居首（world/outline/character
+    // 依赖），合同播种居末（依赖前面所有产出）。   此契约守护 Phase 2.1
+    // 暂缓决策——若未来策略移入 quick phase，   此测试需同步更新。
+    #[test]
+    fn background_steps_keep_six_in_fixed_order() {
+        let steps = GenesisPipeline::background_steps();
+        let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
+        assert_eq!(names.len(), 6);
+        assert_eq!(names[0], "选择创作策略");
+        assert_eq!(names[1], "构建世界与骨架");
+        assert_eq!(names[5], "播种故事合同");
     }
 }

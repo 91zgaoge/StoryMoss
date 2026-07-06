@@ -6301,6 +6301,39 @@ impl GenesisRunRepository {
         )
     }
 
+    /// v0.26.19 P0-4: 在概念生成完成、首章尚未结束时，记录 story_id
+    /// 并切换到中间状态。 与 `complete` 区别：不标记
+    /// completed，允许后台阶段继续更新同一记录。
+    pub fn set_story_id_and_status(
+        &self,
+        id: &str,
+        story_id: &str,
+        status: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE genesis_runs SET story_id = ?2, status = ?3, updated_at = ?4 WHERE id = ?1",
+            params![id, story_id, status, now],
+        )
+    }
+
+    /// v0.26.19 P0-4: 更新 steps_json（用于记录步骤执行明细或累计的错误列表）。
+    pub fn update_steps_json(&self, id: &str, steps_json: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE genesis_runs SET steps_json = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, steps_json, now],
+        )
+    }
+
     pub fn fail(&self, id: &str, error_message: &str) -> Result<usize, rusqlite::Error> {
         let conn = self
             .pool

@@ -2,6 +2,48 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.19] - Genesis 创世流程全面审计与测试加固（2026-07-06）
+
+### 审计与优化
+
+对照项目文档（架构、逻辑、设计）对「智能创作流程-创世」进行全面审计，分 Phase 1–4 执行修复、加固与测试补齐。
+
+#### Phase 1 — P0 竞态与契约修复
+
+- **Gap B（空 finalContent 不锁 delivered）**：`isFirstChapterReady` 路径在 `finalContent` 经 trim 后为空时不锁定 `genesisDeliveryRef='delivered'`，否则后续 ChapterSwitch 携正文时被 delivered 闸门阻塞，编辑器永久空白。
+- **角色生成世界观上下文（P0-2）**：`ParallelWorldOutlineCharacterStep` 中 `character` 提示词读取 `bundle.world_building` 恒为空字符串（闭包捕获竞态），导致角色与世界观脱钩。改为先 await `world` 拿到真实 `world_concept` 再构造 `character` 块；提取 `world_concept_for_character_prompt` 纯函数 + 单测。
+- **ChapterSwitch delivered 时序（P0-3）**：`selectChapter` 懒加载 `get_chapter` 失败时不应标记 `delivered`（原实现调用前就标记，失败则编辑器空白且 delivered 已锁）。改为 `markDeliveredOnLoad` 仅在 `setContent` 真正成功后标记。
+
+#### Phase 2 — P1 架构对齐
+
+- **后台错误可观测性**：`GenesisContext` 新增 `errors: Arc<Mutex<Vec<GenesisStepError>>>` 共享错误集合，各步骤非致命错误（存储失败、规则更新失败等）累计其中；后台 phase 完成后序列化到 `genesis_runs.steps_json` 并 emit `genesis-warnings` 事件，前端 toast 区分 warning/error。
+- **mutex 中毒锁加固**：`pipeline.rs` 的 `PIPELINE_CANCEL_FLAGS` 与 `model_gateway/executor.rs` 的 registry 锁改用 `unwrap_or_else(|e| e.into_inner())` 恢复中毒锁，避免线程 panic 后全局不可用。新增中毒恢复单测。
+- **策略移入 quick phase**：经评估**暂缓**（仅在 `genesis_runs`/`ROADMAP` 记录为债务），优先保障文档载明的延迟契约与当前稳定性。
+- **文档/类型对齐 auto-accept 真实路径**：`window/mod.rs` 与生成的 `FrontstageEvent.ts` 注释重写，明确创世第一章 `ChapterSwitch` 不携正文（`content: None`, `auto_accept: false`），正文唯一写者是 `smart_execute.final_content`。
+
+#### Phase 3 — 测试加固
+
+- **Rust Genesis 测试补齐**：将 8% 自重复重试闸门与 ChapterSwitch payload 的内联决策提取为纯函数（`compute_trim_ratio`、`should_retry_self_repetition`、`select_first_chapter_content`、`build_first_chapter_chapter_switch`）并测试边界/阈值/payload 契约；新增 `background_steps` 6 步固定顺序契约测试。
+- **前端 Gap B/C + 状态机断言**：新增 Gap C 专用测试（delivered + 编辑器有内容 + 入站非重复 → 跳过 setContent）与状态机端点契约测试（idle → delivered 可观测效果）。
+- **跨层共享 trim golden fixture**：新增 `tests/fixtures/trim_golden.json`（7 条用例），Rust `trim_self_repetition` 与 TS `trimSelfRepetition` 双跑同一 fixture，锁定跨层一致性契约（v0.26.16「Rust 对齐前端 KMP」的回归守卫）。
+- **降低测试 brittleness**：新 Gap C 测试采用 `waitFor` 轮询替代固定 `setTimeout`。
+
+#### Phase 4 — 代码整洁
+
+- **重命名 `*_future`**：`ParallelWorldOutlineCharacterStep` 的 `world_future`/`outline_future`/`character_future` 实为顺序 await 的 `BoxFuture`，重命名为 `*_gen` 并更新注释澄清非并行 + 标注 world/outline 可并行化延迟债务。
+- **去重 `AppConfig::load`**：`FirstChapterGenerationStep::execute` 内连续两次 `AppConfig::load`（第一次结果未被使用）合并为单次。
+- **`appendAiContent` skip 路径不 `markAccepted`**：`markAccepted` 移入实际追加成功的 `else` 分支，避免空文本/近期已追加的 skip 路径污染 `useRecentAcceptGuard`。
+- **`selectChapter` Gap C 重复入站也跳过 setContent**：移除 `!isTextAlreadyInEditor` 条件，delivered + 编辑器有内容时一律 skip（dup 与 non-dup 都 skip），消除重复入站的冗余重写。
+- **评估合并 `isGenesisSettingUpRef` → `genesisDeliveryRef`**：经评估**不合并**——两者覆盖窗口不同（前者覆盖续写路径 story_created bootstrap，后者仅创世 generating 态），合并需扩展状态机语义，按 R4 暂缓。
+
+### 验证
+
+- `cargo test --lib`：**655 passed / 0 failed / 2 ignored**（+10 新增 Rust 测试）
+- `npx vitest run`：**183 passed / 3 skipped**（+17 新增前端测试）
+- `npx tsc --noEmit`：✅ 零错误
+- `cargo +nightly fmt -- --check`：✅
+- `npm run format:check`：✅
+
 ## [v0.26.18] - Genesis 第一章重复：竞态路径加固（2026-07-06）
 
 ### 修复
