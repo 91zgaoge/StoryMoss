@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.20] - 修复 v0.26.19 CI 格式检查失败（2026-07-06）
+
+### 修复
+
+- **修复 v0.26.19 CI `cargo +nightly fmt -- --check` 失败**：v0.26.19 中 `ParallelWorldOutlineCharacterStep` 的 doc 注释行超过 `max_width=100`（`wrap_comments=true`），CI 端 rustfmt nightly 与本地 nightly 换行行为差异导致 CI 报 diff。运行 `cargo +nightly fmt` 自动换行该注释，本地 `--check` 与 CI 对齐。
+- 仅注释格式变更，无逻辑改动。
+
+### 验证
+
+- `cargo +nightly fmt -- --check`：✅
+- `cargo test --lib narrative::genesis::`：11 passed ✅
+- `npm run format:check`：✅
+
 ## [v0.26.19] - Genesis 创世流程全面审计与测试加固（2026-07-06）
 
 ### 审计与优化

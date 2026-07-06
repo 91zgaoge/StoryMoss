@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.19)
+# 🧪 StoryForge 自动化测试环境 (v0.26.20)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 

@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.19 项目完成状态
+# StoryForge (草苔) v0.26.20 项目完成状态
 
-> 最后更新: 2026-07-06（v0.26.19 Genesis 创世流程全面审计与测试加固）
+> 最后更新: 2026-07-06（v0.26.20 修复 v0.26.19 CI 格式检查失败）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.20 — 修复 v0.26.19 CI 格式检查失败（2026-07-06）
+
+- 🎯 **背景**：v0.26.19 的 `ParallelWorldOutlineCharacterStep` doc 注释行超过 `max_width=100`，CI 端 rustfmt nightly 换行行为与本地差异导致 `cargo +nightly fmt -- --check` 失败。
+- 🎯 **修复**：运行 `cargo +nightly fmt` 自动换行该注释。仅注释格式变更，无逻辑改动。
+- ✅ **验证**：`cargo +nightly fmt -- --check` 通过；`cargo test --lib narrative::genesis::` 11 passed；`npm run format:check` 通过。
 
 ### v0.26.19 — Genesis 创世流程全面审计与测试加固（2026-07-06）
 

@@ -1300,8 +1300,9 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 /// 已知延迟债务：world 与 outline 互相独立，理论上可用 `tokio::join!` 并行，
 /// 仅 character 需在 world 之后。当前顺序 await 是 P0-2 最小修复的产物，
 /// 未 reintroduce 并行以避免再次引入闭包捕获竞态。若首章生成延迟敏感，
-/// 可重构为 `let (w, o) = tokio::join!(world_gen, outline_gen); character_gen.await`，
-/// 但需确保 character_gen 闭包不再捕获共享 bundle（已改为传 world_concept 值）。
+/// 可重构为 `let (w, o) = tokio::join!(world_gen, outline_gen);
+/// character_gen.await`， 但需确保 character_gen 闭包不再捕获共享
+/// bundle（已改为传 world_concept 值）。
 struct ParallelWorldOutlineCharacterStep;
 
 /// v0.26.19 P0-2: 从 world 生成结果提取 world_concept，供角色提示词使用。
