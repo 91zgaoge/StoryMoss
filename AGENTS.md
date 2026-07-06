@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.17
+- **版本**: v0.26.18
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -81,6 +81,13 @@ type:
 
 ## 最近完成的功能
 
+### v0.26.18 — Genesis 第一章重复：竞态路径加固
+
+- **Gap A**：ChapterSwitch `auto_accept=true` 但 content 为空时 `skipContent=true` 且不标记 `delivered`，让 smart_execute 投递。
+- **Gap B**：`isFirstChapterReady` 路径仅在已 append 或编辑器已有内容时标记 `delivered`。
+- **Gap C**：`selectChapter` 咽喉点新增 `delivered` + 编辑器已有内容守卫，跳过 `setContent`。
+- **回归测试**：新增 Gap A 竞态路径单测，vitest 167 passed。
+
 ### v0.26.17 — Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强
 
 - **打包 SQL 迁移**：Release 安装包包含 `$RESOURCE/db/migrations/`。
@@ -152,4 +159,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-06 - v0.26.17_
+_最后更新: 2026-07-06 - v0.26.18_

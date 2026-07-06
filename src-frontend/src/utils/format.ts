@@ -178,12 +178,15 @@ function splitChineseSentences(text: string): string[] {
   // 匹配以句子结束标点结尾的片段（包含中英文标点）
   const regex = /[^\u3002\uff01\uff1f.!?]*[\u3002\uff01\uff1f.!?]+/g;
   const matches: string[] = [];
+  let lastEnd = 0;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(text)) !== null) {
     matches.push(m[0]);
+    // 在循环内捕获 lastIndex；exec 返回 null 后全局正则的 lastIndex 会被重置为 0，
+    // 不能在循环外读取，否则 tail 会变成整段文本导致内容翻倍。
+    lastEnd = regex.lastIndex;
   }
   // 处理末尾没有标点的残留文本
-  const lastEnd = regex.lastIndex || 0;
   if (lastEnd < text.length) {
     const tail = text.slice(lastEnd).trim();
     if (tail) matches.push(tail);

@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.18] - Genesis 第一章重复：竞态路径加固（2026-07-06）
+
+### 修复
+
+- **修复 v0.26.16 后仍偶发的 Genesis 第一章内容重复**：用户报告 v0.26.16 后新写小说第一章仍有重复。代码审查发现三个残留竞态缺口：
+  - **Gap A（ChapterSwitch 空内容竞态）**：`ChapterSwitch` 事件 `auto_accept=true` 但 `payload.content` 为空时，原逻辑不标记 `delivered` 且 `skipContent=false`，导致 `selectChapter` 从 DB 加载正文，随后 `smart_execute` 返回又 `appendAiContent` 叠加 → 重复。现改为 `skipContent=true`（不从 DB 加载），且不标记 `delivered`（让 `smart_execute` 仍能投递 `final_content`）。
+  - **Gap B（delivered 误锁）**：`isFirstChapterReady` 路径在 `if` 块末尾无条件 `genesisDeliveryRef.current = 'delivered'`，即使 `finalContent` 经 trim 后为空或 `isAlreadyPresent` 但编辑器实际为空时也会锁死状态机 → 编辑器空白。现仅在「已 append」或「编辑器已有内容」时标记 `delivered`。
+  - **Gap C（selectChapter 咽喉点缺守卫）**：`selectChapter` 注释声称由 `onChapterUpdated` 等通道承担 `delivered` 防护，但 `selectChapter` 是直接调用路径，不受 `onChapterUpdated` 守卫保护。当 `delivered` 已设置且编辑器已有内容时，`skipContent=false` 的 `setContent` 会覆盖或叠加。新增咽喉点守卫：`delivered` 且编辑器已有非空内容且 incoming 不在编辑器中时跳过 `setContent`。
+- **回归测试**：新增 `ChapterSwitch auto_accept=true 但 content 为空时 smart_execute 仍能投递 final_content`，覆盖 Gap A 竞态路径。
+
+### 验证
+
+- `npx tsc --noEmit`：✅ 零错误
+- `npx vitest run`：**167 passed / 3 skipped**（含 9 个 genesis-duplicate 测试）
+- `cargo test --lib`：639 passed（未改动 Rust）
+
 ## [v0.26.17] - Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强（2026-07-06）
 
 ### 修复

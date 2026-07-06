@@ -214,7 +214,7 @@ const FrontstageApp: React.FC = () => {
   // 三态：'idle'（无创世）→ 'generating'（创世已开始，内容尚未投递）→ 'delivered'（正文已写入编辑器一次）
   // 唯一写者：smart_execute 的 final_content 路径（appendAiContent）完成 generating→delivered 转换。
   // 所有其他通道（ChapterSwitch / pipeline-complete / story_created→selectChapter / onChapterUpdated）
-  // 在 state !== 'idle' 时结构性拒绝加载 DB 正文到编辑器，不再依赖调用方传 skipContent 标志。
+  // 在 delivered 态或编辑器已有内容时跳过 DB 正文加载（v0.26.18: selectChapter 咽喉点也加守卫）。
   // 替代 v0.26.6–v0.26.13 的 genesisAutoAcceptedRef + isGenesisSettingUpRef 散布布尔守卫。
   const genesisDeliveryRef = useRef<'idle' | 'generating' | 'delivered'>('idle');
   // v0.26.16: 读取函数——绕过 TypeScript 控制流对 ref.current 的窄化。
@@ -1538,11 +1538,20 @@ const FrontstageApp: React.FC = () => {
               // 加载到编辑器，ChapterSwitch 不再重复加载 DB 正文，避免同一内容被设置两次。
               // v0.26.12 fix: 必须先根据当前 genesisDeliveryRef 决定是否跳过，再在本事件
               // v0.26.16: 只有 delivered 态才跳过（内容已在编辑器中）。generating 态允许 ChapterSwitch 投递内容。
+              // v0.26.18 fix (Gap A): autoAccept 但 payload.content 为空时，不能从 DB 加载正文
+              //   （DB 可能也是空的或滞后），但仍需让 smart_execute 后续投递 final_content，
+              //   因此只设 skipContent=true，不设 delivered。
+              const chapterSwitchHasContent = !!payload.content && payload.content.trim().length > 0;
               const chapterSwitchSkipContent =
-                !autoAccept || genesisDeliveryRef.current === 'delivered';
+                !autoAccept ||
+                genesisDeliveryRef.current === 'delivered' ||
+                (autoAccept && !chapterSwitchHasContent);
               // v0.26.6 fix: 标记 Genesis 正文已通过 ChapterSwitch 自动加载，后续
               // smart_execute 结果不得再恢复 generatedText，防止内容重复。
-              if (autoAccept && payload.content) {
+              // v0.26.18 fix: 仅当 ChapterSwitch 携带实际正文时才标记 delivered；
+              //   content 为空时正文来源应是 smart_execute.final_content，过早标记 delivered
+              //   会阻塞 smart_execute 投递，导致编辑器空白。
+              if (autoAccept && chapterSwitchHasContent) {
                 genesisDeliveryRef.current = 'delivered';
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
@@ -2034,8 +2043,11 @@ const FrontstageApp: React.FC = () => {
       //   story_created → skipContent=true（创世期间不加载 DB 正文）
       //   ChapterSwitch(auto_accept=true) → skipContent=false（事件自带正文，需要加载）
       //   pipeline-complete → 按 genesisDeliveryState 判断
-      // genesisDelivery 的 'delivered' 态防护由 onChapterUpdated 硬闸门、
-      // setGeneratedText centralized guard、isGenesisSettingUpRef 共同承担，不在此处重复。
+      // v0.26.18: 除调用方传入的 skipContent 外，此处额外做一道咽喉点守卫——
+      //   若 genesisDelivery 已 delivered 且编辑器已有非空内容（说明 smart_execute
+      //   已 append 或 ChapterSwitch 已加载），则即使 skipContent=false 也跳过
+      //   setContent，防止 DB 正文覆盖或叠加已投递的正文。
+      // genesisDelivery 的 'generating' 态防护由 onChapterUpdated 硬闸门承担。
       const skipContent = opts?.skipContent === true || skipChapterContentRef.current;
       // Phase 4 fix: 重置跳过标志（只影响一次 selectChapter 调用）
       skipChapterContentRef.current = false;
@@ -2130,26 +2142,55 @@ const FrontstageApp: React.FC = () => {
         formattedContent = `<p>${(chapter.content || '').replace(/\n/g, '</p><p>')}</p>`;
       }
       if (!skipContent) {
-        try {
-          logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
-            chapterId: chapter.id,
-            formattedLen: formattedContent.length,
-            skipContent,
-          });
-          setContent(formattedContent);
-        } catch (e) {
-          frontstageLogger.error('[selectChapter] setContent 失败', {
-            error: e,
-            formatted_length: formattedContent.length,
-          });
+        // v0.26.18 fix (Gap C): Genesis delivered 态下若编辑器已有非空内容，
+        //   skipContent=false 的 setContent 会覆盖（或与并发 append 叠加造成重复）。
+        //   此处做最后一道咽喉点守卫：delivered 且编辑器已有内容时跳过 setContent。
+        const currentEditorText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+        const skipDueToDeliveredRace =
+          genesisDeliveryState() === 'delivered' &&
+          currentEditorText.length > 0 &&
+          !isTextAlreadyInEditor(formattedContent, { source: 'select_chapter_guard' });
+
+        if (skipDueToDeliveredRace) {
+          frontstageLogger.warn(
+            '[selectChapter] Genesis delivered 且编辑器已有内容，跳过 setContent 避免重复',
+            {
+              chapterId: chapter.id,
+              currentLen: currentEditorText.length,
+              incomingLen: formattedContent.length,
+            }
+          );
+          logToBackend(
+            'frontstage:select_chapter_skip_delivered',
+            'skipped setContent: genesis delivered and editor has content',
+            {
+              chapterId: chapter.id,
+              currentLen: currentEditorText.length,
+              incomingLen: formattedContent.length,
+            }
+          );
+        } else {
+          try {
+            logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
+              chapterId: chapter.id,
+              formattedLen: formattedContent.length,
+              skipContent,
+            });
+            setContent(formattedContent);
+          } catch (e) {
+            frontstageLogger.error('[selectChapter] setContent 失败', {
+              error: e,
+              formatted_length: formattedContent.length,
+            });
+          }
+          // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
+          // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
+          // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
+          setGeneratedText('');
+          // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
+          latestContentRef.current = formattedContent;
+          setIsSaved(true);
         }
-        // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
-        // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
-        // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
-        setGeneratedText('');
-        // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
-        latestContentRef.current = formattedContent;
-        setIsSaved(true);
       } else {
         logToBackend('frontstage:select_chapter_skip', 'selectChapter skipped content load', {
           chapterId: chapter.id,
@@ -2682,6 +2723,12 @@ const FrontstageApp: React.FC = () => {
                   currentLen: currentText.length,
                 }
               );
+              // v0.26.18 fix (Gap B): 编辑器已有内容时才标记 delivered；
+              //   若 isAlreadyPresent 但编辑器实际为空（竞态），不标记 delivered，
+              //   让后续 ChapterSwitch/pipeline-complete 仍能加载 DB 正文。
+              if (currentText.length > 0) {
+                genesisDeliveryRef.current = 'delivered';
+              }
             } else if (finalContent.trim()) {
               logToBackend('frontstage:genesis_auto_accept', 'auto-accepting first chapter', {
                 finalLen: finalContent.length,
@@ -2693,7 +2740,9 @@ const FrontstageApp: React.FC = () => {
               setHideGhostUntil(Date.now() + 30000);
               appendAiContentRef.current(finalContent, 'auto');
             }
-            genesisDeliveryRef.current = 'delivered';
+            // v0.26.18 fix (Gap B): 移除无条件 genesisDeliveryRef.current = 'delivered'。
+            //   仅在「已 append」或「编辑器已有内容」时标记 delivered，
+            //   避免 finalContent 经 trim 后为空时误锁状态机导致编辑器空白。
           }
           stopElapsedTimer();
           setIsGenerating(false);

@@ -390,4 +390,57 @@ describe('Bug A: 创世后正文不应重复', () => {
     expect(captured.content).toContain('空气是粘稠的');
     expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
   });
+
+  // v0.26.18 regression: Gap A — ChapterSwitch auto_accept=true 但 content 为空时，
+  // 不应从 DB 加载正文（避免与后续 smart_execute final_content 叠加重复），
+  // 也不应过早标记 delivered（避免阻塞 smart_execute 投递导致编辑器空白）。
+  it('ChapterSwitch auto_accept=true 但 content 为空时，smart_execute 仍能投递 final_content', async () => {
+    // 使用 deferred promise 让 smart_execute 在 ChapterSwitch 之后返回
+    let resolveSmartExecute: (value: unknown) => void = () => {};
+    mockSmartExecute.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSmartExecute = resolve;
+        })
+    );
+
+    render(<FrontstageApp />, { wrapper });
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '写一部关于废土幸存者的小说');
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled(), { timeout: 3000 });
+
+    // ChapterSwitch 先到达，auto_accept=true 但 content 为空
+    await act(async () => {
+      listenCallbacks[FRONTSTAGE_EVENT]?.({
+        payload: chapterSwitchPayload({ content: null, auto_accept: true }),
+      });
+    });
+    await new Promise(r => setTimeout(r, 100));
+
+    // 此刻编辑器应为空（DB 未加载，smart_execute 尚未返回）
+    expect(captured.content.replace(/<[^>]+>/g, '').trim()).toBe('');
+
+    // smart_execute 返回 final_content
+    await act(async () => {
+      resolveSmartExecute({
+        success: true,
+        steps_completed: 1,
+        final_content: CHAPTER_TEXT,
+        messages: [
+          'story_created:story-1',
+          'session_id:ses-1',
+          'novel_bootstrap_first_chapter_ready',
+        ],
+        error: null,
+      });
+      await new Promise(r => setTimeout(r, 200));
+    });
+
+    // 正文应只出现一次（smart_execute 投递成功，未被 ChapterSwitch DB 加载重复）
+    const plain = captured.content.replace(/<[^>]+>/g, '');
+    const matchCount = (plain.match(/空气是粘稠的/g) || []).length;
+    expect(matchCount).toBe(1);
+    expect(captured.generatedText).not.toContain(CHAPTER_TEXT);
+  });
 });

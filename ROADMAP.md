@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-06（v0.26.17 Issue #4 启动加固：打包 SQL 迁移与 init_db 诊断增强）
+> 最后更新: 2026-07-06（v0.26.18 Genesis 第一章重复竞态路径加固）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.18 Genesis 第一章重复竞态加固 ✅ (2026-07-06)
+
+- [x] Gap A：ChapterSwitch auto_accept=true 但 content 为空时 skipContent=true，不标记 delivered
+- [x] Gap B：isFirstChapterReady 路径仅在已 append 或编辑器已有内容时标记 delivered
+- [x] Gap C：selectChapter 咽喉点新增 delivered + 编辑器已有内容守卫
+- [x] 新增 Gap A 回归测试
 
 ### 📝 v0.26.17 Issue #4 启动加固：打包 SQL 迁移 ✅ (2026-07-06)
 

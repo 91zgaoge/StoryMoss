@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.17 架构文档
+# StoryForge (草苔) v0.26.18 架构文档
 
-> 本文档反映 v0.26.17 最新架构状态（2026-07-06）
+> 本文档反映 v0.26.18 最新架构状态（2026-07-06）
+> **v0.26.18 稳定性补丁**：加固 Genesis 第一章重复的三个残留竞态缺口（ChapterSwitch 空内容、delivered 误锁、selectChapter 咽喉点缺守卫）。
 > **v0.26.17 稳定性补丁**：Issue #4 一级根因加固——生产包打包 SQL 迁移；`init_db` 启动前确保 app data 目录并增强失败诊断。
 > **v0.26.16 稳定性补丁**：根治 Genesis 新小说第一章内容重复，并修复 init_db 失败时启动 panic。
 > - 生成侧验证闸门：`genesis.rs` 检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试；prompt 模板新增「结构纪律」段。
