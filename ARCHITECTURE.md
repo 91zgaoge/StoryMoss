@@ -1,7 +1,7 @@
-# StoryForge (草苔) v0.26.22 架构文档
+# StoryForge (草苔) v0.26.23 架构文档
 
-> 本文档反映 v0.26.22 最新架构状态（2026-07-06）
-> **v0.26.22 格式修复**：修复 v0.26.19 CI `cargo +nightly fmt -- --check` 失败（`ParallelWorldOutlineCharacterStep` doc 注释超 `max_width=100`，自动换行）。仅注释格式变更。
+> 本文档反映 v0.26.23 最新架构状态（2026-07-06）
+> **v0.26.23 格式修复**：修复 v0.26.19 CI `cargo +nightly fmt -- --check` 失败（`ParallelWorldOutlineCharacterStep` doc 注释超 `max_width=100`，自动换行）。仅注释格式变更。
 > **v0.26.19 创世流程审计与测试加固**：对照文档全面审计「智能创作流程-创世」，分 Phase 1–4 执行。
 > - **Phase 1（P0）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
 > - **Phase 2（P1）**：后台错误可观测性（`GenesisContext.errors` 共享集合 → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固（`unwrap_or_else(|e| e.into_inner())`）；策略移入 quick phase 经评估暂缓（记录为债务）；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。

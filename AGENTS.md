@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.22
+- **版本**: v0.26.23
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -81,7 +81,7 @@ type:
 
 ## 最近完成的功能
 
-### v0.26.22 — 修复续写卡死与幽灵文本混乱（4 项根因）
+### v0.26.23 — 修复续写卡死与幽灵文本混乱（4 项根因）
 
 对照 `creative_workflow.log` 2026-07-07 续写会话时间线定位 4 个根因：
 
@@ -192,4 +192,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-07 - v0.26.22_
+_最后更新: 2026-07-07 - v0.26.23_

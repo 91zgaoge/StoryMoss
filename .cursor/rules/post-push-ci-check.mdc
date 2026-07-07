@@ -1,0 +1,27 @@
+---
+description: 推送后必须及时检查 GitHub Actions 构建错误并修复
+alwaysApply: true
+---
+
+# 推送后 CI 检查（强制）
+
+每次向远程推送代码后（无论 master、feature 分支还是 tag），**必须立即检查 GitHub Actions 构建结果**，不得视为"推送即完成"。
+
+## 强制流程
+
+1. **推送后立即**用 `gh run list --limit 3` 确认 CI 已触发并记录 run id。
+2. **持续监控**直到所有 job 完成（macOS dmg / Windows msi / Linux deb / rust-check / frontend-check / e2e）。Windows 慢约 50 分钟，需耐心等待，不可中途放弃。
+3. **任何 job 失败**立即用 `gh run view <run-id> --log-failed` 取失败日志，定位根因：
+   - 代码错误（fmt/tsc/test/编译）→ 立即修复、bump 版本、重新推送。
+   - 基础设施错误（Apple 公证协议、WiX 工具链）→ 报告用户需手动处理的部分，但仍尝试代码侧可缓解的方案。
+4. **全绿后才算本次推送完成**。全绿前不得声称"已完成"或结束任务。
+
+## 反例（禁止）
+
+- 推送后只说"已推送"就结束，不查 CI。
+- 看到"已触发"就当作成功，不等 job 结果。
+- 失败后只报告错误而不修复（除非确属外部阻塞，需明确告知用户）。
+
+## 根因记录
+
+v0.26.19–v0.26.21 多次推送后未及时查 CI，导致 macOS 公证协议过期、Windows WiX 中文文件名等问题积压多版本才被发现。用户明确要求"推送后要及时检查 GitHub 构建错误，永久记住"。

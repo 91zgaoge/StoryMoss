@@ -2,6 +2,18 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.23] - 修复 v0.26.22 CI prettier 格式检查失败（2026-07-07）
+
+### 修复
+
+- **修复 v0.26.22 CI `frontend-check` 失败**：v0.26.22 的 Bug D 重入守卫编辑后未跑 `npm run format:check`，`FrontstageApp.tsx` 一处 prettier 格式不符 CI 检查。运行 `npm run format` 修正。
+- 同步落实新规则「推送后必须及时检查 GitHub Actions 构建错误」——本次因及时检查才发现 v0.26.22 CI 失败并立即修复。
+
+### 验证
+
+- `npm run format:check`：✅
+- `cargo test --lib` 655 / `npx vitest run` 183（v0.26.22 已验证，本次仅格式变更）
+
 ## [v0.26.22] - 修复续写卡死与幽灵文本混乱（4 项根因）（2026-07-07）
 
 ### 修复

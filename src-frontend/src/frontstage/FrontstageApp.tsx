@@ -3364,7 +3364,7 @@ const FrontstageApp: React.FC = () => {
           setOrchestratorStatus(current =>
             current?.message === '上一次续写结果尚未确认，已自动丢弃，正在重新生成...'
               ? null
-              : current,
+              : current
           );
         }, 2500);
       }
