@@ -2,6 +2,24 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.24] - 修复续写重复、截断与跨内容复述（2026-07-07）
+
+### 修复
+
+对照 `creative_workflow.log` 2026-07-07 08:44–09:05 续写会话（新写 → 多次续写），定位 5 项根因并结构性修复：
+
+- **散布式句子块重复**：续写时模型陷入意象循环（冥界/牢笼/苦楚块在单次生成内重复 2–3 次），段落级与 KMP border 检测均抓不到。新增 `trimInterspersedRepeatedBlocks`（Rust + TS 对齐，跨层 golden 双跑）。
+- **跨内容重叠复述**：Writer 把 `build_continuation_context` 注入的尾部预览段落重新输出（如「恶魔的嘴唇…」），`startsWith` / `isTextDuplicate` 无法拦截。新增 `stripExistingOverlap`（比对已有正文尾部 3000 字，剥离 ≥25 归一化字重叠前缀），后端 TriShot 与前端 `FrontstageApp` 全路径接入。
+- **截断末句污染**：60s 超时硬截断留下极短半句（如「冥界的阴霾更。」）污染后续上下文。新增 `trimDanglingTail`（末句归一化 < 12 字且全文 ≥ 2 句时裁掉）。
+- **续写无生成侧重试闸门**：Genesis 有 8% 自重复重试，TriShot 续写只有事后 sanitize。`orchestrator.rs` 补齐 anti-repeat 重试，取更干净版本。
+- **前端后处理管线统一**：`sanitizeContinuationOutput` = trimSelfRepetition + stripExistingOverlap + trimDanglingTail，覆盖 `smart_execute`、`appendAiContent`、`handleRequestGeneration`。
+
+### 验证
+
+- `cargo test --lib`：666 passed ✅
+- `npx vitest run`（textCleanup + golden）：192 passed ✅
+- 跨层 `tests/fixtures/trim_golden.json` 双跑 ✅
+
 ## [v0.26.23] - 修复 v0.26.22 CI prettier 格式检查失败（2026-07-07）
 
 ### 修复

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { trimSelfRepetition, isTextDuplicate } from '../textCleanup';
+import {
+  trimSelfRepetition,
+  isTextDuplicate,
+  stripExistingOverlap,
+  trimDanglingTail,
+  sanitizeContinuationOutput,
+} from '../textCleanup';
 
 describe('trimSelfRepetition', () => {
   it('returns short text unchanged', () => {
@@ -83,6 +89,69 @@ describe('trimSelfRepetition', () => {
     const text = [p1, p2, p3, p4prefix + p1 + p2 + p3].join('\n\n');
     const result = trimSelfRepetition(text);
     expect(result).toBe([p1, p2, p3, p4prefix].join('\n\n'));
+  });
+
+  // v0.26.24: 散布式句子块重复——同一多句块以不同上下文在文中出现 ≥2 次。
+  it('trims interspersed repeated sentence block (continuation loop)', () => {
+    const block =
+      '冥界的阴霾更加浓烈，在这个苦难的奋斗中，主角与恶魔的共同牢笼被沉沦在更深的冥界。幻境的沉淀，坚定的决心。一场惨烈的冒险，即将开始。';
+    const lead = '他握紧恶魔的喉咙，咆哮着宣告契约的成立。';
+    const mid = '深渊的阴暗中回荡着叩门的沉闷声。';
+    const text = lead + block + mid + block;
+    expect(trimSelfRepetition(text)).toBe(lead + block + mid);
+  });
+
+  // v0.26.24: 散布式单长句重复——同一长句（归一化 ≥ 15 字）在文中出现两次。
+  it('trims interspersed single long sentence repeat', () => {
+    const s = '恶魔的眼眶中闪过一丝恐惧，但在他的决心中，牢牢捆绑了他的挣脱。';
+    const text = s + '他咆哮不止。' + s;
+    expect(trimSelfRepetition(text)).toBe(s + '他咆哮不止。');
+  });
+
+  // v0.26.24: 短句重复不裁剪（< 15 归一化字），避免误伤首尾呼应。
+  it('leaves short interspersed sentence repeat unchanged', () => {
+    const text =
+      '清晨的阳光洒在窗台上，新的一天开始了。我喝了一杯咖啡，准备出门。清晨的阳光洒在窗台上。';
+    expect(trimSelfRepetition(text)).toBe(text);
+  });
+});
+
+describe('stripExistingOverlap', () => {
+  it('strips regenerated passage from existing tail (creative_workflow 2026-07-07)', () => {
+    const existing =
+      '冥府的牢笼牢牢锁住了他。他正在等待巅峰。\n\n恶魔的嘴唇弯曲出一个苦涎的笑，一颗棘刺般的闪烁在其眼中。我是你的牺牲，为你的愿望牺牲。';
+    const generated =
+      '恶魔的嘴唇弯曲出一个苦涎的笑，一颗棘刺般的闪烁在其眼中。我是你的牺牲，为你的愿望牺牲。主角深吸一口气，朝着冥界巅峰奔跑。';
+    const result = stripExistingOverlap(generated, existing);
+    expect(result).not.toContain('恶魔的嘴唇弯曲出一个苦涎的笑');
+    expect(result).toContain('朝着冥界巅峰奔跑');
+  });
+
+  it('returns unchanged when no overlap', () => {
+    const existing = '他穿过废墟，脚步在碎石上发出轻微的响动。';
+    const generated = '远处传来一阵低沉的轰鸣，他停下脚步。';
+    expect(stripExistingOverlap(generated, existing)).toBe(generated);
+  });
+});
+
+describe('trimDanglingTail', () => {
+  it('strips truncated last sentence from timeout cutoff', () => {
+    const text =
+      '主角与恶魔浸入到一个更深的冥境中，在那里，他们将面对更糟糕的冥府巅峰之谜。在牢笼前，恶魔停止了咬堪，牢牢捆绑在主角的手中。冥界的阴霾更。';
+    const result = trimDanglingTail(text);
+    expect(result).not.toContain('冥界的阴霾更');
+    expect(result.endsWith('牢牢捆绑在主角的手中。')).toBe(true);
+  });
+});
+
+describe('sanitizeContinuationOutput', () => {
+  it('applies full pipeline for continuation output', () => {
+    const block =
+      '冥界的阴霾更加浓烈，在这个苦难的奋斗中，主角与恶魔的共同牢笼被沉沦在更深的冥界。幻境的沉淀，坚定的决心。一场惨烈的冒险，即将开始。';
+    const existing = `前文内容。${block}`;
+    const generated = `${block}新的情节在这里展开。${block}`;
+    const result = sanitizeContinuationOutput(generated, existing);
+    expect(result).toBe('新的情节在这里展开。');
   });
 });
 

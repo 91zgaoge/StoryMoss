@@ -1,11 +1,22 @@
-# StoryForge (草苔) v0.26.23 项目完成状态
+# StoryForge (草苔) v0.26.24 项目完成状态
 
-> 最后更新: 2026-07-07（v0.26.23 修复续写卡死与幽灵文本混乱）
+> 最后更新: 2026-07-07（v0.26.24 修复续写重复、截断与跨内容复述）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.24 — 修复续写重复、截断与跨内容复述（5 项根因）（2026-07-07）
+
+对照 `creative_workflow.log` 2026-07-07 08:44–09:05 续写会话：
+
+- **散布式句子块重复**：`trimInterspersedRepeatedBlocks`（Rust + TS golden 双跑）。
+- **跨内容重叠复述**：`stripExistingOverlap`（尾部 3000 字比对，≥25 归一化字剥离）。
+- **截断末句污染**：`trimDanglingTail`（极短末句裁剪）。
+- **续写 8% 重试闸门**：TriShot anti-repeat 重试（对齐 Genesis）。
+- **前端管线**：`sanitizeContinuationOutput` 全路径接入。
+- ✅ **验证**：`cargo test --lib` 666 passed；`npx vitest run` 192 passed。
 
 ### v0.26.23 — 修复续写卡死与幽灵文本混乱（4 项根因）（2026-07-07）
 

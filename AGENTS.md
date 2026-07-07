@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.23
+- **版本**: v0.26.24
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,15 +71,25 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 655 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 666 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 183 passed / 3 skipped
+- `npx vitest run` ✅ 192 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.24 — 修复续写重复、截断与跨内容复述（5 项根因）
+
+对照 `creative_workflow.log` 2026-07-07 08:44–09:05 续写会话（新写 → 多次续写）：
+
+- **散布式句子块重复**：新增 `trimInterspersedRepeatedBlocks`（Rust + TS 对齐，golden 双跑），处理单次生成内意象循环重复。
+- **跨内容重叠复述**：新增 `stripExistingOverlap`，剥离 Writer 复述已有正文段落（`startsWith` / `isTextDuplicate` 无法拦截的路径）。
+- **截断末句污染**：新增 `trimDanglingTail`，裁掉 60s 超时硬截断留下的极短半句。
+- **续写 8% 重试闸门**：TriShot 续写路径补齐 anti-repeat 重试（对齐 Genesis）。
+- **前端管线统一**：`sanitizeContinuationOutput` 覆盖 smart_execute / appendAiContent / handleRequestGeneration。
 
 ### v0.26.23 — 修复续写卡死与幽灵文本混乱（4 项根因）
 
@@ -192,4 +202,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-07 - v0.26.23_
+_最后更新: 2026-07-07 - v0.26.24_

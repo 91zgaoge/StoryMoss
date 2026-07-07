@@ -67,8 +67,170 @@ export function trimSelfRepetition(text: string): string {
     return paragraphDeduped;
   }
 
-  // 2) 字符级 border：处理段落内或跨段的长尾重复
+  // 2) v0.26.24: 散布式句子块重复——同一句子或多句块在文中以不同上下文
+  //    出现 ≥2 次。续写时模型陷入意象循环（冥界/牢笼/苦楚）的典型症状。
+  const interspersedDeduped = trimInterspersedRepeatedBlocks(trimmed);
+  if (interspersedDeduped.length < trimmed.length) {
+    return interspersedDeduped;
+  }
+
+  // 3) 字符级 border：处理段落内或跨段的长尾重复
   return trimByLongestBorder(trimmed);
+}
+
+/**
+ * v0.26.24: 续写跨内容重叠剥离。
+ *
+ * 续写时 Writer 可能把已有正文中的段落重新输出（非「全文前缀」匹配），
+ * `startsWith(currentText)` 无法拦截。找 generated 归一化文本的最长前缀 L，
+ * 使其是 existing 尾部 3000 字的子串；L ≥ 25 归一化字时在原文中截断。
+ *
+ * 与 Rust `TextUtils::strip_existing_overlap` 对齐。
+ */
+export function stripExistingOverlap(generated: string, existing: string): string {
+  const genTrimmed = generated.trim();
+  const existingTrimmed = existing.trim();
+  if (!genTrimmed || !existingTrimmed) return generated;
+
+  const existingTail =
+    existingTrimmed.length > 3000 ? [...existingTrimmed].slice(-3000).join('') : existingTrimmed;
+
+  const { normalized: normGen, indices: genIdx } = buildNormalizedIndex(genTrimmed);
+  const { normalized: normExisting } = buildNormalizedIndex(existingTail);
+  if (!normGen || !normExisting) return generated;
+
+  const MIN_OVERLAP = 25;
+  const upper = Math.min(normGen.length, normExisting.length);
+  let best = 0;
+  for (let l = upper; l >= MIN_OVERLAP; l--) {
+    if (normExisting.includes(normGen.slice(0, l))) {
+      best = l;
+      break;
+    }
+  }
+  if (best < MIN_OVERLAP) return generated;
+
+  const cutIndex = genIdx[best] ?? genTrimmed.length;
+  const remaining = genTrimmed.slice(cutIndex).trimStart();
+  if ([...remaining].length < 10) return generated;
+  return remaining;
+}
+
+/**
+ * v0.26.24: 裁掉 token/超时截断留下的极短末句（归一化 < 12 字且全文 ≥ 2 句）。
+ * 与 Rust `TextUtils::trim_dangling_tail` 对齐。
+ */
+export function trimDanglingTail(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return text;
+
+  const sentences = splitSentencesWithDelimiters(trimmed);
+  if (sentences.length < 2) return text;
+
+  const lastNorm = normalizeForDuplicateCheck(sentences[sentences.length - 1].body);
+  if (lastNorm.length >= 12) return text;
+
+  let result = '';
+  for (let i = 0; i < sentences.length - 1; i++) {
+    result += sentences[i].raw;
+  }
+  result = result.trim();
+  return result || text;
+}
+
+/**
+ * v0.26.24: 续写后处理管线——自重复清理 + 跨内容重叠剥离 + 截断末句裁剪。
+ */
+export function sanitizeContinuationOutput(generated: string, existing: string): string {
+  let result = trimSelfRepetition(generated);
+  result = stripExistingOverlap(result, existing);
+  result = trimDanglingTail(result);
+  return result;
+}
+
+/**
+ * v0.26.24: 检测并裁剪散布式句子块重复。
+ *
+ * 把文本按句末标点（。！？.?!）切成句子序列，归一化后查找在文中出现 ≥2 次
+ * 的句子或多句块，保留首次出现，裁掉后续重复。只处理归一化后 ≥ 15 字符
+ * 的块，避免误伤首尾呼应等良性短句重复。
+ *
+ * 与 Rust `TextUtils::trim_interspersed_repeated_blocks` 对齐，跨层 golden
+ * 双跑锁定一致性。
+ */
+function trimInterspersedRepeatedBlocks(text: string): string {
+  const sentences = splitSentencesWithDelimiters(text);
+  if (sentences.length < 3) return text;
+  // 超长输入降级（O(n²) 代价控制）：>300 句交给 border 兜底
+  if (sentences.length > 300) return text;
+
+  const normalized = sentences.map(s => normalizeForDuplicateCheck(s.body));
+  const n = sentences.length;
+  const removed: boolean[] = new Array(n).fill(false);
+  const MIN_BLOCK_CHARS = 15;
+
+  for (let i = 0; i < n; i++) {
+    if (removed[i]) continue;
+    for (let j = i + 1; j < n; j++) {
+      if (removed[j]) continue;
+      // 计算从 i 与 j 起的最长公共句子块长度 L（完整扩展）
+      let l = 0;
+      while (
+        i + l < n &&
+        j + l < n &&
+        !removed[i + l] &&
+        !removed[j + l] &&
+        normalized[i + l] === normalized[j + l]
+      ) {
+        l++;
+      }
+      if (l === 0) continue;
+      // 块归一化字符数须 ≥ 15
+      let totalBlockChars = 0;
+      for (let k = 0; k < l; k++) totalBlockChars += normalized[i + k].length;
+      if (totalBlockChars < MIN_BLOCK_CHARS) continue;
+      // 标记后续出现的整块为重复
+      for (let k = 0; k < l; k++) removed[j + k] = true;
+    }
+  }
+
+  if (!removed.some(r => r)) return text;
+
+  let result = '';
+  for (let i = 0; i < n; i++) {
+    if (!removed[i]) result += sentences[i].raw;
+  }
+  result = result.trim();
+  return result || text;
+}
+
+interface SentenceSegment {
+  /** 原始片段（含句末标点与相邻空白/换行），用于重建 */
+  raw: string;
+  /** 去掉首尾空白的句子正文，用于归一化比较 */
+  body: string;
+}
+
+function splitSentencesWithDelimiters(text: string): SentenceSegment[] {
+  const segments: SentenceSegment[] = [];
+  const delimiters = new Set(['。', '？', '！', '.', '?', '!']);
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (delimiters.has(ch)) {
+      const end = i + 1;
+      const raw = text.slice(start, end);
+      const body = raw.trim();
+      if (body) segments.push({ raw, body });
+      start = end;
+    }
+  }
+  if (start < text.length) {
+    const raw = text.slice(start);
+    const body = raw.trim();
+    if (body) segments.push({ raw, body });
+  }
+  return segments;
 }
 
 function normalizeParagraph(s: string): string {

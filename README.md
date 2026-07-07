@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.23-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.24-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.23 修复续写卡死与幽灵文本混乱——对照 `creative_workflow.log` 定位 4 个根因：auto_contract 静默化（解除 6 分钟阻塞）、续写重入守卫（丢弃旧幽灵）、幽灵渲染响应式（消除 10s 延迟）、续写 60s fail-fast（慢模型回退快模型）。
+**最新动态**：v0.26.24 修复续写重复、截断与跨内容复述——对照 `creative_workflow.log` 2026-07-07 续写链路：散布式句子去重、跨内容重叠剥离（`stripExistingOverlap`）、截断末句裁剪、TriShot 8% 自重复重试闸门、前端 `sanitizeContinuationOutput` 全路径接入。
+
+**上一版 v0.26.23** 修复续写卡死与幽灵文本混乱——auto_contract 静默化、续写重入守卫、幽灵渲染响应式、续写 60s fail-fast。
 
 **上一版 v0.26.21** 修复 Windows MSI 构建——中文迁移文件名导致 WiX `light.exe` 标识符生成失败，重命名 24 个迁移文件为 ASCII 短名。
 

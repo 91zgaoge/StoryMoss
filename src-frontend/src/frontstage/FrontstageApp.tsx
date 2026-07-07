@@ -20,6 +20,7 @@ import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
 import { trimSelfRepetition } from './utils/trimSelfRepetition';
+import { sanitizeContinuationOutput } from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
@@ -2825,8 +2826,8 @@ const FrontstageApp: React.FC = () => {
         // v5.6.4 fix: 去除与当前编辑器内容重复的前缀，防止 LLM 返回完整文本导致"重复输出"
         // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
         // 状态滞后于 React state 时误把已有正文再次塞进幽灵文本。
-        let displayText = text;
         const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+        let displayText = sanitizeContinuationOutput(text, currentText);
         if (currentText && displayText.startsWith(currentText)) {
           displayText = displayText.slice(currentText.length).trimStart();
           frontstageLogger.info(
@@ -3034,19 +3035,21 @@ const FrontstageApp: React.FC = () => {
 
       // v0.26.14 fix: 某些模型会生成“自身首尾重复”的内容（不是前端追加两次），
       // 在写入编辑器前先做一层自重复清理。
-      const cleanedRawText = trimSelfRepetition(rawText);
-      if (cleanedRawText.length < rawText.length) {
+      // v0.26.24: 续写后处理管线——自重复 + 跨内容重叠 + 截断末句。
+      const existingFromRefEarly = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+      const sanitizedText = sanitizeContinuationOutput(rawText, existingFromRefEarly);
+      if (sanitizedText.length < rawText.length) {
         logToBackend(
-          'frontstage:self_repetition_trim',
-          'trimmed self-repeating generated content',
+          'frontstage:continuation_sanitize',
+          'sanitized continuation output before append',
           {
             source,
             originalLen: rawText.length,
-            cleanedLen: cleanedRawText.length,
+            cleanedLen: sanitizedText.length,
           }
         );
       }
-      rawText = cleanedRawText;
+      rawText = sanitizedText;
 
       // v0.26.10 fix: 使用 latestContentRef（React state 同步快照）与 editorRef.getText()
       //（TipTap 实时 DOM）双重基准。任何一方显示内容已存在，都禁止追加。
@@ -3622,13 +3625,11 @@ const FrontstageApp: React.FC = () => {
           let finalContent = result.final_content!;
           // v0.26.14 fix: 模型可能生成自身重复的内容（如首尾段落相同），
           // 在后续去重/追加前先做一次自重复清理。
-          finalContent = trimSelfRepetition(finalContent);
-
-          // v0.26.9 fix: 使用 latestContentRef 而非 editorRef.getText()，避免 TipTap DOM
-          // 状态滞后于 React state 时重复输出已有正文。
+          // v0.26.24: 续写后处理管线——自重复 + 跨内容重叠 + 截断末句。
           const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
           const rawFinalLen = finalContent.length;
-          // 去重前缀
+          finalContent = sanitizeContinuationOutput(finalContent, currentText);
+          // 去重前缀（全量正文前缀，与 stripExistingOverlap 互补）
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
