@@ -1599,7 +1599,15 @@ impl AgentOrchestrator {
         // v0.23.15: Call 3 超时覆盖——按剩余预算计算，最少 30s 最多 120s，
         // 避免跑满 profile.timeout_seconds（用户可能设 300s）导致前端先超时。
         let call3_elapsed = total_start.elapsed().as_secs();
-        let call3_timeout = total_budget.saturating_sub(call3_elapsed).max(30).min(120);
+        // v0.26.22 Bug C: 续写（非创世首章）用更短超时上限（60s）使慢模型 fail-fast
+        // 回退到快模型。根因（creative_workflow.log 2026-07-07）：续写 trishot-writer
+        // 路由到 HeavyCreation（质量权重 0.8），优先选用户慢模型 MN-Oblivion（198s），
+        // 而快模型 Gemma4 仅需 10s。续写是交互式延迟敏感场景，60s 内未完成则回退。
+        let call3_cap = if is_genesis_first_chapter { 120 } else { 60 };
+        let call3_timeout = total_budget
+            .saturating_sub(call3_elapsed)
+            .max(30)
+            .min(call3_cap);
         self.workflow_log(
             "trishot.call3.start",
             "Call 3 作家模型开始生成",

@@ -1511,6 +1511,17 @@ impl LlmService {
                 // 属后台静默质检，不应向前端发射进度事件。实测其在正文返回后仍
                 // 每 10s 发射心跳，导致前端在后台任务期间持续重绘，增加崩溃风险。
                 | "mini_review"
+                // v0.26.22: AutoContractBuilder 的 4 个 LLM 调用全部静默。
+                // 根因（creative_workflow.log 2026-07-07 确认）：续写完成/Tab 接受后
+                // 触发的 auto_contract 管线（master_setting 49s + chapter 184s +
+                // scene_outline 151s ≈ 6 分钟）非静默发射进度事件，使
+                // isAnyBackendActive:true 长达 6 分钟，阻塞用户发起新续写——
+                // 即用户反馈的"近似卡死"。静默后 auto_contract 仍在后台补齐合同，
+                // 但不再阻塞前端活动状态。
+                | "auto_contract_master_setting"
+                | "auto_contract_chapter"
+                | "auto_contract_scene_outline"
+                | "auto_contract_default_character"
         );
 
         // v0.23.11: 只有非静默/非探测调用才更新诊断提示词，避免 probe prompt

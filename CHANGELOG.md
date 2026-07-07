@@ -2,6 +2,23 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.22] - 修复续写卡死与幽灵文本混乱（4 项根因）（2026-07-07）
+
+### 修复
+
+对照 `creative_workflow.log` 2026-07-07 续写会话时间线，定位并修复 4 个根因：
+
+- **Bug B（卡死主因）— auto_contract 静默化**：续写完成/Tab 接受后触发的 `auto_contract` 管线（master_setting 49s + chapter 184s + scene_outline 151s ≈ 6 分钟）非静默发射进度事件，使 `isAnyBackendActive:true` 长达 6 分钟，阻塞用户发起新续写。将 4 个 `auto_contract_*` context label 加入 `is_silent_background` 列表，后台补齐合同不再阻塞前端活动状态。
+- **Bug D（混乱主因）— 续写重入守卫**：第 2 次续写结果生成后幽灵已设，用户 7 秒后发起第 3 次续写，旧幽灵未丢弃，`current_content_len` 未并入，导致两份续写结果竞争。`handleSmartGeneration` 入口加守卫：存在未接受幽灵时先丢弃并提示，再开新生成。
+- **Bug A — 幽灵文本 10s 渲染延迟**：`bodyHidingGhost` 在 render 中直接读 DOM (`document.body.classList.contains`)，非响应式；useEffect 移除 `force-hide-ghost` 类后不触发重渲染，`bodyHidingGhost` 保持 stale true。新增 `bodyForceHideGhost` state 镜像类存在性，移除/添加时同步翻转触发重渲染，`shouldShowGhostTree` 立即生效。
+- **Bug C — 续写慢模型 fail-fast**：续写 `trishot-writer` 路由到 HeavyCreation（质量权重 0.8），优先选用户慢模型 MN-Oblivion（198s），而快模型 Gemma4 仅 10s。续写（非创世首章）call3 超时上限从 120s 降至 60s，慢模型 fail-fast 回退到快模型。
+
+### 验证
+
+- `cargo test --lib`：655 passed ✅
+- `npx vitest run`：183 passed ✅
+- `cargo +nightly fmt -- --check` / `npx tsc --noEmit`：✅
+
 ## [v0.26.21] - 修复 Windows MSI 构建（迁移文件名重命名）（2026-07-07）
 
 ### 修复

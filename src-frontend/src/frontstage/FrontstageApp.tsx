@@ -3347,6 +3347,28 @@ const FrontstageApp: React.FC = () => {
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
 
+      // v0.26.22 Bug D: 重入守卫——存在未接受的幽灵文本时，先丢弃再开新生成。
+      // 根因（creative_workflow.log 2026-07-07）：第 2 次续写结果生成后幽灵已设，
+      // 用户 7 秒后发起第 3 次续写，旧幽灵未被丢弃，current_content_len 未并入，
+      // 导致两份续写结果竞争 + 混乱卡死。自动丢弃并提示，避免阻塞用户。
+      if (!isBootstrap && generatedTextRef.current.length > 0) {
+        frontstageLogger.warn('[SmartGeneration] 检测到未接受的幽灵文本，发起新生成前自动丢弃', {
+          ghostLen: generatedTextRef.current.length,
+        });
+        setGeneratedText('');
+        setOrchestratorStatus({
+          stepType: 'busy',
+          message: '上一次续写结果尚未确认，已自动丢弃，正在重新生成...',
+        });
+        setTimeout(() => {
+          setOrchestratorStatus(current =>
+            current?.message === '上一次续写结果尚未确认，已自动丢弃，正在重新生成...'
+              ? null
+              : current,
+          );
+        }, 2500);
+      }
+
       // v0.23.82: 新建小说时强制初始化幕前状态，避免旧故事的内容/幽灵文本/章节引用残留，
       // 导致后续 ChapterSwitch、ContentUpdate、Tab 确认等流程误判或重复追加。
       if (isBootstrap) {

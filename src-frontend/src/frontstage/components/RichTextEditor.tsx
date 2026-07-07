@@ -237,6 +237,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [isAiThinking, setIsAiThinking] = useState(false);
     // v0.23.90: Tab 按下瞬间立即隐藏幽灵文本，避免 flushSync/异步状态更新延迟导致双份显示
     const [isHidingGhost, setIsHidingGhost] = useState(false);
+    // v0.26.22 Bug A: body 级 force-hide-ghost 类的响应式镜像。
+    // 根因（creative_workflow.log 2026-07-07）：bodyHidingGhost 在 render 中直接读
+    // document.body.classList，非响应式；续写结果设为 generatedText 后 useEffect 移除
+    // 该类，但不触发重渲染，bodyHidingGhost 保持 stale true，幽灵文本延迟 10s 才显示。
+    // 用 state 镜像类存在性，移除时 setState 触发重渲染，使 shouldShowGhostTree 立即翻转。
+    const [bodyForceHideGhost, setBodyForceHideGhost] = useState(false);
     // v0.23.96: Tab 接受后 30s 内强制不渲染幽灵文本，作为 post-accept lock 的渲染层兜底
     // v0.23.98: 与父组件 hideGhostUntil 合并，确保 remount 后仍然强制隐藏
     const postAcceptHideUntilRef = useRef(hideGhostUntil);
@@ -510,6 +516,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       if (generatedText && generatedText.length > 10) {
         // v0.24.4: 新的生成内容到达时，解除永久隐藏，让幽灵文本正常渲染
         document.body.classList.remove('force-hide-ghost');
+        // v0.26.22 Bug A: 同步响应式镜像，触发重渲染让 shouldShowGhostTree 立即翻转
+        setBodyForceHideGhost(false);
         if (Date.now() < postAcceptHideUntilRef.current) {
           rtEditorLogger.warn('[RichTextEditor] ghost text suppressed by post-accept hide', {
             len: generatedText.length,
@@ -910,6 +918,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editorTextLenBeforeAccept: editor?.getText()?.length ?? 0,
       });
       document.body.classList.add('force-hide-ghost');
+      // v0.26.22 Bug A: 同步响应式镜像
+      setBodyForceHideGhost(true);
       const ghostContainers = document.querySelectorAll('.editor-ghost-continuation');
       logToBackend?.('frontstage:force_hide_ghost', 'attempting to hide ghost containers', {
         found: ghostContainers.length,
@@ -972,6 +982,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             // v0.26.10 fix: DOM 级最终防线——追加前再次强制隐藏任何残留幽灵容器，
             // 防止 RichTextEditor 状态与 DOM 不同步时幽灵文本与正文同时可见。
             document.body.classList.add('force-hide-ghost');
+            // v0.26.22 Bug A: 同步响应式镜像
+            setBodyForceHideGhost(true);
             document.querySelectorAll('.editor-ghost-continuation').forEach(el => {
               el.classList.add('force-hide-ghost');
             });
@@ -1150,8 +1162,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // v0.26.10 fix: 增加 body 级 CSS 隐藏锁作为 shouldShowGhostTree 的硬条件。
     // 即使 isHidingGhost 因 React 状态竞态被意外重置，只要 Tab 接受时加的 force-hide-ghost
     // 类还在，React 树里就不渲染幽灵容器，从渲染层根上消除"正文 + 幽灵文本"同框。
+    // v0.26.22 Bug A: bodyHidingGhost 优先用响应式 state 镜像（bodyForceHideGhost），
+    // DOM 直读作兜底；移除类时 state 翻转触发重渲染，消除 10s 渲染延迟。
     const bodyHidingGhost =
-      typeof document !== 'undefined' && document.body.classList.contains('force-hide-ghost');
+      bodyForceHideGhost ||
+      (typeof document !== 'undefined' && document.body.classList.contains('force-hide-ghost'));
     // v0.26.13 fix: 幽灵树只在有实际幽灵文本时才渲染。
     // 之前依赖 `generatedText || isGenerating`，导致生成中（generatedText 为空）时也会渲染
     // 空幽灵容器；若该容器残留旧内容或 React 复用 DOM 节点异常，就会出现"正文 + 幽灵文本"

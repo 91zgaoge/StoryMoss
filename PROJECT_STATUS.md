@@ -1,11 +1,21 @@
-# StoryForge (草苔) v0.26.21 项目完成状态
+# StoryForge (草苔) v0.26.22 项目完成状态
 
-> 最后更新: 2026-07-07（v0.26.21 修复 Windows MSI 构建）
+> 最后更新: 2026-07-07（v0.26.22 修复续写卡死与幽灵文本混乱）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.22 — 修复续写卡死与幽灵文本混乱（4 项根因）（2026-07-07）
+
+对照 `creative_workflow.log` 2026-07-07 续写会话时间线，定位并修复 4 个根因：
+
+- **Bug B（卡死主因）**：`auto_contract` 4 个 LLM 调用加入 `is_silent_background` 列表，后台补齐合同不再阻塞 `isAnyBackendActive`（原 6 分钟阻塞）。
+- **Bug D（混乱主因）**：`handleSmartGeneration` 入口加重入守卫，存在未接受幽灵时先丢弃并提示。
+- **Bug A**：`RichTextEditor` 新增 `bodyForceHideGhost` state 镜像 `force-hide-ghost` 类，消除 10s 渲染延迟。
+- **Bug C**：续写 call3 超时上限从 120s 降至 60s，慢模型 fail-fast 回退到快模型。
+- ✅ **验证**：`cargo test --lib` 655 passed；`npx vitest run` 183 passed；fmt/tsc 通过。
 
 ### v0.26.21 — 修复 Windows MSI 构建（迁移文件名重命名）（2026-07-07）
 
