@@ -1,11 +1,20 @@
-# StoryForge (草苔) v0.26.28 项目完成状态
+# StoryForge (草苔) v0.26.29 项目完成状态
 
-> 最后更新: 2026-07-07（v0.26.28 Phase 4 架构债务与工程体验）
+> 最后更新: 2026-07-08（v0.26.29 热修复 prompts 外部化后策略选择 JSON schema 不匹配）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.29 — 热修复策略选择 JSON schema 不匹配（2026-07-08）
+
+- **问题**：v0.26.28 将 prompts 外部化后，`strategy_selector.md` 模板字段与 `selector.rs` 的 `SelectedStrategy` schema 不一致，Genesis「选择创作策略」步骤报 `VALIDATION_FAILED: missing field rationale`。
+- **修复**：
+  - 重写 `resources/prompts/strategy/strategy_selector.md`，对齐 `rationale`/`genre_profile_id`/`methodology_id`/`style_dna_ids`/`skill_ids`/`workflow_id`/`parameters` 字段。
+  - `selector.rs` 新增 `LegacyStrategyResponse` 兜底解析，兼容旧格式（`selected_strategy`/`reasoning`/`asset_combination`）。
+  - 新增 `test_parse_strategy_response_legacy_schema` 单元测试。
+- ✅ **验证**：`cargo test --lib` 673 passed；`cargo +nightly fmt -- --check` 通过；`npx vitest run` 210 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
 
 ### v0.26.28 — Phase 4 架构债务与工程体验（2026-07-07）
 
