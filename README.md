@@ -8,12 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.29-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.30-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.29 热修复 prompts 外部化后的策略选择 JSON schema 不匹配——`resources/prompts/strategy/strategy_selector.md` 对齐 `SelectedStrategy` 字段（`rationale`/`genre_profile_id`/`methodology_id` 等），`selector.rs` 新增 `LegacyStrategyResponse` 兜底解析，修复 Genesis「选择创作策略」步骤 `VALIDATION_FAILED: missing field rationale` 错误。
+**最新动态**：v0.26.30 热修复旧数据库在 v0.26.28 迁移框架切换后可能缺失 `characters.scenes.world_buildings.kg_entities` 表的 `source` / `is_auto_generated` 列的问题——新增 V103 迁移与 `init_db` 启动兜底修复，确保 Genesis 与资产查询不再报 `no such column: source`。
 
-**上一版 v0.26.28** Phase 4 架构债务与工程体验——知识图谱手动 CRUD UI、世界构建 AI 生成、角色 AI 扩展、叙事分析图表、策略选择移入 Quick Phase；prompts 全面外部化（95 个提示词迁移至 `resources/prompts/`）；inline `run_migrations` 拆分为 70 个编号 Rust 迁移文件。
+**上一版 v0.26.29** 热修复 prompts 外部化后的策略选择 JSON schema 不匹配——`selector.rs` 新增 `LegacyStrategyResponse` 兜底解析，修复 Genesis「选择创作策略」步骤 `VALIDATION_FAILED: missing field rationale` 错误。
 
 **上一版 v0.26.26** L2 资产补齐与领域层止血——角色编辑/关系 CRUD、L2 创世溯源徽章、Story System 合同播种状态卡、StorySystem.tsx 拆分、Repository 层 trait 化与拆分。
 

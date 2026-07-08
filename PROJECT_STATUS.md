@@ -1,11 +1,20 @@
-# StoryForge (草苔) v0.26.29 项目完成状态
+# StoryForge (草苔) v0.26.30 项目完成状态
 
-> 最后更新: 2026-07-08（v0.26.29 热修复 prompts 外部化后策略选择 JSON schema 不匹配）
+> 最后更新: 2026-07-08（v0.26.30 热修复旧数据库缺失 source/is_auto_generated 列）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.30 — 热修复旧数据库缺失 source/is_auto_generated 列（2026-07-08）
+
+- **问题**：部分旧数据库在 v0.26.28 迁移框架切换后，`characters` / `scenes` / `world_buildings` / `kg_entities` 表缺失 `source` / `is_auto_generated` 列，Genesis 与资产查询报 `no such column: source`。
+- **修复**：
+  - 新增 Rust migration `V103__ensure_source_columns`，幂等补回缺失列。
+  - `init_db` 新增 `ensure_source_columns` 启动兜底修复。
+  - 新增回归测试覆盖 `schema_migrations=102` 但列缺失场景。
+- ✅ **验证**：`cargo test --lib` 674 passed；`cargo +nightly fmt -- --check` 通过；`npx vitest run` 210 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
 
 ### v0.26.29 — 热修复策略选择 JSON schema 不匹配（2026-07-08）
 

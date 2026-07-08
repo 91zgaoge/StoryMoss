@@ -135,8 +135,59 @@ pub fn init_db(
         .with_rust_migrations(all_rust_migrations())
         .run(&mut conn)?;
 
+    // v0.26.30 hotfix: 兜底修复部分旧数据库在 inline migration → Rust migration
+    // 切换过程中可能跳过 V099，导致 characters/scenes/world_buildings/kg_entities
+    // 表缺失 source / is_auto_generated 列。该函数幂等，可多次执行。
+    ensure_source_columns(&mut conn)?;
+
     log::info!("[init_db] Database initialized at {}", db_path.display());
     Ok(pool)
+}
+
+/// 确保关键资产表包含 source / is_auto_generated 列。
+/// 用于修复 v0.26.28 迁移框架切换时可能遗漏的 schema 升级。
+fn ensure_source_columns(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let tables = ["characters", "scenes", "world_buildings", "kg_entities"];
+    let mut modified = false;
+    for table in tables {
+        let cols: Vec<String> = conn
+            .prepare(&format!("PRAGMA table_info({})", table))?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !cols.contains(&"source".to_string()) {
+            log::info!("[init_db] Adding missing column {}.source", table);
+            conn.execute(
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN source TEXT DEFAULT 'user_created'",
+                    table
+                ),
+                [],
+            )?;
+            modified = true;
+        }
+        if !cols.contains(&"is_auto_generated".to_string()) {
+            log::info!(
+                "[init_db] Adding missing column {}.is_auto_generated",
+                table
+            );
+            conn.execute(
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN is_auto_generated INTEGER NOT NULL DEFAULT 0",
+                    table
+                ),
+                [],
+            )?;
+            modified = true;
+        }
+    }
+    if modified {
+        log::info!("[init_db] Source columns repaired successfully.");
+    }
+    Ok(())
 }
 
 fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {

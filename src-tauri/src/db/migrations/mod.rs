@@ -664,6 +664,64 @@ mod tests {
         let runner2 = MigrationRunner::new(dir.path());
         runner2.run(&mut conn).unwrap();
     }
+
+    // v0.26.30 hotfix: 当旧数据库在 inline → Rust migration 切换过程中跳过 V099，
+    // schema_migrations 可能已到 102 但 characters 等表缺失 source /
+    // is_auto_generated 列。 V103 必须能补回这些列。
+    #[test]
+    fn test_v103_repairs_missing_source_columns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+        // Simulate a database that reached V102 but missed V099's columns.
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (102, 0)",
+            [],
+        )
+        .unwrap();
+
+        // Create characters/scenes/world_buildings/kg_entities without source columns.
+        conn.execute_batch(
+            "CREATE TABLE characters (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             CREATE TABLE scenes (id TEXT PRIMARY KEY, title TEXT);
+             CREATE TABLE world_buildings (id TEXT PRIMARY KEY, concept TEXT);
+             CREATE TABLE kg_entities (id TEXT PRIMARY KEY, name TEXT);",
+        )
+        .unwrap();
+
+        let migration = V103__ensure_source_columns::Migration;
+        migration.apply(&mut conn).unwrap();
+
+        // Verify columns were added.
+        for table in ["characters", "scenes", "world_buildings", "kg_entities"] {
+            let cols: Vec<String> = conn
+                .prepare(&format!("PRAGMA table_info({})", table))
+                .unwrap()
+                .query_map([], |row| {
+                    let name: String = row.get(1)?;
+                    Ok(name)
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(
+                cols.contains(&"source".to_string()),
+                "{} should have source column",
+                table
+            );
+            assert!(
+                cols.contains(&"is_auto_generated".to_string()),
+                "{} should have is_auto_generated column",
+                table
+            );
+        }
+    }
 }
 
 pub mod V028__scene_structure_fields;
@@ -736,8 +794,9 @@ pub mod V096__genre_profiles_recommended_assets;
 pub mod V097__stories_reference_book_id;
 pub mod V098__narrative_tables_status_v2;
 pub mod V099__source_and_auto_generated_columns;
+pub mod V103__ensure_source_columns;
 
-/// Returns all Rust-coded migrations (versions 28-99) ordered by version.
+/// Returns all Rust-coded migrations (versions 28-103) ordered by version.
 pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
     vec![
         Box::new(V028__scene_structure_fields::Migration),
@@ -810,5 +869,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V097__stories_reference_book_id::Migration),
         Box::new(V098__narrative_tables_status_v2::Migration),
         Box::new(V099__source_and_auto_generated_columns::Migration),
+        Box::new(V103__ensure_source_columns::Migration),
     ]
 }
