@@ -164,6 +164,9 @@ impl WorkspaceService {
                 cultures: Vec::new(),
                 created_at: Local::now(),
                 updated_at: Local::now(),
+
+                source: None,
+                is_auto_generated: None,
             });
 
         let agents_md = render_agents_md(story, &config, writing_style.as_ref(), &world);
@@ -219,6 +222,9 @@ impl WorkspaceService {
                 cultures: Vec::new(),
                 created_at: Local::now(),
                 updated_at: Local::now(),
+
+                source: None,
+                is_auto_generated: None,
             });
         let memory_md = self.render_memory_md(story_id, &world)?;
         std::fs::write(self.file_path(story_id, MEMORY_FILE), memory_md)?;
@@ -648,6 +654,9 @@ mod tests {
             cultures: Vec::new(),
             created_at: Local::now(),
             updated_at: Local::now(),
+
+            source: None,
+            is_auto_generated: None,
         }
     }
 

@@ -3,6 +3,7 @@ import {
   Loader2,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
   Clock,
   PauseCircle,
   ChevronDown,
@@ -10,33 +11,33 @@ import {
   Sparkles,
   RotateCcw,
   X,
+  BookOpen,
+  ExternalLink,
+  Activity,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { usePipelineProgress } from '@/hooks/usePipelineProgress';
-import { listGenesisRuns, getGenesisRun, cancelGenesisPipeline } from '@/services/tauri';
+import {
+  listGenesisRuns,
+  getGenesisRun,
+  cancelGenesisPipeline,
+  loggedInvoke,
+} from '@/services/tauri';
 import type { GenesisRun } from '@/services/tauri';
+import { useAppStore } from '@/stores/appStore';
+import {
+  computeGenesisDisplaySteps,
+  computeGenesisProgressPercent,
+  parseGenesisStepsJson,
+  countGenesisErrors,
+  sortGenesisErrors,
+  type GenesisStepData,
+} from '@/utils/genesisSteps';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
 const genesisLogger = createLogger('ui:GenesisPanel');
-
-const GENESIS_STEP_NAMES = [
-  '构思故事',
-  '撰写开篇',
-  '构建世界',
-  '故事大纲',
-  '塑造角色',
-  '场景规划',
-  '埋设伏笔',
-  '知识图谱',
-];
-
-interface StepData {
-  name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-  message?: string;
-  output?: string;
-}
 
 interface GenesisPanelProps {
   sessionId?: string;
@@ -54,6 +55,15 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
+
+  const setCurrentView = useAppStore(state => state.setCurrentView);
+  const selectedGenesisSessionId = useAppStore(state => state.selectedGenesisSessionId);
+  const setSelectedGenesisSessionId = useAppStore(state => state.setSelectedGenesisSessionId);
+  const setTracingFilter = useAppStore(state => state.setTracingFilter);
+  const setLogsSearchQuery = useAppStore(state => state.setLogsSearchQuery);
+
+  const activeSessionId = sessionId ?? selectedGenesisSessionId;
 
   const { progress, isActive } = usePipelineProgress({
     pipelineType: 'genesis',
@@ -66,8 +76,8 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
       const data = await listGenesisRuns(20);
       setRuns(data);
       // 如果有 sessionId 且存在对应 run，自动选中
-      if (sessionId) {
-        const matched = data.find(r => r.session_id === sessionId);
+      if (activeSessionId) {
+        const matched = data.find(r => r.session_id === activeSessionId);
         if (matched) setSelectedRun(matched);
       } else if (data.length > 0 && !selectedRun) {
         setSelectedRun(data[0]);
@@ -77,7 +87,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, selectedRun?.id]);
+  }, [activeSessionId, selectedRun?.id]);
 
   useEffect(() => {
     loadRuns();
@@ -98,42 +108,15 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     }
   }, [selectedRun?.id, selectedRun?.status]);
 
-  const getStepsFromRun = (run: GenesisRun): StepData[] => {
-    try {
-      const parsed = JSON.parse(run.steps_json || '{}');
-      const steps: StepData[] = [];
-      for (let i = 0; i < run.total_steps; i++) {
-        const stepName = GENESIS_STEP_NAMES[i] || `步骤 ${i + 1}`;
-        const stepKey = `step_${i}`;
-        if (parsed[stepKey]) {
-          steps.push({
-            name: stepName,
-            status: parsed[stepKey].status || 'pending',
-            message: parsed[stepKey].message,
-            output: parsed[stepKey].output,
-          });
-        } else {
-          steps.push({
-            name: stepName,
-            status: i < run.current_step_number ? 'completed' : 'pending',
-          });
-        }
-      }
-      return steps;
-    } catch {
-      return GENESIS_STEP_NAMES.slice(0, run.total_steps).map((name, i) => ({
-        name,
-        status:
-          i < run.current_step_number
-            ? 'completed'
-            : i === run.current_step_number
-              ? run.status === 'running'
-                ? 'running'
-                : 'pending'
-              : 'pending',
-      }));
+  // 从诊断页深链回来时自动选中对应 run
+  useEffect(() => {
+    if (!selectedGenesisSessionId || runs.length === 0) return;
+    const matched = runs.find(r => r.session_id === selectedGenesisSessionId);
+    if (matched) {
+      setSelectedRun(matched);
+      setExpandedSteps(new Set());
     }
-  };
+  }, [selectedGenesisSessionId, runs]);
 
   const toggleStep = (idx: number) => {
     setExpandedSteps(prev => {
@@ -142,6 +125,25 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
       else next.add(idx);
       return next;
     });
+  };
+
+  const toggleError = (idx: number) => {
+    setExpandedErrors(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleOpenFrontstage = async () => {
+    try {
+      await loggedInvoke<unknown>('show_frontstage');
+      toast.success('幕前写作界面已打开');
+    } catch (error) {
+      genesisLogger.error('Failed to open frontstage', { error });
+      toast.error('打开幕前失败');
+    }
   };
 
   const handleCancel = async () => {
@@ -159,6 +161,21 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     } finally {
       setIsCancelling(false);
     }
+  };
+
+  const handleViewTracing = () => {
+    if (!selectedRun) return;
+    setTracingFilter({
+      traceId: selectedRun.trace_id,
+      sessionId: selectedRun.session_id,
+    });
+    setCurrentView('tracing');
+  };
+
+  const handleViewLogs = () => {
+    if (!selectedRun) return;
+    setLogsSearchQuery(selectedRun.session_id);
+    setCurrentView('logs');
   };
 
   const getStatusIcon = (status: string) => {
@@ -191,12 +208,14 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     }
   };
 
-  const progressPercent = selectedRun
-    ? Math.min(100, Math.round((selectedRun.current_step_number / selectedRun.total_steps) * 100))
-    : 0;
-
-  const currentSteps = selectedRun ? getStepsFromRun(selectedRun) : [];
+  const currentSteps = selectedRun
+    ? computeGenesisDisplaySteps(selectedRun, progress ?? undefined)
+    : [];
+  const progressPercent = computeGenesisProgressPercent(currentSteps);
   const isRunning = selectedRun?.status === 'running' || selectedRun?.status === 'pending';
+
+  const stepErrors = selectedRun ? sortGenesisErrors(parseGenesisStepsJson(selectedRun.steps_json).errors) : [];
+  const errorCounts = selectedRun ? countGenesisErrors(selectedRun.steps_json) : { total: 0, warnings: 0, errors: 0 };
 
   return (
     <div
@@ -286,10 +305,48 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
           </div>
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] text-white/30">
-              {selectedRun.current_step_number} / {selectedRun.total_steps} 步
+              {currentSteps.filter(s => s.status === 'completed').length} / {currentSteps.length} 步完成
             </span>
             {progress && (
               <span className="text-[10px] text-cinema-gold/60">{progress.message}</span>
+            )}
+          </div>
+          {selectedRun.story_id && (
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => setCurrentView('stories')}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-medium bg-white/5 text-white/70 hover:bg-white/10 transition-colors"
+              >
+                <BookOpen className="w-3 h-3" />
+                打开故事
+              </button>
+              <button
+                onClick={handleOpenFrontstage}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-medium bg-cinema-gold/10 text-cinema-gold hover:bg-cinema-gold/20 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                开幕前
+              </button>
+            </div>
+          )}
+
+          {/* L4 诊断互链 */}
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={handleViewTracing}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-medium bg-blue-400/10 text-blue-300 hover:bg-blue-400/20 transition-colors"
+            >
+              <Activity className="w-3 h-3" />
+              查看生成链路
+            </button>
+            {selectedRun.status === 'failed' && (
+              <button
+                onClick={handleViewLogs}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-medium bg-red-400/10 text-red-300 hover:bg-red-400/20 transition-colors"
+              >
+                <FileText className="w-3 h-3" />
+                查看日志
+              </button>
             )}
           </div>
         </div>
@@ -311,7 +368,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
         )}
 
         {currentSteps.map((step, idx) => {
-          const isCurrent = idx === selectedRun!.current_step_number;
+          const isCurrent = step.status === 'running';
           const isExpanded = expandedSteps.has(idx);
           const canExpand = step.status === 'completed' || step.status === 'failed';
 
@@ -387,6 +444,57 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
             </div>
           );
         })}
+
+        {/* Step Errors */}
+        {stepErrors.length > 0 && (
+          <div className="mt-3 p-2.5 rounded-lg bg-red-400/5 border border-red-400/10">
+            <div className="flex items-center gap-1.5 mb-2">
+              {errorCounts.errors > 0 ? (
+                <AlertCircle className="w-3 h-3 text-red-400" />
+              ) : (
+                <AlertTriangle className="w-3 h-3 text-yellow-400" />
+              )}
+              <span className="text-[11px] text-red-400 font-medium">
+                非致命错误 ({errorCounts.errors} 严重 / {errorCounts.warnings} 警告)
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {stepErrors.map((err, idx) => {
+                const isExpanded = expandedErrors.has(idx);
+                return (
+                  <div
+                    key={idx}
+                    className="rounded bg-white/[0.03] border border-white/5 overflow-hidden"
+                  >
+                    <button
+                      onClick={() => toggleError(idx)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
+                    >
+                      {err.severity === 'error' ? (
+                        <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-3 h-3 text-yellow-400 shrink-0" />
+                      )}
+                      <span className="text-[11px] text-white/70 flex-1 truncate">
+                        {err.step}
+                      </span>
+                      {isExpanded ? (
+                        <ChevronUp className="w-3 h-3 text-white/30 shrink-0" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 text-white/30 shrink-0" />
+                      )}
+                    </button>
+                    {isExpanded && (
+                      <p className="px-2 pb-1.5 text-[11px] text-white/40 whitespace-pre-wrap">
+                        {err.message}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Error Message */}
         {selectedRun?.error_message && (

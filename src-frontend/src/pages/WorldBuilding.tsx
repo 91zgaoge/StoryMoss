@@ -4,6 +4,7 @@ import {
   useWorldBuilding,
   useCreateWorldBuilding,
   useUpdateWorldBuilding,
+  useGenerateWorldBuildingOptions,
 } from '@/hooks/useWorldBuilding';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,8 +21,10 @@ import {
   Clock,
   Palette,
   Sparkles,
+  Wand2,
+  RefreshCw,
 } from 'lucide-react';
-import type { WorldBuilding, WorldRule, Culture, RuleType } from '@/types';
+import type { WorldBuilding, WorldRule, Culture, RuleType, WorldBuildingOption } from '@/types';
 
 const RULE_TYPE_LABELS: Record<RuleType, string> = {
   Magic: '魔法',
@@ -288,6 +291,123 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
   );
 }
 
+interface AiWorldBuildingModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  storyTitle: string;
+  onApply: (option: WorldBuildingOption) => void;
+}
+
+function AiWorldBuildingModal({ isOpen, onClose, storyTitle, onApply }: AiWorldBuildingModalProps) {
+  const [prompt, setPrompt] = useState('');
+  const [options, setOptions] = useState<WorldBuildingOption[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const generateOptions = useGenerateWorldBuildingOptions();
+
+  useEffect(() => {
+    if (isOpen) {
+      setPrompt(storyTitle);
+      setOptions([]);
+      setSelectedIndex(null);
+    }
+  }, [isOpen, storyTitle]);
+
+  if (!isOpen) return null;
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    const result = await generateOptions.mutateAsync(prompt.trim());
+    setOptions(result);
+    setSelectedIndex(result.length > 0 ? 0 : null);
+  };
+
+  const handleApply = () => {
+    if (selectedIndex === null || !options[selectedIndex]) return;
+    onApply(options[selectedIndex]);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <CardContent className="p-6 space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-xl font-bold text-white flex items-center gap-2">
+              <Wand2 className="w-5 h-5 text-cinema-gold" />
+              AI 生成世界观
+            </h2>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm text-gray-400">描述你的故事题材与核心设定</label>
+            <textarea
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+              placeholder="例如：末世废土、东方修仙、赛博朋克侦探..."
+            />
+            <Button
+              variant="primary"
+              onClick={handleGenerate}
+              isLoading={generateOptions.isPending}
+              disabled={!prompt.trim()}
+            >
+              {generateOptions.isPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              生成选项
+            </Button>
+          </div>
+
+          {options.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400">选择一套世界观应用到当前故事：</p>
+              <div className="grid gap-3">
+                {options.map((option, index) => (
+                  <div
+                    key={option.id}
+                    onClick={() => setSelectedIndex(index)}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      selectedIndex === index
+                        ? 'border-cinema-gold bg-cinema-gold/10'
+                        : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
+                    }`}
+                  >
+                    <h3 className="font-medium text-white mb-1">{option.concept}</h3>
+                    <p className="text-xs text-gray-400 mb-2">
+                      {option.rules.length} 条规则 · {option.cultures.length} 种文化
+                    </p>
+                    {option.history && (
+                      <p className="text-sm text-gray-500 line-clamp-2">{option.history}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleApply}
+                disabled={selectedIndex === null}
+                className="w-full"
+              >
+                应用选中的世界观
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function WorldBuilding() {
   const currentStory = useAppStore(s => s.currentStory);
   const { data: worldBuilding, isLoading } = useWorldBuilding(currentStory?.id || null);
@@ -306,6 +426,7 @@ export function WorldBuilding() {
   const [editingRule, setEditingRule] = useState<WorldRule | null>(null);
   const [cultureModalOpen, setCultureModalOpen] = useState(false);
   const [editingCulture, setEditingCulture] = useState<Culture | null>(null);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   // Refs for debounce
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -410,6 +531,27 @@ export function WorldBuilding() {
     );
   };
 
+  const handleApplyAiOption = (option: WorldBuildingOption) => {
+    if (!worldBuilding || !currentStory) return;
+    setLocalConcept(option.concept);
+    setLocalHistory(option.history || '');
+    setLocalRules(option.rules);
+    setLocalCultures(option.cultures);
+    updateWorldBuilding.mutate(
+      {
+        id: worldBuilding.id,
+        storyId: currentStory.id,
+        concept: option.concept,
+        history: option.history,
+        rules: option.rules,
+        cultures: option.cultures,
+      },
+      {
+        onSuccess: () => setHasLocalChanges(false),
+      }
+    );
+  };
+
   if (!currentStory) {
     return (
       <div className="p-8 flex items-center justify-center h-full">
@@ -464,12 +606,22 @@ export function WorldBuilding() {
           <h1 className="font-display text-3xl font-bold text-white flex items-center gap-3">
             <Globe className="w-8 h-8 text-cinema-gold" />
             世界构建
+            {worldBuilding?.is_auto_generated && (
+              <span className="text-sm px-2 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
+                <Star className="w-3.5 h-3.5" />
+                创世
+              </span>
+            )}
           </h1>
           <p className="text-gray-400 mt-1">
             {currentStory.title} · {localRules.length} 条规则 · {localCultures.length} 种文化
             {hasLocalChanges && <span className="text-cinema-gold ml-2 text-sm">保存中...</span>}
           </p>
         </div>
+        <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
+          <Wand2 className="w-4 h-4" />
+          AI 生成
+        </Button>
       </div>
 
       {/* Core Concept */}
@@ -692,6 +844,12 @@ export function WorldBuilding() {
         }}
         onSave={handleAddCulture}
         initialCulture={editingCulture}
+      />
+      <AiWorldBuildingModal
+        isOpen={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        storyTitle={currentStory.title}
+        onApply={handleApplyAiOption}
       />
     </div>
   );

@@ -9,5 +9,16 @@
       "suggestion": 2
     },
     "scope": "StoryForge (草苔) v0.22.4 全项目 — Rust 后端 (src-tauri/src)、前端 (src-frontend/src)、模板与资产 (templates/)"
+  },
+  {
+    "date": "2026-07-07T13:22:40.513Z",
+    "mode": "Health Dashboard",
+    "score": 66,
+    "findings": {
+      "critical": 5,
+      "warning": 4,
+      "suggestion": 5
+    },
+    "scope": "StoryForge v0.26.24 — /Users/yuzaimu/projects/StoryForge"
   }
 ]

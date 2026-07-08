@@ -1287,6 +1287,9 @@ impl IngestPipeline {
                     last_accessed: None,
                     is_archived: false,
                     archived_at: None,
+
+                    source: None,
+                    is_auto_generated: None,
                 }
             })
             .collect()
@@ -1401,6 +1404,9 @@ impl IngestPipeline {
                     last_accessed: None,
                     is_archived: false,
                     archived_at: None,
+
+                    source: None,
+                    is_auto_generated: None,
                 })
             })?;
             let result: Result<Vec<_>, _> = rows.collect();
@@ -1450,6 +1456,9 @@ impl IngestPipeline {
                     last_accessed: existing_entity.last_accessed,
                     is_archived: existing_entity.is_archived,
                     archived_at: existing_entity.archived_at,
+
+                    source: None,
+                    is_auto_generated: None,
                 });
             } else {
                 // 新实体

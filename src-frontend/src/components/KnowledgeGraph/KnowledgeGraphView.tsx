@@ -20,13 +20,17 @@ import { createLogger } from '@/utils/logger';
 import { cn } from '@/utils/cn';
 
 const kgViewLogger = createLogger('ui:KnowledgeGraphView');
-import { Search, X, Filter, Pencil, Plus, Trash2, Check, RotateCcw } from 'lucide-react';
+import { Search, X, Filter, Pencil, Plus, Trash2, Check, RotateCcw, Star } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface KnowledgeGraphViewProps {
   entities: Entity[];
   relations: Relation[];
   onNodeClick?: (entity: Entity) => void;
   onEntityUpdate?: (entity: Entity) => void;
+  onEntityCreate?: (entity: Entity) => void;
+  onRelationCreate?: (relation: Relation) => void;
+  storyId?: string;
   className?: string;
 }
 
@@ -186,6 +190,9 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   relations,
   onNodeClick,
   onEntityUpdate,
+  onEntityCreate,
+  onRelationCreate,
+  storyId,
   className,
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -352,6 +359,62 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
     );
   }, [selectedEntity, relations]);
 
+  const handleCreateEntity = useCallback(async () => {
+    if (!storyId) return;
+    const name = window.prompt('实体名称');
+    if (!name?.trim()) return;
+    const typeInput = window.prompt(
+      `实体类型 (${Object.keys(ENTITY_LABELS).join(', ')})`,
+      'Character'
+    );
+    if (!typeInput || !(typeInput in ENTITY_LABELS)) {
+      toast.error('无效的实体类型');
+      return;
+    }
+    try {
+      const { createEntity } = await import('@/services/api/genesis');
+      const entity = await createEntity({
+        story_id: storyId,
+        name: name.trim(),
+        entity_type: typeInput,
+      });
+      onEntityCreate?.(entity);
+      toast.success('实体已创建');
+    } catch (error) {
+      kgViewLogger.error('Failed to create entity', { error });
+      toast.error('创建实体失败');
+    }
+  }, [storyId, onEntityCreate]);
+
+  const handleCreateRelation = useCallback(async () => {
+    if (!storyId || !selectedEntity) return;
+    const targetName = window.prompt('目标实体名称');
+    if (!targetName?.trim()) return;
+    const target = entities.find(
+      e => e.name.toLowerCase() === targetName.trim().toLowerCase()
+    );
+    if (!target) {
+      toast.error('未找到目标实体');
+      return;
+    }
+    const relationType = window.prompt('关系类型', '关联');
+    if (!relationType?.trim()) return;
+    try {
+      const { createRelation } = await import('@/services/api/genesis');
+      const relation = await createRelation({
+        story_id: storyId,
+        from_entity_id: selectedEntity.id,
+        to_entity_id: target.id,
+        relation_type: relationType.trim(),
+      });
+      onRelationCreate?.(relation);
+      toast.success('关系已创建');
+    } catch (error) {
+      kgViewLogger.error('Failed to create relation', { error });
+      toast.error('创建关系失败');
+    }
+  }, [storyId, selectedEntity, entities, onRelationCreate]);
+
   const getConnectedEntity = (relation: Relation) => {
     const otherId =
       relation.source_id === selectedEntity?.id ? relation.target_id : relation.source_id;
@@ -420,6 +483,15 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
             )}
             {lodHiddenCount > 0 && (
               <p className="text-cinema-gold mt-1">LOD 已折叠 {lodHiddenCount} 个低重要性节点</p>
+            )}
+            {storyId && (
+              <button
+                onClick={handleCreateEntity}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-cinema-gold/10 text-cinema-gold hover:bg-cinema-gold/20 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新建实体
+              </button>
             )}
           </div>
         </Panel>
@@ -541,12 +613,20 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
         <div className="absolute right-4 top-4 bottom-4 w-72 bg-cinema-900/95 border border-cinema-800 rounded-xl p-4 overflow-y-auto shadow-2xl backdrop-blur-sm">
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1 min-w-0">
-              <span
-                className="inline-block px-2 py-0.5 rounded text-[10px] font-medium text-white mb-1"
-                style={{ backgroundColor: ENTITY_COLORS[selectedEntity.entity_type] }}
-              >
-                {ENTITY_LABELS[selectedEntity.entity_type]}
-              </span>
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className="inline-block px-2 py-0.5 rounded text-[10px] font-medium text-white"
+                  style={{ backgroundColor: ENTITY_COLORS[selectedEntity.entity_type] }}
+                >
+                  {ENTITY_LABELS[selectedEntity.entity_type]}
+                </span>
+                {selectedEntity.is_auto_generated && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
+                    <Star className="w-3 h-3" />
+                    创世
+                  </span>
+                )}
+              </div>
               {isEditing ? (
                 <input
                   type="text"
@@ -651,9 +731,18 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
           </div>
 
           <div className="mb-4">
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-              关系
-            </h4>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">关系</h4>
+              {storyId && (
+                <button
+                  onClick={handleCreateRelation}
+                  className="flex items-center gap-1 text-[10px] text-cinema-gold hover:text-cinema-gold/80"
+                >
+                  <Plus className="w-3 h-3" />
+                  添加关系
+                </button>
+              )}
+            </div>
             {entityRelations.length === 0 ? (
               <p className="text-sm text-gray-500">暂无关系</p>
             ) : (

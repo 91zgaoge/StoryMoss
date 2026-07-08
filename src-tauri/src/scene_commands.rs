@@ -1173,6 +1173,9 @@ mod tests {
             narrative_following_scene_id: None,
             act_number: None,
             position_in_act: None,
+
+            source: None,
+            is_auto_generated: None,
         }
     }
 

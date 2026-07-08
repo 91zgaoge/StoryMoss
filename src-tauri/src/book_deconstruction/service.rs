@@ -579,6 +579,9 @@ impl BookDeconstructionService {
                     appearance: character.appearance.clone(),
                     gender: None,
                     age: None,
+
+                    source: None,
+                    is_auto_generated: None,
                 })
                 .map_err(AppError::from)?;
         }

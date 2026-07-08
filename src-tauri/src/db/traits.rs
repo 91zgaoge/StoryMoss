@@ -9,8 +9,8 @@ use rusqlite;
 
 use crate::db::{
     Chapter, Character, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest, Culture,
-    Scene, SceneUpdate, Story, UpdateStoryRequest, WorldBuilding, WorldRule, WritingStyle,
-    WritingStyleUpdate,
+    Entity, Scene, SceneUpdate, Story, StoryOutline, StoryStyleConfig, StyleDNA,
+    UpdateStoryRequest, WorldBuilding, WorldRule, WritingStyle, WritingStyleUpdate,
 };
 
 // ==================== Scene Repository Trait ====================
@@ -100,4 +100,32 @@ pub trait WritingStyleRepo {
     fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error>;
     fn get_by_story(&self, story_id: &str) -> Result<Option<WritingStyle>, rusqlite::Error>;
     fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error>;
+}
+
+// ==================== KnowledgeGraph Repository Trait ====================
+
+pub trait KnowledgeGraphRepo {
+    fn get_entities_by_story(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error>;
+}
+
+// ==================== StoryOutline Repository Trait ====================
+
+pub trait StoryOutlineRepo {
+    fn get_by_story(&self, story_id: &str) -> Result<Option<StoryOutline>, rusqlite::Error>;
+}
+
+// ==================== StoryStyleConfig Repository Trait ====================
+
+pub trait StoryStyleConfigRepo {
+    fn get_active_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<StoryStyleConfig>, rusqlite::Error>;
+}
+
+// ==================== StyleDna Repository Trait ====================
+
+pub trait StyleDnaRepo {
+    fn get_by_id(&self, id: &str) -> Result<Option<StyleDNA>, rusqlite::Error>;
+    fn get_many_by_ids(&self, ids: &[String]) -> Result<Vec<StyleDNA>, rusqlite::Error>;
 }

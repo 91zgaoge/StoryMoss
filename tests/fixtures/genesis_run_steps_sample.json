@@ -1,0 +1,14 @@
+{
+  "id": "genesis-run-001",
+  "story_id": "story-001",
+  "session_id": "session-001",
+  "premise": "一名失忆的侦探在霓虹都市追查自己的过去",
+  "status": "completed",
+  "current_step": "播种故事合同",
+  "current_step_number": 8,
+  "total_steps": 8,
+  "steps_json": "{\"step_0\":{\"status\":\"completed\",\"message\":\"故事概念已生成：《霓虹侦探》\"},\"step_1\":{\"status\":\"completed\",\"message\":\"已选择创作策略\"},\"step_2\":{\"status\":\"completed\",\"message\":\"第一章正文已生成\"},\"errors\":[{\"step\":\"构建世界与骨架\",\"message\":\"世界观规则更新失败: db locked\",\"severity\":\"warning\"},{\"step\":\"播种故事合同\",\"message\":\"MASTER_SETTING 合同创建失败: invalid story_id\",\"severity\":\"error\"}]}",
+  "error_message": null,
+  "created_at": "2026-07-07T10:00:00Z",
+  "updated_at": "2026-07-07T10:05:00Z"
+}

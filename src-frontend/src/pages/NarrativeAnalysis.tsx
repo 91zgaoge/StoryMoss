@@ -14,6 +14,81 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ui:NarrativeAnalysis');
 
+interface ReadingPowerPoint {
+  chapter: number;
+  score: number;
+}
+
+function ReadingPowerChart({ data }: { data: ReadingPowerPoint[] }) {
+  if (data.length === 0) return null;
+  const width = 600;
+  const height = 160;
+  const padding = { top: 10, right: 20, bottom: 30, left: 30 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const maxScore = Math.max(100, ...data.map(d => d.score));
+  const minChapter = Math.min(...data.map(d => d.chapter));
+  const maxChapter = Math.max(...data.map(d => d.chapter));
+  const chapterRange = Math.max(1, maxChapter - minChapter);
+
+  const xFor = (chapter: number) =>
+    padding.left + ((chapter - minChapter) / chapterRange) * chartWidth;
+  const yFor = (score: number) =>
+    padding.top + chartHeight - (score / maxScore) * chartHeight;
+
+  const pathD = data
+    .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xFor(d.chapter)} ${yFor(d.score)}`)
+    .join(' ');
+  const areaD = `${pathD} L ${xFor(data[data.length - 1].chapter)} ${padding.top + chartHeight} L ${xFor(data[0].chapter)} ${padding.top + chartHeight} Z`;
+
+  const ticks = 5;
+  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => (maxScore / ticks) * i);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-48">
+      {/* Grid lines */}
+      {yTicks.map((tick, i) => (
+        <g key={i}>
+          <line
+            x1={padding.left}
+            y1={yFor(tick)}
+            x2={padding.left + chartWidth}
+            y2={yFor(tick)}
+            stroke="#374151"
+            strokeDasharray="4 4"
+            strokeWidth={1}
+          />
+          <text x={padding.left - 8} y={yFor(tick) + 4} fill="#9CA3AF" fontSize={10} textAnchor="end">
+            {Math.round(tick)}
+          </text>
+        </g>
+      ))}
+
+      {/* Area */}
+      <path d={areaD} fill="rgba(251, 191, 36, 0.15)" />
+
+      {/* Line */}
+      <path d={pathD} fill="none" stroke="#FBBF24" strokeWidth={2} />
+
+      {/* Data points */}
+      {data.map(d => (
+        <g key={d.chapter}>
+          <circle cx={xFor(d.chapter)} cy={yFor(d.score)} r={3} fill="#FBBF24" />
+          <text
+            x={xFor(d.chapter)}
+            y={padding.top + chartHeight + 16}
+            fill="#9CA3AF"
+            fontSize={9}
+            textAnchor="middle"
+          >
+            第{d.chapter}章
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 interface InsightReport {
   overall_health: number;
   chapter_range: [number, number];
@@ -248,20 +323,7 @@ export function NarrativeAnalysis() {
             {insight.reading_power_trend.length > 0 && (
               <div className="bg-cinema-800/50 rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-3">追读力趋势</div>
-                <div className="flex items-end gap-2 h-32">
-                  {insight.reading_power_trend.map(t => (
-                    <div key={t.chapter} className="flex-1 flex flex-col items-center gap-1">
-                      <div className="text-xs text-gray-500">{t.score.toFixed(0)}</div>
-                      <div className="w-full bg-cinema-900 rounded-t flex-1 flex items-end">
-                        <div
-                          className="w-full bg-cinema-gold rounded-t"
-                          style={{ height: `${Math.min(t.score, 100)}%` }}
-                        />
-                      </div>
-                      <div className="text-xs text-gray-500">第{t.chapter}章</div>
-                    </div>
-                  ))}
-                </div>
+                <ReadingPowerChart data={insight.reading_power_trend} />
               </div>
             )}
 

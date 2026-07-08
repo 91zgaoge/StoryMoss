@@ -62,6 +62,9 @@ export interface Scene {
   // 元数据
   model_used?: string;
   cost?: number;
+  // v7.0.0: 溯源字段
+  source?: string;
+  is_auto_generated?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -100,6 +103,9 @@ export interface WorldBuilding {
   rules: WorldRule[];
   history?: string;
   cultures: Culture[];
+  // v7.0.0: 溯源字段
+  source?: string;
+  is_auto_generated?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -297,6 +303,9 @@ export interface Entity {
   last_accessed?: string;
   is_archived: boolean;
   archived_at?: string;
+  // v7.0.0: 溯源字段
+  source?: string;
+  is_auto_generated?: boolean;
 }
 
 export type RelationType =

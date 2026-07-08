@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime, Wry};
 
 use super::{
     dispatcher::TaskClassifier,
@@ -27,24 +27,36 @@ use crate::{
 const ACTIVE_MODEL_DEMOTION_THRESHOLD: u32 = 2;
 
 /// 网关执行器
-#[derive(Clone)]
-pub struct GatewayExecutor {
-    app_handle: AppHandle,
+pub struct GatewayExecutor<R: Runtime = Wry> {
+    app_handle: AppHandle<R>,
     pub registry: Arc<Mutex<GatewayRegistry>>,
     classifier: TaskClassifier,
     probe_engine: ProbeEngine,
-    llm_service: LlmService,
+    llm_service: LlmService<R>,
     pool: DbPool,
 }
 
-impl GatewayExecutor {
+impl<R: Runtime> Clone for GatewayExecutor<R> {
+    fn clone(&self) -> Self {
+        Self {
+            app_handle: self.app_handle.clone(),
+            registry: self.registry.clone(),
+            classifier: self.classifier.clone(),
+            probe_engine: self.probe_engine.clone(),
+            llm_service: self.llm_service.clone(),
+            pool: self.pool.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> GatewayExecutor<R> {
     /// Issue #4: `pool` must be passed explicitly — never `state::<DbPool>()`
     /// here. When `init_db` fails, setup skips `manage(pool)` and must not
     /// construct this type.
     pub fn new(
-        app_handle: AppHandle,
+        app_handle: AppHandle<R>,
         registry: GatewayRegistry,
-        llm_service: LlmService,
+        llm_service: LlmService<R>,
         pool: DbPool,
     ) -> Self {
         Self {
@@ -1257,5 +1269,117 @@ impl GatewayExecutor {
             }
         }
         log::info!("[GatewayExecutor] 首轮基准完成");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::settings::{
+            LlmProfile, LlmProvider, ModelCapability, ModelKind, ModelSource, QualityTier,
+            SpeedTier,
+        },
+        db::connection::create_test_pool,
+        llm::service::LlmService,
+        router::{UnifiedModel, UnifiedModelRegistry},
+    };
+
+    fn test_profile(id: &str, name: &str) -> LlmProfile {
+        LlmProfile {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: ModelSource::default(),
+            model: "gpt-4".to_string(),
+            api_key: String::new(),
+            api_base: None,
+            is_local_model: false,
+            max_tokens: 1024,
+            temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: 30,
+            is_default: false,
+            enabled: true,
+            kind: ModelKind::Chat,
+            capabilities: vec![ModelCapability::Chat],
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
+            supports_system_prompt: true,
+            system_prompt_override: None,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
+        }
+    }
+
+    fn test_executor(
+        registry: GatewayRegistry,
+    ) -> (
+        GatewayExecutor<tauri::test::MockRuntime>,
+        tauri::App<tauri::test::MockRuntime>,
+    ) {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let pool = create_test_pool().unwrap();
+        let llm = LlmService::new(handle.clone());
+        let executor = GatewayExecutor::new(handle, registry, llm, pool);
+        (executor, app)
+    }
+
+    #[test]
+    fn test_select_candidates_returns_healthy_model() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile(
+            "test-model",
+            "Test Model",
+        )));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+        executor.record_success_public("test-model", "Test Model");
+
+        let request = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "hello".to_string(),
+            "test-agent",
+        );
+        let decision = executor.select_candidates(&request, None).unwrap();
+
+        assert!(!decision.candidates.is_empty());
+        assert_eq!(decision.candidates[0].model_id, "test-model");
+        assert_eq!(decision.candidates[0].model_name, "Test Model");
+    }
+
+    #[test]
+    fn test_select_candidates_empty_registry_errors() {
+        let (executor, _app) = test_executor(GatewayRegistry::default());
+        let request = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "hello".to_string(),
+            "test-agent",
+        );
+        let err = executor.select_candidates(&request, None).unwrap_err();
+        assert!(
+            err.to_string().contains("没有满足任务"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_mark_unhealthy_makes_model_unavailable() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("m", "M")));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+
+        executor.record_success_public("m", "M");
+        assert!(executor.is_model_available("m"));
+
+        executor.mark_unhealthy("m", "M", Some("down".to_string()));
+        assert!(!executor.is_model_available("m"));
     }
 }

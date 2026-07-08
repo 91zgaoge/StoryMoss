@@ -55,6 +55,8 @@ pub struct Scene {
     // 元数据
     pub model_used: Option<String>,
     pub cost: Option<f64>,
+    pub source: Option<String>,
+    pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 
@@ -421,6 +423,8 @@ pub struct WorldBuilding {
     pub rules: Vec<WorldRule>,
     pub history: Option<String>,
     pub cultures: Vec<Culture>,
+    pub source: Option<String>,
+    pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
@@ -560,6 +564,10 @@ pub struct Entity {
     // 归档状态
     pub is_archived: bool,
     pub archived_at: Option<DateTime<Local>>,
+
+    // 溯源
+    pub source: Option<String>,
+    pub is_auto_generated: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1121,6 +1129,8 @@ pub struct Character {
     pub cs_recent_events: Option<String>,
     pub cs_updated_at_chapter: Option<i32>,
     pub cs_json: Option<String>,
+    pub source: Option<String>,
+    pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

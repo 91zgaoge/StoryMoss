@@ -17,8 +17,13 @@ use crate::{
     config::settings::{default_context_budget_ratio, default_max_context_length, AppConfig},
     db::{
         repositories::{
-            CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
-            WritingStyleRepository,
+            CharacterRepository, KnowledgeGraphRepository, SceneRepository, StoryOutlineRepository,
+            StoryRepository, StoryStyleConfigRepository, StyleDnaRepository,
+            WorldBuildingRepository, WritingStyleRepository,
+        },
+        traits::{
+            CharacterRepo, KnowledgeGraphRepo, SceneRepo, StoryOutlineRepo, StoryRepo,
+            StoryStyleConfigRepo, StyleDnaRepo, WorldBuildingRepo, WritingStyleRepo,
         },
         Character, DbPool, Story,
     },
@@ -242,6 +247,37 @@ impl ContextBudget {
     }
 }
 
+/// Repository 端口集合
+///
+/// 将 `StoryContextBuilder` 与具体 Repository 实现解耦，使其依赖 trait 端口。
+struct RepositorySet {
+    story_repo: Box<dyn StoryRepo>,
+    character_repo: Box<dyn CharacterRepo>,
+    scene_repo: Box<dyn SceneRepo>,
+    world_building_repo: Box<dyn WorldBuildingRepo>,
+    writing_style_repo: Box<dyn WritingStyleRepo>,
+    knowledge_graph_repo: Box<dyn KnowledgeGraphRepo>,
+    story_outline_repo: Box<dyn StoryOutlineRepo>,
+    story_style_config_repo: Box<dyn StoryStyleConfigRepo>,
+    style_dna_repo: Box<dyn StyleDnaRepo>,
+}
+
+impl RepositorySet {
+    fn new(pool: DbPool) -> Self {
+        Self {
+            story_repo: Box::new(StoryRepository::new(pool.clone())),
+            character_repo: Box::new(CharacterRepository::new(pool.clone())),
+            scene_repo: Box::new(SceneRepository::new(pool.clone())),
+            world_building_repo: Box::new(WorldBuildingRepository::new(pool.clone())),
+            writing_style_repo: Box::new(WritingStyleRepository::new(pool.clone())),
+            knowledge_graph_repo: Box::new(KnowledgeGraphRepository::new(pool.clone())),
+            story_outline_repo: Box::new(StoryOutlineRepository::new(pool.clone())),
+            story_style_config_repo: Box::new(StoryStyleConfigRepository::new(pool.clone())),
+            style_dna_repo: Box::new(StyleDnaRepository::new(pool.clone())),
+        }
+    }
+}
+
 /// 上下文构建器
 pub struct StoryContextBuilder {
     pool: DbPool,
@@ -369,22 +405,27 @@ impl StoryContextBuilder {
         current_content: Option<String>,
         selected_text: Option<String>,
     ) -> Result<AgentContext, AppError> {
-        // 1. 同步 DB 查询
-        let story = self.fetch_story(story_id).map_err(AppError::internal)?;
+        // 1. 初始化 repository 端口集合（将具体实现注入 trait 抽象）
+        let repos = RepositorySet::new(self.pool.clone());
+
+        // 2. 同步 DB 查询
+        let story = self
+            .fetch_story(repos.story_repo.as_ref(), story_id)
+            .map_err(AppError::internal)?;
         let characters = self
-            .fetch_characters(story_id)
+            .fetch_characters(repos.character_repo.as_ref(), story_id)
             .map_err(AppError::internal)?;
         let all_scenes = self
-            .fetch_all_scenes(story_id)
+            .fetch_all_scenes(repos.scene_repo.as_ref(), story_id)
             .map_err(AppError::internal)?;
         let world_rules = self
-            .fetch_world_rules(story_id)
+            .fetch_world_rules(repos.world_building_repo.as_ref(), story_id)
             .map_err(AppError::internal)?;
         let style = self
-            .fetch_writing_style(story_id)
+            .fetch_writing_style(repos.writing_style_repo.as_ref(), story_id)
             .map_err(AppError::internal)?;
         let relevant_entities = self
-            .fetch_relevant_entities(story_id, 10)
+            .fetch_relevant_entities(repos.knowledge_graph_repo.as_ref(), story_id, 10)
             .map_err(AppError::internal)?;
 
         // 2. 从 all_scenes 推导依赖数据
@@ -471,14 +512,34 @@ impl StoryContextBuilder {
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
 
         // 3. 风格混合、大纲上下文、叙事结构、活跃线索、叙事事件历史（同步执行）
-        let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
-        let outline_context_text = self.build_outline_context(story_id, current_scene.as_ref());
-        let narrative_structure = self.build_narrative_structure_context(story_id, scene_number);
-        let active_threads = self.fetch_active_threads(story_id);
-        let narrative_event_history = self.build_narrative_event_history(story_id);
+        let style_blend = self.fetch_style_blend(
+            repos.story_style_config_repo.as_ref(),
+            story_id,
+            scene_number,
+            current_scene.as_ref(),
+        );
+        let outline_context_text = self.build_outline_context(
+            repos.story_outline_repo.as_ref(),
+            story_id,
+            current_scene.as_ref(),
+        );
+        let narrative_structure = self.build_narrative_structure_context(
+            repos.scene_repo.as_ref(),
+            repos.story_outline_repo.as_ref(),
+            story_id,
+            scene_number,
+        );
+        let active_threads = self.fetch_active_threads(repos.character_repo.as_ref(), story_id);
+        let narrative_event_history =
+            self.build_narrative_event_history(repos.scene_repo.as_ref(), story_id);
 
         // 4. 预计算风格 DNA 扩展与 MemoryPack
-        let style_dna_extension = self.compute_style_dna_extension(story_id, &style_blend);
+        let style_dna_extension = self.compute_style_dna_extension(
+            repos.style_dna_repo.as_ref(),
+            repos.story_repo.as_ref(),
+            story_id,
+            &style_blend,
+        );
         let memory_pack = {
             let orchestrator =
                 crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
@@ -765,22 +826,30 @@ impl StoryContextBuilder {
 
     // ==================== 数据获取 ====================
 
-    fn fetch_story(&self, story_id: &str) -> Result<Story, String> {
-        let repo = StoryRepository::new(self.pool.clone());
-        repo.get_by_id(story_id)
+    fn fetch_story(&self, story_repo: &dyn StoryRepo, story_id: &str) -> Result<Story, String> {
+        story_repo
+            .get_by_id(story_id)
             .map_err(|e| format!("获取故事失败: {}", e))?
             .ok_or_else(|| "故事不存在".to_string())
     }
 
-    fn fetch_characters(&self, story_id: &str) -> Result<Vec<Character>, String> {
-        let repo = CharacterRepository::new(self.pool.clone());
-        repo.get_by_story(story_id)
+    fn fetch_characters(
+        &self,
+        char_repo: &dyn CharacterRepo,
+        story_id: &str,
+    ) -> Result<Vec<Character>, String> {
+        char_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取角色失败: {}", e))
     }
 
-    fn fetch_all_scenes(&self, story_id: &str) -> Result<Vec<crate::db::models::Scene>, String> {
-        let repo = SceneRepository::new(self.pool.clone());
-        repo.get_by_story(story_id)
+    fn fetch_all_scenes(
+        &self,
+        scene_repo: &dyn SceneRepo,
+        story_id: &str,
+    ) -> Result<Vec<crate::db::models::Scene>, String> {
+        scene_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))
     }
 
@@ -821,8 +890,11 @@ impl StoryContextBuilder {
             .find(|s| s.sequence_number == scene_number))
     }
 
-    fn fetch_world_rules(&self, story_id: &str) -> Result<Vec<WorldRuleSummary>, String> {
-        let wb_repo = WorldBuildingRepository::new(self.pool.clone());
+    fn fetch_world_rules(
+        &self,
+        wb_repo: &dyn WorldBuildingRepo,
+        story_id: &str,
+    ) -> Result<Vec<WorldRuleSummary>, String> {
         let world_building = match wb_repo.get_by_story(story_id) {
             Ok(Some(wb)) => wb,
             Ok(None) => return Ok(vec![]),
@@ -843,10 +915,11 @@ impl StoryContextBuilder {
 
     fn fetch_writing_style(
         &self,
+        style_repo: &dyn WritingStyleRepo,
         story_id: &str,
     ) -> Result<Option<crate::db::models::WritingStyle>, String> {
-        let repo = WritingStyleRepository::new(self.pool.clone());
-        repo.get_by_story(story_id)
+        style_repo
+            .get_by_story(story_id)
             .map_err(|e| format!("获取文风失败: {}", e))
     }
 
@@ -877,8 +950,11 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            builder.fetch_story(&story_id).map_err(AppError::internal)
+            let builder = Self::new(pool.clone());
+            let repo = StoryRepository::new(pool);
+            builder
+                .fetch_story(&repo, &story_id)
+                .map_err(AppError::internal)
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -888,9 +964,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = CharacterRepository::new(pool);
             builder
-                .fetch_characters(&story_id)
+                .fetch_characters(&repo, &story_id)
                 .map_err(AppError::internal)
         })
         .await
@@ -904,9 +981,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = SceneRepository::new(pool);
             builder
-                .fetch_all_scenes(&story_id)
+                .fetch_all_scenes(&repo, &story_id)
                 .map_err(AppError::internal)
         })
         .await
@@ -920,9 +998,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = WorldBuildingRepository::new(pool);
             builder
-                .fetch_world_rules(&story_id)
+                .fetch_world_rules(&repo, &story_id)
                 .map_err(AppError::internal)
         })
         .await
@@ -936,9 +1015,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = WritingStyleRepository::new(pool);
             builder
-                .fetch_writing_style(&story_id)
+                .fetch_writing_style(&repo, &story_id)
                 .map_err(AppError::internal)
         })
         .await
@@ -953,9 +1033,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = KnowledgeGraphRepository::new(pool);
             builder
-                .fetch_relevant_entities(&story_id, limit)
+                .fetch_relevant_entities(&repo, &story_id, limit)
                 .map_err(AppError::internal)
         })
         .await
@@ -972,8 +1053,10 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
+            let builder = Self::new(pool.clone());
+            let repo = StoryStyleConfigRepository::new(pool);
             Ok::<_, AppError>(builder.fetch_style_blend(
+                &repo,
                 &story_id,
                 scene_number,
                 current_scene.as_ref(),
@@ -992,8 +1075,15 @@ impl StoryContextBuilder {
         let story_id = story_id.to_string();
         let style_blend = style_blend.clone();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            Ok::<_, AppError>(builder.compute_style_dna_extension(&story_id, &style_blend))
+            let builder = Self::new(pool.clone());
+            let dna_repo = StyleDnaRepository::new(pool.clone());
+            let story_repo = StoryRepository::new(pool);
+            Ok::<_, AppError>(builder.compute_style_dna_extension(
+                &dna_repo,
+                &story_repo,
+                &story_id,
+                &style_blend,
+            ))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1007,8 +1097,13 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            Ok::<_, AppError>(builder.build_outline_context(&story_id, current_scene.as_ref()))
+            let builder = Self::new(pool.clone());
+            let repo = StoryOutlineRepository::new(pool);
+            Ok::<_, AppError>(builder.build_outline_context(
+                &repo,
+                &story_id,
+                current_scene.as_ref(),
+            ))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1022,8 +1117,15 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            Ok::<_, AppError>(builder.build_narrative_structure_context(&story_id, scene_number))
+            let builder = Self::new(pool.clone());
+            let scene_repo = SceneRepository::new(pool.clone());
+            let outline_repo = StoryOutlineRepository::new(pool);
+            Ok::<_, AppError>(builder.build_narrative_structure_context(
+                &scene_repo,
+                &outline_repo,
+                &story_id,
+                scene_number,
+            ))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1036,8 +1138,9 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            Ok::<_, AppError>(builder.fetch_active_threads(&story_id))
+            let builder = Self::new(pool.clone());
+            let repo = CharacterRepository::new(pool);
+            Ok::<_, AppError>(builder.fetch_active_threads(&repo, &story_id))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1050,8 +1153,9 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool);
-            Ok::<_, AppError>(builder.build_narrative_event_history(&story_id))
+            let builder = Self::new(pool.clone());
+            let repo = SceneRepository::new(pool);
+            Ok::<_, AppError>(builder.build_narrative_event_history(&repo, &story_id))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1103,12 +1207,10 @@ impl StoryContextBuilder {
 
     fn fetch_relevant_entities(
         &self,
+        kg_repo: &dyn KnowledgeGraphRepo,
         story_id: &str,
         limit: usize,
     ) -> Result<Vec<RelevantEntity>, String> {
-        use crate::db::repositories::KnowledgeGraphRepository;
-
-        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
         let entities = kg_repo
             .get_entities_by_story(story_id)
             .map_err(|e| format!("获取知识图谱实体失败: {}", e))?;
@@ -1144,13 +1246,12 @@ impl StoryContextBuilder {
     /// 优先检查 scene 级别的 override，否则回退到 story 级别的 active 配置
     fn fetch_style_blend(
         &self,
+        style_config_repo: &dyn StoryStyleConfigRepo,
         story_id: &str,
         _scene_number: Option<i32>,
         current_scene: Option<&crate::db::models::Scene>,
     ) -> Option<StyleBlendConfig> {
-        use crate::{
-            db::repositories::StoryStyleConfigRepository, domain::style::StyleBlendConfig,
-        };
+        use crate::domain::style::StyleBlendConfig;
 
         // 1. 检查 scene 级别的 override
         if let Some(scene) = current_scene {
@@ -1162,8 +1263,7 @@ impl StoryContextBuilder {
         }
 
         // 2. 回退到 story 级别的 active 配置
-        let repo = StoryStyleConfigRepository::new(self.pool.clone());
-        if let Ok(Some(config)) = repo.get_active_by_story(story_id) {
+        if let Ok(Some(config)) = style_config_repo.get_active_by_story(story_id) {
             if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json) {
                 return Some(blend);
             }
@@ -1176,12 +1276,12 @@ impl StoryContextBuilder {
     /// v0.9.7: 风格混合时改为批量 IN 查询，避免每个 component 单独查库。
     fn compute_style_dna_extension(
         &self,
+        dna_repo: &dyn StyleDnaRepo,
+        story_repo: &dyn StoryRepo,
         story_id: &str,
         style_blend: &Option<StyleBlendConfig>,
     ) -> Option<String> {
-        use crate::{db::repositories::StyleDnaRepository, domain::style::StyleDNA};
-
-        let dna_repo = StyleDnaRepository::new(self.pool.clone());
+        use crate::domain::style::StyleDNA;
 
         if let Some(ref blend) = style_blend {
             let dna_ids: Vec<String> = blend.components.iter().map(|c| c.dna_id.clone()).collect();
@@ -1206,7 +1306,7 @@ impl StoryContextBuilder {
                     return Some(extension);
                 }
             }
-        } else if let Ok(Some(style_dna_id)) = self.fetch_story_style_dna_id(story_id) {
+        } else if let Ok(Some(style_dna_id)) = self.fetch_story_style_dna_id(story_repo, story_id) {
             if let Ok(Some(db_dna)) = dna_repo.get_by_id(&style_dna_id) {
                 if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
                     let extension = dna.to_prompt_extension();
@@ -1221,9 +1321,13 @@ impl StoryContextBuilder {
     }
 
     /// 获取故事关联的单一风格 DNA ID
-    fn fetch_story_style_dna_id(&self, story_id: &str) -> Result<Option<String>, String> {
-        let repo = StoryRepository::new(self.pool.clone());
-        repo.get_by_id(story_id)
+    fn fetch_story_style_dna_id(
+        &self,
+        story_repo: &dyn StoryRepo,
+        story_id: &str,
+    ) -> Result<Option<String>, String> {
+        story_repo
+            .get_by_id(story_id)
             .map_err(|e| format!("获取故事失败: {}", e))?
             .map(|s| s.style_dna_id)
             .ok_or_else(|| "故事不存在".to_string())
@@ -1337,6 +1441,7 @@ impl StoryContextBuilder {
     /// 构建当前场景/章节的大纲上下文（v0.9.6）
     fn build_outline_context(
         &self,
+        outline_repo: &dyn StoryOutlineRepo,
         story_id: &str,
         scene: Option<&crate::db::models::Scene>,
     ) -> Option<String> {
@@ -1359,9 +1464,11 @@ impl StoryContextBuilder {
         }
 
         // 注入当前幕/章节的故事大纲摘要
-        if let Some(outline) =
-            self.fetch_story_outline_summary(story_id, scene.map(|s| s.sequence_number))
-        {
+        if let Some(outline) = self.fetch_story_outline_summary(
+            outline_repo,
+            story_id,
+            scene.map(|s| s.sequence_number),
+        ) {
             if !outline.trim().is_empty() {
                 parts.push(format!("故事大纲定位: {}", outline));
             }
@@ -1377,13 +1484,11 @@ impl StoryContextBuilder {
     /// 获取故事大纲中当前场景对应的摘要
     fn fetch_story_outline_summary(
         &self,
+        outline_repo: &dyn StoryOutlineRepo,
         story_id: &str,
         scene_number: Option<i32>,
     ) -> Option<String> {
-        use crate::db::repositories::StoryOutlineRepository;
-
-        let repo = StoryOutlineRepository::new(self.pool.clone());
-        let outline = repo.get_by_story(story_id).ok()??;
+        let outline = outline_repo.get_by_story(story_id).ok()??;
         let content = outline.content;
         if content.trim().is_empty() {
             return None;
@@ -1405,36 +1510,36 @@ impl StoryContextBuilder {
     /// 构建叙事结构感知上下文
     fn build_narrative_structure_context(
         &self,
+        scene_repo: &dyn SceneRepo,
+        outline_repo: &dyn StoryOutlineRepo,
         story_id: &str,
         scene_number: Option<i32>,
     ) -> NarrativeStructureContext {
         let current_chapter = scene_number.unwrap_or(1) as i32;
 
         // 优先从 story_outlines.analyzed_structure_json 读取 LitSeg 分析结果
-        if let Some(structure) = self.fetch_analyzed_structure(story_id) {
+        if let Some(structure) = self.fetch_analyzed_structure(outline_repo, story_id) {
             if let Some(ctx) = self.locate_in_structure(&structure, current_chapter) {
                 return ctx;
             }
         }
 
         // 其次从 scenes.act_number 推断
-        if let Some(ctx) = self.infer_from_scene_acts(story_id, current_chapter) {
+        if let Some(ctx) = self.infer_from_scene_acts(scene_repo, story_id, current_chapter) {
             return ctx;
         }
 
         // 最终回退：基于场景数量做实时推断
-        self.infer_narrative_structure_from_scenes(story_id, current_chapter)
+        self.infer_narrative_structure_from_scenes(scene_repo, story_id, current_chapter)
     }
 
     /// 从 story_outlines 读取 LitSeg 分析后的幕结构
     fn fetch_analyzed_structure(
         &self,
+        outline_repo: &dyn StoryOutlineRepo,
         story_id: &str,
     ) -> Option<Vec<crate::narrative::structure::Act>> {
-        use crate::db::repositories::StoryOutlineRepository;
-
-        let repo = StoryOutlineRepository::new(self.pool.clone());
-        let outline = repo.get_by_story(story_id).ok()??;
+        let outline = outline_repo.get_by_story(story_id).ok()??;
         let json_str = outline.analyzed_structure_json?;
         serde_json::from_str(&json_str).ok()
     }
@@ -1471,13 +1576,11 @@ impl StoryContextBuilder {
     /// 从 scenes.act_number 推断叙事位置
     fn infer_from_scene_acts(
         &self,
+        scene_repo: &dyn SceneRepo,
         story_id: &str,
         current_chapter: i32,
     ) -> Option<NarrativeStructureContext> {
-        use crate::db::repositories::SceneRepository;
-
-        let repo = SceneRepository::new(self.pool.clone());
-        let scenes = repo.get_by_story(story_id).ok()?;
+        let scenes = scene_repo.get_by_story(story_id).ok()?;
         let current_scene = scenes
             .iter()
             .find(|s| s.sequence_number == current_chapter)?;
@@ -1502,7 +1605,7 @@ impl StoryContextBuilder {
     }
 
     /// 获取当前活跃的叙事线索
-    fn fetch_active_threads(&self, story_id: &str) -> Vec<String> {
+    fn fetch_active_threads(&self, char_repo: &dyn CharacterRepo, story_id: &str) -> Vec<String> {
         let mut threads = Vec::new();
 
         // 1. 未回收的伏笔
@@ -1519,8 +1622,6 @@ impl StoryContextBuilder {
         }
 
         // 2. 有弧光的角色
-        use crate::db::repositories::CharacterRepository;
-        let char_repo = CharacterRepository::new(self.pool.clone());
         if let Ok(chars) = char_repo.get_by_story(story_id) {
             for ch in chars.iter().take(5) {
                 threads.push(format!("角色:{}(弧光)", ch.name));
@@ -1531,11 +1632,12 @@ impl StoryContextBuilder {
     }
 
     /// v0.22.5: 构建叙事事件历史（强度/情感/事件类型），供节奏/情绪一致性提示
-    pub fn build_narrative_event_history(&self, story_id: &str) -> Option<String> {
-        use crate::db::repositories::SceneRepository;
-
-        let repo = SceneRepository::new(self.pool.clone());
-        let scenes = repo.get_by_story(story_id).ok()?;
+    pub fn build_narrative_event_history(
+        &self,
+        scene_repo: &dyn SceneRepo,
+        story_id: &str,
+    ) -> Option<String> {
+        let scenes = scene_repo.get_by_story(story_id).ok()?;
         let mut events: Vec<_> = scenes
             .into_iter()
             .filter(|s| s.narrative_intensity.is_some())
@@ -1589,13 +1691,11 @@ impl StoryContextBuilder {
     /// 基于场景数量实时推断叙事结构（pipeline 运行前的 fallback）
     fn infer_narrative_structure_from_scenes(
         &self,
+        scene_repo: &dyn SceneRepo,
         story_id: &str,
         current_chapter: i32,
     ) -> NarrativeStructureContext {
-        use crate::db::repositories::SceneRepository;
-
-        let repo = SceneRepository::new(self.pool.clone());
-        let scenes = match repo.get_by_story(story_id) {
+        let scenes = match scene_repo.get_by_story(story_id) {
             Ok(s) => s,
             Err(_) => return NarrativeStructureContext::default(),
         };
@@ -1722,6 +1822,9 @@ mod tests {
             narrative_following_scene_id: None,
             act_number: None,
             position_in_act: None,
+
+            source: None,
+            is_auto_generated: None,
         };
 
         let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();

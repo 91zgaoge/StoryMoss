@@ -2,6 +2,103 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.28] - Phase 4 架构债务与工程体验（2026-07-07）
+
+### 新增
+
+- **知识图谱手动 CRUD UI**：Graph 页图例面板新增「新建实体」按钮；实体详情面板新增「添加关系」按钮，支持从当前故事已有实体中按名称搜索并建立关系。
+- **世界构建 AI 生成**：`WorldBuilding` 页新增「AI 生成」按钮与 `AiWorldBuildingModal`，基于当前故事调用 `generateWorldBuildingOptions` 一键生成世界观并回写。
+- **角色 AI 扩展**：`Characters` 页新增「AI 扩展」按钮与 modal，基于当前世界观调用 `generateCharacterProfiles`，选择角色组后批量 `createCharacter`。
+- **叙事分析图表**：`NarrativeAnalysis` 页新增 SVG `ReadingPowerChart` 折线/面积图，替代原有条形图展示追读力趋势。
+
+### 重构
+
+- **策略选择移入 Quick Phase**：`genesis.rs` 中 `StrategySelectionStep` 从 `background_steps()` 前移至 `quick_phase_steps()`，位于 `ConceptGenerationStep` 之后、`FirstChapterGenerationStep` 之前；同步更新所有步骤的 `step_number`/`total_steps`/`progress_percent` 与前后端测试契约。
+- **外部化 prompts**：`prompts/registry.rs` 中 95 个内置提示词迁移至 `resources/prompts/{category}/{id}.md`（YAML frontmatter + Markdown body）；运行时通过 Tauri 资源目录加载，测试环境回退到 `CARGO_MANIFEST_DIR/../resources/prompts`；`load_overrides` 等用户覆盖逻辑保持不变。
+- **迁移脚本拆分**：`db/connection.rs` 中 2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件；`MigrationRunner` 新增 `RustMigration` trait 与 `with_rust_migrations()`，统一排序、过滤、执行 SQL 与 Rust 迁移；原有 `schema_migrations` 版本语义保持不变。
+
+### 验证
+
+- `cargo test --lib`：672 passed ✅
+- `cargo +nightly fmt -- --check`：✅
+- `npx vitest run`：210 passed ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
+## [v0.26.27] - L4 诊断互链、文档与依赖解耦（2026-07-07）
+
+### 新增
+
+- **GenesisPanel ↔ TracingPanel 互链**：Genesis 运行记录增加「查看生成链路」；链路详情增加「对应 Genesis 运行」，跳转后自动选中对应 session。
+- **GenesisPanel → Logs 深链**：失败运行增加「查看日志」，跳转日志页并预填 `session_id`。
+- **用量统计按 operation 分组**：新增 全部 / bootstrap / smart_execute / 其他 标签，按 `purpose` / `task_type` 关键词启发式分组（待后端 `operation` 字段补齐后切换为精确分组）。
+- **伏笔看板 UX 改进**：`setup_scene_id` 改为场景下拉选择；展开高级区可编辑 `target_start_scene` / `target_end_scene`。
+
+### 重构
+
+- **前端循环依赖解耦**：`stores/*` 不再依赖 `components/*` / `hooks/*`；通过 `types/editor.ts`、`stores/contracts/*` 提取共享类型，`madge` 报告无循环依赖。
+- **Tauri 循环依赖解耦**：`creative_engine ↔ llm`、`model_gateway ↔ router` 的共享概念提取到 `ports/` / `domain/` trait，两对模块不再直接互相 import。
+
+### 文档
+
+- 更新 `docs/USER_GUIDE.md`：补全 3.17 生成链路 / 3.18 意图图诊断 / 3.19 日志查看；修正 3.11 伏笔看板、3.12 叙事分析、3.14 用量统计的过度承诺。
+- 同步 `AGENTS.md`、`ROADMAP.md`、`TESTING.md`、`ARCHITECTURE.md`、`README.md` 版本与完成状态。
+
+### 验证
+
+- `cargo test --lib`：672 passed ✅
+- `cargo +nightly fmt -- --check`：✅
+- `npx vitest run`：210 passed ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
+## [v0.26.26] - L2 资产补齐与领域层止血（2026-07-07）
+
+### 新增
+
+- **角色页编辑 + 关系 CRUD**：角色资料卡 hover 显示「编辑」按钮；关系 Tab 与角色卡头部支持「添加关系」；使用现有 `update_character` / `createCharacterRelationship` API。
+- **L2 创世溯源徽章**：世界观、角色、场景、知识图谱实体均显示「创世」徽章（与 Foreshadowing 一致）；后端在 Genesis/Wizard 写入时标记 `source="genesis"`、`is_auto_generated=true`。
+- **Story System 合同播种状态卡**：Contracts Tab 显示 `MASTER_SETTING` 与 `CHAPTER_1` 合同是否存在；缺失且存在失败 Genesis run 时展示错误摘要与跳转。
+- **Scenes 续写跳转幕前**：`ExecutionPanel` 的「继续写作」主行动调用 `show_frontstage` 并 toast 提示。
+
+### 重构
+
+- **拆分 `StorySystem.tsx`**：拆为 8 个独立标签组件，`StorySystem.tsx` 仅保留 125 行 tab 路由。
+- **Repository 层 trait 化与拆分**：`db/repositories.rs`（6,566 行）拆分为 `db/repositories/*.rs`；`creative_engine/context_builder.rs` 改为依赖 `db/traits.rs` 中的 trait 而非具体仓库。
+
+### 修复
+
+- 修复测试内存库迁移顺序冲突：将 `V099__intention_graph_sing_data.sql` 重命名为 `V102__...`，避免与 `MAX_INLINE_MIGRATION_VERSION=99` 冲突导致 inline migrations 28–98 被跳过。
+
+### 验证
+
+- `cargo test --lib`：672 passed ✅
+- `npx vitest run`：210 passed ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
+## [v0.26.25] - Backstage Genesis 可观测性与测试基线（2026-07-07）
+
+### 新增
+
+- **GenesisPanel 动态步骤模型**：`GenesisPanel` 现在从后端 `steps_json` 解析 Quick（2 步）+ Background（6 步），而非硬编码 8 步；显示非致命 `errors[]` 并支持展开详情。
+- **Genesis run 跳转**：运行记录含 `story_id` 时，面板提供「打开故事」和「开幕前」按钮。
+- **L1 创作路径引导**：Dashboard 与 Stories 页新增 `CreationPathGuide`，明确区分「幕前 Genesis / 幕后 Wizard / 快速创作」三条路径。
+- **Stories Wizard 重复建故事修复**：对已有故事调用 Wizard 时，改为更新现有故事资产，不再重复创建。
+- **仪表盘统计卡可点击**：三张统计卡分别跳转故事库、角色页、场景页。
+
+### 测试
+
+- `genesisSteps.ts` 新增 18 个单元测试，覆盖步骤解析、error 计数、进度合并、异常 JSON fallback。
+- 为高变更后端模块补充首批特征测试：`model_gateway/executor.rs`、`db/repositories.rs`、`memory/ingest.rs` 各至少 1 条 happy path + 1 条错误路径。
+
+### 验证
+
+- `cargo test --lib`：677 passed ✅
+- `npx vitest run`：210 passed ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
 ## [v0.26.24] - 修复续写重复、截断与跨内容复述（2026-07-07）
 
 ### 修复

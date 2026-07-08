@@ -16,6 +16,7 @@ import { useStories, useCreateStory } from '@/hooks/useStories';
 import { createStoryWithWizard } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { GenesisPanel } from '@/components/GenesisPanel';
+import { CreationPathGuide } from '@/components/CreationPathGuide';
 import { formatNumber, formatDate } from '@/utils/format';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -61,9 +62,27 @@ export function Dashboard() {
   const totalChapters = stories.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
 
   const stats = [
-    { label: '故事', value: stories.length, icon: BookOpen, color: 'text-cinema-gold' },
-    { label: '角色', value: totalCharacters, icon: Users, color: 'text-purple-400' },
-    { label: '场景', value: totalChapters, icon: FileText, color: 'text-blue-400' },
+    {
+      label: '故事',
+      value: stories.length,
+      icon: BookOpen,
+      color: 'text-cinema-gold',
+      view: 'stories' as const,
+    },
+    {
+      label: '角色',
+      value: totalCharacters,
+      icon: Users,
+      color: 'text-purple-400',
+      view: 'characters' as const,
+    },
+    {
+      label: '章节',
+      value: totalChapters,
+      icon: FileText,
+      color: 'text-blue-400',
+      view: 'scenes' as const,
+    },
   ];
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
@@ -166,12 +185,20 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* Creation Path Guide */}
+      <CreationPathGuide />
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map(stat => {
           const Icon = stat.icon;
           return (
-            <Card key={stat.label} hover>
+            <Card
+              key={stat.label}
+              hover
+              className="cursor-pointer"
+              onClick={() => setCurrentView(stat.view)}
+            >
               <CardContent className="flex items-center gap-4">
                 <div className={cn('p-3 rounded-xl bg-cinema-800', stat.color)}>
                   <Icon className="w-6 h-6" />

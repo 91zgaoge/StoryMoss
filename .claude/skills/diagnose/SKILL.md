@@ -115,3 +115,34 @@ Required before declaring done:
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message — so the next debugger learns
 
 **Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling) hand off to the `/improve-codebase-architecture` skill with the specifics. Make the recommendation **after** the fix is in, not before — you have more information now than when you started.
+
+---
+
+## StoryForge 专属补充
+
+本项目已有一套成熟的诊断基础设施，优先用它们构造反馈回路，不要从零搭。
+
+### 首选回路：`creative_workflow.log` 时间线对照法
+
+把用户感知的“卡住/异常时刻”对齐到 `<app_data_dir>/logs/creative_workflow.log` 的阶段标记，卡点 = 时间线断点。关键标记：`genesis.first_chapter.generated` / `genesis.chapter_switch.sent` / `genesis.final_content` / `smart_execute.start` / `trishot.call3.done` / `trishot.bgp4.spawn` / `trishot.bgp4.done` / `llm.record_call.spawn`（候选实时探测走标准 `log::debug!` 的 `[Gateway]` 行，不进此日志）。实例：v0.26.23 用此法定位 `auto_contract` 阻塞续写 6 分钟；v0.23.18 用 12+ 行级标记定位 600s 超时卡在 `db_write`。
+
+### 已知“盯代码无效”的失败家族（先排除再下假设）
+
+- **竞态家族**（第一章重复 saga v0.26.7–.16，9 轮）：单基准（`editorRef.getText()`）滞后 DOM + 多写者并发。必须单写者状态机 + 双重基准（`latestContentRef` + DOM 校准）。提取纯函数写契约测试。
+- **阻塞家族**（600s / BGP-4 / Ingest / auto_contract）：后台 LLM/DB 调用同步化。查 `is_silent_background` 白名单（`src-tauri/src/llm/service.rs`）+ `spawn_blocking`/`tokio::spawn` fire-and-forget + 连接池 `.connection_timeout`。
+- **死锁家族**（v0.23.34/.42）：`std::sync::Mutex` 不可重入；持锁期间再 lock。中毒锁 `unwrap_or_else(|e| e.into_inner())`。
+- **JSON 解析家族**（v0.23.48/.49）：推理模型思考链花括号被 `find('{')` 误判；用 `strip_reasoning_blocks` + 括号匹配 `extract_first_json_object`。
+
+完整 symptom→root cause→evidence→status 编年史见 `sf-failure-archaeology`；症状分诊表见 `sf-debugging-playbook`；诊断工具用法见 `sf-diagnostics-and-tooling`。改任何符号前先 `gitnexus_impact`。任何修复在合并前必须走 `sf-change-control`（变更门禁）+ `sf-validation-and-qa`（证据标准）。
+
+## 何时 NOT 用本技能（StoryForge 场景）
+
+- 已修复战役编年史 → `sf-failure-archaeology`。
+- 诊断工具具体用法 → `sf-diagnostics-and-tooling`。
+- 架构不变量 → `sf-architecture-contract`。
+
+## 出处与维护（StoryForge 补充）
+
+- 重验证命令：`rg -n 'genesis\.first_chapter|smart_execute\.start|trishot\.call3\.done|pre_call_probe' src-tauri/src | head`（日志阶段标记是否仍在）
+- 易漂移项：日志阶段标记名、`is_silent_background` 白名单、超时常量。
+- 最后核对：2026-07-07，v0.26.23。

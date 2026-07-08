@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.24 架构文档
+# StoryForge (草苔) v0.26.27 架构文档
 
-> 本文档反映 v0.26.24 最新架构状态（2026-07-07）
+> 本文档反映 v0.26.27 最新架构状态（2026-07-07）
+> **v0.26.27 依赖解耦与文档补全**：前端 `components ↔ stores ↔ hooks ↔ frontstage` 通过新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*` 解耦，`stores/*` 不再依赖 `components/*` / `hooks/*`；Tauri `creative_engine ↔ llm` 与 `model_gateway ↔ router` 共享概念提取到 `ports/` / `domain/` trait，两对模块不再直接互相 import；`USER_GUIDE.md` 补全 L4 诊断页（生成链路 / 意图图 / 日志）并修正 Phase 1–3 实现漂移。
 > **v0.26.24 续写后处理**：TriShot 续写路径新增三层后处理（`trim_self_repetition` → `strip_existing_overlap` → `trim_dangling_tail`）+ 8% 自重复重试闸门；前端 `sanitizeContinuationOutput` 对齐。
 > **v0.26.19 创世流程审计与测试加固**：对照文档全面审计「智能创作流程-创世」，分 Phase 1–4 执行。
 > - **Phase 1（P0）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。

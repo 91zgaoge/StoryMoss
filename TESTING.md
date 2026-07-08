@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.24)
+# 🧪 StoryForge 自动化测试环境 (v0.26.27)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -26,6 +26,32 @@
 - **散布式句子块重复**：Rust `test_trim_self_repetition_interspersed_*` + TS `trimInterspersed*` 用例；golden fixture 新增 `interspersed_repeated_block` / `interspersed_short_sentence_unchanged`。
 - **跨内容重叠剥离**：Rust `test_strip_existing_overlap_*`（6 条）；TS `stripExistingOverlap` / `sanitizeContinuationOutput` 用例。
 - **截断末句裁剪**：Rust/TS `trimDanglingTail` 用例。
+
+### v0.26.27 Phase 3 新增测试
+
+- **L4 诊断互链**：GenesisPanel → TracingPanel / Logs 跳转与预过滤行为覆盖；TracingPanel detail → GenesisPanel 回跳选择对应 run 覆盖。
+- **UsageStats operation 分组**：按 `operation` 字段拆分的四标签页渲染与聚合逻辑测试。
+- **Foreshadowing UX**：`setup_scene_id` 下拉绑定 `useScenes`、高级区 `target_start_scene` / `target_end_scene` 编辑交互测试。
+- **前端循环依赖守卫**：`npx madge --circular src/main.tsx` 验证循环数为 0；新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*` 的导入方向单测。
+- **Tauri 循环依赖守卫**：`creative_engine ↔ llm` 与 `model_gateway ↔ router` 模块间不再直接 import 的静态检查；`ports/` / `domain/` 共享 trait 的单元测试。
+
+### v0.26.26 Phase 2 新增测试
+
+- **角色编辑与关系 CRUD**：`CharacterEditModal` 与 `CharacterRelationshipForm` 的创建 / 更新 / 删除路径测试。
+- **L2 创世溯源徽章**：`is_auto_generated` / `source` 字段在角色、场景、世界观、知识图谱等页面的显示规则测试。
+- **Story System 合同播种状态**：MASTER_SETTING + CHAPTER_1 合同状态卡渲染；失败运行警告摘要测试。
+- **Scenes 续写跳转幕前**：`ExecutionPanel` 主行动打开 frontstage 的交互测试。
+- **Repository trait 注入**：`creative_engine` 通过 `db/traits.rs` 调用 repository 的契约测试；`db/repositories/*.rs` 拆分后 re-export 一致性测试。
+
+### v0.26.25 Phase 1 新增测试
+
+- **GenesisPanel 步骤模型**：`src-frontend/src/utils/__tests__/genesisSteps.test.ts` 验证 Quick（2 步）+ Background（6 步）顺序、`steps_json.errors` 展示、story / 幕前跳转。
+- **仪表盘统计卡**：点击跳转对应页面与口径一致性测试。
+- **Stories Wizard 重复建故事**：已有故事 update 路径不重复创建的故事级测试。
+- **后端特征测试**：
+  - `model_gateway/executor.rs`：happy path + 模型降级 / 超时错误路径。
+  - `db/repositories.rs`：创建 / 更新 / 删除 round-trip 与级联清理。
+  - `memory/ingest.rs`：实体关系提取成功与字段缺失降级路径。
 
 ### v0.26.19 新增测试
 
@@ -319,4 +345,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-06-26 - v0.23.63 推理模型思考链 JSON 提取修复（571 passed / 0 failed / 2 ignored）_
+_最后更新: 2026-07-07 - v0.26.27 Phase 1–3 综合优化测试补全_

@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { loggedInvoke } from '@/services/tauri';
-import type { WorldBuilding, WorldRule, Culture, WritingStyle, WritingStyleUpdate } from '@/types';
+import { generateWorldBuildingOptions } from '@/services/api/wizard';
+import type {
+  WorldBuilding,
+  WorldRule,
+  Culture,
+  WritingStyle,
+  WritingStyleUpdate,
+  WorldBuildingOption,
+} from '@/types';
 
 const WORLD_BUILDING_KEY = 'world_building';
 const WRITING_STYLE_KEY = 'writing_style';
@@ -69,6 +77,14 @@ export function useDeleteWorldBuilding() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [WORLD_BUILDING_KEY, variables.storyId] });
+    },
+  });
+}
+
+export function useGenerateWorldBuildingOptions() {
+  return useMutation({
+    mutationFn: async (userInput: string) => {
+      return generateWorldBuildingOptions(userInput);
     },
   });
 }

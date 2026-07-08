@@ -409,6 +409,9 @@ mod tests {
             },
             is_archived: false,
             archived_at: None,
+
+            source: None,
+            is_auto_generated: None,
         }
     }
 

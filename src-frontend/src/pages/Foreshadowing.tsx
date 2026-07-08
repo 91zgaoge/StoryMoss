@@ -25,6 +25,7 @@ import {
   useForeshadowings,
   useCreateForeshadowing,
   useUpdateForeshadowingStatus,
+  useUpdatePayoffLedgerFields,
   usePayoffLedger,
   useDetectOverduePayoffs,
   useRecommendPayoffTiming,
@@ -166,6 +167,19 @@ function ForeshadowingRow({
   sceneMap: Map<string, string>;
 }) {
   const updateMutation = useUpdateForeshadowingStatus();
+  const ledgerUpdateMutation = useUpdatePayoffLedgerFields();
+  const [showLedgerEdit, setShowLedgerEdit] = useState(false);
+  const [ledgerEdit, setLedgerEdit] = useState({
+    target_start_scene: ledgerItem?.target_start_scene ?? '',
+    target_end_scene: ledgerItem?.target_end_scene ?? '',
+  });
+
+  useEffect(() => {
+    setLedgerEdit({
+      target_start_scene: ledgerItem?.target_start_scene ?? '',
+      target_end_scene: ledgerItem?.target_end_scene ?? '',
+    });
+  }, [ledgerItem?.target_start_scene, ledgerItem?.target_end_scene]);
 
   const handleStatusChange = async (newStatus: 'payoff' | 'abandoned') => {
     try {
@@ -321,6 +335,93 @@ function ForeshadowingRow({
                   <div className="flex items-center gap-1 col-span-2">
                     <Calendar className="w-3 h-3" />
                     账本键: {ledgerItem.ledger_key}
+                  </div>
+                )}
+              </div>
+
+              {/* Ledger target window editor */}
+              <div className="mt-3">
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    setShowLedgerEdit(v => !v);
+                  }}
+                  className="text-xs text-cinema-gold hover:text-cinema-gold/80 flex items-center gap-1"
+                >
+                  <Target className="w-3 h-3" />
+                  {showLedgerEdit ? '收起目标窗口编辑' : '编辑目标窗口'}
+                </button>
+
+                {showLedgerEdit && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">目标开始场景</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={ledgerEdit.target_start_scene}
+                        onChange={e =>
+                          setLedgerEdit({
+                            ...ledgerEdit,
+                            target_start_scene: e.target.value === '' ? '' : Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded text-xs text-white focus:outline-none focus:border-cinema-gold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">目标结束场景</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={ledgerEdit.target_end_scene}
+                        onChange={e =>
+                          setLedgerEdit({
+                            ...ledgerEdit,
+                            target_end_scene: e.target.value === '' ? '' : Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded text-xs text-white focus:outline-none focus:border-cinema-gold"
+                      />
+                    </div>
+                    <div className="col-span-2 flex gap-2">
+                      <button
+                        onClick={async e => {
+                          e.stopPropagation();
+                          try {
+                            await ledgerUpdateMutation.mutateAsync({
+                              foreshadowing_id: item.id,
+                              story_id: item.story_id,
+                              target_start_scene:
+                                ledgerEdit.target_start_scene === ''
+                                  ? undefined
+                                  : Number(ledgerEdit.target_start_scene),
+                              target_end_scene:
+                                ledgerEdit.target_end_scene === ''
+                                  ? undefined
+                                  : Number(ledgerEdit.target_end_scene),
+                            });
+                            toast.success('目标窗口已更新');
+                            setShowLedgerEdit(false);
+                          } catch (err) {
+                            toast.error(`更新失败: ${err}`);
+                          }
+                        }}
+                        disabled={ledgerUpdateMutation.isPending}
+                        className="px-3 py-1 bg-cinema-gold/20 text-cinema-gold rounded text-xs hover:bg-cinema-gold/30 transition-colors disabled:opacity-50"
+                      >
+                        {ledgerUpdateMutation.isPending ? '保存中...' : '保存'}
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setShowLedgerEdit(false);
+                        }}
+                        className="px-3 py-1 text-gray-400 rounded text-xs hover:text-white transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -578,13 +679,18 @@ export function Foreshadowing() {
               onChange={e => setNewItem({ ...newItem, content: e.target.value })}
               className="col-span-2 px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
             />
-            <input
-              type="text"
-              placeholder="设置场景 ID (可选)"
+            <select
               value={newItem.setup_scene_id}
               onChange={e => setNewItem({ ...newItem, setup_scene_id: e.target.value })}
-              className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
-            />
+              className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white focus:outline-none focus:border-cinema-gold"
+            >
+              <option value="">设置场景 (可选)</option>
+              {scenes.map(s => (
+                <option key={s.id} value={s.id}>
+                  #{s.sequence_number} {s.title || '未命名场景'}
+                </option>
+              ))}
+            </select>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">重要性</span>
               <input

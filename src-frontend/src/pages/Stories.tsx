@@ -45,7 +45,9 @@ import {
   setStoryStyleBlend,
 } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
+import { CreationPathGuide } from '@/components/CreationPathGuide';
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
+import { applyWizardToStory } from '@/utils/applyWizardToStory';
 import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAiOperations, useRollbackOperation } from '@/hooks/useAiOperations';
@@ -517,29 +519,53 @@ export function Stories() {
     genreInput: string;
     selectedStrategy?: import('@/types/index').SelectedStrategy;
   }) => {
-    if (!wizardStory) return;
     setIsWizardCreating(true);
     try {
-      const result = await createStoryWithWizard({
-        title: wizardStory.title || data.writingStyle.name || '未命名作品',
-        description: wizardStory.description || data.genreInput,
-        genre: wizardStory.genre,
-        style_dna_id: data.selectedStrategy?.style_dna_ids[0],
-        genre_profile_id: data.selectedStrategy?.genre_profile_id,
-        methodology_id: data.selectedStrategy?.methodology_id,
-        world_building: data.worldBuilding,
-        characters: data.characters,
-        writing_style: data.writingStyle,
-        first_scene: data.firstScene,
-      });
-      toast.success(`「${result.story.title}」向导创作完成！`);
-      setIsWizardOpen(false);
-      setWizardStory(null);
-      // 刷新故事列表
-      queryClient.invalidateQueries({ queryKey: ['stories'] });
-      // 导航到新创建的故事
-      setCurrentStory(result.story);
-      setCurrentView('scenes');
+      if (wizardStory) {
+        // 已有故事：应用向导资产，避免重复创建故事
+        const result = await applyWizardToStory(wizardStory, {
+          worldBuilding: data.worldBuilding,
+          characters: data.characters,
+          writingStyle: data.writingStyle,
+          firstScene: data.firstScene,
+          genreInput: data.genreInput,
+          selectedStrategy: data.selectedStrategy,
+        });
+        toast.success(
+          `「${result.story.title}」向导应用完成！已写入 ${result.characters.length} 个角色与首场景。`
+        );
+        setIsWizardOpen(false);
+        setWizardStory(null);
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+        queryClient.invalidateQueries({ queryKey: ['characters', result.story.id] });
+        queryClient.invalidateQueries({ queryKey: ['scenes', result.story.id] });
+        queryClient.invalidateQueries({ queryKey: ['world_building', result.story.id] });
+        queryClient.invalidateQueries({ queryKey: ['writing_style', result.story.id] });
+        setCurrentStory(result.story);
+        setCurrentView('scenes');
+      } else {
+        // 新建故事：走原命令
+        const result = await createStoryWithWizard({
+          title: data.writingStyle.name || '未命名作品',
+          description: data.genreInput,
+          genre: data.genreInput,
+          style_dna_id: data.selectedStrategy?.style_dna_ids[0],
+          genre_profile_id: data.selectedStrategy?.genre_profile_id,
+          methodology_id: data.selectedStrategy?.methodology_id,
+          world_building: data.worldBuilding,
+          characters: data.characters,
+          writing_style: data.writingStyle,
+          first_scene: data.firstScene,
+        });
+        toast.success(`「${result.story.title}」向导创作完成！`);
+        setIsWizardOpen(false);
+        setWizardStory(null);
+        // 刷新故事列表
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+        // 导航到新创建的故事
+        setCurrentStory(result.story);
+        setCurrentView('scenes');
+      }
     } catch (error: any) {
       toast.error(`向导创作失败: ${error?.message || String(error)}`);
     } finally {
@@ -586,6 +612,9 @@ export function Stories() {
           </Button>
         </div>
       )}
+
+      {/* L1 Creation Path Guidance */}
+      <CreationPathGuide />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {stories.map(story => {

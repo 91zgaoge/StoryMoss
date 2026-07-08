@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
@@ -21,6 +21,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useAppStore } from '@/stores/appStore';
 
 type LogLevel = 'ALL' | 'INFO' | 'WARN' | 'ERROR';
 type LogSource = 'workflow' | 'system';
@@ -41,10 +42,21 @@ export function Logs() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
+  const logsSearchQuery = useAppStore(s => s.logsSearchQuery);
+  const setLogsSearchQuery = useAppStore(s => s.setLogsSearchQuery);
+
   const workflowLogs = useWorkflowLogs(count, autoRefresh && source === 'workflow');
   const systemLogs = useRecentLogs(count, autoRefresh && source === 'system');
   const logPath = useWorkflowLogPath();
   const logDir = useLogDirectory();
+
+  // Consume deep-link search query from GenesisPanel
+  useEffect(() => {
+    if (logsSearchQuery) {
+      setSearch(logsSearchQuery);
+      setLogsSearchQuery(null);
+    }
+  }, [logsSearchQuery, setLogsSearchQuery]);
 
   const filteredLogs = useMemo(() => {
     if (source !== 'workflow' || !workflowLogs.data) return [];

@@ -628,6 +628,19 @@ pub fn run() {
                 ),
             }
 
+            // 设置 prompts 资源目录，供 PromptRegistry 在运行时读取内置提示词
+            if let Some(prompts_dir) = app
+                .path()
+                .resolve("prompts", BaseDirectory::Resource)
+                .ok()
+                .filter(|p| p.is_dir())
+            {
+                log::info!("[Setup] Bundled prompts directory: {}", prompts_dir.display());
+                crate::prompts::registry::set_prompts_resource_dir(prompts_dir);
+            } else {
+                log::warn!("[Setup] Bundled prompts directory not found; using fallback paths");
+            }
+
             // 设置 panic hook 以便记录崩溃信息，辅助诊断窗口最大化等异常退出
             std::panic::set_hook(Box::new(|info| {
                 let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {

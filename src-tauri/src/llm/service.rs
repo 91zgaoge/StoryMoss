@@ -24,7 +24,7 @@ impl Drop for AbortOnDrop {
 }
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tokio::time::timeout;
 
 use super::{
@@ -298,8 +298,8 @@ struct LlmCallRecord<'a> {
 }
 
 /// LLM服务 - 管理所有LLM调用
-pub struct LlmService {
-    app_handle: AppHandle,
+pub struct LlmService<R: Runtime = Wry> {
+    app_handle: AppHandle<R>,
     config: Arc<Mutex<AppConfig>>,
     cancel_senders: Arc<Mutex<HashMap<String, Option<tokio::sync::mpsc::Sender<()>>>>>,
     /// 按配置缓存适配器，避免每次调用重复创建 reqwest::Client
@@ -314,13 +314,13 @@ pub struct LlmService {
     writer_remote_semaphore: Arc<Semaphore>,
 }
 
-impl LlmService {
+impl<R: Runtime> LlmService<R> {
     /// 创建新的 LLM 服务实例。
     ///
     /// 优先返回通过 Tauri State 管理的共享实例（由 setup() 注入），
     /// 复用 reqwest 连接池与 adapter 缓存；若 State 不存在（例如测试），
     /// 则创建独立实例。
-    pub fn new(app_handle: AppHandle) -> Self {
+    pub fn new(app_handle: AppHandle<R>) -> Self {
         // 优先返回 Tauri State 中的共享实例，避免每次命令重建 client 与缓存。
         if let Some(state) = app_handle.try_state::<Self>() {
             return state.inner().clone();
@@ -2589,7 +2589,7 @@ impl LlmService {
 }
 
 #[async_trait::async_trait]
-impl crate::ports::LlmService for LlmService {
+impl<R: Runtime + 'static> crate::ports::LlmService for LlmService<R> {
     async fn generate(
         &self,
         prompt: String,
@@ -2691,7 +2691,7 @@ fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
     prompt
 }
 
-impl Clone for LlmService {
+impl<R: Runtime> Clone for LlmService<R> {
     fn clone(&self) -> Self {
         Self {
             app_handle: self.app_handle.clone(),
@@ -3004,9 +3004,9 @@ mod tests {
         let generation_err = AppError::llm_generation_timeout(120_000);
         let generic_timeout = AppError::llm_timeout(120_000);
 
-        assert!(LlmService::is_retriable_error(&connection_err));
-        assert!(!LlmService::is_retriable_error(&generation_err));
-        assert!(!LlmService::is_retriable_error(&generic_timeout));
+        assert!(LlmService::<Wry>::is_retriable_error(&connection_err));
+        assert!(!LlmService::<Wry>::is_retriable_error(&generation_err));
+        assert!(!LlmService::<Wry>::is_retriable_error(&generic_timeout));
     }
 
     #[test]

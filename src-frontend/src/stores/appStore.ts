@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Story, Character, Chapter, Skill, ViewType, User } from '@/types/index';
-import type { EditorConfig } from '@/components/EditorSettings';
+import type { EditorConfig } from '@/types/editor';
 
 interface AppState {
   // Navigation
@@ -55,6 +55,17 @@ interface AppState {
   /** 编辑器配置（editor-config-changed 替代） */
   editorConfig: EditorConfig | null;
   setEditorConfig: (config: EditorConfig | null) => void;
+
+  // L4 诊断页互链状态
+  /** GenesisPanel 应自动选中的 session_id */
+  selectedGenesisSessionId: string | null;
+  setSelectedGenesisSessionId: (id: string | null) => void;
+  /** TracingPanel 预过滤条件 */
+  tracingFilter: { traceId?: string; sessionId?: string } | null;
+  setTracingFilter: (filter: { traceId?: string; sessionId?: string } | null) => void;
+  /** Logs 页面预填充搜索词 */
+  logsSearchQuery: string | null;
+  setLogsSearchQuery: (query: string | null) => void;
 }
 
 export const useAppStore = create<AppState>(set => ({
@@ -142,4 +153,12 @@ export const useAppStore = create<AppState>(set => ({
   setNavigateHighlightStoryId: id => set({ navigateHighlightStoryId: id }),
   editorConfig: null,
   setEditorConfig: config => set({ editorConfig: config }),
+
+  // L4 诊断页互链状态
+  selectedGenesisSessionId: null,
+  setSelectedGenesisSessionId: id => set({ selectedGenesisSessionId: id }),
+  tracingFilter: null,
+  setTracingFilter: filter => set({ tracingFilter: filter }),
+  logsSearchQuery: null,
+  setLogsSearchQuery: query => set({ logsSearchQuery: query }),
 }));

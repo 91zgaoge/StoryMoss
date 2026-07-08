@@ -7,7 +7,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { llmGenerateStream, llmCancelGeneration } from '@/services/tauri';
-import { getOfflineBlockReason } from '@/components/ConnectionStatus';
+import { getOfflineBlockReason } from '@/services/offline';
 import type { ModelSource } from '@/types/llm';
 
 export interface LlmStreamChunk {

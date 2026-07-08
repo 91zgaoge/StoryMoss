@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-07（v0.26.24 修复续写重复、截断与跨内容复述）
+> 最后更新: 2026-07-07（v0.26.27 Phase 1–3 综合优化完成：可观测性、资产补齐、L4 诊断互链与循环依赖解耦）
 
 ## 📌 已知债务（待量化后重评估）
 
@@ -12,6 +12,35 @@
 - **关联**：`docs/plans/2026-07-06-genesis-audit-and-optimization-design.md` Phase 2.1。
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.27 Phase 3 — L4 诊断互链、文档与依赖解耦 ✅ (2026-07-07)
+
+- [x] **TracingPanel ↔ GenesisPanel 互链**：Genesis 运行记录可跳转对应生成链路；链路详情可跳转对应 Genesis 运行。
+- [x] **Logs 深链**：失败 Genesis 运行一键跳转日志页并预填 `session_id`。
+- [x] **UsageStats 按 operation 分组**：全部 / bootstrap / smart_execute / 其他 四标签页。
+- [x] **Foreshadowing UX 改进**：`setup_scene_id` 改为场景下拉选择；Ledger 字段在可折叠高级区编辑。
+- [x] **前端循环依赖解耦**：`components ↔ stores ↔ hooks ↔ frontstage` 分层清晰化，新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*`；`appStore.ts` 不再从 `components/EditorSettings.tsx` import。
+- [x] **Tauri 循环依赖解耦**：`creative_engine ↔ llm` 与 `model_gateway ↔ router` 共享 trait 提取到 `ports/` / `domain/`，两对模块不再直接互相 import。
+- [x] **用户文档更新**：`docs/USER_GUIDE.md` 补全 L4 诊断页说明，修正过度承诺，与 v0.26.27 实现一致。
+- [x] **元文档同步**：`AGENTS.md`、`ROADMAP.md`、`TESTING.md`、`ARCHITECTURE.md`、`README.md` 版本与内容同步。
+
+### 📝 v0.26.26 Phase 2 — L2 资产补齐与领域层止血 ✅ (2026-07-07)
+
+- [x] **角色页编辑 + 关系 CRUD**：`Characters.tsx` 支持编辑 Genesis 产出角色；新增关系增删改 UI。
+- [x] **L2 创世溯源徽章**：Genesis 产出的资产（角色、场景、世界观等）显示「创世」来源标识，手动创建不显示。
+- [x] **Story System 合同播种状态卡**：展示 MASTER_SETTING + CHAPTER_1 合同播种状态；失败运行显示警告摘要。
+- [x] **Scenes 续写跳转幕前**：`ExecutionPanel` 主行动打开幕前写作界面。
+- [x] **拆分 StorySystem.tsx**：标签页拆分为独立组件；原文件 < 200 行，只做 tab 路由。
+- [x] **注入 repository traits 到 creative_engine**：`creative_engine/context_builder.rs` 通过 `db/traits.rs` 抽象依赖，领域代码不再直接 `use crate::db::repositories::*`。
+- [x] **拆分 db/repositories.rs**：新建 `db/repositories/*.rs`，每个 repo 独立文件，原文件仅做 re-export。
+
+### 📝 v0.26.25 Phase 1 — 可观测性与测试基线 ✅ (2026-07-07)
+
+- [x] **重构 GenesisPanel 步骤模型**：步骤与后端 Quick（2 步）+ Background（6 步）对齐；展示 `steps_json.errors`；支持跳转到 story / 幕前。
+- [x] **统一 L1 创作入口 UX**：`Dashboard.tsx`、`Stories.tsx` 与新增 `CreationPathGuide.tsx` 共同引导用户区分三条创作路径。
+- [x] **修复 Stories Wizard 重复建故事**：已有故事走 update 路径，避免重复创建。
+- [x] **仪表盘统计卡修正**：标签与口径一致；点击卡片可跳转对应页面。
+- [x] **高频后端模块首批特征测试**：为 `model_gateway/executor.rs`、`db/repositories.rs`、`memory/ingest.rs` 各补 happy path + 错误路径测试。
 
 ### 📝 v0.26.19 Genesis 流程审计与 Phase 2 优化 ✅ (2026-07-06)
 

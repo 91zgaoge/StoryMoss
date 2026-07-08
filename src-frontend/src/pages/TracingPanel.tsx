@@ -8,6 +8,8 @@ import {
   AlertCircle,
   ChevronRight,
   Layers,
+  BookOpen,
+  X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +21,7 @@ import {
   type GenerationTrace,
   type TraceStep,
 } from '@/services/api/tracing';
+import { useAppStore } from '@/stores/appStore';
 import toast from 'react-hot-toast';
 
 const tracingLogger = createLogger('ui:TracingPanel');
@@ -149,6 +152,11 @@ export function TracingPanel() {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const tracingFilter = useAppStore(s => s.tracingFilter);
+  const setTracingFilter = useAppStore(s => s.setTracingFilter);
+  const setSelectedGenesisSessionId = useAppStore(s => s.setSelectedGenesisSessionId);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
+
   const loadTraces = async () => {
     setLoading(true);
     try {
@@ -175,9 +183,31 @@ export function TracingPanel() {
     }
   };
 
+  const handleViewGenesisRun = (sessionId: string) => {
+    setSelectedGenesisSessionId(sessionId);
+    setCurrentView('dashboard');
+  };
+
   useEffect(() => {
     loadTraces();
   }, []);
+
+  // Apply deep-link filter from GenesisPanel
+  useEffect(() => {
+    if (!tracingFilter || traces.length === 0) return;
+
+    const match = traces.find(t =>
+      (tracingFilter.traceId && t.trace_id === tracingFilter.traceId) ||
+      (tracingFilter.sessionId && t.session_id === tracingFilter.sessionId)
+    );
+
+    if (match) {
+      selectTrace(match.trace_id);
+    }
+
+    // consume the filter so it doesn't re-apply on every render
+    setTracingFilter(null);
+  }, [traces, tracingFilter, setTracingFilter]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto h-full overflow-auto">
@@ -240,7 +270,20 @@ export function TracingPanel() {
                       <p className="text-xs text-red-400 mt-1">{selectedTrace.error_message}</p>
                     )}
                   </div>
-                  {detailLoading && <RefreshCw className="w-4 h-4 animate-spin text-gray-500" />}
+                  <div className="flex items-center gap-2">
+                    {selectedTrace.session_id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewGenesisRun(selectedTrace.session_id!)}
+                        className="text-cinema-gold hover:text-cinema-gold/80"
+                      >
+                        <BookOpen className="w-4 h-4 mr-1.5" />
+                        对应 Genesis 运行
+                      </Button>
+                    )}
+                    {detailLoading && <RefreshCw className="w-4 h-4 animate-spin text-gray-500" />}
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto pr-1">
                   {selectedTrace.user_input && (

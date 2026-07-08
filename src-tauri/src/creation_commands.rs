@@ -142,7 +142,13 @@ fn persist_wizard_elements_in_tx(
     let story_id = story.id.clone();
 
     let wb_repo = WorldBuildingRepository::new(pool.clone());
-    let wb = wb_repo.create_in_tx(tx, &story_id, &world_building.concept)?;
+    let wb = wb_repo.create_in_tx_with_source(
+        tx,
+        &story_id,
+        &world_building.concept,
+        Some("genesis"),
+        Some(true),
+    )?;
     let db_rules: Vec<crate::db::models::WorldRule> = world_building
         .rules
         .iter()
@@ -173,6 +179,8 @@ fn persist_wizard_elements_in_tx(
                 appearance: None,
                 gender: None,
                 age: None,
+                source: Some("genesis".to_string()),
+                is_auto_generated: Some(true),
             },
         )?;
         created_chars.push(char);
@@ -210,6 +218,8 @@ fn persist_wizard_elements_in_tx(
         previous_scene_id: None,
         next_scene_id: None,
         confidence_score: Some(0.8),
+        source: Some("genesis".to_string()),
+        is_auto_generated: Some(true),
         ..Default::default()
     };
     scene_repo.update_in_tx(tx, &scene.id, &scene_update)?;
@@ -346,13 +356,15 @@ pub async fn create_story_with_wizard(
             let mut saved_entities = 0usize;
             for entity in &ingest_result.entities {
                 kg_repo
-                    .create_entity_in_tx(
+                    .create_entity_in_tx_with_source(
                         &tx2,
                         &story_id_for_kg,
                         &entity.name,
                         &entity.entity_type.to_string(),
                         &entity.attributes,
                         entity.embedding.clone(),
+                        Some("genesis"),
+                        Some(true),
                     )
                     .map_err(|e| {
                         log::error!(

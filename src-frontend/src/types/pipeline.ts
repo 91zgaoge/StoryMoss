@@ -169,6 +169,7 @@ export interface LlmCall {
   error_message?: string;
   prompt_preview?: string;
   metadata?: string;
+  task_type?: string;
   created_at: string;
 }
 

@@ -1,11 +1,55 @@
-# StoryForge (草苔) v0.26.24 项目完成状态
+# StoryForge (草苔) v0.26.28 项目完成状态
 
-> 最后更新: 2026-07-07（v0.26.24 修复续写重复、截断与跨内容复述）
+> 最后更新: 2026-07-07（v0.26.28 Phase 4 架构债务与工程体验）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.28 — Phase 4 架构债务与工程体验（2026-07-07）
+
+- **知识图谱手动 CRUD UI**：Graph 页图例面板新增「新建实体」按钮；实体详情面板新增「添加关系」按钮，支持从当前故事已有实体中按名称搜索并建立关系。
+- **世界构建 AI 生成**：`WorldBuilding` 页新增「AI 生成」按钮与 `AiWorldBuildingModal`，基于当前故事调用 `generateWorldBuildingOptions` 一键生成世界观并回写。
+- **角色 AI 扩展**：`Characters` 页新增「AI 扩展」按钮与 modal，基于当前世界观调用 `generateCharacterProfiles`，选择角色组后批量 `createCharacter`。
+- **叙事分析图表**：`NarrativeAnalysis` 页新增 SVG `ReadingPowerChart` 折线/面积图，替代原有条形图展示追读力趋势。
+- **策略选择移入 Quick Phase**：`genesis.rs` 中 `StrategySelectionStep` 从 `background_steps()` 前移至 `quick_phase_steps()`，位于 `ConceptGenerationStep` 之后、`FirstChapterGenerationStep` 之前；同步更新所有步骤的 `step_number`/`total_steps`/`progress_percent` 与前后端测试契约。
+- **外部化 prompts**：`prompts/registry.rs` 中 95 个内置提示词迁移至 `resources/prompts/{category}/{id}.md`，运行时从 Tauri 资源目录加载；保留用户覆盖能力。
+- **迁移脚本拆分**：`db/connection.rs` 中 2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件；`MigrationRunner` 扩展 `RustMigration` trait，统一排序、过滤、执行 SQL 与 Rust 迁移。
+
+#### 下一 milestone 已识别项
+
+- 无
+
+- ✅ **验证**：`cargo test --lib` 672 passed；`cargo +nightly fmt -- --check` 通过；`npx vitest run` 210 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
+
+### v0.26.27 — L4 诊断互链、文档与依赖解耦（2026-07-07）
+
+- **诊断页互链**：GenesisPanel ↔ TracingPanel 双向跳转；Genesis 失败运行 → Logs 深链并预填 `session_id`。
+- **用量统计 operation 分组**：全部 / bootstrap / smart_execute / 其他 标签（启发式分组）。
+- **伏笔看板 UX**：`setup_scene_id` 场景下拉；可编辑 `target_start_scene` / `target_end_scene`。
+- **循环依赖解耦**：前端 `components ↔ stores ↔ hooks ↔ frontstage` 解耦；Tauri `creative_engine ↔ llm`、`model_gateway ↔ router` 解耦。
+- **文档补齐**：`USER_GUIDE.md` 补 L4 诊断页、修正过度承诺；元文档同步。
+- ✅ **验证**：`cargo test --lib` 672 passed；`cargo +nightly fmt -- --check` 通过；`npx vitest run` 210 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
+
+### v0.26.26 — L2 资产补齐与领域层止血（2026-07-07）
+
+- **角色编辑与关系 CRUD**：新增 `CharacterEditModal` / `CharacterRelationshipForm`；角色资料与关系 Tab 均可编辑/添加。
+- **L2 创世溯源徽章**：世界观、角色、场景、KG 实体显示「创世」徽章；后端写入时标记 `source` / `is_auto_generated`。
+- **Story System 合同播种状态卡**：Contracts Tab 显示 `MASTER_SETTING` + `CHAPTER_1` 合同状态；失败 run 显示错误摘要。
+- **Scenes 续写跳转幕前**：`ExecutionPanel` 主行动打开幕前窗口。
+- **StorySystem.tsx 拆分**：8 个独立标签组件，主文件 125 行。
+- **Repository 层 trait 化与拆分**：`db/repositories.rs` 拆分为模块文件；`creative_engine/context_builder.rs` 依赖 trait。
+- ✅ **验证**：`cargo test --lib` 672 passed；`npx vitest run` 210 passed；`architecture_guard.py` 通过。
+
+### v0.26.25 — Backstage Genesis 可观测性与测试基线（2026-07-07）
+
+- **GenesisPanel 动态步骤**：对齐后端 Quick(2) + Background(6)，展示非致命 `errors[]`，支持 story/幕前跳转。
+- **L1 创作路径引导**：Dashboard / Stories 新增 `CreationPathGuide`，消除三路径误判。
+- **Wizard 重复建故事修复**：已有故事走 update 资产路径，ID 不变。
+- **仪表盘统计卡可点击**：跳转 stories / characters / scenes。
+- **测试基线**：`genesisSteps.ts` 18 单测；`model_gateway/executor`、`db/repositories`、`memory/ingest` 首批特征测试。
+- ✅ **验证**：`cargo test --lib` 677 passed；`npx vitest run` 210 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
 
 ### v0.26.24 — 修复续写重复、截断与跨内容复述（5 项根因）（2026-07-07）
 

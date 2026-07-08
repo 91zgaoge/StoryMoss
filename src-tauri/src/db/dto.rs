@@ -25,6 +25,10 @@ pub struct CreateSceneRequest {
     pub characters_present: Vec<String>,
     pub setting_location: Option<String>,
     pub content: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub is_auto_generated: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -157,6 +161,10 @@ pub struct CreateCharacterRequest {
     pub appearance: Option<String>,
     pub gender: Option<String>,
     pub age: Option<i32>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub is_auto_generated: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

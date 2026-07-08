@@ -11,6 +11,7 @@ import {
   Users,
   Eye,
   FileText,
+  Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -202,9 +203,17 @@ export function StoryTimeline({
             {/* Scene content */}
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-medium text-white truncate">
-                  {scene.title || `场景 ${scene.sequence_number}`}
-                </h3>
+                <div className="flex items-center gap-2 min-w-0">
+                  <h3 className="font-medium text-white truncate">
+                    {scene.title || `场景 ${scene.sequence_number}`}
+                  </h3>
+                  {scene.is_auto_generated && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 shrink-0">
+                      <Star className="w-3 h-3" />
+                      创世
+                    </span>
+                  )}
+                </div>
 
                 {/* Execution stage badge */}
                 <span

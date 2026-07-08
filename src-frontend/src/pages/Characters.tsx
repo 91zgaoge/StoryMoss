@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useCharacters, useCreateCharacter, useDeleteCharacter } from '@/hooks/useCharacters';
 import { useCharacterRelationships } from '@/hooks/useCharacterRelationships';
+import { useWorldBuilding } from '@/hooks/useWorldBuilding';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { CharacterStatePanel } from '@/components/CharacterStatePanel';
-import { Users, Plus, Trash2, Heart, UserX, Link2 } from 'lucide-react';
-import type { CharacterRelationship } from '@/types/index';
+import { CharacterEditModal } from '@/components/CharacterEditModal';
+import { CharacterRelationshipForm } from '@/components/CharacterRelationshipForm';
+import { generateCharacterProfiles } from '@/services/api/wizard';
+import { Users, Plus, Trash2, Heart, UserX, Link2, Pencil, Star, Wand2, RefreshCw, X, Sparkles } from 'lucide-react';
+import type { Character, CharacterRelationship, WorldBuilding, WorldBuildingOption, CharacterProfileOption } from '@/types';
 
 type CharacterTab = 'info' | 'relationships';
 
@@ -47,7 +51,17 @@ export function Characters() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<CharacterTab>('info');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
+  const [relationshipFormOpen, setRelationshipFormOpen] = useState(false);
+  const [relationshipFormDefaultCharacterId, setRelationshipFormDefaultCharacterId] = useState<
+    string | null
+  >(null);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [characterSets, setCharacterSets] = useState<CharacterProfileOption[][]>([]);
+  const [selectedSetIndex, setSelectedSetIndex] = useState<number | null>(null);
 
+  const { data: worldBuilding } = useWorldBuilding(currentStory?.id || null);
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();
 
@@ -87,6 +101,49 @@ export function Characters() {
     }
   };
 
+  const handleOpenRelationshipForm = (defaultCharacterId?: string) => {
+    setRelationshipFormDefaultCharacterId(defaultCharacterId || null);
+    setRelationshipFormOpen(true);
+  };
+
+  const toWorldBuildingOption = (wb: WorldBuilding): WorldBuildingOption => ({
+    id: wb.id,
+    concept: wb.concept,
+    rules: wb.rules,
+    history: wb.history,
+    cultures: wb.cultures,
+  });
+
+  const handleGenerateCharacters = async () => {
+    if (!worldBuilding) return;
+    setAiGenerating(true);
+    try {
+      const option = toWorldBuildingOption(worldBuilding);
+      const sets = await generateCharacterProfiles(option);
+      setCharacterSets(sets);
+      setSelectedSetIndex(sets.length > 0 ? 0 : null);
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleApplyCharacterSet = () => {
+    if (selectedSetIndex === null || !currentStory) return;
+    const set = characterSets[selectedSetIndex];
+    set.forEach(profile => {
+      createCharacter.mutate({
+        story_id: currentStory.id,
+        name: profile.name,
+        personality: profile.personality,
+        background: profile.background,
+        goals: profile.goals,
+      });
+    });
+    setAiModalOpen(false);
+    setCharacterSets([]);
+    setSelectedSetIndex(null);
+  };
+
   const getCharacterRelationships = (charId: string) => {
     return relationships.filter(
       r => r.source_character_id === charId || r.target_character_id === charId
@@ -116,10 +173,16 @@ export function Characters() {
             {currentStory.title} - 共 {characters.length} 个角色
           </p>
         </div>
-        <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-          <Plus className="w-4 h-4" />
-          添加角色
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
+            <Wand2 className="w-4 h-4" />
+            AI 扩展
+          </Button>
+          <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+            <Plus className="w-4 h-4" />
+            添加角色
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -154,19 +217,37 @@ export function Characters() {
                     {char.name.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-lg font-semibold text-white truncate">
-                      {char.name}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-display text-lg font-semibold text-white truncate">
+                        {char.name}
+                      </h3>
+                      {char.is_auto_generated && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 shrink-0">
+                          <Star className="w-3 h-3" />
+                          创世
+                        </span>
+                      )}
+                    </div>
                     {char.personality && (
                       <p className="text-sm text-gray-400 mt-1 line-clamp-1">{char.personality}</p>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleDelete(char.id)}
-                    className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-red-400 transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditingCharacter(char)}
+                      className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-cinema-gold/20 text-cinema-gold transition-all"
+                      title="编辑"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(char.id)}
+                      className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-red-400 transition-all"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Detail fields */}
@@ -221,17 +302,42 @@ export function Characters() {
         </div>
       ) : (
         <div className="space-y-6">
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={() => handleOpenRelationshipForm()}>
+              <Plus className="w-4 h-4" />
+              添加关系
+            </Button>
+          </div>
+
           {characters.map(char => {
             const charRels = getCharacterRelationships(char.id);
             return (
               <Card key={char.id}>
                 <CardContent className="p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-cinema-velvet/20 flex items-center justify-center text-cinema-velvet font-display text-lg">
-                      {char.name.charAt(0)}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-cinema-velvet/20 flex items-center justify-center text-cinema-velvet font-display text-lg">
+                        {char.name.charAt(0)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-display text-lg font-semibold text-white">{char.name}</h3>
+                        {char.is_auto_generated && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
+                            <Star className="w-3 h-3" />
+                            创世
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">{charRels.length} 个关系</span>
                     </div>
-                    <h3 className="font-display text-lg font-semibold text-white">{char.name}</h3>
-                    <span className="text-xs text-gray-500">{charRels.length} 个关系</span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenRelationshipForm(char.id)}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      添加关系
+                    </Button>
                   </div>
 
                   {charRels.length > 0 ? (
@@ -344,6 +450,120 @@ export function Characters() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <CharacterEditModal
+        character={editingCharacter}
+        isOpen={!!editingCharacter}
+        onClose={() => setEditingCharacter(null)}
+      />
+
+      <CharacterRelationshipForm
+        storyId={currentStory.id}
+        characters={characters}
+        defaultCharacterId={relationshipFormDefaultCharacterId}
+        isOpen={relationshipFormOpen}
+        onClose={() => {
+          setRelationshipFormOpen(false);
+          setRelationshipFormDefaultCharacterId(null);
+        }}
+      />
+
+      {/* AI Expansion Modal */}
+      {aiModalOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <CardContent className="p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-xl font-bold text-white flex items-center gap-2">
+                  <Wand2 className="w-5 h-5 text-cinema-gold" />
+                  AI 扩展角色
+                </h2>
+                <button
+                  onClick={() => {
+                    setAiModalOpen(false);
+                    setCharacterSets([]);
+                    setSelectedSetIndex(null);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {!worldBuilding ? (
+                <div className="text-center py-8 text-gray-400">
+                  <p>请先在世界构建页初始化世界观，AI 需要基于世界观生成角色。</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-400">
+                      基于当前世界观生成若干角色组合，选择一套加入故事。
+                    </p>
+                    <Button
+                      variant="secondary"
+                      onClick={handleGenerateCharacters}
+                      isLoading={aiGenerating}
+                      disabled={aiGenerating}
+                    >
+                      {aiGenerating ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      生成角色组合
+                    </Button>
+                  </div>
+
+                  {characterSets.length > 0 && (
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-400">选择一组角色：</p>
+                      <div className="grid gap-3">
+                        {characterSets.map((set, setIdx) => (
+                          <div
+                            key={setIdx}
+                            onClick={() => setSelectedSetIndex(setIdx)}
+                            className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                              selectedSetIndex === setIdx
+                                ? 'border-cinema-gold bg-cinema-gold/10'
+                                : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-white">
+                                组合 {setIdx + 1}
+                              </span>
+                              <span className="text-xs text-gray-500">{set.length} 个角色</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {set.map(char => (
+                                <span
+                                  key={char.name}
+                                  className="text-xs px-2 py-1 rounded-full bg-cinema-900/80 text-gray-300 border border-cinema-700"
+                                >
+                                  {char.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        variant="primary"
+                        onClick={handleApplyCharacterSet}
+                        disabled={selectedSetIndex === null || createCharacter.isPending}
+                        className="w-full"
+                      >
+                        添加选中的角色组
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

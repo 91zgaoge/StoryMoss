@@ -1,11 +1,9 @@
 ---
 name: world-building
-description: >
-  高密度状态世界构建法（Low-Resource High-Density Worlding）。
-  源于90年代经典老游戏在极致资源约束下的结构智慧，专为小说创作设计。
-  用极少的元素，通过状态驱动、桥节点连接、事件回流与多功能重用，
-  构建出远大于实际篇幅的"活的世界"。
+description: 高密度状态世界构建法（少元素 × 状态驱动 × 桥节点 × 事件回流）。何时加载：要创作/续写小说、要设计世界观/角色/场景、要防止长篇崩盘与设定矛盾、要让 AI 严格遵循人设与状态、用户说“帮我构建世界/设定/角色/场景”“越写越懂”“防止吃书”“保持一致性”、或被问“怎么让世界更厚/更活”时。优先于通用写作方法论，作为世界构建底层架构。
 ---
+
+> 高密度状态世界构建法（Low-Resource High-Density Worlding）。源于 90 年代经典老游戏在极致资源约束下的结构智慧，专为小说创作设计。用极少的元素，通过状态驱动、桥节点连接、事件回流与多功能重用，构建出远大于实际篇幅的"活的世界"。
 
 # 高密度状态世界构建法
 
@@ -110,3 +108,30 @@ description: >
 4. 在每一次输出中强化世界自主感
 
 此 Skill 可与其他写作方法论（三幕结构、角色弧光、主题深化等）无缝结合，作为世界构建层的底层架构使用。
+
+---
+
+## StoryForge 落地补充：本代码库如何实现这些概念
+
+调用本技能给创作建议时，可指向 StoryForge 已有的实现，让建议可执行而非空谈。
+
+- **状态系统（State Vector）** → `canonical_state/` 维护规范状态；`memory_items`（category=`state`）由 `StateProjectionWriter` 在 `SceneCommitService::auto_commit` 时投影；`SceneCommit.state_deltas_json` 记录状态增量。建议“维护状态向量”时指向这些表。
+- **桥节点（Bridge Nodes）** → 知识图谱 `kg_entities` + `kg_relations`（带 `strength` 0-1，动态计算）；`IngestPipeline` 两步思维链提取实体/关系/事件。建议“设计 5-12 桥节点”时，对应在 KG 里高连接度实体。
+- **事件回流（Convergence Loops）** → `PayoffDetector` 检测逾期伏笔，`DebtManager` 债务追踪（每日 5% 计息）；伏笔看板四态（已埋下/已回收/待回收/废弃）。建议“每 3-5 章回流”时指向伏笔回收机制。
+- **元素多功能重用** → `GenreProfile` 反模式清单 + 体裁模板五要素；`ContextPrioritizer` 把世界设定归为 Normal 类上下文。建议“每个元素 ≥3 功能”时可注入到体裁反模式与合同。
+- **合同即物理** → Story System 四级合同（`MASTER_SETTING→Volume→Chapter→Review`）+ `RuntimeContract` 动态合并；防幻觉三定律。建议“世界规则不可违背”时指向合同红线（Critical 类，双重锚定）。
+- **记忆衰减** → 艾宾浩斯 `R(t)=R₀·e^(-λt)+Σ强化`，λ 架构级 0.01/默认 0.05/瞬态 0.1；五级优先级。建议“状态变化优先展示”时指向 `MemoryOrchestrator` Working/Episodic/Semantic 预算。
+
+架构不变量与禁忌见 `sf-architecture-contract`；领域理论细节见 `sf-reference`。
+
+## 何时 NOT 用本技能
+
+- 改代码/修 bug → `sf-debugging-playbook` / `sf-architecture-contract`。
+- 本项目如何实现这些概念（数据落点）→ 见上方「StoryForge 落地补充」。
+- 纯文笔润色（非世界/设定/角色层）→ 不需要本技能。
+
+## 出处与维护
+
+- 重验证命令：`rg -n 'canonical_state|kg_entities|kg_relations|memory_items|PayoffDetector|DebtManager|MemoryOrchestrator|ContextPrioritizer' src-tauri/src | head`
+- 易漂移项：状态/记忆表结构、合同层级、体裁模板字段。
+- 最后核对：2026-07-07，v0.26.23。

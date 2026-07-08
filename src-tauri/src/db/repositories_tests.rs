@@ -161,6 +161,9 @@ mod tests {
             appearance: None,
             gender: None,
             age: None,
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = char_repo.create(char_req).unwrap();
         assert_eq!(character.name, "张三");
@@ -198,6 +201,9 @@ mod tests {
             appearance: None,
             gender: None,
             age: None,
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -232,6 +238,9 @@ mod tests {
             appearance: None,
             gender: None,
             age: None,
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -283,6 +292,9 @@ mod tests {
             appearance: None,
             gender: None,
             age: None,
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -627,6 +639,9 @@ mod tests {
             draft_content: None,
             style_blend_override: None,
             foreshadowing_ids: None,
+
+            source: None,
+            is_auto_generated: None,
         };
 
         let count = scene_repo.update(&scene.id, &updates).unwrap();

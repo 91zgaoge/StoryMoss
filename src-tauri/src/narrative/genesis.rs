@@ -314,19 +314,22 @@ fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
 pub struct GenesisPipeline;
 
 impl GenesisPipeline {
-    /// 快速阶段：故事概念 + 第一章正文，目标 30-60 秒返回给用户
+    /// 快速阶段：故事概念 → 策略选择 → 第一章正文，目标 30-90 秒返回给用户
+    /// v0.26.28 Phase 4: 策略选择从后台阶段前移至快速阶段，使 FirstChapter
+    /// 能使用 `ctx.selected_strategy` 注入体裁画像/方法论/风格 DNA。
     pub fn quick_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
             Box::new(ConceptGenerationStep),
+            Box::new(StrategySelectionStep),
             Box::new(FirstChapterGenerationStep),
         ]
     }
 
-    /// 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
-    /// v0.23.14: FirstChapterGenerationStep 已移至快速阶段，后台不再包含。
+    /// 后台阶段：世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
+    /// v0.23.14: FirstChapterGenerationStep 已移至快速阶段。
+    /// v0.26.28 Phase 4: StrategySelectionStep 已前移至快速阶段。
     pub fn background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
-            Box::new(StrategySelectionStep),
             Box::new(ParallelWorldOutlineCharacterStep),
             Box::new(SceneGenerationStep),
             Box::new(ForeshadowingGenerationStep),
@@ -364,7 +367,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Running,
                 message: "正在调用AI生成故事概念...".to_string(),
                 progress_percent: 10,
@@ -396,7 +399,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 Some(&ctx.pool),
             );
             let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 3, "生成故事概念");
             let request = RoutingRequest {
                 task: TaskType::WorldBuilding,
                 complexity: Complexity::Medium,
@@ -582,10 +585,10 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Completed,
                 message: format!("故事概念已生成：《{}", title),
-                progress_percent: 50,
+                progress_percent: 40,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -623,10 +626,10 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Running,
                 message: "正在为故事匹配最优创作策略...".to_string(),
-                progress_percent: 55,
+                progress_percent: 45,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -707,10 +710,10 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Completed,
                 message: format!("已选择创作策略：{}", strategy_summary),
-                progress_percent: 60,
+                progress_percent: 55,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -759,7 +762,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Running,
                 message: "正在构建写作指令...".to_string(),
                 progress_percent: 60,
@@ -905,7 +908,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Running,
                 message: "AI正在撰写第一章...".to_string(),
                 progress_percent: 75,
@@ -1274,7 +1277,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 2,
+                total_steps: 3,
                 status: StepStatus::Completed,
                 message: format!("第一章已完成！{}字", content_len),
                 progress_percent: 100,
@@ -1416,7 +1419,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在构建世界观、大纲与角色...".to_string(),
                 progress_percent: 5,
@@ -1450,7 +1453,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "构建世界".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Running,
                         message: "正在调用AI生成世界观...".to_string(),
                         progress_percent: 5,
@@ -1470,7 +1473,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "构建世界".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         action: "生成世界观设定".to_string(),
                     };
                     let request = RoutingRequest {
@@ -1501,7 +1504,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
 
                     let repo = WorldBuildingRepository::new(pool.clone());
                     let world_building = repo
-                        .create(&story_id, &wb.concept)
+                        .create_with_source(&story_id, &wb.concept, Some("genesis"), Some(true))
                         .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
                     let rules: Vec<crate::db::models::WorldRule> = wb
@@ -1552,7 +1555,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "构建世界".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Completed,
                         message: "世界观设定已生成".to_string(),
                         progress_percent: 15,
@@ -1580,7 +1583,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "故事大纲".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Running,
                         message: "正在调用AI设计故事大纲...".to_string(),
                         progress_percent: 20,
@@ -1600,7 +1603,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "故事大纲".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         action: "生成故事大纲".to_string(),
                     };
                     let request = RoutingRequest {
@@ -1661,7 +1664,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "故事大纲".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Completed,
                         message: "故事大纲已生成".to_string(),
                         progress_percent: 30,
@@ -1698,7 +1701,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "塑造角色".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Running,
                         message: "正在调用AI设计角色...".to_string(),
                         progress_percent: 35,
@@ -1722,7 +1725,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "塑造角色".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         action: "生成角色".to_string(),
                     };
                     let request = RoutingRequest {
@@ -1776,6 +1779,8 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                                 appearance: Some(c.appearance.clone()),
                                 gender: Some(c.gender.clone()),
                                 age: Some(c.age),
+                                source: Some("genesis".to_string()),
+                                is_auto_generated: Some(true),
                             })
                             .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
@@ -1824,7 +1829,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         pipeline_type: PipelineType::Genesis,
                         step_name: "塑造角色".to_string(),
                         step_number: 1,
-                        total_steps: 4,
+                        total_steps: 5,
                         status: StepStatus::Completed,
                         message: format!("已生成 {} 个角色", count),
                         progress_percent: 50,
@@ -1868,7 +1873,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: "世界观、大纲与角色已生成".to_string(),
                 progress_percent: 50,
@@ -1929,7 +1934,7 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在调用AI设计场景...".to_string(),
                 progress_percent: 60,
@@ -2041,6 +2046,8 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                     draft_content: None,
                     style_blend_override: None,
                     foreshadowing_ids: None,
+                    source: Some("genesis".to_string()),
+                    is_auto_generated: Some(true),
                 };
                 if let Err(e) = repo.update(&scene.id, &updates) {
                     // v0.26.19 Phase 2.2: 场景戏剧字段更新失败不阻断流水线，
@@ -2071,7 +2078,7 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: format!("已生成 {} 个场景", count),
                 progress_percent: 70,
@@ -2138,7 +2145,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在埋设伏笔...".to_string(),
                 progress_percent: 80,
@@ -2223,7 +2230,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: format!("已埋设 {} 处伏笔", count),
                 progress_percent: 85,
@@ -2264,7 +2271,7 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在构建知识图谱...".to_string(),
                 progress_percent: 95,
@@ -2284,7 +2291,15 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
             for c in &characters {
                 let attrs = serde_json::json!({"role": c.role_type, "personality": c.personality});
                 let entity = kg_repo
-                    .create_entity(&ctx.story_id, &c.name, "Character", &attrs, None)
+                    .create_entity_with_source(
+                        &ctx.story_id,
+                        &c.name,
+                        "Character",
+                        &attrs,
+                        None,
+                        Some("genesis"),
+                        Some(true),
+                    )
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
                 entity_id_map.insert(format!("char:{}", c.id), entity.id);
             }
@@ -2294,7 +2309,15 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                 let attrs =
                     serde_json::json!({"sequence_number": s.sequence_number, "summary": s.summary});
                 let entity = kg_repo
-                    .create_entity(&ctx.story_id, &s.title, "Event", &attrs, None)
+                    .create_entity_with_source(
+                        &ctx.story_id,
+                        &s.title,
+                        "Event",
+                        &attrs,
+                        None,
+                        Some("genesis"),
+                        Some(true),
+                    )
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
                 entity_id_map.insert(format!("scene:{}", s.id), entity.id);
             }
@@ -2332,7 +2355,7 @@ impl PipelineStep<GenesisContext> for KnowledgeGraphGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: "知识图谱已构建".to_string(),
                 progress_percent: 100,
@@ -2373,7 +2396,7 @@ impl PipelineStep<GenesisContext> for ContractSeedingStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在为故事建立合同真源...".to_string(),
                 progress_percent: 95,
@@ -2396,7 +2419,7 @@ impl PipelineStep<GenesisContext> for ContractSeedingStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: "故事合同已建立".to_string(),
                 progress_percent: 100,
@@ -2553,7 +2576,7 @@ mod contract_seeding_tests {
         let steps = GenesisPipeline::background_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
         assert!(names.contains(&"播种故事合同"));
-        assert_eq!(names.len(), 6);
+        assert_eq!(names.len(), 5);
     }
 }
 
@@ -2594,14 +2617,15 @@ mod world_character_order_tests {
         assert!(concept.is_empty());
     }
 
-    // v0.26.19 P0-2 契约：quick_phase_steps 必须保持「概念 → 撰写开篇」两步，
-    // 策略选择仍在后台（暂缓迁移，见 ROADMAP 债务清单）。
+    // v0.26.28 Phase 4 契约：quick_phase_steps 为「概念 → 策略选择 →
+    // 撰写开篇」三步， 策略选择已前移至快速阶段，使 FirstChapter 可消费
+    // `ctx.selected_strategy`。
     #[test]
     fn quick_phase_steps_remain_concept_then_first_chapter() {
         let steps = GenesisPipeline::quick_phase_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
-        assert_eq!(names, vec!["构思故事", "撰写开篇"]);
-        assert_eq!(names.len(), 2);
+        assert_eq!(names, vec!["构思故事", "选择创作策略", "撰写开篇"]);
+        assert_eq!(names.len(), 3);
     }
 }
 
@@ -2748,17 +2772,15 @@ mod first_chapter_retry_gate_tests {
 mod background_steps_order_tests {
     use super::*;
 
-    // v0.26.19 Phase 3.1 契约：background_steps 必须保持 6 步且顺序固定，
-    //   策略选择居首（world/outline/character
-    // 依赖），合同播种居末（依赖前面所有产出）。   此契约守护 Phase 2.1
-    // 暂缓决策——若未来策略移入 quick phase，   此测试需同步更新。
+    // v0.26.28 Phase 4 契约：background_steps 为 5 步且顺序固定，
+    // 策略选择已前移至 quick phase；合同播种仍居末（依赖前面所有产出）。
     #[test]
-    fn background_steps_keep_six_in_fixed_order() {
+    fn background_steps_keep_five_in_fixed_order() {
         let steps = GenesisPipeline::background_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
-        assert_eq!(names.len(), 6);
-        assert_eq!(names[0], "选择创作策略");
-        assert_eq!(names[1], "构建世界与骨架");
-        assert_eq!(names[5], "播种故事合同");
+        assert_eq!(names.len(), 5);
+        assert_eq!(names[0], "构建世界与骨架");
+        assert_eq!(names[1], "场景规划");
+        assert_eq!(names[4], "播种故事合同");
     }
 }

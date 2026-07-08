@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import { subscribeNetworkStatus, type NetworkStatus } from '@/hooks/useNetworkStatus';
+import { subscribeNetworkStatus, type NetworkStatus } from '@/stores/contracts/network';
 
 interface NetworkState extends NetworkStatus {
   /** 是否处于离线模式 */

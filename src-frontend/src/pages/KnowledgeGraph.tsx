@@ -577,7 +577,14 @@ export const KnowledgeGraph: React.FC = () => {
             <KnowledgeGraphView
               entities={graphData.entities}
               relations={graphData.relations}
+              storyId={currentStory?.id}
               onEntityUpdate={() => {
+                loadData();
+              }}
+              onEntityCreate={() => {
+                loadData();
+              }}
+              onRelationCreate={() => {
                 loadData();
               }}
             />

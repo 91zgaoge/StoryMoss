@@ -130,6 +130,9 @@ fn test_create_snapshot_with_characters() {
             appearance: None,
             gender: None,
             age: None,
+
+            source: None,
+            is_auto_generated: None,
         })
         .unwrap();
 

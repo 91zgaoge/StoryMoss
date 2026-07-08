@@ -434,6 +434,9 @@ impl CreationWorkflowEngine {
                                     appearance: None,
                                     gender: None,
                                     age: None,
+
+                                    source: None,
+                                    is_auto_generated: None,
                                 })
                                 .map(|_| ())
                         } else {
@@ -1048,6 +1051,9 @@ impl CreationWorkflowEngine {
                             appearance: None,
                             gender: None,
                             age: None,
+
+                            source: None,
+                            is_auto_generated: None,
                         });
                     }
                     log::info!(

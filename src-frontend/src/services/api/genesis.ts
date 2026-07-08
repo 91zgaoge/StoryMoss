@@ -103,6 +103,8 @@ export interface GenesisRun {
   id: string;
   story_id?: string;
   session_id: string;
+  /** 关联的生成链路 trace_id（后端可选返回） */
+  trace_id?: string;
   premise: string;
   status: string;
   current_step?: string;

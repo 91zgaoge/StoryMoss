@@ -38,6 +38,9 @@ mod cascade_delete_tests {
             appearance: Some("Tall and strong".to_string()),
             gender: Some("Male".to_string()),
             age: Some(25),
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = character_repo.create(character_request)?;
 
@@ -103,6 +106,9 @@ mod cascade_delete_tests {
             appearance: Some("Tall".to_string()),
             gender: Some("Male".to_string()),
             age: Some(25),
+
+            source: None,
+            is_auto_generated: None,
         };
         let character = character_repo.create(character_request)?;
 
@@ -202,6 +208,9 @@ mod cascade_delete_tests {
             appearance: Some("Strong".to_string()),
             gender: Some("Male".to_string()),
             age: Some(30),
+
+            source: None,
+            is_auto_generated: None,
         };
         let character1 = character_repo.create(char1_request)?;
 
@@ -214,6 +223,9 @@ mod cascade_delete_tests {
             appearance: Some("Tall".to_string()),
             gender: Some("Female".to_string()),
             age: Some(25),
+
+            source: None,
+            is_auto_generated: None,
         };
         let character2 = character_repo.create(char2_request)?;
 

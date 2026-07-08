@@ -42,6 +42,9 @@ pub fn create_character(
             appearance,
             gender,
             age,
+
+            source: None,
+            is_auto_generated: None,
         })
         .map_err(AppError::from)?;
 

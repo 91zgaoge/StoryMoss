@@ -86,6 +86,9 @@ export interface Character {
   cs_recent_events?: string;
   cs_updated_at_chapter?: number;
   cs_json?: string;
+  // v7.0.0: 溯源字段
+  source?: string;
+  is_auto_generated?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -878,6 +878,9 @@ impl AutoContractBuilder {
                 appearance,
                 gender,
                 age,
+
+                source: None,
+                is_auto_generated: None,
             })
             .map_err(|e| format!("保存角色失败: {}", e))?;
 

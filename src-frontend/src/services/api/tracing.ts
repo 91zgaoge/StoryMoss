@@ -18,6 +18,7 @@ export interface TraceStep {
 export interface GenerationTrace {
   trace_id: string;
   request_id?: string;
+  session_id?: string;
   story_id?: string;
   user_input?: string;
   created_at: string;

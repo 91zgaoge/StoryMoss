@@ -15,31 +15,14 @@ import { cn } from '@/utils/cn';
 import { createLogger } from '@/utils/logger';
 import { useAppStore } from '@/stores/appStore';
 import {
-  WritingStyle,
   WritingStyleId,
   styleList,
   defaultStyle,
 } from '@/frontstage/config/writingStyles';
+import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
+import type { EditorConfig, CustomFont } from '@/types/editor';
 
 const editorSettingsLogger = createLogger('ui:EditorSettings');
-import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
-
-// 编辑器配置接口
-export interface EditorConfig {
-  styleId: WritingStyleId;
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  customFonts: CustomFont[];
-}
-
-export interface CustomFont {
-  id: string;
-  name: string;
-  family: string;
-  source: 'system' | 'google' | 'custom';
-  url?: string;
-}
 
 // 预设字体列表
 const PRESET_FONTS: CustomFont[] = [

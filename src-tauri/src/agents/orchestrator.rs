@@ -1298,6 +1298,9 @@ impl AgentOrchestrator {
                     appearance: None,
                     gender: None,
                     age: None,
+
+                    source: None,
+                    is_auto_generated: None,
                 };
                 match char_repo.create(req) {
                     Ok(_) => {

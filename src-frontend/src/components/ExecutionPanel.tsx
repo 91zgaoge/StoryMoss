@@ -23,6 +23,7 @@ import {
   type NarrativePhase,
 } from '@/hooks/useExecutionState';
 import { useAppStore } from '@/stores/appStore';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 interface ExecutionPanelProps {
@@ -95,7 +96,7 @@ export function ExecutionPanel({
 
   const primaryAction = resolvePrimaryAction(state);
 
-  const handlePrimaryAction = () => {
+  const handlePrimaryAction = async () => {
     switch (primaryAction.action) {
       case 'open_payoff_ledger':
         setCurrentView('foreshadowing');
@@ -110,8 +111,12 @@ export function ExecutionPanel({
         break;
       case 'continue_writing':
       case 'continue_next_chapter':
-        setCurrentView('scenes');
-        toast('请选择一个场景开始续写', { icon: '✍️' });
+        try {
+          await loggedInvoke<unknown>('show_frontstage');
+          toast.success('幕前写作界面已打开');
+        } catch {
+          toast.error('无法打开幕前界面');
+        }
         break;
       default:
         break;
