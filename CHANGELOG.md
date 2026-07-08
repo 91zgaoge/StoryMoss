@@ -2,6 +2,35 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.32] - 完成阶段一剩余项：L1 创作入口、仪表盘统计卡、memory/ingest 测试（2026-07-08）
+
+### 新增
+
+- **L1 创作入口 UX 统一**：Dashboard / Stories 的 `CreationPathGuide` 由纯展示变为可点击，三张卡片分别进入幕前 Genesis、AI 向导、快速创作流程。
+  - `CreationPathGuide` 新增 `onFrontstage` / `onWizard` / `onQuick` 回调，卡片可点击并带 hover 反馈。
+  - Dashboard 首页主按钮“AI 创建故事”改为进入推荐的幕前 Genesis 流程（`show_frontstage`），与“推荐”标签一致。
+  - Stories 页面向导卡片支持创建新故事（放宽 `isWizardOpen && wizardStory` 渲染条件）。
+  - 新增 `CreationPathGuide.test.tsx`（5 条测试）与 `Dashboard.test.tsx` 相关用例。
+
+- **仪表盘统计卡修正**：
+  - 将“章节”改为“场景”，与跳转目标 `scenes` 视图一致。
+  - 新增“字数”统计卡，显示所有故事 `word_count` 总和，点击跳转到场景视图。
+  - 统计值优先使用 `useStories` 查询结果，避免 Zustand store 滞后。
+  - `Story` 类型新增可选 `word_count` 字段。
+
+- **`memory/ingest` 首批特征测试**：
+  - 新增 5 条单元测试覆盖 `extract_json`（markdown 代码块解析、无法解析输入）、`build_event_chain`（事件排序与因果链）、`get_recent_jobs`（DESC 排序与空结果）。
+  - 测试使用内存 SQLite pool，不依赖外部 LLM 调用。
+
+### 验证
+
+- `cargo test --lib`：682 passed ✅
+- `cargo +nightly fmt -- --check`：✅
+- `cargo clippy --lib`：✅（仅既有 warning）
+- `npx vitest run`：222 passed / 3 skipped ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
 ## [v0.26.31] - 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema（2026-07-08）
 
 ### 修复

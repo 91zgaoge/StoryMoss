@@ -1647,3 +1647,112 @@ impl Default for IngestBatch {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    #[test]
+    fn test_extract_json_from_markdown_code_block() {
+        let content = "```json\n{\"title\": \"test\", \"genre\": \"科幻\"}\n```\n";
+        let result = extract_json(content).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["title"], "test");
+        assert_eq!(parsed["genre"], "科幻");
+    }
+
+    #[test]
+    fn test_extract_json_returns_error_for_unparseable_input() {
+        let content = "没有 JSON 的纯文本";
+        let result = extract_json(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_event_chain_orders_events_and_links_causally() {
+        let mut events = vec![
+            NarrativeEvent {
+                id: "climax".to_string(),
+                event_type: EventType::Climax,
+                ..Default::default()
+            },
+            NarrativeEvent {
+                id: "intro".to_string(),
+                event_type: EventType::Introduction,
+                ..Default::default()
+            },
+            NarrativeEvent {
+                id: "turning".to_string(),
+                event_type: EventType::TurningPoint,
+                ..Default::default()
+            },
+        ];
+
+        IngestPipeline::build_event_chain(&mut events);
+
+        assert_eq!(events[0].event_type, EventType::Introduction);
+        assert_eq!(events[1].event_type, EventType::TurningPoint);
+        assert_eq!(events[2].event_type, EventType::Climax);
+        assert_eq!(events[0].following_event_id, Some("turning".to_string()));
+        assert_eq!(events[1].preceding_event_id, Some("intro".to_string()));
+        assert_eq!(events[1].following_event_id, Some("climax".to_string()));
+        assert_eq!(events[2].preceding_event_id, Some("turning".to_string()));
+    }
+
+    #[test]
+    fn test_get_recent_jobs_returns_inserted_jobs_in_descending_order() {
+        let pool = create_test_pool().unwrap();
+        let story_id = "story_1";
+        let conn = pool.get().unwrap();
+
+        conn.execute(
+            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, \
+             created_at) VALUES (?1, ?2, 'chapter', NULL, 'pending', ?3)",
+            rusqlite::params!["job_1", story_id, "2026-07-08T10:00:00Z"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, \
+             created_at, completed_at) VALUES (?1, ?2, 'scene', 'scene_1', 'completed', ?3, ?4)",
+            rusqlite::params![
+                "job_2",
+                story_id,
+                "2026-07-08T10:05:00Z",
+                "2026-07-08T10:06:00Z"
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, \
+             created_at, completed_at, error_message) VALUES (?1, ?2, 'scene', 'scene_2', 'failed', \
+             ?3, ?4, ?5)",
+            rusqlite::params![
+                "job_3",
+                story_id,
+                "2026-07-08T10:10:00Z",
+                "2026-07-08T10:11:00Z",
+                "timeout"
+            ],
+        )
+        .unwrap();
+
+        let jobs = IngestPipeline::get_recent_jobs(story_id, 10, &pool).unwrap();
+        assert_eq!(jobs.len(), 3);
+        assert_eq!(jobs[0].id, "job_3");
+        assert_eq!(jobs[0].status, "failed");
+        assert_eq!(jobs[0].error_message, Some("timeout".to_string()));
+        assert_eq!(jobs[0].resource_id, Some("scene_2".to_string()));
+        assert_eq!(jobs[1].id, "job_2");
+        assert_eq!(jobs[1].status, "completed");
+        assert_eq!(jobs[2].id, "job_1");
+        assert_eq!(jobs[2].status, "pending");
+    }
+
+    #[test]
+    fn test_get_recent_jobs_returns_empty_for_unknown_story() {
+        let pool = create_test_pool().unwrap();
+        let jobs = IngestPipeline::get_recent_jobs("nonexistent_story", 10, &pool).unwrap();
+        assert!(jobs.is_empty());
+    }
+}

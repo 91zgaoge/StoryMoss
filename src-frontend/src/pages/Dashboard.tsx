@@ -8,12 +8,13 @@ import {
   Clock,
   FolderOpen,
   Activity,
+  Type,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory } from '@/hooks/useStories';
-import { createStoryWithWizard } from '@/services/tauri';
+import { createStoryWithWizard, loggedInvoke } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { GenesisPanel } from '@/components/GenesisPanel';
 import { CreationPathGuide } from '@/components/CreationPathGuide';
@@ -57,14 +58,18 @@ export function Dashboard() {
     setCurrentUser({ id: userId, name: userName });
   }, [setCurrentUser]);
 
-  // Calculate total characters and chapters across all stories
-  const totalCharacters = stories.reduce((sum, s) => sum + (s.character_count || 0), 0);
-  const totalChapters = stories.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
+  // Prefer fetched stories for stats to avoid store lag
+  const statsSource = fetchedStories.length > 0 ? fetchedStories : stories;
+
+  // Calculate totals across all stories
+  const totalCharacters = statsSource.reduce((sum, s) => sum + (s.character_count || 0), 0);
+  const totalScenes = statsSource.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
+  const totalWordCount = statsSource.reduce((sum, s) => sum + (s.word_count || 0), 0);
 
   const stats = [
     {
       label: '故事',
-      value: stories.length,
+      value: statsSource.length,
       icon: BookOpen,
       color: 'text-cinema-gold',
       view: 'stories' as const,
@@ -77,10 +82,17 @@ export function Dashboard() {
       view: 'characters' as const,
     },
     {
-      label: '章节',
-      value: totalChapters,
+      label: '场景',
+      value: totalScenes,
       icon: FileText,
       color: 'text-blue-400',
+      view: 'scenes' as const,
+    },
+    {
+      label: '字数',
+      value: totalWordCount,
+      icon: Type,
+      color: 'text-green-400',
       view: 'scenes' as const,
     },
   ];
@@ -152,7 +164,17 @@ export function Dashboard() {
     setCurrentView('scenes');
   };
 
-  const recentStories = [...stories]
+  const handleOpenFrontstage = async () => {
+    try {
+      await loggedInvoke<unknown>('show_frontstage');
+      toast.success('幕前写作界面已打开');
+    } catch (error) {
+      dashboardLogger.error('Failed to open frontstage', { error });
+      toast.error('打开幕前失败');
+    }
+  };
+
+  const recentStories = [...statsSource]
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 3);
 
@@ -168,7 +190,7 @@ export function Dashboard() {
             "每一个伟大的故事，都始于一个勇敢的开始。"
           </p>
           <div className="mt-6 flex gap-4">
-            <Button variant="primary" className="gap-2" onClick={() => setIsWizardOpen(true)}>
+            <Button variant="primary" className="gap-2" onClick={handleOpenFrontstage}>
               <Sparkles className="w-4 h-4" />
               AI 创建故事
             </Button>
@@ -186,10 +208,14 @@ export function Dashboard() {
       </div>
 
       {/* Creation Path Guide */}
-      <CreationPathGuide />
+      <CreationPathGuide
+        onFrontstage={handleOpenFrontstage}
+        onWizard={() => setIsWizardOpen(true)}
+        onQuick={() => setIsModalOpen(true)}
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map(stat => {
           const Icon = stat.icon;
           return (
@@ -261,7 +287,7 @@ export function Dashboard() {
                       </h3>
                       <p className="text-sm text-gray-500 mt-1">
                         {story.genre || '未分类'} · {story.chapter_count || 0} 章
-                        {(story as any).word_count > 0 && ` · ${(story as any).word_count} 字`}
+                        {story.word_count ? ` · ${story.word_count} 字` : ''}
                       </p>
                       <p className="text-xs text-gray-600 mt-2">
                         更新于 {formatDate(story.updated_at)}
@@ -286,7 +312,7 @@ export function Dashboard() {
               辅助写作。
             </p>
             <div className="flex justify-center gap-4">
-              <Button variant="primary" onClick={() => setIsWizardOpen(true)}>
+              <Button variant="primary" onClick={handleOpenFrontstage}>
                 <Sparkles className="w-4 h-4 mr-2" />
                 AI 创建第一个故事
               </Button>

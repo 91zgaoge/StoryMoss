@@ -10,6 +10,12 @@ interface PathItem {
   badge?: string;
 }
 
+interface CreationPathGuideProps {
+  onFrontstage?: () => void;
+  onWizard?: () => void;
+  onQuick?: () => void;
+}
+
 const paths: PathItem[] = [
   {
     id: 'frontstage',
@@ -38,13 +44,30 @@ const paths: PathItem[] = [
   },
 ];
 
-export function CreationPathGuide() {
+const callbackMap: Record<string, keyof CreationPathGuideProps> = {
+  frontstage: 'onFrontstage',
+  wizard: 'onWizard',
+  quick: 'onQuick',
+};
+
+export function CreationPathGuide({ onFrontstage, onWizard, onQuick }: CreationPathGuideProps) {
+  const callbacks = { onFrontstage, onWizard, onQuick };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {paths.map(path => {
         const Icon = path.icon;
+        const callbackName = callbackMap[path.id];
+        const callback = callbackName ? callbacks[callbackName] : undefined;
         return (
-          <Card key={path.id} className="bg-cinema-800/50 border-cinema-700">
+          <Card
+            key={path.id}
+            hover
+            className={`bg-cinema-800/50 border-cinema-700 ${callback ? 'cursor-pointer' : ''}`}
+            onClick={callback}
+            role={callback ? 'button' : undefined}
+            aria-label={callback ? path.title : undefined}
+          >
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg bg-cinema-900 text-cinema-gold">

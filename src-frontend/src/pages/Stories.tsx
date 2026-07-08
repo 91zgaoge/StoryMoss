@@ -43,14 +43,18 @@ import {
   analyzeStyleSample,
   getStoryStyleBlend,
   setStoryStyleBlend,
+  loggedInvoke,
 } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { CreationPathGuide } from '@/components/CreationPathGuide';
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
 import { applyWizardToStory } from '@/utils/applyWizardToStory';
+import { createLogger } from '@/utils/logger';
 import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAiOperations, useRollbackOperation } from '@/hooks/useAiOperations';
+
+const storiesLogger = createLogger('ui:Stories');
 
 function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }) {
   const { data: outline } = useStoryOutline(storyId);
@@ -440,6 +444,16 @@ export function Stories() {
     );
   };
 
+  const handleOpenFrontstage = async () => {
+    try {
+      await loggedInvoke<unknown>('show_frontstage');
+      toast.success('幕前写作界面已打开');
+    } catch (error) {
+      storiesLogger.error('Failed to open frontstage', { error });
+      toast.error('打开幕前失败');
+    }
+  };
+
   const handleEditCancel = () => {
     setEditingStory(null);
     setEditForm({
@@ -614,7 +628,14 @@ export function Stories() {
       )}
 
       {/* L1 Creation Path Guidance */}
-      <CreationPathGuide />
+      <CreationPathGuide
+        onFrontstage={handleOpenFrontstage}
+        onWizard={() => {
+          setWizardStory(null);
+          setIsWizardOpen(true);
+        }}
+        onQuick={() => setIsModalOpen(true)}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {stories.map(story => {
@@ -1245,7 +1266,7 @@ export function Stories() {
       )}
 
       {/* Novel Creation Wizard Modal */}
-      {isWizardOpen && wizardStory && (
+      {isWizardOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in overflow-y-auto py-8">
           <Card className="w-full max-w-3xl mx-4 animate-slide-up my-auto">
             <CardContent className="p-8">
