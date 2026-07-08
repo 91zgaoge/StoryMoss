@@ -773,3 +773,70 @@ fn get_genre_recommendations(genre_hint: &str) -> String {
         styles, methodology, skills
     )
 }
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    /// 旧版 schema（selected_strategy/reasoning/asset_combination）的兼容解析。
+    /// 该 JSON 缺少 SelectedStrategy 的 style_dna_ids/skill_ids 等必填数组，
+    /// 因此会走 LegacyStrategyResponse 分支；reasoning 应映射到 rationale。
+    #[test]
+    fn test_parse_strategy_response_accepts_legacy_reasoning() {
+        let json = r#"{
+            "selected_strategy": "methodology.scene_structure",
+            "reasoning": "选择场景结构模板以帮助构建一个有结构的故事",
+            "asset_combination": ["methodology.snowflake", "genre_profile.418c516d-66aa-42ec-bfe5-09003249446b"],
+            "parameters": { "temperature": 0.8, "max_tokens": 2500 }
+        }"#;
+
+        let strategy = parse_strategy_response(json).unwrap();
+        assert_eq!(
+            strategy.rationale,
+            "选择场景结构模板以帮助构建一个有结构的故事"
+        );
+        assert_eq!(strategy.methodology_id, Some("snowflake".to_string()));
+        assert_eq!(
+            strategy.genre_profile_id,
+            Some("418c516d-66aa-42ec-bfe5-09003249446b".to_string())
+        );
+    }
+
+    /// 标准 schema 中 rationale 缺失时，应使用默认值空字符串，而不是解析失败。
+    #[test]
+    fn test_parse_strategy_response_defaults_missing_rationale() {
+        let json = r#"{
+            "rationale": "",
+            "genre_profile_id": "apocalyptic",
+            "methodology_id": "hero_journey",
+            "style_dna_ids": [],
+            "skill_ids": [],
+            "story_engine_ids": [],
+            "beat_card_ids": [],
+            "parameters": {}
+        }"#;
+
+        let strategy = parse_strategy_response(json).unwrap();
+        assert!(strategy.rationale.is_empty());
+        assert_eq!(strategy.genre_profile_id, Some("apocalyptic".to_string()));
+        assert_eq!(strategy.methodology_id, Some("hero_journey".to_string()));
+    }
+
+    /// 标准 schema 中 rationale 字段使用旧名 reasoning 时，应通过 alias
+    /// 正确解析。
+    #[test]
+    fn test_parse_strategy_response_accepts_reasoning_alias() {
+        let json = r#"{
+            "reasoning": "使用 reasoning 别名",
+            "genre_profile_id": "apocalyptic",
+            "methodology_id": "hero_journey",
+            "style_dna_ids": [],
+            "skill_ids": [],
+            "story_engine_ids": [],
+            "beat_card_ids": []
+        }"#;
+
+        let strategy = parse_strategy_response(json).unwrap();
+        assert_eq!(strategy.rationale, "使用 reasoning 别名");
+    }
+}

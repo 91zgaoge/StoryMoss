@@ -871,7 +871,7 @@ export function GeneralSettings() {
       </Card>
 
       {/* 编辑器设置 */}
-      <Card>
+      <Card id="editor-settings-card" tabIndex={-1}>
         <CardContent className="p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">

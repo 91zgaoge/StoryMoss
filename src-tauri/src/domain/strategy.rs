@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectedStrategy {
     /// 选择理由
+    #[serde(default, alias = "reasoning")]
     pub rationale: String,
     /// 选中的体裁画像 ID（不带前缀）
     pub genre_profile_id: Option<String>,

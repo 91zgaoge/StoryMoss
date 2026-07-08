@@ -218,6 +218,8 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             personality TEXT,
             goals TEXT,
             dynamic_traits TEXT, -- JSON array
+            source TEXT DEFAULT 'user_created',
+            is_auto_generated INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
@@ -617,6 +619,8 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             chapter_id TEXT,                -- 1:N Chapter↔Scene 关联
             model_used TEXT,
             cost REAL,
+            source TEXT DEFAULT 'user_created',
+            is_auto_generated INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
@@ -634,6 +638,8 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             rules TEXT,                     -- JSON: 世界规则列表
             history TEXT,
             cultures TEXT,                  -- JSON: 文化设定
+            source TEXT DEFAULT 'user_created',
+            is_auto_generated INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
@@ -695,6 +701,8 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             last_accessed TEXT,             -- 最后访问时间
             is_archived INTEGER DEFAULT 0,  -- 归档状态
             archived_at TEXT,               -- 归档时间
+            source TEXT DEFAULT 'user_created',
+            is_auto_generated INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 

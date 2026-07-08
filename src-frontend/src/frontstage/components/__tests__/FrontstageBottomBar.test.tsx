@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FrontstageBottomBar from '../FrontstageBottomBar';
+import { useBackendActivityStore } from '@/stores/backendActivityStore';
 
 describe('FrontstageBottomBar', () => {
   const defaultProps = {
@@ -134,5 +135,23 @@ describe('FrontstageBottomBar', () => {
   it('空输入时发送按钮应该被禁用', () => {
     render(<FrontstageBottomBar {...defaultProps} inputValue="  " />);
     expect(screen.getByTitle('发送')).toBeDisabled();
+  });
+
+  it('后台活动类别图标应该渲染为 SVG 图标而非 emoji', () => {
+    // 注册一个 running 状态的后台活动
+    useBackendActivityStore.getState().registerActivity({
+      id: 'test-activity',
+      category: 'orchestrator',
+      stage: 'running',
+      message: '测试中',
+    });
+
+    render(<FrontstageBottomBar {...defaultProps} />);
+
+    const iconWrapper = document.querySelector('.generation-status-category-icon');
+    expect(iconWrapper).toBeInTheDocument();
+    expect(iconWrapper?.querySelector('svg')).toBeInTheDocument();
+    // emoji 是文本节点，修复后不应再直接出现
+    expect(iconWrapper?.textContent?.trim()).toBe('');
   });
 });

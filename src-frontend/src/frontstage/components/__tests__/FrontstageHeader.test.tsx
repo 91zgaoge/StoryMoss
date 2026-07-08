@@ -27,6 +27,7 @@ describe('FrontstageHeader', () => {
     bootstrapProgress: null,
     dbPoolStatus: null,
     onOpenBackstage: vi.fn(),
+    onOpenFontSettings: vi.fn(),
     onCycleWensiMode: vi.fn(),
     onToggleZenMode: vi.fn(),
   };
@@ -51,6 +52,14 @@ describe('FrontstageHeader', () => {
   it('应该显示字体大小', () => {
     render(<FrontstageHeader {...defaultProps} />);
     expect(screen.getByText('18px')).toBeInTheDocument();
+  });
+
+  it('点击字体大小应该触发打开字体设置', async () => {
+    const onOpenFontSettings = vi.fn();
+    render(<FrontstageHeader {...defaultProps} onOpenFontSettings={onOpenFontSettings} />);
+
+    await userEvent.click(screen.getByText('18px'));
+    expect(onOpenFontSettings).toHaveBeenCalledTimes(1);
   });
 
   it('未保存时应该显示"保存中..."提示', () => {

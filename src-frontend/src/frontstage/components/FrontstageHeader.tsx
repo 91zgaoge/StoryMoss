@@ -40,6 +40,7 @@ interface FrontstageHeaderProps {
   } | null;
   dbPoolStatus: { in_use: number; max_size: number; idle: number } | null;
   onOpenBackstage: () => void;
+  onOpenFontSettings?: () => void;
   onCycleWensiMode: () => void;
   onToggleZenMode: () => void;
 }
@@ -57,6 +58,7 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   bootstrapProgress,
   dbPoolStatus,
   onOpenBackstage,
+  onOpenFontSettings,
   onCycleWensiMode,
   onToggleZenMode,
 }) => {
@@ -83,7 +85,11 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
             {wordCount} 字 / {totalWordCount} 字
           </span>
           <span className="status-separator">·</span>
-          <span className="status-item" title="字体大小">
+          <span
+            className={cn('status-item', onOpenFontSettings && 'cursor-pointer hover:text-cinema-gold')}
+            title="字体大小（点击打开字体设置）"
+            onClick={onOpenFontSettings}
+          >
             {fontSize}px
           </span>
           {!isSaved && (

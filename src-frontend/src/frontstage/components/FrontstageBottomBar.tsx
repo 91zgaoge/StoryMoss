@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { Send, X, Activity, Loader2, RefreshCw } from 'lucide-react';
+import {
+  Send,
+  X,
+  Activity,
+  Loader2,
+  RefreshCw,
+  ClipboardList,
+  Settings,
+  Lightbulb,
+  GitBranch,
+  Pencil,
+  Wrench,
+  Bot,
+  ClipboardCheck,
+} from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import type { BackendActivity } from '@/stores/backendActivityStore';
@@ -45,15 +59,15 @@ function formatTimeAgo(timestamp: number): string {
   return `${Math.floor(diff / 86400)}天前`;
 }
 
-const categoryIcons: Record<BackendActivity['category'], string> = {
-  contract_fill: '📋',
-  orchestrator: '⚙️',
-  smart_execute: '💭',
-  pipeline: '📦',
-  auto_write: '✍️',
-  auto_revise: '🔧',
-  agent_stage: '🤖',
-  plan_executor: '📐',
+const categoryIcons: Record<BackendActivity['category'], React.ReactNode> = {
+  contract_fill: <ClipboardList className="w-4 h-4" />,
+  orchestrator: <Settings className="w-4 h-4" />,
+  smart_execute: <Lightbulb className="w-4 h-4" />,
+  pipeline: <GitBranch className="w-4 h-4" />,
+  auto_write: <Pencil className="w-4 h-4" />,
+  auto_revise: <Wrench className="w-4 h-4" />,
+  agent_stage: <Bot className="w-4 h-4" />,
+  plan_executor: <ClipboardCheck className="w-4 h-4" />,
 };
 
 const categoryLabels: Record<BackendActivity['category'], string> = {

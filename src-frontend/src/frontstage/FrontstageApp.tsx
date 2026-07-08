@@ -2242,6 +2242,10 @@ const FrontstageApp: React.FC = () => {
           // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
           latestContentRef.current = formattedContent;
           setIsSaved(true);
+          // 初始化当前章节字数计数器，避免切章后字数显示滞后 / 全文字数 diff 基准错误
+          const initialWordCount = computeWordCount(formattedContent);
+          setWordCount(initialWordCount);
+          currentChapterPrevWordCountRef.current = initialWordCount;
           // v0.26.19 fix (P0-3): 仅当 setContent 真正执行（非 skip、非 Gap C 跳过）后，
           //   且调用方请求 markDeliveredOnLoad 时，才标记 genesisDeliveryRef='delivered'。
           //   原实现 ChapterSwitch 在 selectChapter 完成前就标记 delivered，若懒加载失败
@@ -2465,6 +2469,7 @@ const FrontstageApp: React.FC = () => {
       if (currentChapter) {
         // B1: 基于当前章节字数增量 diff 更新全文字数，避免每次输入都全量 reduce
         const newWordCount = computeWordCount(newContent);
+        setWordCount(newWordCount);
         const delta = newWordCount - currentChapterPrevWordCountRef.current;
         if (delta !== 0) {
           setTotalWordCount(prev => prev + delta);
@@ -2522,6 +2527,22 @@ const FrontstageApp: React.FC = () => {
       await loggedInvoke<unknown>('show_backstage', { story_id: currentStory?.id || null });
     } catch (e) {
       frontstageLogger.error('Failed to open backstage', { error: e });
+      const isTauri = !!(window as any).__TAURI__;
+      if (!isTauri) {
+        window.open('http://127.0.0.1:5173/index.html', '_blank');
+      }
+    }
+  };
+
+  const openFontSettings = async () => {
+    try {
+      await loggedInvoke<unknown>('show_backstage', {
+        story_id: currentStory?.id || null,
+        view: 'settings',
+        panel: 'editor',
+      });
+    } catch (e) {
+      frontstageLogger.error('Failed to open font settings', { error: e });
       const isTauri = !!(window as any).__TAURI__;
       if (!isTauri) {
         window.open('http://127.0.0.1:5173/index.html', '_blank');
@@ -4177,6 +4198,7 @@ const FrontstageApp: React.FC = () => {
           bootstrapProgress={bootstrapProgress}
           dbPoolStatus={dbPoolStatus ?? null}
           onOpenBackstage={openBackstage}
+          onOpenFontSettings={openFontSettings}
           onCycleWensiMode={cycleWensiMode}
           onToggleZenMode={() => setIsZenMode(prev => !prev)}
         />

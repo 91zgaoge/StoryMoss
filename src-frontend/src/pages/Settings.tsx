@@ -77,6 +77,24 @@ export function Settings() {
     return () => window.removeEventListener('switch-settings-tab', handler);
   }, []);
 
+  // 监听幕前导航到具体设置面板的事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.view === 'settings' && detail?.panel === 'editor') {
+        setActiveTab('general');
+        // 延迟滚动到编辑器设置卡片，等待标签切换渲染
+        setTimeout(() => {
+          const editorSettingsCard = document.getElementById('editor-settings-card');
+          editorSettingsCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          editorSettingsCard?.focus({ preventScroll: true });
+        }, 100);
+      }
+    };
+    window.addEventListener('backstage-navigate-to-panel', handler);
+    return () => window.removeEventListener('backstage-navigate-to-panel', handler);
+  }, []);
+
   // 处理设置导入
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

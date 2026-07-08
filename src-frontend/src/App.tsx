@@ -138,6 +138,14 @@ function App() {
                 // W2-F2: 替代 backstage-navigate-to-story DOM CustomEvent
                 useAppStore.getState().setNavigateHighlightStoryId(payload.highlight_story_id);
               }
+              // 若指定了具体面板（如 settings/editor），通知目标页面做二次定位
+              if (payload?.open_panel) {
+                window.dispatchEvent(
+                  new CustomEvent('backstage-navigate-to-panel', {
+                    detail: { view: targetView, panel: payload.open_panel },
+                  })
+                );
+              }
               break;
           }
         });

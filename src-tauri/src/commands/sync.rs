@@ -52,7 +52,12 @@ pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<
 
 /// 显示 backstage 窗口
 #[tauri::command(rename_all = "snake_case")]
-pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), AppError> {
+pub fn show_backstage(
+    app: AppHandle,
+    story_id: Option<String>,
+    view: Option<String>,
+    panel: Option<String>,
+) -> Result<(), AppError> {
     let window = if let Some(window) = app.get_webview_window("backstage") {
         window.show().map_err(AppError::from)?;
         window.set_focus().map_err(AppError::from)?;
@@ -153,16 +158,22 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), Ap
             );
         }
     });
-    if let Some(sid) = story_id {
-        let _ = crate::window::WindowManager::send_to_backstage(
-            &app,
-            crate::window::BackstageEvent::NavigateTo {
-                view: "stories".to_string(),
-                highlight_story_id: Some(sid),
-                open_panel: Some("overview".to_string()),
-            },
-        );
-    }
+    // 导航到指定视图；若未提供则默认进入 stories/overview
+    let target_view = view.unwrap_or_else(|| "stories".to_string());
+    let _ = crate::window::WindowManager::send_to_backstage(
+        &app,
+        crate::window::BackstageEvent::NavigateTo {
+            view: target_view,
+            highlight_story_id: story_id.clone(),
+            open_panel: panel.clone().or_else(|| {
+                if story_id.is_some() {
+                    Some("overview".to_string())
+                } else {
+                    None
+                }
+            }),
+        },
+    );
 
     Ok(())
 }
