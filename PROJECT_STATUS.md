@@ -1,11 +1,30 @@
-# StoryForge (草苔) v0.26.30 项目完成状态
+# StoryForge (草苔) v0.26.31 项目完成状态
 
-> 最后更新: 2026-07-08（v0.26.30 热修复旧数据库缺失 source/is_auto_generated 列）
+> 最后更新: 2026-07-08（v0.26.31 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.31 — 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema（2026-07-08）
+
+- **幕前顶部状态栏字数统计滞后**：章节加载后 `wordCount` 始终为 0，直到首次自动保存成功才更新；切章时 diff 基准也未重置。
+  - `selectChapter` 加载正文后即时计算并设置当前章节字数。
+  - `handleContentChange` 中字数变化时同步更新 `wordCount`。
+  - 新增回归测试验证章节加载后立即显示非零字数。
+- **顶部状态栏字体大小不可点击**：字号显示无点击响应。
+  - `FrontstageHeader` 新增 `onOpenFontSettings` 回调，字号显示可点击。
+  - 扩展 `show_backstage` 命令支持 `view` / `panel` 参数，点击后打开幕后通用设置并滚动到编辑器设置卡片。
+- **底部状态栏后台任务图标 tofu**：emoji 图标在部分系统字体下显示为缺字符号。
+  - 8 个活动类别图标全部替换为 `lucide-react` SVG 图标。
+  - 新增回归测试验证图标渲染为 SVG。
+- **策略选择 JSON 解析失败**：LLM 输出仍可能使用 `reasoning` 或缺失 `rationale`。
+  - `SelectedStrategy.rationale` 增加 `#[serde(default, alias = "reasoning")]`。
+  - 新增回归测试覆盖 `reasoning` 别名与缺失默认值。
+- **新数据库 schema 列缺失**：v0.26.30 兜底修复未覆盖新库建表。
+  - `create_tables` 中 `characters` / `scenes` / `world_buildings` / `kg_entities` 新增 `source` / `is_auto_generated` 列。
+- ✅ **验证**：`cargo test --lib` 677 passed；`cargo +nightly fmt -- --check` 通过；`cargo clippy --lib` 通过；`npx vitest run` 213 passed；`npx tsc --noEmit` / `architecture_guard.py` 通过。
 
 ### v0.26.30 — 热修复旧数据库缺失 source/is_auto_generated 列（2026-07-08）
 

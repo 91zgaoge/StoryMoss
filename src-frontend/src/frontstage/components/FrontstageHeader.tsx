@@ -86,7 +86,10 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
           </span>
           <span className="status-separator">·</span>
           <span
-            className={cn('status-item', onOpenFontSettings && 'cursor-pointer hover:text-cinema-gold')}
+            className={cn(
+              'status-item',
+              onOpenFontSettings && 'cursor-pointer hover:text-cinema-gold'
+            )}
             title="字体大小（点击打开字体设置）"
             onClick={onOpenFontSettings}
           >

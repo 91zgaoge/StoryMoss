@@ -167,37 +167,39 @@ describe('FrontstageApp', () => {
 
   it('加载章节后应立即显示当前章节字数', async () => {
     const chapterContent = '<p>这是一个测试章节。</p><p>Second paragraph.</p>';
-    vi.mocked(loggedInvoke).mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd === 'get_gateway_status') {
-        return {
-          last_probe_at: undefined,
-          primary_model_id: undefined,
-          models: [],
-          is_probing: false,
-        };
+    vi.mocked(loggedInvoke).mockImplementation(
+      async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === 'get_gateway_status') {
+          return {
+            last_probe_at: undefined,
+            primary_model_id: undefined,
+            models: [],
+            is_probing: false,
+          };
+        }
+        if (cmd === 'list_stories') {
+          return [{ id: 'story-1', title: '测试故事' }];
+        }
+        if (cmd === 'get_story_chapters_paged') {
+          return [
+            {
+              id: 'chapter-1',
+              story_id: 'story-1',
+              title: '第一章',
+              chapter_number: 1,
+              content: chapterContent,
+            },
+          ];
+        }
+        if (cmd === 'get_story_scenes_paged') {
+          return [];
+        }
+        if (cmd === 'get_story_word_count') {
+          return { total_chars: 100 };
+        }
+        return undefined;
       }
-      if (cmd === 'list_stories') {
-        return [{ id: 'story-1', title: '测试故事' }];
-      }
-      if (cmd === 'get_story_chapters_paged') {
-        return [
-          {
-            id: 'chapter-1',
-            story_id: 'story-1',
-            title: '第一章',
-            chapter_number: 1,
-            content: chapterContent,
-          },
-        ];
-      }
-      if (cmd === 'get_story_scenes_paged') {
-        return [];
-      }
-      if (cmd === 'get_story_word_count') {
-        return { total_chars: 100 };
-      }
-      return undefined;
-    });
+    );
 
     render(<FrontstageApp />, { wrapper });
 

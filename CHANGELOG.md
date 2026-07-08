@@ -2,6 +2,39 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.31] - 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema（2026-07-08）
+
+### 修复
+
+- **幕前顶部状态栏字数统计滞后**：章节加载后 `wordCount` 始终为 0，直到首次自动保存成功才更新；切章时 `currentChapterPrevWordCountRef` 也未重置，导致全文字数 diff 基准错误。
+  - `selectChapter` 加载正文后即时计算并设置当前章节字数。
+  - `handleContentChange` 中字数变化时同步更新 `wordCount`，与 `totalWordCount` 保持一致。
+  - 新增回归测试：章节加载后立即显示非零字数。
+
+- **顶部状态栏字体大小不可点击**：点击 `12px` 等字号显示无响应。
+  - `FrontstageHeader` 新增 `onOpenFontSettings` 回调，字号显示改为可点击。
+  - 扩展 Tauri `show_backstage` 命令支持 `view` / `panel` 参数，点击后打开幕后「通用设置」并自动滚动到「编辑器设置」卡片。
+
+- **底部状态栏后台任务图标显示为缺字符号（tofu）**：`FrontstageBottomBar` 的 `categoryIcons` 直接使用 emoji，在部分系统字体下无法渲染。
+  - 将 8 个活动类别的 emoji 图标替换为 `lucide-react` SVG 图标，统一视觉风格。
+  - 新增回归测试验证图标渲染为 SVG。
+
+- **策略选择 JSON 解析失败**：LLM 输出仍可能使用旧字段名 `reasoning` 或缺失 `rationale`，在部分边界情况下解析失败。
+  - `SelectedStrategy.rationale` 增加 `#[serde(default, alias = "reasoning")]`，缺失时默认空字符串，识别 `reasoning` 别名。
+  - 新增回归测试覆盖 `reasoning` 别名与缺失 `rationale` 的默认行为。
+
+- **新数据库仍可能缺失 `source` / `is_auto_generated` 列**：v0.26.30 的兜底修复只覆盖已存在表，新库初始建表语句未包含这两列。
+  - `create_tables` 中 `characters` / `scenes` / `world_buildings` / `kg_entities` 四表新增 `source` 与 `is_auto_generated` 列定义，确保新库自创建起即完整。
+
+### 验证
+
+- `cargo test --lib`：677 passed ✅
+- `cargo +nightly fmt -- --check`：✅
+- `cargo clippy --lib`：✅（仅既有 warning）
+- `npx vitest run`：213 passed ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+
 ## [v0.26.30] - 热修复旧数据库缺失 source/is_auto_generated 列（2026-07-08）
 
 ### 修复

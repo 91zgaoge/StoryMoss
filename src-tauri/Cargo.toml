@@ -1,6 +1,6 @@
 [package]
 name = "storyforge"
-version = "0.26.30"
+version = "0.26.31"
 edition = "2021"
 
 [build-dependencies]

@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.30-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.31-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.30 热修复旧数据库在 v0.26.28 迁移框架切换后可能缺失 `characters.scenes.world_buildings.kg_entities` 表的 `source` / `is_auto_generated` 列的问题——新增 V103 迁移与 `init_db` 启动兜底修复，确保 Genesis 与资产查询不再报 `no such column: source`。
+**最新动态**：v0.26.31 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema——顶部状态栏字数即时刷新、字号可点击跳转字体设置、底部后台任务图标改用 lucide-react SVG；`SelectedStrategy.rationale` 支持 `reasoning` 别名与默认值；新库建表语句补齐 `source` / `is_auto_generated` 列。
+
+**上一版 v0.26.30** 热修复旧数据库在 v0.26.28 迁移框架切换后可能缺失 `characters.scenes.world_buildings.kg_entities` 表的 `source` / `is_auto_generated` 列的问题——新增 V103 迁移与 `init_db` 启动兜底修复，确保 Genesis 与资产查询不再报 `no such column: source`。
 
 **上一版 v0.26.29** 热修复 prompts 外部化后的策略选择 JSON schema 不匹配——`selector.rs` 新增 `LegacyStrategyResponse` 兜底解析，修复 Genesis「选择创作策略」步骤 `VALIDATION_FAILED: missing field rationale` 错误。
 
