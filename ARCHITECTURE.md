@@ -1,11 +1,12 @@
-# StoryForge (草苔) v0.26.27 架构文档
+# StoryForge (草苔) v0.26.28 架构文档
 
-> 本文档反映 v0.26.27 最新架构状态（2026-07-07）
-> **v0.26.27 依赖解耦与文档补全**：前端 `components ↔ stores ↔ hooks ↔ frontstage` 通过新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*` 解耦，`stores/*` 不再依赖 `components/*` / `hooks/*`；Tauri `creative_engine ↔ llm` 与 `model_gateway ↔ router` 共享概念提取到 `ports/` / `domain/` trait，两对模块不再直接互相 import；`USER_GUIDE.md` 补全 L4 诊断页（生成链路 / 意图图 / 日志）并修正 Phase 1–3 实现漂移。
+> 本文档反映 v0.26.28 最新架构状态（2026-07-07）
+> **v0.26.28 Phase 4 架构债务与工程体验**：知识图谱手动 CRUD UI、世界构建 AI 生成、角色 AI 扩展、叙事分析图表；`genesis.rs` 策略选择步骤从后台阶段前移至 Quick Phase，`quick_phase_steps` 变为「概念 → 策略选择 → 撰写开篇」三步，`background_steps` 变为 5 步；`prompts/registry.rs` 中 95 个内置提示词外部化至 `resources/prompts/{category}/{id}.md`，运行时从 Tauri 资源目录加载；`db/connection.rs` 中 ~2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件，`MigrationRunner` 新增 `RustMigration` trait 统一执行 SQL 与 Rust 迁移。
+> **v0.26.27 依赖解耦与文档补全**：前端 `components ↔ stores ↔ hooks ↔ frontstage` 通过新增 `types/editor.ts`、`stores/contracts/*` 解耦（`hooks/contracts/*` 仍待补齐），`appStore.ts` 不再依赖 `components/*` / `hooks/*`；Tauri `creative_engine ↔ llm` 已无互相 import，`model_gateway ↔ router` 仍有少量直接 import（后续继续向 `ports/` 迁移）；`USER_GUIDE.md` 补全 L4 诊断页（生成链路 / 意图图 / 日志）并修正 Phase 1–3 实现漂移。
 > **v0.26.24 续写后处理**：TriShot 续写路径新增三层后处理（`trim_self_repetition` → `strip_existing_overlap` → `trim_dangling_tail`）+ 8% 自重复重试闸门；前端 `sanitizeContinuationOutput` 对齐。
 > **v0.26.19 创世流程审计与测试加固**：对照文档全面审计「智能创作流程-创世」，分 Phase 1–4 执行。
 > - **Phase 1（P0）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
-> - **Phase 2（P1）**：后台错误可观测性（`GenesisContext.errors` 共享集合 → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固（`unwrap_or_else(|e| e.into_inner())`）；策略移入 quick phase 经评估暂缓（记录为债务）；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
+> - **Phase 2（P1）**：后台错误可观测性（`GenesisContext.errors` 共享集合 → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固（`unwrap_or_else(|e| e.into_inner())`）；策略移入 quick phase 经评估暂缓（已于 v0.26.28 完成）；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
 > - **Phase 3（测试）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（`tests/fixtures/trim_golden.json`，Rust + TS 双跑锁定 `trim_self_repetition`/`trimSelfRepetition` 跨层一致性）。
 > - **Phase 4（整洁）**：`*_future` → `*_gen` 重命名（澄清顺序 await）；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent；`isGenesisSettingUpRef` 合并评估——不合并（覆盖窗口不同）。
 > **v0.26.18 稳定性补丁**：加固 Genesis 第一章重复的三个残留竞态缺口（ChapterSwitch 空内容、delivered 误锁、selectChapter 咽喉点缺守卫）。

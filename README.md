@@ -8,21 +8,21 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.24-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.28-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.24 修复续写重复、截断与跨内容复述——对照 `creative_workflow.log` 2026-07-07 续写链路：散布式句子去重、跨内容重叠剥离（`stripExistingOverlap`）、截断末句裁剪、TriShot 8% 自重复重试闸门、前端 `sanitizeContinuationOutput` 全路径接入。
+**最新动态**：v0.26.28 完成 Phase 4 架构债务与工程体验——知识图谱手动 CRUD UI、世界构建 AI 生成、角色 AI 扩展、叙事分析图表、策略选择移入 Quick Phase；prompts 全面外部化（95 个提示词迁移至 `resources/prompts/`）；inline `run_migrations` 拆分为 70 个编号 Rust 迁移文件。
 
-**上一版 v0.26.23** 修复续写卡死与幽灵文本混乱——auto_contract 静默化、续写重入守卫、幽灵渲染响应式、续写 60s fail-fast。
+**上一版 v0.26.27** L4 诊断互链与依赖解耦——GenesisPanel ↔ TracingPanel 互链、GenesisPanel → Logs 深链、用量统计按 operation 分组、前端与 Tauri 循环依赖解耦、USER_GUIDE 补全 L4 诊断页。
 
-**上一版 v0.26.21** 修复 Windows MSI 构建——中文迁移文件名导致 WiX `light.exe` 标识符生成失败，重命名 24 个迁移文件为 ASCII 短名。
+**上一版 v0.26.26** L2 资产补齐与领域层止血——角色编辑/关系 CRUD、L2 创世溯源徽章、Story System 合同播种状态卡、StorySystem.tsx 拆分、Repository 层 trait 化与拆分。
 
-**上一版 v0.26.20** 修复 v0.26.19 CI 格式检查失败（doc 注释超 `max_width=100`，自动换行）；macOS 公证随 Apple Developer 协议续签恢复成功。
+**上一版 v0.26.25** Backstage Genesis 可观测性与测试基线——GenesisPanel 动态步骤/非致命 errors/L1 创作路径引导/Wizard 重复建故事修复/仪表盘统计卡可点击。
 
-- **Phase 1（P0 竞态与契约）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
-- **Phase 2（P1 架构对齐）**：后台错误可观测性（`GenesisContext.errors` → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
-- **Phase 3（测试加固）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（Rust + TS 双跑锁定 `trim_self_repetition` 跨层一致性）。
-- **Phase 4（代码整洁）**：`*_future` → `*_gen` 重命名；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent。
+- **v0.26.19 Phase 1（P0 竞态与契约）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
+- **v0.26.19 Phase 2（P1 架构对齐）**：后台错误可观测性（`GenesisContext.errors` → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
+- **v0.26.19 Phase 3（测试加固）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（Rust + TS 双跑锁定 `trim_self_repetition` 跨层一致性）。
+- **v0.26.19 Phase 4（代码整洁）**：`*_future` → `*_gen` 重命名；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent。
 
 **上一版 v0.26.18**：加固 Genesis 第一章重复的三个残留竞态缺口：
 
@@ -238,6 +238,7 @@ v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系
 - 拖拽节点、缩放画布。
 - 点击节点查看详情。
 - 筛选显示某类节点。
+- **手动 CRUD**：图例面板可新建实体，实体详情面板可添加关系。
 
 直观发现"谁太久没出场""哪条线索忘了回收"。
 

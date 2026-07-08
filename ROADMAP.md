@@ -1,17 +1,19 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-07（v0.26.27 Phase 1–3 综合优化完成：可观测性、资产补齐、L4 诊断互链与循环依赖解耦）
-
-## 📌 已知债务（待量化后重评估）
-
-### 🏗️ 策略选择移入 quick_phase（暂缓） ⏸ (2026-07-06)
-
-- **现状**：`GenesisPipeline::quick_phase_steps()` = 概念 → 撰写开篇；策略选择（`StrategySelectionStep`）在后台阶段才执行。首章 `build_strategy_notes` 拿到 `selected_strategy = None`，仅以题材级 fallback 注入，缺乏方法论/体裁画像约束。
-- **暂缓原因**：`ROADMAP`/`CHANGELOG`/`AGENTS_HISTORY` 多处明文承诺 quick phase 30-60s 返回首章；移入策略选择（~10-20s LLM）让延迟进入 60-90s，跨越用户可感知阈值且违反多处文档契约，属低 reversibility 用户契约变更（R10）。当前 genre-profile fallback 使首章质量退化 bounded。
-- **重评估条件**：v0.26.19 P0 修复 + genesis_runs 接入后，用真实运行数据量化首章质量退化幅度（如首章与策略约束的契合度评分），若退化显著再决定迁移。
-- **关联**：`docs/plans/2026-07-06-genesis-audit-and-optimization-design.md` Phase 2.1。
+> 最后更新: 2026-07-07（v0.26.28 Phase 4 架构债务与工程体验完成：prompts 外部化、迁移脚本拆分、策略选择移入 Quick Phase 及剩余 AI/CRUD/图表功能）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.28 Phase 4 — 架构债务与工程体验 ✅ (2026-07-07)
+
+- [x] **外部化 prompts**：`prompts/registry.rs` 中 95 个内置提示词迁移至 `resources/prompts/{category}/{id}.md`，运行时从 Tauri 资源目录加载，保留用户覆盖能力。
+- [x] **迁移脚本拆分**：`db/connection.rs` 中 ~2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件；`MigrationRunner` 新增 `RustMigration` trait 统一执行 SQL 与 Rust 迁移。
+- [x] **知识图谱手动 CRUD UI**：Graph 页支持新建实体与添加关系。
+- [x] **世界构建 AI 生成**：`WorldBuilding` 页新增「AI 生成」按钮，调用 `generateWorldBuildingOptions` 一键生成世界观。
+- [x] **角色 AI 扩展**：`Characters` 页新增「AI 扩展」按钮，批量生成并创建角色。
+- [x] **叙事分析图表**：`NarrativeAnalysis` 页新增 SVG 折线/面积图展示追读力趋势。
+- [x] **策略选择移入 Quick Phase**：`genesis.rs` 中 `StrategySelectionStep` 前移至 `quick_phase_steps()`，`quick_phase_steps` 变为 3 步，`background_steps` 变为 5 步；同步更新步骤编号、进度百分比与测试契约。
+- [x] **元文档同步**：`README.md`、`AGENTS.md`、`ARCHITECTURE.md`、`TESTING.md`、`CHANGELOG.md`、`PROJECT_STATUS.md` 版本与内容同步。
 
 ### 📝 v0.26.27 Phase 3 — L4 诊断互链、文档与依赖解耦 ✅ (2026-07-07)
 
@@ -19,8 +21,8 @@
 - [x] **Logs 深链**：失败 Genesis 运行一键跳转日志页并预填 `session_id`。
 - [x] **UsageStats 按 operation 分组**：全部 / bootstrap / smart_execute / 其他 四标签页。
 - [x] **Foreshadowing UX 改进**：`setup_scene_id` 改为场景下拉选择；Ledger 字段在可折叠高级区编辑。
-- [x] **前端循环依赖解耦**：`components ↔ stores ↔ hooks ↔ frontstage` 分层清晰化，新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*`；`appStore.ts` 不再从 `components/EditorSettings.tsx` import。
-- [x] **Tauri 循环依赖解耦**：`creative_engine ↔ llm` 与 `model_gateway ↔ router` 共享 trait 提取到 `ports/` / `domain/`，两对模块不再直接互相 import。
+- [x] **前端循环依赖解耦**：`components ↔ stores ↔ hooks ↔ frontstage` 分层清晰化，新增 `types/editor.ts`、`stores/contracts/*`；`appStore.ts` 不再从 `components/EditorSettings.tsx` import；`hooks/contracts/*` 仍待补齐。
+- [x] **Tauri 循环依赖解耦**：`creative_engine ↔ llm` 已无互相 import；`model_gateway ↔ router` 仍存少量直接 import，后续继续向 `ports/` / `domain/` 迁移共享 trait。
 - [x] **用户文档更新**：`docs/USER_GUIDE.md` 补全 L4 诊断页说明，修正过度承诺，与 v0.26.27 实现一致。
 - [x] **元文档同步**：`AGENTS.md`、`ROADMAP.md`、`TESTING.md`、`ARCHITECTURE.md`、`README.md` 版本与内容同步。
 
@@ -36,7 +38,7 @@
 
 ### 📝 v0.26.25 Phase 1 — 可观测性与测试基线 ✅ (2026-07-07)
 
-- [x] **重构 GenesisPanel 步骤模型**：步骤与后端 Quick（2 步）+ Background（6 步）对齐；展示 `steps_json.errors`；支持跳转到 story / 幕前。
+- [x] **重构 GenesisPanel 步骤模型**：步骤与后端 Quick（3 步）+ Background（5 步）对齐；展示 `steps_json.errors`；支持跳转到 story / 幕前。
 - [x] **统一 L1 创作入口 UX**：`Dashboard.tsx`、`Stories.tsx` 与新增 `CreationPathGuide.tsx` 共同引导用户区分三条创作路径。
 - [x] **修复 Stories Wizard 重复建故事**：已有故事走 update 路径，避免重复创建。
 - [x] **仪表盘统计卡修正**：标签与口径一致；点击卡片可跳转对应页面。

@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.27)
+# 🧪 StoryForge 自动化测试环境 (v0.26.28)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -6,7 +6,7 @@
 
 | 套件                                | 数量     | 状态                           |
 | ----------------------------------- | -------- | ------------------------------ |
-| `cargo test --lib`                  | 666      | ✅ 0 failed / 2 ignored        |
+| `cargo test --lib`                  | 672      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative::genesis` | 11     | ✅（创世步骤/重试闸门/payload 契约） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
@@ -15,8 +15,8 @@
 
 | 类型           | 数量      | 状态                                         |
 | -------------- | --------- | -------------------------------------------- |
-| Rust 单元测试  | 666       | ✅ 全部通过 (`cargo test --lib`)             |
-| 前端单元测试   | 192       | ✅ 全部通过 (`vitest run`)                   |
+| Rust 单元测试  | 672       | ✅ 全部通过 (`cargo test --lib`)             |
+| 前端单元测试   | 210       | ✅ 全部通过 (`vitest run`)                   |
 | 前端构建测试   | —         | ✅ `npm run build` 通过                      |
 | Tauri 构建测试 | —         | ✅ `cargo tauri build` 通过                  |
 | Playwright E2E | 41 (36+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`），其中 `genesis-duplicate.spec.ts` 验证自动接受后幽灵段落隐藏 |
@@ -27,13 +27,21 @@
 - **跨内容重叠剥离**：Rust `test_strip_existing_overlap_*`（6 条）；TS `stripExistingOverlap` / `sanitizeContinuationOutput` 用例。
 - **截断末句裁剪**：Rust/TS `trimDanglingTail` 用例。
 
+### v0.26.28 Phase 4 新增测试
+
+- **策略选择移入 Quick Phase**：`genesis.rs` `quick_phase_steps` 为「概念 → 策略选择 → 撰写开篇」三步、`background_steps` 为 5 步的单元契约；步骤 `step_number`/`total_steps`/`progress_percent` 一致性覆盖。
+- **Prompts 外部化**：`prompts/registry.rs` 运行时加载 `resources/prompts/**/*.md` 的集成测试；95 个提示词全部可解析且公开 API 保持不变的回归测试。
+- **迁移脚本拆分**：`MigrationRunner` + `RustMigration` trait 对 70 个编号 Rust 迁移与 SQL 迁移统一排序、过滤、执行的测试；`schema_migrations` 版本语义保持不变的兼容性测试。
+- **知识图谱手动 CRUD UI**：新建实体、添加关系交互的 Playwright 覆盖。
+- **世界构建 AI 生成 / 角色 AI 扩展 / 叙事分析图表**：对应组件渲染、API 调用、数据回写的单元与集成测试。
+
 ### v0.26.27 Phase 3 新增测试
 
 - **L4 诊断互链**：GenesisPanel → TracingPanel / Logs 跳转与预过滤行为覆盖；TracingPanel detail → GenesisPanel 回跳选择对应 run 覆盖。
 - **UsageStats operation 分组**：按 `operation` 字段拆分的四标签页渲染与聚合逻辑测试。
 - **Foreshadowing UX**：`setup_scene_id` 下拉绑定 `useScenes`、高级区 `target_start_scene` / `target_end_scene` 编辑交互测试。
-- **前端循环依赖守卫**：`npx madge --circular src/main.tsx` 验证循环数为 0；新增 `types/editor.ts`、`hooks/contracts/*`、`stores/contracts/*` 的导入方向单测。
-- **Tauri 循环依赖守卫**：`creative_engine ↔ llm` 与 `model_gateway ↔ router` 模块间不再直接 import 的静态检查；`ports/` / `domain/` 共享 trait 的单元测试。
+- **前端循环依赖守卫**：`npx madge --circular src/main.tsx` 验证循环数为 0；新增 `types/editor.ts`、`stores/contracts/*` 的导入方向单测。
+- **Tauri 循环依赖守卫**：`creative_engine ↔ llm` 已无互相 import；`model_gateway ↔ router` 仍存少量直接 import，静态检查标记后续迁移目标；`ports/` / `domain/` 共享 trait 的单元测试。
 
 ### v0.26.26 Phase 2 新增测试
 
@@ -45,7 +53,7 @@
 
 ### v0.26.25 Phase 1 新增测试
 
-- **GenesisPanel 步骤模型**：`src-frontend/src/utils/__tests__/genesisSteps.test.ts` 验证 Quick（2 步）+ Background（6 步）顺序、`steps_json.errors` 展示、story / 幕前跳转。
+- **GenesisPanel 步骤模型**：`src-frontend/src/utils/__tests__/genesisSteps.test.ts` 验证 Quick（3 步）+ Background（5 步）顺序、`steps_json.errors` 展示、story / 幕前跳转。
 - **仪表盘统计卡**：点击跳转对应页面与口径一致性测试。
 - **Stories Wizard 重复建故事**：已有故事 update 路径不重复创建的故事级测试。
 - **后端特征测试**：
