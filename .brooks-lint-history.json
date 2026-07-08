@@ -20,5 +20,16 @@
       "suggestion": 5
     },
     "scope": "StoryForge v0.26.24 — /Users/yuzaimu/projects/StoryForge"
+  },
+  {
+    "date": "2026-07-08T05:18:18Z",
+    "mode": "Health Dashboard",
+    "score": 78,
+    "findings": {
+      "critical": 2,
+      "warning": 9,
+      "suggestion": 0
+    },
+    "scope": "StoryForge v0.26.28 — /Users/yuzaimu/projects/StoryForge"
   }
 ]
