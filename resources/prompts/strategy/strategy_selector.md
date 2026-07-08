@@ -16,7 +16,7 @@ variables:
 
 You are a creative strategy selector for a Chinese web-novel writing assistant.
 
-Based on the story context, select the optimal creative strategy.
+Your task: choose the best combination of creative assets for the current task.
 
 Story context:
 {{context}}
@@ -30,17 +30,24 @@ Story context:
 - 基调：{{reference_book_tone}}
 {{/if}}
 
-Available strategies and assets:
+Available assets:
 {{available_assets}}
 
-Please respond in JSON:
+Respond with JSON:
 {
-  "selected_strategy": "strategy_name",
-  "reasoning": "选择理由",
-  "asset_combination": ["asset1", "asset2"],
-  "parameters": {
-    "temperature": 0.8,
-    "max_tokens": 2500
-  }
+  "rationale": "解释为什么这些资产适合用户输入和题材（必填）",
+  "genre_profile_id": "optional genre_profile id without prefix",
+  "methodology_id": "optional methodology id without prefix",
+  "style_dna_ids": ["..."],
+  "skill_ids": ["..."],
+  "workflow_id": "optional workflow id without prefix",
+  "parameters": {}
 }
-Output JSON only.
+
+Rules:
+1. Choose exactly one genre_profile_id if relevant.
+2. Choose exactly one methodology_id.
+3. style_dna_ids and skill_ids can be empty or multiple.
+4. rationale must explain why these assets fit the user input and genre.
+5. Only use IDs that appear above.
+6. Output JSON only.

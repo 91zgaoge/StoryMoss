@@ -426,12 +426,77 @@ fn parse_strategy_response(content: &str) -> Result<SelectedStrategy, AppError> 
             .trim()
     };
 
-    serde_json::from_str::<SelectedStrategy>(json_str).map_err(|e| {
-        AppError::validation_failed(
-            format!("Failed to parse strategy JSON: {}. Content: {}", e, content),
-            None::<String>,
-        )
-    })
+    // v0.26.28 hotfix: 优先按标准 SelectedStrategy schema 解析；
+    // 失败时回退到旧版 schema（selected_strategy/reasoning/asset_combination），
+    // 避免 prompts 外部化过程中旧格式残留导致 Genesis 策略选择步骤失败。
+    if let Ok(strategy) = serde_json::from_str::<SelectedStrategy>(json_str) {
+        return Ok(strategy);
+    }
+
+    if let Ok(legacy) = serde_json::from_str::<LegacyStrategyResponse>(json_str) {
+        return Ok(legacy.into_selected_strategy());
+    }
+
+    Err(AppError::validation_failed(
+        format!(
+            "Failed to parse strategy JSON: content does not match SelectedStrategy or legacy schema. Content: {}",
+            content
+        ),
+        None::<String>,
+    ))
+}
+
+/// v0.26.28 hotfix: 旧版策略选择响应 schema，用于兼容 prompts 外部化前
+/// 可能残留的 prompt 模板（字段名为
+/// selected_strategy/reasoning/asset_combination）。
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LegacyStrategyResponse {
+    #[serde(default)]
+    selected_strategy: Option<String>,
+    #[serde(default)]
+    reasoning: String,
+    #[serde(default)]
+    asset_combination: Vec<String>,
+    #[serde(default)]
+    parameters: HashMap<String, serde_json::Value>,
+}
+
+impl LegacyStrategyResponse {
+    fn into_selected_strategy(self) -> SelectedStrategy {
+        let mut strategy = SelectedStrategy::default();
+        strategy.rationale = if self.reasoning.is_empty() {
+            "Legacy strategy response".to_string()
+        } else {
+            self.reasoning
+        };
+        strategy.parameters = self.parameters;
+
+        for asset in self.asset_combination {
+            if let Some((prefix, id)) = asset.split_once('.') {
+                match prefix {
+                    "genre_profile" => strategy.genre_profile_id = Some(id.to_string()),
+                    "methodology" => strategy.methodology_id = Some(id.to_string()),
+                    "style_dna" => strategy.style_dna_ids.push(id.to_string()),
+                    "skill" => strategy.skill_ids.push(id.to_string()),
+                    "workflow" => strategy.workflow_id = Some(id.to_string()),
+                    _ => {}
+                }
+            }
+        }
+
+        // selected_strategy 通常指向 methodology，作为兜底
+        if let Some(selected) = self.selected_strategy {
+            if strategy.methodology_id.is_none() {
+                if let Some((prefix, id)) = selected.split_once('.') {
+                    if prefix == "methodology" {
+                        strategy.methodology_id = Some(id.to_string());
+                    }
+                }
+            }
+        }
+
+        strategy
+    }
 }
 
 #[cfg(test)]
@@ -503,6 +568,20 @@ mod tests {
             Some("high_density_world_building".to_string())
         );
         assert_eq!(strategy.skill_ids, vec!["builtin.style_enhancer"]);
+    }
+
+    // v0.26.28 hotfix: prompts 外部化后残留的 legacy schema 仍能解析，
+    // 避免 Genesis 策略选择步骤因字段名不一致而失败。
+    #[test]
+    fn test_parse_strategy_response_legacy_schema() {
+        let json = r#"{"selected_strategy": "methodology.scene_structure", "reasoning": "选择场景结构模板以帮助构建一个有结构的故事，同时利用其他策略和资源提升剧情深度和文风。", "asset_combination": ["methodology.snowflake", "genre_profile.418c516d-66aa-42ec-bfe5-09003249446b"], "parameters": {"temperature": 0.8, "max_tokens": 2500}}"#;
+        let strategy = parse_strategy_response(json).unwrap();
+        assert_eq!(strategy.methodology_id, Some("snowflake".to_string()));
+        assert_eq!(
+            strategy.genre_profile_id,
+            Some("418c516d-66aa-42ec-bfe5-09003249446b".to_string())
+        );
+        assert!(!strategy.rationale.is_empty());
     }
 
     #[test]
