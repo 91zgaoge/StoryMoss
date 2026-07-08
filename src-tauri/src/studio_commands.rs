@@ -575,6 +575,76 @@ pub async fn get_entity_relations(
 }
 
 #[command(rename_all = "snake_case")]
+pub async fn archive_entity(
+    entity_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<Entity, AppError> {
+    log::info!(
+        "[story_commands] {} called: entity_id={}",
+        "archive_entity",
+        entity_id
+    );
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+
+    let entity = repo
+        .get_entity_by_id(&entity_id)
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("Entity", &entity_id))?;
+
+    repo.archive_entity(&entity_id).map_err(|e| {
+        log::error!("[story_commands] {} failed: {}", "archive_entity", e);
+        AppError::from(e)
+    })?;
+
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&entity.story_id),
+        "knowledgeGraph",
+    );
+    Ok(entity)
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn delete_relation(
+    relation_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<bool, AppError> {
+    log::info!(
+        "[story_commands] {} called: relation_id={}",
+        "delete_relation",
+        relation_id
+    );
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+
+    // 先查询 story_id 用于同步事件（删除后无法获取）
+    let story_id_opt = pool.inner().get().ok().and_then(|c| {
+        c.query_row(
+            "SELECT story_id FROM kg_relations WHERE id = ?",
+            [&relation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    });
+
+    let count = repo.delete_relation(&relation_id).map_err(|e| {
+        log::error!("[story_commands] {} failed: {}", "delete_relation", e);
+        AppError::from(e)
+    })?;
+
+    if let Some(ref story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(story_id),
+            "knowledgeGraph",
+        );
+    }
+
+    Ok(count > 0)
+}
+
+#[command(rename_all = "snake_case")]
 pub async fn get_ingest_jobs(
     story_id: String,
     limit: i32,

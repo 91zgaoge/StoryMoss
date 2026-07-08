@@ -1,5 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getCharacterRelationships, createCharacterRelationship } from '@/services/tauri';
+import {
+  getCharacterRelationships,
+  createCharacterRelationship,
+  deleteCharacterRelationship,
+} from '@/services/tauri';
 import type { CharacterRelationship } from '@/types/index';
 import toast from 'react-hot-toast';
 
@@ -32,6 +36,24 @@ export function useCreateCharacterRelationship() {
     },
     onError: (error: Error) => {
       toast.error('添加关系失败: ' + error.message);
+    },
+  });
+}
+
+export function useDeleteCharacterRelationship() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ relationshipId, storyId }: { relationshipId: string; storyId: string }) =>
+      deleteCharacterRelationship(relationshipId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: [CHARACTER_RELATIONSHIPS_KEY, variables.storyId],
+      });
+      toast.success('关系已删除');
+    },
+    onError: (error: Error) => {
+      toast.error('删除关系失败: ' + error.message);
     },
   });
 }

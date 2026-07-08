@@ -62,6 +62,12 @@ export const createRelation = (params: {
 export const getEntityRelations = (entityId: string) =>
   loggedInvoke<import('@/types/v3').Relation[]>('get_entity_relations', { entity_id: entityId });
 
+export const archiveEntity = (entityId: string) =>
+  loggedInvoke<import('@/types/v3').Entity>('archive_entity', { entity_id: entityId });
+
+export const deleteRelation = (relationId: string) =>
+  loggedInvoke<void>('delete_relation', { relation_id: relationId });
+
 export const getIngestJobs = (storyId: string, limit: number = 10) =>
   loggedInvoke<import('@/types/v3').IngestJob[]>('get_ingest_jobs', { story_id: storyId, limit });
 

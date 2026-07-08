@@ -31,7 +31,7 @@ import { CharacterPeekCard } from './CharacterPeekCard';
 import { getCharacterByName } from '@/services/tauri';
 import type { CharacterQuickView } from '@/services/tauri';
 import type { EditorConfig } from '@/types/editor';
-import { loadEditorConfig } from '@/components/EditorSettings';
+import { loadEditorConfig } from '@/hooks/contracts/useEditorConfig';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useSubscription } from '@/hooks/useSubscription';

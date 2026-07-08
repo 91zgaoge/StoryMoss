@@ -30,6 +30,8 @@ interface KnowledgeGraphViewProps {
   onEntityUpdate?: (entity: Entity) => void;
   onEntityCreate?: (entity: Entity) => void;
   onRelationCreate?: (relation: Relation) => void;
+  onEntityDelete?: (entity: Entity) => void;
+  onRelationDelete?: (relation: Relation) => void;
   storyId?: string;
   className?: string;
 }
@@ -192,6 +194,8 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   onEntityUpdate,
   onEntityCreate,
   onRelationCreate,
+  onEntityDelete,
+  onRelationDelete,
   storyId,
   className,
 }) => {
@@ -412,6 +416,37 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
       toast.error('创建关系失败');
     }
   }, [storyId, selectedEntity, entities, onRelationCreate]);
+
+  const handleDeleteEntity = useCallback(async () => {
+    if (!selectedEntity) return;
+    if (!window.confirm(`确定要归档实体「${selectedEntity.name}」吗？`)) return;
+    try {
+      const { archiveEntity } = await import('@/services/api/genesis');
+      await archiveEntity(selectedEntity.id);
+      onEntityDelete?.(selectedEntity);
+      setSelectedEntity(null);
+      toast.success('实体已归档');
+    } catch (error) {
+      kgViewLogger.error('Failed to archive entity', { error });
+      toast.error('归档实体失败');
+    }
+  }, [selectedEntity, onEntityDelete]);
+
+  const handleDeleteRelation = useCallback(
+    async (relation: Relation) => {
+      if (!window.confirm('确定要删除这条关系吗？')) return;
+      try {
+        const { deleteRelation } = await import('@/services/api/genesis');
+        await deleteRelation(relation.id);
+        onRelationDelete?.(relation);
+        toast.success('关系已删除');
+      } catch (error) {
+        kgViewLogger.error('Failed to delete relation', { error });
+        toast.error('删除关系失败');
+      }
+    },
+    [onRelationDelete]
+  );
 
   const getConnectedEntity = (relation: Relation) => {
     const otherId =
@@ -647,6 +682,15 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
                   <Pencil className="w-4 h-4" />
                 </button>
               )}
+              {!isEditing && (
+                <button
+                  onClick={handleDeleteEntity}
+                  className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                  title="归档"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={() => setSelectedEntity(null)}
                 className="p-1 text-gray-500 hover:text-white transition-colors"
@@ -772,6 +816,13 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
                           <span className="text-[10px] text-gray-500">
                             {Math.round(relation.strength * 100)}%
                           </span>
+                          <button
+                            onClick={() => handleDeleteRelation(relation)}
+                            className="ml-1 p-1 text-gray-500 hover:text-red-400 transition-colors"
+                            title="删除关系"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     </div>

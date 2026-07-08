@@ -6,9 +6,11 @@ import {
   archiveForgottenEntities,
   getArchivedEntities,
   restoreArchivedEntity,
+  archiveEntity,
+  deleteRelation,
 } from '@/services/tauri';
 import { useAppStore } from '@/stores/appStore';
-import type { StoryGraph, RetentionReport, Entity, StorySummary } from '@/types/v3';
+import type { StoryGraph, RetentionReport, Entity, Relation, StorySummary } from '@/types/v3';
 import {
   Network,
   RefreshCw,
@@ -164,6 +166,28 @@ export const KnowledgeGraph: React.FC = () => {
       toast.error('恢复失败');
     } finally {
       setIsRestoringId(null);
+    }
+  };
+
+  const handleEntityDelete = async (entity: Entity) => {
+    try {
+      await archiveEntity(entity.id);
+      toast.success(`「${entity.name}」已归档`);
+      await Promise.all([loadData(), loadArchived()]);
+    } catch (error) {
+      kgLogger.error('Failed to archive entity', { error });
+      toast.error('归档失败');
+    }
+  };
+
+  const handleRelationDelete = async (relation: Relation) => {
+    try {
+      await deleteRelation(relation.id);
+      toast.success('关系已删除');
+      await loadData();
+    } catch (error) {
+      kgLogger.error('Failed to delete relation', { error });
+      toast.error('删除关系失败');
     }
   };
 
@@ -587,6 +611,8 @@ export const KnowledgeGraph: React.FC = () => {
               onRelationCreate={() => {
                 loadData();
               }}
+              onEntityDelete={handleEntityDelete}
+              onRelationDelete={handleRelationDelete}
             />
           ) : null
         ) : activeTab === 'memory' ? (

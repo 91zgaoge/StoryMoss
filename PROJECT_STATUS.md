@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.32 项目完成状态
+# StoryForge (草苔) v0.26.33 项目完成状态
 
-> 最后更新: 2026-07-08（v0.26.32 完成阶段一剩余项：L1 创作入口、仪表盘统计卡、memory/ingest 测试）
+> 最后更新: 2026-07-08（v0.26.33 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.33 — 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦（2026-07-08）
+
+- **知识图谱实体归档与关系删除 UI**（Stage 4）：后端新增 `archive_entity` / `delete_relation` 命令；实体详情面板与关系列表新增删除/归档按钮。
+- **角色关系删除 UI**（Stage 2）：`useDeleteCharacterRelationship` hook + `Characters.tsx` 关系卡片删除按钮。
+- **前端 `frontstage ↔ components` 解耦**（Stage 3）：新增 `hooks/contracts/useEditorConfig.ts`；`FrontstageApp` / `RichTextEditor` 不再直接 import `EditorSettings.tsx`；循环依赖数为 0。
+- ✅ **验证**：`cargo test --lib` 684 passed；`cargo +nightly fmt -- --check` 通过；`cargo clippy --lib` 通过；`npx vitest run` 234 passed / 3 skipped；`npx tsc --noEmit` / `architecture_guard.py` / `npm run format:check` 通过。
 
 ### v0.26.32 — 完成阶段一剩余项：L1 创作入口、仪表盘统计卡、memory/ingest 测试（2026-07-08）
 

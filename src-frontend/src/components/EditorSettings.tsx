@@ -13,9 +13,9 @@ import { useState, useEffect } from 'react';
 import { Type, Palette, Check, ChevronDown, Plus, Trash2, Settings2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { createLogger } from '@/utils/logger';
-import { useAppStore } from '@/stores/appStore';
 import { WritingStyleId, styleList, defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
+import { loadEditorConfig, saveEditorConfig } from '@/hooks/contracts/useEditorConfig';
 import type { EditorConfig, CustomFont } from '@/types/editor';
 
 const editorSettingsLogger = createLogger('ui:EditorSettings');
@@ -47,45 +47,6 @@ const PRESET_FONTS: CustomFont[] = [
     source: 'system',
   },
 ];
-
-const STORAGE_KEY = 'storyforge-editor-config';
-
-// 加载配置
-export function loadEditorConfig(): EditorConfig {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        styleId: parsed.styleId || 'default',
-        fontFamily: parsed.fontFamily || defaultStyle.fontFamily,
-        fontSize: parsed.fontSize || defaultStyle.fontSize,
-        lineHeight: parsed.lineHeight || defaultStyle.lineHeight,
-        customFonts: parsed.customFonts || [],
-      };
-    }
-  } catch {
-    editorSettingsLogger.error('Failed to load editor config');
-  }
-  return {
-    styleId: 'default',
-    fontFamily: defaultStyle.fontFamily,
-    fontSize: defaultStyle.fontSize,
-    lineHeight: defaultStyle.lineHeight,
-    customFonts: [],
-  };
-}
-
-// 保存配置
-export function saveEditorConfig(config: EditorConfig) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    // W2-F2: 替代 editor-config-changed DOM CustomEvent，改用 Zustand store
-    useAppStore.getState().setEditorConfig(config);
-  } catch {
-    editorSettingsLogger.error('Failed to save editor config');
-  }
-}
 
 interface EditorSettingsProps {
   onChange?: (config: EditorConfig) => void;

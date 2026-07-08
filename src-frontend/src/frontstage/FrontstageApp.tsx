@@ -43,7 +43,7 @@ import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelinePro
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
-import { loadEditorConfig } from '@/components/EditorSettings';
+import { loadEditorConfig } from '@/hooks/contracts/useEditorConfig';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 

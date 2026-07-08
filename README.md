@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.32-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.33-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.32 完成综合优化计划阶段一剩余项——Dashboard / Stories 的 `CreationPathGuide` 变为可点击入口，Dashboard “AI 创建故事”主按钮直接进入推荐的幕前 Genesis 流程；仪表盘统计卡“章节”改为“场景”并新增“字数”统计；`memory/ingest` 补齐首批 5 条 happy/error 特征测试。上一版 v0.26.31 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema。
+**最新动态**：v0.26.33 补齐综合优化计划阶段 2/3/4 的具体 UI/解耦缺口——知识图谱实体可归档、关系可删除；角色关系卡片新增删除按钮；前端 `frontstage` 与 `components/EditorSettings` 解耦，新增 `hooks/contracts/useEditorConfig`，循环依赖数为 0。上一版 v0.26.32 完成阶段一剩余项（L1 创作入口、仪表盘统计卡、`memory/ingest` 测试）。
 
 **上一版 v0.26.30** 热修复旧数据库在 v0.26.28 迁移框架切换后可能缺失 `characters.scenes.world_buildings.kg_entities` 表的 `source` / `is_auto_generated` 列的问题——新增 V103 迁移与 `init_db` 启动兜底修复，确保 Genesis 与资产查询不再报 `no such column: source`。
 

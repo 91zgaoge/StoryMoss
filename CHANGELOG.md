@@ -2,6 +2,38 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.33] - 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦（2026-07-08）
+
+### 新增
+
+- **知识图谱实体归档与关系删除 UI**（Stage 4 缺口）：
+  - 后端新增 `delete_relation` 仓库方法及 `archive_entity` / `delete_relation` Tauri 命令，成功后发射 `knowledgeGraph` 同步事件。
+  - 前端 `KnowledgeGraphView` 实体详情面板新增归档按钮，关系列表新增删除按钮，均带 `confirm()` 确认。
+  - `KnowledgeGraph.tsx` 接入删除回调并刷新图谱数据。
+  - 新增 `KnowledgeGraphView` 删除相关单元测试。
+
+- **角色关系删除 UI**（Stage 2 缺口）：
+  - `useCharacterRelationships.ts` 新增 `useDeleteCharacterRelationship` hook。
+  - `Characters.tsx` 关系卡片新增删除按钮（`Trash2`），确认后调用删除 mutation 并刷新列表。
+  - 新增 `Characters.test.tsx` 覆盖删除按钮与取消行为。
+
+- **前端 `frontstage ↔ components` 解耦**（Stage 3 缺口）：
+  - 新增 `src-frontend/src/hooks/contracts/useEditorConfig.ts`，将 `loadEditorConfig` / `saveEditorConfig` 及 `useEditorConfig` hook 从 `EditorSettings.tsx` 提取到合约层。
+  - `FrontstageApp.tsx`、`RichTextEditor.tsx` 改为从 `hooks/contracts/useEditorConfig` 引入，不再依赖 `components/EditorSettings.tsx`。
+  - `EditorSettings.tsx` 本身也复用合约层的 load/save 函数。
+  - `madge --circular` 验证无循环依赖。
+  - 新增 `useEditorConfig.test.tsx`（7 条测试）。
+
+### 验证
+
+- `cargo test --lib`：684 passed ✅
+- `cargo +nightly fmt -- --check`：✅
+- `cargo clippy --lib`：✅（仅既有 warning）
+- `npx vitest run`：234 passed / 3 skipped ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+- `npm run format:check`：✅
+
 ## [v0.26.32] - 完成阶段一剩余项：L1 创作入口、仪表盘统计卡、memory/ingest 测试（2026-07-08）
 
 ### 新增

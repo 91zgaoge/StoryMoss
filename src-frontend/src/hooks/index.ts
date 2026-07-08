@@ -79,3 +79,4 @@ export { usePipelineProgress, usePipelineComplete } from './usePipelineProgress'
 export { useWorkflowNodes } from './useWorkflowNodes';
 export { useNetworkStatus, getNetworkStatus, subscribeNetworkStatus } from './useNetworkStatus';
 export { useBackendActivityListener } from './useBackendActivityListener';
+export { useEditorConfig, loadEditorConfig, saveEditorConfig } from './contracts/useEditorConfig';

@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useCharacters, useCreateCharacter, useDeleteCharacter } from '@/hooks/useCharacters';
-import { useCharacterRelationships } from '@/hooks/useCharacterRelationships';
+import {
+  useCharacterRelationships,
+  useDeleteCharacterRelationship,
+} from '@/hooks/useCharacterRelationships';
 import { useWorldBuilding } from '@/hooks/useWorldBuilding';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -37,22 +40,43 @@ type CharacterTab = 'info' | 'relationships';
 function RelationshipCard({
   rel,
   characterId,
+  storyId,
 }: {
   rel: CharacterRelationship;
   characterId: string;
+  storyId: string;
 }) {
+  const deleteRelationship = useDeleteCharacterRelationship();
   const isOutgoing = rel.source_character_id === characterId;
+
+  const handleDelete = () => {
+    if (confirm('确定要删除这个关系吗？')) {
+      deleteRelationship.mutate({ relationshipId: rel.id, storyId });
+    }
+  };
+
   return (
     <div className="p-3 bg-cinema-800/50 rounded-lg border border-cinema-700">
-      <div className="flex items-center gap-2 text-sm">
-        <Link2 className="w-3.5 h-3.5 text-cinema-gold" />
-        <span className="text-white font-medium">{isOutgoing ? '→' : '←'}</span>
-        <span className="text-cinema-gold">{rel.relationship_type}</span>
-        {rel.target_character_name && (
-          <span className="text-gray-400">
-            {isOutgoing ? '对' : '来自'} {rel.target_character_name}
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-3.5 h-3.5 text-cinema-gold" />
+          <span className="text-white font-medium">{isOutgoing ? '→' : '←'}</span>
+          <span className="text-cinema-gold">{rel.relationship_type}</span>
+          {rel.target_character_name && (
+            <span className="text-gray-400">
+              {isOutgoing ? '对' : '来自'} {rel.target_character_name}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={handleDelete}
+          disabled={deleteRelationship.isPending}
+          className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
+          title="删除关系"
+          data-testid={`delete-relationship-${rel.id}`}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
       {rel.description && (
         <p className="mt-1 text-xs text-gray-500 line-clamp-2">{rel.description}</p>
@@ -364,7 +388,12 @@ export function Characters() {
                   {charRels.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {charRels.map(rel => (
-                        <RelationshipCard key={rel.id} rel={rel} characterId={char.id} />
+                        <RelationshipCard
+                          key={rel.id}
+                          rel={rel}
+                          characterId={char.id}
+                          storyId={currentStory.id}
+                        />
                       ))}
                     </div>
                   ) : (

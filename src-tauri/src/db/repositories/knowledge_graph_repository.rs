@@ -292,6 +292,17 @@ impl KnowledgeGraphRepository {
         )
     }
 
+    pub fn delete_relation(&self, relation_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM kg_relations WHERE id = ?1",
+            params![relation_id],
+        )
+    }
+
     pub fn create_relation_in_tx(
         &self,
         tx: &rusqlite::Transaction,
@@ -775,5 +786,71 @@ impl crate::memory::query::KnowledgeGraph for KnowledgeGraphRepository {
     {
         self.get_related_entities(entity_id, min_strength)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{connection::create_test_pool, CreateStoryRequest, StoryRepository};
+
+    fn story_req(title: &str) -> CreateStoryRequest {
+        CreateStoryRequest {
+            title: title.to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        }
+    }
+
+    #[test]
+    fn test_delete_relation_removes_row() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let kg_repo = KnowledgeGraphRepository::new(pool);
+
+        let story = story_repo.create(story_req("关系删除测试")).unwrap();
+        let source = kg_repo
+            .create_entity(
+                &story.id,
+                "源实体",
+                "Character",
+                &serde_json::json!({}),
+                None,
+            )
+            .unwrap();
+        let target = kg_repo
+            .create_entity(
+                &story.id,
+                "目标实体",
+                "Character",
+                &serde_json::json!({}),
+                None,
+            )
+            .unwrap();
+        let relation = kg_repo
+            .create_relation(&story.id, &source.id, &target.id, "Friend", 0.8)
+            .unwrap();
+
+        let before = kg_repo.get_relations_by_story(&story.id).unwrap();
+        assert_eq!(before.len(), 1);
+
+        let deleted = kg_repo.delete_relation(&relation.id).unwrap();
+        assert_eq!(deleted, 1);
+
+        let after = kg_repo.get_relations_by_story(&story.id).unwrap();
+        assert!(after.is_empty());
+    }
+
+    #[test]
+    fn test_delete_relation_non_existent_returns_zero() {
+        let pool = create_test_pool().unwrap();
+        let kg_repo = KnowledgeGraphRepository::new(pool);
+
+        let count = kg_repo.delete_relation("non-existent-id").unwrap();
+        assert_eq!(count, 0);
     }
 }
