@@ -91,12 +91,7 @@ export function GenresTab() {
                     <Edit className="w-3 h-3" />
                   </Button>
                   {!g.is_builtin && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(g)}
-                      title="删除"
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(g)} title="删除">
                       <Trash2 className="w-3 h-3 text-red-400" />
                     </Button>
                   )}

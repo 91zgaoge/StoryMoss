@@ -171,9 +171,7 @@ export function ContractsTab({ storyId, selectedChapter, onChapterChange }: Cont
                     {failedRunErrors.slice(0, 5).map((err, idx) => (
                       <li key={idx} className="text-xs text-gray-300">
                         <span
-                          className={
-                            err.severity === 'error' ? 'text-red-400' : 'text-yellow-400'
-                          }
+                          className={err.severity === 'error' ? 'text-red-400' : 'text-yellow-400'}
                         >
                           [{err.severity}]
                         </span>{' '}

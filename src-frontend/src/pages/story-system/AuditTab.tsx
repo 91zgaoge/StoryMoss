@@ -115,9 +115,7 @@ export function AuditTab({ storyId }: AuditTabProps) {
       ) : (
         <Card>
           <CardContent className="p-4">
-            <p className="text-gray-500 text-sm">
-              点击“运行全面审计”开始分析故事结构健康度
-            </p>
+            <p className="text-gray-500 text-sm">点击“运行全面审计”开始分析故事结构健康度</p>
           </CardContent>
         </Card>
       )}

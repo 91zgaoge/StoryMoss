@@ -10,8 +10,27 @@ import { CharacterStatePanel } from '@/components/CharacterStatePanel';
 import { CharacterEditModal } from '@/components/CharacterEditModal';
 import { CharacterRelationshipForm } from '@/components/CharacterRelationshipForm';
 import { generateCharacterProfiles } from '@/services/api/wizard';
-import { Users, Plus, Trash2, Heart, UserX, Link2, Pencil, Star, Wand2, RefreshCw, X, Sparkles } from 'lucide-react';
-import type { Character, CharacterRelationship, WorldBuilding, WorldBuildingOption, CharacterProfileOption } from '@/types';
+import {
+  Users,
+  Plus,
+  Trash2,
+  Heart,
+  UserX,
+  Link2,
+  Pencil,
+  Star,
+  Wand2,
+  RefreshCw,
+  X,
+  Sparkles,
+} from 'lucide-react';
+import type {
+  Character,
+  CharacterRelationship,
+  WorldBuilding,
+  WorldBuildingOption,
+  CharacterProfileOption,
+} from '@/types';
 
 type CharacterTab = 'info' | 'relationships';
 
@@ -320,7 +339,9 @@ export function Characters() {
                         {char.name.charAt(0)}
                       </div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-display text-lg font-semibold text-white">{char.name}</h3>
+                        <h3 className="font-display text-lg font-semibold text-white">
+                          {char.name}
+                        </h3>
                         {char.is_auto_generated && (
                           <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
                             <Star className="w-3 h-3" />

@@ -1,8 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  getCharacterRelationships,
-  createCharacterRelationship,
-} from '@/services/tauri';
+import { getCharacterRelationships, createCharacterRelationship } from '@/services/tauri';
 import type { CharacterRelationship } from '@/types/index';
 import toast from 'react-hot-toast';
 

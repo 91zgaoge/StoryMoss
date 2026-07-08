@@ -33,8 +33,7 @@ function ReadingPowerChart({ data }: { data: ReadingPowerPoint[] }) {
 
   const xFor = (chapter: number) =>
     padding.left + ((chapter - minChapter) / chapterRange) * chartWidth;
-  const yFor = (score: number) =>
-    padding.top + chartHeight - (score / maxScore) * chartHeight;
+  const yFor = (score: number) => padding.top + chartHeight - (score / maxScore) * chartHeight;
 
   const pathD = data
     .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xFor(d.chapter)} ${yFor(d.score)}`)
@@ -58,7 +57,13 @@ function ReadingPowerChart({ data }: { data: ReadingPowerPoint[] }) {
             strokeDasharray="4 4"
             strokeWidth={1}
           />
-          <text x={padding.left - 8} y={yFor(tick) + 4} fill="#9CA3AF" fontSize={10} textAnchor="end">
+          <text
+            x={padding.left - 8}
+            y={yFor(tick) + 4}
+            fill="#9CA3AF"
+            fontSize={10}
+            textAnchor="end"
+          >
             {Math.round(tick)}
           </text>
         </g>

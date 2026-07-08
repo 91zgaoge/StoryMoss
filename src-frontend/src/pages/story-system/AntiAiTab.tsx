@@ -67,7 +67,11 @@ export function AntiAiTab({ storyId, genre }: AntiAiTabProps) {
             className="w-full h-48 bg-cinema-800 border border-cinema-700 rounded-lg p-3 text-white text-sm resize-none focus:outline-none focus:border-cinema-gold"
           />
           <div className="flex justify-end mt-3">
-            <Button onClick={handleAntiAiReview} disabled={isReviewing} className="flex items-center gap-2">
+            <Button
+              onClick={handleAntiAiReview}
+              disabled={isReviewing}
+              className="flex items-center gap-2"
+            >
               {isReviewing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
@@ -113,17 +117,11 @@ export function AntiAiTab({ storyId, genre }: AntiAiTabProps) {
                         style={{
                           width: `${dim.score * 100}%`,
                           backgroundColor:
-                            dim.score > 0.7
-                              ? '#4ade80'
-                              : dim.score > 0.4
-                                ? '#fbbf24'
-                                : '#f87171',
+                            dim.score > 0.7 ? '#4ade80' : dim.score > 0.4 ? '#fbbf24' : '#f87171',
                         }}
                       />
                     </div>
-                    <span className="text-white text-xs w-8">
-                      {(dim.score * 100).toFixed(0)}
-                    </span>
+                    <span className="text-white text-xs w-8">{(dim.score * 100).toFixed(0)}</span>
                   </div>
                 ))}
               </div>

@@ -23,11 +23,7 @@ export interface GenesisProgressEvent {
 }
 
 /** Backend Quick phase step names. */
-export const QUICK_PHASE_STEP_NAMES = [
-  '构思故事',
-  '选择创作策略',
-  '撰写开篇',
-] as const;
+export const QUICK_PHASE_STEP_NAMES = ['构思故事', '选择创作策略', '撰写开篇'] as const;
 
 /** Backend Background phase step names. */
 export const BACKGROUND_PHASE_STEP_NAMES = [

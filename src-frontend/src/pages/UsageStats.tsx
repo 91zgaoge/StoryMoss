@@ -19,11 +19,16 @@ import type { LlmCall } from '@/types';
 type OperationTab = 'all' | 'bootstrap' | 'smart_execute' | 'other';
 
 function deriveOperation(call: LlmCall): OperationTab {
-  const haystack = `${call.purpose ?? ''}|${call.task_type ?? ''}|${call.metadata ?? ''}`.toLowerCase();
+  const haystack =
+    `${call.purpose ?? ''}|${call.task_type ?? ''}|${call.metadata ?? ''}`.toLowerCase();
   if (haystack.includes('bootstrap') || haystack.includes('创世') || haystack.includes('opening')) {
     return 'bootstrap';
   }
-  if (haystack.includes('smart_execute') || haystack.includes('续写') || haystack.includes('writer')) {
+  if (
+    haystack.includes('smart_execute') ||
+    haystack.includes('续写') ||
+    haystack.includes('writer')
+  ) {
     return 'smart_execute';
   }
   return 'other';
@@ -256,7 +261,9 @@ export function UsageStats() {
                   {filteredCalls.map(call => (
                     <tr key={call.id} className="hover:bg-cinema-800/30 transition-colors">
                       <td className="py-2 px-3 text-white/80">{call.purpose}</td>
-                      <td className="py-2 px-3 text-gray-400">{TAB_LABELS[deriveOperation(call)]}</td>
+                      <td className="py-2 px-3 text-gray-400">
+                        {TAB_LABELS[deriveOperation(call)]}
+                      </td>
                       <td className="py-2 px-3 text-gray-400">
                         {call.model_name || call.model_id}
                       </td>

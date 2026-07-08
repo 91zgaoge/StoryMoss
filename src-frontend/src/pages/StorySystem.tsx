@@ -64,9 +64,7 @@ export function StorySystem() {
 
   if (!currentStory) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
-        请先选择一个故事
-      </div>
+      <div className="flex items-center justify-center h-full text-gray-500">请先选择一个故事</div>
     );
   }
 

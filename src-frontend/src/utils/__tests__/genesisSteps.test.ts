@@ -29,10 +29,7 @@ interface TestGenesisRun {
   updated_at: string;
 }
 
-const fixturePath = resolve(
-  __dirname,
-  '../../../../tests/fixtures/genesis_run_steps_sample.json'
-);
+const fixturePath = resolve(__dirname, '../../../../tests/fixtures/genesis_run_steps_sample.json');
 const fixture: TestGenesisRun = JSON.parse(readFileSync(fixturePath, 'utf8'));
 
 describe('genesisSteps', () => {

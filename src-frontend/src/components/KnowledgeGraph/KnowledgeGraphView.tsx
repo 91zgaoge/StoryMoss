@@ -390,9 +390,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
     if (!storyId || !selectedEntity) return;
     const targetName = window.prompt('目标实体名称');
     if (!targetName?.trim()) return;
-    const target = entities.find(
-      e => e.name.toLowerCase() === targetName.trim().toLowerCase()
-    );
+    const target = entities.find(e => e.name.toLowerCase() === targetName.trim().toLowerCase());
     if (!target) {
       toast.error('未找到目标实体');
       return;

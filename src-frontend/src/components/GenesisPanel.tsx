@@ -214,8 +214,12 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
   const progressPercent = computeGenesisProgressPercent(currentSteps);
   const isRunning = selectedRun?.status === 'running' || selectedRun?.status === 'pending';
 
-  const stepErrors = selectedRun ? sortGenesisErrors(parseGenesisStepsJson(selectedRun.steps_json).errors) : [];
-  const errorCounts = selectedRun ? countGenesisErrors(selectedRun.steps_json) : { total: 0, warnings: 0, errors: 0 };
+  const stepErrors = selectedRun
+    ? sortGenesisErrors(parseGenesisStepsJson(selectedRun.steps_json).errors)
+    : [];
+  const errorCounts = selectedRun
+    ? countGenesisErrors(selectedRun.steps_json)
+    : { total: 0, warnings: 0, errors: 0 };
 
   return (
     <div
@@ -305,7 +309,8 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
           </div>
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] text-white/30">
-              {currentSteps.filter(s => s.status === 'completed').length} / {currentSteps.length} 步完成
+              {currentSteps.filter(s => s.status === 'completed').length} / {currentSteps.length}{' '}
+              步完成
             </span>
             {progress && (
               <span className="text-[10px] text-cinema-gold/60">{progress.message}</span>
@@ -475,9 +480,7 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
                       ) : (
                         <AlertTriangle className="w-3 h-3 text-yellow-400 shrink-0" />
                       )}
-                      <span className="text-[11px] text-white/70 flex-1 truncate">
-                        {err.step}
-                      </span>
+                      <span className="text-[11px] text-white/70 flex-1 truncate">{err.step}</span>
                       {isExpanded ? (
                         <ChevronUp className="w-3 h-3 text-white/30 shrink-0" />
                       ) : (

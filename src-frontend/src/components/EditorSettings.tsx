@@ -14,11 +14,7 @@ import { Type, Palette, Check, ChevronDown, Plus, Trash2, Settings2 } from 'luci
 import { cn } from '@/utils/cn';
 import { createLogger } from '@/utils/logger';
 import { useAppStore } from '@/stores/appStore';
-import {
-  WritingStyleId,
-  styleList,
-  defaultStyle,
-} from '@/frontstage/config/writingStyles';
+import { WritingStyleId, styleList, defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import type { EditorConfig, CustomFont } from '@/types/editor';
 

@@ -196,9 +196,10 @@ export function TracingPanel() {
   useEffect(() => {
     if (!tracingFilter || traces.length === 0) return;
 
-    const match = traces.find(t =>
-      (tracingFilter.traceId && t.trace_id === tracingFilter.traceId) ||
-      (tracingFilter.sessionId && t.session_id === tracingFilter.sessionId)
+    const match = traces.find(
+      t =>
+        (tracingFilter.traceId && t.trace_id === tracingFilter.traceId) ||
+        (tracingFilter.sessionId && t.session_id === tracingFilter.sessionId)
     );
 
     if (match) {

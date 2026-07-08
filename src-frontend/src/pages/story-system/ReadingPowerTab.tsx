@@ -12,7 +12,11 @@ interface ReadingPowerTabProps {
   onChapterChange: (n: number) => void;
 }
 
-export function ReadingPowerTab({ storyId, selectedChapter, onChapterChange }: ReadingPowerTabProps) {
+export function ReadingPowerTab({
+  storyId,
+  selectedChapter,
+  onChapterChange,
+}: ReadingPowerTabProps) {
   const [readingTrend, setReadingTrend] = useState<ReadingPowerEvaluation[]>([]);
   const [chaseDebts, setChaseDebts] = useState<ChaseDebt[]>([]);
   const [isEvaluating, setIsEvaluating] = useState(false);
