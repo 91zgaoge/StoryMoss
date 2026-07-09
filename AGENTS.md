@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.57
+- **版本**: v0.26.58
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,7 +71,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 769 passed
+- `cargo test --lib` ✅ 770 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 292 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -80,6 +80,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.58 — 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败
+
+- **根因**：OpenAI 兼容 API（含 Deepseek）不接受 `top_p = 0.0`，会返回 `Invalid top_p value`。
+- **修复**：`OpenAiAdapter` 在序列化前过滤 `top_p`，仅保留 `(0, 1.0]` 的合法值；非法值自动省略，让服务端使用默认值。
+- **验证**：新增 `llm::openai` 单元测试；`cargo test --lib` 770 passed。
 
 ### v0.26.57 — 自动划分章节、本地导出保存与提示词目录
 

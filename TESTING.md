@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.57)
+# 🧪 StoryForge 自动化测试环境 (v0.26.58)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.58 变更说明
+
+- 新增 `llm::openai::tests::sanitize_top_p_keeps_valid_values`，验证 `top_p` 非法值（≤0、>1）被过滤，合法值保留。
+- 全量基线：`cargo test --lib` 770 passed。
 
 ### v0.26.57 变更说明
 

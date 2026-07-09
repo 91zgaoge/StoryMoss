@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.58] - 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败（2026-07-09）
+
+### 修复
+
+- **根因**：本地配置中 Deepseek 等 OpenAI 兼容模型的 `top_p` 被设为 `0.0`，而 OpenAI API 要求 `top_p ∈ (0, 1.0]`，导致健康探测/生成请求直接返回 `Invalid top_p value`。
+- **修复**：在 `OpenAiAdapter` 发送请求前对 `top_p` 做范围过滤，≤0 或 >1 的值不会被序列化，让服务端使用默认值；同步/流式请求均生效。
+- **测试**：新增 `llm::openai::tests::sanitize_top_p_keeps_valid_values`，覆盖 `None`、负数、`0`、越界与合法值。
+
+### 验证
+
+- `cargo test --lib`：**770 passed**（+1）
+- `cargo +nightly fmt --check` ✅
+
 ## [v0.26.57] - 自动划分章节、本地导出保存与提示词目录（2026-07-09）
 
 ### 功能

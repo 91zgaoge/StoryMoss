@@ -79,6 +79,12 @@ struct OpenAiStreamResponse {
     choices: Vec<OpenAiStreamChoice>,
 }
 
+/// OpenAI 兼容 API 要求 `top_p` 落在 `(0, 1.0]`；`0` 或不合法值会被服务端拒绝。
+/// 过滤后返回 `None` 可使字段不被序列化，让服务端使用默认值。
+fn sanitize_top_p(top_p: Option<f32>) -> Option<f32> {
+    top_p.filter(|v| *v > 0.0 && *v <= 1.0)
+}
+
 #[derive(Debug, Deserialize)]
 struct Usage {
     total_tokens: i32,
@@ -175,7 +181,7 @@ impl LlmAdapter for OpenAiAdapter {
             messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
-            top_p: request.top_p,
+            top_p: sanitize_top_p(request.top_p),
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
             response_format: request.response_format.as_ref().map(|f| f.openai_value()),
@@ -254,7 +260,7 @@ impl LlmAdapter for OpenAiAdapter {
             messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
-            top_p: request.top_p,
+            top_p: sanitize_top_p(request.top_p),
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
             stream: true,
@@ -336,5 +342,21 @@ impl LlmAdapter for OpenAiAdapter {
 
     fn box_clone(&self) -> Box<dyn super::LlmAdapter> {
         Box::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_top_p;
+
+    #[test]
+    fn sanitize_top_p_keeps_valid_values() {
+        assert_eq!(sanitize_top_p(None), None);
+        assert_eq!(sanitize_top_p(Some(0.0)), None);
+        assert_eq!(sanitize_top_p(Some(-0.1)), None);
+        assert_eq!(sanitize_top_p(Some(1.1)), None);
+        assert_eq!(sanitize_top_p(Some(0.1)), Some(0.1));
+        assert_eq!(sanitize_top_p(Some(0.5)), Some(0.5));
+        assert_eq!(sanitize_top_p(Some(1.0)), Some(1.0));
     }
 }

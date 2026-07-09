@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.57 项目完成状态
+# StoryForge (草苔) v0.26.58 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.57 自动划分章节、本地导出保存与提示词目录）
+> 最后更新: 2026-07-09（v0.26.58 修复 OpenAI/Deepseek top_p=0 健康检测失败）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.58 — 修复 OpenAI/Deepseek 因 top_p=0 健康检测失败（2026-07-09）
+
+- 根因：OpenAI 兼容 API（Deepseek）要求 `top_p ∈ (0, 1.0]`，配置中 `top_p: 0.0` 导致健康探测/生成直接报错。
+- 修复：`OpenAiAdapter` 序列化前过滤 `top_p`，非法值自动省略。
+- ✅ **验证**：`cargo test --lib` 770 passed；新增 `llm::openai` 单元测试。
 
 ### v0.26.57 — 自动划分章节、本地导出保存与提示词目录（2026-07-09）
 
