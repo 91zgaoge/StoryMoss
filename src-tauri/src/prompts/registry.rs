@@ -190,6 +190,95 @@ pub fn get_prompts_directory() -> Option<PathBuf> {
     prompts_resource_dir()
 }
 
+/// 按 id 取内置提示词显示名（未知 id 回退为 id 本身）。
+pub fn prompt_display_name(prompt_id: &str) -> String {
+    get_builtin_prompts()
+        .get(prompt_id)
+        .map(|e| e.name.clone())
+        .unwrap_or_else(|| prompt_id.to_string())
+}
+
+/// 场景组合预览中的一层提示词。
+#[derive(Debug, Clone, Serialize)]
+pub struct PromptCompositionLayer {
+    pub role: String,
+    pub prompt_id: String,
+    pub name: String,
+    pub source: String,
+}
+
+/// 场景组合预览结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct PromptCompositionPreview {
+    pub scene: String,
+    pub scene_label: String,
+    pub layers: Vec<PromptCompositionLayer>,
+}
+
+/// v0.26.38: 静态声明各生成场景会 resolve 的提示词分层（组合可观测，0 LLM）。
+pub fn preview_prompt_composition(scene: &str) -> PromptCompositionPreview {
+    let (scene_key, scene_label, specs): (&str, &str, &[(&str, &str, &str)]) = match scene {
+        "trishot_call3" | "trishot" | "genesis" => (
+            "trishot_call3",
+            "TriShot 创世 / 续写 · Call3",
+            &[
+                ("system", "writer_system", "system_prompt"),
+                ("synthesizer", "trishot_synthesizer", "Call1"),
+                (
+                    "user",
+                    "orchestrator_timesliced_writer",
+                    "Call3_user_fallback",
+                ),
+                ("injector", "writer_contract_constraints", "contextual"),
+                ("injector", "writer_chase_debt", "contextual"),
+                ("injector", "writer_narrative_event_history", "contextual"),
+                (
+                    "methodology",
+                    "methodology_snowflake_step1",
+                    "framework_optional",
+                ),
+            ],
+        ),
+        "pipeline_review" | "review" => (
+            "pipeline_review",
+            "审稿流水线",
+            &[
+                ("system", "pipeline_review", "review_system"),
+                ("criteria", "review_contract_criteria", "contract"),
+            ],
+        ),
+        // 默认：TimeSliced 续写
+        _ => (
+            "timesliced",
+            "TimeSliced 续写",
+            &[
+                ("system", "writer_system", "system_prompt"),
+                ("user", "orchestrator_timesliced_writer", "user_prompt"),
+                ("contract", "write_time_bundle_contract", "bundle"),
+                ("injector", "writer_contract_constraints", "contextual"),
+                ("injector", "writer_chase_debt", "contextual"),
+                ("injector", "writer_narrative_event_history", "contextual"),
+            ],
+        ),
+    };
+
+    let layers = specs
+        .iter()
+        .map(|(role, prompt_id, source)| PromptCompositionLayer {
+            role: (*role).to_string(),
+            prompt_id: (*prompt_id).to_string(),
+            name: prompt_display_name(prompt_id),
+            source: (*source).to_string(),
+        })
+        .collect();
+
+    PromptCompositionPreview {
+        scene: scene_key.to_string(),
+        scene_label: scene_label.to_string(),
+        layers,
+    }
+}
+
 fn prompts_resource_dir() -> Option<PathBuf> {
     if let Some(dir) = PROMPTS_RESOURCE_DIR.get() {
         if dir.is_dir() {
@@ -703,6 +792,32 @@ mod tests {
         assert!(inspector_hist
             .variables
             .contains(&"event_history".to_string()));
+    }
+
+    // v0.26.38: 场景组合预览静态声明
+    #[test]
+    fn test_preview_prompt_composition_timesliced() {
+        let preview = preview_prompt_composition("timesliced");
+        assert_eq!(preview.scene, "timesliced");
+        assert!(!preview.layers.is_empty());
+        assert!(preview
+            .layers
+            .iter()
+            .any(|l| l.prompt_id == "writer_system"));
+        assert!(preview
+            .layers
+            .iter()
+            .any(|l| l.prompt_id == "orchestrator_timesliced_writer"));
+    }
+
+    #[test]
+    fn test_preview_prompt_composition_trishot() {
+        let preview = preview_prompt_composition("trishot_call3");
+        assert_eq!(preview.scene, "trishot_call3");
+        assert!(preview
+            .layers
+            .iter()
+            .any(|l| l.prompt_id == "trishot_synthesizer"));
     }
 
     // v0.26.34: 暴露 prompts 目录路径，支持后台「打开本地目录」

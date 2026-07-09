@@ -2,6 +2,26 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.38] - 提示词面板修复与组合智能化（2026-07-09）
+
+### 修复
+
+- **展开提示词永久 Loading**：去掉 `@monaco-editor/react`（CDN 被 CSP `script-src 'self'` 拦截），改用原生 textarea，展开即可编辑。
+- **「打开目录」失败**：新增后端 `open_prompts_directory`，用系统 `open`/`explorer`/`xdg-open` 打开资源目录，不再依赖 `shell.open` 本地路径。
+- **导出不可用**：改为 dialog `save` + fs `writeFile`；支持「导出已覆盖」与「导出完整包」，并补充说明文案。
+
+### 增强
+
+- **Call 1 框架选择接通**：`render_selected_asset_guidance` 消费 `FrameworkSelections.methodology` 与 `contextual_injectors`（0 额外 LLM），与既有 `prompt_hints`/资产正文一并回灌 Call 3。
+- **场景组合预览**：新增 `preview_prompt_composition` IPC + 面板只读分层列表，可跳转到对应提示词。
+- **IPC 校验**：`verify-ipc-manifest.py` 跟随 `include!("handlers.rs")`；注册 `write_frontend_log`。
+
+### 验证
+
+- `cargo test --lib`：690 passed / 0 failed / 2 ignored ✅
+- `npx vitest run`：244 passed / 3 skipped ✅
+- `npx tsc --noEmit` / fmt / format / architecture_guard：✅
+
 ## [v0.26.37] - 修复幕前「保存中」常亮与字数不更新（2026-07-09）
 
 ### 修复

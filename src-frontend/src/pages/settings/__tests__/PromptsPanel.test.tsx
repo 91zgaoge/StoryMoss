@@ -3,25 +3,19 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { PromptsPanel } from '../PromptsPanel';
 
 const loggedInvoke = vi.fn();
-const openShell = vi.fn();
 
 vi.mock('@/services/api/core', () => ({
   loggedInvoke: (...args: [string, Record<string, unknown>?]) => loggedInvoke(...args),
 }));
 
-vi.mock('@tauri-apps/plugin-shell', () => ({
-  open: (path: string) => openShell(path),
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  save: vi.fn(),
+  open: vi.fn(),
 }));
 
-vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange }: { value?: string; onChange?: (v?: string) => void }) => (
-    <textarea
-      data-testid="monaco-editor"
-      value={value || ''}
-      onChange={e => onChange?.(e.target.value)}
-      readOnly={!onChange}
-    />
-  ),
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  writeFile: vi.fn(),
+  readFile: vi.fn(),
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -37,10 +31,23 @@ const mockEntry = {
   name: '写作助手',
   description: '核心写作提示词',
   category: 'Writer',
-  default_content: 'default',
-  current_content: 'current',
+  default_content: 'default content body',
+  current_content: 'current content body for editing',
   is_overridden: false,
   variables: ['story_title'],
+};
+
+const mockComposition = {
+  scene: 'timesliced',
+  scene_label: 'TimeSliced 续写',
+  layers: [
+    {
+      role: 'system',
+      prompt_id: 'writer_system',
+      name: '写作助手',
+      source: 'system_prompt',
+    },
+  ],
 };
 
 describe('PromptsPanel', () => {
@@ -53,6 +60,12 @@ describe('PromptsPanel', () => {
       if (cmd === 'get_prompts_directory') {
         return '/Users/yuzaimu/projects/StoryForge/resources/prompts';
       }
+      if (cmd === 'open_prompts_directory') {
+        return '/Users/yuzaimu/projects/StoryForge/resources/prompts';
+      }
+      if (cmd === 'preview_prompt_composition') {
+        return mockComposition;
+      }
       return undefined;
     });
   });
@@ -61,17 +74,37 @@ describe('PromptsPanel', () => {
     render(<PromptsPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText('写作助手')).toBeInTheDocument();
+      expect(screen.getByText('核心写作提示词')).toBeInTheDocument();
     });
 
     expect(loggedInvoke).toHaveBeenCalledWith('list_prompt_entries');
+  });
+
+  it('展开提示词后立即显示正文编辑器，不出现 Loading', async () => {
+    render(<PromptsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('核心写作提示词')).toBeInTheDocument();
+    });
+
+    const row = document.querySelector('[data-prompt-id="writer_system"] button');
+    expect(row).toBeTruthy();
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      const editor = screen.getByTestId('prompt-editor');
+      expect(editor).toBeInTheDocument();
+      expect(editor).toHaveValue('current content body for editing');
+    });
+
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
   });
 
   it('导入提示词覆盖时应使用 snake_case 参数 prompt_id', async () => {
     render(<PromptsPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText('写作助手')).toBeInTheDocument();
+      expect(screen.getByText('核心写作提示词')).toBeInTheDocument();
     });
 
     const file = new File(
@@ -91,21 +124,34 @@ describe('PromptsPanel', () => {
     });
   });
 
-  it('点击打开目录按钮应调用 get_prompts_directory 并用 shell.open 打开路径', async () => {
+  it('点击打开目录按钮应调用 open_prompts_directory', async () => {
     render(<PromptsPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText('写作助手')).toBeInTheDocument();
+      expect(screen.getByText('核心写作提示词')).toBeInTheDocument();
     });
 
     const openDirButton = screen.getByRole('button', { name: /打开目录/i });
     fireEvent.click(openDirButton);
 
     await waitFor(() => {
-      expect(loggedInvoke).toHaveBeenCalledWith('get_prompts_directory');
-      expect(openShell).toHaveBeenCalledWith(
-        '/Users/yuzaimu/projects/StoryForge/resources/prompts'
-      );
+      expect(loggedInvoke).toHaveBeenCalledWith('open_prompts_directory');
     });
+  });
+
+  it('场景组合预览应加载并展示分层', async () => {
+    render(<PromptsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('场景组合预览')).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(loggedInvoke).toHaveBeenCalledWith('preview_prompt_composition', {
+        scene: 'timesliced',
+      });
+    });
+
+    expect(screen.getByTestId('composition-scene-select')).toHaveValue('timesliced');
   });
 });

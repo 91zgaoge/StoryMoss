@@ -1,8 +1,16 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.37 幕前保存/字数修复；v0.26.36 配置即时生效；v0.26.35 审计残留已关闭）
+> 最后更新: 2026-07-09（v0.26.38 提示词面板与组合智能化；v0.26.37 幕前保存/字数）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.38 — 提示词面板与组合智能化 ✅ (2026-07-09)
+
+- [x] 面板 Loading / 打开目录 / 导出修复
+- [x] FrameworkSelections methodology + contextual_injectors 回灌 Call 3
+- [x] 场景组合预览（preview_prompt_composition）
+- [ ] 热路径按 quality_gate 条件审校（仍仅日志，不增 LLM）
+- [ ] 前端孤儿 IPC：`auto_write_cancel` / `auto_revise_cancel` / `get_canonical_state`（已 allowlist）
 
 ### 📝 v0.26.37 — 幕前保存与字数 ✅ (2026-07-09)
 

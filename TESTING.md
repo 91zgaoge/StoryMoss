@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.37)
+# 🧪 StoryForge 自动化测试环境 (v0.26.38)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.38 变更说明
+
+- PromptsPanel：展开编辑器 / 打开目录 / 组合预览 vitest；framework_guidance + preview_prompt_composition Rust 单测。
+- `cargo test --lib` 690 passed（+5）；vitest 244 passed（+2）。
 
 ### v0.26.37 变更说明
 
@@ -20,7 +25,7 @@
 
 | 套件                                | 数量     | 状态                           |
 | ----------------------------------- | -------- | ------------------------------ |
-| `cargo test --lib`                  | 685      | ✅ 0 failed / 2 ignored        |
+| `cargo test --lib`                  | 690      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative::genesis` | 11     | ✅（创世步骤/重试闸门/payload 契约） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |

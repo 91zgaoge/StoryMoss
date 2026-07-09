@@ -12,15 +12,13 @@ import {
   Upload,
   FolderOpen,
   RefreshCw,
+  Layers,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
-import { open } from '@tauri-apps/plugin-shell';
-// v0.21.0: Monaco 编辑器替代原生 textarea
-import MonacoEditor from '@monaco-editor/react';
 
 const VAR_TAG_OPEN = '{' + '{';
 const VAR_TAG_CLOSE = '}' + '}';
@@ -58,6 +56,25 @@ interface PromptEntry {
   is_overridden: boolean;
   variables: string[];
 }
+
+interface CompositionLayer {
+  role: string;
+  prompt_id: string;
+  name: string;
+  source: string;
+}
+
+interface CompositionPreview {
+  scene: string;
+  scene_label: string;
+  layers: CompositionLayer[];
+}
+
+const COMPOSITION_SCENES = [
+  { value: 'timesliced', label: 'TimeSliced 续写' },
+  { value: 'trishot_call3', label: 'TriShot 创世 / 续写 · Call3' },
+  { value: 'pipeline_review', label: '审稿流水线' },
+] as const;
 
 const CATEGORY_LABELS: Record<PromptCategory, string> = {
   Writer: '写作核心',
@@ -131,6 +148,19 @@ const CATEGORY_COLORS: Record<PromptCategory, string> = {
   Other: 'bg-slate-500/20 text-slate-400',
 };
 
+async function writeJsonViaDialog(defaultName: string, data: unknown): Promise<boolean> {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  const { writeFile } = await import('@tauri-apps/plugin-fs');
+  const filePath = await save({
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    defaultPath: defaultName,
+  });
+  if (!filePath) return false;
+  const text = JSON.stringify(data, null, 2);
+  await writeFile(filePath, new TextEncoder().encode(text));
+  return true;
+}
+
 export function PromptsPanel() {
   const [entries, setEntries] = useState<PromptEntry[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -143,6 +173,9 @@ export function PromptsPanel() {
   const [promptsDir, setPromptsDir] = useState<string | null>(null);
   const [dirLoading, setDirLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [compositionScene, setCompositionScene] = useState<string>('timesliced');
+  const [composition, setComposition] = useState<CompositionPreview | null>(null);
 
   const fetchEntries = async () => {
     setLoading(true);
@@ -178,10 +211,26 @@ export function PromptsPanel() {
     }
   };
 
+  const fetchComposition = useCallback(async (scene: string) => {
+    try {
+      const preview = await loggedInvoke<CompositionPreview>('preview_prompt_composition', {
+        scene,
+      });
+      setComposition(preview);
+    } catch (e) {
+      console.error(e);
+      setComposition(null);
+    }
+  }, []);
+
   useEffect(() => {
     fetchEntries();
     fetchPromptsDirectory();
   }, []);
+
+  useEffect(() => {
+    fetchComposition(compositionScene);
+  }, [compositionScene, fetchComposition]);
 
   const filteredEntries = useMemo(() => {
     let result = entries;
@@ -210,14 +259,12 @@ export function PromptsPanel() {
       if (!g[e.category]) g[e.category] = [];
       g[e.category].push(e);
     }
-    // 按 CATEGORY_ORDER 排序
     const sorted: Record<string, PromptEntry[]> = {};
     for (const cat of CATEGORY_ORDER) {
       if (g[cat]) {
         sorted[cat] = g[cat];
       }
     }
-    // 添加任何未在 ORDER 中的分类
     for (const [cat, list] of Object.entries(g)) {
       if (!sorted[cat]) {
         sorted[cat] = list;
@@ -267,30 +314,54 @@ export function PromptsPanel() {
     }
   };
 
-  // v0.21.0: 批量导出所有覆盖为 JSON
-  const handleExportAll = () => {
+  const handleExportOverrides = async () => {
+    setShowExportMenu(false);
     const overridden = entries.filter(e => e.is_overridden);
     if (overridden.length === 0) {
-      toast('没有已覆盖的提示词可导出', { icon: 'ℹ️' });
+      toast('没有已覆盖的提示词可导出。可改用「导出完整包」备份全部当前生效内容。', {
+        icon: 'ℹ️',
+      });
       return;
     }
-    const exportData = overridden.map(e => ({
-      prompt_id: e.id,
-      content: e.current_content,
-    }));
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `storyforge-prompts-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`已导出 ${overridden.length} 条提示词覆盖`);
+    try {
+      const exportData = overridden.map(e => ({
+        prompt_id: e.id,
+        content: e.current_content,
+      }));
+      const ok = await writeJsonViaDialog(
+        `storyforge-prompt-overrides-${new Date().toISOString().slice(0, 10)}.json`,
+        exportData
+      );
+      if (ok) toast.success(`已导出 ${overridden.length} 条提示词覆盖`);
+    } catch (e) {
+      toast.error('导出失败: ' + String(e));
+    }
   };
 
-  // v0.21.0: 批量导入覆盖
+  const handleExportFullPack = async () => {
+    setShowExportMenu(false);
+    if (entries.length === 0) {
+      toast.error('没有可导出的提示词');
+      return;
+    }
+    try {
+      const exportData = entries.map(e => ({
+        prompt_id: e.id,
+        name: e.name,
+        category: e.category,
+        content: e.current_content,
+        is_overridden: e.is_overridden,
+      }));
+      const ok = await writeJsonViaDialog(
+        `storyforge-prompts-full-${new Date().toISOString().slice(0, 10)}.json`,
+        exportData
+      );
+      if (ok) toast.success(`已导出完整包 ${exportData.length} 条`);
+    } catch (e) {
+      toast.error('导出失败: ' + String(e));
+    }
+  };
+
   const handleImportAll = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -305,7 +376,12 @@ export function PromptsPanel() {
         return;
       }
       let success = 0;
+      const skipped: string[] = [];
       for (const item of data) {
+        if (!item.prompt_id || typeof item.content !== 'string') {
+          skipped.push(String(item.prompt_id ?? '(缺 id)'));
+          continue;
+        }
         try {
           await loggedInvoke('save_prompt_override', {
             prompt_id: item.prompt_id,
@@ -313,10 +389,16 @@ export function PromptsPanel() {
           });
           success++;
         } catch {
-          // 跳过不存在的 prompt_id
+          skipped.push(item.prompt_id);
         }
       }
-      toast.success(`已导入 ${success}/${data.length} 条提示词覆盖`);
+      if (skipped.length > 0) {
+        toast.success(
+          `已导入 ${success}/${data.length} 条；跳过 ${skipped.length} 条：${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`
+        );
+      } else {
+        toast.success(`已导入 ${success}/${data.length} 条提示词覆盖`);
+      }
       fetchEntries();
     } catch (err) {
       toast.error('导入失败: ' + String(err));
@@ -329,14 +411,13 @@ export function PromptsPanel() {
   }, []);
 
   const handleOpenDirectory = async () => {
-    if (!promptsDir) {
-      toast.error('未找到提示词目录');
-      return;
-    }
     try {
-      await open(promptsDir);
+      const path = await loggedInvoke<string>('open_prompts_directory');
+      toast.success(`已打开：${path}`);
+      setPromptsDir(path);
     } catch (e) {
-      toast.error('打开目录失败');
+      const message = e instanceof Error ? e.message : String(e);
+      toast.error('打开目录失败：' + message);
       console.error(e);
     }
   };
@@ -344,7 +425,14 @@ export function PromptsPanel() {
   const handleReload = async () => {
     await fetchEntries();
     await fetchPromptsDirectory();
+    await fetchComposition(compositionScene);
     toast.success('提示词列表已重新加载');
+  };
+
+  const jumpToPrompt = (promptId: string) => {
+    setExpandedId(promptId);
+    setSearchQuery(promptId);
+    setActiveCategory('all');
   };
 
   const overriddenCount = entries.filter(e => e.is_overridden).length;
@@ -371,35 +459,63 @@ export function PromptsPanel() {
             所有内置 LLM
             提示词都可以在此查看、编辑、保存覆盖。已覆盖的提示词在运行时自动取代内置默认。
           </p>
+          {!dirLoading && promptsDir && (
+            <p
+              className="text-xs text-gray-600 mt-1 font-mono truncate max-w-xl"
+              title={promptsDir}
+            >
+              目录：{promptsDir}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-gray-500">
             共 {entries.length} 条 · {overriddenCount} 条已覆盖
           </span>
-          {!dirLoading && promptsDir && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleOpenDirectory}
-              title={`打开提示词目录：${promptsDir}`}
-            >
-              <FolderOpen className="w-3.5 h-3.5 mr-1" />
-              打开目录
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleOpenDirectory}
+            title={promptsDir ? `打开提示词目录：${promptsDir}` : '打开提示词资源目录'}
+          >
+            <FolderOpen className="w-3.5 h-3.5 mr-1" />
+            打开目录
+          </Button>
           <Button size="sm" variant="ghost" onClick={handleReload} title="重新加载提示词列表">
             <RefreshCw className="w-3.5 h-3.5 mr-1" />
             刷新
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleExportAll}
-            title="导出全部提示词覆盖为 JSON 文件"
-          >
-            <Download className="w-3.5 h-3.5 mr-1" />
-            导出
-          </Button>
+          <div className="relative">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowExportMenu(v => !v)}
+              title="导出提示词：覆盖 = 你改过的；完整包 = 当前生效全文"
+            >
+              <Download className="w-3.5 h-3.5 mr-1" />
+              导出
+            </Button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 z-20 w-56 rounded border border-cinema-700 bg-cinema-900 shadow-lg py-1">
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm text-white hover:bg-cinema-800"
+                  onClick={handleExportOverrides}
+                >
+                  导出已覆盖
+                  <span className="block text-xs text-gray-500">仅你改过的条目</span>
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm text-white hover:bg-cinema-800"
+                  onClick={handleExportFullPack}
+                >
+                  导出完整包
+                  <span className="block text-xs text-gray-500">全部当前生效全文</span>
+                </button>
+              </div>
+            )}
+          </div>
           <label className="cursor-pointer inline-flex items-center">
             <Button
               size="sm"
@@ -432,6 +548,54 @@ export function PromptsPanel() {
           )}
         </div>
       </div>
+
+      <p className="text-xs text-gray-500">
+        导出说明：覆盖 = 你改过的；完整包 = 当前生效全文（含默认与覆盖）。导入只写入覆盖表。
+      </p>
+
+      {/* Composition preview */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 text-sm text-white">
+              <Layers className="w-4 h-4 text-cinema-gold" />
+              场景组合预览
+              <span className="text-xs text-gray-500">（只读 · 改哪条会影响哪条路径）</span>
+            </div>
+            <select
+              value={compositionScene}
+              onChange={e => setCompositionScene(e.target.value)}
+              className="px-3 py-1.5 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
+              data-testid="composition-scene-select"
+            >
+              {COMPOSITION_SCENES.map(s => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {composition && (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-400 mb-2">{composition.scene_label}</div>
+              {composition.layers.map(layer => (
+                <button
+                  key={`${layer.role}-${layer.prompt_id}`}
+                  type="button"
+                  onClick={() => jumpToPrompt(layer.prompt_id)}
+                  className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded hover:bg-cinema-800/50 text-sm"
+                >
+                  <span className="text-xs text-gray-500 w-20 shrink-0">{layer.role}</span>
+                  <span className="text-white truncate">{layer.name}</span>
+                  <code className="text-xs text-gray-500 font-mono ml-auto shrink-0">
+                    {layer.prompt_id}
+                  </code>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Load error */}
       {loadError && (
@@ -474,7 +638,6 @@ export function PromptsPanel() {
         </select>
       </div>
 
-      {/* Results count */}
       {searchQuery && (
         <div className="text-sm text-gray-400">
           搜索 "{searchQuery}" 找到 {filteredEntries.length} 条结果
@@ -499,7 +662,7 @@ export function PromptsPanel() {
                   const draft = edited[entry.id] ?? entry.current_content;
                   const isDirty = draft !== entry.current_content;
                   return (
-                    <div key={entry.id} className="px-4 py-3">
+                    <div key={entry.id} className="px-4 py-3" data-prompt-id={entry.id}>
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : entry.id)}
                         className="w-full flex items-center justify-between text-left hover:bg-cinema-800/30 -mx-4 px-4 py-1 transition rounded"
@@ -546,45 +709,30 @@ export function PromptsPanel() {
                             </div>
                           )}
 
-                          {/* Default content preview */}
                           {entry.is_overridden && (
                             <div className="space-y-1">
                               <div className="text-xs text-gray-500 font-medium">
                                 内置默认值（只读）：
                               </div>
-                              <div className="w-full px-3 py-2 bg-cinema-950 border border-cinema-800 rounded text-sm text-gray-400 font-mono max-h-32 overflow-y-auto">
+                              <div className="w-full px-3 py-2 bg-cinema-950 border border-cinema-800 rounded text-sm text-gray-400 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
                                 {entry.default_content}
                               </div>
                             </div>
                           )}
 
-                          {/* v0.21.0: Monaco 编辑器替代原生 textarea */}
-                          <div
-                            className="border border-cinema-700 rounded overflow-hidden"
-                            style={{ height: '360px' }}
-                          >
-                            <MonacoEditor
-                              value={draft}
-                              language="plaintext"
-                              theme="vs-dark"
-                              onChange={value =>
-                                setEdited(prev => ({
-                                  ...prev,
-                                  [entry.id]: value ?? '',
-                                }))
-                              }
-                              options={{
-                                minimap: { enabled: false },
-                                fontSize: 13,
-                                wordWrap: 'on',
-                                lineNumbers: 'on',
-                                scrollBeyondLastLine: false,
-                                automaticLayout: true,
-                                tabSize: 2,
-                                renderWhitespace: 'selection',
-                              }}
-                            />
-                          </div>
+                          {/* v0.26.38: 原生 textarea，避免 Monaco CDN 被 CSP 拦截导致永久 Loading */}
+                          <textarea
+                            data-testid="prompt-editor"
+                            value={draft}
+                            onChange={e =>
+                              setEdited(prev => ({
+                                ...prev,
+                                [entry.id]: e.target.value,
+                              }))
+                            }
+                            className="w-full h-[360px] px-3 py-2 bg-cinema-950 border border-cinema-700 rounded text-sm text-gray-100 font-mono leading-relaxed resize-y focus:outline-none focus:border-cinema-gold/50"
+                            spellCheck={false}
+                          />
 
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-gray-500">
@@ -631,7 +779,6 @@ export function PromptsPanel() {
         </div>
       )}
 
-      {/* Reset All Confirmation Modal */}
       {showResetAllConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-cinema-900 border border-cinema-700 rounded-lg p-6 max-w-md w-full mx-4">

@@ -46,6 +46,8 @@ tauri::generate_handler![
     prompts::commands::reset_all_prompt_overrides,
     prompts::commands::resolve_prompt_content,
     prompts::commands::get_prompts_directory,
+    prompts::commands::open_prompts_directory,
+    prompts::commands::preview_prompt_composition,
     model_gateway::commands::get_gateway_status,
     model_gateway::commands::refresh_model_health,
     model_gateway::commands::simulate_gateway_route,
@@ -65,6 +67,7 @@ tauri::generate_handler![
     // Tracing log access
     logging::get_recent_logs,
     logging::get_log_directory,
+    logging::write_frontend_log,
     // Intent commands
     commands::intent::parse_intent,
     commands::intent::execute_intent,

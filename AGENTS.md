@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.37
+- **版本**: v0.26.38
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,15 +71,22 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 685 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 690 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 237 passed / 3 skipped
+- `npx vitest run` ✅ 244 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.38 — 提示词面板修复与组合智能化
+
+- **修复 Loading / 打开目录 / 导出**：Monaco CDN → textarea；`open_prompts_directory` 原生打开；dialog+fs 导出覆盖/完整包。
+- **接通 FrameworkSelections**：methodology + contextual_injectors 确定性回灌 Call 3（0 额外 LLM）。
+- **场景组合预览**：`preview_prompt_composition` + 面板分层跳转。
+- **验证**：`cargo test --lib` 690 passed；`npx vitest run` 244 passed / 3 skipped；fmt、format、architecture_guard 均通过。
 
 ### v0.26.37 — 修复幕前「保存中」常亮与字数不更新
 
@@ -234,4 +241,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.37_
+_最后更新: 2026-07-09 - v0.26.38_

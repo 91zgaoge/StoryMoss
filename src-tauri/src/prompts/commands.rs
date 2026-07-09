@@ -53,3 +53,52 @@ pub fn get_prompts_directory() -> Result<String, AppError> {
             message: "无法定位 prompts 资源目录".to_string(),
         })
 }
+
+/// v0.26.38: 用系统文件管理器打开 prompts 资源目录（绕过 shell.open
+/// 本地路径限制）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_prompts_directory() -> Result<String, AppError> {
+    let dir = registry::get_prompts_directory().ok_or_else(|| AppError::Internal {
+        message: "无法定位 prompts 资源目录".to_string(),
+    })?;
+    let path_str = dir.to_string_lossy().to_string();
+
+    let status = {
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(&dir).status()
+        }
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer").arg(&dir).status()
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open").arg(&dir).status()
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", unix)))]
+        {
+            return Err(AppError::Internal {
+                message: format!("当前平台不支持打开目录: {}", path_str),
+            });
+        }
+    };
+
+    match status {
+        Ok(s) if s.success() => Ok(path_str),
+        Ok(s) => Err(AppError::Internal {
+            message: format!("打开目录失败（exit {:?}）: {}", s.code(), path_str),
+        }),
+        Err(e) => Err(AppError::Internal {
+            message: format!("打开目录失败: {} ({})", e, path_str),
+        }),
+    }
+}
+
+/// v0.26.38: 静态预览某生成场景会组合哪些提示词（0 LLM，只读声明）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn preview_prompt_composition(
+    scene: String,
+) -> Result<registry::PromptCompositionPreview, AppError> {
+    Ok(registry::preview_prompt_composition(&scene))
+}

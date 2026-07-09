@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.37 项目完成状态
+# StoryForge (草苔) v0.26.38 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.37 修复幕前保存中常亮与字数不更新）
+> 最后更新: 2026-07-09（v0.26.38 提示词面板修复与组合智能化）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.38 — 提示词面板修复与组合智能化（2026-07-09）
+
+- 面板：textarea 替代 Monaco CDN；原生打开目录；导出覆盖/完整包。
+- 运行时：Call 1 `methodology`/`contextual_injectors` 回灌 Call 3；场景组合预览。
+- ✅ **验证**：cargo test 690；vitest 244；tsc/fmt/architecture_guard 通过。
 
 ### v0.26.37 — 修复幕前「保存中」常亮与字数不更新（2026-07-09）
 

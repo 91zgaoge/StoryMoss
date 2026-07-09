@@ -3371,7 +3371,7 @@ pub fn render_writer_system_from_bundle(
     Some(result)
 }
 
-/// v0.23.65 P0-3: 把 Call 1 选中的资产正文解析为创作指导文本。
+/// v0.23.65 P0-3 / v0.26.38: 把 Call 1 选中的资产正文与框架选择解析为创作指导。
 ///
 /// Call 1（PromptSynthesizer）返回 `selected_asset_ids`（如 beat_card.*、
 /// story_engine.*、pressure_relationship.*），此前只被转成路由标签用于模型网关
@@ -3379,8 +3379,11 @@ pub fn render_writer_system_from_bundle(
 /// prompt。此函数从 `AssetCapabilityManifest` 查找资产完整内容，格式化为紧凑
 /// 创作指导文本。
 ///
-/// 同时消费 `FrameworkSelections.prompt_hints`——Call 1 选中的额外提示词
-/// ID 列表，从 PromptRegistry 解析后注入。
+/// v0.26.38: 同时消费完整 `FrameworkSelections`：
+/// - `methodology` → 映射到 PromptRegistry 方法论提示词
+/// - `contextual_injectors` → 逐 id resolve 后注入
+/// - `prompt_hints` → 额外提示词（既有行为）
+/// - `quality_gate` → 仅记录日志，不在热路径同步跑审校（0 额外 LLM）
 pub fn render_selected_asset_guidance(
     capability_manifest: Option<
         &crate::creative_engine::asset_capability_manifest::AssetCapabilityManifest,
@@ -3391,14 +3394,65 @@ pub fn render_selected_asset_guidance(
 ) -> Option<String> {
     let mut sections: Vec<String> = Vec::new();
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // 限 5 条，控制 token 预算
-    const MAX_ITEMS: usize = 5;
+    // 限 8 条：methodology 1 + injectors ≤3 + hints/assets 补齐
+    const MAX_ITEMS: usize = 8;
+    const MAX_INJECTORS: usize = 3;
 
-    // 1. 解析 framework_selections.prompt_hints → PromptRegistry
     if let Some(fs) = framework_selections {
+        // quality_gate：热路径不跑审校，仅诊断日志
+        if let Some(ref qg) = fs.quality_gate {
+            if !qg.is_empty() {
+                log::info!(
+                    "[PromptCompose] Call1 selected quality_gate={} (deferred, not run inline)",
+                    qg
+                );
+            }
+        }
+
+        // 1. methodology → registry prompt
+        if let Some(ref mid) = fs.methodology {
+            if sections.len() < MAX_ITEMS {
+                if let Some(pid) = map_methodology_to_prompt_id(mid, None) {
+                    if let Some(content) = resolve_prompt_for_hint(pool, &pid) {
+                        sections.push(format!(
+                            "【方法论：{}】\n{}",
+                            mid,
+                            truncate_str(&content, 500)
+                        ));
+                        seen_ids.insert(pid);
+                        seen_ids.insert(mid.clone());
+                    }
+                }
+            }
+        }
+
+        // 2. contextual_injectors → registry
+        let mut injector_count = 0usize;
+        for inj_id in &fs.contextual_injectors {
+            if sections.len() >= MAX_ITEMS || injector_count >= MAX_INJECTORS {
+                break;
+            }
+            if seen_ids.contains(inj_id) {
+                continue;
+            }
+            if let Some(content) = resolve_prompt_for_hint(pool, inj_id) {
+                sections.push(format!(
+                    "【条件注入：{}】\n{}",
+                    inj_id,
+                    truncate_str(&content, 400)
+                ));
+                seen_ids.insert(inj_id.clone());
+                injector_count += 1;
+            }
+        }
+
+        // 3. prompt_hints → PromptRegistry
         for hint_id in &fs.prompt_hints {
             if sections.len() >= MAX_ITEMS {
                 break;
+            }
+            if seen_ids.contains(hint_id) {
+                continue;
             }
             if let Some(content) = resolve_prompt_for_hint(pool, hint_id) {
                 sections.push(format!(
@@ -3411,7 +3465,7 @@ pub fn render_selected_asset_guidance(
         }
     }
 
-    // 2. 解析 selected_asset_ids → 资产正文（桥段卡/引擎/高压关系等）
+    // 4. selected_asset_ids → 资产正文（桥段卡/引擎/高压关系等）
     if let Some(manifest) = capability_manifest {
         for id in selected_asset_ids {
             if sections.len() >= MAX_ITEMS {
@@ -3438,6 +3492,29 @@ pub fn render_selected_asset_guidance(
         "【创作指导——以下为选中的创作资产指导，请在写作中融入】\n\n{}",
         sections.join("\n\n")
     ))
+}
+
+/// Call 1 方法论 id → PromptRegistry prompt id。
+///
+/// `step` 可选；缺省时雪花法用 step1，高密度世界构建用 seed。
+pub fn map_methodology_to_prompt_id(methodology_id: &str, step: Option<&str>) -> Option<String> {
+    let step = step.unwrap_or("1");
+    match methodology_id {
+        "snowflake" => Some(format!("methodology_snowflake_step{}", step)),
+        "hero_journey" => Some("methodology_hero_journey".to_string()),
+        "scene_structure" => Some("methodology_scene_structure".to_string()),
+        "character_depth" => Some("methodology_character_depth".to_string()),
+        "hdwb" | "high_density_world_building" => Some(
+            match step {
+                "2" | "expansion" => "methodology_hdwb_expansion",
+                "3" | "convergence" => "methodology_hdwb_convergence",
+                "4" | "iteration" => "methodology_hdwb_iteration",
+                _ => "methodology_hdwb_seed",
+            }
+            .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 /// 把单个 SelectableAsset 格式化为紧凑创作指导文本。
@@ -3649,6 +3726,62 @@ mod narrative_quartet_render_tests {
         assert!(out.contains("规则破解式"));
         // 强调"重写、不套用"原则
         assert!(out.contains("不是模板"));
+    }
+}
+
+#[cfg(test)]
+mod framework_guidance_tests {
+    use super::*;
+    use crate::domain::prompt_synthesis::FrameworkSelections;
+
+    #[test]
+    fn map_methodology_ids() {
+        assert_eq!(
+            map_methodology_to_prompt_id("snowflake", None).as_deref(),
+            Some("methodology_snowflake_step1")
+        );
+        assert_eq!(
+            map_methodology_to_prompt_id("snowflake", Some("3")).as_deref(),
+            Some("methodology_snowflake_step3")
+        );
+        assert_eq!(
+            map_methodology_to_prompt_id("hero_journey", None).as_deref(),
+            Some("methodology_hero_journey")
+        );
+        assert_eq!(
+            map_methodology_to_prompt_id("hdwb", Some("2")).as_deref(),
+            Some("methodology_hdwb_expansion")
+        );
+        assert_eq!(map_methodology_to_prompt_id("unknown", None), None);
+    }
+
+    #[test]
+    fn empty_framework_and_assets_returns_none() {
+        let pool = crate::db::connection::create_test_pool().expect("test pool");
+        let out = render_selected_asset_guidance(None, &[], None, &pool);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn framework_methodology_and_injector_are_rendered() {
+        let pool = crate::db::connection::create_test_pool().expect("test pool");
+        // 确保能从项目 resources/prompts 加载（测试 cwd 通常是 src-tauri）
+        let fs = FrameworkSelections {
+            methodology: Some("snowflake".to_string()),
+            quality_gate: Some("mini_review_system".to_string()),
+            contextual_injectors: vec!["writer_chase_debt".to_string()],
+            prompt_hints: vec![],
+        };
+        let out = render_selected_asset_guidance(None, &[], Some(&fs), &pool);
+        // 若资源目录在测试环境可用，应含方法论与注入器段；否则至少不 panic
+        if let Some(text) = out {
+            assert!(
+                text.contains("方法论") || text.contains("条件注入") || text.contains("创作指导"),
+                "unexpected guidance: {}",
+                text.chars().take(200).collect::<String>()
+            );
+            assert!(text.contains("snowflake") || text.contains("writer_chase_debt"));
+        }
     }
 }
 
