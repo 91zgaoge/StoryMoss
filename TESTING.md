@@ -1,8 +1,12 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.55)
+# 🧪 StoryForge 自动化测试环境 (v0.26.56)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.56 变更说明
+
+- executor 写 AppConfig 契约测试加 `mock_app_config_lock`，并行 `--test-threads=8` 稳定。
 
 ### v0.26.55 变更说明
 

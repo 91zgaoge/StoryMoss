@@ -2,6 +2,17 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.56] - 网关契约测试串行化（2026-07-09）
+
+### 修复
+
+- **根因**：`tauri::test::mock_app` 共享 `app_data_dir`，并行跑写 config 的 demotion/disable 契约会互相覆盖，偶发 `creative_x_overrides` 读到别的测试的 `keep`。
+- **修复**：executor 测试模块加 `mock_app_config_lock`，写 config 的契约串行。
+
+### 验证
+
+- `cargo test --lib -- --test-threads=8`：creative_x / demoted_degraded / sticky_unhealthy / disabled_model 通过
+
 ## [v0.26.55] - 幕后模型列表开启/关闭开关（2026-07-09）
 
 ### 功能

@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.55
+- **版本**: v0.26.56
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -79,6 +79,11 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.56 — 网关契约测试串行化（mock app_data_dir）
+
+- **修复**：写 AppConfig 的 executor 契约测试加进程锁，避免并行污染导致 `creative_x_overrides` 偶发失败。
+- **验证**：`creative_x_overrides` / `demoted_degraded` / `sticky_unhealthy` / `disabled_model` 并行 `--test-threads=8` 通过。
 
 ### v0.26.55 — 幕后模型列表开启/关闭开关
 
@@ -340,7 +345,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.55_
+_最后更新: 2026-07-09 - v0.26.56_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
