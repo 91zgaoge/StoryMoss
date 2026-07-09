@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, Edit2, Key, Globe, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Star, Edit2, Key, Globe, ChevronDown, ChevronUp, Trash2, Power } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
@@ -16,6 +16,8 @@ export function ModelCard({
   onSetActive,
   onRetry,
   onDelete,
+  onToggleEnabled,
+  togglingEnabled,
   /** v0.23.66: 该模型被分配的角色列表（如 ['创作', '工具']） */
   roleBadges,
 }: {
@@ -30,6 +32,9 @@ export function ModelCard({
   onSetActive: () => void;
   onRetry?: () => void;
   onDelete?: () => void;
+  /** v0.26.55: 列表页一键开启/关闭 */
+  onToggleEnabled?: () => void;
+  togglingEnabled?: boolean;
   roleBadges?: string[];
 }) {
   const [showSteps, setShowSteps] = useState(false);
@@ -40,7 +45,12 @@ export function ModelCard({
   const hasApiKey = model.api_key === '***' || (!!model.api_key && model.api_key !== '');
 
   return (
-    <Card className={cn(isActive && 'border-cinema-gold ring-1 ring-cinema-gold/30')}>
+    <Card
+      className={cn(
+        isActive && 'border-cinema-gold ring-1 ring-cinema-gold/30',
+        !model.enabled && 'opacity-70'
+      )}
+    >
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
@@ -176,7 +186,7 @@ export function ModelCard({
                 需配置API Key
               </span>
             )}
-            {!isActive && (
+            {!isActive && model.enabled && (
               <button
                 onClick={onSetActive}
                 className="px-3 py-1.5 text-xs font-medium text-cinema-gold bg-cinema-gold/10 hover:bg-cinema-gold/20 rounded-lg transition-colors flex items-center gap-1"
@@ -184,6 +194,26 @@ export function ModelCard({
               >
                 <Star className="w-3.5 h-3.5" />
                 设为当前
+              </button>
+            )}
+            {onToggleEnabled && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={model.enabled}
+                aria-label={model.enabled ? '关闭模型' : '开启模型'}
+                disabled={togglingEnabled}
+                onClick={onToggleEnabled}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50',
+                  model.enabled
+                    ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                    : 'text-gray-400 bg-cinema-800 hover:bg-cinema-700'
+                )}
+                title={model.enabled ? '关闭后不再调用与探测' : '开启后重新参与路由与探测'}
+              >
+                <Power className="w-3.5 h-3.5" />
+                {model.enabled ? '开启' : '关闭'}
               </button>
             )}
             <Button variant="ghost" size="sm" onClick={onEdit}>

@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.54)
+# 🧪 StoryForge 自动化测试环境 (v0.26.55)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.55 变更说明
+
+- 新增 `ModelCard.enabled.test.tsx`（开启/关闭开关契约）。
+- Rust：`apply_disable_side_effects` / `disabled_model_excluded_from_gateway_registry` / `test_probe_model_rejects_missing_or_disabled` / `test_disabled_model_not_selected_after_registry_reload`。
 
 ### v0.26.54 变更说明
 

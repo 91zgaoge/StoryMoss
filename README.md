@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.54-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.55-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.54 修复创作模型被粘性降级绕过——设为「创作」的模型在 failover 后仍优先用于续写/Call3；v0.26.53 故事名双击改名；v0.26.52 模型热同步。
+**最新动态**：v0.26.55 幕后模型列表可开启/关闭；v0.26.54 修复创作模型粘性降级绕过；v0.26.53 故事名双击改名。
 
 **上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
 

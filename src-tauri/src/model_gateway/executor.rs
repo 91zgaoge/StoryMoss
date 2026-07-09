@@ -298,9 +298,15 @@ impl<R: Runtime> GatewayExecutor<R> {
     /// 仍拒绝 Unhealthy。自动候选池继续走 `is_model_available`，避免未探测模型
     /// 被网关自动选中。
     ///
+    /// v0.26.54: 必须仍在网关注册表（enabled）；禁用后 refresh 会移出注册表，
+    /// 即使残留 Healthy 快照也不可置顶。
+    ///
     /// 健康锁在嵌套块内释放后再读 registry，避免与持 registry 再锁 health
     /// 的路径死锁。
     fn is_promotable_user_model(&self, model_id: &str) -> bool {
+        if self.registry_guard().get(model_id).is_none() {
+            return false;
+        }
         let snapshot_status = {
             let health = self.health_registry();
             health
@@ -316,7 +322,7 @@ impl<R: Runtime> GatewayExecutor<R> {
                     | super::types::HealthStatus::Unknown
             ),
             // 注册表有模型但尚无健康快照：视为 Unknown，允许用户显式选择
-            None => self.registry_guard().get(model_id).is_some(),
+            None => true,
         }
     }
 
@@ -1709,7 +1715,9 @@ mod tests {
         std::fs::create_dir_all(&app_dir).ok();
         let mut config = crate::config::AppConfig::default();
         config.llm_profiles.clear();
-        config.add_llm_profile(test_profile("keep", "Keep")).unwrap();
+        config
+            .add_llm_profile(test_profile("keep", "Keep"))
+            .unwrap();
         let mut drop = test_profile("drop", "Drop");
         drop.enabled = false;
         config.add_llm_profile(drop).unwrap();

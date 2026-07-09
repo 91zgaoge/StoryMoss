@@ -42,8 +42,10 @@ export function UnifiedModelManager() {
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [addModelType, setAddModelType] = useState<ModelType>('chat');
 
-  const { models, settings, isLoading, setActiveModel, deleteModel } = useSettingsContext();
+  const { models, settings, isLoading, setActiveModel, deleteModel, updateModel } =
+    useSettingsContext();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingEnabledId, setTogglingEnabledId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const activeModelIds = settings?.active_models ?? {};
@@ -62,10 +64,11 @@ export function UnifiedModelManager() {
   // 模型连接状态管理
   const { states, checkModels, checkModel } = useModelConnectionStore();
 
-  // 自动检测所有模型连接
+  // 自动检测已启用模型连接（禁用模型不探测）
   useEffect(() => {
     if (!models.length) return;
-    const modelIds = models.map(m => m.id);
+    const modelIds = models.filter(m => m.enabled).map(m => m.id);
+    if (modelIds.length === 0) return;
     checkModels(modelIds);
     // 每30秒轮询
     const interval = setInterval(() => {
@@ -119,6 +122,31 @@ export function UnifiedModelManager() {
       await deleteModel(modelId);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // v0.26.55: 列表页开启/关闭 — 禁用后后端 fail-closed 回退活跃/角色并跳过探测
+  const handleToggleEnabled = async (model: ModelConfig) => {
+    const next = !model.enabled;
+    setTogglingEnabledId(model.id);
+    try {
+      // 后端 ModelConfigInput 需要 model_type（非前端 type 字段）
+      await updateModel(model.id, {
+        name: model.name,
+        provider: model.provider,
+        model: model.model,
+        model_type: model.type,
+        enabled: next,
+        is_default: !!model.is_default,
+        description: model.description,
+        api_base: model.api_base,
+        ...('temperature' in model ? { temperature: model.temperature } : {}),
+        ...('max_tokens' in model ? { max_tokens: model.max_tokens } : {}),
+        ...('capabilities' in model ? { capabilities: model.capabilities } : {}),
+        ...('dimensions' in model ? { dimensions: model.dimensions } : {}),
+      } as Partial<ModelConfig> & { model_type: ModelType });
+    } finally {
+      setTogglingEnabledId(null);
     }
   };
 
@@ -238,6 +266,8 @@ export function UnifiedModelManager() {
                 }}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
+                onToggleEnabled={handleToggleEnabled}
+                togglingEnabledId={togglingEnabledId}
                 deletingId={deletingId}
                 showTypeHeader={false}
                 activeModels={activeModelIds}

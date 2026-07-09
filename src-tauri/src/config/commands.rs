@@ -1633,9 +1633,7 @@ mod tests {
             config.get_model_for_role(ModelRole::Creative).is_none(),
             "disabled creative must not resolve for generation"
         );
-        assert!(
-            config.get_active_llm_profile().map(|p| p.id.as_str()) == Some("keep-me")
-        );
+        assert!(config.get_active_llm_profile().map(|p| p.id.as_str()) == Some("keep-me"));
     }
 
     /// v0.26.54 契约：禁用后模型不得进入网关注册表（故不会被探测/选中）。
@@ -1643,9 +1641,7 @@ mod tests {
     fn disabled_model_excluded_from_gateway_registry() {
         let mut config = AppConfig::default();
         config.llm_profiles.clear();
-        config
-            .add_llm_profile(enabled_chat_profile("on"))
-            .unwrap();
+        config.add_llm_profile(enabled_chat_profile("on")).unwrap();
         let mut off = enabled_chat_profile("off");
         off.enabled = false;
         config.add_llm_profile(off).unwrap();
@@ -1664,7 +1660,9 @@ mod tests {
             .collect();
         assert_eq!(ids, vec!["on"]);
         assert!(
-            gw.models_with_health(&[]).iter().all(|m| m.model_id != "off"),
+            gw.models_with_health(&[])
+                .iter()
+                .all(|m| m.model_id != "off"),
             "gateway status must exclude disabled models"
         );
     }

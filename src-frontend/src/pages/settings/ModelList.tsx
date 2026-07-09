@@ -14,6 +14,8 @@ export function ModelList({
   onSetActive,
   onRetry,
   onDelete,
+  onToggleEnabled,
+  togglingEnabledId,
   deletingId,
   groupTitle,
   showAddButton = true,
@@ -30,6 +32,8 @@ export function ModelList({
   onSetActive: (modelId: string) => void;
   onRetry?: (modelId: string) => void;
   onDelete?: (modelId: string) => void;
+  onToggleEnabled?: (model: ModelConfig) => void;
+  togglingEnabledId?: string | null;
   deletingId?: string | null;
   groupTitle?: string;
   showAddButton?: boolean;
@@ -97,6 +101,8 @@ export function ModelList({
                 onSetActive={() => onSetActive(model.id)}
                 onRetry={onRetry ? () => onRetry(model.id) : undefined}
                 onDelete={onDelete ? () => onDelete(model.id) : undefined}
+                onToggleEnabled={onToggleEnabled ? () => onToggleEnabled(model) : undefined}
+                togglingEnabled={togglingEnabledId === model.id}
                 roleBadges={roles}
               />
             );

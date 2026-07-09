@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.54
+- **版本**: v0.26.55
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,19 +71,25 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误（本版未全量重跑）
-- `cargo test --lib` ✅ 聚焦：clear_demotion / demoted_degraded / sticky_unhealthy / creative_x / sync_creative 6 passed（全量基线约 750+）
-- `npx tsc --noEmit` ✅ 本版未改前端
-- `npx vitest run` ✅ 本版未改前端
+- `cargo test --lib` ✅ 聚焦：disable/promotable/probe 契约（全量基线约 750+）
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅ `ModelCard.enabled` 2 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
 
+### v0.26.55 — 幕后模型列表开启/关闭开关
+
+- **UI**：模型卡片「开启/关闭」；仅轮询已启用模型。
+- **运行时**：复用 v0.26.54 fail-closed；`is_promotable` 要求仍在注册表。
+- **验证**：ModelCard vitest + disable/probe Rust 契约。
+
 ### v0.26.54 — 修复创作模型被粘性降级绕过
 
 - **根因**：Deepseek 已是创作/活跃，但连续失败 demotion 让 `resolve_role_model` 丢弃显式角色，Call3 长期用 MN-Oblivion。
-- **修复**：显式角色不受粘性 demotion；Unhealthy 在 resolve 清一次再探；`set_active_model`/`save_settings` 清 demotion；`generate()` 用 `is_promotable`；禁用模型 fail-closed。
+- **修复**：显式角色不受粘性 demotion；Unhealthy 在 resolve 清一次再探；`set_active_model`/`save_settings` 清 demotion；`generate()` 用 `is_promotable`；禁用模型 fail-closed（持久化 enabled、不探测、活跃自动回退）。
 - **验证**：gateway/health/commands 契约通过；architecture_guard。
 
 ### v0.26.53 — 故事名取消单击回幕后（双击改名可用）
@@ -334,7 +340,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.54_
+_最后更新: 2026-07-09 - v0.26.55_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
