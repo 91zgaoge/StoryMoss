@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.45-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.46-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.45 Genesis 人物卡强制落地——开篇必须出现真名，并让读者知道主角要什么、阻力是什么（零新 LLM）。
+**最新动态**：v0.26.46 创世方法论全链路注入——修复 background 模板断链，按步骤注入雪花/HDWB 并推进 `methodology_step`；题材画像 match-or-create；拆书 StoryArc/作者/伏笔落库与分块超时止血。
+
+**上一版 v0.26.45** Genesis 人物卡强制落地——开篇必须出现真名，并让读者知道主角要什么、阻力是什么（零新 LLM）。
 
 **上一版 v0.26.44** Genesis 首章质量——开篇骨架步 + 概念加厚 + 策略中文化 + 四元组接入。
 

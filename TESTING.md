@@ -1,8 +1,14 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.45)
+# 🧪 StoryForge 自动化测试环境 (v0.26.46)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.46 变更说明
+
+- `background_generate_templates_declare_strategy_section`：5 个 externalized 模板契约。
+- `normalize_methodology_id` / `final_methodology_step_after_genesis` / Genesis strategy notes 注入契约。
+- 拆书 chunker 与 StoryArc 持久化相关单测（见 commit 5a5c9b1）。
 
 ### v0.26.45 变更说明
 

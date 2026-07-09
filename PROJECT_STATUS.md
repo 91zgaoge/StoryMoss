@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.45 项目完成状态
+# StoryForge (草苔) v0.26.46 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.45 Genesis 人物卡强制落地）
+> 最后更新: 2026-07-09（v0.26.46 创世方法论全链路 + 题材 match-or-create + 拆书持久化）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.46 — 创世方法论全链路、题材 match-or-create 与拆书持久化（2026-07-09）
+
+- Background 模板恢复方法论占位符；Genesis 分步注入 + step 推进；HDWB ID 统一。
+- EnsureGenreProfile match-or-create；拆书 StoryArc/作者/伏笔 + 分块止血。
+- ✅ **验证**：genesis/methodology/prompt 契约 20+ passed。
 
 ### v0.26.45 — Genesis 人物卡强制落地（姓名 + 欲望/阻力）（2026-07-09）
 

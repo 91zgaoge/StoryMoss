@@ -1,5 +1,7 @@
-# StoryForge (草苔) v0.26.45 架构文档
+# StoryForge (草苔) v0.26.46 架构文档
 
+> **v0.26.46**：创世 background 五步恢复 `strategy_section` 注入（修复 v0.26.28 外部化断链）；`build_strategy_notes_for_genesis_step` 分步注入；ContractSeeding 后 `methodology_step` 推进（雪花→4、HDWB→2）；`normalize_methodology_id` 统一 HDWB 别名；quick phase `EnsureGenreProfileStep` match-or-create；拆书 StoryArc/作者/伏笔持久化 + chunker 墙钟止血。
+>
 > **v0.26.45**：Genesis 人物卡（`ProtagonistCard`）双重注入 first_scene + TriShot Call3；规则探针真名/欲望/阻力；与 8% 自重复共享一次软重试。
 >
 > **v0.26.44**：Genesis quick_phase 四步「概念 → 策略 → 开篇骨架 → 撰写开篇」。`OpeningSkeletonStep` 在写正文前填充戏剧槽位（≤10s fail-open）；概念字段加厚；策略选择后启发式注入叙事四元组；TriShot 占位角色取自骨架。

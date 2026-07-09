@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.46] - 创世方法论全链路、题材画像 match-or-create 与拆书持久化（2026-07-09）
+
+### 修复
+
+- **Background 方法论静默断链**：v0.26.28 外部化后 5 个 `narrative_*_generate` 模板丢失 `strategy_section` / `quartet_section` 占位符，代码仍传 `strategy_notes` 但运行时未注入。已恢复占位符并新增契约测试。
+- **方法论 ID 分裂**：`world_building` / `hdwb` 别名统一为 `high_density_world_building`；Selector / WriteTimeBundle / 设置 UI 对齐。
+
+### 增强
+
+- **Genesis 方法论注入**：`build_strategy_notes` 按 quick/background 步骤注入；ContractSeeding 后推进 `methodology_step`（雪花→4、HDWB→2）；注入规模可观测日志。
+- **题材画像 match-or-create**：quick phase 新增 `EnsureGenreProfileStep`——目录匹配则复用，无匹配则 LLM 生成并入库（用户创建 `is_builtin=false`）；概念提示强化题材保真。
+- **拆书 Phase A + D0**：StoryArc→大纲、作者字段、伏笔持久化；分块 12h 墙钟上限、短篇禁止单 Full chunk、并发止血；`StoryArcView` 与按 `book_id` 过滤进度。
+
+### 文档
+
+- 方法论/拆书审计与 remediation 计划；`sf-architecture-contract` / `sf-genesis-campaign` 技能更新。
+
+### 验证
+
+- `cargo test --lib` 方法论/Genesis/prompt 契约相关 20+ passed
+- `cargo check --lib` / fmt / architecture_guard 通过
+
 ## [v0.26.45] - Genesis 人物卡强制落地（姓名 + 欲望/阻力）（2026-07-09）
 
 ### 增强

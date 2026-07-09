@@ -1,8 +1,17 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.45 人物卡；v0.26.44 开篇骨架）
+> 最后更新: 2026-07-09（v0.26.46 方法论全链路；v0.26.45 人物卡）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.46 — 创世方法论全链路 + 题材 match-or-create + 拆书 Phase A/D0 ✅ (2026-07-09)
+
+- [x] P0：5 个 background 模板恢复 `strategy_section` / `quartet_section` + 契约测试
+- [x] P1：normalize_methodology_id；Selector 预填；WriteTimeBundle 别名
+- [x] P2：Genesis 分步 notes + ContractSeeding 后 methodology_step 推进（雪花→4、HDWB→2）
+- [x] EnsureGenreProfileStep match-or-create + 概念题材保真
+- [x] 拆书：StoryArc→outline、作者、伏笔落库；chunker 12h/并发止血
+- [ ] 拆书 Phase B/C（图表可视化等）— 见审计文档
 
 ### 📝 v0.26.45 — Genesis 人物卡强制落地 ✅ (2026-07-09)
 
