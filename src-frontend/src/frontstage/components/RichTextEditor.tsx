@@ -31,9 +31,14 @@ import { CharacterPeekCard } from './CharacterPeekCard';
 import { getCharacterByName } from '@/services/tauri';
 import type { CharacterQuickView } from '@/services/tauri';
 import type { EditorConfig } from '@/types/editor';
-import { loadEditorConfig } from '@/hooks/contracts/useEditorConfig';
+import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
-import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
+import {
+  getCurrentEditorColors,
+  COLOR_THEME_STORAGE_KEY,
+  type ColorThemeId,
+} from '@/frontstage/config/colorThemes';
+import { listen } from '@tauri-apps/api/event';
 import { useSubscription } from '@/hooks/useSubscription';
 import { createLogger } from '@/utils/logger';
 
@@ -235,6 +240,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
+    const [themeVersion, setThemeVersion] = useState(0);
     const [isAiThinking, setIsAiThinking] = useState(false);
     // v0.23.90: Tab 按下瞬间立即隐藏幽灵文本，避免 flushSync/异步状态更新延迟导致双份显示
     const [isHidingGhost, setIsHidingGhost] = useState(false);
@@ -441,7 +447,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       };
     }, []);
 
-    // W2-F2: 监听配置变化（替代 editor-config-changed DOM CustomEvent）
+    // 跨窗口同步：监听 appStore、localStorage 与 Tauri editor-config-changed
     const storeEditorConfig = useAppStore(state => state.editorConfig);
     useEffect(() => {
       if (storeEditorConfig) {
@@ -449,14 +455,61 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [storeEditorConfig]);
 
-    // 跨窗口同步：监听 localStorage 变化
     useEffect(() => {
-      const handleStorageChange = () => {
-        setEditorConfig(loadEditorConfig());
+      const applyConfig = (cfg: EditorConfig) => {
+        setEditorConfig(cfg);
+        useAppStore.getState().setEditorConfig(cfg);
+      };
+
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === STORAGE_KEY || e.key === null) {
+          applyConfig(loadEditorConfig());
+        }
       };
       window.addEventListener('storage', handleStorageChange);
+
+      let unlistenEditor: (() => void) | undefined;
+      void listen<EditorConfig>('editor-config-changed', event => {
+        applyConfig(event.payload);
+      })
+        .then(fn => {
+          unlistenEditor = fn;
+        })
+        .catch(() => {
+          /* non-Tauri / test env */
+        });
+
       return () => {
         window.removeEventListener('storage', handleStorageChange);
+        unlistenEditor?.();
+      };
+    }, []);
+
+    // 跨窗口同步：色调主题变更时触发编辑器配色重渲染
+    useEffect(() => {
+      const bumpTheme = () => setThemeVersion(v => v + 1);
+
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
+          bumpTheme();
+        }
+      };
+      window.addEventListener('storage', handleStorageChange);
+
+      let unlistenTheme: (() => void) | undefined;
+      void listen<ColorThemeId>('color-theme-changed', () => {
+        bumpTheme();
+      })
+        .then(fn => {
+          unlistenTheme = fn;
+        })
+        .catch(() => {
+          /* non-Tauri / test env */
+        });
+
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+        unlistenTheme?.();
       };
     }, []);
 
@@ -1214,6 +1267,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     ]);
 
     const currentStyle = defaultStyle;
+    // themeVersion 驱动 getCurrentEditorColors 在跨窗口主题变更后重算
+    void themeVersion;
     const themeColors = getCurrentEditorColors();
 
     const styleVars = {

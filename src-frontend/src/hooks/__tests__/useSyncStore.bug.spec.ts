@@ -190,4 +190,38 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
     unmount();
   });
+
+  it('DataRefresh { resource_type: "app_settings" } invalidates ["settings"] and ["models"]', async () => {
+    invalidateQueriesCalls.length = 0;
+    listeners.clear();
+
+    const { unmount } = renderHook(() => useSyncStore());
+
+    await dispatchSyncEvent('dataRefresh', {
+      resource_type: 'app_settings',
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(hasInvalidationForKey('settings')).toBe(true);
+    expect(hasInvalidationForKey('models')).toBe(true);
+
+    unmount();
+  });
+
+  it('DataRefresh { resource_type: "model_config" } invalidates ["settings"] and ["models"]', async () => {
+    invalidateQueriesCalls.length = 0;
+    listeners.clear();
+
+    const { unmount } = renderHook(() => useSyncStore());
+
+    await dispatchSyncEvent('dataRefresh', {
+      resource_type: 'model_config',
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(hasInvalidationForKey('settings')).toBe(true);
+    expect(hasInvalidationForKey('models')).toBe(true);
+
+    unmount();
+  });
 });

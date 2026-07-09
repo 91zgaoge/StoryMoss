@@ -14,6 +14,7 @@ pub struct OllamaAdapter {
     default_temperature: f32,
     generation_timeout: std::time::Duration,
     connect_timeout: std::time::Duration,
+    first_chunk_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +55,7 @@ impl OllamaAdapter {
         temperature: f32,
         timeout_seconds: u64,
         connect_timeout_seconds: u64,
+        first_chunk_timeout_seconds: u64,
     ) -> Self {
         let generation_timeout = if timeout_seconds > 0 {
             Duration::from_secs(timeout_seconds)
@@ -64,6 +66,11 @@ impl OllamaAdapter {
             Duration::from_secs(connect_timeout_seconds)
         } else {
             Duration::from_secs(10)
+        };
+        let first_chunk_timeout = if first_chunk_timeout_seconds > 0 {
+            Duration::from_secs(first_chunk_timeout_seconds)
+        } else {
+            Duration::from_secs(60)
         };
         let client = Client::builder()
             .connect_timeout(connect_timeout)
@@ -77,6 +84,7 @@ impl OllamaAdapter {
             default_temperature: temperature,
             generation_timeout,
             connect_timeout,
+            first_chunk_timeout,
         }
     }
 }
@@ -87,7 +95,7 @@ impl LlmAdapter for OllamaAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
 
         // v0.23.65: Ollama /api/generate 端点无 system 字段，把非空
         // system_prompt 前置拼入 prompt，使 writer_system 写作准则对
@@ -131,7 +139,12 @@ impl LlmAdapter for OllamaAdapter {
         }
 
         // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
-        let bytes = read_body_with_generation_timeout(response, self.generation_timeout).await?;
+        let bytes = read_body_with_generation_timeout_ex(
+            response,
+            self.generation_timeout,
+            self.first_chunk_timeout,
+        )
+        .await?;
 
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
         let ollama_resp: OllamaResponse =

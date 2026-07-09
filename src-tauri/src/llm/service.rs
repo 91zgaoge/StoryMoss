@@ -1157,28 +1157,26 @@ impl<R: Runtime> LlmService<R> {
     }
 
     /// 适配器缓存键
-    fn adapter_cache_key(profile: &LlmProfile) -> String {
+    fn adapter_cache_key(
+        profile: &LlmProfile,
+        connect_timeout_seconds: u64,
+        first_chunk_timeout_seconds: u64,
+    ) -> String {
         format!(
-            "{:?}|{}|{:?}|{}|{}|{}",
+            "{:?}|{}|{:?}|{}|{}|{}|{}|{}",
             profile.provider,
             profile.model,
             profile.api_base,
             profile.max_tokens,
             profile.temperature,
-            profile.timeout_seconds
+            profile.timeout_seconds,
+            connect_timeout_seconds,
+            first_chunk_timeout_seconds,
         )
     }
 
     /// 创建适配器（优先从缓存获取）
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
-        let key = Self::adapter_cache_key(profile);
-        if let Ok(cache) = self.adapter_cache.lock() {
-            if let Some(adapter) = cache.get(&key) {
-                log::debug!("[LLM] Reusing cached adapter for key: {}", key);
-                return Ok(adapter.box_clone());
-            }
-        }
-
         let timeout_seconds = Self::effective_timeout_seconds(profile);
         // v0.15.5: 从 AppConfig 读取，默认 30s
         let connect_timeout_seconds = self
@@ -1187,6 +1185,24 @@ impl<R: Runtime> LlmService<R> {
             .ok()
             .map(|c| c.llm_connect_timeout_secs)
             .unwrap_or(30u64);
+        let first_chunk_timeout_seconds = self
+            .config
+            .lock()
+            .ok()
+            .map(|c| c.llm_first_chunk_timeout_secs)
+            .unwrap_or(60u64);
+
+        let key = Self::adapter_cache_key(
+            profile,
+            connect_timeout_seconds,
+            first_chunk_timeout_seconds,
+        );
+        if let Ok(cache) = self.adapter_cache.lock() {
+            if let Some(adapter) = cache.get(&key) {
+                log::debug!("[LLM] Reusing cached adapter for key: {}", key);
+                return Ok(adapter.box_clone());
+            }
+        }
 
         let adapter: Box<dyn super::LlmAdapter> = match profile.provider {
             LlmProvider::OpenAI
@@ -1200,6 +1216,7 @@ impl<R: Runtime> LlmService<R> {
                 profile.temperature,
                 timeout_seconds,
                 connect_timeout_seconds,
+                first_chunk_timeout_seconds,
             )),
             LlmProvider::Anthropic => Box::new(AnthropicAdapter::new(
                 profile.api_key.clone(),
@@ -1209,6 +1226,7 @@ impl<R: Runtime> LlmService<R> {
                 profile.temperature,
                 timeout_seconds,
                 connect_timeout_seconds,
+                first_chunk_timeout_seconds,
             )),
             LlmProvider::Ollama => Box::new(OllamaAdapter::new(
                 profile.api_key.clone(),
@@ -1218,6 +1236,7 @@ impl<R: Runtime> LlmService<R> {
                 profile.temperature,
                 timeout_seconds,
                 connect_timeout_seconds,
+                first_chunk_timeout_seconds,
             )),
             _ => {
                 log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
@@ -1433,16 +1452,14 @@ impl<R: Runtime> LlmService<R> {
             .cloned()
             .or_else(|| {
                 // 2) AppConfig.writer_system_prompt_override（全局配置）
-                self.app_handle
-                    .try_state::<crate::config::settings::AppConfig>()
-                    .and_then(|c| {
-                        let s = &c.writer_system_prompt_override;
-                        if s.trim().is_empty() {
-                            None
-                        } else {
-                            Some(s.clone())
-                        }
-                    })
+                self.config.lock().ok().and_then(|c| {
+                    let s = &c.writer_system_prompt_override;
+                    if s.trim().is_empty() {
+                        None
+                    } else {
+                        Some(s.clone())
+                    }
+                })
             })
             .or(request_system_prompt); // 3) 请求级（registry writer_system 渲染产物）
 

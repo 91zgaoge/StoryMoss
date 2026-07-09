@@ -7,6 +7,19 @@ import {
   STORAGE_KEY,
 } from '../useEditorConfig';
 
+const mockEmit = vi.fn();
+const editorConfigListeners = new Map<string, (event: { payload: unknown }) => void>();
+
+vi.mock('@tauri-apps/api/event', () => ({
+  emit: (...args: unknown[]) => mockEmit(...args),
+  listen: async (channel: string, cb: (event: { payload: unknown }) => void) => {
+    editorConfigListeners.set(channel, cb);
+    return () => {
+      editorConfigListeners.delete(channel);
+    };
+  },
+}));
+
 const mockSetEditorConfig = vi.fn();
 
 vi.mock('@/stores/appStore', () => ({
@@ -47,6 +60,8 @@ describe('useEditorConfig contract', () => {
   beforeEach(() => {
     localStorage.clear();
     mockSetEditorConfig.mockClear();
+    mockEmit.mockClear();
+    editorConfigListeners.clear();
   });
 
   afterEach(() => {
@@ -85,7 +100,7 @@ describe('useEditorConfig contract', () => {
   });
 
   describe('saveEditorConfig', () => {
-    it('持久化配置到 localStorage 并同步到 appStore', () => {
+    it('持久化配置到 localStorage 并同步到 appStore 且广播 Tauri 事件', () => {
       const config = {
         styleId: 'minimal' as const,
         fontFamily: "'Sci-Fi Font', sans-serif",
@@ -99,6 +114,7 @@ describe('useEditorConfig contract', () => {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(saved).toEqual(config);
       expect(mockSetEditorConfig).toHaveBeenCalledWith(config);
+      expect(mockEmit).toHaveBeenCalledWith('editor-config-changed', config);
     });
   });
 
@@ -146,11 +162,35 @@ describe('useEditorConfig contract', () => {
       );
 
       act(() => {
-        window.dispatchEvent(new StorageEvent('storage'));
+        window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
       });
 
       await waitFor(() => {
         expect(result.current.config.fontSize).toBe(30);
+      });
+    });
+
+    it('响应 editor-config-changed Tauri 事件重新加载配置', async () => {
+      const { result } = renderHook(() => useEditorConfig());
+      await waitFor(() => {
+        expect(editorConfigListeners.has('editor-config-changed')).toBe(true);
+      });
+
+      const remoteConfig = {
+        styleId: 'default' as const,
+        fontFamily: "'Remote Font', serif",
+        fontSize: 26,
+        lineHeight: 1.7,
+        customFonts: [],
+      };
+
+      act(() => {
+        editorConfigListeners.get('editor-config-changed')?.({ payload: remoteConfig });
+      });
+
+      await waitFor(() => {
+        expect(result.current.config.fontSize).toBe(26);
+        expect(result.current.config.fontFamily).toBe("'Remote Font', serif");
       });
     });
   });

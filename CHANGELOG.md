@@ -2,6 +2,23 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.36] - 后台配置变更即时生效（超时/字体/主题热同步）（2026-07-09）
+
+### 修复
+
+- **超时配置热生效**：`save_settings` 后立即 `LlmService::reload_config()` + `GatewayExecutor::refresh_registry()`，并广播 `app_settings`；幕前/幕后 TanStack Query 立刻失效旧超时。
+- **首字节超时接线**：`llm_first_chunk_timeout_secs` 传入 OpenAI/Ollama/Anthropic 适配器，不再硬编码 60s。
+- **TriShot 预算读真实配置**：`AppConfig::load` 替代无效的 `try_state`，尊重用户 `smart_execute_total_timeout_secs`。
+- **Writer 系统提示覆盖**：从 `LlmService` 内存配置读取 `writer_system_prompt_override`。
+- **字体跨窗口同步**：`editor-config-changed` Tauri 事件 + `storage` 双通道，幕前字号/字体即时更新。
+- **色调主题跨窗口同步**：`color-theme-changed` 事件；幕后 GeneralSettings ↔ 幕前 ColorThemeDot 双向即时生效。
+
+### 验证
+
+- `cargo test --lib`：685 passed / 0 failed / 2 ignored ✅
+- `npx vitest run`：240 passed / 3 skipped ✅
+- `npx tsc --noEmit` / fmt / format / architecture_guard：✅
+
 ## [v0.26.35] - 全面落地幕后工作室审计残留 R1–R11（2026-07-09）
 
 ### 修复

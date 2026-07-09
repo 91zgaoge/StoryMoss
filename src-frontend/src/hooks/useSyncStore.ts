@@ -420,6 +420,7 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                 break;
               // v0.11.2: 模型配置变更时刷新 settings/models，让幕后立即感知新活跃模型
               case 'model_config':
+              case 'app_settings':
                 queryClient.invalidateQueries({ queryKey: ['settings'] });
                 queryClient.invalidateQueries({ queryKey: ['models'] });
                 break;

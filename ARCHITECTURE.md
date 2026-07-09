@@ -1,4 +1,7 @@
-# StoryForge (草苔) v0.26.35 架构文档
+# StoryForge (草苔) v0.26.36 架构文档
+
+> **v0.26.36**：`save_settings` 热重载 LLM 并广播 `app_settings`；字体/主题经 Tauri 事件跨窗口同步；`llm_first_chunk_timeout_secs` 接入适配器。
+
 
 > 本文档反映 v0.26.34 最新架构状态（2026-07-09）
 > **v0.26.34 提示词注册表可观测性**：`prompts/registry.rs` 新增 `get_prompts_directory()` 暴露当前 prompts 资源目录路径；`prompts/commands.rs` 新增 `get_prompts_directory` Tauri 命令；前端 `PromptsPanel` 新增「打开目录」「刷新」按钮，支持在系统文件管理器中打开 prompts 资源目录并重新加载列表；修复批量导入时 `promptId` → `prompt_id` 参数命名不匹配问题。

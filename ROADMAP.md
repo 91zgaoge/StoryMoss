@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.35 幕后审计残留 R1–R11 全部落地）
+> 最后更新: 2026-07-09（v0.26.36 后台配置即时生效；v0.26.35 审计残留已关闭）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.36 — 后台配置即时生效 ✅ (2026-07-09)
+
+- [x] `save_settings` → `reload_config` + `app_settings` sync
+- [x] `llm_first_chunk_timeout_secs` 接入适配器
+- [x] 字体/主题跨窗口 Tauri 事件同步
+- [x] TriShot 预算 / writer prompt 读真实配置
 
 ### 📝 v0.26.35 — 幕后工作室审计残留 R1–R11 ✅ (2026-07-09)
 

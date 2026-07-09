@@ -15,6 +15,7 @@ pub struct OpenAiAdapter {
     default_temperature: f32,
     generation_timeout: std::time::Duration,
     connect_timeout: std::time::Duration,
+    first_chunk_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,6 +98,7 @@ impl OpenAiAdapter {
         temperature: f32,
         timeout_seconds: u64,
         connect_timeout_seconds: u64,
+        first_chunk_timeout_seconds: u64,
     ) -> Self {
         let generation_timeout = if timeout_seconds > 0 {
             Duration::from_secs(timeout_seconds)
@@ -107,6 +109,11 @@ impl OpenAiAdapter {
             Duration::from_secs(connect_timeout_seconds)
         } else {
             Duration::from_secs(10)
+        };
+        let first_chunk_timeout = if first_chunk_timeout_seconds > 0 {
+            Duration::from_secs(first_chunk_timeout_seconds)
+        } else {
+            Duration::from_secs(60)
         };
         // v0.11.8: 不再设置 reqwest 全局 timeout；由 generate 内部分阶段控制
         // 连接超时与生成超时，并在读取流时按 chunk 刷新计时器。
@@ -123,6 +130,7 @@ impl OpenAiAdapter {
             default_temperature: temperature,
             generation_timeout,
             connect_timeout,
+            first_chunk_timeout,
         }
     }
 
@@ -160,7 +168,7 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
 
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
@@ -205,7 +213,12 @@ impl LlmAdapter for OpenAiAdapter {
         }
 
         // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
-        let bytes = read_body_with_generation_timeout(response, self.generation_timeout).await?;
+        let bytes = read_body_with_generation_timeout_ex(
+            response,
+            self.generation_timeout,
+            self.first_chunk_timeout,
+        )
+        .await?;
 
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
         let openai_resp: OpenAiResponse =

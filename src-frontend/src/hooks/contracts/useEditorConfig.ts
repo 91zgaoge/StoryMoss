@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { emit, listen } from '@tauri-apps/api/event';
 import { useAppStore } from '@/stores/appStore';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { createLogger } from '@/utils/logger';
@@ -38,8 +39,8 @@ export function loadEditorConfig(): EditorConfig {
 export function saveEditorConfig(config: EditorConfig) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    // W2-F2: 替代 editor-config-changed DOM CustomEvent，改用 Zustand store
     useAppStore.getState().setEditorConfig(config);
+    void emit('editor-config-changed', config);
   } catch {
     editorConfigLogger.error('Failed to save editor config');
   }
@@ -61,12 +62,32 @@ export function useEditorConfig() {
   }, [storeConfig]);
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      setConfig(loadEditorConfig());
+    const applyConfig = (cfg: EditorConfig) => {
+      setConfig(cfg);
+      useAppStore.getState().setEditorConfig(cfg);
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) {
+        applyConfig(loadEditorConfig());
+      }
     };
     window.addEventListener('storage', handleStorageChange);
+
+    let unlisten: (() => void) | undefined;
+    void listen<EditorConfig>('editor-config-changed', event => {
+      applyConfig(event.payload);
+    })
+      .then(fn => {
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* non-Tauri / test env */
+      });
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      unlisten?.();
     };
   }, []);
 

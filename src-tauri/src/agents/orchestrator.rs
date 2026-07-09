@@ -1254,9 +1254,8 @@ impl AgentOrchestrator {
         // 逻辑）=====
         // v0.23.15: 记录整个 TriShot 执行起始时间，供 Call 1/2 预算守卫使用。
         let total_start = std::time::Instant::now();
-        let total_budget: u64 = self
-            .app_handle
-            .try_state::<crate::config::settings::AppConfig>()
+        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        let total_budget: u64 = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.smart_execute_total_timeout_secs)
             .unwrap_or(180);
         self.emit_generation_status(

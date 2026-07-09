@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { cn } from '@/utils/cn';
 import {
   colorThemes,
@@ -16,6 +17,7 @@ import {
   loadColorTheme,
   saveColorTheme,
   applyColorTheme,
+  COLOR_THEME_STORAGE_KEY,
 } from '@/frontstage/config/colorThemes';
 
 interface ColorThemeDotProps {
@@ -31,6 +33,37 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
   // 初始化时应用主题
   useEffect(() => {
     applyColorTheme(currentThemeId);
+  }, []);
+
+  // 跨窗口同步：幕后 GeneralSettings 变更时更新幕前色调
+  useEffect(() => {
+    const handleThemeChange = (themeId: ColorThemeId) => {
+      setCurrentThemeId(themeId);
+      applyColorTheme(themeId);
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
+        handleThemeChange(loadColorTheme());
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    let unlisten: (() => void) | undefined;
+    void listen<ColorThemeId>('color-theme-changed', event => {
+      handleThemeChange(event.payload);
+    })
+      .then(fn => {
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* non-Tauri / test env */
+      });
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      unlisten?.();
+    };
   }, []);
 
   const handleSelect = useCallback((themeId: ColorThemeId) => {

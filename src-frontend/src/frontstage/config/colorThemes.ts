@@ -5,6 +5,7 @@
  * 平时以右下角状态点呈现，悬停展开选择面板
  */
 
+import { emit } from '@tauri-apps/api/event';
 import { createLogger } from '@/utils/logger';
 
 const colorThemeLogger = createLogger('hooks:colorThemes');
@@ -45,7 +46,8 @@ export interface ColorTheme {
   gold: string;
 }
 
-const STORAGE_KEY = 'storyforge-color-theme';
+export const COLOR_THEME_STORAGE_KEY = 'storyforge-color-theme';
+const STORAGE_KEY = COLOR_THEME_STORAGE_KEY;
 
 function deriveTheme(
   id: ColorThemeId,
@@ -142,6 +144,7 @@ export function loadColorTheme(): ColorThemeId {
 export function saveColorTheme(themeId: ColorThemeId) {
   try {
     localStorage.setItem(STORAGE_KEY, themeId);
+    void emit('color-theme-changed', themeId);
   } catch {
     colorThemeLogger.error('Failed to save color theme');
   }

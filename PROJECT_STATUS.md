@@ -1,11 +1,18 @@
-# StoryForge (草苔) v0.26.35 项目完成状态
+# StoryForge (草苔) v0.26.36 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.35 全面落地幕后工作室审计残留 R1–R11）
+> 最后更新: 2026-07-09（v0.26.36 后台配置变更即时生效）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.36 — 后台配置变更即时生效（超时/字体/主题热同步）（2026-07-09）
+
+- `save_settings` 热重载 LLM + 广播 `app_settings`；幕前/幕后 Query 即时失效。
+- `llm_first_chunk_timeout_secs` 接入适配器；TriShot 预算与 writer prompt 读真实配置。
+- 字体/色调主题经 Tauri 事件跨窗口即时同步。
+- ✅ **验证**：cargo test 685；vitest 240；fmt/tsc/architecture_guard 通过。
 
 ### v0.26.35 — 全面落地幕后工作室审计残留 R1–R11（2026-07-09）
 

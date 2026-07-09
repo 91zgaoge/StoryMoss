@@ -43,7 +43,7 @@ import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelinePro
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
-import { loadEditorConfig } from '@/hooks/contracts/useEditorConfig';
+import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 
@@ -1341,13 +1341,38 @@ const FrontstageApp: React.FC = () => {
     [flushGenerationStatus]
   );
 
-  // W2-F2: 监听编辑器配置变化（同步幕后设置到幕前），替代 editor-config-changed DOM CustomEvent
-  const editorConfig = useAppStore(state => state.editorConfig);
+  // 跨窗口编辑器配置同步：localStorage storage 事件 + Tauri editor-config-changed
   useEffect(() => {
-    if (editorConfig?.fontSize) {
-      setFontSize(editorConfig.fontSize);
-    }
-  }, [editorConfig]);
+    const applyEditorConfig = (cfg: ReturnType<typeof loadEditorConfig>) => {
+      if (cfg.fontSize) {
+        setFontSize(cfg.fontSize);
+      }
+      useAppStore.getState().setEditorConfig(cfg);
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) {
+        applyEditorConfig(loadEditorConfig());
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    let unlisten: (() => void) | undefined;
+    void listen<ReturnType<typeof loadEditorConfig>>('editor-config-changed', event => {
+      applyEditorConfig(event.payload);
+    })
+      .then(fn => {
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* non-Tauri / test env */
+      });
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      unlisten?.();
+    };
+  }, []);
 
   // 加载当前故事的角色
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -1489,8 +1514,8 @@ const FrontstageApp: React.FC = () => {
             }
             break;
           case 'dataRefresh':
-            // v0.11.2: 模型配置变更时刷新 settings/models，让幕前立即感知新活跃模型
-            if (payload?.entity === 'model_config') {
+            // v0.11.2: 模型/应用设置变更时刷新 settings/models，让幕前立即感知
+            if (payload?.entity === 'model_config' || payload?.entity === 'app_settings') {
               queryClient.invalidateQueries({ queryKey: ['settings'] });
               queryClient.invalidateQueries({ queryKey: ['models'] });
             }

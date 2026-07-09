@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.35
+- **版本**: v0.26.36
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.36 — 后台配置变更即时生效（超时/字体/主题）
+
+- **超时热重载**：`save_settings` → `reload_config` + `app_settings` sync；幕前立刻用新超时。
+- **首字节超时**：`llm_first_chunk_timeout_secs` 接入三适配器。
+- **字体/主题跨窗口**：Tauri 事件 `editor-config-changed` / `color-theme-changed`。
+- **验证**：cargo test 685；vitest 240 passed / 3 skipped。
 
 ### v0.26.35 — 全面落地幕后工作室审计残留 R1–R11
 
@@ -221,4 +228,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.35_
+_最后更新: 2026-07-09 - v0.26.36_

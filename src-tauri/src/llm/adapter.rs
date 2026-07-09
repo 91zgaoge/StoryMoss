@@ -32,8 +32,9 @@ pub async fn send_with_connection_timeout(
 /// 以流式方式读取响应体。
 ///
 /// 超时策略（v0.14.0 三层防护，修复 vllm "连接成功但首字节迟迟不来"半挂问题）：
-/// 1. **首字节超时**：第一个 chunk 使用 `min(generation_timeout, 60s)`，避免
-///    vllm 连接建立后长时间不发任何字节时等满 240s。
+/// 1. **首字节超时**：第一个 chunk 使用 `min(generation_timeout,
+///    first_chunk_cap)`， 避免 vllm 连接建立后长时间不发任何字节时等满
+///    generation_timeout。
 /// 2. **per-chunk 超时**：后续每个 chunk 用 `generation_timeout`，允许本地模型
 ///    慢速但持续输出。
 /// 3. **绝对超时**：从开始读取到结束不超过 `generation_timeout * 1.5`，防止
@@ -42,13 +43,24 @@ pub async fn read_body_with_generation_timeout(
     response: reqwest::Response,
     generation_timeout: Duration,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    read_body_with_generation_timeout_ex(response, generation_timeout, Duration::from_secs(60))
+        .await
+}
+
+/// 同 [`read_body_with_generation_timeout`]，但允许自定义首字节超时上限
+/// （来自 `AppConfig.llm_first_chunk_timeout_secs`）。
+pub async fn read_body_with_generation_timeout_ex(
+    response: reqwest::Response,
+    generation_timeout: Duration,
+    first_chunk_cap: Duration,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut stream = response.bytes_stream();
     let mut chunks: Vec<Vec<u8>> = Vec::new();
 
     // 绝对截止时间：generation_timeout 的 1.5 倍，作为最后防线
     let absolute_deadline = tokio::time::Instant::now() + generation_timeout * 3 / 2;
-    // 首字节超时：最多 60 秒，防止服务端连接成功但不响应
-    let first_chunk_timeout = generation_timeout.min(Duration::from_secs(60));
+    // 首字节超时：不超过 first_chunk_cap，防止服务端连接成功但不响应
+    let first_chunk_timeout = generation_timeout.min(first_chunk_cap);
     let mut first = true;
 
     loop {

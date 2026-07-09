@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import {
   Settings2,
   BookOpen,
@@ -22,6 +23,8 @@ import {
   colorThemeList,
   applyColorTheme,
   loadColorTheme,
+  saveColorTheme,
+  COLOR_THEME_STORAGE_KEY,
   type ColorThemeId,
 } from '@/frontstage/config/colorThemes';
 import { cn } from '@/utils/cn';
@@ -43,8 +46,39 @@ function ColorThemeSelector() {
   const handleSelect = (themeId: ColorThemeId) => {
     setCurrentTheme(themeId);
     applyColorTheme(themeId);
-    localStorage.setItem('storyforge-color-theme', themeId);
+    saveColorTheme(themeId);
   };
+
+  // 跨窗口同步：幕前 ColorThemeDot 变更时更新幕后选择器
+  useEffect(() => {
+    const handleThemeChange = (themeId: ColorThemeId) => {
+      setCurrentTheme(themeId);
+      applyColorTheme(themeId);
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
+        handleThemeChange(loadColorTheme());
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    let unlisten: (() => void) | undefined;
+    void listen<ColorThemeId>('color-theme-changed', event => {
+      handleThemeChange(event.payload);
+    })
+      .then(fn => {
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* non-Tauri / test env */
+      });
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <div className="space-y-3">

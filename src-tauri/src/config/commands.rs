@@ -607,7 +607,20 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         config.probe_prompt_override = v;
     }
 
-    config.save(&app_dir).map_err(AppError::from)
+    config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.26.36: 设置保存后立即热重载 LLM 适配器缓存与网关注册表，
+    // 并广播 app_settings，让幕前/幕后 TanStack Query 立刻失效旧超时等配置。
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    if let Some(executor) =
+        app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    {
+        executor.inner().refresh_registry();
+    }
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "app_settings");
+    log::info!("[save_settings] reloaded LLM config + emitted app_settings refresh");
+
+    Ok(())
 }
 
 /// 导出设置
@@ -1198,6 +1211,10 @@ pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Res
         .agent_mappings
         .insert(mapping.agent_id.clone(), mapping);
     config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.26.36: Agent 映射变更后热重载并通知前端
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "app_settings");
     Ok(())
 }
 

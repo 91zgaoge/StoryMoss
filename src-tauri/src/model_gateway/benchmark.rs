@@ -68,6 +68,7 @@ impl StreamBenchmark {
             profile.temperature,
             profile.timeout_seconds.max(10u64),
             10,
+            60,
         );
 
         let request = GenerateRequest {

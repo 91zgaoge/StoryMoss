@@ -220,6 +220,9 @@ impl Agent for PlotComplexityAgent {
             self.config.api_base.clone(),
             2000,
             0.3,
+            0,
+            0,
+            0,
         );
 
         let request = GenerateRequest {
