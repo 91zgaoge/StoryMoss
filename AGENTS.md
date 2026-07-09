@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.28
+- **版本**: v0.26.34
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,15 +71,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 672 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 685 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 210 passed / 3 skipped
+- `npx vitest run` ✅ 237 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.34 — 修复提示词导入参数并新增「打开本地目录」功能
+
+- **修复批量导入静默失败**：`PromptsPanel.handleImportAll` 调用 `save_prompt_override` 时参数键由错误的 `promptId` 修正为 `prompt_id`，与后端 `rename_all = "snake_case"` 对齐。
+- **新增「打开目录」功能**：后端新增 `get_prompts_directory` 命令暴露当前 prompts 资源目录；前端标题栏新增「打开目录」按钮，使用系统文件管理器打开目录。
+- **新增「刷新」功能**：支持重新加载提示词列表与目录路径。
+- **改善错误展示**：加载失败时在页面上方显示具体错误信息。
+- **导出/导入按钮归位**：将「导出」「导入」按钮从「全部重置」确认弹窗移至页面标题栏。
+- **验证**：`cargo test --lib` 685 passed；`npx vitest run` 237 passed / 3 skipped；fmt、format、architecture_guard 均通过。
 
 ### v0.26.24 — 修复续写重复、截断与跨内容复述（5 项根因）
 
@@ -202,4 +211,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-07 - v0.26.27_
+_最后更新: 2026-07-09 - v0.26.34_

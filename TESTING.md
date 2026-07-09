@@ -6,7 +6,7 @@
 
 | 套件                                | 数量     | 状态                           |
 | ----------------------------------- | -------- | ------------------------------ |
-| `cargo test --lib`                  | 672      | ✅ 0 failed / 2 ignored        |
+| `cargo test --lib`                  | 685      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative::genesis` | 11     | ✅（创世步骤/重试闸门/payload 契约） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
@@ -15,8 +15,8 @@
 
 | 类型           | 数量      | 状态                                         |
 | -------------- | --------- | -------------------------------------------- |
-| Rust 单元测试  | 672       | ✅ 全部通过 (`cargo test --lib`)             |
-| 前端单元测试   | 210       | ✅ 全部通过 (`vitest run`)                   |
+| Rust 单元测试  | 685       | ✅ 全部通过 (`cargo test --lib`)             |
+| 前端单元测试   | 237       | ✅ 全部通过 (`vitest run`)                   |
 | 前端构建测试   | —         | ✅ `npm run build` 通过                      |
 | Tauri 构建测试 | —         | ✅ `cargo tauri build` 通过                  |
 | Playwright E2E | 41 (36+5) | ✅ 行为驱动测试（CI 中 `continue-on-error`），其中 `genesis-duplicate.spec.ts` 验证自动接受后幽灵段落隐藏 |

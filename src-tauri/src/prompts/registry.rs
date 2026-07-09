@@ -184,6 +184,12 @@ pub fn set_prompts_resource_dir(path: PathBuf) {
     let _ = PROMPTS_RESOURCE_DIR.set(path);
 }
 
+/// v0.26.34: 返回当前使用的 prompts
+/// 资源目录路径（供前端「打开本地目录」使用）。
+pub fn get_prompts_directory() -> Option<PathBuf> {
+    prompts_resource_dir()
+}
+
 fn prompts_resource_dir() -> Option<PathBuf> {
     if let Some(dir) = PROMPTS_RESOURCE_DIR.get() {
         if dir.is_dir() {
@@ -697,5 +703,21 @@ mod tests {
         assert!(inspector_hist
             .variables
             .contains(&"event_history".to_string()));
+    }
+
+    // v0.26.34: 暴露 prompts 目录路径，支持后台「打开本地目录」
+    #[test]
+    fn test_get_prompts_directory() {
+        let dir = get_prompts_directory();
+        assert!(
+            dir.is_some(),
+            "应能解析到 prompts 资源目录（dev fallback 使用 CARGO_MANIFEST_DIR）"
+        );
+        let dir = dir.unwrap();
+        assert!(
+            dir.is_dir(),
+            "解析到的 prompts 目录必须存在: {}",
+            dir.display()
+        );
     }
 }

@@ -43,3 +43,13 @@ pub fn resolve_prompt_content(
 ) -> Result<String, AppError> {
     registry::resolve_prompt(&pool, &prompt_id)
 }
+
+/// v0.26.34: 获取当前使用的 prompts 资源目录路径。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_prompts_directory() -> Result<String, AppError> {
+    registry::get_prompts_directory()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::Internal {
+            message: "无法定位 prompts 资源目录".to_string(),
+        })
+}

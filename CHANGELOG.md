@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.34] - 修复提示词导入参数并新增「打开本地目录」功能（2026-07-09）
+
+### 修复
+
+- **后台提示词页面批量导入失效**：`PromptsPanel.handleImportAll` 调用 `save_prompt_override` 时使用了 `promptId`（camelCase），与后端 `rename_all = "snake_case"` 期望的 `prompt_id` 不匹配，导致导入全部静默失败。已修正为 `prompt_id`。
+- **加载失败无明确提示**：提示词列表加载失败时页面仅 toast 报错，未展示具体错误。新增 `loadError` 状态并在页面上方显示错误详情。
+
+### 新增
+
+- **后台提示词页面「打开目录」按钮**：新增 `get_prompts_directory` 后端命令，暴露当前生效的 prompts 资源目录路径；前端标题栏新增「打开目录」按钮，点击后使用系统文件管理器打开该目录（开发环境下为项目 `resources/prompts`，生产环境下为应用包内资源目录）。
+- **后台提示词页面「刷新」按钮**：支持重新加载提示词列表与目录路径。
+- **导出/导入按钮移出重置确认弹窗**：将「导出」「导入」操作放到页面标题栏，避免与「全部重置」混淆。
+
+### 验证
+
+- `cargo test --lib`：685 passed / 0 failed / 2 ignored ✅
+- `cargo +nightly fmt -- --check`：✅
+- `cargo check`：✅（仅既有 warning）
+- `npx vitest run`：237 passed / 3 skipped ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+- `npm run format:check`：✅
+- `npm run build`：✅
+
 ## [v0.26.33] - 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦（2026-07-08）
 
 ### 新增

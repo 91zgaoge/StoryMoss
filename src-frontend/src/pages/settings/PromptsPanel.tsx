@@ -10,12 +10,15 @@ import {
   AlertTriangle,
   Download,
   Upload,
+  FolderOpen,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
+import { open } from '@tauri-apps/plugin-shell';
 // v0.21.0: Monaco 编辑器替代原生 textarea
 import MonacoEditor from '@monaco-editor/react';
 
@@ -137,9 +140,13 @@ export function PromptsPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<PromptCategory | 'all'>('all');
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
+  const [promptsDir, setPromptsDir] = useState<string | null>(null);
+  const [dirLoading, setDirLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchEntries = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await loggedInvoke<PromptEntry[]>('list_prompt_entries');
       setEntries(data);
@@ -149,6 +156,8 @@ export function PromptsPanel() {
       }
       setEdited(edits);
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setLoadError('加载提示词列表失败：' + message);
       toast.error('加载提示词列表失败');
       console.error(e);
     } finally {
@@ -156,8 +165,22 @@ export function PromptsPanel() {
     }
   };
 
+  const fetchPromptsDirectory = async () => {
+    setDirLoading(true);
+    try {
+      const dir = await loggedInvoke<string>('get_prompts_directory');
+      setPromptsDir(dir);
+    } catch (e) {
+      console.error(e);
+      setPromptsDir(null);
+    } finally {
+      setDirLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchEntries();
+    fetchPromptsDirectory();
   }, []);
 
   const filteredEntries = useMemo(() => {
@@ -285,7 +308,7 @@ export function PromptsPanel() {
       for (const item of data) {
         try {
           await loggedInvoke('save_prompt_override', {
-            promptId: item.prompt_id,
+            prompt_id: item.prompt_id,
             content: item.content,
           });
           success++;
@@ -304,6 +327,25 @@ export function PromptsPanel() {
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
   }, []);
+
+  const handleOpenDirectory = async () => {
+    if (!promptsDir) {
+      toast.error('未找到提示词目录');
+      return;
+    }
+    try {
+      await open(promptsDir);
+    } catch (e) {
+      toast.error('打开目录失败');
+      console.error(e);
+    }
+  };
+
+  const handleReload = async () => {
+    await fetchEntries();
+    await fetchPromptsDirectory();
+    toast.success('提示词列表已重新加载');
+  };
 
   const overriddenCount = entries.filter(e => e.is_overridden).length;
 
@@ -334,6 +376,49 @@ export function PromptsPanel() {
           <span className="text-xs text-gray-500">
             共 {entries.length} 条 · {overriddenCount} 条已覆盖
           </span>
+          {!dirLoading && promptsDir && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleOpenDirectory}
+              title={`打开提示词目录：${promptsDir}`}
+            >
+              <FolderOpen className="w-3.5 h-3.5 mr-1" />
+              打开目录
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={handleReload} title="重新加载提示词列表">
+            <RefreshCw className="w-3.5 h-3.5 mr-1" />
+            刷新
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleExportAll}
+            title="导出全部提示词覆盖为 JSON 文件"
+          >
+            <Download className="w-3.5 h-3.5 mr-1" />
+            导出
+          </Button>
+          <label className="cursor-pointer inline-flex items-center">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => document.getElementById('prompt-import-input')?.click()}
+              title="从 JSON 文件导入提示词覆盖"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1" />
+              导入
+            </Button>
+            <input
+              id="prompt-import-input"
+              data-testid="prompt-import-input"
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImportAll}
+            />
+          </label>
           {overriddenCount > 0 && (
             <Button
               size="sm"
@@ -347,6 +432,13 @@ export function PromptsPanel() {
           )}
         </div>
       </div>
+
+      {/* Load error */}
+      {loadError && (
+        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          {loadError}
+        </div>
+      )}
 
       {/* Search and Filter */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -554,33 +646,6 @@ export function PromptsPanel() {
               <Button variant="ghost" onClick={() => setShowResetAllConfirm(false)}>
                 取消
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleExportAll}
-                title="导出全部提示词覆盖为 JSON 文件"
-              >
-                <Download className="w-4 h-4 mr-1" />
-                导出
-              </Button>
-              <label className="cursor-pointer">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => document.getElementById('prompt-import-input')?.click()}
-                  title="从 JSON 文件导入提示词覆盖"
-                >
-                  <Upload className="w-4 h-4 mr-1" />
-                  导入
-                </Button>
-                <input
-                  id="prompt-import-input"
-                  type="file"
-                  accept=".json"
-                  className="hidden"
-                  onChange={handleImportAll}
-                />
-              </label>
               <Button variant="danger" onClick={handleResetAll}>
                 <RotateCcw className="w-3.5 h-3.5 mr-1" />
                 确认重置全部

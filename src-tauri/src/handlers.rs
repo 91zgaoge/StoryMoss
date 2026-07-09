@@ -45,6 +45,7 @@ tauri::generate_handler![
     prompts::commands::reset_prompt_override,
     prompts::commands::reset_all_prompt_overrides,
     prompts::commands::resolve_prompt_content,
+    prompts::commands::get_prompts_directory,
     model_gateway::commands::get_gateway_status,
     model_gateway::commands::refresh_model_health,
     model_gateway::commands::simulate_gateway_route,

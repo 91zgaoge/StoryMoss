@@ -1,11 +1,20 @@
-# StoryForge (草苔) v0.26.33 项目完成状态
+# StoryForge (草苔) v0.26.34 项目完成状态
 
-> 最后更新: 2026-07-08（v0.26.33 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦）
+> 最后更新: 2026-07-09（v0.26.34 修复提示词导入参数并新增「打开本地目录」功能）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.34 — 修复提示词导入参数并新增「打开本地目录」功能（2026-07-09）
+
+- **修复批量导入静默失败**：`PromptsPanel.handleImportAll` 参数键由 `promptId` 修正为 `prompt_id`，与后端命令字段命名对齐。
+- **新增「打开目录」功能**：后端新增 `get_prompts_directory` 命令；前端标题栏新增按钮，使用系统文件管理器打开当前 prompts 资源目录。
+- **新增「刷新」按钮**：重新加载提示词列表与目录路径。
+- **改善错误展示**：加载失败时页面显示具体错误信息。
+- **导出/导入按钮归位**：移至页面标题栏，避免与重置操作混淆。
+- ✅ **验证**：`cargo test --lib` 685 passed；`npx vitest run` 237 passed / 3 skipped；`cargo +nightly fmt -- --check`、`npx tsc --noEmit`、`architecture_guard.py`、`npm run format:check`、`npm run build` 均通过。
 
 ### v0.26.33 — 补齐阶段 2/3/4 具体缺口：KG/角色关系删除、前端解耦（2026-07-08）
 

@@ -1,6 +1,7 @@
-# StoryForge (草苔) v0.26.28 架构文档
+# StoryForge (草苔) v0.26.34 架构文档
 
-> 本文档反映 v0.26.28 最新架构状态（2026-07-07）
+> 本文档反映 v0.26.34 最新架构状态（2026-07-09）
+> **v0.26.34 提示词注册表可观测性**：`prompts/registry.rs` 新增 `get_prompts_directory()` 暴露当前 prompts 资源目录路径；`prompts/commands.rs` 新增 `get_prompts_directory` Tauri 命令；前端 `PromptsPanel` 新增「打开目录」「刷新」按钮，支持在系统文件管理器中打开 prompts 资源目录并重新加载列表；修复批量导入时 `promptId` → `prompt_id` 参数命名不匹配问题。
 > **v0.26.28 Phase 4 架构债务与工程体验**：知识图谱手动 CRUD UI、世界构建 AI 生成、角色 AI 扩展、叙事分析图表；`genesis.rs` 策略选择步骤从后台阶段前移至 Quick Phase，`quick_phase_steps` 变为「概念 → 策略选择 → 撰写开篇」三步，`background_steps` 变为 5 步；`prompts/registry.rs` 中 95 个内置提示词外部化至 `resources/prompts/{category}/{id}.md`，运行时从 Tauri 资源目录加载；`db/connection.rs` 中 ~2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件，`MigrationRunner` 新增 `RustMigration` trait 统一执行 SQL 与 Rust 迁移。
 > **v0.26.27 依赖解耦与文档补全**：前端 `components ↔ stores ↔ hooks ↔ frontstage` 通过新增 `types/editor.ts`、`stores/contracts/*` 解耦（`hooks/contracts/*` 仍待补齐），`appStore.ts` 不再依赖 `components/*` / `hooks/*`；Tauri `creative_engine ↔ llm` 已无互相 import，`model_gateway ↔ router` 仍有少量直接 import（后续继续向 `ports/` 迁移）；`USER_GUIDE.md` 补全 L4 诊断页（生成链路 / 意图图 / 日志）并修正 Phase 1–3 实现漂移。
 > **v0.26.24 续写后处理**：TriShot 续写路径新增三层后处理（`trim_self_repetition` → `strip_existing_overlap` → `trim_dangling_tail`）+ 8% 自重复重试闸门；前端 `sanitizeContinuationOutput` 对齐。
