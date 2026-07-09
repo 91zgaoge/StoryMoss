@@ -2,6 +2,12 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.47] - CI 热修复：Rust 格式化（2026-07-09）
+
+### 修复
+
+- v0.26.46 功能代码未跑 `cargo +nightly fmt`，导致 macOS/Ubuntu/Windows `rust-check` 失败。本版仅格式化，无逻辑变更。
+
 ## [v0.26.46] - 创世方法论全链路、题材画像 match-or-create 与拆书持久化（2026-07-09）
 
 ### 修复

@@ -107,9 +107,8 @@ impl StrategySelector {
         // 4. 合并 LLM 结果与精确匹配兜底
         strategy = merge_strategies(strategy, llm_strategy);
         if let Some(mid) = strategy.methodology_id.take() {
-            strategy.methodology_id = Some(
-                crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
-            );
+            strategy.methodology_id =
+                Some(crate::domain::methodology::normalize_methodology_id(&mid).to_string());
         }
 
         // 5. 应用用户覆盖
@@ -117,9 +116,8 @@ impl StrategySelector {
             strategy.merge_user_overrides(ov);
         }
         if let Some(mid) = strategy.methodology_id.take() {
-            strategy.methodology_id = Some(
-                crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
-            );
+            strategy.methodology_id =
+                Some(crate::domain::methodology::normalize_methodology_id(&mid).to_string());
         }
 
         Ok(strategy)

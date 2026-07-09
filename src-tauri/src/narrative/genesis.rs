@@ -349,11 +349,7 @@ impl GenesisContext {
 
 /// 根据已选策略和体裁画像构建写作指令中的策略注解。
 /// `method_step` 为雪花/HDWB 子步 hint；`None` 时用方法论默认首步。
-fn build_strategy_notes(
-    ctx: &GenesisContext,
-    genre: &str,
-    method_step: Option<&str>,
-) -> String {
+fn build_strategy_notes(ctx: &GenesisContext, genre: &str, method_step: Option<&str>) -> String {
     build_strategy_notes_inner(ctx, genre, method_step, false, None)
 }
 
@@ -375,7 +371,10 @@ fn build_strategy_notes_for_genesis_step(
     let mut notes = build_strategy_notes_inner(ctx, genre, hint, false, Some(4000));
 
     // Character 步：主方法论非 character_depth 时叠加人物深度 brief
-    if matches!(step, crate::domain::methodology::GenesisMethodStep::Character) {
+    if matches!(
+        step,
+        crate::domain::methodology::GenesisMethodStep::Character
+    ) {
         let primary = ctx
             .selected_strategy
             .as_ref()
@@ -842,7 +841,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
     }
 }
 
-// ==================== Step 2: 题材画像确保（匹配或生成入库） ====================
+// ==================== Step 2: 题材画像确保（匹配或生成入库）
+// ====================
 
 /// v0.26.46: 概念之后、策略之前。
 /// 目录有足够贴近的现有画像 → 写入 `genre_profile_ids`；
@@ -895,7 +895,8 @@ impl PipelineStep<GenesisContext> for EnsureGenreProfileStep {
             let resolver = crate::strategy::GenreResolver::new();
 
             // 以用户原指令为主匹配，避免概念步题材漂移后误选目录项
-            let mut selected = resolver.select_existing(&ctx.user_premise, &preferred_ids, &profiles);
+            let mut selected =
+                resolver.select_existing(&ctx.user_premise, &preferred_ids, &profiles);
             if selected.is_empty() && !genre_hint.trim().is_empty() {
                 selected = resolver.select_existing(&genre_hint, &preferred_ids, &profiles);
             }
@@ -916,11 +917,8 @@ impl PipelineStep<GenesisContext> for EnsureGenreProfileStep {
                 )
             } else {
                 // 目录无可用项 → 按指令生成并入库
-                let prompt = genre_profile_generate_prompt(
-                    &ctx.user_premise,
-                    &genre_hint,
-                    Some(&ctx.pool),
-                );
+                let prompt =
+                    genre_profile_generate_prompt(&ctx.user_premise, &genre_hint, Some(&ctx.pool));
                 let pipeline_ctx =
                     ctx.llm_pipeline_ctx(self.name(), self.step_number(), 5, "生成题材画像");
                 let request = RoutingRequest {
@@ -943,11 +941,15 @@ impl PipelineStep<GenesisContext> for EnsureGenreProfileStep {
                     .await
                     .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
-                let json_str = super::extract_and_sanitize_json(response.content.trim())
-                    .map_err(|e| PipelineError::ParseError(format!("题材画像 JSON 解析失败: {}", e)))?;
+                let json_str =
+                    super::extract_and_sanitize_json(response.content.trim()).map_err(|e| {
+                        PipelineError::ParseError(format!("题材画像 JSON 解析失败: {}", e))
+                    })?;
 
-                let generated: GeneratedGenreProfile = serde_json::from_str(&json_str)
-                    .map_err(|e| PipelineError::ParseError(format!("题材画像反序列化失败: {}", e)))?;
+                let generated: GeneratedGenreProfile =
+                    serde_json::from_str(&json_str).map_err(|e| {
+                        PipelineError::ParseError(format!("题材画像反序列化失败: {}", e))
+                    })?;
 
                 let genre_name = generated.genre_name.trim().to_string();
                 let canonical = generated.canonical_name.trim().to_string();
@@ -988,7 +990,9 @@ impl PipelineStep<GenesisContext> for EnsureGenreProfileStep {
                         )
                     })
                     .await
-                    .map_err(|e| PipelineError::StorageError(format!("spawn_blocking 失败: {}", e)))?
+                    .map_err(|e| {
+                        PipelineError::StorageError(format!("spawn_blocking 失败: {}", e))
+                    })?
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
                     if let Some(promise) = generated
@@ -1184,9 +1188,8 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
             // 落库前规范化方法论 ID；步进从 1 起，避免下游 unwrap_or(1) 歧义
             let mut strategy = strategy;
             if let Some(mid) = strategy.methodology_id.take() {
-                strategy.methodology_id = Some(
-                    crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
-                );
+                strategy.methodology_id =
+                    Some(crate::domain::methodology::normalize_methodology_id(&mid).to_string());
             }
 
             // 保存选择结果到 story 表
@@ -3404,8 +3407,7 @@ impl PipelineStep<GenesisContext> for ContractSeedingStep {
                 .as_ref()
                 .and_then(|s| s.methodology_id.as_deref())
             {
-                let step =
-                    crate::domain::methodology::final_methodology_step_after_genesis(mid);
+                let step = crate::domain::methodology::final_methodology_step_after_genesis(mid);
                 let update_req = UpdateStoryRequest {
                     title: None,
                     description: None,

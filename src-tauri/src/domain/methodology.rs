@@ -90,7 +90,10 @@ pub enum GenesisMethodStep {
     Foreshadow,
 }
 
-pub fn methodology_step_hint(methodology_id: &str, step: GenesisMethodStep) -> Option<&'static str> {
+pub fn methodology_step_hint(
+    methodology_id: &str,
+    step: GenesisMethodStep,
+) -> Option<&'static str> {
     match (normalize_methodology_id(methodology_id), step) {
         ("snowflake", GenesisMethodStep::OpeningOrFirstChapter) => Some("1"),
         ("snowflake", GenesisMethodStep::Outline) => Some("2"),
@@ -113,7 +116,10 @@ mod methodology_id_tests {
             normalize_methodology_id("world_building"),
             "high_density_world_building"
         );
-        assert_eq!(normalize_methodology_id("hdwb"), "high_density_world_building");
+        assert_eq!(
+            normalize_methodology_id("hdwb"),
+            "high_density_world_building"
+        );
         assert_eq!(
             normalize_methodology_id("high_density_world_building"),
             "high_density_world_building"

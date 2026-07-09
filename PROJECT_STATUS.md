@@ -1,11 +1,15 @@
-# StoryForge (草苔) v0.26.46 项目完成状态
+# StoryForge (草苔) v0.26.47 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.46 创世方法论全链路 + 题材 match-or-create + 拆书持久化）
+> 最后更新: 2026-07-09（v0.26.47 fmt 热修复；v0.26.46 方法论全链路）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.47 — CI 热修复：Rust fmt（2026-07-09）
+
+- 修复 v0.26.46 rust-check 失败；无逻辑变更。
 
 ### v0.26.46 — 创世方法论全链路、题材 match-or-create 与拆书持久化（2026-07-09）
 

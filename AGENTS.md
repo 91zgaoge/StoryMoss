@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.46
+- **版本**: v0.26.47
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,10 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.47 — CI 热修复（Rust fmt）
+
+- `cargo +nightly fmt` 修复 v0.26.46 rust-check 失败；无逻辑变更。
 
 ### v0.26.46 — 创世方法论全链路、题材 match-or-create 与拆书持久化
 
@@ -291,7 +295,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.46_
+_最后更新: 2026-07-09 - v0.26.47_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
