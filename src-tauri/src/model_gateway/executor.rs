@@ -1356,6 +1356,8 @@ impl<R: Runtime> GatewayExecutor<R> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, OnceLock};
+
     use super::*;
     use crate::{
         config::settings::{
@@ -1366,6 +1368,12 @@ mod tests {
         llm::service::LlmService,
         router::{UnifiedModel, UnifiedModelRegistry},
     };
+
+    /// mock_app 共享同一 app_data_dir；写 config 的契约测试必须串行。
+    fn mock_app_config_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn test_profile(id: &str, name: &str) -> LlmProfile {
         LlmProfile {
@@ -1542,6 +1550,9 @@ mod tests {
     /// 自动清降级并置顶，给 5s 预探测再试机会（不必等用户再次点选）。
     #[test]
     fn test_resolve_role_model_auto_clears_sticky_unhealthy_creative() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut registry_inner = UnifiedModelRegistry::default();
         registry_inner.register(UnifiedModel::Generative(test_profile("creative-x", "CX")));
         registry_inner.register(UnifiedModel::Generative(test_profile("local-fast", "LF")));
@@ -1586,6 +1597,9 @@ mod tests {
     /// 用本地模型。）
     #[test]
     fn test_demoted_degraded_creative_still_promoted() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut registry_inner = UnifiedModelRegistry::default();
         registry_inner.register(UnifiedModel::Generative(test_profile("creative-x", "CX")));
         registry_inner.register(UnifiedModel::Generative(test_profile("local-fast", "LF")));
@@ -1638,6 +1652,9 @@ mod tests {
     /// 下一轮 creative resolve 必须用 X（不等待 Y 成功清零）。
     #[test]
     fn test_user_sets_creative_x_overrides_demoted_y() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut registry_inner = UnifiedModelRegistry::default();
         registry_inner.register(UnifiedModel::Generative(test_profile("model-y", "Y")));
         registry_inner.register(UnifiedModel::Generative(test_profile("model-x", "X")));
@@ -1704,6 +1721,9 @@ mod tests {
     /// v0.26.54 契约：禁用后 refresh_registry 使模型不可选、不可置顶。
     #[test]
     fn test_disabled_model_not_selected_after_registry_reload() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut registry_inner = UnifiedModelRegistry::default();
         registry_inner.register(UnifiedModel::Generative(test_profile("keep", "Keep")));
         registry_inner.register(UnifiedModel::Generative(test_profile("drop", "Drop")));
