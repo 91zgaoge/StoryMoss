@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.50
+- **版本**: v0.26.51
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -73,13 +73,19 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 701 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 266 passed / 3 skipped
+- `npx vitest run` ✅ 相关 frontstage 标题测试 30 passed（本版未全量重跑）
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
-- `cargo +nightly fmt -- --check` ✅
+- `cargo +nightly fmt -- --check` ✅（本版无 Rust 变更）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.51 — 幕前故事名与章节名内联改名
+
+- **故事名**：草苔/未命名展示；有正文自动建「未命名」故事；单击回幕后、双击改名。
+- **章节名**：编辑器上方 + 顶栏状态统一双击改名；空标题 `第N章`；`update_scene` 持久化。
+- **验证**：displayStoryTitle/ChapterTitle + Header/EditableChapterTitle 30 passed；tsc/format/architecture_guard。
 
 ### v0.26.50 — 修复打字触发后台运行与深度思考假超时
 
@@ -312,7 +318,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.50_
+_最后更新: 2026-07-09 - v0.26.51_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

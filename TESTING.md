@@ -1,8 +1,12 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.50)
+# 🧪 StoryForge 自动化测试环境 (v0.26.51)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.51 变更说明
+
+- `displayStoryTitle` / `displayChapterTitle` 展示契约；`FrontstageHeader` / `EditableChapterTitle` 双击改名交互 30 passed。
 
 ### v0.26.50 变更说明
 

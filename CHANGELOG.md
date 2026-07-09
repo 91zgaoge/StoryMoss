@@ -2,6 +2,18 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.51] - 幕前故事名与章节名内联改名（2026-07-09）
+
+### 功能
+
+- **故事名**：空编辑器顶部显示「草苔」；粘贴/输入正文后显示「未命名」并自动创建故事+第一章场景（不走 `selectStory`，避免清空编辑器）；单击仍回幕后，双击内联改名（Enter/blur 保存，Esc/空 blur 取消）。
+- **章节名**：编辑器上方大标题与顶栏状态章节标签统一双击改名；空标题展示 `第N章`；持久化优先 `update_scene`（title 回写关联 chapter）。
+
+### 验证
+
+- `displayStoryTitle` / `displayChapterTitle` / `FrontstageHeader` / `EditableChapterTitle` vitest 30 passed
+- `npx tsc --noEmit` ✅；`npm run format:check` ✅；`architecture_guard` ✅
+
 ## [v0.26.50] - 修复打字触发后台运行与深度思考假超时（2026-07-09）
 
 ### 修复

@@ -1,8 +1,14 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.50 打字/假超时）
+> 最后更新: 2026-07-09（v0.26.51 幕前内联改名）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.51 — 幕前故事名与章节名内联改名 ✅ (2026-07-09)
+
+- [x] `displayStoryTitle` / `ensureUntitledStory` / Header 双击改故事名
+- [x] `displayChapterTitle` / `EditableChapterTitle` / 顶栏+编辑器上方双击改章节名
+- [x] 章节 title 优先 `update_scene`（回写 chapter）
 
 ### 📝 v0.26.50 — 修复打字触发后台运行与深度思考假超时 ✅ (2026-07-09)
 

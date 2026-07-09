@@ -1,14 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FrontstageHeader from '../FrontstageHeader';
 
-// Mock IngestHealthIndicator — 它内部使用 Tauri listen API，在 jsdom 中无法运行
 vi.mock('../IngestHealthIndicator', () => ({
   IngestHealthIndicator: () => null,
 }));
 
-// Mock DebtIndicator — 它内部使用 TanStack Query，在 jsdom 中需要 QueryClientProvider
 vi.mock('../DebtIndicator', () => ({
   default: () => null,
 }));
@@ -16,6 +14,8 @@ vi.mock('../DebtIndicator', () => ({
 describe('FrontstageHeader', () => {
   const defaultProps = {
     currentStory: { id: '1', title: '测试故事' },
+    displayTitle: '测试故事',
+    canRename: true,
     currentChapter: { id: 'c1', story_id: '1', title: '第一章', chapter_number: 1 },
     wordCount: 1234,
     totalWordCount: 5678,
@@ -30,15 +30,27 @@ describe('FrontstageHeader', () => {
     onOpenFontSettings: vi.fn(),
     onCycleWensiMode: vi.fn(),
     onToggleZenMode: vi.fn(),
+    onRenameStory: vi.fn().mockResolvedValue(undefined),
   };
 
-  it('应该显示当前故事名称', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('应该显示 displayTitle', () => {
     render(<FrontstageHeader {...defaultProps} />);
     expect(screen.getByText('测试故事')).toBeInTheDocument();
   });
 
   it('默认状态下应该显示"草苔"', () => {
-    render(<FrontstageHeader {...defaultProps} currentStory={null} />);
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        currentStory={null}
+        displayTitle="草苔"
+        canRename={false}
+      />
+    );
     expect(screen.getByText('草苔')).toBeInTheDocument();
   });
 
@@ -79,12 +91,53 @@ describe('FrontstageHeader', () => {
     expect(screen.queryByTitle(/文思/)).not.toBeInTheDocument();
   });
 
-  it('点击故事名称应该触发打开幕后工作室', async () => {
+  it('单击故事名称应该触发打开幕后工作室', async () => {
     const onOpenBackstage = vi.fn();
     render(<FrontstageHeader {...defaultProps} onOpenBackstage={onOpenBackstage} />);
 
     await userEvent.click(screen.getByText('测试故事'));
     expect(onOpenBackstage).toHaveBeenCalledTimes(1);
+  });
+
+  it('双击故事名称应该进入编辑态', async () => {
+    const user = userEvent.setup();
+    render(<FrontstageHeader {...defaultProps} />);
+
+    await user.dblClick(screen.getByText('测试故事'));
+    expect(screen.getByLabelText('编辑故事名称')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('测试故事')).toBeInTheDocument();
+  });
+
+  it('改名后失焦应调用 onRenameStory', async () => {
+    const user = userEvent.setup();
+    const onRenameStory = vi.fn().mockResolvedValue(undefined);
+    render(<FrontstageHeader {...defaultProps} onRenameStory={onRenameStory} />);
+
+    await user.dblClick(screen.getByText('测试故事'));
+    const input = screen.getByLabelText('编辑故事名称');
+    await user.clear(input);
+    await user.type(input, '新书名');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(onRenameStory).toHaveBeenCalledWith('新书名');
+    });
+  });
+
+  it('清空标题失焦不应调用 onRenameStory', async () => {
+    const user = userEvent.setup();
+    const onRenameStory = vi.fn().mockResolvedValue(undefined);
+    render(<FrontstageHeader {...defaultProps} onRenameStory={onRenameStory} />);
+
+    await user.dblClick(screen.getByText('测试故事'));
+    const input = screen.getByLabelText('编辑故事名称');
+    await user.clear(input);
+    await user.tab();
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText('编辑故事名称')).not.toBeInTheDocument();
+    });
+    expect(onRenameStory).not.toHaveBeenCalled();
   });
 
   it('点击禅模式按钮应该触发回调', async () => {

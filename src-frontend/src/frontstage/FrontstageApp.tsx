@@ -47,6 +47,9 @@ import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
+import { displayStoryTitle } from './utils/displayStoryTitle';
+import { displayChapterTitle } from './utils/displayChapterTitle';
+import EditableChapterTitle from './components/EditableChapterTitle';
 
 import { createLogger } from '@/utils/logger';
 
@@ -203,6 +206,8 @@ const FrontstageApp: React.FC = () => {
   const currentStoryRef = useRef(currentStory);
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
+  // v0.26.51: 粘贴/输入正文时自动建「未命名」故事；防并发 + 挡住 story_created→loadStories 误选
+  const ensuringStoryRef = useRef(false);
   // [DEBUG-dup] 统计创世过程中 ChapterSwitch 事件触发次数
   const chapterSwitchCountRef = useRef(0);
   // v0.23.62: 追踪 ChapterSwitch 时间戳，用于 post-ChapterSwitch 5s 静默期
@@ -446,6 +451,11 @@ const FrontstageApp: React.FC = () => {
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
   useSyncStore({
     onStoryCreated: (storyId, title) => {
+      // v0.26.51: 幕前粘贴自动建「未命名」时不弹 toast，避免打扰写作
+      if (ensuringStoryRef.current) {
+        void loadStories();
+        return;
+      }
       toast.success(`故事「${title || '新故事'}」已创建`);
       loadStories();
     },
@@ -2450,6 +2460,7 @@ const FrontstageApp: React.FC = () => {
       if (
         result.length > 0 &&
         !currentStoryRef.current &&
+        !ensuringStoryRef.current &&
         !isGeneratingRef.current &&
         !isGenesisSettingUpRef.current
       ) {
@@ -2530,6 +2541,169 @@ const FrontstageApp: React.FC = () => {
     return chinese + english;
   }, []);
 
+  /**
+   * v0.26.51: 无故事时用户粘贴/输入正文 → 自动创建「未命名」故事 + 第一章场景，
+   * 并把当前编辑器内容写入 scene，使后续 auto-save 有 sceneId。
+   * 不走 selectStory：DB chapter.content 为空，会清空编辑器。
+   */
+  const ensureUntitledStory = useCallback(
+    async (contentHtml: string) => {
+      if (currentStoryRef.current || ensuringStoryRef.current) return;
+      if (isGenesisSettingUpRef.current || genesisDeliveryRef.current !== 'idle') return;
+      const plain = contentHtml.replace(/<[^>]*>/g, '').trim();
+      if (!plain) return;
+
+      ensuringStoryRef.current = true;
+      try {
+        const story = await loggedInvoke<Story>('create_story', { title: '未命名' });
+        // 同步 ref，挡住 create_story → story_created → loadStories 误选其他故事
+        currentStoryRef.current = story;
+        setCurrentStory(story);
+        setStories(prev => {
+          if (prev.some(s => s.id === story.id)) return prev;
+          return [story, ...prev];
+        });
+
+        const scene = await loggedInvoke<Scene>('create_scene', {
+          story_id: story.id,
+          sequence_number: 1,
+          title: '第一章',
+          characters_present: [],
+          content: contentHtml,
+        });
+
+        const chapterId = scene.chapter_id;
+        const chapter: Chapter = {
+          id: chapterId || scene.id,
+          story_id: story.id,
+          title: scene.title || '第一章',
+          chapter_number: scene.sequence_number || 1,
+          // 保留编辑器已有正文；scene 为真相源，chapter.content 可能仍空
+          content: contentHtml,
+          scene_id: scene.id,
+        };
+
+        setChapters([chapter]);
+        setScenes([scene]);
+        setCurrentChapter(chapter);
+        setCurrentScene(scene);
+        currentChapterRef.current = chapter;
+        chaptersRef.current = [chapter];
+
+        setSceneInfo(scene.id, scene.title || '第一章', chapter.id, story.title);
+
+        // 创建期间用户可能继续输入：用最新正文覆盖 create 时快照
+        const latestHtml = latestContentRef.current;
+        if (latestHtml !== contentHtml) {
+          try {
+            await loggedInvoke<unknown>(
+              'update_scene',
+              buildUpdateSceneIpcArgs({
+                sceneId: scene.id,
+                content: latestHtml,
+              })
+            );
+          } catch (e) {
+            frontstageLogger.warn('[ensureUntitledStory] flush latest content failed', {
+              error: e,
+            });
+          }
+        }
+
+        const wc = computeWordCount(latestHtml);
+        setWordCount(wc);
+        setTotalWordCount(wc);
+        currentChapterPrevWordCountRef.current = wc;
+        setIsSaved(true);
+        justSavedRef.current = Date.now();
+
+        frontstageLogger.info('[ensureUntitledStory] created untitled story', {
+          storyId: story.id,
+          sceneId: scene.id,
+          chapterId: chapter.id,
+          contentLen: plain.length,
+        });
+        logToBackend('frontstage:ensure_untitled', 'auto-created untitled story from body paste', {
+          storyId: story.id,
+          sceneId: scene.id,
+          contentLen: plain.length,
+        });
+      } catch (e) {
+        frontstageLogger.error('[ensureUntitledStory] failed', { error: e });
+        // 失败时清 ref，允许下次输入重试
+        if (currentStoryRef.current?.title === '未命名' && !chaptersRef.current.length) {
+          currentStoryRef.current = null;
+          setCurrentStory(null);
+        }
+      } finally {
+        ensuringStoryRef.current = false;
+      }
+    },
+    [computeWordCount, setSceneInfo, setIsSaved]
+  );
+
+  const handleRenameStory = useCallback(
+    async (title: string) => {
+      const story = currentStoryRef.current;
+      if (!story) return;
+      await loggedInvoke<unknown>('update_story', { id: story.id, title });
+      const updated = { ...story, title };
+      currentStoryRef.current = updated;
+      setCurrentStory(updated);
+      setStories(prev => prev.map(s => (s.id === story.id ? { ...s, title } : s)));
+      const store = useFrontstageStore.getState();
+      if (store.sceneId) {
+        setSceneInfo(store.sceneId, store.sceneTitle || '', store.chapterId || undefined, title);
+      }
+    },
+    [setSceneInfo]
+  );
+
+  /**
+   * v0.26.51: 章节改名。Scene 为内容真相源，title 同步写 scene + 本地 chapter 状态。
+   * scene_repository.update 会把 title 回写到关联 chapter 行。
+   */
+  const handleRenameChapter = useCallback(
+    async (title: string) => {
+      const chapter = currentChapterRef.current;
+      if (!chapter) return;
+      const store = useFrontstageStore.getState();
+      const sceneId =
+        store.sceneId ||
+        chapter.scene_id ||
+        scenes.find(s => s.chapter_id === chapter.id)?.id ||
+        null;
+
+      if (sceneId) {
+        await loggedInvoke<unknown>(
+          'update_scene',
+          buildUpdateSceneIpcArgs({
+            sceneId,
+            title,
+          })
+        );
+        setSceneInfo(sceneId, title, chapter.id, currentStoryRef.current?.title);
+        setScenes(prev => prev.map(s => (s.id === sceneId ? { ...s, title } : s)));
+        setCurrentScene(prev => (prev && prev.id === sceneId ? { ...prev, title } : prev));
+      } else {
+        // 无关联 scene 时退回 update_chapter（旧数据路径）
+        await loggedInvoke<unknown>('update_chapter', {
+          id: chapter.id,
+          title,
+        });
+      }
+
+      const updated = { ...chapter, title };
+      currentChapterRef.current = updated;
+      setCurrentChapter(updated);
+      setChapters(prev => prev.map(c => (c.id === chapter.id ? { ...c, title } : c)));
+      chaptersRef.current = chaptersRef.current.map(c =>
+        c.id === chapter.id ? { ...c, title } : c
+      );
+    },
+    [scenes, setSceneInfo]
+  );
+
   const handleContentChange = useCallback(
     async (newContent: string) => {
       // v0.23.23: 内容未变化时跳过，避免伪"保存中"
@@ -2538,6 +2712,12 @@ const FrontstageApp: React.FC = () => {
       setIsSaved(false);
       // A4-1.8: 使用 ref 保存最新内容，避免在输入关键路径立即创建保存任务对象
       latestContentRef.current = newContent;
+
+      // v0.26.51: 无故事时有正文 → 自动建「未命名」；建好后本轮无 currentChapter，下轮再走 auto-save
+      if (!currentStoryRef.current) {
+        void ensureUntitledStory(newContent);
+        return;
+      }
 
       if (currentChapter) {
         // B1: 基于当前章节字数增量 diff 更新全文字数，避免每次输入都全量 reduce
@@ -2595,7 +2775,7 @@ const FrontstageApp: React.FC = () => {
         }, 350);
       }
     },
-    [currentChapter, computeWordCount]
+    [currentChapter, computeWordCount, ensureUntitledStory]
   );
 
   const openBackstage = async () => {
@@ -4319,7 +4499,14 @@ const FrontstageApp: React.FC = () => {
       <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
         <FrontstageHeader
           currentStory={currentStory}
+          displayTitle={displayStoryTitle(
+            currentStory,
+            computeWordCount(content) > 0 || !!content.replace(/<[^>]*>/g, '').trim()
+          )}
+          canRename={!!currentStory}
           currentChapter={currentChapter}
+          displayChapterTitleText={displayChapterTitle(currentChapter)}
+          canRenameChapter={!!currentChapter}
           wordCount={wordCount}
           totalWordCount={totalWordCount}
           fontSize={fontSize}
@@ -4333,6 +4520,8 @@ const FrontstageApp: React.FC = () => {
           onOpenFontSettings={openFontSettings}
           onCycleWensiMode={cycleWensiMode}
           onToggleZenMode={() => setIsZenMode(prev => !prev)}
+          onRenameStory={handleRenameStory}
+          onRenameChapter={handleRenameChapter}
         />
 
         {/* Main Content */}
@@ -4342,9 +4531,13 @@ const FrontstageApp: React.FC = () => {
             <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
               {currentChapter && (
                 <div className="chapter-header">
-                  <h1 className="chapter-title">
-                    {currentChapter.title || `第${currentChapter.chapter_number}章`}
-                  </h1>
+                  <EditableChapterTitle
+                    displayTitle={displayChapterTitle(currentChapter)}
+                    canRename
+                    onRename={handleRenameChapter}
+                    variant="heading"
+                    isZenMode={isZenMode}
+                  />
                 </div>
               )}
 

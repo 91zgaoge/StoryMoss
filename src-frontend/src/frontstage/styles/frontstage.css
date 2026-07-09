@@ -416,6 +416,21 @@ body {
   color: var(--terracotta);
 }
 
+.frontstage-story-name-input {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--charcoal);
+  letter-spacing: 0.02em;
+  font-family: var(--font-serif);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--terracotta);
+  outline: none;
+  padding: 0 0 2px;
+  max-width: 240px;
+  min-width: 80px;
+}
+
 /* ===== F1 Help Panel ===== */
 .frontstage-help-panel {
   background: var(--parchment-dark);
@@ -1388,6 +1403,45 @@ body {
 
 .chapter-title.zen {
   font-size: 28px;
+}
+
+.chapter-title-renamable {
+  cursor: text;
+}
+
+.chapter-title-input {
+  display: block;
+  margin: 0 auto 8px;
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--charcoal);
+  font-family: var(--font-serif);
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--terracotta);
+  outline: none;
+  padding: 0 0 2px;
+  max-width: 420px;
+  width: 100%;
+}
+
+.frontstage-chapter-name {
+  cursor: text;
+}
+
+.frontstage-chapter-name-input {
+  font-size: inherit;
+  font-weight: inherit;
+  color: var(--charcoal);
+  font-family: var(--font-serif);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--terracotta);
+  outline: none;
+  padding: 0 0 1px;
+  max-width: 160px;
+  min-width: 48px;
 }
 
 .story-title {
