@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.54] - 修复创作模型粘性降级绕过与禁用模型 fail-closed（2026-07-09）
+
+### 修复
+
+- **根因 A（executed）**：用户已将「创作模型」设为 Deepseek，且 `creative_model_id`/`active_llm_profile` 已持久化；但网关在 Deepseek 连续失败后粘性 demotion，`resolve_role_model` 用失败阈值丢弃显式创作角色，`generate()` 再提升仍要求 `is_model_available`（拒绝 Unknown），Call3 候选链首位长期落在本地 MN-Oblivion。
+- **修复 A**：显式角色模型不受粘性 demotion 拦截；粘性 Unhealthy 在 resolve 时清一次→Unknown 再探；`set_active_model`/`save_settings` 调用 `clear_model_demotion`；`generate()` 再提升对齐 `is_promotable_user_model`。
+- **根因 B**：`update_model` 漏写 `enabled`；禁用后仍探测且活跃/角色指针可留在已禁用模型上。
+- **修复 B**：持久化 `enabled`；禁用时 `apply_disable_side_effects` + 跳过探测；keepalive/retry 只保活 enabled 模型。
+
+### 验证
+
+- `cargo test --lib`：`clear_demotion` / `demoted_degraded_creative` / `auto_clears_sticky_unhealthy` / `user_sets_creative_x` / `sync_creative_to_active` / `apply_disable_side_effects` 相关 passed
+- `architecture_guard` ✅
+
 ## [v0.26.53] - 故事名取消单击回幕后（双击改名可用）（2026-07-09）
 
 ### 修复

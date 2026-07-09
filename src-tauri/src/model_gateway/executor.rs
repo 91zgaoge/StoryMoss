@@ -119,24 +119,29 @@ impl<R: Runtime> GatewayExecutor<R> {
         // v0.26.52: 用户显式指定的角色模型允许 Unknown（刚创建尚未探测），
         // 否则设为创作模型后仍回退到旧
         // active_llm_profile，表现为「默认创作模型不生效」。
+        // v0.26.54: 用户显式角色模型不再受连续失败降级阈值拦截——
+        // failover 后粘性 demotion 曾让 creative 永远 fall-through，
+        // Call3 候选链首位变成本地高分模型（Oblivion）。
+        // 粘性 Unhealthy：用户仍指定该角色时清一次降级→Unknown，给 5s 预探测
+        // 再试机会（探测失败仍会 fallback，不会卡死）。
         if let Some(profile) = config.get_model_for_role(role) {
-            if self.is_promotable_user_model(&profile.id) {
-                let failures = self
-                    .health_registry()
-                    .lock()
-                    .ok()
-                    .map(|g| g.consecutive_failures(&profile.id))
-                    .unwrap_or(0);
-                if failures < ACTIVE_MODEL_DEMOTION_THRESHOLD {
-                    log::info!(
-                        "[Gateway] resolve_role_model: 使用角色指定模型 {:?} → {}",
-                        role,
-                        profile.id
-                    );
-                    return Some(profile.clone());
-                }
+            if !self.is_promotable_user_model(&profile.id) {
+                self.clear_model_demotion(&profile.id);
             }
-            // 角色模型不可用 → fall through 到自动分配
+            if self.is_promotable_user_model(&profile.id) {
+                log::info!(
+                    "[Gateway] resolve_role_model: 使用角色指定模型 {:?} → {}",
+                    role,
+                    profile.id
+                );
+                return Some(profile.clone());
+            }
+            // 角色模型不在注册表 → fall through 到自动分配
+            log::warn!(
+                "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 不可置顶，回退自动分配",
+                role,
+                profile.id
+            );
         }
 
         // 2. 自动分配
@@ -315,21 +320,33 @@ impl<R: Runtime> GatewayExecutor<R> {
         }
     }
 
-    /// v0.23.59: 活跃模型连续失败次数达到降级阈值时返回 true。
+    /// v0.26.54: 指定模型是否因连续失败达到降级阈值。
     ///
-    /// 降级后活跃模型不再被 `+1000` 强制置顶，让其他健康候选接管。
-    /// 成功 1 次即清零恢复。阈值 2：容忍 1 次偶发失败，2 次连续失败才降级。
+    /// 降级后该模型不再被 `+1000` 强制置顶，让其他健康候选接管。
+    /// 成功 1 次或用户显式重选（`clear_model_demotion`）即清零恢复。
+    /// 阈值 2：容忍 1 次偶发失败，2 次连续失败才降级。
+    pub fn model_demoted(&self, model_id: &str) -> bool {
+        let failures = self
+            .health_registry()
+            .lock()
+            .ok()
+            .map(|g| g.consecutive_failures(model_id))
+            .unwrap_or(0);
+        failures >= ACTIVE_MODEL_DEMOTION_THRESHOLD
+    }
+
+    /// v0.23.59: 当前活跃模型是否已降级（兼容旧调用点）。
     pub fn active_model_demoted(&self) -> bool {
-        if let Some(active) = self.llm_service.get_active_profile() {
-            let failures = self
-                .health_registry()
-                .lock()
-                .ok()
-                .map(|g| g.consecutive_failures(&active.id))
-                .unwrap_or(0);
-            failures >= ACTIVE_MODEL_DEMOTION_THRESHOLD
-        } else {
-            false
+        self.llm_service
+            .get_active_profile()
+            .map(|active| self.model_demoted(&active.id))
+            .unwrap_or(false)
+    }
+
+    /// v0.26.54: 用户显式指定模型后清除粘性降级，让创作/活跃置顶立即恢复。
+    pub fn clear_model_demotion(&self, model_id: &str) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.clear_demotion(model_id);
         }
     }
 
@@ -589,9 +606,13 @@ impl<R: Runtime> GatewayExecutor<R> {
         // v0.23.13: 活跃模型强制置顶。v0.23.32: 每步 Mutex 前后加标记诊断。
         // v0.23.59: 连续失败达阈值时跳过强制置顶，交给候选打分选择。
         // v0.23.66: 若已解析到角色模型，使用角色模型；否则回退 active。
+        // v0.26.54: 用户显式角色模型（创作/工具/后台）不受粘性降级影响——
+        // 否则 failover 到本地模型后，设好的创作模型永远进不了候选链首位。
+        // 降级仅约束「自动活跃模型」置顶；Unhealthy 仍由 is_promotable 拒绝。
         if let Some(ref promote) = promotion_profile {
             log::debug!("[Gateway] select_candidates: 置顶模型={}", promote.id);
-            if self.active_model_demoted() {
+            let demoted = !is_role && self.model_demoted(&promote.id);
+            if demoted {
                 let failures = self
                     .health_registry()
                     .lock()
@@ -599,13 +620,12 @@ impl<R: Runtime> GatewayExecutor<R> {
                     .map(|g| g.consecutive_failures(&promote.id))
                     .unwrap_or(0);
                 log::warn!(
-                    "[Gateway] select_candidates: {}模型 {} 连续失败 {} 次，跳过强制置顶",
-                    if is_role { "角色" } else { "活跃" },
+                    "[Gateway] select_candidates: 活跃模型 {} 连续失败 {} 次，跳过强制置顶",
                     promote.id,
                     failures
                 );
             } else if self.is_promotable_user_model(&promote.id) {
-                if let Some(profile) = self.registry_guard().get(&promote.id).cloned() {
+                if self.registry_guard().get(&promote.id).is_some() {
                     log::debug!("[Gateway] select_candidates: 注册表查询成功");
                     let mut candidates = decision.candidates.clone();
                     candidates.retain(|c| c.model_id != promote.id);
@@ -673,7 +693,7 @@ impl<R: Runtime> GatewayExecutor<R> {
             {
                 if self.is_model_available(&tool_model.id)
                     && self.registry_guard().get(&tool_model.id).is_some()
-                    && !self.active_model_demoted()
+                    && !self.model_demoted(&tool_model.id)
                 {
                     log::info!(
                         "[Gateway] select_fastest_profile: 使用工具模型 {}",
@@ -881,8 +901,22 @@ impl<R: Runtime> GatewayExecutor<R> {
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
         // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates 已不强制置顶。
+        // v0.26.54: 再提升与 select_candidates 对齐——允许 Unknown；若活跃模型同时是
+        // 用户指定的创作角色，忽略粘性降级（与角色置顶契约一致）。
         if let Some(active) = self.llm_service.get_active_profile() {
-            if self.active_model_demoted() {
+            let is_explicit_creative = {
+                let app_dir = self
+                    .app_handle
+                    .path()
+                    .app_data_dir()
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                crate::config::AppConfig::load(&app_dir)
+                    .ok()
+                    .and_then(|c| c.creative_model_id)
+                    .as_deref()
+                    == Some(active.id.as_str())
+            };
+            if !is_explicit_creative && self.model_demoted(&active.id) {
                 let failures = self
                     .health_registry()
                     .lock()
@@ -906,19 +940,22 @@ impl<R: Runtime> GatewayExecutor<R> {
                     decision.candidates.insert(0, item);
                     log::debug!("[Gateway] 将活跃模型 {} 提升至候选链首位", active.id);
                 } else if self.registry_guard().get(&active.id).is_some()
-                    && self.is_model_available(&active.id)
+                    && self.is_promotable_user_model(&active.id)
                 {
-                    // v0.23.50: 活跃模型若已被 select_candidates 判为不可用
-                    // （Unhealthy），不再强行插回候选链首位，否则每次 generate()
-                    // 都会先 5s 探测这个死模型再失败 continue，造成"卡在最终输出"
-                    // 的假象并持续覆盖前端状态。交给候选链里的其他健康模型。
+                    // Unhealthy 已被 is_promotable 拒绝；Unknown/Healthy/Degraded
+                    // 允许插回首位，由后续 5s 预探测验证连通性。
                     decision.candidates.insert(
                         0,
                         crate::router::RankedCandidate {
                             model_id: active.id.clone(),
                             model_name: active.name.clone(),
-                            score: decision.candidates.first().map(|c| c.score).unwrap_or(50.0),
-                            reason: "当前活跃模型优先".to_string(),
+                            score: decision.candidates.first().map(|c| c.score).unwrap_or(50.0)
+                                + 1000.0,
+                            reason: if is_explicit_creative {
+                                "创作角色模型优先".to_string()
+                            } else {
+                                "当前活跃模型优先".to_string()
+                            },
                         },
                     );
                     log::debug!("[Gateway] 将活跃模型 {} 插入候选链首位", active.id);
@@ -1137,14 +1174,22 @@ impl<R: Runtime> GatewayExecutor<R> {
     }
 
     /// 轻量探测：用极短 prompt 测试模型可用性
+    ///
+    /// v0.26.54: 禁用模型（不在 enabled 注册表）直接拒绝，不发起 LLM 调用。
+    /// keepalive/retry 可能仍持有旧健康快照；本闸门是探测咽喉点。
     pub async fn probe_model(&self, model_id: &str) -> Result<ProbeResult, AppError> {
         let profile = self
             .registry_guard()
             .get(model_id)
             .cloned()
             .ok_or_else(|| AppError::Internal {
-                message: format!("模型 {} 不存在", model_id),
+                message: format!("模型 {} 不存在或已禁用", model_id),
             })?;
+        if !profile.enabled {
+            return Err(AppError::Internal {
+                message: format!("模型 {} 已禁用，跳过探测", model_id),
+            });
+        }
 
         // v0.17.1: 优先从 PromptRegistry 读取，回退到 AppConfig.probe_prompt_override，
         // 最后回退到内置默认。让前端能在「提示词」面板编辑探测 prompt。
@@ -1439,5 +1484,258 @@ mod tests {
         let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
         executor.mark_unhealthy("bad", "Bad", Some("down".to_string()));
         assert!(!executor.is_promotable_user_model("bad"));
+    }
+
+    fn save_two_model_creative_config(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        creative_id: &str,
+        other_id: &str,
+    ) {
+        let app_dir = app
+            .handle()
+            .path()
+            .app_data_dir()
+            .expect("mock app_data_dir");
+        std::fs::create_dir_all(&app_dir).ok();
+        let mut config = crate::config::AppConfig::default();
+        config.llm_profiles.clear();
+        config
+            .add_llm_profile(test_profile(creative_id, creative_id))
+            .unwrap();
+        config
+            .add_llm_profile(test_profile(other_id, other_id))
+            .unwrap();
+        config
+            .set_model_for_role(crate::config::settings::ModelRole::Creative, creative_id)
+            .unwrap();
+        config.set_active_llm_profile(creative_id).unwrap();
+        config.save(&app_dir).unwrap();
+    }
+
+    /// v0.26.54: 连续失败达阈值后 clear_model_demotion 必须恢复可置顶。
+    #[test]
+    fn test_clear_model_demotion_restores_promotable() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("ds", "Deepseek")));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+
+        executor.mark_unhealthy("ds", "Deepseek", Some("timeout".into()));
+        executor.mark_unhealthy("ds", "Deepseek", Some("timeout".into()));
+        assert!(executor.model_demoted("ds"));
+        assert!(!executor.is_promotable_user_model("ds"));
+
+        executor.clear_model_demotion("ds");
+        assert!(!executor.model_demoted("ds"));
+        assert!(
+            executor.is_promotable_user_model("ds"),
+            "user re-select must restore Unknown promotable after sticky demotion"
+        );
+    }
+
+    /// v0.26.54 契约：粘性 Unhealthy 的显式创作模型在 resolve/select 时
+    /// 自动清降级并置顶，给 5s 预探测再试机会（不必等用户再次点选）。
+    #[test]
+    fn test_resolve_role_model_auto_clears_sticky_unhealthy_creative() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("creative-x", "CX")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("local-fast", "LF")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        save_two_model_creative_config(&app, "creative-x", "local-fast");
+        executor.record_success_public("local-fast", "LF");
+
+        executor.mark_unhealthy("creative-x", "CX", Some("fail1".into()));
+        executor.mark_unhealthy("creative-x", "CX", Some("fail2".into()));
+        assert!(executor.model_demoted("creative-x"));
+        assert!(!executor.is_promotable_user_model("creative-x"));
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "写一段正文".to_string(),
+            "trishot-writer",
+        );
+        req.task = crate::router::TaskType::CreativeWriting;
+        req.model_role = Some(crate::config::settings::ModelRole::Creative);
+
+        assert_eq!(
+            executor
+                .resolve_role_model(&req)
+                .as_ref()
+                .map(|p| p.id.as_str()),
+            Some("creative-x"),
+            "resolve must auto-clear sticky Unhealthy for still-selected creative"
+        );
+        assert!(
+            executor.is_promotable_user_model("creative-x"),
+            "after resolve clear, creative must be Unknown-promotable"
+        );
+        let decision = executor.select_candidates(&req, None).unwrap();
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("creative-x"),
+            "creative role must be forced to candidate[0] after sticky clear"
+        );
+    }
+
+    /// v0.26.54 契约：Degraded + 连续失败≥阈值时，显式创作角色仍置顶。
+    /// （旧逻辑用 failure count 拦截 resolve_role_model，导致 Call3
+    /// 用本地模型。）
+    #[test]
+    fn test_demoted_degraded_creative_still_promoted() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("creative-x", "CX")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("local-fast", "LF")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        save_two_model_creative_config(&app, "creative-x", "local-fast");
+
+        // Degraded failures (still promotable) but past demotion threshold
+        executor.record_gateway_failure(
+            "creative-x",
+            "CX",
+            crate::model_gateway::types::HealthStatus::Degraded,
+            Some("gen fail 1".into()),
+        );
+        executor.record_gateway_failure(
+            "creative-x",
+            "CX",
+            crate::model_gateway::types::HealthStatus::Degraded,
+            Some("gen fail 2".into()),
+        );
+        assert!(executor.model_demoted("creative-x"));
+        assert!(
+            executor.is_promotable_user_model("creative-x"),
+            "Degraded remains promotable for user-explicit models"
+        );
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "写一段正文".to_string(),
+            "trishot-writer",
+        );
+        req.task = crate::router::TaskType::CreativeWriting;
+        req.model_role = Some(crate::config::settings::ModelRole::Creative);
+
+        assert_eq!(
+            executor
+                .resolve_role_model(&req)
+                .as_ref()
+                .map(|p| p.id.as_str()),
+            Some("creative-x"),
+            "demotion threshold must not drop explicit creative role"
+        );
+        let decision = executor.select_candidates(&req, None).unwrap();
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("creative-x"),
+            "select_candidates must force creative role to front despite demotion"
+        );
+    }
+
+    /// v0.26.54 契约：旧模型 Y 粘性降级后，用户改设创作模型为 X，
+    /// 下一轮 creative resolve 必须用 X（不等待 Y 成功清零）。
+    #[test]
+    fn test_user_sets_creative_x_overrides_demoted_y() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("model-y", "Y")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("model-x", "X")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+
+        executor.record_gateway_failure(
+            "model-y",
+            "Y",
+            crate::model_gateway::types::HealthStatus::Degraded,
+            Some("fail1".into()),
+        );
+        executor.record_gateway_failure(
+            "model-y",
+            "Y",
+            crate::model_gateway::types::HealthStatus::Degraded,
+            Some("fail2".into()),
+        );
+        assert!(executor.model_demoted("model-y"));
+
+        // 用户在幕后改设创作模型为 X（等价 set_active_model / save_settings）
+        save_two_model_creative_config(&app, "model-x", "model-y");
+        executor.clear_model_demotion("model-x");
+        executor.record_success_public("model-x", "X");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "续写".to_string(),
+            "trishot-writer",
+        );
+        req.task = crate::router::TaskType::CreativeWriting;
+        req.model_role = Some(crate::config::settings::ModelRole::Creative);
+
+        assert_eq!(
+            executor
+                .resolve_role_model(&req)
+                .as_ref()
+                .map(|p| p.id.as_str()),
+            Some("model-x"),
+            "user-selected creative X must win over sticky demotion on Y"
+        );
+        let decision = executor.select_candidates(&req, None).unwrap();
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("model-x"),
+            "candidate chain must promote creative X, not demoted Y"
+        );
+        assert!(
+            executor.model_demoted("model-y"),
+            "Y demotion state may remain; it must not affect creative X routing"
+        );
+    }
+
+    /// v0.26.54 契约：禁用模型不在注册表 → probe_model 拒绝且不发起调用。
+    #[tokio::test]
+    async fn test_probe_model_rejects_missing_or_disabled() {
+        let (executor, _app) = test_executor(GatewayRegistry::default());
+        let err = executor.probe_model("gone").await.unwrap_err();
+        assert!(
+            err.to_string().contains("不存在") || err.to_string().contains("禁用"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    /// v0.26.54 契约：禁用后 refresh_registry 使模型不可选、不可置顶。
+    #[test]
+    fn test_disabled_model_not_selected_after_registry_reload() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("keep", "Keep")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("drop", "Drop")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        executor.record_success_public("keep", "Keep");
+        executor.record_success_public("drop", "Drop");
+
+        let app_dir = app.handle().path().app_data_dir().expect("app_data_dir");
+        std::fs::create_dir_all(&app_dir).ok();
+        let mut config = crate::config::AppConfig::default();
+        config.llm_profiles.clear();
+        config.add_llm_profile(test_profile("keep", "Keep")).unwrap();
+        let mut drop = test_profile("drop", "Drop");
+        drop.enabled = false;
+        config.add_llm_profile(drop).unwrap();
+        config.set_active_llm_profile("keep").unwrap();
+        config.save(&app_dir).unwrap();
+
+        executor.refresh_registry();
+
+        assert!(
+            executor.registry_guard().get("drop").is_none(),
+            "disabled model must leave gateway registry"
+        );
+        assert!(
+            !executor.is_promotable_user_model("drop"),
+            "disabled model must not be promotable"
+        );
+
+        let request = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "hello".to_string(),
+            "test-agent",
+        );
+        let decision = executor.select_candidates(&request, None).unwrap();
+        assert!(
+            decision.candidates.iter().all(|c| c.model_id != "drop"),
+            "disabled model must not appear in generation candidates: {:?}",
+            decision.candidates
+        );
     }
 }

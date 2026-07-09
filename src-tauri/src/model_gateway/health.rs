@@ -219,6 +219,31 @@ impl HealthRegistry {
             .unwrap_or(0)
     }
 
+    /// v0.26.54: 用户显式重选模型时清除粘性降级。
+    ///
+    /// 连续失败阈值会让模型失去强制置顶资格；若用户在设置里再次指定该模型
+    /// （创作/活跃），必须给一次重新探测机会，否则表现为「设了创作模型仍用
+    /// 网关打分选出的本地模型」。
+    ///
+    /// - 清零 `consecutive_failures`
+    /// - Unhealthy/Degraded → Unknown（允许 `is_promotable_user_model`，不假装
+    ///   Healthy）
+    /// - 无记录时 no-op
+    pub fn clear_demotion(&mut self, model_id: &str) {
+        let Some(record) = self.records.get_mut(model_id) else {
+            return;
+        };
+        record.consecutive_failures = 0;
+        if matches!(
+            record.snapshot.status,
+            HealthStatus::Unhealthy | HealthStatus::Degraded
+        ) {
+            record.snapshot.status = HealthStatus::Unknown;
+            record.snapshot.last_error = None;
+            record.snapshot.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+    }
+
     /// 移除指定模型的健康记录（删除模型时联动清除残留快照）
     pub fn purge(&mut self, model_id: &str) -> bool {
         self.records.remove(model_id).is_some()
@@ -444,5 +469,30 @@ mod tests {
             HealthStatus::Unhealthy
         );
         assert_eq!(registry.get("model-new").unwrap().model_name, "Model New");
+    }
+
+    #[test]
+    fn test_clear_demotion_resets_failures_and_unhealthy_to_unknown() {
+        let mut registry = HealthRegistry::new();
+        registry.record_failure(
+            "ds",
+            "Deepseek",
+            HealthStatus::Unhealthy,
+            Some("timeout".into()),
+        );
+        registry.record_failure(
+            "ds",
+            "Deepseek",
+            HealthStatus::Unhealthy,
+            Some("timeout".into()),
+        );
+        assert_eq!(registry.consecutive_failures("ds"), 2);
+        assert_eq!(registry.get("ds").unwrap().status, HealthStatus::Unhealthy);
+
+        registry.clear_demotion("ds");
+        assert_eq!(registry.consecutive_failures("ds"), 0);
+        assert_eq!(registry.get("ds").unwrap().status, HealthStatus::Unknown);
+        // no-op for missing
+        registry.clear_demotion("missing");
     }
 }

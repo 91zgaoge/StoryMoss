@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.53 项目完成状态
+# StoryForge (草苔) v0.26.54 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.53 故事名单击冲突修复；v0.26.52 模型热同步）
+> 最后更新: 2026-07-09（v0.26.54 创作模型粘性降级绕过修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.54 — 修复创作模型被粘性降级绕过（2026-07-09）
+
+- 显式创作角色不受连续失败 demotion 拦截；粘性 Unhealthy 在 resolve 清一次再探。
+- `set_active_model` / `save_settings` 调用 `clear_model_demotion`；`generate()` 再提升用 `is_promotable`。
+- ✅ **验证**：gateway/health/commands 契约 6 passed；architecture_guard。
 
 ### v0.26.53 — 故事名取消单击回幕后（2026-07-09）
 

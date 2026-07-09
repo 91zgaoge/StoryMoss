@@ -95,9 +95,23 @@ async fn run_keepalive_probe(executor: &GatewayExecutor) {
         Ok(g) => g.all(),
         Err(_) => return,
     };
+    // v0.26.54: 只保活仍在 enabled 注册表中的模型，避免禁用后仍打探测
+    let enabled_ids: std::collections::HashSet<String> = executor
+        .registry
+        .lock()
+        .map(|g| {
+            g.enabled_generative_models()
+                .into_iter()
+                .map(|m| m.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut probed = 0u32;
     for snapshot in health {
+        if !enabled_ids.contains(&snapshot.model_id) {
+            continue;
+        }
         if matches!(
             snapshot.status,
             super::types::HealthStatus::Healthy | super::types::HealthStatus::Degraded
@@ -155,9 +169,24 @@ async fn run_retry_probe_with_backoff(
         Ok(g) => g.all(),
         Err(_) => return,
     };
+    // v0.26.54: 禁用模型不进入退避重试
+    let enabled_ids: std::collections::HashSet<String> = executor
+        .registry
+        .lock()
+        .map(|g| {
+            g.enabled_generative_models()
+                .into_iter()
+                .map(|m| m.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
 
     let now = Instant::now();
     for snapshot in health {
+        if !enabled_ids.contains(&snapshot.model_id) {
+            backoffs.remove(&snapshot.model_id);
+            continue;
+        }
         let failures = {
             executor
                 .health_registry()

@@ -1,8 +1,12 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.53)
+# 🧪 StoryForge 自动化测试环境 (v0.26.54)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.54 变更说明
+
+- `clear_demotion` / `demoted_degraded_creative_still_promoted` / `auto_clears_sticky_unhealthy_creative` / `user_sets_creative_x_overrides_demoted_y` / `sync_creative_to_active_llm` 契约通过。
 
 ### v0.26.53 变更说明
 

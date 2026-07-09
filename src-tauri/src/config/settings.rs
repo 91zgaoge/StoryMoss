@@ -1368,6 +1368,36 @@ impl AppConfig {
         *slot = None;
     }
 
+    /// v0.26.54: 第一个仍启用的 LLM（可排除指定 id）。
+    pub fn first_enabled_llm_id(&self, exclude: Option<&str>) -> Option<String> {
+        self.llm_profiles
+            .values()
+            .find(|p| p.enabled && exclude != Some(p.id.as_str()))
+            .map(|p| p.id.clone())
+    }
+
+    /// v0.26.54: 禁用模型后的 fail-closed 副作用（对齐 `delete_model`）。
+    ///
+    /// **设计选择：自动回退到其他已启用模型**，而非阻断并弹错。
+    /// - `active_llm_profile` → 第一个其他 enabled 模型（无则 None）
+    /// - 创作/工具/后台角色若指向该模型 → 清空（恢复网关自动分配）
+    ///
+    /// 与删除模型一致：不把指针留在不可用模型上，避免生成路径长超时。
+    pub fn apply_disable_side_effects(&mut self, model_id: &str) {
+        if self.active_llm_profile.as_deref() == Some(model_id) {
+            self.active_llm_profile = self.first_enabled_llm_id(Some(model_id));
+        }
+        if self.creative_model_id.as_deref() == Some(model_id) {
+            self.creative_model_id = None;
+        }
+        if self.tool_model_id.as_deref() == Some(model_id) {
+            self.tool_model_id = None;
+        }
+        if self.background_model_id.as_deref() == Some(model_id) {
+            self.background_model_id = None;
+        }
+    }
+
     /// v0.23.66: 获取创意生成（创世/首章）的温度覆盖值
     pub fn creative_temperature(&self) -> Option<f32> {
         self.creative_temperature

@@ -630,6 +630,17 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     if let Some(executor) =
         app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
     {
+        // v0.26.54: 保存创作模型时同步清除粘性降级（与 set_active_model 对齐）
+        if let Some(creative_id) = settings.active_models.get("creative") {
+            if !creative_id.is_empty() {
+                executor.inner().clear_model_demotion(creative_id);
+            }
+        }
+        if let Some(chat_id) = settings.active_models.get("chat") {
+            if !chat_id.is_empty() {
+                executor.inner().clear_model_demotion(chat_id);
+            }
+        }
         executor.inner().refresh_registry();
     }
     crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "app_settings");
@@ -877,6 +888,10 @@ pub fn update_model(
             if let Some(is_def) = config.is_default {
                 profile.is_default = is_def;
             }
+            // v0.26.54: 持久化启用开关（此前 update_model 漏写 enabled，列表切换无效）
+            if let Some(enabled) = config.enabled {
+                profile.enabled = enabled;
+            }
         }
         ModelType::Embedding => {
             // 先处理默认标记（避免与后续 get_mut 冲突）
@@ -926,6 +941,22 @@ pub fn update_model(
         }
     }
 
+    // v0.26.54: 禁用后 fail-closed — 活跃/角色指针不得留在已禁用模型上
+    let now_enabled = app_config
+        .llm_profiles
+        .get(&id)
+        .map(|p| p.enabled)
+        .unwrap_or(true);
+    if !now_enabled {
+        app_config.apply_disable_side_effects(&id);
+        log::info!(
+            "[update_model] 模型 {} 已禁用，active→{:?} creative→{:?}",
+            id,
+            app_config.active_llm_profile,
+            app_config.creative_model_id
+        );
+    }
+
     app_config.save(&app_dir).map_err(AppError::from)?;
 
     // v0.11.2: 刷新 LLM 服务内存配置，确保 api_base/api_key 等变更立即生效
@@ -935,35 +966,42 @@ pub fn update_model(
     // v0.23.14: 刷新网关注册表（使用新 endpoint/api_key）+ 清除旧健康快照 +
     // 重新探测 防止修改 endpoint 后网关仍用旧连接信息、健康状态仍基于旧
     // endpoint
+    // v0.26.54: 禁用模型只 purge、不探测；重新启用才探测
     if let Some(executor) =
         app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
     {
         let executor = executor.inner().clone();
         executor.refresh_registry();
-        // 清除旧健康快照（旧 endpoint 的探测结果不再有效）
+        // 清除旧健康快照（旧 endpoint / 禁用前的探测结果不再有效）
         if let Ok(mut health) = executor.health_registry().lock() {
             health.purge(&id);
         }
-        // 重新探测，让新 endpoint 立即进入可用池
-        let probe_model_id = id.clone();
-        tauri::async_runtime::spawn(async move {
-            match executor.probe_model(&probe_model_id).await {
-                Ok(result) => {
-                    log::info!(
-                        "[update_model] 模型 {} 修改后重新探测完成: success={}",
-                        probe_model_id,
-                        result.success
-                    );
+        if now_enabled {
+            let probe_model_id = id.clone();
+            tauri::async_runtime::spawn(async move {
+                match executor.probe_model(&probe_model_id).await {
+                    Ok(result) => {
+                        log::info!(
+                            "[update_model] 模型 {} 修改后重新探测完成: success={}",
+                            probe_model_id,
+                            result.success
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[update_model] 模型 {} 修改后重新探测失败: {}",
+                            probe_model_id,
+                            e
+                        );
+                    }
                 }
-                Err(e) => {
-                    log::warn!(
-                        "[update_model] 模型 {} 修改后重新探测失败: {}",
-                        probe_model_id,
-                        e
-                    );
-                }
-            }
-        });
+            });
+        } else {
+            log::info!(
+                "[update_model] 模型 {} 已禁用，跳过探测并已 purge 健康快照",
+                id
+            );
+        }
     }
 
     // 通知 frontstage 刷新模型列表
@@ -1191,6 +1229,8 @@ pub fn set_active_model(
     if let Some(executor) =
         app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
     {
+        // v0.26.54: 用户显式重选时清除粘性降级，否则 creative/active 仍被跳过置顶
+        executor.clear_model_demotion(&model_id);
         executor.refresh_registry();
     }
 
@@ -1554,6 +1594,78 @@ mod tests {
             config.active_llm_profile.as_deref(),
             Some("new-creative"),
             "creative role must sync active_llm_profile for generation fallback"
+        );
+    }
+
+    /// v0.26.54 契约：禁用当前创作/活跃模型时自动回退，不把指针留在禁用模型上。
+    #[test]
+    fn apply_disable_side_effects_falls_back_active_and_clears_roles() {
+        let mut config = AppConfig::default();
+        config.llm_profiles.clear();
+        config
+            .add_llm_profile(enabled_chat_profile("keep-me"))
+            .unwrap();
+        config
+            .add_llm_profile(enabled_chat_profile("disable-me"))
+            .unwrap();
+        config.set_active_llm_profile("disable-me").unwrap();
+        config
+            .set_model_for_role(ModelRole::Creative, "disable-me")
+            .unwrap();
+        config
+            .set_model_for_role(ModelRole::Tool, "disable-me")
+            .unwrap();
+
+        config.llm_profiles.get_mut("disable-me").unwrap().enabled = false;
+        config.apply_disable_side_effects("disable-me");
+
+        assert_eq!(
+            config.active_llm_profile.as_deref(),
+            Some("keep-me"),
+            "active must auto-fallback to another enabled model"
+        );
+        assert!(
+            config.creative_model_id.is_none(),
+            "creative role must clear so gateway auto-assigns"
+        );
+        assert!(config.tool_model_id.is_none());
+        assert!(
+            config.get_model_for_role(ModelRole::Creative).is_none(),
+            "disabled creative must not resolve for generation"
+        );
+        assert!(
+            config.get_active_llm_profile().map(|p| p.id.as_str()) == Some("keep-me")
+        );
+    }
+
+    /// v0.26.54 契约：禁用后模型不得进入网关注册表（故不会被探测/选中）。
+    #[test]
+    fn disabled_model_excluded_from_gateway_registry() {
+        let mut config = AppConfig::default();
+        config.llm_profiles.clear();
+        config
+            .add_llm_profile(enabled_chat_profile("on"))
+            .unwrap();
+        let mut off = enabled_chat_profile("off");
+        off.enabled = false;
+        config.add_llm_profile(off).unwrap();
+
+        let registry = crate::router::UnifiedModelRegistry::from_app_config(&config);
+        assert!(registry.get("on").is_some());
+        assert!(
+            registry.get("off").is_none(),
+            "disabled model must not be registered for probe/selection"
+        );
+        let gw = crate::model_gateway::registry::GatewayRegistry::new(registry);
+        let ids: Vec<_> = gw
+            .enabled_generative_models()
+            .into_iter()
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["on"]);
+        assert!(
+            gw.models_with_health(&[]).iter().all(|m| m.model_id != "off"),
+            "gateway status must exclude disabled models"
         );
     }
 }
