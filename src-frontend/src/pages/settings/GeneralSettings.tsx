@@ -150,6 +150,13 @@ export function GeneralSettings({
     frontend_timeout_secs: settings?.frontend_timeout_secs ?? 600,
   });
 
+  // v0.26.57: 字数上限本地草稿（空字符串 = 自动）
+  const [chapterSplitMaxDraft, setChapterSplitMaxDraft] = useState(
+    settings?.chapter_split_max_chars && settings.chapter_split_max_chars > 0
+      ? String(settings.chapter_split_max_chars)
+      : ''
+  );
+
   // 当 settings 从服务端更新时，同步本地状态
   useEffect(() => {
     if (settings) {
@@ -160,6 +167,11 @@ export function GeneralSettings({
         smart_execute_total_timeout_secs: settings.smart_execute_total_timeout_secs ?? 600,
         frontend_timeout_secs: settings.frontend_timeout_secs ?? 600,
       });
+      setChapterSplitMaxDraft(
+        settings.chapter_split_max_chars && settings.chapter_split_max_chars > 0
+          ? String(settings.chapter_split_max_chars)
+          : ''
+      );
     }
   }, [
     settings?.llm_connect_timeout_secs,
@@ -167,6 +179,7 @@ export function GeneralSettings({
     settings?.executor_step_timeout_secs,
     settings?.smart_execute_total_timeout_secs,
     settings?.frontend_timeout_secs,
+    settings?.chapter_split_max_chars,
   ]);
 
   const handleTimeoutChange = (field: keyof typeof timeoutValues, value: number) => {
@@ -510,6 +523,60 @@ export function GeneralSettings({
                     智能路由：续写场景自动用分时模式快速生成（推荐）；选中文本重写自动用精修模式含质检。三击模式用最快模型选资产合成提示词再生成，质检/改写/入库/洞察全部后台静默执行。可手动覆盖此行为。
                   </p>
                 </div>
+
+                {/* v0.26.57: 自动划分章节 */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">划分章节方式</label>
+                  <select
+                    value={settings?.chapter_split_mode ?? 'word_count'}
+                    onChange={e => {
+                      const v = e.target.value as 'word_count' | 'plot';
+                      updateSettings({ chapter_split_mode: v });
+                    }}
+                    disabled={isPending}
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                  >
+                    <option value="word_count">按字数 — 超过上限后在段落边界切出下一章</option>
+                    <option value="plot">按情节 — 在时间/地点等场景转换点切章</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    场景保存空闲约 30 秒后，仅对故事最新一章自动划分；中间章节改写不会重排后续章号。
+                  </p>
+                </div>
+
+                {(settings?.chapter_split_mode ?? 'word_count') === 'word_count' && (
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">
+                      字数上限
+                      <span className="ml-2 text-xs text-gray-500">中文「字」；留空=自动 3000</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      placeholder="自动（3000 字）"
+                      value={chapterSplitMaxDraft}
+                      onChange={e => setChapterSplitMaxDraft(e.target.value)}
+                      onBlur={() => {
+                        const raw = chapterSplitMaxDraft.trim();
+                        const next = raw === '' ? 0 : Math.floor(Number(raw));
+                        if (!Number.isFinite(next) || next < 0) return;
+                        const prev =
+                          settings?.chapter_split_max_chars && settings.chapter_split_max_chars > 0
+                            ? settings.chapter_split_max_chars
+                            : 0;
+                        if (next !== prev) {
+                          updateSettings({ chapter_split_max_chars: next });
+                        }
+                      }}
+                      disabled={isPending}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      留空使用系统默认 3000 字。按情节模式时此上限仍作「过长才切」的门槛参考。
+                    </p>
+                  </div>
+                )}
 
                 {/* 运行模式 */}
                 <div>

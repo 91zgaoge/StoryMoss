@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.56
+- **版本**: v0.26.57
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -70,15 +70,23 @@ type:
 
 ## 当前编译状态
 
-- `cargo check` ✅ 零错误（本版未全量重跑）
-- `cargo test --lib` ✅ 聚焦：disable/promotable/probe 契约（全量基线约 750+）
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 769 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ `ModelCard.enabled` 2 passed
+- `npx vitest run` ✅ 292 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
+- `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.57 — 自动划分章节、本地导出保存与提示词目录
+
+- **自动划分章节**：后台设置新增「按字数 / 按情节」分章策略；字数上限留空默认 3000 字；场景保存空闲 30s 后仅对最新章自动切分。
+- **本地导出保存**：导出结果通过系统保存对话框落盘；文本写 UTF-8，二进制（pdf/epub）复制后端临时文件；取消时不关闭弹窗。
+- **提示词目录**：提示词注册表新增「打开目录」按钮，直接用系统文件管理器打开 bundled prompts 目录；编辑器改用原生 textarea 避免 CSP 导致 Loading。
+- **验证**：`cargo test --lib` 769 passed；`npx vitest run` 292 passed；tsc / fmt / format:check 全绿。
 
 ### v0.26.56 — 网关契约测试串行化（mock app_data_dir）
 

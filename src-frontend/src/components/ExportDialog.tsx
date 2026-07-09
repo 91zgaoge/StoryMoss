@@ -78,8 +78,9 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
         template_id: selectedTemplateId,
       },
       {
-        onSuccess: () => {
-          onClose();
+        onSuccess: data => {
+          // 用户取消原生保存对话框时不关闭
+          if (data.savedPath) onClose();
         },
       }
     );
@@ -271,20 +272,32 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 pt-4 border-t border-cinema-700">
-                <Button type="button" variant="ghost" onClick={onClose}>
-                  取消
-                </Button>
+              <div className="flex flex-col gap-2 pt-4 border-t border-cinema-700">
+                <div className="flex gap-3">
+                  <Button type="button" variant="ghost" onClick={onClose}>
+                    取消
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleExport}
+                    isLoading={exportMutation.isPending}
+                    className="flex-1 gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    导出
+                  </Button>
+                </div>
                 <Button
-                  variant="primary"
+                  type="button"
+                  variant="ghost"
                   onClick={() => {
                     setStep('health-check');
                     logFeatureUsage('anti_ai_review', 'opened', storyId);
                   }}
-                  className="flex-1 gap-2"
+                  className="text-xs text-gray-500"
                 >
-                  <ArrowRight className="w-4 h-4" />
-                  下一步
+                  <ArrowRight className="w-3 h-3 mr-1" />
+                  可选：出版前 Anti-AI 体检
                 </Button>
               </div>
             </>
@@ -318,7 +331,12 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                 <Button type="button" variant="ghost" onClick={handleBackToFormat}>
                   返回
                 </Button>
-                <Button variant="secondary" onClick={handleSkipAntiAi} className="flex-1">
+                <Button
+                  variant="secondary"
+                  onClick={handleSkipAntiAi}
+                  isLoading={exportMutation.isPending}
+                  className="flex-1"
+                >
                   跳过，直接导出
                 </Button>
                 <Button variant="primary" onClick={handleRunAntiAi} className="flex-1 gap-2">

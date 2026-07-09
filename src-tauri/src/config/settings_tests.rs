@@ -492,4 +492,41 @@ mod tests {
         assert_eq!(config.candidate_count, 1);
         assert_eq!(config.candidate_max_retries, 0);
     }
+
+    // ==================== v0.26.57 自动划分章节 ====================
+
+    #[test]
+    fn test_chapter_split_defaults() {
+        let config = AppConfig::default();
+        assert_eq!(config.chapter_split_mode, "word_count");
+        assert_eq!(config.chapter_split_max_chars, None);
+    }
+
+    #[test]
+    fn test_chapter_split_round_trip_persistence() {
+        let (_tmp, app_dir) = temp_app_dir();
+        let mut config = AppConfig::default();
+        config.chapter_split_mode = "plot".to_string();
+        config.chapter_split_max_chars = Some(2500);
+        config.save(&app_dir).unwrap();
+
+        let loaded = AppConfig::load(&app_dir).unwrap();
+        assert_eq!(loaded.chapter_split_mode, "plot");
+        assert_eq!(loaded.chapter_split_max_chars, Some(2500));
+    }
+
+    #[test]
+    fn test_chapter_split_legacy_json_missing_fields() {
+        // 旧配置无字段时 serde default 生效
+        let mut base = AppConfig::default();
+        base.chapter_split_mode = "plot".to_string();
+        base.chapter_split_max_chars = Some(9999);
+        let mut value = serde_json::to_value(&base).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("chapter_split_mode");
+        obj.remove("chapter_split_max_chars");
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(config.chapter_split_mode, "word_count");
+        assert_eq!(config.chapter_split_max_chars, None);
+    }
 }

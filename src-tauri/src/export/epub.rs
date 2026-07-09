@@ -2,7 +2,7 @@ use std::{fs::File, path::Path};
 
 use epub_builder::{EpubBuilder, EpubContent, ReferenceType};
 
-use super::{ExportConfig, ExportResult};
+use super::{chapter_display_title, ExportConfig, ExportResult};
 
 pub fn generate_epub(
     story: &crate::db::Story,
@@ -87,14 +87,9 @@ pub fn generate_epub(
         let mut chapter_content = String::new();
         chapter_content.push_str(&format!("<div class='chapter' id='chapter-{}'>\n", i + 1));
 
-        let default_title = format!("第{}章", chapter.chapter_number);
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or(&default_title);
+        let title = chapter_display_title(chapter);
 
-        chapter_content.push_str(&format!("<h2>{}</h2>\n", title));
+        chapter_content.push_str(&format!("<h2>{}</h2>\n", html_escape(&title)));
 
         if config.include_outline {
             if let Some(ref outline) = chapter.outline {
@@ -120,7 +115,7 @@ pub fn generate_epub(
                 format!("chapter-{}.xhtml", i + 1),
                 chapter_content.as_bytes(),
             )
-            .title(title)
+            .title(&title)
             .reftype(ReferenceType::Text),
         )?;
     }
@@ -156,17 +151,11 @@ fn generate_toc_html(story: &crate::db::Story, chapters: &[crate::db::Chapter]) 
     html.push_str("<li><a href='title.xhtml'>封面</a></li>\n");
 
     for (i, chapter) in chapters.iter().enumerate() {
-        let default_title = format!("第{}章", chapter.chapter_number);
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or(&default_title);
-
+        let title = chapter_display_title(chapter);
         html.push_str(&format!(
             "<li><a href='chapter-{}.xhtml'>{}</a></li>\n",
             i + 1,
-            title
+            html_escape(&title)
         ));
     }
 

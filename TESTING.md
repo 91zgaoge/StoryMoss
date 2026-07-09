@@ -1,8 +1,17 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.56)
+# 🧪 StoryForge 自动化测试环境 (v0.26.57)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.57 变更说明
+
+- 新增 `chapter_splitter` 单元测试 7 passed（mode_parse、resolve_max_chars、word_count/plot 切分边界）。
+- 新增 `export::assemble` 单元测试 8 passed（scenes 为真相源、孤儿场景、标题回退）。
+- 新增 `prompts::registry` 测试：目录解析、场景组合预览。
+- 前端新增 `useExport.test.ts` 4 passed（取消保存、文本/二进制处理、空内容拒绝）。
+- 前端 `PromptsPanel.test.tsx` 5 passed（加载、展开编辑器、导入参数、打开目录、组合预览）。
+- 全量基线：`cargo test --lib` 769 passed；`npx vitest run` 292 passed。
 
 ### v0.26.56 变更说明
 

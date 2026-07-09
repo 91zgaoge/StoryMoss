@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::{
     automation::service::AutomationService,
@@ -417,11 +417,13 @@ impl SceneService {
         );
 
         // 5. Phase 3: Scene-level debounced auto_commit (30s idle)
+        //    + v0.26.57: 同窗口尝试自动划分章节（仅最新章、超阈值时）
         let scene_id_for_commit = scene_id.to_string();
         let story_id_for_commit = story_id.to_string();
         let pool = self.pool.clone();
         let app_handle = self.app_handle.clone();
         let vector_store = self.vector_store.clone();
+        let content_changed_for_split = content_changed;
 
         let scheduled_time = Instant::now();
         {
@@ -450,6 +452,46 @@ impl SceneService {
                 if let Ok(Some(scene)) = scene_repo.get_by_id(&scene_id_for_commit) {
                     let chapter_number = scene.sequence_number;
                     let chapter_id = scene.chapter_id.clone();
+
+                    // v0.26.57: 内容变更后尝试自动分章（在 auto_commit 之前，
+                    // 使 commit 看到截断后的本章内容）。
+                    if content_changed_for_split {
+                        if let Some(ref cid) = chapter_id {
+                            if let Ok(app_dir) = app_handle.path().app_data_dir() {
+                                if let Ok(config) = crate::config::AppConfig::load(&app_dir) {
+                                    match crate::story_system::chapter_splitter::maybe_split_latest_chapter(
+                                        &pool,
+                                        &app_handle,
+                                        &story_id_for_commit,
+                                        cid,
+                                        &config,
+                                    ) {
+                                        Ok(Some(new_id)) => {
+                                            log::info!(
+                                                "[SceneCommit] auto chapter split → {}",
+                                                new_id
+                                            );
+                                        }
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            log::warn!(
+                                                "[SceneCommit] auto chapter split failed: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 分章后重新读取 scene（内容可能已截断）
+                    let scene_for_commit = scene_repo
+                        .get_by_id(&scene_id_for_commit)
+                        .ok()
+                        .flatten()
+                        .unwrap_or(scene);
+
                     let service = SceneCommitService::new(pool);
                     let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
                     if let Err(e) = service
@@ -458,7 +500,7 @@ impl SceneService {
                             Some(&scene_id_for_commit),
                             chapter_id.as_deref(),
                             chapter_number,
-                            scene.content.as_deref(),
+                            scene_for_commit.content.as_deref(),
                             None,
                             Some(app_handle),
                             store,

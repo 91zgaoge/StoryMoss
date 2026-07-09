@@ -3,8 +3,11 @@ use std::{fs, path::Path};
 
 use serde::{Deserialize, Serialize};
 
+pub mod assemble;
 pub mod builtin_templates;
 pub mod templates;
+
+pub use assemble::{assemble_export_chapters, chapter_display_title};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExportFormat {
@@ -272,12 +275,7 @@ fn generate_markdown(
     content.push_str("# 正文\n\n");
 
     for chapter in chapters {
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or("未命名章节");
-
+        let title = chapter_display_title(chapter);
         content.push_str(&format!("## {}\n\n", title));
 
         if config.include_outline {
@@ -388,13 +386,8 @@ fn generate_html(
     html.push_str("<h2>正文</h2>\n");
 
     for chapter in chapters {
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or("未命名章节");
-
-        html.push_str(&format!("<h3>{}</h3>\n", html_escape(title)));
+        let title = chapter_display_title(chapter);
+        html.push_str(&format!("<h3>{}</h3>\n", html_escape(&title)));
 
         if config.include_outline {
             if let Some(ref outline) = chapter.outline {
@@ -476,15 +469,11 @@ fn generate_plaintext(
     text.push('\n');
 
     for chapter in chapters {
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or("未命名章节");
+        let title = chapter_display_title(chapter);
 
         text.push('\n');
         text.push_str(&format!("{}\n", title));
-        text.push_str(&"-".repeat(title.len()));
+        text.push_str(&"-".repeat(title.chars().count().max(1)));
         text.push('\n');
 
         if config.include_outline {

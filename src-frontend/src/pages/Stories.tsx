@@ -626,20 +626,31 @@ export function Stories() {
 
       {/* Current Story Indicator */}
       {currentStory && (
-        <div className="p-4 rounded-xl bg-cinema-gold/10 border border-cinema-gold/30 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-cinema-gold/20 flex items-center justify-center">
+        <div className="p-4 rounded-xl bg-cinema-gold/10 border border-cinema-gold/30 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-cinema-gold/20 flex items-center justify-center shrink-0">
               <BookOpen className="w-5 h-5 text-cinema-gold" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-cinema-gold">当前编辑</p>
-              <p className="font-display font-semibold text-white">{currentStory.title}</p>
+              <p className="font-display font-semibold text-white truncate">{currentStory.title}</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setCurrentView('scenes')}>
-            继续创作
-            <ArrowRight className="w-4 h-4 ml-1" />
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExportStory({ id: currentStory.id, title: currentStory.title })}
+              title="导出当前故事全部章节"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              导出
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCurrentView('scenes')}>
+              继续创作
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
         </div>
       )}
 

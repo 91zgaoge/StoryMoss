@@ -287,6 +287,16 @@ pub struct AppSettingsData {
     /// v0.23.66: 工具温度（推荐 0.2-0.4）
     #[serde(default)]
     pub tool_temperature: Option<f32>,
+    /// v0.26.57: 自动划分章节方式 — `word_count` / `plot`
+    #[serde(default)]
+    pub chapter_split_mode: Option<String>,
+    /// v0.26.57: 字数上限（中文「字」）。`None` 表示前端未触及；
+    /// 显式 `Some(None)` 不可表达，故用哨兵：保存时若字段为 `Some(0)`
+    /// 或未传正数则清为自动。 前端约定：不填/空 → 传 `null`（经 Option 为
+    /// None 保持原值）或传 `0` 表示自动。 为简化：`Some(n)` 且 n>0
+    /// 写入；`Some(0)` 清为 None（自动）；字段缺省保持原值。
+    #[serde(default)]
+    pub chapter_split_max_chars: Option<i32>,
 }
 
 fn default_concurrency() -> usize {
@@ -489,6 +499,8 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         creative_temperature: config.creative_temperature,
         continuation_temperature: config.continuation_temperature,
         tool_temperature: config.tool_temperature,
+        chapter_split_mode: Some(config.chapter_split_mode.clone()),
+        chapter_split_max_chars: config.chapter_split_max_chars,
     })
 }
 
@@ -620,6 +632,17 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     }
     if let Some(v) = settings.probe_prompt_override {
         config.probe_prompt_override = v;
+    }
+    // v0.26.57: 自动划分章节
+    if let Some(v) = settings.chapter_split_mode {
+        if matches!(v.as_str(), "word_count" | "plot") {
+            config.chapter_split_mode = v;
+        }
+    }
+    // chapter_split_max_chars：>0 写入；0 表示「自动」（清 None）。
+    // 注意：serde 缺省为 None 时保持原值，故前端「切到自动」须显式传 0。
+    if let Some(v) = settings.chapter_split_max_chars {
+        config.chapter_split_max_chars = if v > 0 { Some(v) } else { None };
     }
 
     config.save(&app_dir).map_err(AppError::from)?;

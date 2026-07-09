@@ -249,6 +249,13 @@ pub struct AppConfig {
     /// Genesis 向导第一章目标字数（默认 2000）
     #[serde(default = "default_genesis_first_chapter_word_count_target")]
     pub genesis_first_chapter_word_count_target: i32,
+    /// v0.26.57: 自动划分章节方式 — `word_count`（按字数）或 `plot`（按情节）
+    #[serde(default = "default_chapter_split_mode")]
+    pub chapter_split_mode: String,
+    /// v0.26.57: 按字数划分时的上限（中文「字」）。`None` / 未填 = 自动默认
+    /// [`DEFAULT_CHAPTER_SPLIT_MAX_CHARS`]。
+    #[serde(default)]
+    pub chapter_split_max_chars: Option<i32>,
     /// 创作工作流 Inspector 通过阈值（默认 0.75）
     #[serde(default = "default_creation_workflow_review_threshold")]
     pub creation_workflow_review_threshold: f32,
@@ -396,6 +403,13 @@ fn default_keep_revision_history() -> bool {
 
 fn default_genesis_first_chapter_word_count_target() -> i32 {
     2000
+}
+
+/// 自动划分章节：字数上限留空时的默认阈值（中文「字」）。
+pub const DEFAULT_CHAPTER_SPLIT_MAX_CHARS: usize = 3000;
+
+fn default_chapter_split_mode() -> String {
+    "word_count".to_string()
 }
 
 fn default_creation_workflow_review_threshold() -> f32 {
@@ -1015,6 +1029,8 @@ impl Default for AppConfig {
             skip_rewrite_threshold: 0.90,
             keep_revision_history: true,
             genesis_first_chapter_word_count_target: 2000,
+            chapter_split_mode: default_chapter_split_mode(),
+            chapter_split_max_chars: None,
             creation_workflow_review_threshold: 0.75,
             creation_workflow_max_iterations: 2,
             candidate_timeout_seconds: default_candidate_timeout_seconds(),

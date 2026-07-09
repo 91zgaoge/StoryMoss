@@ -346,6 +346,15 @@ export interface AppSettings {
   continuation_temperature?: number;
   /** v0.23.66: 工具温度（推荐 0.2-0.4） */
   tool_temperature?: number;
+
+  /** v0.26.57: 自动划分章节方式 — word_count（按字数）/ plot（按情节） */
+  chapter_split_mode?: 'word_count' | 'plot';
+  /**
+   * v0.26.57: 按字数划分时的上限（中文「字」）。
+   * `null` / `0` / 未填 = 自动（后端默认 3000 字）。
+   * 前端清空输入框时应传 `0` 以显式切回自动。
+   */
+  chapter_split_max_chars?: number | null;
 }
 
 export interface WritingStrategy {

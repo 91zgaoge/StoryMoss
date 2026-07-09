@@ -13,6 +13,7 @@
 
 pub mod auto_contract;
 pub mod chapter_service;
+pub mod chapter_splitter;
 pub mod commit_service;
 pub mod contract_builder;
 pub mod contract_service;

@@ -23,7 +23,7 @@ pub async fn export_story(
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("story", &options.story_id))?;
 
-    let mut chapters = ChapterRepository::new(pool.clone())
+    let chapters = ChapterRepository::new(pool.clone())
         .get_by_story(&options.story_id)
         .map_err(AppError::from)?;
 
@@ -35,31 +35,8 @@ pub async fn export_story(
         .get_by_story(&options.story_id)
         .map_err(AppError::from)?;
 
-    // W4-B10: 导出聚合完整性修复 - 对 content 为空的 chapter，自动从关联 scenes
-    // 聚合内容
-    for chapter in &mut chapters {
-        if chapter
-            .content
-            .as_ref()
-            .map(|c| c.trim().is_empty())
-            .unwrap_or(true)
-        {
-            let mut chapter_scenes: Vec<&crate::db::Scene> = scenes
-                .iter()
-                .filter(|s| s.chapter_id.as_deref() == Some(&chapter.id))
-                .collect();
-            chapter_scenes.sort_by_key(|s| s.sequence_number);
-            let aggregated = chapter_scenes
-                .iter()
-                .filter_map(|s| s.content.as_deref())
-                .filter(|c| !c.trim().is_empty())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            if !aggregated.is_empty() {
-                chapter.content = Some(aggregated);
-            }
-        }
-    }
+    // scenes.content 为叙事真相源；有场景时覆盖 chapters.content 投影
+    let chapters = crate::export::assemble_export_chapters(&chapters, &scenes);
 
     let format = match options.format.as_str() {
         "markdown" => ExportFormat::Markdown,
@@ -97,6 +74,8 @@ pub async fn export_story(
     std::fs::create_dir_all(&export_dir).map_err(AppError::from)?;
     let output_path = export_dir.join(&filename);
 
+    let is_binary = matches!(format, ExportFormat::Pdf | ExportFormat::Epub);
+
     let config = ExportConfig {
         format,
         include_outline: options.include_outline.unwrap_or(true),
@@ -128,9 +107,16 @@ pub async fn export_story(
         )
         .map_err(AppError::from)?;
 
+    // 二进制格式（pdf/epub）不可 read_to_string；文本格式返回 UTF-8 内容供前端另存
+    let content = if is_binary {
+        String::new()
+    } else {
+        std::fs::read_to_string(&output_path).unwrap_or_default()
+    };
+
     Ok(ExportResult {
         file_path: output_path.to_string_lossy().to_string(),
-        content: std::fs::read_to_string(&output_path).unwrap_or_default(),
+        content,
         format: options.format,
     })
 }

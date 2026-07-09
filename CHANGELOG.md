@@ -2,6 +2,29 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.57] - 自动划分章节、本地导出保存与提示词目录（2026-07-09）
+
+### 功能
+
+- **自动划分章节**：在「后台设置 → 通用」新增「划分章节方式」，支持 `word_count`（按字数）与 `plot`（按情节）。按字数时可输入单章字数上限，留空/0 则使用默认 3000 字（中文「字」）。场景内容保存空闲约 30 秒后，仅对故事最新一章自动划分，避免中间章节改写时重排后续章号。
+  - 后端实现：`src-tauri/src/story_system/chapter_splitter.rs`，含 `ChapterSplitMode`、`find_split_offset`、`plan_split`、`maybe_split_latest_chapter`。
+  - 触发点：`SceneService::update_scene` 的 `auto_commit` 防抖窗口内，内容变更后先尝试分章再提交。
+- **导出功能可用性加固**：导出结果通过系统原生保存对话框让用户选择本地目录，文本格式（txt/md/html/json）直接写 UTF-8，二进制格式（pdf/epub）从后端临时文件复制字节流；用户取消对话框时不关闭导出弹窗。
+  - 前端：`useExport.ts` 新增 `saveExportViaDialog`；`ExportDialog.tsx` 主按钮改为「导出」，可选 Anti-AI 体检下沉为次要入口。
+  - 后端：`export_story` 使用 `assemble_export_chapters` 以 `scenes.content` 为真相源聚合章节内容，兼容孤儿场景。
+- **提示词本地目录**：「后台 → 提示词注册表」新增「打开目录」按钮，调用 `open_prompts_directory` 用系统文件管理器直接打开 bundled prompts 资源目录；编辑器从 Monaco 改为原生 textarea，避免 CSP 拦截 CDN 导致永久 Loading。
+
+### 修复
+
+- 修复导出章节内容为空时未从关联 scenes 聚合的问题；现在优先使用场景内容，无场景时才回退 `chapters.content`。
+- 修复 pdf/epub 二进制导出时被当作文本读取导致前端拿到乱码或失败的问题。
+
+### 验证
+
+- `cargo test --lib`：chapter_splitter 7 passed、export::assemble 8 passed、prompts::registry 15 passed，全量 769 passed。
+- `npx vitest run`：`useExport.test.ts` 4 passed、`PromptsPanel.test.tsx` 5 passed，全量 292 passed。
+- `npx tsc --noEmit` ✅；`npm run format:check` ✅；`cargo +nightly fmt --check` ✅。
+
 ## [v0.26.56] - 网关契约测试串行化（2026-07-09）
 
 ### 修复

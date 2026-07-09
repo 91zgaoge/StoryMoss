@@ -2,7 +2,7 @@ use std::{fs::File, io::BufWriter};
 
 use printpdf::*;
 
-use super::{ExportConfig, ExportResult};
+use super::{chapter_display_title, ExportConfig, ExportResult};
 
 pub fn generate_pdf(
     story: &crate::db::Story,
@@ -81,13 +81,9 @@ pub fn generate_pdf(
             y_position = Mm(280.0);
         }
 
-        let title = chapter
-            .title
-            .as_ref()
-            .map(|t| t.as_str())
-            .unwrap_or("未命名章节");
+        let title = chapter_display_title(chapter);
 
-        current_layer.use_text(title, 14.0, Mm(20.0), y_position, &font_bold);
+        current_layer.use_text(&title, 14.0, Mm(20.0), y_position, &font_bold);
         y_position -= Mm(8.0);
 
         if config.include_outline {
