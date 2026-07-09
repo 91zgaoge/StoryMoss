@@ -179,11 +179,20 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
     isGenesis && isGenerating ? baseMessage.replace(/^\[.+\]/, '[创世]') : baseMessage;
   const displayProgress = primaryActivity?.progress;
 
-  // 从状态文案中分离基础文本与已运行时长，避免文案被时间截断
-  const statusMatch = displayMessage.match(/^(.+?)\s*(?:\((\d+)s\))?\s*(.*)$/);
-  const statusBase = statusMatch ? statusMatch[1].trim() : displayMessage;
+  // v0.26.43: 先剥离 emoji，再提取尾部 `(Ns)`。
+  // 旧正则 `^(.+?)\s*(?:\((\d+)s\))?\s*(.*)$` 的非贪婪 `.+?` 会把中文拆成单字，
+  // 且 emoji 代理对被拆成 □□；StatusIcon 只收到残缺字符。
+  const cleanedForParse = displayMessage
+    .replace(
+      /[\u{1F300}-\u{1FAFF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{FE0E}\u{FE0F}\u{200D}]/gu,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  const statusMatch = cleanedForParse.match(/^(.*?)(?:\s*\((\d+)s\))?\s*$/);
+  const statusBase = (statusMatch?.[1] ?? cleanedForParse).trim();
   const statusElapsed = statusMatch?.[2];
-  const statusSuffix = statusMatch?.[3] ? ` ${statusMatch[3].trim()}` : '';
+  const statusSuffix = '';
 
   // 是否为本地生成中（无具体后台活动）
   const isLocalGenerating = isGenerating && !primaryActivity;
@@ -368,9 +377,11 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 )}
               </div>
 
-              {/* 主要活动文案：基础文本 + 后缀 + 运行时长 */}
+              {/* 主要活动文案：StatusIcon 将 emoji 映射为 Lucide SVG，避免 WebView 缺字显示 □□ */}
               <span className="generation-status-message">
-                <span className="generation-status-base">{statusBase}</span>
+                <span className="generation-status-base">
+                  <StatusIcon text={statusBase} />
+                </span>
                 {statusSuffix && <span className="generation-status-suffix">{statusSuffix}</span>}
                 {statusElapsed && (
                   <span className="generation-status-elapsed">({statusElapsed}s)</span>

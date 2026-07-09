@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.42 项目完成状态
+# StoryForge (草苔) v0.26.43 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.42 修复续写幽灵文本被 post-accept 锁压住）
+> 最后更新: 2026-07-09（v0.26.43 底部状态栏 emoji→Lucide）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.43 — 修复底部状态栏 emoji 显示为方框（2026-07-09）
+
+- 阶段文案去 emoji；StatusIcon 渲染；状态解析修复。
+- ✅ **验证**：StatusIcon/BottomBar 相关 18+；vitest 全绿。
 
 ### v0.26.42 — 修复续写 Tab 提示可见但无幽灵文本（2026-07-09）
 

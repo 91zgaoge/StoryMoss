@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FrontstageBottomBar from '../FrontstageBottomBar';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 
 describe('FrontstageBottomBar', () => {
+  beforeEach(() => {
+    useBackendActivityStore.setState({ activities: [] });
+  });
+
   const defaultProps = {
     isZenMode: false,
     isGenerating: false,
@@ -153,5 +157,23 @@ describe('FrontstageBottomBar', () => {
     expect(iconWrapper?.querySelector('svg')).toBeInTheDocument();
     // emoji 是文本节点，修复后不应再直接出现
     expect(iconWrapper?.textContent?.trim()).toBe('');
+  });
+
+  it('状态文案含 emoji 时应用 StatusIcon 渲染 SVG，不直接显示 emoji', () => {
+    // 契约：getMajorPhase 历史路径会把 📂 写入 generationStatus；
+    // WebView 缺 emoji 字体会显示 □□，必须经 StatusIcon 剥离并换 Lucide。
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        isGenerating={true}
+        generationStatus="📂 准备上下文..."
+      />
+    );
+
+    const base = document.querySelector('.generation-status-base');
+    expect(base).toBeInTheDocument();
+    expect(base?.querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByText('准备上下文...')).toBeInTheDocument();
+    expect(base?.textContent).not.toMatch(/📂/);
   });
 });

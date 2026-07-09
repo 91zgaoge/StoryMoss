@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.42-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.43-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.42 修复续写「有 Tab 提示、无幽灵文本、确认后无追加」——接受后 30s 渲染锁未在新续写时清零。
+**最新动态**：v0.26.43 修复底部「准备上下文」前图标显示为方框——改用 Lucide SVG，不再依赖 WebView emoji 字体。
+
+**上一版 v0.26.42** 修复续写「有 Tab 提示、无幽灵文本、确认后无追加」——接受后 30s 渲染锁未在新续写时清零。
 
 **上一版 v0.26.41** 清偿两项架构债——管线 Finalize 按 `scene_id` 直写编辑场景；`kg_entities`/`memory_items` 统一读模型（VIEW + 链接列，物理表不 DROP）。
 

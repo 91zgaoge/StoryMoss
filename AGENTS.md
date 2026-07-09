@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.42
+- **版本**: v0.26.43
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -73,13 +73,19 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 701 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 262 passed / 3 skipped
+- `npx vitest run` ✅ 266 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.43 — 修复底部状态栏 emoji 显示为方框
+
+- **根因**：阶段文案嵌入 emoji + 解析正则拆碎中文/代理对；WebView 缺字显示 □□。
+- **修复**：纯文案 + `StatusIcon`（Lucide）；解析前剥 emoji。
+- **验证**：StatusIcon / FrontstageBottomBar 相关 18 passed。
 
 ### v0.26.42 — 修复续写 Tab 提示可见但无幽灵文本
 
@@ -266,7 +272,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.42_
+_最后更新: 2026-07-09 - v0.26.43_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

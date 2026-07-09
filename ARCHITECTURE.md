@@ -1,4 +1,6 @@
-# StoryForge (草苔) v0.26.42 架构文档
+# StoryForge (草苔) v0.26.43 架构文档
+
+> **v0.26.43**：幕前底部状态栏用 `StatusIcon`（Lucide）渲染阶段图标，不再嵌入 emoji（WebView 缺字会显示 □□）。
 
 > **v0.26.42**：续写幽灵渲染锁——Tab 接受后的 `hideGhostUntil` / `postAcceptHideUntilRef` 必须在新续写开始时清零，否则只见 Tab 条不见幽灵正文。
 

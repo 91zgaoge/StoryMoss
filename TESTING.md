@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.42)
+# 🧪 StoryForge 自动化测试环境 (v0.26.43)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.43 变更说明
+
+- StatusIcon / FrontstageBottomBar：emoji→Lucide + 状态解析修复（+4）。
+- vitest 全绿。
 
 ### v0.26.42 变更说明
 

@@ -666,34 +666,44 @@ const FrontstageApp: React.FC = () => {
   );
 
   // v0.11.2: 清理状态文案中的时间后缀与兜底提示，避免重复追加
+  // v0.26.43: 同步剥离 emoji，防止 WebView 缺字显示 □□
   const cleanStatusBase = useCallback((prev: string): string => {
     return prev
       .replace(/（系统仍在处理中\.\.\.）/g, '')
       .replace(/\s*\(\d+s\)\s*$/g, '')
+      .replace(
+        /[\u{1F300}-\u{1FAFF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{FE0E}\u{FE0F}\u{200D}]/gu,
+        ''
+      )
+      .replace(/\s+/g, ' ')
       .trim();
   }, []);
 
-  /** 将细粒度步骤名映射为大阶段提示文案 */
-  const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
+  /**
+   * 将细粒度步骤名映射为大阶段提示文案。
+   * v0.26.43: 不再嵌入 emoji——Tauri WebView 常缺彩色 emoji 字体，会显示为 □□；
+   * 底部栏用 StatusIcon（Lucide SVG）按文案关键词渲染图标。
+   */
+  const getMajorPhase = useCallback((stepName: string): { text: string } | null => {
     const s = stepName.toLowerCase();
     // A4-1.7: 统一精确阶段映射
     if (s.includes('准备上下文')) {
-      return { icon: '📂', text: '准备上下文...' };
+      return { text: '准备上下文...' };
     }
     if (s.includes('候选生成')) {
-      return { icon: '✍️', text: '候选生成...' };
+      return { text: '候选生成...' };
     }
     if (s.includes('内容审校') || s.includes('审校')) {
-      return { icon: '🔍', text: '内容审校...' };
+      return { text: '内容审校...' };
     }
     if (s.includes('改写')) {
-      return { icon: '✏️', text: '改写...' };
+      return { text: '改写...' };
     }
     if (s.includes('最终输出')) {
-      return { icon: '📤', text: '最终输出...' };
+      return { text: '最终输出...' };
     }
     if (s.includes('保存记忆')) {
-      return { icon: '💾', text: '保存记忆...' };
+      return { text: '保存记忆...' };
     }
     if (
       s.includes('构思') ||
@@ -701,7 +711,7 @@ const FrontstageApp: React.FC = () => {
       s.includes('创意') ||
       s.includes('conception')
     ) {
-      return { icon: '🎨', text: '正在构思故事概念...' };
+      return { text: '正在构思故事概念...' };
     }
     if (
       s.includes('开篇') ||
@@ -710,50 +720,50 @@ const FrontstageApp: React.FC = () => {
       s.includes('first chapter') ||
       s.includes('撰写')
     ) {
-      return { icon: '✍️', text: '正在撰写第一章...' };
+      return { text: '正在撰写第一章...' };
     }
     if (s.includes('世界') || s.includes('世界观') || s.includes('world')) {
-      return { icon: '🌍', text: '正在构建世界观...' };
+      return { text: '正在构建世界观...' };
     }
     if (s.includes('大纲') || s.includes('outline') || s.includes('结构')) {
-      return { icon: '📋', text: '正在生成故事大纲...' };
+      return { text: '正在生成故事大纲...' };
     }
     if (s.includes('角色') || s.includes('character') || s.includes('人物')) {
-      return { icon: '👤', text: '正在塑造角色...' };
+      return { text: '正在塑造角色...' };
     }
     if (s.includes('场景') || s.includes('scene') || s.includes('情节')) {
-      return { icon: '🎬', text: '正在铺设场景...' };
+      return { text: '正在铺设场景...' };
     }
     if (s.includes('伏笔') || s.includes('foreshadow') || s.includes('铺垫')) {
-      return { icon: '🔮', text: '正在埋设伏笔...' };
+      return { text: '正在埋设伏笔...' };
     }
     if (s.includes('图谱') || s.includes('kg') || s.includes('knowledge') || s.includes('graph')) {
-      return { icon: '🕸️', text: '正在构建知识图谱...' };
+      return { text: '正在构建知识图谱...' };
     }
     if (s.includes('后台') || s.includes('background') || s.includes('完善')) {
-      return { icon: '⏳', text: '后台正在完善小说世界...' };
+      return { text: '后台正在完善小说世界...' };
     }
     if (s.includes('质检') || s.includes('检查') || s.includes('inspect')) {
-      return { icon: '🔍', text: '正在质检生成内容...' };
+      return { text: '正在质检生成内容...' };
     }
     if (s.includes('改写') || s.includes('润色') || s.includes('revise')) {
-      return { icon: '✏️', text: '正在润色改写...' };
+      return { text: '正在润色改写...' };
     }
     // v0.9.4: 智能执行与计划生成的大阶段映射，避免 Toast 长时间卡在初始提示
     if (s.includes('加载上下文') || s.includes('读取故事') || s.includes('读取章节')) {
-      return { icon: '📂', text: '正在加载故事上下文...' };
+      return { text: '正在加载故事上下文...' };
     }
     if (s.includes('分析故事上下文') || s.includes('生成执行计划') || s.includes('context')) {
-      return { icon: '🧠', text: '正在规划创作步骤...' };
+      return { text: '正在规划创作步骤...' };
     }
     if (s.includes('执行创作计划') || s.includes('executing')) {
-      return { icon: '⚙️', text: '正在执行创作计划...' };
+      return { text: '正在执行创作计划...' };
     }
     if (s.includes('生成') || s.includes('续写') || s.includes('writing') || s.includes('draft')) {
-      return { icon: '✍️', text: '正在生成续写内容...' };
+      return { text: '正在生成续写内容...' };
     }
     if (s.includes('完成') || s.includes('completed')) {
-      return { icon: '✅', text: '创作计划执行完成...' };
+      return { text: '创作计划执行完成...' };
     }
     return null;
   }, []);
@@ -773,7 +783,8 @@ const FrontstageApp: React.FC = () => {
         // 保留具体进度而不是用大阶段文案覆盖，让用户知道后台到底在做什么。
         const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
         if (hasSpecificProgress) return prev;
-        return `${phase.icon} ${phase.text}`;
+        // v0.26.43: 纯文案，图标由 StatusIcon 按关键词渲染
+        return phase.text;
       });
     },
     [getMajorPhase, cleanStatusBase]

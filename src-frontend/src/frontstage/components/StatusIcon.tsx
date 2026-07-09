@@ -4,48 +4,63 @@ import {
   ClipboardList,
   Cog,
   CheckCircle,
-  Check,
   Send,
   Plug,
   Zap,
   XCircle,
   Timer,
   PenTool,
-  Hourglass,
   Ban,
   AlertTriangle,
   BookOpen,
   Sparkles,
   Loader2,
   Settings2,
+  FolderOpen,
+  Search,
+  Pencil,
+  Upload,
+  HardDrive,
+  Network,
+  Hourglass,
 } from 'lucide-react';
 
 interface StatusIconProps {
   text: string;
 }
 
-export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
-  // 移除旧emoji（如果有）
-  const cleanText = text
+/** 剥离 emoji / 符号变体选择符，避免 WebView 缺字时留下 □□ */
+function stripEmoji(text: string): string {
+  return text
     .replace(
-      /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{23F0}-\u{23FF}]|[\u{200D}]/gu,
+      /[\u{1F300}-\u{1FAFF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{FE0E}\u{FE0F}\u{200D}]/gu,
       ''
     )
+    .replace(/\s+/g, ' ')
     .trim();
+}
+
+export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
+  const cleanText = stripEmoji(text);
 
   let Icon = Loader2;
   let iconClass = 'w-3.5 h-3.5';
 
   if (
-    cleanText.includes('分析') ||
-    cleanText.includes('Thinking') ||
-    cleanText.includes('构建') ||
+    cleanText.includes('准备上下文') ||
+    cleanText.includes('加载故事') ||
     cleanText.includes('加载') ||
     cleanText.includes('读取') ||
     cleanText.includes('渲染') ||
-    cleanText.includes('准备') ||
     cleanText.includes('查询') ||
     cleanText.includes('计算')
+  ) {
+    Icon = FolderOpen;
+  } else if (
+    cleanText.includes('分析') ||
+    cleanText.includes('Thinking') ||
+    cleanText.includes('构建') ||
+    cleanText.includes('准备')
   ) {
     Icon = Brain;
   } else if (
@@ -73,8 +88,12 @@ export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
   ) {
     Icon = CheckCircle;
     iconClass = 'w-3.5 h-3.5 text-green-500';
-  } else if (cleanText.includes('质检') || cleanText.includes('检查')) {
-    Icon = Check;
+  } else if (
+    cleanText.includes('审校') ||
+    cleanText.includes('质检') ||
+    cleanText.includes('检查')
+  ) {
+    Icon = Search;
   } else if (cleanText.includes('大纲')) {
     Icon = BookOpen;
   } else if (cleanText.includes('连接') || cleanText.includes('connecting')) {
@@ -86,11 +105,16 @@ export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
   ) {
     Icon = Send;
   } else if (
+    cleanText.includes('候选') ||
     cleanText.includes('生成中') ||
     cleanText.includes('generating') ||
     cleanText.includes('生成内容')
   ) {
     Icon = Zap;
+  } else if (cleanText.includes('最终输出')) {
+    Icon = Upload;
+  } else if (cleanText.includes('保存记忆') || cleanText.includes('记忆')) {
+    Icon = HardDrive;
   } else if (
     cleanText.includes('错误') ||
     cleanText.includes('失败') ||
@@ -99,8 +123,18 @@ export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
   ) {
     Icon = XCircle;
     iconClass = 'w-3.5 h-3.5 text-red-500';
-  } else if (cleanText.includes('等待') || cleanText.includes('时间')) {
-    Icon = Timer;
+  } else if (
+    cleanText.includes('等待') ||
+    cleanText.includes('时间') ||
+    cleanText.includes('后台正在完善')
+  ) {
+    Icon = cleanText.includes('后台') ? Hourglass : Timer;
+  } else if (
+    cleanText.includes('改写') ||
+    cleanText.includes('润色') ||
+    cleanText.includes('revise')
+  ) {
+    Icon = Pencil;
   } else if (
     cleanText.includes('写作') ||
     cleanText.includes('Writer') ||
@@ -128,6 +162,8 @@ export const StatusIcon: React.FC<StatusIconProps> = ({ text }) => {
     Icon = Brain;
   } else if (cleanText.includes('设置') || cleanText.includes('配置')) {
     Icon = Settings2;
+  } else if (cleanText.includes('图谱') || cleanText.includes('知识')) {
+    Icon = Network;
   }
 
   const isLoading =

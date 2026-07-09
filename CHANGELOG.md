@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.43] - 修复底部状态栏 emoji 显示为方框（2026-07-09）
+
+### 修复
+
+- **「准备上下文」前出现 □□**：`getMajorPhase` 把 emoji（📂 等）写入 `generationStatus`，Tauri WebView 缺彩色 emoji 字体时显示为方框；底部栏未接入已有的 `StatusIcon`（Lucide SVG）。
+- **状态解析把中文拆碎**：旧正则非贪婪 `.+?` 把「准备上下文」拆成单字，emoji 代理对再拆成残缺字符。
+- **修复**：阶段文案改为纯文本；`FrontstageBottomBar` 用 `StatusIcon` 渲染；解析前先剥 emoji，再提取尾部 `(Ns)`。
+
+### 验证
+
+- vitest：266 passed / 3 skipped（StatusIcon + BottomBar +4）
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard`：✅
+
 ## [v0.26.42] - 修复续写 Tab 提示可见但无幽灵文本（2026-07-09）
 
 ### 修复
