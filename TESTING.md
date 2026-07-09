@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.44)
+# 🧪 StoryForge 自动化测试环境 (v0.26.45)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.45 变更说明
+
+- `narrative::protagonist_card`：merge/render/probe/soft_retry 契约 6 passed。
+- Genesis first_scene 增加 `protagonist_card` 变量；Call3 尾注注入。
 
 ### v0.26.44 变更说明
 
@@ -58,6 +63,7 @@
 | `cargo test --lib`                  | 690      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
 | `cargo test --lib narrative::genesis` | 12     | ✅（创世四步/骨架解析/重试闸门/payload 契约） |
+| `cargo test --lib narrative::protagonist_card` | 6 | ✅（人物卡 merge/render/probe） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
 | `cargo check`                       | —        | ✅ 零错误                      |
 | `npm run format:check`              | 代码风格 | ✅ 零差异                      |

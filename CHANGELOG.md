@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.45] - Genesis 人物卡强制落地（姓名 + 欲望/阻力）（2026-07-09）
+
+### 增强
+
+- **开篇人物卡**：合并骨架∪概念为 `ProtagonistCard`，双重注入 `first_scene` Critical 位与 TriShot Call3 尾注（`NOVEL_OUTPUT_DISCIPLINE` 之前）。
+- **双目标落地**：人物辨识度（真名，禁「主角」）+ 冲突与目标清晰（本场欲望/阻力纪律）。
+- **规则探针**：`name_hit` / `desire_hit` / `obstacle_hit`；与 8% 自重复共享「最多一次额外 Call3」软重试；fail-open。
+- **零新增 LLM**：不增加 quick 墙钟预算。
+
+### 验证
+
+- `cargo test --lib narrative::` 61 passed（含 protagonist_card 6）
+- `cargo test --lib` 全绿；architecture_guard / vitest / format 通过
+
 ## [v0.26.44] - Genesis 首章质量：开篇骨架与提示词加厚（2026-07-09）
 
 ### 增强

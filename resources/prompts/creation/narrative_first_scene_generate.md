@@ -3,7 +3,7 @@ id: narrative_first_scene_generate
 name: "创世-第一场景正文生成"
 description: "Bootstrap：根据故事概念+场景戏剧结构撰写第一个场景的正文"
 category: creation
-version: 0.26.44
+version: 0.26.45
 variables:
   - story_title
   - genre
@@ -11,6 +11,7 @@ variables:
   - pacing
   - description
   - themes
+  - protagonist_card
   - dramatic_goal
   - conflict_type
   - external_pressure
@@ -36,6 +37,8 @@ variables:
 节奏：{{pacing}}
 简介：{{description}}
 主题：{{themes}}
+
+{{protagonist_card}}
 
 【当前场景的戏剧任务】
 - 场景目标：{{dramatic_goal}}

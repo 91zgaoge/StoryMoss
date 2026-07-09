@@ -1637,6 +1637,18 @@ impl AgentOrchestrator {
             .as_ref()
             .map(|m| m.tags_for_selected(&selected_ids))
             .unwrap_or_default();
+        // v0.26.45: Genesis 人物卡 Critical 尾注（在输出纪律之前，抗
+        // Lost-in-the-Middle）
+        if let Some(card) = task
+            .parameters
+            .get("protagonist_card")
+            .and_then(|v| v.as_str())
+        {
+            if !card.trim().is_empty() {
+                final_prompt.push_str("\n\n");
+                final_prompt.push_str(card);
+            }
+        }
         // 追加输出纪律段：约束模型只输出纯小说正文，禁止元评论/markdown/批注。
         // 配合 sanitize_novel_output 后处理兜底，双重防线避免正文混入提示词泄漏。
         final_prompt.push_str(NOVEL_OUTPUT_DISCIPLINE);

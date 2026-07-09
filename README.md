@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.44-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.45-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.44 Genesis 首章质量——开篇骨架步 + 概念加厚 + 策略中文化 + 四元组接入，解决「先写正文、戏剧槽位为空」的时序倒置。
+**最新动态**：v0.26.45 Genesis 人物卡强制落地——开篇必须出现真名，并让读者知道主角要什么、阻力是什么（零新 LLM）。
+
+**上一版 v0.26.44** Genesis 首章质量——开篇骨架步 + 概念加厚 + 策略中文化 + 四元组接入。
 
 **上一版 v0.26.43** 修复底部「准备上下文」前图标显示为方框——改用 Lucide SVG，不再依赖 WebView emoji 字体。
 

@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.44 项目完成状态
+# StoryForge (草苔) v0.26.45 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.44 Genesis 开篇骨架与提示词加厚）
+> 最后更新: 2026-07-09（v0.26.45 Genesis 人物卡强制落地）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.45 — Genesis 人物卡强制落地（姓名 + 欲望/阻力）（2026-07-09）
+
+- ProtagonistCard 双重注入 + 三信号探针 + 软重试；零新 LLM。
+- ✅ **验证**：narrative 61；protagonist_card 6。
 
 ### v0.26.44 — Genesis 首章质量：开篇骨架与提示词加厚（2026-07-09）
 

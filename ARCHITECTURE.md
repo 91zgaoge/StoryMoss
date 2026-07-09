@@ -1,5 +1,7 @@
-# StoryForge (草苔) v0.26.44 架构文档
+# StoryForge (草苔) v0.26.45 架构文档
 
+> **v0.26.45**：Genesis 人物卡（`ProtagonistCard`）双重注入 first_scene + TriShot Call3；规则探针真名/欲望/阻力；与 8% 自重复共享一次软重试。
+>
 > **v0.26.44**：Genesis quick_phase 四步「概念 → 策略 → 开篇骨架 → 撰写开篇」。`OpeningSkeletonStep` 在写正文前填充戏剧槽位（≤10s fail-open）；概念字段加厚；策略选择后启发式注入叙事四元组；TriShot 占位角色取自骨架。
 >
 > **v0.26.43**：幕前底部状态栏用 `StatusIcon`（Lucide）渲染阶段图标，不再嵌入 emoji（WebView 缺字会显示 □□）。

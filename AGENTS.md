@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.44
+- **版本**: v0.26.45
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,11 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.45 — Genesis 人物卡强制落地（姓名 + 欲望/阻力）
+
+- **人物卡**：merge/render/probe 纯函数；first_scene + Call3 双重注入；真名≥80%、欲/阻信号探针；软重试 fail-open。
+- **验证**：narrative 61；protagonist_card 6。
 
 ### v0.26.44 — Genesis 首章质量：开篇骨架与提示词加厚
 
@@ -279,7 +284,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.44_
+_最后更新: 2026-07-09 - v0.26.45_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

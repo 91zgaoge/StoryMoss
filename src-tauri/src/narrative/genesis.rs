@@ -1252,6 +1252,68 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             );
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
+
+            // v0.26.45: 合并人物卡（骨架 ∪ 概念），双重注入 first_scene + Call3
+            let skeleton_hints =
+                ctx.opening_skeleton
+                    .as_ref()
+                    .map(|sk| crate::narrative::SkeletonHints {
+                        name: {
+                            let n = sk.protagonist.name.trim();
+                            if n.is_empty() {
+                                None
+                            } else {
+                                Some(n.to_string())
+                            }
+                        },
+                        goal: {
+                            let g = sk.protagonist.goal.trim();
+                            if g.is_empty() {
+                                None
+                            } else {
+                                Some(g.to_string())
+                            }
+                        },
+                        obstacle: {
+                            let o = sk.protagonist.obstacle.trim();
+                            if o.is_empty() {
+                                None
+                            } else {
+                                Some(o.to_string())
+                            }
+                        },
+                        dramatic_goal: {
+                            let d = sk.scene.dramatic_goal.trim();
+                            if d.is_empty() {
+                                None
+                            } else {
+                                Some(d.to_string())
+                            }
+                        },
+                    });
+            let protagonist_card =
+                crate::narrative::merge_protagonist_card(&meta, skeleton_hints.as_ref());
+            let card_text = protagonist_card
+                .as_ref()
+                .map(crate::narrative::render_protagonist_card)
+                .unwrap_or_default();
+            if let Some(logger) = ctx
+                .app_handle
+                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+            {
+                logger.info(
+                    "genesis.protagonist_card.merged",
+                    "开篇人物卡已合并",
+                    Some(serde_json::json!({
+                        "has_card": protagonist_card.is_some(),
+                        "name_len": protagonist_card.as_ref().map(|c| c.name.chars().count()).unwrap_or(0),
+                        "desire_len": protagonist_card.as_ref().and_then(|c| c.desire.as_ref()).map(|d| d.chars().count()).unwrap_or(0),
+                        "obstacle_len": protagonist_card.as_ref().and_then(|c| c.obstacle.as_ref()).map(|o| o.chars().count()).unwrap_or(0),
+                        "source": protagonist_card.as_ref().map(|c| c.source),
+                    })),
+                );
+            }
+
             // Phase 4: 使用场景优先模板替代旧章级模板
             let chapter_prompt = first_scene_prompt(
                 &meta.title,
@@ -1260,6 +1322,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 &meta.pacing,
                 &meta.description,
                 &meta.themes.join(", "),
+                &card_text,
                 &scene_dramatic_goal,
                 &scene_conflict_type,
                 &scene_external_pressure,
@@ -1280,27 +1343,18 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 Some(&ctx.pool),
             );
             let mut parameters = HashMap::new();
-            if let Some(sk) = ctx.opening_skeleton.as_ref() {
-                if !sk.protagonist.name.trim().is_empty() {
-                    parameters.insert(
-                        "placeholder_protagonist_name".to_string(),
-                        serde_json::Value::String(sk.protagonist.name.clone()),
-                    );
-                }
-                if !sk.protagonist.goal.trim().is_empty() {
-                    parameters.insert(
-                        "placeholder_protagonist_goal".to_string(),
-                        serde_json::Value::String(sk.protagonist.goal.clone()),
-                    );
-                }
-            } else if let Some(name) = meta.protagonist_name.as_ref() {
-                if !name.trim().is_empty() {
-                    parameters.insert(
-                        "placeholder_protagonist_name".to_string(),
-                        serde_json::Value::String(name.clone()),
-                    );
-                }
-                if let Some(desire) = meta.protagonist_desire.as_ref() {
+            if !card_text.is_empty() {
+                parameters.insert(
+                    "protagonist_card".to_string(),
+                    serde_json::Value::String(card_text.clone()),
+                );
+            }
+            if let Some(ref card) = protagonist_card {
+                parameters.insert(
+                    "placeholder_protagonist_name".to_string(),
+                    serde_json::Value::String(card.name.clone()),
+                );
+                if let Some(desire) = card.desire.as_ref().or(card.scene_goal.as_ref()) {
                     parameters.insert(
                         "placeholder_protagonist_goal".to_string(),
                         serde_json::Value::String(desire.clone()),
@@ -1378,6 +1432,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let cleaned_chars = cleaned_content.chars().count();
             let trim_ratio = compute_trim_ratio(raw_chars, cleaned_chars);
 
+            let mut extra_call3_used = false;
             if should_retry_self_repetition(trim_ratio, raw_chars) {
                 log::warn!(
                     "[Genesis-DIAG] self-repetition detected (ratio={:.2}, raw={} chars, cleaned={} chars), retrying with anti-repeat prompt",
@@ -1401,7 +1456,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     );
                 }
 
-                let mut retry_task = task_for_retry;
+                let mut retry_task = task_for_retry.clone();
                 retry_task.id = Uuid::new_v4().to_string();
                 retry_task.input.push_str(
                     "\n\n【绝对禁止 — 上一版违反了以下纪律，本次必须严格遵守】\n\
@@ -1414,6 +1469,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 
                 match orchestrator.generate(retry_task, genesis_mode).await {
                     Ok(retry_workflow_result) => {
+                        extra_call3_used = true;
                         let retry_raw = retry_workflow_result.final_content;
                         let retry_cleaned =
                             crate::utils::text::TextUtils::trim_self_repetition(&retry_raw);
@@ -1466,6 +1522,76 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                         raw_content.len(),
                         result.content.len()
                     );
+                }
+            }
+
+            // v0.26.45: 人物卡探针（真名 + 欲望/阻力信号）；与自重复共享「最多一次额外
+            // Call3」
+            if let Some(ref card) = protagonist_card {
+                let probe = crate::narrative::probe_protagonist_card(&result.content, card);
+                if let Some(logger) = ctx
+                    .app_handle
+                    .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+                {
+                    logger.info(
+                        "genesis.protagonist_card.probe",
+                        "开篇人物卡探针",
+                        Some(serde_json::json!({
+                            "name_hit": probe.name_hit,
+                            "desire_hit": probe.desire_hit,
+                            "obstacle_hit": probe.obstacle_hit,
+                            "generic_label_hit": probe.generic_label_hit,
+                            "content_chars": result.content.chars().count(),
+                        })),
+                    );
+                }
+                if !extra_call3_used
+                    && crate::narrative::should_soft_retry_protagonist_card(&probe, card)
+                {
+                    let mut retry_task = task_for_retry;
+                    retry_task.id = Uuid::new_v4().to_string();
+                    retry_task
+                        .input
+                        .push_str(&crate::narrative::anti_empty_retry_directive(card));
+                    match orchestrator.generate(retry_task, genesis_mode).await {
+                        Ok(retry_workflow_result) => {
+                            let retry_raw = retry_workflow_result.final_content;
+                            let retry_cleaned =
+                                crate::utils::text::TextUtils::trim_self_repetition(&retry_raw);
+                            let retry_probe =
+                                crate::narrative::probe_protagonist_card(&retry_cleaned, card);
+                            let adopt = retry_probe.name_hit
+                                && (!probe.name_hit
+                                    || (i32::from(retry_probe.desire_hit)
+                                        + i32::from(retry_probe.obstacle_hit))
+                                        >= (i32::from(probe.desire_hit)
+                                            + i32::from(probe.obstacle_hit)));
+                            if let Some(logger) = ctx
+                                .app_handle
+                                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+                            {
+                                logger.info(
+                                    "genesis.protagonist_card.retry",
+                                    "人物卡软重试完成",
+                                    Some(serde_json::json!({
+                                        "adopted": adopt,
+                                        "retry_name_hit": retry_probe.name_hit,
+                                        "retry_desire_hit": retry_probe.desire_hit,
+                                        "retry_obstacle_hit": retry_probe.obstacle_hit,
+                                    })),
+                                );
+                            }
+                            if adopt {
+                                result.content = retry_cleaned;
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[Genesis-DIAG] protagonist_card soft retry failed (non-blocking): {}",
+                                e
+                            );
+                        }
+                    }
                 }
             }
 

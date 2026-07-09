@@ -29,12 +29,19 @@ pub mod litseg_pipeline;
 pub mod pipeline;
 pub mod progress;
 pub mod prompts;
+pub mod protagonist_card;
 pub mod search;
 pub mod segment;
 pub mod structure;
 pub mod structure_analyzer;
 pub mod thread;
 pub mod thread_tracker;
+
+pub use protagonist_card::{
+    anti_empty_retry_directive, merge_protagonist_card, probe_protagonist_card,
+    render_protagonist_card, should_soft_retry_protagonist_card, ProtagonistCard,
+    ProtagonistProbeResult, SkeletonHints,
+};
 
 /// 剥离推理模型在正文前输出的「思考链」块。
 ///
