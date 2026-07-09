@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.48 项目完成状态
+# StoryForge (草苔) v0.26.49 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.48 自动更新修复；v0.26.47 fmt）
+> 最后更新: 2026-07-09（v0.26.49 续写硬锚点；v0.26.48 自动更新）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.49 — 修复续写与正文脱节（末句硬锚点）（2026-07-09）
+
+- Call3/TimeSliced prompt 最末尾注入末 2 句硬锚点，覆盖开场大纲。
+- ✅ **验证**：ending_anchor 3 passed。
 
 ### v0.26.48 — 修复自动更新：GitHub Releases + latest.json（2026-07-09）
 

@@ -1,8 +1,12 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.48)
+# 🧪 StoryForge 自动化测试环境 (v0.26.49)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.49 变更说明
+
+- `agents::orchestrator`：`last_n_sentences` / `build_ending_anchor` / 纪律后置序契约 3 passed。
 
 ### v0.26.48 变更说明
 

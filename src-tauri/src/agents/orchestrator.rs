@@ -984,21 +984,27 @@ impl AgentOrchestrator {
         trace.log_prompt_coverage(bundle.prompt_coverage());
         // v0.23.64: 注入前文回顾，让 Writer 能看到之前写过的正文（根因：此前
         // TimeSliced 完全不传 current_content，Writer 每次生成全新故事）
+        let current_content_for_ctx = task
+            .parameters
+            .get("current_content")
+            .and_then(|v| v.as_str());
         let continuation_ctx = build_continuation_context(
             pool.inner(),
             &task.context.story.story_id,
             chapter_number,
-            task.parameters
-                .get("current_content")
-                .and_then(|v| v.as_str()),
+            current_content_for_ctx,
         );
+        // v0.26.49: 末句硬锚点放在 prompt 最末尾，抗 Lost-in-the-Middle
+        // （creative_workflow.log 2026-07-09：续写另起「黑暗中荧幕」开篇，
+        // 与章末「继续前进找线索」完全脱节）。
+        let ending_anchor = build_ending_anchor(current_content_for_ctx);
         let user_instruction = if task.input.trim().is_empty() {
             "请续写下一段正文。".to_string()
         } else {
             task.input.clone()
         };
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        let prompt = if let Some(tpl) =
+        let mut prompt = if let Some(tpl) =
             crate::prompts::registry::resolve_prompt(pool.inner(), "orchestrator_timesliced_writer")
                 .ok()
                 .or_else(|| {
@@ -1020,6 +1026,9 @@ impl AgentOrchestrator {
                  请直接输出正文，不要写说明、标题或分章标记。"
             )
         };
+        if !ending_anchor.is_empty() {
+            prompt.push_str(&ending_anchor);
+        }
 
         self.emit_generation_status(
             &task.id,
@@ -1603,6 +1612,9 @@ impl AgentOrchestrator {
         // v0.23.64: 非创世第一章时注入前文回顾，让 Writer 能看到之前写过的正文。
         // 此前 TriShot 路径的 current_content 只给 Call 1 做 600 字意图检测，
         // Call 3 Writer 完全看不到原始正文 → 续写生成全新故事。
+        //
+        // v0.26.49: 尾部预览仍注入中段作背景；末句硬锚点延后到输出纪律之后，
+        // 保证模型最后读到的是「从哪一句接着写」。
         if !is_genesis_first_chapter {
             let continuation_ctx = build_continuation_context(
                 pool.inner(),
@@ -1652,6 +1664,22 @@ impl AgentOrchestrator {
         // 追加输出纪律段：约束模型只输出纯小说正文，禁止元评论/markdown/批注。
         // 配合 sanitize_novel_output 后处理兜底，双重防线避免正文混入提示词泄漏。
         final_prompt.push_str(NOVEL_OUTPUT_DISCIPLINE);
+        // v0.26.49: 续写末句硬锚点必须在 prompt 最末尾（在输出纪律之后），
+        // 覆盖 WriteTimeBundle 里「开场建立处境」等开篇指令，防止另起炉灶。
+        if !is_genesis_first_chapter {
+            let ending_anchor = build_ending_anchor(current_content_preview);
+            if !ending_anchor.is_empty() {
+                final_prompt.push_str(&ending_anchor);
+                self.workflow_log(
+                    "trishot.call3.ending_anchor",
+                    "已注入续写末句硬锚点",
+                    Some(serde_json::json!({
+                        "task_id": task.id,
+                        "anchor_chars": ending_anchor.chars().count(),
+                    })),
+                );
+            }
+        }
         let call3_request_id = uuid::Uuid::new_v4().to_string();
         // v0.23.15: Call 3 超时覆盖——按剩余预算计算，最少 30s 最多 120s，
         // 避免跑满 profile.timeout_seconds（用户可能设 300s）导致前端先超时。
@@ -3506,6 +3534,79 @@ fn first_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
     Some(result)
 }
 
+/// 从文本末尾提取最后 n 个句子（按中英文句末标点切分）。
+///
+/// 契约：用于续写硬锚点——模型必须从这些句子之后接着写，不得另起开篇。
+/// 无句末标点时回退为末尾 `max_chars` 字符。
+pub(crate) fn last_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || n == 0 {
+        return None;
+    }
+
+    let delimiters: &[char] = &['。', '？', '！', '.', '?', '!'];
+    let mut ends: Vec<usize> = Vec::new();
+    for (i, c) in trimmed.char_indices() {
+        if delimiters.contains(&c) {
+            ends.push(i + c.len_utf8());
+        }
+    }
+
+    let slice = if ends.is_empty() {
+        let total = trimmed.chars().count();
+        if total > max_chars {
+            trimmed.chars().skip(total - max_chars).collect::<String>()
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        let take = n.min(ends.len());
+        let start_byte = if take >= ends.len() {
+            0
+        } else {
+            ends[ends.len() - take - 1]
+        };
+        // 若 start_byte 落在上一句末标点之后，跳过空白
+        let rest = trimmed[start_byte..].trim_start();
+        let total = rest.chars().count();
+        if total > max_chars {
+            rest.chars().skip(total - max_chars).collect::<String>()
+        } else {
+            rest.to_string()
+        }
+    };
+
+    let out = slice.trim();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.to_string())
+    }
+}
+
+/// 续写末句硬锚点——必须追加在 Call3 / TimeSliced prompt **最末尾**。
+///
+/// 根因（creative_workflow.log 2026-07-09 05:48）：WriteTimeBundle 含
+/// 「开场建立处境」等开篇指令，前文回顾夹在中段（Lost-in-the-Middle），
+/// Writer 另起「黑暗中荧幕」开篇，与章末「继续前进找线索」完全脱节。
+///
+/// 契约：有正文时返回非空锚点；空正文返回空串。
+pub(crate) fn build_ending_anchor(current_content: Option<&str>) -> String {
+    let Some(content) = current_content.map(str::trim).filter(|s| !s.is_empty()) else {
+        return String::new();
+    };
+    let Some(last) = last_n_sentences(content, 2, 280) else {
+        return String::new();
+    };
+    format!(
+        "\n\n【续写硬锚点（最高优先级，覆盖上方任何「开场/开篇」指令）】\n\
+         正文已写到此处，你必须从下一句无缝衔接，禁止另起开篇、禁止重写醒来/失忆/初入场景。\n\
+         ——已有正文末句——\n\
+         {last}\n\
+         ——请紧接上句继续写（可换段，但人物/地点/目标/未决问题必须承接）——"
+    )
+}
+
 /// 构建续写上下文：分层历史摘要 + 当前章尾部预览。
 ///
 /// 解决"Writer LLM 看不到前文正文"的根因——TimeSliced/TriShot 路径绕过
@@ -3518,6 +3619,7 @@ fn first_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
 /// - 当前场景：完整尾部预览（2000 字）
 ///
 /// 明确标注"请衔接续写，不要重复已有内容"。
+/// 末句硬锚点见 [`build_ending_anchor`]（单独追加到 prompt 最末尾）。
 fn build_continuation_context(
     pool: &crate::db::DbPool,
     story_id: &str,
@@ -4412,5 +4514,65 @@ mod tests {
     fn test_first_n_sentences_returns_none_for_empty() {
         assert!(first_n_sentences("", 1, 120).is_none());
         assert!(first_n_sentences("   ", 1, 120).is_none());
+    }
+
+    #[test]
+    fn test_last_n_sentences_takes_ending() {
+        let text = "第一章开始。主角登场。发生了一件大事。随后进入第二章。最后收尾。";
+        let last2 = last_n_sentences(text, 2, 300).unwrap();
+        assert!(last2.contains("随后进入第二章。"));
+        assert!(last2.contains("最后收尾。"));
+        assert!(!last2.contains("第一章开始"));
+    }
+
+    #[test]
+    fn test_build_ending_anchor_contains_last_sentences_and_priority() {
+        // 复现 2026-07-09 续写脱节：章末是「继续前进找线索」，模型另起「黑暗中荧幕」
+        let body = "韩瑞醒来的时候，已经不知道自己姓甚名谁了。他只是知道自己身处一个陌生的宇宙空间。\
+显示着宇宙的景象，这让他感到震惊。他不知道自己是谁，也不知道自己身处何地，但他知道自己需要找到答案。\
+这个机体仿佛成了他的唯一依靠，只有通过它，他才能找到自己和拯救家人。\
+但是，怎样才能找到家人呢？他不知道答案，只能继续前进，希望找到一些线索。";
+        let anchor = build_ending_anchor(Some(body));
+        assert!(!anchor.is_empty());
+        assert!(
+            anchor.contains("续写硬锚点"),
+            "must declare hard-anchor section"
+        );
+        assert!(
+            anchor.contains("最高优先级"),
+            "must override opening-scene instructions"
+        );
+        assert!(
+            anchor.contains("继续前进") || anchor.contains("线索"),
+            "must include chapter-ending sentences: {anchor}"
+        );
+        assert!(
+            !anchor.contains("韩瑞醒来的时候"),
+            "must not dump chapter opening into ending anchor"
+        );
+        // 空正文无锚点
+        assert!(build_ending_anchor(None).is_empty());
+        assert!(build_ending_anchor(Some("   ")).is_empty());
+    }
+
+    #[test]
+    fn test_ending_anchor_appended_after_discipline_in_prompt_shape() {
+        // 契约：硬锚点必须出现在输出纪律之后（prompt 最末尾），否则 Lost-in-the-Middle
+        let body = "他只能继续前进，希望找到一些线索。";
+        let mut prompt = String::from("【场景大纲】开场建立处境\n");
+        prompt.push_str("【前文回顾】\n尾部预览...\n");
+        prompt.push_str(NOVEL_OUTPUT_DISCIPLINE);
+        let anchor = build_ending_anchor(Some(body));
+        prompt.push_str(&anchor);
+        let disc_pos = prompt.find("【输出纪律").expect("discipline");
+        let anchor_pos = prompt.find("【续写硬锚点").expect("anchor");
+        assert!(
+            anchor_pos > disc_pos,
+            "ending anchor must follow output discipline (Lost-in-the-Middle defense)"
+        );
+        assert!(
+            prompt.trim_end().ends_with('—') || prompt.contains("请紧接上句继续写"),
+            "prompt must end on the hard-anchor instruction"
+        );
     }
 }

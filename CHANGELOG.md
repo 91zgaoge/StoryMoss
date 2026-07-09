@@ -2,6 +2,18 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.49] - 修复续写与正文脱节（末句硬锚点）（2026-07-09）
+
+### 修复
+
+- **根因**（`creative_workflow.log` 2026-07-09 05:48）：续写 Call3 提示词中 WriteTimeBundle 含「开场建立处境」等开篇指令，前文回顾夹在中段（Lost-in-the-Middle），模型另起「黑暗中荧幕」开篇，与章末「继续前进找线索」完全脱节。
+- **修复**：`build_ending_anchor` 提取正文末 2 句，追加到 TriShot Call3 / TimeSliced prompt **最末尾**（输出纪律之后），声明最高优先级并覆盖开场指令；`trishot.call3.ending_anchor` 可观测。
+
+### 验证
+
+- `cargo test --lib agents::orchestrator::tests::test_last_n_sentences` / `test_build_ending_anchor` / `test_ending_anchor` 3 passed
+- `cargo +nightly fmt -- --check` ✅
+
 ## [v0.26.48] - 修复自动更新：GitHub Releases + latest.json（2026-07-09）
 
 ### 修复

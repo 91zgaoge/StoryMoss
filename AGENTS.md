@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.48
+- **版本**: v0.26.49
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,11 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.49 — 修复续写与正文脱节（末句硬锚点）
+
+- Call3/TimeSliced 在 prompt 最末尾注入末 2 句硬锚点，覆盖「开场」类大纲指令；抗 Lost-in-the-Middle。
+- **验证**：ending_anchor 相关 3 passed。
 
 ### v0.26.48 — 修复自动更新（GitHub Releases + latest.json）
 
@@ -300,7 +305,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.48_
+_最后更新: 2026-07-09 - v0.26.49_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
