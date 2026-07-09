@@ -54,6 +54,7 @@ export interface Draft {
   id: string;
   story_id: string;
   chapter_number: number;
+  scene_id?: string;
   version: number;
   status: DraftStatus;
   source: DraftSource;

@@ -258,6 +258,7 @@ tauri::generate_handler![
     // Memory commands
     commands::memory::build_memory_pack,
     commands::memory::get_memory_items,
+    commands::memory::get_story_memory_facts,
     commands::memory::create_memory_item,
     // Reading Power commands
     commands::reading_power::evaluate_reading_power,

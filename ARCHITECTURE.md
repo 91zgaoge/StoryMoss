@@ -1,9 +1,10 @@
-# StoryForge (草苔) v0.26.40 架构文档
+# StoryForge (草苔) v0.26.41 架构文档
 
 > **v0.26.36**：`save_settings` 热重载 LLM 并广播 `app_settings`；字体/主题经 Tauri 事件跨窗口同步；`llm_first_chunk_timeout_secs` 接入适配器。
 
 
 > 本文档反映 v0.26.34 最新架构状态（2026-07-09）
+> **v0.26.41 债清偿**：`drafts.scene_id` + finalize 直写场景；`story_memory_facts` VIEW 统一 KG/记忆读面；`memory_items.kg_entity_id` 可选链接。物理表不 DROP。
 > **v0.26.40 资产闭环**：侧栏 impact 徽章；诊断组默认折叠；MCP→Settings「扩展」；`WriteTimeBundle.related_entity_summaries`（MemoryFacade top-5）；`prompt_coverage` 写入 TraceStore；SceneEditor 内嵌 Pipeline 轨。quality_gate **永不热路径 LLM**。
 > **v0.26.39 幕后信息架构**：侧栏五组；`Insights` 三 Tab；Settings 七→八 Tab（+扩展）；拆书设置就近。
 > **v0.26.38 提示词组合智能化**：`FrameworkSelections` methodology/injectors 回灌；`preview_prompt_composition`；quality_gate 仅日志。

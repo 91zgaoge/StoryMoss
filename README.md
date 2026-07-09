@@ -8,14 +8,14 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.40-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.41-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.40 幕后资产闭环 P0–P3——侧栏生成影响徽章、KG 摘要进默认续写、MCP 降级设置扩展、SceneEditor 管线统一、MemoryFacade、生成链路覆盖率。
+**最新动态**：v0.26.41 清偿两项架构债——管线 Finalize 按 `scene_id` 直写编辑场景；`kg_entities`/`memory_items` 统一读模型（VIEW + 链接列，物理表不 DROP）。
+
+**上一版 v0.26.40** 幕后资产闭环 P0–P3——侧栏生成影响徽章、KG 摘要进默认续写、MCP 降级设置扩展、SceneEditor 管线统一、MemoryFacade、生成链路覆盖率。
 
 **上一版 v0.26.39** 幕后信息架构全面重排——侧栏五组分类、数据洞察合并、设置七 Tab 重组。
-
-**上一版 v0.26.38** 全面修复后台「提示词」面板（展开 Loading、打开目录、导出），并接通 Call 1 框架选择回灌生成路径。
 
 **上一版 v0.26.37** 修复幕前「保存中」常亮与顶部字数不随正文增长——根因是 `update_scene` IPC 参数形状错误，以及 AI 追加路径未刷新字数/未调度自动保存。
 

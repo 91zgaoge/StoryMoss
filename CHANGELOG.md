@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.41] - 记忆统一读模型与 Finalize scene_id 根治（2026-07-09）
+
+### 修复
+
+- **run_finalize 写错场景**：管线贯穿 `scene_id`（drafts 列 + IPC + SceneEditor）；定稿直写编辑中的场景，不再 `chapter_number → scenes.first()`。旧草稿无 scene_id 时回退旧逻辑。
+
+### 增强
+
+- **记忆统一读模型（非破坏）**：V105 `story_memory_facts` VIEW（kg_entities ∪ memory_items）；V106 `memory_items.kg_entity_id` 链接与按名回填；`MemoryFacade::list_unified_facts`；IPC `get_story_memory_facts`；MemoryTab 显示 KG/记忆徽章。物理表不合并、不 DROP。
+
+### 验证
+
+- `cargo test --lib`：701 passed / 2 ignored
+- finalize:: 3；memory::facade 7
+- vitest 261；tsc / format / architecture_guard / verify-ipc-manifest：✅
+
 ## [v0.26.40] - 幕后资产闭环 P0–P3（2026-07-09）
 
 ### 增强

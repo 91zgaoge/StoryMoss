@@ -43,6 +43,18 @@ impl PipelineOrchestrator {
             .map_err(AppError::from)
     }
 
+    /// 获取指定场景当前活跃的管线草稿（最新非归档）
+    pub fn get_active_draft_by_scene(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+    ) -> Result<Option<crate::db::Draft>, AppError> {
+        let repo = DraftRepository::new(self.pool.clone());
+        repo.get_latest_by_scene(story_id, scene_id)
+            .map(|d| d.filter(|draft| draft.status != DraftStatus::Archived))
+            .map_err(AppError::from)
+    }
+
     /// 获取指定章节已定稿的草稿
     pub fn get_finalized_draft(
         &self,
@@ -51,6 +63,17 @@ impl PipelineOrchestrator {
     ) -> Result<Option<crate::db::Draft>, AppError> {
         let repo = DraftRepository::new(self.pool.clone());
         repo.get_finalized_by_chapter(story_id, chapter_number)
+            .map_err(AppError::from)
+    }
+
+    /// 获取指定场景已定稿的草稿
+    pub fn get_finalized_draft_by_scene(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+    ) -> Result<Option<crate::db::Draft>, AppError> {
+        let repo = DraftRepository::new(self.pool.clone());
+        repo.get_finalized_by_scene(story_id, scene_id)
             .map_err(AppError::from)
     }
 

@@ -835,6 +835,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               <PipelinePanel
                 storyId={scene.story_id}
                 chapterNumber={scene.sequence_number}
+                sceneId={scene.id}
                 chapterTitle={formData.title || scene.title}
                 currentContent={formData.content || formData.draft_content || scene.content}
                 onContentChange={handlePipelineContentChange}

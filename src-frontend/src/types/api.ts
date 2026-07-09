@@ -157,6 +157,23 @@ export interface MemoryItem {
   confidence: number;
   status: string;
   updated_at: string;
+  kg_entity_id?: string | null;
+}
+
+export interface UnifiedMemoryFact {
+  id: string;
+  story_id: string;
+  record_kind: 'kg_entity' | 'memory_item' | string;
+  category: string;
+  subject: string | null;
+  field: string | null;
+  value: string;
+  source_chapter: number | null;
+  confidence: number;
+  status: string;
+  updated_at: string;
+  kg_entity_id: string | null;
+  memory_item_id: string | null;
 }
 
 export interface ReadingPowerEvaluation {

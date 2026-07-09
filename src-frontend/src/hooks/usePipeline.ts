@@ -62,7 +62,7 @@ function parseReviewResult(review: PipelineReview | null): ReviewResult | null {
   }
 }
 
-export function usePipeline(storyId: string, chapterNumber: number) {
+export function usePipeline(storyId: string, chapterNumber: number, sceneId?: string) {
   const [state, setState] = useState<PipelineState>({
     phase: 'idle',
     progress: 0,
@@ -85,15 +85,15 @@ export function usePipeline(storyId: string, chapterNumber: number) {
 
   const refreshDrafts = useCallback(async () => {
     try {
-      const drafts = await getStoryChapterDrafts(storyId, chapterNumber);
-      const activeDraft = await getPipelineActiveDraft(storyId, chapterNumber);
+      const drafts = await getStoryChapterDrafts(storyId, chapterNumber, sceneId);
+      const activeDraft = await getPipelineActiveDraft(storyId, chapterNumber, sceneId);
       setState(prev => ({ ...prev, drafts, currentDraft: activeDraft || undefined }));
       return { drafts, activeDraft };
     } catch (e) {
       console.warn('[usePipeline] refreshDrafts failed:', e);
       return { drafts: [] as Draft[], activeDraft: null };
     }
-  }, [storyId, chapterNumber]);
+  }, [storyId, chapterNumber, sceneId]);
 
   const refreshRevisions = useCallback(async (draftId: string) => {
     try {
@@ -168,7 +168,8 @@ export function usePipeline(storyId: string, chapterNumber: number) {
           storyId,
           draftId,
           chapterNumber,
-          chapterTitle
+          chapterTitle,
+          sceneId
         );
         setPhase('completed', '定稿完成，后处理已启动', 100);
 
@@ -184,13 +185,13 @@ export function usePipeline(storyId: string, chapterNumber: number) {
         throw e;
       }
     },
-    [storyId, chapterNumber, setPhase, setError, refreshDrafts]
+    [storyId, chapterNumber, sceneId, setPhase, setError, refreshDrafts]
   );
 
   const repairFinalizeAction = useCallback(async () => {
     setPhase('repairing', '正在修复定稿后处理...', 10);
     try {
-      const result: PipelineResult = await repairFinalize(storyId, chapterNumber);
+      const result: PipelineResult = await repairFinalize(storyId, chapterNumber, sceneId);
       setPhase('completed', '后处理修复完成', 100);
 
       if (result.post_process_run_id) {
@@ -204,7 +205,7 @@ export function usePipeline(storyId: string, chapterNumber: number) {
       setError(`修复失败: ${msg}`);
       throw e;
     }
-  }, [storyId, chapterNumber, setPhase, setError, refreshDrafts]);
+  }, [storyId, chapterNumber, sceneId, setPhase, setError, refreshDrafts]);
 
   const mergeRevisionAction = useCallback(
     async (revisionId: string) => {

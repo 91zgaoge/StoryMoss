@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Brain, Zap } from 'lucide-react';
-import { getMemoryItems, buildMemoryPack } from '@/services/tauri';
-import type { MemoryItem } from '@/services/tauri';
+import { getStoryMemoryFacts, buildMemoryPack } from '@/services/tauri';
+import type { UnifiedMemoryFact } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 interface MemoryTabProps {
@@ -12,11 +12,11 @@ interface MemoryTabProps {
 }
 
 export function MemoryTab({ storyId, selectedChapter }: MemoryTabProps) {
-  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
+  const [memoryItems, setMemoryItems] = useState<UnifiedMemoryFact[]>([]);
 
   const loadMemory = async () => {
     try {
-      const data = await getMemoryItems(storyId);
+      const data = await getStoryMemoryFacts(storyId, 100);
       setMemoryItems(data);
     } catch {
       // silent fail
@@ -55,8 +55,17 @@ export function MemoryTab({ storyId, selectedChapter }: MemoryTabProps) {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {memoryItems.slice(0, 30).map(item => (
-              <div key={item.id} className="p-3 bg-cinema-800 rounded-lg">
-                <div className="flex items-center gap-2 mb-1">
+              <div key={`${item.record_kind}-${item.id}`} className="p-3 bg-cinema-800 rounded-lg">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${
+                      item.record_kind === 'kg_entity'
+                        ? 'bg-emerald-900/60 text-emerald-300'
+                        : 'bg-cinema-700 text-gray-300'
+                    }`}
+                  >
+                    {item.record_kind === 'kg_entity' ? 'KG' : '记忆'}
+                  </span>
                   <span className="text-xs px-2 py-0.5 rounded bg-cinema-700 text-gray-300">
                     {item.category}
                   </span>

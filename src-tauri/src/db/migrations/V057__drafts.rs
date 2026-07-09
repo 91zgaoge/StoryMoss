@@ -28,6 +28,7 @@ impl RustMigration for Migration {
                 id TEXT PRIMARY KEY,
                 story_id TEXT NOT NULL,
                 chapter_number INTEGER NOT NULL,
+                scene_id TEXT,
                 version INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'draft',
                 source TEXT NOT NULL DEFAULT 'write',
@@ -45,6 +46,10 @@ impl RustMigration for Migration {
             )?;
             conn.execute(
                 "CREATE INDEX idx_drafts_story_chapter ON drafts(story_id, chapter_number)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_drafts_story_scene ON drafts(story_id, scene_id)",
                 [],
             )?;
             conn.execute("CREATE INDEX idx_drafts_status ON drafts(status)", [])?;

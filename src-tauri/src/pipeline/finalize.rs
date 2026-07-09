@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tauri::{AppHandle, Manager};
 
 use super::types::*;
@@ -12,10 +10,87 @@ use crate::{
     ports::VectorStore,
 };
 
+/// 将草稿内容写入目标场景。
+///
+/// 优先 `explicit_scene_id` / `draft.scene_id`；旧草稿无 scene_id 时回退
+/// chapter_number → 该章第一个 scene（兼容路径）。
+pub fn write_draft_content_to_scene(
+    pool: &DbPool,
+    story_id: &str,
+    chapter_number: i32,
+    content: &str,
+    word_count: i32,
+    explicit_scene_id: Option<&str>,
+    draft_scene_id: Option<&str>,
+) -> Result<Option<String>, rusqlite::Error> {
+    let chapter_repo = ChapterRepository::new(pool.clone());
+    let scene_repo = SceneRepository::new(pool.clone());
+
+    let target_scene_id = resolve_finalize_target_scene_id(explicit_scene_id, draft_scene_id);
+
+    if let Some(ref sid) = target_scene_id {
+        scene_repo.update(
+            sid,
+            &SceneUpdate {
+                content: Some(content.to_string()),
+                ..Default::default()
+            },
+        )?;
+        if let Ok(chapters) = chapter_repo.get_by_story(story_id) {
+            if let Some(chapter) = chapters
+                .into_iter()
+                .find(|c| c.chapter_number == chapter_number)
+            {
+                let _ = chapter_repo.update(&chapter.id, None, None, Some(word_count));
+            }
+        }
+        return Ok(Some(sid.clone()));
+    }
+
+    // 兼容旧草稿：chapter → first scene
+    if let Ok(chapters) = chapter_repo.get_by_story(story_id) {
+        if let Some(chapter) = chapters
+            .into_iter()
+            .find(|c| c.chapter_number == chapter_number)
+        {
+            let _ = chapter_repo.update(&chapter.id, None, None, Some(word_count));
+            if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
+                if let Some(scene) = scenes.first() {
+                    scene_repo.update(
+                        &scene.id,
+                        &SceneUpdate {
+                            content: Some(content.to_string()),
+                            ..Default::default()
+                        },
+                    )?;
+                    return Ok(Some(scene.id.clone()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// 优先显式 scene_id，其次草稿上的 scene_id。
+pub fn resolve_finalize_target_scene_id(
+    explicit_scene_id: Option<&str>,
+    draft_scene_id: Option<&str>,
+) -> Option<String> {
+    explicit_scene_id
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            draft_scene_id
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        })
+}
+
 /// 执行定稿
 ///
 /// 1. 将 refined/reviewed 草稿状态更新为 finalized
-/// 2. 同步 content 到 chapters 表（向后兼容）
+/// 2. 同步 content 到 scenes 表（优先 scene_id，否则 chapter→first-scene
+///    兼容旧草稿）
 /// 3. 启动 PostProcessPipeline
 pub async fn finalize_draft(
     story_id: &str,
@@ -26,6 +101,7 @@ pub async fn finalize_draft(
     app_handle: &AppHandle,
     callbacks: &dyn PipelineCallbacks,
     vector_store: &dyn VectorStore,
+    scene_id: Option<&str>,
 ) -> Result<String, PipelineError> {
     callbacks.progress("finalize", 0.05);
 
@@ -73,29 +149,17 @@ pub async fn finalize_draft(
 
     callbacks.progress("finalize", 0.2);
 
-    // 3. 同步到 scenes 表（Phase 1: Scene 为内容真相源）
-    let chapter_repo = ChapterRepository::new(pool.clone());
-    let scene_repo = SceneRepository::new(pool.clone());
-    if let Ok(chapters) = chapter_repo.get_by_story(story_id) {
-        if let Some(chapter) = chapters
-            .into_iter()
-            .find(|c| c.chapter_number == draft.chapter_number)
-        {
-            // 更新章元数据（不含 content）
-            let _ = chapter_repo.update(&chapter.id, None, None, Some(draft.word_count));
-            // 内容写入关联 Scene
-            if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
-                if let Some(scene) = scenes.first() {
-                    let _ = scene_repo.update(
-                        &scene.id,
-                        &SceneUpdate {
-                            content: Some(draft.content.clone()),
-                            ..Default::default()
-                        },
-                    );
-                }
-            }
-        }
+    // 3. 同步到 scenes 表（优先显式/草稿 scene_id，否则 chapter→first-scene 兼容）
+    if let Err(e) = write_draft_content_to_scene(
+        pool,
+        story_id,
+        draft.chapter_number,
+        &draft.content,
+        draft.word_count,
+        scene_id,
+        draft.scene_id.as_deref(),
+    ) {
+        log::warn!("[finalize] 写入场景内容失败: {}", e);
     }
 
     callbacks.progress("finalize", 0.3);
@@ -222,5 +286,167 @@ pub async fn finalize_draft(
         callbacks.log("[定稿] 后处理已跳过");
         callbacks.progress("finalize", 1.0);
         Ok(String::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        connection::create_test_pool, CreateStoryRequest, DraftSource, DraftStatus,
+        SceneRepository, SceneUpdate, StoryRepository,
+    };
+
+    fn story_req(title: &str) -> CreateStoryRequest {
+        CreateStoryRequest {
+            title: title.into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        }
+    }
+
+    #[test]
+    fn resolve_prefers_explicit_scene_id() {
+        assert_eq!(
+            resolve_finalize_target_scene_id(Some("scene-b"), Some("scene-a")).as_deref(),
+            Some("scene-b")
+        );
+        assert_eq!(
+            resolve_finalize_target_scene_id(None, Some("scene-a")).as_deref(),
+            Some("scene-a")
+        );
+        assert_eq!(resolve_finalize_target_scene_id(Some(""), None), None);
+    }
+
+    #[test]
+    fn finalize_with_scene_id_updates_only_that_scene() {
+        let pool = create_test_pool().expect("test pool");
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+        let draft_repo = DraftRepository::new(pool.clone());
+
+        let story = story_repo.create(story_req("定稿场景测试")).unwrap();
+        // scene.create 会按 sequence_number 自动建/挂 chapter
+        let scene_a = scene_repo.create(&story.id, 1, Some("场景A")).unwrap();
+        let scene_b = scene_repo.create(&story.id, 2, Some("场景B")).unwrap();
+        let chapter_id = scene_a.chapter_id.clone().expect("scene_a chapter");
+        {
+            let conn = pool.get().unwrap();
+            // 同章多场景：把 B 也挂到 A 的 chapter
+            conn.execute(
+                "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
+                rusqlite::params![&chapter_id, &scene_b.id],
+            )
+            .unwrap();
+        }
+        scene_repo
+            .update(
+                &scene_a.id,
+                &SceneUpdate {
+                    content: Some("A原内容".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        scene_repo
+            .update(
+                &scene_b.id,
+                &SceneUpdate {
+                    content: Some("B原内容".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let draft = draft_repo
+            .create(
+                &story.id,
+                1,
+                1,
+                DraftStatus::Reviewed,
+                DraftSource::Write,
+                "定稿写入B",
+                5,
+                None,
+                None,
+                None,
+                Some(&scene_b.id),
+            )
+            .unwrap();
+
+        let written = write_draft_content_to_scene(
+            &pool,
+            &story.id,
+            1,
+            &draft.content,
+            draft.word_count,
+            Some(&scene_b.id),
+            draft.scene_id.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(written.as_deref(), Some(scene_b.id.as_str()));
+
+        let a_after = scene_repo.get_by_id(&scene_a.id).unwrap().unwrap();
+        let b_after = scene_repo.get_by_id(&scene_b.id).unwrap().unwrap();
+        assert_eq!(a_after.content.as_deref(), Some("A原内容"));
+        assert_eq!(b_after.content.as_deref(), Some("定稿写入B"));
+
+        let latest = draft_repo
+            .get_latest_by_scene(&story.id, &scene_b.id)
+            .unwrap()
+            .expect("draft by scene");
+        assert_eq!(latest.id, draft.id);
+        assert_eq!(latest.scene_id.as_deref(), Some(scene_b.id.as_str()));
+    }
+
+    #[test]
+    fn finalize_without_scene_id_falls_back_to_first_scene() {
+        let pool = create_test_pool().expect("test pool");
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo.create(story_req("兼容回退")).unwrap();
+        let scene_a = scene_repo.create(&story.id, 1, Some("场景A")).unwrap();
+        let scene_b = scene_repo.create(&story.id, 2, Some("场景B")).unwrap();
+        let chapter_id = scene_a.chapter_id.clone().expect("scene_a chapter");
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
+                rusqlite::params![&chapter_id, &scene_b.id],
+            )
+            .unwrap();
+        }
+        scene_repo
+            .update(
+                &scene_a.id,
+                &SceneUpdate {
+                    content: Some("A原".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        scene_repo
+            .update(
+                &scene_b.id,
+                &SceneUpdate {
+                    content: Some("B原".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let written =
+            write_draft_content_to_scene(&pool, &story.id, 1, "旧草稿内容", 4, None, None).unwrap();
+        assert_eq!(written.as_deref(), Some(scene_a.id.as_str()));
+
+        let a_after = scene_repo.get_by_id(&scene_a.id).unwrap().unwrap();
+        let b_after = scene_repo.get_by_id(&scene_b.id).unwrap().unwrap();
+        assert_eq!(a_after.content.as_deref(), Some("旧草稿内容"));
+        assert_eq!(b_after.content.as_deref(), Some("B原"));
     }
 }

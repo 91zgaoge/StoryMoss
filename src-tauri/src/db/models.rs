@@ -1295,6 +1295,9 @@ pub struct MemoryItem {
     pub confidence: f32,
     pub status: String, // active | archived | conflicting
     pub updated_at: DateTime<Local>,
+    /// Optional link to `kg_entities.id` (V106+). Absent on pre-migration rows.
+    #[serde(default)]
+    pub kg_entity_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1424,6 +1427,9 @@ pub struct Draft {
     pub id: String,
     pub story_id: String,
     pub chapter_number: i32,
+    /// 关联场景 ID；定稿时优先写入该场景，避免 chapter→first-scene 误写。
+    #[serde(default)]
+    pub scene_id: Option<String>,
     pub version: i32,
     pub status: DraftStatus,
     pub source: DraftSource,

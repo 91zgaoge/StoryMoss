@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.40)
+# 🧪 StoryForge 自动化测试环境 (v0.26.41)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.41 变更说明
+
+- finalize scene_id 直写单测 3；MemoryFacade unified facts 7；V104–V106 迁移。
+- `cargo test --lib` 701 passed。
 
 ### v0.26.40 变更说明
 

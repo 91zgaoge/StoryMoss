@@ -20,6 +20,7 @@ import { cn } from '@/utils/cn';
 interface PipelinePanelProps {
   storyId: string;
   chapterNumber: number;
+  sceneId: string;
   chapterTitle?: string;
   currentContent?: string;
   onContentChange?: (content: string) => void;
@@ -28,6 +29,7 @@ interface PipelinePanelProps {
 export const PipelinePanel: React.FC<PipelinePanelProps> = ({
   storyId,
   chapterNumber,
+  sceneId,
   chapterTitle,
   currentContent,
   onContentChange,
@@ -41,7 +43,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
     mergeRevision,
     loadPipelineState,
     refreshDrafts,
-  } = usePipeline(storyId, chapterNumber);
+  } = usePipeline(storyId, chapterNumber, sceneId);
 
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
   const [showDrafts, setShowDrafts] = useState(false);
@@ -54,7 +56,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
     if (storyId) {
       loadPipelineState();
     }
-  }, [storyId, chapterNumber, loadPipelineState]);
+  }, [storyId, chapterNumber, sceneId, loadPipelineState]);
 
   const isBusy = state.phase !== 'idle' && state.phase !== 'completed' && state.phase !== 'failed';
 

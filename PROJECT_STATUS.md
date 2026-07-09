@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.40 项目完成状态
+# StoryForge (草苔) v0.26.41 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.40 幕后资产闭环 P0–P3）
+> 最后更新: 2026-07-09（v0.26.41 记忆统一读模型 + Finalize scene_id）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治（2026-07-09）
+
+- Finalize 按 scene_id 直写；story_memory_facts VIEW + kg_entity_id；表不 DROP。
+- ✅ **验证**：cargo 701；finalize 3；facade 7；vitest 261。
 
 ### v0.26.40 — 幕后资产闭环 P0–P3（2026-07-09）
 

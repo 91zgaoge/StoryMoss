@@ -531,7 +531,7 @@ impl AutomationService {
                 let draft = draft_repo
                     .get_by_id(chapter_id)?
                     .ok_or_else(|| AppError::not_found("Draft", chapter_id))?;
-                (draft.chapter_number, None)
+                (draft.chapter_number, draft.scene_id.clone())
             }
             _ => {
                 return Err(AppError::validation_failed(

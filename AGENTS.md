@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.40
+- **版本**: v0.26.41
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -71,7 +71,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 696 passed / 0 failed / 2 ignored
+- `cargo test --lib` ✅ 701 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
 - `npx vitest run` ✅ 261 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
@@ -80,6 +80,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治
+
+- **Finalize**：`scene_id` 贯穿 drafts/IPC/UI；直写编辑场景。
+- **记忆**：`story_memory_facts` VIEW + `kg_entity_id` 链接；`list_unified_facts`；表不 DROP。
+- **验证**：cargo 701；facade 7；finalize 3；vitest 261。
 
 ### v0.26.40 — 幕后资产闭环 P0–P3
 
@@ -254,7 +260,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.40_
+_最后更新: 2026-07-09 - v0.26.41_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

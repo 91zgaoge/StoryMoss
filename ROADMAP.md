@@ -1,8 +1,16 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.40 资产闭环；v0.26.39 IA；v0.26.38 提示词）
+> 最后更新: 2026-07-09（v0.26.41 记忆统一读 + finalize scene_id；v0.26.40 资产闭环）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治 ✅ (2026-07-09)
+
+- [x] V104 drafts.scene_id；run_finalize / SceneEditor / Frontstage 贯穿 scene_id 直写
+- [x] V105 story_memory_facts VIEW；V106 memory_items.kg_entity_id；MemoryFacade::list_unified_facts
+- [x] get_story_memory_facts IPC + MemoryTab 徽章
+- [ ] 物理表 schema 硬合并（明确不做；读模型已统一）
+- [ ] 前端孤儿 IPC：`auto_write_cancel` / `auto_revise_cancel` / `get_canonical_state`（已 allowlist）
 
 ### 📝 v0.26.40 — 幕后资产闭环 P0–P3 ✅ (2026-07-09)
 
@@ -13,8 +21,8 @@
 - [x] P2 MemoryFacade 统一读模型（表不合并）
 - [x] quality_gate：**明确永不热路径 LLM**（仅日志 / 未来温路径）
 - [x] P3 TracingPanel 资产→prompt 覆盖率
-- [ ] Schema 合并 kg_entities + memory_items（另开 campaign）
-- [ ] `run_finalize` chapter_number ↔ scene_id 根治（另开债）
+- [x] Schema 合并 kg_entities + memory_items → **读模型统一（v0.26.41）**；物理 DROP 不做
+- [x] `run_finalize` chapter_number ↔ scene_id 根治（v0.26.41）
 - [ ] 前端孤儿 IPC：`auto_write_cancel` / `auto_revise_cancel` / `get_canonical_state`（已 allowlist）
 
 ### 📝 v0.26.39 — 幕后信息架构全面重排 ✅ (2026-07-09)
@@ -23,7 +31,7 @@
 - [x] 数据洞察合并（用量/写作/功能使用）
 - [x] 设置七 Tab 重组；拆书设置就近；账号死链修复
 - [x] SceneEditor vs PipelinePanel UI 统一（v0.26.40）
-- [ ] KG 记忆与故事合同记忆 **schema** 合并（读模型已统一，表合并另开）
+- [x] KG 记忆与故事合同记忆 **读模型** 统一（v0.26.41）；schema DROP 不做
 
 ### 📝 v0.26.38 — 提示词面板与组合智能化 ✅ (2026-07-09)
 

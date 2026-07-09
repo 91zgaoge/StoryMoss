@@ -57,6 +57,24 @@ export interface MemoryItem {
   confidence: number;
   status: string;
   updated_at: string;
+  kg_entity_id?: string | null;
+}
+
+/** Unified read model: kg_entities ∪ memory_items */
+export interface UnifiedMemoryFact {
+  id: string;
+  story_id: string;
+  record_kind: 'kg_entity' | 'memory_item' | string;
+  category: string;
+  subject: string | null;
+  field: string | null;
+  value: string;
+  source_chapter: number | null;
+  confidence: number;
+  status: string;
+  updated_at: string;
+  kg_entity_id: string | null;
+  memory_item_id: string | null;
 }
 
 export const buildMemoryPack = (
@@ -74,6 +92,12 @@ export const buildMemoryPack = (
 
 export const getMemoryItems = (storyId: string) =>
   loggedInvoke<MemoryItem[]>('get_memory_items', { story_id: storyId });
+
+export const getStoryMemoryFacts = (storyId: string, limit?: number) =>
+  loggedInvoke<UnifiedMemoryFact[]>('get_story_memory_facts', {
+    story_id: storyId,
+    limit,
+  });
 
 export const createMemoryItem = (params: {
   story_id: string;

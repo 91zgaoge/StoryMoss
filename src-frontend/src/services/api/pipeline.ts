@@ -14,10 +14,11 @@ import type {
 
 // --- Draft (保留前端查询) ---
 
-export const getStoryChapterDrafts = (storyId: string, chapterNumber: number) =>
+export const getStoryChapterDrafts = (storyId: string, chapterNumber: number, sceneId?: string) =>
   loggedInvoke<Draft[]>('get_story_chapter_drafts', {
     story_id: storyId,
     chapter_number: chapterNumber,
+    scene_id: sceneId,
   });
 
 export const getLatestPipelineReview = (draftId: string) =>
@@ -63,25 +64,29 @@ export const runFinalize = (
   storyId: string,
   draftId: string,
   chapterNumber: number,
-  chapterTitle?: string
+  chapterTitle?: string,
+  sceneId?: string
 ) =>
   loggedInvoke<PipelineResult>('run_finalize', {
     story_id: storyId,
     draft_id: draftId,
     chapter_number: chapterNumber,
     chapter_title: chapterTitle,
+    scene_id: sceneId,
   });
 
-export const repairFinalize = (storyId: string, chapterNumber: number) =>
+export const repairFinalize = (storyId: string, chapterNumber: number, sceneId?: string) =>
   loggedInvoke<PipelineResult>('repair_finalize', {
     story_id: storyId,
     chapter_number: chapterNumber,
+    scene_id: sceneId,
   });
 
-export const getPipelineActiveDraft = (storyId: string, chapterNumber: number) =>
+export const getPipelineActiveDraft = (storyId: string, chapterNumber: number, sceneId?: string) =>
   loggedInvoke<Draft | null>('get_pipeline_active_draft', {
     story_id: storyId,
     chapter_number: chapterNumber,
+    scene_id: sceneId,
   });
 
 export const mergeRevision = (revisionId: string) =>

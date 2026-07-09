@@ -22,9 +22,9 @@ vi.mock('../scene-editor/SceneAnnotationPanel', () => ({
 }));
 
 vi.mock('../pipeline/PipelinePanel', () => ({
-  PipelinePanel: (props: { onContentChange?: (content: string) => void }) => (
+  PipelinePanel: (props: { sceneId?: string; onContentChange?: (content: string) => void }) => (
     <div data-testid="pipeline-panel">
-      <span>Finalize 按章节号落盘</span>
+      <span>Finalize scene={props.sceneId}</span>
       <button type="button" onClick={() => props.onContentChange?.('merged-content')}>
         mock-finalize
       </button>
@@ -75,7 +75,7 @@ describe('SceneEditor pipeline rail (P1a)', () => {
 
     expect(screen.getByTestId('scene-editor-pipeline-rail')).toBeInTheDocument();
     expect(screen.getByTestId('pipeline-panel')).toBeInTheDocument();
-    expect(screen.getByText('Finalize 按章节号落盘')).toBeInTheDocument();
+    expect(screen.getByText('Finalize scene=scene-1')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '规划' }));
     expect(screen.queryByTestId('scene-editor-pipeline-rail')).not.toBeInTheDocument();

@@ -432,6 +432,44 @@ impl MemoryItemRepository {
         Self { pool }
     }
 
+    /// Whether `memory_items.kg_entity_id` exists (V106+).
+    fn has_kg_entity_id_column(conn: &rusqlite::Connection) -> bool {
+        conn.prepare("PRAGMA table_info(memory_items)")
+            .and_then(|mut stmt| {
+                let cols = stmt.query_map([], |row| {
+                    let name: String = row.get(1)?;
+                    Ok(name)
+                })?;
+                for col in cols {
+                    if col? == "kg_entity_id" {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })
+            .unwrap_or(false)
+    }
+
+    /// Resolve an active KG entity id by story + exact name (soft: None on
+    /// miss/error).
+    pub fn lookup_kg_entity_id_by_name(
+        &self,
+        story_id: &str,
+        name: &str,
+    ) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.query_row(
+            "SELECT id FROM kg_entities WHERE story_id = ?1 AND name = ?2 AND is_archived = 0 \
+             LIMIT 1",
+            params![story_id, name],
+            |row| row.get(0),
+        )
+        .optional()
+    }
+
     pub fn create(
         &self,
         story_id: &str,
@@ -442,6 +480,29 @@ impl MemoryItemRepository {
         source_chapter: Option<i32>,
         confidence: f32,
     ) -> Result<MemoryItem, rusqlite::Error> {
+        self.create_with_kg_entity(
+            story_id,
+            category,
+            subject,
+            field,
+            value,
+            source_chapter,
+            confidence,
+            None,
+        )
+    }
+
+    pub fn create_with_kg_entity(
+        &self,
+        story_id: &str,
+        category: &str,
+        subject: Option<&str>,
+        field: Option<&str>,
+        value: Option<&str>,
+        source_chapter: Option<i32>,
+        confidence: f32,
+        kg_entity_id: Option<&str>,
+    ) -> Result<MemoryItem, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
@@ -450,23 +511,45 @@ impl MemoryItemRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        conn.execute(
-            "INSERT INTO memory_items (id, story_id, category, subject, field, value, \
-             source_chapter, confidence, status, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
-             ?8, ?9, ?10)",
-            params![
-                &id,
-                story_id,
-                category,
-                subject,
-                field,
-                value,
-                source_chapter,
-                confidence,
-                "active",
-                now.to_rfc3339()
-            ],
-        )?;
+        let has_link = Self::has_kg_entity_id_column(&conn);
+        if has_link {
+            conn.execute(
+                "INSERT INTO memory_items (id, story_id, category, subject, field, value, \
+                 source_chapter, confidence, status, updated_at, kg_entity_id) VALUES (?1, ?2, \
+                 ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    &id,
+                    story_id,
+                    category,
+                    subject,
+                    field,
+                    value,
+                    source_chapter,
+                    confidence,
+                    "active",
+                    now.to_rfc3339(),
+                    kg_entity_id
+                ],
+            )?;
+        } else {
+            conn.execute(
+                "INSERT INTO memory_items (id, story_id, category, subject, field, value, \
+                 source_chapter, confidence, status, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+                 ?7, ?8, ?9, ?10)",
+                params![
+                    &id,
+                    story_id,
+                    category,
+                    subject,
+                    field,
+                    value,
+                    source_chapter,
+                    confidence,
+                    "active",
+                    now.to_rfc3339()
+                ],
+            )?;
+        }
 
         Ok(MemoryItem {
             id,
@@ -479,6 +562,36 @@ impl MemoryItemRepository {
             confidence,
             status: "active".to_string(),
             updated_at: now,
+            kg_entity_id: if has_link {
+                kg_entity_id.map(|s| s.to_string())
+            } else {
+                None
+            },
+        })
+    }
+
+    fn map_memory_item_row(
+        row: &rusqlite::Row<'_>,
+        has_link: bool,
+    ) -> Result<MemoryItem, rusqlite::Error> {
+        let updated_str: String = row.get(9)?;
+        let kg_entity_id = if has_link {
+            row.get::<_, Option<String>>(10)?
+        } else {
+            None
+        };
+        Ok(MemoryItem {
+            id: row.get(0)?,
+            story_id: row.get(1)?,
+            category: row.get(2)?,
+            subject: row.get(3)?,
+            field: row.get(4)?,
+            value: row.get(5)?,
+            source_chapter: row.get(6)?,
+            confidence: row.get(7)?,
+            status: row.get(8)?,
+            updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            kg_entity_id,
         })
     }
 
@@ -488,28 +601,20 @@ impl MemoryItemRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
+        let has_link = Self::has_kg_entity_id_column(&conn);
+        let sql = if has_link {
+            "SELECT id, story_id, category, subject, field, value, source_chapter, confidence, \
+             status, updated_at, kg_entity_id FROM memory_items WHERE story_id = ?1 AND status = \
+             'active' ORDER BY category, source_chapter DESC"
+        } else {
             "SELECT id, story_id, category, subject, field, value, source_chapter, confidence, \
              status, updated_at FROM memory_items WHERE story_id = ?1 AND status = 'active' ORDER \
-             BY category, source_chapter DESC",
-        )?;
+             BY category, source_chapter DESC"
+        };
 
+        let mut stmt = conn.prepare(sql)?;
         let items = stmt
-            .query_map([story_id], |row| {
-                let updated_str: String = row.get(9)?;
-                Ok(MemoryItem {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    category: row.get(2)?,
-                    subject: row.get(3)?,
-                    field: row.get(4)?,
-                    value: row.get(5)?,
-                    source_chapter: row.get(6)?,
-                    confidence: row.get(7)?,
-                    status: row.get(8)?,
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map([story_id], |row| Self::map_memory_item_row(row, has_link))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(items)
@@ -521,27 +626,19 @@ impl MemoryItemRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
+        let has_link = Self::has_kg_entity_id_column(&conn);
+        let sql = if has_link {
             "SELECT id, story_id, category, subject, field, value, source_chapter, confidence, \
-             status, updated_at FROM memory_items WHERE story_id = ?1 AND status = 'conflicting'",
-        )?;
+             status, updated_at, kg_entity_id FROM memory_items WHERE story_id = ?1 AND status = \
+             'conflicting'"
+        } else {
+            "SELECT id, story_id, category, subject, field, value, source_chapter, confidence, \
+             status, updated_at FROM memory_items WHERE story_id = ?1 AND status = 'conflicting'"
+        };
 
+        let mut stmt = conn.prepare(sql)?;
         let items = stmt
-            .query_map([story_id], |row| {
-                let updated_str: String = row.get(9)?;
-                Ok(MemoryItem {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    category: row.get(2)?,
-                    subject: row.get(3)?,
-                    field: row.get(4)?,
-                    value: row.get(5)?,
-                    source_chapter: row.get(6)?,
-                    confidence: row.get(7)?,
-                    status: row.get(8)?,
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map([story_id], |row| Self::map_memory_item_row(row, has_link))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(items)

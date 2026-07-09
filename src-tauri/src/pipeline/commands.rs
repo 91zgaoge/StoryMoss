@@ -264,6 +264,7 @@ pub async fn run_finalize(
     draft_id: String,
     chapter_number: i32,
     chapter_title: Option<String>,
+    scene_id: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     task_service: State<'_, crate::task_system::service::TaskService>,
@@ -277,6 +278,7 @@ pub async fn run_finalize(
         "draft_id": &draft_id,
         "chapter_number": chapter_number,
         "chapter_title": chapter_title,
+        "scene_id": scene_id,
     });
     let task_id = create_pipeline_tracking_task(
         &task_service,
@@ -316,6 +318,7 @@ pub async fn run_finalize(
         &app_handle,
         callbacks,
         vector_store.inner().as_ref(),
+        scene_id.as_deref(),
     )
     .await;
 
@@ -351,6 +354,7 @@ pub async fn run_finalize(
 pub async fn repair_finalize(
     story_id: String,
     chapter_number: i32,
+    scene_id: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     task_service: State<'_, crate::task_system::service::TaskService>,
@@ -358,15 +362,25 @@ pub async fn repair_finalize(
 ) -> Result<PipelineResult, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
 
-    let draft = orchestrator
-        .get_finalized_draft(&story_id, chapter_number)?
-        .ok_or_else(|| AppError::internal("未找到已定稿的草稿"))?;
+    let draft = match scene_id.as_deref() {
+        Some(sid) if !sid.is_empty() => orchestrator
+            .get_finalized_draft_by_scene(&story_id, sid)?
+            .or(orchestrator.get_finalized_draft(&story_id, chapter_number)?),
+        _ => orchestrator.get_finalized_draft(&story_id, chapter_number)?,
+    }
+    .ok_or_else(|| AppError::internal("未找到已定稿的草稿"))?;
+
+    let effective_scene_id = scene_id
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| draft.scene_id.clone());
 
     let payload = serde_json::json!({
         "operation": "finalize",
         "story_id": &story_id,
         "draft_id": &draft.id,
         "chapter_number": chapter_number,
+        "scene_id": effective_scene_id,
     });
     let task_id = create_pipeline_tracking_task(
         &task_service,
@@ -406,6 +420,7 @@ pub async fn repair_finalize(
         &app_handle,
         callbacks,
         vector_store.inner().as_ref(),
+        effective_scene_id.as_deref(),
     )
     .await;
 
@@ -451,9 +466,15 @@ pub async fn get_post_process_status(
 pub async fn get_pipeline_active_draft(
     story_id: String,
     chapter_number: i32,
+    scene_id: Option<String>,
     pool: State<'_, DbPool>,
 ) -> Result<Option<crate::db::Draft>, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
+    if let Some(sid) = scene_id.as_deref().filter(|s| !s.is_empty()) {
+        if let Some(draft) = orchestrator.get_active_draft_by_scene(&story_id, sid)? {
+            return Ok(Some(draft));
+        }
+    }
     orchestrator.get_active_draft(&story_id, chapter_number)
 }
 
@@ -492,11 +513,18 @@ pub async fn get_draft_review_history(
 pub async fn get_story_chapter_drafts(
     story_id: String,
     chapter_number: i32,
+    scene_id: Option<String>,
     pool: State<'_, DbPool>,
 ) -> Result<Vec<crate::db::Draft>, AppError> {
     let repo = DraftRepository::new(pool.inner().clone());
-    repo.get_by_story_chapter(&story_id, chapter_number)
-        .map_err(AppError::from)
+    match scene_id.as_deref() {
+        Some(sid) if !sid.is_empty() => repo
+            .get_by_story_and_scene(&story_id, sid)
+            .map_err(AppError::from),
+        _ => repo
+            .get_by_story_chapter(&story_id, chapter_number)
+            .map_err(AppError::from),
+    }
 }
 
 /// 获取草稿的最新审稿报告

@@ -148,7 +148,14 @@ impl ProjectionWriter for IndexProjectionWriter {
                 None => delta.action.clone(),
             };
 
-            repo.create(
+            // Prefer explicit entity_id from commit; else match by name (V106 link).
+            let kg_entity_id = if !delta.entity_id.is_empty() {
+                Some(delta.entity_id.clone())
+            } else {
+                repo.lookup_kg_entity_id_by_name(story_id, &delta.entity_name)?
+            };
+
+            repo.create_with_kg_entity(
                 story_id,
                 "entity",
                 Some(&delta.entity_name),
@@ -156,6 +163,7 @@ impl ProjectionWriter for IndexProjectionWriter {
                 Some(&value),
                 Some(chapter_number),
                 0.9,
+                kg_entity_id.as_deref(),
             )?;
         }
 

@@ -27,7 +27,8 @@ pub mod tokenizer;
 pub mod writer;
 
 pub use facade::{
-    format_entity_summary, MemoryFacade, DEFAULT_RELATED_ENTITY_LIMIT, ENTITY_DESC_TRUNCATE,
+    format_entity_summary, MemoryFacade, UnifiedMemoryFact, DEFAULT_RELATED_ENTITY_LIMIT,
+    DEFAULT_UNIFIED_FACTS_LIMIT, ENTITY_DESC_TRUNCATE,
 };
 pub use orchestrator::{MemoryOrchestrator, MemoryTaskType};
 pub use tokenizer::CJKTokenizer;

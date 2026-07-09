@@ -89,6 +89,7 @@ struct PipelinePayload {
     review_focus: Option<String>,
     chapter_number: i32,
     chapter_title: Option<String>,
+    scene_id: Option<String>,
 }
 
 fn parse_pipeline_payload(task: &Task) -> Result<PipelinePayload, String> {
@@ -134,6 +135,10 @@ fn parse_pipeline_payload(task: &Task) -> Result<PipelinePayload, String> {
             .unwrap_or(1) as i32,
         chapter_title: payload
             .get("chapter_title")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        scene_id: payload
+            .get("scene_id")
             .and_then(|v| v.as_str())
             .map(String::from),
     })
@@ -218,6 +223,7 @@ impl TaskExecutor for PipelineReviewExecutor {
                     &self.app_handle,
                     &callbacks,
                     self.vector_store.as_ref(),
+                    payload.scene_id.as_deref(),
                 )
                 .await
                 {
@@ -280,6 +286,7 @@ mod tests {
         assert_eq!(payload.review_focus, None);
         assert_eq!(payload.chapter_number, 1);
         assert_eq!(payload.chapter_title, None);
+        assert_eq!(payload.scene_id, None);
     }
 
     #[test]
@@ -341,6 +348,7 @@ mod tests {
         assert_eq!(payload.operation, "finalize");
         assert_eq!(payload.chapter_number, 5);
         assert_eq!(payload.chapter_title, Some("第五章".to_string()));
+        assert_eq!(payload.scene_id, None);
     }
 
     #[test]

@@ -4147,7 +4147,11 @@ const FrontstageApp: React.FC = () => {
     }
     try {
       toast.loading('正在定稿...', { id: 'pipeline-finalize' });
-      const draft = await getPipelineActiveDraft(currentStory.id, currentChapter.chapter_number);
+      const draft = await getPipelineActiveDraft(
+        currentStory.id,
+        currentChapter.chapter_number,
+        useFrontstageStore.getState().sceneId || currentScene?.id || undefined
+      );
       if (!draft) {
         toast.error('当前章节没有活跃草稿', { id: 'pipeline-finalize' });
         return;
@@ -4156,13 +4160,14 @@ const FrontstageApp: React.FC = () => {
         currentStory.id,
         draft.id,
         currentChapter.chapter_number,
-        currentChapter.title
+        currentChapter.title,
+        useFrontstageStore.getState().sceneId || currentScene?.id || undefined
       );
       toast.success('定稿完成，后处理已启动', { id: 'pipeline-finalize' });
     } catch (e: any) {
       toast.error('定稿失败: ' + (e.message || String(e)), { id: 'pipeline-finalize' });
     }
-  }, [currentStory, currentChapter]);
+  }, [currentStory, currentChapter, currentScene]);
 
   // 处理编辑器 Slash 命令
   const handleSlashCommand = useCallback((commandId: string) => {

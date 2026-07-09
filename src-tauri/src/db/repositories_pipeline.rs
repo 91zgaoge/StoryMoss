@@ -237,6 +237,32 @@ impl DraftRepository {
         Self { pool }
     }
 
+    const SELECT_COLS: &'static str = "id, story_id, chapter_number, scene_id, version, status, \
+         source, content, word_count, model_used, cost, metadata, created_at, updated_at";
+
+    fn map_draft_row(row: &rusqlite::Row<'_>) -> Result<Draft, rusqlite::Error> {
+        let status_str: String = row.get(5)?;
+        let source_str: String = row.get(6)?;
+        let created_str: String = row.get(12)?;
+        let updated_str: String = row.get(13)?;
+        Ok(Draft {
+            id: row.get(0)?,
+            story_id: row.get(1)?,
+            chapter_number: row.get(2)?,
+            scene_id: row.get(3)?,
+            version: row.get(4)?,
+            status: status_str.parse().unwrap_or(DraftStatus::Draft),
+            source: source_str.parse().unwrap_or(DraftSource::Write),
+            content: row.get(7)?,
+            word_count: row.get(8)?,
+            model_used: row.get(9)?,
+            cost: row.get(10)?,
+            metadata: row.get(11)?,
+            created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        })
+    }
+
     pub fn create(
         &self,
         story_id: &str,
@@ -249,6 +275,7 @@ impl DraftRepository {
         model_used: Option<&str>,
         cost: Option<f64>,
         metadata: Option<&str>,
+        scene_id: Option<&str>,
     ) -> Result<Draft, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
@@ -259,13 +286,14 @@ impl DraftRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
         conn.execute(
-            "INSERT INTO drafts (id, story_id, chapter_number, version, status, source, content, \
-             word_count, model_used, cost, metadata, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO drafts (id, story_id, chapter_number, scene_id, version, status, source, \
+             content, word_count, model_used, cost, metadata, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 &id,
                 story_id,
                 chapter_number,
+                scene_id,
                 version,
                 status.to_string(),
                 source.to_string(),
@@ -283,6 +311,7 @@ impl DraftRepository {
             id,
             story_id: story_id.to_string(),
             chapter_number,
+            scene_id: scene_id.map(|s| s.to_string()),
             version,
             status,
             source,
@@ -302,35 +331,12 @@ impl DraftRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, version, status, source, content, word_count, \
-             model_used, cost, metadata, created_at, updated_at
-             FROM drafts WHERE id = ?1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE id = ?1",
+            Self::SELECT_COLS
+        ))?;
 
-        let draft = stmt
-            .query_row([id], |row| {
-                let status_str: String = row.get(4)?;
-                let source_str: String = row.get(5)?;
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
-                Ok(Draft {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    chapter_number: row.get(2)?,
-                    version: row.get(3)?,
-                    status: status_str.parse().unwrap_or(DraftStatus::Draft),
-                    source: source_str.parse().unwrap_or(DraftSource::Write),
-                    content: row.get(6)?,
-                    word_count: row.get(7)?,
-                    model_used: row.get(8)?,
-                    cost: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })
-            .optional()?;
+        let draft = stmt.query_row([id], Self::map_draft_row).optional()?;
 
         Ok(draft)
     }
@@ -345,34 +351,38 @@ impl DraftRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, version, status, source, content, word_count, \
-             model_used, cost, metadata, created_at, updated_at
-             FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 ORDER BY version DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 ORDER BY version DESC",
+            Self::SELECT_COLS
+        ))?;
 
         let drafts = stmt
-            .query_map([story_id, chapter_number.to_string().as_str()], |row| {
-                let status_str: String = row.get(4)?;
-                let source_str: String = row.get(5)?;
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
-                Ok(Draft {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    chapter_number: row.get(2)?,
-                    version: row.get(3)?,
-                    status: status_str.parse().unwrap_or(DraftStatus::Draft),
-                    source: source_str.parse().unwrap_or(DraftSource::Write),
-                    content: row.get(6)?,
-                    word_count: row.get(7)?,
-                    model_used: row.get(8)?,
-                    cost: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map(
+                [story_id, chapter_number.to_string().as_str()],
+                Self::map_draft_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(drafts)
+    }
+
+    pub fn get_by_story_and_scene(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+    ) -> Result<Vec<Draft>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND scene_id = ?2 ORDER BY version DESC",
+            Self::SELECT_COLS
+        ))?;
+
+        let drafts = stmt
+            .query_map([story_id, scene_id], Self::map_draft_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(drafts)
@@ -388,34 +398,40 @@ impl DraftRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, version, status, source, content, word_count, \
-             model_used, cost, metadata, created_at, updated_at
-             FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 ORDER BY version DESC LIMIT 1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 \
+             ORDER BY version DESC LIMIT 1",
+            Self::SELECT_COLS
+        ))?;
 
         let draft = stmt
-            .query_row([story_id, chapter_number.to_string().as_str()], |row| {
-                let status_str: String = row.get(4)?;
-                let source_str: String = row.get(5)?;
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
-                Ok(Draft {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    chapter_number: row.get(2)?,
-                    version: row.get(3)?,
-                    status: status_str.parse().unwrap_or(DraftStatus::Draft),
-                    source: source_str.parse().unwrap_or(DraftSource::Write),
-                    content: row.get(6)?,
-                    word_count: row.get(7)?,
-                    model_used: row.get(8)?,
-                    cost: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })
+            .query_row(
+                [story_id, chapter_number.to_string().as_str()],
+                Self::map_draft_row,
+            )
+            .optional()?;
+
+        Ok(draft)
+    }
+
+    pub fn get_latest_by_scene(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+    ) -> Result<Option<Draft>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND scene_id = ?2 \
+             ORDER BY version DESC LIMIT 1",
+            Self::SELECT_COLS
+        ))?;
+
+        let draft = stmt
+            .query_row([story_id, scene_id], Self::map_draft_row)
             .optional()?;
 
         Ok(draft)
@@ -431,35 +447,40 @@ impl DraftRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, version, status, source, content, word_count, \
-             model_used, cost, metadata, created_at, updated_at
-             FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 AND status = 'finalized' \
-             ORDER BY version DESC LIMIT 1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND chapter_number = ?2 AND status = \
+             'finalized' ORDER BY version DESC LIMIT 1",
+            Self::SELECT_COLS
+        ))?;
 
         let draft = stmt
-            .query_row([story_id, chapter_number.to_string().as_str()], |row| {
-                let status_str: String = row.get(4)?;
-                let source_str: String = row.get(5)?;
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
-                Ok(Draft {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    chapter_number: row.get(2)?,
-                    version: row.get(3)?,
-                    status: status_str.parse().unwrap_or(DraftStatus::Finalized),
-                    source: source_str.parse().unwrap_or(DraftSource::Write),
-                    content: row.get(6)?,
-                    word_count: row.get(7)?,
-                    model_used: row.get(8)?,
-                    cost: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })
+            .query_row(
+                [story_id, chapter_number.to_string().as_str()],
+                Self::map_draft_row,
+            )
+            .optional()?;
+
+        Ok(draft)
+    }
+
+    pub fn get_finalized_by_scene(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+    ) -> Result<Option<Draft>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM drafts WHERE story_id = ?1 AND scene_id = ?2 AND status = 'finalized' \
+             ORDER BY version DESC LIMIT 1",
+            Self::SELECT_COLS
+        ))?;
+
+        let draft = stmt
+            .query_row([story_id, scene_id], Self::map_draft_row)
             .optional()?;
 
         Ok(draft)
