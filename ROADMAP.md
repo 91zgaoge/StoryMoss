@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.49 续写硬锚点）
+> 最后更新: 2026-07-09（v0.26.50 打字/假超时）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.50 — 修复打字触发后台运行与深度思考假超时 ✅ (2026-07-09)
+
+- [x] AutoIngest 30s 防抖 + BACKGROUND_LLM_SEMAPHORE
+- [x] AutoContract 不再 emit contract-auto-progress；前端忽略 running
+- [x] backendActivity 不得单独 setIsGenerating(true)
+- [x] isGenerating 超时看门狗强制弹诊断
 
 ### 📝 v0.26.49 — 修复续写与正文脱节（末句硬锚点） ✅ (2026-07-09)
 

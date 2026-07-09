@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.49-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.50-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.49 修复续写与正文脱节——Call3 提示词末尾注入末句硬锚点，覆盖「开场」类大纲，强制从章末接着写。
+**最新动态**：v0.26.50 修复打字触发「后台运行」与「深度思考」假超时——自动保存不再立刻抢模型；超时必弹诊断。
 
 **上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
 

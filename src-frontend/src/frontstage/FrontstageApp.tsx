@@ -825,8 +825,12 @@ const FrontstageApp: React.FC = () => {
               return false;
             }
             if (!prev && target) {
-              startElapsedTimer();
-              return true;
+              // v0.26.50: 后台活动不得单独拉高 isGenerating。
+              // 根因：打字→auto_save→AutoIngest/contract-auto 等进度事件会
+              // 把输入栏禁用成「后台运行」，且无 smart_execute 超时路径，
+              // 「深度思考」可卡死 650s+ 仍不弹诊断。用户入口（续写/创世）
+              // 已显式 setIsGenerating(true)。
+              return prev;
             }
             return prev;
           });
@@ -1264,6 +1268,36 @@ const FrontstageApp: React.FC = () => {
     }
     generationStartTimeRef.current = null;
   }, []);
+
+  // v0.26.50: isGenerating 看门狗——无论是否走 Promise.race，超时后强制结束并弹诊断。
+  // 覆盖：smart_execute 挂死、activity 残留、前端超时未触发等路径。
+  useEffect(() => {
+    if (!isGenerating) return;
+    const timeoutSecs = settings?.frontend_timeout_secs ?? 600;
+    const timeoutMs = Math.max(timeoutSecs, 60) * 1000;
+    const startedAt = diagnosticStartTimeRef.current || Date.now();
+    const remaining = Math.max(1000, timeoutMs - (Date.now() - startedAt));
+    const timer = setTimeout(() => {
+      if (!useGenerationStore.getState().isGenerating) return;
+      const msg = `前端看门狗超时：生成状态已持续超过 ${timeoutSecs} 秒仍未结束。请检查模型服务是否正常，或取消后重试。`;
+      frontstageLogger.error('[isGenerating-watchdog]', { timeoutSecs, msg });
+      logToBackend('frontstage:isGenerating_watchdog', msg, { timeoutSecs });
+      useBackendActivityStore.getState().failAllRunning(msg);
+      smartExecuteInFlightRef.current = false;
+      smartExecuteNeedDiagnosticRef.current = false;
+      stopElapsedTimer();
+      setIsGenerating(false);
+      setGenerationStatus('');
+      setOrchestratorStatus(null);
+      if (!lastGenerationCancelledRef.current) {
+        captureDiagnosticInfo(msg);
+      }
+      invoke('llm_cancel_all_generations').catch(() => {
+        /* best-effort */
+      });
+    }, remaining);
+    return () => clearTimeout(timer);
+  }, [isGenerating, settings?.frontend_timeout_secs, captureDiagnosticInfo, stopElapsedTimer]);
 
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {

@@ -119,6 +119,11 @@ type GenerationStatusPayload = {
   request_id?: string | null;
 };
 
+/** v0.26.50: contract-auto-progress 仅 completed/error 可收尾，running 不得注册 activity */
+export function shouldRegisterContractAutoProgress(stage: string): boolean {
+  return stage === 'completed' || stage === 'error';
+}
+
 /**
  * 统一后台活动监听器
  *
@@ -243,20 +248,32 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       unlistens.push(unlistenGenerationStatus);
 
       // ── 1. 合同/大纲自动补齐 ──
+      // v0.26.50: 后端已停止发射 contract-auto-progress（见 auto_contract.rs）。
+      // 保留监听作兼容：即便旧后端仍发射，也不再注册 running activity，
+      // 避免打字/后台补齐把输入栏禁用成「后台运行」。
       const unlistenContract = await listen<{
         stage: string;
         message: string;
         progress: number;
       }>('contract-auto-progress', event => {
         const p = event.payload;
-        updatePrimary({
-          category: 'contract_fill',
-          stage: p.stage,
-          message: p.message,
-          progress: p.progress,
-          status:
-            p.stage === 'completed' ? 'completed' : p.stage === 'error' ? 'failed' : 'running',
-        });
+        if (!shouldRegisterContractAutoProgress(p.stage)) {
+          // running 阶段：忽略，不拉高 isGenerating
+          return;
+        }
+        // 仅在已有主活动时收尾，不新建 activity
+        const existing = store.activities.find(
+          a => a.id === PRIMARY_ACTIVITY_ID && a.status === 'running'
+        );
+        if (existing && existing.category === 'contract_fill') {
+          updatePrimary({
+            category: 'contract_fill',
+            stage: p.stage,
+            message: p.message,
+            progress: p.progress,
+            status: p.stage === 'completed' ? 'completed' : 'failed',
+          });
+        }
       });
       unlistens.push(unlistenContract);
 

@@ -2,6 +2,22 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.50] - 修复打字触发后台运行与深度思考假超时（2026-07-09）
+
+### 修复
+
+- **根因**（用户日志 2026-07-09 07:25–07:42）：幕前打字自动保存立刻 spawn AutoIngest LLM，与续写抢本地模型；`contract-auto-progress` 仍把 `isGenerating` 拉高；后台活动同步会单独启用输入栏「后台运行」；`smart_execute` 挂死后「深度思考」可超 650s 仍不弹诊断。
+- **AutoIngest 防抖**：`SceneIngestor::spawn_ingest_debounced`（30s，与 auto_commit 同窗）+ `BACKGROUND_LLM_SEMAPHORE`；`update_scene` 改走防抖路径。
+- **合同补齐静默**：`AutoContractBuilder` 不再 emit `contract-auto-progress`；前端 listener 忽略 running 阶段。
+- **活动同步**：`backendActivityStore` 活跃不得单独 `setIsGenerating(true)`；用户入口仍显式置位。
+- **看门狗**：`isGenerating` 超过 `frontend_timeout_secs` 强制结束并弹出诊断卡片。
+
+### 验证
+
+- `cargo test --lib story_system::scene_service::tests` 6 passed
+- `npx vitest run useBackendActivityListener.contract.test.ts` 2 passed
+- `cargo check --lib` ✅
+
 ## [v0.26.49] - 修复续写与正文脱节（末句硬锚点）（2026-07-09）
 
 ### 修复

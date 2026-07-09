@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.49
+- **版本**: v0.26.50
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.50 — 修复打字触发后台运行与深度思考假超时
+
+- **AutoIngest 防抖**：打字自动保存不再立刻抢本地模型（30s + BACKGROUND_LLM_SEMAPHORE）。
+- **合同补齐静默**：不再用 `contract-auto-progress` 拉高 `isGenerating`。
+- **活动同步**：后台活动不得单独禁用输入栏；`isGenerating` 超时看门狗强制弹诊断。
+- **验证**：scene_service 6；contract gate 2。
 
 ### v0.26.49 — 修复续写与正文脱节（末句硬锚点）
 
@@ -305,7 +312,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.49_
+_最后更新: 2026-07-09 - v0.26.50_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

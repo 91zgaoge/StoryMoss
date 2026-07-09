@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.49)
+# 🧪 StoryForge 自动化测试环境 (v0.26.50)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.50 变更说明
+
+- `story_system::scene_service`：AutoIngest 防抖窗口契约 6 passed（含 debounce=commit 同窗）。
+- `useBackendActivityListener.contract`：contract-auto-progress 不得注册 running 2 passed。
 
 ### v0.26.49 变更说明
 

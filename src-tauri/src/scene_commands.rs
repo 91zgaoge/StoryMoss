@@ -26,10 +26,7 @@ use crate::{
     domain::novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
     error::AppError,
     llm::LlmService,
-    memory::{
-        ingest::{IngestContent, IngestPipeline},
-        retention::RetentionManager,
-    },
+    memory::retention::RetentionManager,
     story_system::scene_service::SceneService,
     versions::service::{SceneVersionService, VersionChainNode, VersionDiff, VersionStats},
 };
@@ -227,181 +224,17 @@ pub async fn update_scene(
             AppError::from(format!("[update_scene] spawn_blocking join error: {}", e))
         })??;
 
-    // 自动 Ingest：当场景内容或关键元数据被更新时，后台分析并更新知识图谱
-    let should_ingest = updates.content.is_some()
-        || updates.title.is_some()
-        || updates.dramatic_goal.is_some()
-        || updates.external_pressure.is_some()
-        || updates.conflict_type.is_some()
-        || updates.outline_content.is_some()
-        || updates.draft_content.is_some()
-        || updates.setting_location.is_some()
-        || updates.setting_time.is_some()
-        || updates.setting_atmosphere.is_some();
+    // v0.26.50: AutoIngest 走 SceneIngestor
+    // 防抖路径，避免每次自动保存立刻抢本地模型。 其余副作用（world_building /
+    // scene_updated / automation）仍在下方同步触发。
+    let should_ingest = crate::story_system::scene_service::SceneIngestor::should_ingest(&updates);
     if should_ingest {
-        let pool_clone = pool.inner().clone();
-        let scene_id_clone = scene_id.clone();
-        let app_handle_clone = app_handle.clone();
-        let vector_store_clone = vector_store.inner().clone();
-
-        tauri::async_runtime::spawn(async move {
-            // C2: 全局并发背压，限制同时运行的后台 ingest 任务数量。
-            let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
-                .acquire()
-                .await;
-            if permit.is_err() {
-                log::warn!(
-                    "[AutoIngest] Scene {}: failed to acquire ingest permit",
-                    scene_id_clone
-                );
-                return;
-            }
-            let _permit = permit.unwrap();
-
-            // C2: 场景更新触发的 ingest 不绑定用户 generation request_id，
-            // 但仍传入 CancellationToken 以支持内部优雅退出（无外部取消源）。
-            let cancel_token = tokio_util::sync::CancellationToken::new();
-            let cancel_ref = Some(&cancel_token);
-
-            // 获取场景信息以确定 story_id
-            let scene_repo = SceneRepository::new(pool_clone.clone());
-            if let Ok(Some(scene)) = scene_repo.get_by_id(&scene_id_clone) {
-                let story_id = scene.story_id;
-                let content = scene.content.unwrap_or_default();
-                if content.len() > 50 {
-                    let content_for_vector = content.clone();
-                    let app_handle_for_sync = app_handle_clone.clone();
-                    let llm_service = LlmService::new(app_handle_clone.clone());
-                    let ingest_result = {
-                        let pipeline = IngestPipeline::new(llm_service)
-                            .with_pool(pool_clone.clone())
-                            .with_app_handle(app_handle_clone.clone());
-                        let ingest_content = IngestContent {
-                            text: content,
-                            source: format!("scene:{}", scene_id_clone),
-                            story_id: story_id.clone(),
-                            scene_id: Some(scene_id_clone.clone()),
-                        };
-                        match pipeline
-                            .ingest_with_cancel(&ingest_content, cancel_ref)
-                            .await
-                        {
-                            Ok(result) => Some(result),
-                            Err(e) => {
-                                log::warn!(
-                                    "[AutoIngest] Scene {}: ingest failed: {}",
-                                    scene_id_clone,
-                                    e
-                                );
-                                None
-                            }
-                        }
-                    };
-
-                    if let Some(ingest_result) = ingest_result {
-                        let kg_repo = KnowledgeGraphRepository::new(pool_clone.clone());
-                        // 批量保存实体（保留 Ingest Pipeline 分配的 ID，冲突时更新）
-                        let saved_entities = kg_repo
-                            .save_entities_batch(&ingest_result.entities)
-                            .unwrap_or(0);
-                        let saved_relations = kg_repo
-                            .save_relations_batch(&ingest_result.relations)
-                            .unwrap_or(0);
-
-                        // D1 Phase 4: 提取实体引用索引（entity_mentions）
-                        let mention_repo =
-                            crate::creative_engine::cascade_rewriter::EntityMentionRepository::new(
-                                pool_clone.clone(),
-                            );
-                        let _ = mention_repo.delete_by_scene(&scene_id_clone);
-                        let content_for_search = content_for_vector.clone();
-                        let now = chrono::Utc::now().to_rfc3339();
-                        for entity in &ingest_result.entities {
-                            let entity_name = &entity.name;
-                            let mut start = 0usize;
-                            while let Some(pos) = content_for_search[start..].find(entity_name) {
-                                let absolute_pos = start + pos;
-                                let end_pos = absolute_pos + entity_name.len();
-                                let mention = crate::creative_engine::cascade_rewriter::models::EntityMention {
-                                    id: uuid::Uuid::new_v4().to_string(),
-                                    story_id: story_id.clone(),
-                                    scene_id: scene_id_clone.clone(),
-                                    entity_id: entity.id.clone(),
-                                    entity_type: entity.entity_type.to_string(),
-                                    start_pos: absolute_pos as i32,
-                                    end_pos: end_pos as i32,
-                                    mention_text: entity_name.clone(),
-                                    confidence: 1.0,
-                                    created_at: now.clone(),
-                                    updated_at: now.clone(),
-                                };
-                                if let Err(e) = mention_repo.create(&mention) {
-                                    log::warn!(
-                                        "[AutoIngest] Failed to create entity mention for {} in \
-                                         scene {}: {}",
-                                        entity_name,
-                                        scene_id_clone,
-                                        e
-                                    );
-                                }
-                                start = end_pos;
-                            }
-                        }
-
-                        log::info!(
-                            "[AutoIngest] Scene {}: {} entities, {} relations saved to KG",
-                            scene_id_clone,
-                            saved_entities,
-                            saved_relations
-                        );
-                        let _ = crate::state_sync::StateSync::emit_ingestion_completed(
-                            &app_handle_for_sync,
-                            &story_id,
-                            "scene",
-                        );
-                        let _ = crate::state_sync::StateSync::emit_data_refresh(
-                            &app_handle_for_sync,
-                            Some(&story_id),
-                            "knowledgeGraph",
-                        );
-                        match crate::embeddings::embed_text_async(content_for_vector.clone()).await
-                        {
-                            Ok(embedding) => {
-                                let record = crate::vector::VectorRecord {
-                                    id: format!("scene:{}", scene_id_clone),
-                                    story_id: story_id.clone(),
-                                    chapter_id: scene.chapter_id.clone().unwrap_or_default(),
-                                    chapter_number: scene.sequence_number,
-                                    text: content_for_vector,
-                                    record_type: "scene".to_string(),
-                                    metadata: None,
-                                    embedding,
-                                };
-                                match vector_store_clone.upsert(record).await {
-                                    Ok(_) => log::info!(
-                                        "[AutoIngest] Scene {} indexed to vector store",
-                                        scene_id_clone
-                                    ),
-                                    Err(e) => log::warn!(
-                                        "[AutoIngest] Failed to index scene {}: {}",
-                                        scene_id_clone,
-                                        e
-                                    ),
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "[AutoIngest] Failed to generate embedding for scene {}: \
-                                     {}",
-                                    scene_id_clone,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        crate::story_system::scene_service::SceneIngestor::spawn_ingest_debounced(
+            scene_id.clone(),
+            pool.inner().clone(),
+            app_handle.clone(),
+            vector_store.inner().clone(),
+        );
     }
 
     if let Some(ref story_id) = story_id_opt {

@@ -4,7 +4,7 @@
 //! 生成并保存。
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::{
     db::{
@@ -47,14 +47,18 @@ impl AutoContractBuilder {
     }
 
     fn emit_progress(&self, stage: &str, message: &str, progress: f32) {
-        let _ = self.app_handle.emit(
-            "contract-auto-progress",
-            AutoContractProgress {
-                stage: stage.to_string(),
-                message: message.to_string(),
-                progress,
-            },
+        // v0.26.50: auto_contract 进度不再发射到前端。
+        // 根因：LLM label 已静默，但 contract-auto-progress 仍被
+        // useBackendActivityListener 注册为 running，导致打字/补齐时
+        // isGenerating=true、输入栏禁用，且「深度思考」假超时无诊断。
+        // 进度仅写日志，供排查；前端活动状态由用户主动生成路径驱动。
+        log::info!(
+            "[AutoContract] progress stage={} progress={:.2} msg={}",
+            stage,
+            progress,
+            message
         );
+        let _ = (stage, message, progress);
     }
 
     /// 自动补齐指定故事缺失的合同、角色、场景及场景大纲

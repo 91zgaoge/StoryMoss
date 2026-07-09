@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.26.49 架构文档
+# StoryForge (草苔) v0.26.50 架构文档
 
-> **v0.26.49**：续写连贯——`build_ending_anchor` 将正文末 2 句硬锚点追加到 Call3/TimeSliced prompt **最末尾**（在 `NOVEL_OUTPUT_DISCIPLINE` 之后），覆盖 WriteTimeBundle「开场建立处境」等开篇指令，抗 Lost-in-the-Middle。
+> **v0.26.50**：幕前自动保存 → AutoIngest 改为 30s 防抖并受 `BACKGROUND_LLM_SEMAPHORE` 约束；`contract-auto-progress` 不再驱动 `isGenerating`；`isGenerating` 超时看门狗强制诊断。**v0.26.49**：续写连贯——`build_ending_anchor` 将正文末 2 句硬锚点追加到 Call3/TimeSliced prompt **最末尾**（在 `NOVEL_OUTPUT_DISCIPLINE` 之后），覆盖 WriteTimeBundle「开场建立处境」等开篇指令，抗 Lost-in-the-Middle。
 >
 > **v0.26.48**：自动更新闭环——`bundle.createUpdaterArtifacts=true` 产出签名更新包；端点仍为 GitHub `releases/latest/download/latest.json`；Linux 需 AppImage（deb 仅手动安装）；CI `verify-updater-manifest` 门禁。
 >

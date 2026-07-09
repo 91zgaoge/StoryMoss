@@ -39,6 +39,20 @@ fn get_scene_debounce_map() -> Arc<Mutex<HashMap<String, Instant>>> {
 
 const SCENE_COMMIT_DEBOUNCE_SECS: u64 = 30;
 
+/// v0.26.50: 场景 AutoIngest 防抖（与 auto_commit 同窗口）。
+/// 根因：幕前每次自动保存都立刻 spawn IngestPipeline
+/// LLM，与用户续写抢本地模型， 导致「深度思考」假超时 /
+/// 卡死；打字本身不应触发即时后台 LLM。
+static SCENE_INGEST_DEBOUNCE: OnceLock<Arc<Mutex<HashMap<String, Instant>>>> = OnceLock::new();
+
+fn get_scene_ingest_debounce_map() -> Arc<Mutex<HashMap<String, Instant>>> {
+    SCENE_INGEST_DEBOUNCE
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+const SCENE_INGEST_DEBOUNCE_SECS: u64 = 30;
+
 // ==================== 组件 1: Scene Ingestor ====================
 
 /// 场景内容自动 Ingest 器。
@@ -61,14 +75,88 @@ impl SceneIngestor {
             || updates.setting_atmosphere.is_some()
     }
 
-    /// 启动后台 ingest 任务。
+    /// 启动后台 ingest 任务（立即执行，调用方负责防抖）。
     pub fn spawn_ingest(
         scene_id: String,
         pool: DbPool,
         app_handle: AppHandle,
         vector_store: Arc<dyn VectorStore>,
     ) {
+        Self::spawn_ingest_now(scene_id, pool, app_handle, vector_store);
+    }
+
+    /// v0.26.50: 防抖后启动 ingest——停止输入 SCENE_INGEST_DEBOUNCE_SECS
+    /// 后才跑。
+    pub fn spawn_ingest_debounced(
+        scene_id: String,
+        pool: DbPool,
+        app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
+    ) {
+        let scheduled_time = Instant::now();
+        {
+            let debounce_arc = get_scene_ingest_debounce_map();
+            let mut debounce = debounce_arc.lock().unwrap_or_else(|e| e.into_inner());
+            debounce.insert(scene_id.clone(), scheduled_time);
+            debounce.retain(|_, last_time| {
+                Instant::now().duration_since(*last_time) < Duration::from_secs(24 * 3600)
+            });
+        }
+
+        let debounce_map = get_scene_ingest_debounce_map();
+        let scene_id_for_ingest = scene_id;
         tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(SCENE_INGEST_DEBOUNCE_SECS)).await;
+            let should_run = {
+                let debounce = debounce_map.lock().unwrap_or_else(|e| e.into_inner());
+                debounce
+                    .get(&scene_id_for_ingest)
+                    .map(|t| *t == scheduled_time)
+                    .unwrap_or(false)
+            };
+            if !should_run {
+                log::debug!(
+                    "[SceneIngestor] Scene {} ingest skipped (debounced)",
+                    scene_id_for_ingest
+                );
+                return;
+            }
+            Self::spawn_ingest_now(scene_id_for_ingest, pool, app_handle, vector_store);
+        });
+    }
+
+    fn spawn_ingest_now(
+        scene_id: String,
+        pool: DbPool,
+        app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
+    ) {
+        tauri::async_runtime::spawn(async move {
+            // v0.26.50: 与创作路径串行化，避免打字/保存触发的 ingest 抢占本地模型。
+            let bg_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
+                .acquire()
+                .await;
+            if bg_permit.is_err() {
+                log::warn!(
+                    "[SceneIngestor] Scene {}: failed to acquire BACKGROUND_LLM_SEMAPHORE",
+                    scene_id
+                );
+                return;
+            }
+            let _bg_permit = bg_permit.unwrap();
+
+            let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
+                .acquire()
+                .await;
+            if permit.is_err() {
+                log::warn!(
+                    "[SceneIngestor] Scene {}: failed to acquire ingest permit",
+                    scene_id
+                );
+                return;
+            }
+            let _permit = permit.unwrap();
+
             let scene_repo = SceneRepository::new(pool.clone());
             let Some(scene) = (match scene_repo.get_by_id(&scene_id) {
                 Ok(Some(s)) => Some(s),
@@ -287,9 +375,9 @@ impl SceneService {
         updates: &SceneUpdate,
         automation_service: &AutomationService,
     ) {
-        // 1. 自动 Ingest（内容或关键元数据变更时）
+        // 1. 自动 Ingest（内容或关键元数据变更时）——v0.26.50 防抖，避免打字抢模型
         if SceneIngestor::should_ingest(updates) {
-            SceneIngestor::spawn_ingest(
+            SceneIngestor::spawn_ingest_debounced(
                 scene_id.to_string(),
                 self.pool.clone(),
                 self.app_handle.clone(),
@@ -494,5 +582,16 @@ mod tests {
         update.previous_scene_id = Some("scene-1".to_string());
         update.next_scene_id = Some("scene-3".to_string());
         assert!(!SceneIngestor::should_ingest(&update));
+    }
+
+    #[test]
+    fn test_ingest_debounce_secs_matches_commit_window() {
+        // 契约：打字自动保存触发的 ingest 必须与 auto_commit 同窗口，
+        // 否则用户停笔前就会抢占本地模型。
+        assert_eq!(
+            super::SCENE_INGEST_DEBOUNCE_SECS,
+            super::SCENE_COMMIT_DEBOUNCE_SECS
+        );
+        assert!(super::SCENE_INGEST_DEBOUNCE_SECS >= 15);
     }
 }
