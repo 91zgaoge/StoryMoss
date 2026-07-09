@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useCharacters, useCreateCharacter, useDeleteCharacter } from '@/hooks/useCharacters';
+import { useScenes } from '@/hooks/useScenes';
 import {
   useCharacterRelationships,
   useDeleteCharacterRelationship,
@@ -26,6 +27,7 @@ import {
   RefreshCw,
   X,
   Sparkles,
+  Clapperboard,
 } from 'lucide-react';
 import type {
   Character,
@@ -88,8 +90,11 @@ function RelationshipCard({
 
 export function Characters() {
   const currentStory = useAppStore(s => s.currentStory);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
+  const setPendingSceneId = useAppStore(s => s.setPendingSceneId);
   const queryClient = useQueryClient();
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
+  const { data: scenes = [] } = useScenes(currentStory?.id || null);
   const { data: relationships = [] } = useCharacterRelationships(currentStory?.id || undefined);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<CharacterTab>('info');
@@ -193,6 +198,15 @@ export function Characters() {
     );
   };
 
+  const getCharacterScenes = (charId: string) => {
+    return scenes.filter(scene => scene.characters_present.includes(charId));
+  };
+
+  const handleNavigateToScene = (sceneId: string) => {
+    setPendingSceneId(sceneId);
+    setCurrentView('scenes');
+  };
+
   if (!currentStory) {
     return (
       <div className="p-8 flex items-center justify-center h-full">
@@ -252,89 +266,117 @@ export function Characters() {
 
       {activeTab === 'info' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {characters.map(char => (
-            <Card key={char.id} hover className="group">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-full bg-cinema-velvet/20 flex items-center justify-center text-cinema-velvet font-display text-xl">
-                    {char.name.charAt(0)}
+          {characters.map(char => {
+            const charScenes = getCharacterScenes(char.id);
+            return (
+              <Card key={char.id} hover className="group">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-full bg-cinema-velvet/20 flex items-center justify-center text-cinema-velvet font-display text-xl">
+                      {char.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-display text-lg font-semibold text-white truncate">
+                          {char.name}
+                        </h3>
+                        {char.is_auto_generated && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 shrink-0">
+                            <Star className="w-3 h-3" />
+                            创世
+                          </span>
+                        )}
+                      </div>
+                      {char.personality && (
+                        <p className="text-sm text-gray-400 mt-1 line-clamp-1">
+                          {char.personality}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setEditingCharacter(char)}
+                        className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-cinema-gold/20 text-cinema-gold transition-all"
+                        title="编辑"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(char.id)}
+                        className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-red-400 transition-all"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-display text-lg font-semibold text-white truncate">
-                        {char.name}
-                      </h3>
-                      {char.is_auto_generated && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 shrink-0">
-                          <Star className="w-3 h-3" />
-                          创世
+
+                  {/* Detail fields */}
+                  <div className="mt-4 space-y-2">
+                    {char.appearance && (
+                      <div className="flex items-start gap-2">
+                        <UserX className="w-3.5 h-3.5 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-gray-500 line-clamp-2">{char.appearance}</p>
+                      </div>
+                    )}
+                    {char.goals && (
+                      <div className="flex items-start gap-2">
+                        <Heart className="w-3.5 h-3.5 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-gray-500 line-clamp-2">{char.goals}</p>
+                      </div>
+                    )}
+                    {char.background && (
+                      <p className="text-sm text-gray-600 line-clamp-2">{char.background}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {char.gender && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-cinema-800 text-gray-400">
+                          {char.gender}
+                        </span>
+                      )}
+                      {char.age != null && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-cinema-800 text-gray-400">
+                          {char.age} 岁
                         </span>
                       )}
                     </div>
-                    {char.personality && (
-                      <p className="text-sm text-gray-400 mt-1 line-clamp-1">{char.personality}</p>
-                    )}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setEditingCharacter(char)}
-                      className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-cinema-gold/20 text-cinema-gold transition-all"
-                      title="编辑"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(char.id)}
-                      className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-red-400 transition-all"
-                      title="删除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
 
-                {/* Detail fields */}
-                <div className="mt-4 space-y-2">
-                  {char.appearance && (
-                    <div className="flex items-start gap-2">
-                      <UserX className="w-3.5 h-3.5 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-gray-500 line-clamp-2">{char.appearance}</p>
+                  <CharacterStatePanel
+                    character={char}
+                    onUpdate={() => {
+                      if (currentStory?.id) {
+                        queryClient.invalidateQueries({
+                          queryKey: ['characters', currentStory.id],
+                        });
+                      }
+                    }}
+                  />
+
+                  {charScenes.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-cinema-800">
+                      <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                        <Clapperboard className="w-3 h-3" />
+                        关联场景 ({charScenes.length})
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {charScenes.map(scene => (
+                          <button
+                            key={scene.id}
+                            type="button"
+                            onClick={() => handleNavigateToScene(scene.id)}
+                            className="text-xs px-2 py-0.5 rounded-full bg-cinema-800 text-gray-300 hover:bg-cinema-gold/20 hover:text-cinema-gold transition-colors"
+                          >
+                            #{scene.sequence_number} {scene.title || '未命名'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
-                  {char.goals && (
-                    <div className="flex items-start gap-2">
-                      <Heart className="w-3.5 h-3.5 text-gray-500 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-gray-500 line-clamp-2">{char.goals}</p>
-                    </div>
-                  )}
-                  {char.background && (
-                    <p className="text-sm text-gray-600 line-clamp-2">{char.background}</p>
-                  )}
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {char.gender && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-cinema-800 text-gray-400">
-                        {char.gender}
-                      </span>
-                    )}
-                    {char.age != null && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-cinema-800 text-gray-400">
-                        {char.age} 岁
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <CharacterStatePanel
-                  character={char}
-                  onUpdate={() => {
-                    if (currentStory?.id) {
-                      queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
-                    }
-                  }}
-                />
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
 
           {characters.length === 0 && (
             <div className="col-span-full text-center py-12">

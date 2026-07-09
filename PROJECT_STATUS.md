@@ -1,11 +1,23 @@
-# StoryForge (草苔) v0.26.34 项目完成状态
+# StoryForge (草苔) v0.26.35 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.34 修复提示词导入参数并新增「打开本地目录」功能）
+> 最后更新: 2026-07-09（v0.26.35 全面落地幕后工作室审计残留 R1–R11）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.35 — 全面落地幕后工作室审计残留 R1–R11（2026-07-09）
+
+对照 `docs/AUDIT_BACKSTAGE_STUDIO_v0.26.34.md` 残留项一次性关闭：
+
+- **R1**：`list_stories` → `StoryListItem.scene_count`；Dashboard「场景」用真实场景数。
+- **R2**：CreationPathGuide 快速创作 → `runCreationWorkflow`；导航统一 `appStore.currentView`。
+- **R3**：后端 `apply_wizard_to_story`（去重 + KG）；前端单 IPC。
+- **R4**：幕后监听 `genesis-warnings` + GenesisPanel 刷新。
+- **R5/R6**：Pipeline/SceneEditor 场景序号语义标注。
+- **R7–R11**：文风 Tab、UsageStats 启发式、伏笔 Kanban、角色→场景跳转、拆书转故事导航。
+- ✅ **验证**：见 CHANGELOG / AGENTS 本版本门禁结果。
 
 ### v0.26.34 — 修复提示词导入参数并新增「打开本地目录」功能（2026-07-09）
 

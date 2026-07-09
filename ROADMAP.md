@@ -1,8 +1,21 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-07（v0.26.28 Phase 4 架构债务与工程体验完成：prompts 外部化、迁移脚本拆分、策略选择移入 Quick Phase 及剩余 AI/CRUD/图表功能）
+> 最后更新: 2026-07-09（v0.26.35 幕后审计残留 R1–R11 全部落地）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.35 — 幕后工作室审计残留 R1–R11 ✅ (2026-07-09)
+
+- [x] R1 Dashboard `scene_count` 真实口径
+- [x] R2 CreationPathGuide 快速创作 → `runCreationWorkflow`
+- [x] R3 `apply_wizard_to_story` 去重 + KG
+- [x] R4 幕后 `genesis-warnings`
+- [x] R5/R6 场景序号语义标注
+- [x] R7 世界构建文风 Tab
+- [x] R8 UsageStats 启发式加强
+- [x] R9 伏笔三列 Kanban
+- [x] R10 角色→场景跳转
+- [x] R11 拆书转故事后导航到场景
 
 ### 📝 v0.26.28 Phase 4 — 架构债务与工程体验 ✅ (2026-07-07)
 

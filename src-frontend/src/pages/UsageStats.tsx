@@ -18,17 +18,52 @@ import type { LlmCall } from '@/types';
 
 type OperationTab = 'all' | 'bootstrap' | 'smart_execute' | 'other';
 
+const BOOTSTRAP_KEYWORDS = [
+  'genesis',
+  'bootstrap',
+  '创世',
+  'opening',
+  'novel-bootstrap',
+  'strategy_selection',
+  'world_building',
+  'foreshadow',
+];
+
+const SMART_EXECUTE_KEYWORDS = [
+  'smart_execute',
+  '续写',
+  'writer',
+  'continuation',
+  'tri_shot',
+  'trishot',
+  'append',
+  'call3',
+];
+
+function buildOperationHaystack(call: LlmCall): string {
+  const parts = [call.purpose ?? '', call.task_type ?? '', call.metadata ?? ''];
+
+  if (call.metadata) {
+    try {
+      const meta = JSON.parse(call.metadata) as Record<string, unknown>;
+      for (const key of ['operation', 'operation_type', 'label', 'purpose']) {
+        const value = meta[key];
+        if (value != null) parts.push(String(value));
+      }
+    } catch {
+      // metadata may be plain text, not JSON
+    }
+  }
+
+  return parts.join('|').toLowerCase();
+}
+
 function deriveOperation(call: LlmCall): OperationTab {
-  const haystack =
-    `${call.purpose ?? ''}|${call.task_type ?? ''}|${call.metadata ?? ''}`.toLowerCase();
-  if (haystack.includes('bootstrap') || haystack.includes('创世') || haystack.includes('opening')) {
+  const haystack = buildOperationHaystack(call);
+  if (BOOTSTRAP_KEYWORDS.some(keyword => haystack.includes(keyword))) {
     return 'bootstrap';
   }
-  if (
-    haystack.includes('smart_execute') ||
-    haystack.includes('续写') ||
-    haystack.includes('writer')
-  ) {
+  if (SMART_EXECUTE_KEYWORDS.some(keyword => haystack.includes(keyword))) {
     return 'smart_execute';
   }
   return 'other';
@@ -150,7 +185,8 @@ export function UsageStats() {
         ))}
         <span className="inline-flex items-center gap-1 text-xs text-cinema-500 ml-2">
           <Info className="w-3 h-3" />
-          分组基于 purpose / task_type 关键词启发式推断
+          分组基于 purpose / task_type / metadata（含 JSON 中 operation、label
+          等字段）关键词启发式推断
         </span>
       </div>
 

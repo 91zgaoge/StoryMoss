@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Search, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAppStore } from '@/stores/appStore';
+import { listStories } from '@/services/tauri';
 import {
   useUploadBook,
   useReferenceBooks,
@@ -19,6 +22,10 @@ export function BookDeconstruction() {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+
+  const queryClient = useQueryClient();
+  const setCurrentStory = useAppStore(s => s.setCurrentStory);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
 
   const { data: books, isLoading } = useReferenceBooks();
   const uploadMutation = useUploadBook();
@@ -63,8 +70,14 @@ export function BookDeconstruction() {
     if (!selectedBookId) return;
     try {
       const storyId = await convertMutation.mutateAsync(selectedBookId);
-      toast.success('已转为故事项目');
-      // 可选：跳转到故事页面
+      await queryClient.invalidateQueries({ queryKey: ['stories'] });
+      const stories = await listStories();
+      const story = stories.find(s => s.id === storyId);
+      if (story) {
+        setCurrentStory(story);
+      }
+      setCurrentView('scenes');
+      toast.success(story ? `已转为故事项目：${story.title}` : '已转为故事项目');
     } catch (error) {
       toast.error(`转换失败: ${error}`);
     }

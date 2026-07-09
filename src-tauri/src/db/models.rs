@@ -1108,6 +1108,21 @@ pub struct Story {
     pub updated_at: DateTime<Local>,
 }
 
+/// 故事列表项：在 Story 上附加聚合计数，供仪表盘等 UI 使用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryListItem {
+    #[serde(flatten)]
+    pub story: Story,
+    #[serde(default)]
+    pub character_count: i64,
+    #[serde(default)]
+    pub scene_count: i64,
+    #[serde(default)]
+    pub chapter_count: i64,
+    #[serde(default)]
+    pub word_count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Character {
     pub id: String,

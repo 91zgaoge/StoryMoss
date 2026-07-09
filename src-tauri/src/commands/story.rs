@@ -8,9 +8,9 @@ use crate::{
 };
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_stories(pool: State<'_, DbPool>) -> Result<Vec<crate::db::Story>, AppError> {
+pub fn list_stories(pool: State<'_, DbPool>) -> Result<Vec<crate::db::StoryListItem>, AppError> {
     StoryRepository::new(pool.inner().clone())
-        .get_all()
+        .get_all_with_counts()
         .map_err(AppError::from)
 }
 

@@ -73,7 +73,9 @@ function App() {
     },
   });
 
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  // 导航统一走 appStore，避免页面 setCurrentView 与壳层 local state 失步
+  const currentView = useAppStore(state => state.currentView);
+  const setCurrentView = useAppStore(state => state.setCurrentView);
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   // W2-F2: 从 local state 迁移到 Zustand store，替代 DOM CustomEvent 通信
   const isLoginOpen = useAppStore(state => state.isLoginModalOpen);
@@ -108,6 +110,37 @@ function App() {
 
   // W2-F2: show-login-modal 已废弃，改用 Zustand store (isLoginModalOpen / setLoginModalOpen)
   // 原 window.addEventListener('show-login-modal', ...) 已移除
+
+  // 幕后也监听 genesis-warnings（非致命错误 toast + 刷新 Genesis 列表）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unlisten = await listen<{
+          session_id: string;
+          story_id: string;
+          count: number;
+          has_error: boolean;
+          message: string;
+        }>('genesis-warnings', event => {
+          const p = event.payload;
+          if (p.has_error) {
+            toast.error(p.message, { duration: 6000 });
+          } else {
+            toast(p.message, { icon: '⚠️', duration: 5000 });
+          }
+          queryClient.invalidateQueries({ queryKey: ['genesis-runs'] });
+          window.dispatchEvent(new CustomEvent('genesis-warnings-received'));
+        });
+      } catch (e) {
+        createLogger('ui:App').error('Failed to setup genesis-warnings listener', { error: e });
+      }
+    };
+    setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [queryClient]);
 
   // 监听 backstage-update 事件（幕前 → 幕后联动）
   useEffect(() => {

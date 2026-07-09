@@ -153,6 +153,7 @@ tauri::generate_handler![
     creation_commands::generate_writing_styles,
     creation_commands::generate_first_scene,
     creation_commands::create_story_with_wizard,
+    creation_commands::apply_wizard_to_story,
     // Scene version commands
     scene_commands::get_scene_versions,
     scene_commands::get_scene_version,

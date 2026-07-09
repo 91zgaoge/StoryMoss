@@ -227,6 +227,363 @@ fn persist_wizard_elements_in_tx(
     Ok((story, wb, created_chars, ws, scene))
 }
 
+/// 将向导资产应用到已有故事：按角色名去重、首场景（sequence=1）更新或创建，
+/// 并触发 KG 摄取。
+fn apply_wizard_elements_in_tx(
+    tx: &rusqlite::Transaction,
+    pool: DbPool,
+    story_id: &str,
+    world_building: &WorldBuildingOption,
+    characters: &[CharacterProfileOption],
+    writing_style: &WritingStyleOption,
+    first_scene: &SceneProposal,
+) -> Result<(WorldBuilding, Vec<Character>, WritingStyle, Scene), AppError> {
+    let wb_repo = WorldBuildingRepository::new(pool.clone());
+    let wb = match wb_repo.get_by_story(story_id).map_err(AppError::from)? {
+        Some(existing) => existing,
+        None => wb_repo.create_in_tx_with_source(
+            tx,
+            story_id,
+            &world_building.concept,
+            Some("genesis"),
+            Some(true),
+        )?,
+    };
+    let db_rules: Vec<crate::db::models::WorldRule> = world_building
+        .rules
+        .iter()
+        .cloned()
+        .map(Into::into)
+        .collect();
+    wb_repo.update_in_tx(
+        tx,
+        &wb.id,
+        Some(&world_building.concept),
+        Some(&db_rules),
+        Some(&world_building.history),
+        Some(&world_building.cultures),
+    )?;
+
+    let char_repo = CharacterRepository::new(pool.clone());
+    let existing_chars = char_repo.get_by_story(story_id).map_err(AppError::from)?;
+    let mut created_chars = Vec::new();
+    for char_opt in characters {
+        let background = format!("{}", char_opt.background);
+        if let Some(existing) = existing_chars
+            .iter()
+            .find(|c| c.name == char_opt.name)
+            .cloned()
+        {
+            // 已有角色：在同一事务连接上更新，避免与 pool 事务交叉
+            let now = chrono::Local::now().to_rfc3339();
+            tx.execute(
+                "UPDATE characters SET background = COALESCE(?2, background), \
+                 personality = COALESCE(?3, personality), goals = COALESCE(?4, goals), \
+                 updated_at = ?5 WHERE id = ?1",
+                rusqlite::params![
+                    &existing.id,
+                    background,
+                    char_opt.personality.clone(),
+                    char_opt.goals.clone(),
+                    now
+                ],
+            )
+            .map_err(AppError::from)?;
+            let refreshed = Character {
+                background: Some(background),
+                personality: Some(char_opt.personality.clone()),
+                goals: Some(char_opt.goals.clone()),
+                updated_at: chrono::Local::now(),
+                ..existing
+            };
+            created_chars.push(refreshed);
+        } else {
+            let char = char_repo.create_in_tx(
+                tx,
+                CreateCharacterRequest {
+                    story_id: story_id.to_string(),
+                    name: char_opt.name.clone(),
+                    background: Some(background),
+                    personality: Some(char_opt.personality.clone()),
+                    goals: Some(char_opt.goals.clone()),
+                    appearance: None,
+                    gender: None,
+                    age: None,
+                    source: Some("genesis".to_string()),
+                    is_auto_generated: Some(true),
+                },
+            )?;
+            created_chars.push(char);
+        }
+    }
+
+    let ws_repo = WritingStyleRepository::new(pool.clone());
+    let ws = match ws_repo.get_by_story(story_id).map_err(AppError::from)? {
+        Some(existing) => existing,
+        None => ws_repo.create_in_tx(tx, story_id, Some(&writing_style.name))?,
+    };
+    let ws_update = WritingStyleUpdate {
+        name: Some(writing_style.name.clone()),
+        description: Some(writing_style.description.clone()),
+        tone: Some(writing_style.tone.clone()),
+        pacing: Some(writing_style.pacing.clone()),
+        vocabulary_level: Some(writing_style.vocabulary_level.clone()),
+        sentence_structure: Some(writing_style.sentence_structure.clone()),
+        custom_rules: Some(vec![]),
+    };
+    ws_repo.update_in_tx(tx, &ws.id, &ws_update)?;
+
+    let scene_repo = SceneRepository::new(pool.clone());
+    let existing_scenes = scene_repo.get_by_story(story_id).map_err(AppError::from)?;
+    let scene = match existing_scenes.into_iter().find(|s| s.sequence_number == 1) {
+        Some(existing) => existing,
+        None => scene_repo.create_in_tx(tx, story_id, 1, Some(&first_scene.title))?,
+    };
+
+    let conflict_type = first_scene.conflict_type.parse().ok();
+    let char_ids: Vec<String> = created_chars.iter().map(|c| c.id.clone()).collect();
+    let scene_update = SceneUpdate {
+        title: Some(first_scene.title.clone()),
+        dramatic_goal: Some(first_scene.dramatic_goal.clone()),
+        external_pressure: Some(first_scene.external_pressure.clone()),
+        conflict_type,
+        characters_present: Some(char_ids),
+        character_conflicts: Some(vec![]),
+        content: Some(first_scene.content.clone()),
+        setting_location: Some(first_scene.setting_location.clone()),
+        setting_time: Some(first_scene.setting_time.clone()),
+        setting_atmosphere: Some(first_scene.setting_atmosphere.clone()),
+        previous_scene_id: None,
+        next_scene_id: None,
+        confidence_score: Some(0.8),
+        source: Some("genesis".to_string()),
+        is_auto_generated: Some(true),
+        ..Default::default()
+    };
+    scene_repo.update_in_tx(tx, &scene.id, &scene_update)?;
+
+    let final_wb = wb_repo
+        .get_by_story(story_id)
+        .map_err(AppError::from)?
+        .unwrap_or(wb);
+    let final_ws = ws_repo
+        .get_by_story(story_id)
+        .map_err(AppError::from)?
+        .unwrap_or(ws);
+    let final_scene = scene_repo
+        .get_by_id(&scene.id)
+        .map_err(AppError::from)?
+        .unwrap_or(scene);
+
+    Ok((final_wb, created_chars, final_ws, final_scene))
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn apply_wizard_to_story(
+    story_id: String,
+    genre: Option<String>,
+    style_dna_id: Option<String>,
+    genre_profile_id: Option<String>,
+    methodology_id: Option<String>,
+    world_building: WorldBuildingOption,
+    characters: Vec<CharacterProfileOption>,
+    writing_style: WritingStyleOption,
+    first_scene: SceneProposal,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<WizardCreationResult, AppError> {
+    let ingest_text = format!(
+        "世界观：{}\n\n历史背景：{}\n\n角色设定：\n{}\n\n文字风格：{}\n\n首个场景：{}\n\n{}",
+        world_building.concept,
+        &world_building.history,
+        characters
+            .iter()
+            .map(|c| format!("- {}：{}，目标：{}", c.name, c.personality, c.goals))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        writing_style.name,
+        first_scene.title,
+        first_scene.content
+    );
+
+    let pool_ref = pool.inner().clone();
+    let story_id_clone = story_id.clone();
+    let genre_c = genre.clone();
+    let style_dna_c = style_dna_id.clone();
+    let genre_profile_c = genre_profile_id.clone();
+    let methodology_c = methodology_id.clone();
+    let (story, created_chars, scene) = tokio::task::spawn_blocking(
+        move || -> Result<(Story, Vec<Character>, Scene), AppError> {
+            let story_repo = StoryRepository::new(pool_ref.clone());
+            story_repo
+                .update(
+                    &story_id_clone,
+                    &UpdateStoryRequest {
+                        title: None,
+                        description: None,
+                        genre: genre_c,
+                        tone: None,
+                        pacing: None,
+                        style_dna_id: style_dna_c,
+                        genre_profile_id: genre_profile_c,
+                        methodology_id: methodology_c,
+                        methodology_step: None,
+                        reference_book_id: None,
+                    },
+                )
+                .map_err(AppError::from)?;
+            let story = story_repo
+                .get_by_id(&story_id_clone)
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError::from(format!("Story not found: {story_id_clone}")))?;
+
+            let mut conn = pool_ref.get().map_err(|e| {
+                AppError::from(rusqlite::Error::InvalidParameterName(e.to_string()))
+            })?;
+            let tx = conn.transaction().map_err(AppError::from)?;
+            let (_wb, created_chars, _ws, scene) = apply_wizard_elements_in_tx(
+                &tx,
+                pool_ref.clone(),
+                &story_id_clone,
+                &world_building,
+                &characters,
+                &writing_style,
+                &first_scene,
+            )?;
+            tx.commit().map_err(AppError::from)?;
+            Ok((story, created_chars, scene))
+        },
+    )
+    .await
+    .map_err(|e| {
+        AppError::from(format!(
+            "[apply_wizard_to_story] spawn_blocking join error: {}",
+            e
+        ))
+    })??;
+
+    let story_id = story.id.clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let pipeline = IngestPipeline::new(llm_service)
+        .with_pool(pool.inner().clone())
+        .with_app_handle(app_handle.clone());
+    let ingest_content = IngestContent {
+        text: ingest_text,
+        source: format!("novel_creation_wizard_apply:{}", story_id),
+        story_id: story_id.clone(),
+        scene_id: Some(scene.id.clone()),
+    };
+
+    let ingest_result = pipeline.ingest(&ingest_content).await.map_err(|e| {
+        log::error!("[apply_wizard_to_story] ingest failed: {}", e);
+        AppError::from(e)
+    })?;
+
+    let pool_ref2 = pool.inner().clone();
+    let story_id_for_kg = story_id.clone();
+    let (saved_entities, saved_relations) =
+        tokio::task::spawn_blocking(move || -> Result<(usize, usize), AppError> {
+            let mut conn2 = pool_ref2.get().map_err(|e| {
+                AppError::from(rusqlite::Error::InvalidParameterName(e.to_string()))
+            })?;
+            let tx2 = conn2.transaction().map_err(AppError::from)?;
+            let kg_repo = KnowledgeGraphRepository::new(pool_ref2.clone());
+
+            let mut saved_entities = 0usize;
+            for entity in &ingest_result.entities {
+                kg_repo
+                    .create_entity_in_tx_with_source(
+                        &tx2,
+                        &story_id_for_kg,
+                        &entity.name,
+                        &entity.entity_type.to_string(),
+                        &entity.attributes,
+                        entity.embedding.clone(),
+                        Some("genesis"),
+                        Some(true),
+                    )
+                    .map_err(AppError::from)?;
+                saved_entities += 1;
+            }
+
+            let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result
+                .entities
+                .iter()
+                .map(|e| (e.name.clone(), e.id.clone()))
+                .collect();
+
+            let mut saved_relations = 0usize;
+            for relation in &ingest_result.relations {
+                if let (Some(source_id), Some(target_id)) = (
+                    entity_name_to_id.get(&relation.source_id),
+                    entity_name_to_id.get(&relation.target_id),
+                ) {
+                    kg_repo
+                        .create_relation_in_tx(
+                            &tx2,
+                            &story_id_for_kg,
+                            source_id,
+                            target_id,
+                            &relation.relation_type.to_string(),
+                            relation.strength,
+                        )
+                        .map_err(AppError::from)?;
+                    saved_relations += 1;
+                }
+            }
+            tx2.commit().map_err(AppError::from)?;
+            Ok((saved_entities, saved_relations))
+        })
+        .await
+        .map_err(|e| {
+            AppError::from(format!(
+                "[apply_wizard_to_story] KG spawn_blocking join error: {}",
+                e
+            ))
+        })??;
+
+    let pool_ref3 = pool.inner().clone();
+    let scene_id = scene.id.clone();
+    let story_id_for_final = story_id.clone();
+    let (final_wb, final_ws, final_scene) = tokio::task::spawn_blocking(
+        move || -> Result<(WorldBuilding, WritingStyle, Scene), AppError> {
+            let wb_repo = WorldBuildingRepository::new(pool_ref3.clone());
+            let final_wb = wb_repo
+                .get_by_story(&story_id_for_final)
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError::from("World building not found".to_string()))?;
+            let ws_repo = WritingStyleRepository::new(pool_ref3.clone());
+            let final_ws = ws_repo
+                .get_by_story(&story_id_for_final)
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError::from("Writing style not found".to_string()))?;
+            let scene_repo = SceneRepository::new(pool_ref3.clone());
+            let final_scene = scene_repo
+                .get_by_id(&scene_id)
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError::from("Scene not found".to_string()))?;
+            Ok((final_wb, final_ws, final_scene))
+        },
+    )
+    .await
+    .map_err(|e| {
+        AppError::from(format!(
+            "[apply_wizard_to_story] final fetch join error: {}",
+            e
+        ))
+    })??;
+
+    Ok(WizardCreationResult {
+        story,
+        world_building: final_wb,
+        writing_style: final_ws,
+        first_scene: final_scene,
+        characters: created_chars,
+        ingested_entities: saved_entities,
+        ingested_relations: saved_relations,
+    })
+}
+
 #[command(rename_all = "snake_case")]
 pub async fn create_story_with_wizard(
     title: String,

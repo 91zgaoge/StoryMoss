@@ -242,7 +242,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-white">编辑场景 #{scene.sequence_number}</h2>
+          <h2 className="text-lg font-semibold text-white">
+            编辑场景 #{scene.sequence_number}
+            <span className="ml-2 text-xs font-normal text-gray-500">（场景序号，非章节号）</span>
+          </h2>
           <span
             className={`
             px-2 py-0.5 rounded-full text-xs font-medium

@@ -93,6 +93,15 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
     loadRuns();
   }, [loadRuns]);
 
+  // 幕后收到 genesis-warnings 时刷新列表（App.tsx 已 toast）
+  useEffect(() => {
+    const onWarnings = () => {
+      void loadRuns();
+    };
+    window.addEventListener('genesis-warnings-received', onWarnings);
+    return () => window.removeEventListener('genesis-warnings-received', onWarnings);
+  }, [loadRuns]);
+
   // 定时刷新运行中的记录
   useEffect(() => {
     if (!selectedRun) return;

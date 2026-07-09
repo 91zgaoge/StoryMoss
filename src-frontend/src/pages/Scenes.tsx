@@ -23,6 +23,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 export function Scenes() {
   const currentStory = useAppStore(s => s.currentStory);
+  const pendingSceneId = useAppStore(s => s.pendingSceneId);
+  const setPendingSceneId = useAppStore(s => s.setPendingSceneId);
   const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
 
@@ -40,6 +42,16 @@ export function Scenes() {
   const createVersion = useCreateSceneVersion();
 
   const selectedScene = scenes.find(s => s.id === selectedSceneId) || null;
+
+  useEffect(() => {
+    if (!pendingSceneId || scenes.length === 0) return;
+    const scene = scenes.find(s => s.id === pendingSceneId);
+    if (scene) {
+      setSelectedSceneId(scene.id);
+      setIsEditing(false);
+    }
+    setPendingSceneId(null);
+  }, [pendingSceneId, scenes, setPendingSceneId]);
 
   const handleCreateScene = () => {
     if (!currentStory) {

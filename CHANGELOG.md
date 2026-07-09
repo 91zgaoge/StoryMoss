@@ -2,6 +2,34 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.35] - 全面落地幕后工作室审计残留 R1–R11（2026-07-09）
+
+### 修复
+
+- **R1 仪表盘「场景」口径**：`list_stories` 返回 `StoryListItem`（含真实 `scene_count`）；Dashboard 聚合改用 `scene_count`，不再误用 `chapter_count`。
+- **R2 快速创作路径**：`CreationPathGuide.onQuick` 绑定 `runCreationWorkflow`（Stories 直接触发；Dashboard 经 `pendingQuickCreate` 跳转 Stories）；`App.tsx` 导航统一走 `appStore.currentView`，消除壳层 local state 与页面 store 失步。
+- **R3 Wizard 半闭环**：新增后端 `apply_wizard_to_story`（角色按名去重、首场景更新/创建、KG 摄取）；前端 `applyWizardToStory` 改为单 IPC。
+- **R4 幕后 genesis-warnings**：`App.tsx` 监听并 toast；`GenesisPanel` 收到事件后刷新 runs。
+- **R5/R6 场景序号语义**：PipelinePanel / SceneEditor 标注为「场景 #N（管线序号）」，不再写成「第 N 章」。
+
+### 新增
+
+- **R7 世界构建文风 Tab**：世界观 / 文风双 Tab，接入 `useWritingStyle` 编辑与初始化。
+- **R8 用量统计启发式加强**：扩展 bootstrap / smart_execute 关键词，并解析 `metadata` JSON 字段。
+- **R9 伏笔三列 Kanban**：未回收 / 已回收 / 已放弃列视图；展开行可编辑 Ledger 目标窗口。
+- **R10 角色→场景跳转**：角色卡展示关联场景；经 `pendingSceneId` 跳转 Scenes 并选中。
+- **R11 拆书转故事导航**：转换成功后 invalidate stories、设当前故事并进入场景页。
+
+### 验证
+
+- `cargo test --lib`：685 passed / 0 failed / 2 ignored ✅
+- `cargo +nightly fmt -- --check`：✅
+- `cargo check`：✅（仅既有 warning）
+- `npx vitest run`：237 passed / 3 skipped ✅
+- `npx tsc --noEmit`：✅
+- `python3 scripts/architecture_guard.py`：PASSED ✅
+- `npm run format:check`：✅
+
 ## [v0.26.34] - 修复提示词导入参数并新增「打开本地目录」功能（2026-07-09）
 
 ### 修复

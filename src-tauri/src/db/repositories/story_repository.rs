@@ -102,6 +102,55 @@ impl StoryRepository {
         Ok(stories)
     }
 
+    /// 列表查询并附带角色/场景/章节/字数聚合，供仪表盘统计使用。
+    pub fn get_all_with_counts(&self) -> Result<Vec<StoryListItem>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.title, s.description, s.genre, s.tone, s.pacing, s.style_dna_id, \
+             s.genre_profile_id, s.methodology_id, s.methodology_step, s.reference_book_id, \
+             s.created_at, s.updated_at, \
+             (SELECT COUNT(*) FROM characters c WHERE c.story_id = s.id) AS character_count, \
+             (SELECT COUNT(*) FROM scenes sc WHERE sc.story_id = s.id) AS scene_count, \
+             (SELECT COUNT(*) FROM chapters ch WHERE ch.story_id = s.id) AS chapter_count, \
+             (SELECT COALESCE(SUM(LENGTH(sc.content)), 0) FROM scenes sc WHERE sc.story_id = s.id) \
+             AS word_count \
+             FROM stories s ORDER BY s.updated_at DESC",
+        )?;
+
+        let stories = stmt
+            .query_map([], |row| {
+                let created_str: String = row.get(11)?;
+                let updated_str: String = row.get(12)?;
+                Ok(StoryListItem {
+                    story: Story {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        description: row.get(2)?,
+                        genre: row.get(3)?,
+                        tone: row.get(4)?,
+                        pacing: row.get(5)?,
+                        style_dna_id: row.get(6)?,
+                        genre_profile_id: row.get(7)?,
+                        methodology_id: row.get(8)?,
+                        methodology_step: row.get(9)?,
+                        reference_book_id: row.get(10)?,
+                        created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                        updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    },
+                    character_count: row.get(13)?,
+                    scene_count: row.get(14)?,
+                    chapter_count: row.get(15)?,
+                    word_count: row.get(16)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(stories)
+    }
+
     pub fn get_by_id(&self, id: &str) -> Result<Option<Story>, rusqlite::Error> {
         let conn = self
             .pool

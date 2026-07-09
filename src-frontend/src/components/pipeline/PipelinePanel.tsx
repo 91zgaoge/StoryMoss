@@ -133,7 +133,8 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
           创作管线
         </h3>
         <p className="text-xs text-white/40 mt-0.5">
-          第{chapterNumber}章 {chapterTitle || ''}
+          场景 #{chapterNumber} {chapterTitle || ''}
+          <span className="ml-1 text-white/25">（管线序号）</span>
         </p>
       </div>
 

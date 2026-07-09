@@ -66,6 +66,13 @@ interface AppState {
   /** Logs 页面预填充搜索词 */
   logsSearchQuery: string | null;
   setLogsSearchQuery: (query: string | null) => void;
+
+  /** Dashboard「快速创作」跳转 Stories 后自动触发 runCreationWorkflow */
+  pendingQuickCreate: boolean;
+  setPendingQuickCreate: (pending: boolean) => void;
+  /** 角色页「关联场景」跳转到 Scenes 后选中的场景 ID */
+  pendingSceneId: string | null;
+  setPendingSceneId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>(set => ({
@@ -161,4 +168,9 @@ export const useAppStore = create<AppState>(set => ({
   setTracingFilter: filter => set({ tracingFilter: filter }),
   logsSearchQuery: null,
   setLogsSearchQuery: query => set({ logsSearchQuery: query }),
+
+  pendingQuickCreate: false,
+  setPendingQuickCreate: pending => set({ pendingQuickCreate: pending }),
+  pendingSceneId: null,
+  setPendingSceneId: id => set({ pendingSceneId: id }),
 }));

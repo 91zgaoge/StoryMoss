@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.34
+- **版本**: v0.26.35
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -74,12 +74,22 @@ type:
 - `cargo test --lib` ✅ 685 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
 - `npx vitest run` ✅ 237 passed / 3 skipped
-- `npx playwright test` ✅ 36 passed / 5 skipped
+- `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.35 — 全面落地幕后工作室审计残留 R1–R11
+
+- **R1**：`list_stories` 返回真实 `scene_count`；Dashboard「场景」统计对齐。
+- **R2**：CreationPathGuide 快速创作绑定 `runCreationWorkflow`；`App` 导航统一 `appStore.currentView`。
+- **R3**：后端 `apply_wizard_to_story`（角色去重、首场景 upsert、KG 摄取）；前端单 IPC。
+- **R4**：幕后 `App`/`GenesisPanel` 监听 `genesis-warnings`。
+- **R5/R6**：PipelinePanel / SceneEditor 标注场景序号语义。
+- **R7–R11**：世界构建文风 Tab、UsageStats 启发式、伏笔 Kanban、角色→场景跳转、拆书转故事导航。
+- **验证**：`cargo test --lib` 685 passed；`npx vitest run` 237 passed / 3 skipped；fmt、format、architecture_guard、tsc 均通过。
 
 ### v0.26.34 — 修复提示词导入参数并新增「打开本地目录」功能
 
@@ -211,4 +221,4 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.34_
+_最后更新: 2026-07-09 - v0.26.35_

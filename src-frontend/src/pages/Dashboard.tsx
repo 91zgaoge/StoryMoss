@@ -63,7 +63,7 @@ export function Dashboard() {
 
   // Calculate totals across all stories
   const totalCharacters = statsSource.reduce((sum, s) => sum + (s.character_count || 0), 0);
-  const totalScenes = statsSource.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
+  const totalScenes = statsSource.reduce((sum, s) => sum + (s.scene_count || 0), 0);
   const totalWordCount = statsSource.reduce((sum, s) => sum + (s.word_count || 0), 0);
 
   const stats = [
@@ -211,7 +211,10 @@ export function Dashboard() {
       <CreationPathGuide
         onFrontstage={handleOpenFrontstage}
         onWizard={() => setIsWizardOpen(true)}
-        onQuick={() => setIsModalOpen(true)}
+        onQuick={() => {
+          useAppStore.getState().setPendingQuickCreate(true);
+          setCurrentView('stories');
+        }}
       />
 
       {/* Stats */}

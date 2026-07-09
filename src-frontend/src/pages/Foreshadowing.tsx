@@ -573,7 +573,7 @@ export function Foreshadowing() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <Eye className="w-6 h-6 text-cinema-gold" />
           <h1 className="text-2xl font-display font-bold text-white">伏笔看板</h1>
@@ -587,6 +587,7 @@ export function Foreshadowing() {
           新建伏笔
         </button>
       </div>
+      <p className="text-xs text-gray-500 mb-6">展开行可查看 Ledger 目标窗口编辑</p>
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -739,63 +740,47 @@ export function Foreshadowing() {
         </div>
       )}
 
-      {/* List */}
+      {/* Kanban board */}
       {!isLoading && items.length > 0 && (
-        <div className="bg-cinema-900/50 rounded-lg border border-cinema-800 overflow-hidden">
-          {grouped.setup.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-yellow-400">
-                未回收 ({grouped.setup.length})
+        <div className="grid grid-cols-3 gap-4">
+          {(
+            [
+              { key: 'setup' as const, label: '未回收', color: 'text-yellow-400' },
+              { key: 'payoff' as const, label: '已回收', color: 'text-green-400' },
+              { key: 'abandoned' as const, label: '已放弃', color: 'text-gray-400' },
+            ] as const
+          ).map(column => (
+            <div
+              key={column.key}
+              className="bg-cinema-900/50 rounded-lg border border-cinema-800 overflow-hidden flex flex-col min-h-[200px]"
+            >
+              <div
+                className={cn(
+                  'px-4 py-2 bg-cinema-800/30 text-xs font-medium border-b border-cinema-800',
+                  column.color
+                )}
+              >
+                {column.label} ({grouped[column.key].length})
               </div>
-              {grouped.setup.map(item => (
-                <ForeshadowingRow
-                  key={item.id}
-                  item={item}
-                  ledgerItem={ledgerMap.get(item.id)}
-                  isExpanded={expandedId === item.id}
-                  onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                  currentSceneNumber={currentSceneNumber}
-                  sceneMap={sceneMap}
-                />
-              ))}
-            </>
-          )}
-          {grouped.payoff.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-green-400">
-                已回收 ({grouped.payoff.length})
-              </div>
-              {grouped.payoff.map(item => (
-                <ForeshadowingRow
-                  key={item.id}
-                  item={item}
-                  ledgerItem={ledgerMap.get(item.id)}
-                  isExpanded={expandedId === item.id}
-                  onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                  currentSceneNumber={currentSceneNumber}
-                  sceneMap={sceneMap}
-                />
-              ))}
-            </>
-          )}
-          {grouped.abandoned.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-gray-400">
-                已放弃 ({grouped.abandoned.length})
-              </div>
-              {grouped.abandoned.map(item => (
-                <ForeshadowingRow
-                  key={item.id}
-                  item={item}
-                  ledgerItem={ledgerMap.get(item.id)}
-                  isExpanded={expandedId === item.id}
-                  onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                  currentSceneNumber={currentSceneNumber}
-                  sceneMap={sceneMap}
-                />
-              ))}
-            </>
-          )}
+              {grouped[column.key].length === 0 ? (
+                <div className="flex-1 flex items-center justify-center py-8 text-xs text-gray-600">
+                  暂无
+                </div>
+              ) : (
+                grouped[column.key].map(item => (
+                  <ForeshadowingRow
+                    key={item.id}
+                    item={item}
+                    ledgerItem={ledgerMap.get(item.id)}
+                    isExpanded={expandedId === item.id}
+                    onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    currentSceneNumber={currentSceneNumber}
+                    sceneMap={sceneMap}
+                  />
+                ))
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

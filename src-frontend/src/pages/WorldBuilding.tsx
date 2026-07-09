@@ -5,6 +5,9 @@ import {
   useCreateWorldBuilding,
   useUpdateWorldBuilding,
   useGenerateWorldBuildingOptions,
+  useWritingStyle,
+  useCreateWritingStyle,
+  useUpdateWritingStyle,
 } from '@/hooks/useWorldBuilding';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -23,8 +26,16 @@ import {
   Sparkles,
   Wand2,
   RefreshCw,
+  PenLine,
 } from 'lucide-react';
-import type { WorldBuilding, WorldRule, Culture, RuleType, WorldBuildingOption } from '@/types';
+import type {
+  WorldBuilding,
+  WorldRule,
+  Culture,
+  RuleType,
+  WorldBuildingOption,
+  WritingStyleUpdate,
+} from '@/types';
 
 const RULE_TYPE_LABELS: Record<RuleType, string> = {
   Magic: '魔法',
@@ -408,11 +419,20 @@ function AiWorldBuildingModal({ isOpen, onClose, storyTitle, onApply }: AiWorldB
   );
 }
 
+type WorldBuildingTab = 'world' | 'style';
+
 export function WorldBuilding() {
   const currentStory = useAppStore(s => s.currentStory);
   const { data: worldBuilding, isLoading } = useWorldBuilding(currentStory?.id || null);
+  const { data: writingStyle, isLoading: isWritingStyleLoading } = useWritingStyle(
+    currentStory?.id || null
+  );
   const createWorldBuilding = useCreateWorldBuilding();
   const updateWorldBuilding = useUpdateWorldBuilding();
+  const createWritingStyle = useCreateWritingStyle();
+  const updateWritingStyle = useUpdateWritingStyle();
+
+  const [activeTab, setActiveTab] = useState<WorldBuildingTab>('world');
 
   // Local edit state with debounced auto-save
   const [localConcept, setLocalConcept] = useState('');
@@ -420,6 +440,15 @@ export function WorldBuilding() {
   const [localRules, setLocalRules] = useState<WorldRule[]>([]);
   const [localCultures, setLocalCultures] = useState<Culture[]>([]);
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
+
+  // Writing style local state
+  const [localStyleName, setLocalStyleName] = useState('');
+  const [localStyleDescription, setLocalStyleDescription] = useState('');
+  const [localStyleTone, setLocalStyleTone] = useState('');
+  const [localStylePacing, setLocalStylePacing] = useState('');
+  const [localStyleVocabulary, setLocalStyleVocabulary] = useState('');
+  const [localStyleSentenceStructure, setLocalStyleSentenceStructure] = useState('');
+  const [hasStyleLocalChanges, setHasStyleLocalChanges] = useState(false);
 
   // Modal states
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -430,6 +459,7 @@ export function WorldBuilding() {
 
   // Refs for debounce
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const styleSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync local state when data loads
   useEffect(() => {
@@ -441,6 +471,18 @@ export function WorldBuilding() {
       setHasLocalChanges(false);
     }
   }, [worldBuilding?.id]);
+
+  useEffect(() => {
+    if (writingStyle) {
+      setLocalStyleName(writingStyle.name || '');
+      setLocalStyleDescription(writingStyle.description || '');
+      setLocalStyleTone(writingStyle.tone || '');
+      setLocalStylePacing(writingStyle.pacing || '');
+      setLocalStyleVocabulary(writingStyle.vocabulary_level || '');
+      setLocalStyleSentenceStructure(writingStyle.sentence_structure || '');
+      setHasStyleLocalChanges(false);
+    }
+  }, [writingStyle?.id]);
 
   // Debounced auto-save
   const triggerSave = useCallback(() => {
@@ -473,9 +515,32 @@ export function WorldBuilding() {
     updateWorldBuilding,
   ]);
 
+  const triggerStyleSave = useCallback(
+    (updates: WritingStyleUpdate) => {
+      if (!writingStyle || !currentStory) return;
+      setHasStyleLocalChanges(true);
+
+      if (styleSaveTimeoutRef.current) clearTimeout(styleSaveTimeoutRef.current);
+      styleSaveTimeoutRef.current = setTimeout(() => {
+        updateWritingStyle.mutate(
+          {
+            id: writingStyle.id,
+            storyId: currentStory.id,
+            updates,
+          },
+          {
+            onSuccess: () => setHasStyleLocalChanges(false),
+          }
+        );
+      }, 800);
+    },
+    [writingStyle, currentStory, updateWritingStyle]
+  );
+
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (styleSaveTimeoutRef.current) clearTimeout(styleSaveTimeoutRef.current);
     };
   }, []);
 
@@ -529,6 +594,35 @@ export function WorldBuilding() {
         },
       }
     );
+  };
+
+  const handleInitWritingStyle = () => {
+    if (!currentStory) return;
+    createWritingStyle.mutate(currentStory.id);
+  };
+
+  const handleStyleFieldChange = (field: keyof WritingStyleUpdate, value: string) => {
+    switch (field) {
+      case 'name':
+        setLocalStyleName(value);
+        break;
+      case 'description':
+        setLocalStyleDescription(value);
+        break;
+      case 'tone':
+        setLocalStyleTone(value);
+        break;
+      case 'pacing':
+        setLocalStylePacing(value);
+        break;
+      case 'vocabulary_level':
+        setLocalStyleVocabulary(value);
+        break;
+      case 'sentence_structure':
+        setLocalStyleSentenceStructure(value);
+        break;
+    }
+    triggerStyleSave({ [field]: value });
   };
 
   const handleApplyAiOption = (option: WorldBuildingOption) => {
@@ -618,213 +712,339 @@ export function WorldBuilding() {
             {hasLocalChanges && <span className="text-cinema-gold ml-2 text-sm">保存中...</span>}
           </p>
         </div>
-        <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
-          <Wand2 className="w-4 h-4" />
-          AI 生成
-        </Button>
+        {activeTab === 'world' && (
+          <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
+            <Wand2 className="w-4 h-4" />
+            AI 生成
+          </Button>
+        )}
       </div>
 
-      {/* Core Concept */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <BookOpen className="w-5 h-5 text-cinema-gold" />
-            <h2 className="font-display text-lg font-semibold text-white">核心概念</h2>
-          </div>
-          <textarea
-            value={localConcept}
-            onChange={e => handleConceptChange(e.target.value)}
-            rows={4}
-            className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-            placeholder="描述这个世界的核心概念、基本法则和独特之处..."
-          />
-        </CardContent>
-      </Card>
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-cinema-800 rounded-lg w-fit">
+        <button
+          onClick={() => setActiveTab('world')}
+          className={`px-4 py-1.5 rounded-md text-sm transition-colors flex items-center gap-2 ${
+            activeTab === 'world' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          世界观
+        </button>
+        <button
+          onClick={() => setActiveTab('style')}
+          className={`px-4 py-1.5 rounded-md text-sm transition-colors flex items-center gap-2 ${
+            activeTab === 'style' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <PenLine className="w-4 h-4" />
+          文风
+        </button>
+      </div>
 
-      {/* World Rules */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-cinema-gold" />
-              <h2 className="font-display text-lg font-semibold text-white">世界规则</h2>
-              <span className="text-xs text-gray-500">({localRules.length})</span>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setEditingRule(null);
-                setRuleModalOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4" />
-              添加规则
-            </Button>
-          </div>
+      {activeTab === 'world' ? (
+        <>
+          {/* Core Concept */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <BookOpen className="w-5 h-5 text-cinema-gold" />
+                <h2 className="font-display text-lg font-semibold text-white">核心概念</h2>
+              </div>
+              <textarea
+                value={localConcept}
+                onChange={e => handleConceptChange(e.target.value)}
+                rows={4}
+                className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="描述这个世界的核心概念、基本法则和独特之处..."
+              />
+            </CardContent>
+          </Card>
 
-          {localRules.length === 0 ? (
-            <div className="text-center py-8">
-              <Shield className="w-12 h-12 text-gray-700 mx-auto mb-2" />
-              <p className="text-gray-500 text-sm">还没有世界规则，添加一条吧</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {localRules.map(rule => (
-                <div
-                  key={rule.id}
-                  className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
+          {/* World Rules */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-cinema-gold" />
+                  <h2 className="font-display text-lg font-semibold text-white">世界规则</h2>
+                  <span className="text-xs text-gray-500">({localRules.length})</span>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setEditingRule(null);
+                    setRuleModalOpen(true);
+                  }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-medium text-white">{rule.name}</h3>
-                        <RuleTypeBadge type={rule.rule_type} />
+                  <Plus className="w-4 h-4" />
+                  添加规则
+                </Button>
+              </div>
+
+              {localRules.length === 0 ? (
+                <div className="text-center py-8">
+                  <Shield className="w-12 h-12 text-gray-700 mx-auto mb-2" />
+                  <p className="text-gray-500 text-sm">还没有世界规则，添加一条吧</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {localRules.map(rule => (
+                    <div
+                      key={rule.id}
+                      className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-medium text-white">{rule.name}</h3>
+                            <RuleTypeBadge type={rule.rule_type} />
+                          </div>
+                          {rule.description && (
+                            <p className="text-sm text-gray-400 mt-1 line-clamp-2">
+                              {rule.description}
+                            </p>
+                          )}
+                          <div className="mt-2">
+                            <ImportanceStars level={rule.importance} />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                          <button
+                            onClick={() => {
+                              setEditingRule(rule);
+                              setRuleModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRule(rule.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      {rule.description && (
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* History */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-5 h-5 text-cinema-gold" />
+                <h2 className="font-display text-lg font-semibold text-white">历史背景</h2>
+              </div>
+              <textarea
+                value={localHistory}
+                onChange={e => handleHistoryChange(e.target.value)}
+                rows={6}
+                className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="记录这个世界的历史脉络、重大事件和时间线..."
+              />
+            </CardContent>
+          </Card>
+
+          {/* Cultures */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Palette className="w-5 h-5 text-cinema-gold" />
+                  <h2 className="font-display text-lg font-semibold text-white">文化体系</h2>
+                  <span className="text-xs text-gray-500">({localCultures.length})</span>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setEditingCulture(null);
+                    setCultureModalOpen(true);
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  添加文化
+                </Button>
+              </div>
+
+              {localCultures.length === 0 ? (
+                <div className="text-center py-8">
+                  <Palette className="w-12 h-12 text-gray-700 mx-auto mb-2" />
+                  <p className="text-gray-500 text-sm">还没有文化体系，添加一个吧</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {localCultures.map(culture => (
+                    <div
+                      key={culture.name}
+                      className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between">
+                        <h3 className="font-medium text-white">{culture.name}</h3>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => {
+                              setEditingCulture(culture);
+                              setCultureModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCulture(culture.name)}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {culture.description && (
                         <p className="text-sm text-gray-400 mt-1 line-clamp-2">
-                          {rule.description}
+                          {culture.description}
                         </p>
                       )}
-                      <div className="mt-2">
-                        <ImportanceStars level={rule.importance} />
-                      </div>
+                      {culture.customs.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-500 mb-1">习俗</p>
+                          <div className="flex flex-wrap gap-1">
+                            {culture.customs.map(c => (
+                              <span
+                                key={c}
+                                className="text-xs px-2 py-0.5 rounded-full bg-cinema-700 text-gray-300"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {culture.values.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs text-gray-500 mb-1">价值观</p>
+                          <div className="flex flex-wrap gap-1">
+                            {culture.values.map(v => (
+                              <span
+                                key={v}
+                                className="text-xs px-2 py-0.5 rounded-full bg-cinema-900/80 text-gray-400 border border-cinema-700"
+                              >
+                                {v}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-                      <button
-                        onClick={() => {
-                          setEditingRule(rule);
-                          setRuleModalOpen(true);
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRule(rule.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* History */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-cinema-gold" />
-            <h2 className="font-display text-lg font-semibold text-white">历史背景</h2>
-          </div>
-          <textarea
-            value={localHistory}
-            onChange={e => handleHistoryChange(e.target.value)}
-            rows={6}
-            className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-            placeholder="记录这个世界的历史脉络、重大事件和时间线..."
-          />
-        </CardContent>
-      </Card>
-
-      {/* Cultures */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Palette className="w-5 h-5 text-cinema-gold" />
-              <h2 className="font-display text-lg font-semibold text-white">文化体系</h2>
-              <span className="text-xs text-gray-500">({localCultures.length})</span>
-            </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : isWritingStyleLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin w-8 h-8 border-2 border-cinema-gold border-t-transparent rounded-full" />
+        </div>
+      ) : !writingStyle ? (
+        <Card>
+          <CardContent className="p-8 text-center max-w-md mx-auto">
+            <PenLine className="w-16 h-16 text-cinema-gold/60 mx-auto mb-4" />
+            <h2 className="font-display text-2xl font-bold text-white mb-2">文风尚未设定</h2>
+            <p className="text-gray-400 mb-6">
+              为「{currentStory.title}」初始化文风设定，定义小说的语气、节奏与句式风格。
+            </p>
             <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setEditingCulture(null);
-                setCultureModalOpen(true);
-              }}
+              variant="primary"
+              onClick={handleInitWritingStyle}
+              isLoading={createWritingStyle.isPending}
             >
-              <Plus className="w-4 h-4" />
-              添加文化
+              <Sparkles className="w-4 h-4" />
+              初始化文风
             </Button>
-          </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-2">
+              <PenLine className="w-5 h-5 text-cinema-gold" />
+              <h2 className="font-display text-lg font-semibold text-white">文风设定</h2>
+              {hasStyleLocalChanges && <span className="text-cinema-gold text-sm">保存中...</span>}
+            </div>
 
-          {localCultures.length === 0 ? (
-            <div className="text-center py-8">
-              <Palette className="w-12 h-12 text-gray-700 mx-auto mb-2" />
-              <p className="text-gray-500 text-sm">还没有文化体系，添加一个吧</p>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">名称</label>
+              <input
+                value={localStyleName}
+                onChange={e => handleStyleFieldChange('name', e.target.value)}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                placeholder="例如：冷峻写实"
+              />
             </div>
-          ) : (
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">描述</label>
+              <textarea
+                value={localStyleDescription}
+                onChange={e => handleStyleFieldChange('description', e.target.value)}
+                rows={3}
+                className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="整体文风概述..."
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {localCultures.map(culture => (
-                <div
-                  key={culture.name}
-                  className="p-4 bg-cinema-800/50 rounded-xl border border-cinema-700/50 hover:border-cinema-gold/20 transition-colors group"
-                >
-                  <div className="flex items-start justify-between">
-                    <h3 className="font-medium text-white">{culture.name}</h3>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => {
-                          setEditingCulture(culture);
-                          setCultureModalOpen(true);
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCulture(culture.name)}
-                        className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {culture.description && (
-                    <p className="text-sm text-gray-400 mt-1 line-clamp-2">{culture.description}</p>
-                  )}
-                  {culture.customs.length > 0 && (
-                    <div className="mt-3">
-                      <p className="text-xs text-gray-500 mb-1">习俗</p>
-                      <div className="flex flex-wrap gap-1">
-                        {culture.customs.map(c => (
-                          <span
-                            key={c}
-                            className="text-xs px-2 py-0.5 rounded-full bg-cinema-700 text-gray-300"
-                          >
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {culture.values.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500 mb-1">价值观</p>
-                      <div className="flex flex-wrap gap-1">
-                        {culture.values.map(v => (
-                          <span
-                            key={v}
-                            className="text-xs px-2 py-0.5 rounded-full bg-cinema-900/80 text-gray-400 border border-cinema-700"
-                          >
-                            {v}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">语气 (tone)</label>
+                <input
+                  value={localStyleTone}
+                  onChange={e => handleStyleFieldChange('tone', e.target.value)}
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="例如：沉稳、幽默、悬疑"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">节奏 (pacing)</label>
+                <input
+                  value={localStylePacing}
+                  onChange={e => handleStyleFieldChange('pacing', e.target.value)}
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="例如：快节奏、舒缓"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  词汇层级 (vocabulary_level)
+                </label>
+                <input
+                  value={localStyleVocabulary}
+                  onChange={e => handleStyleFieldChange('vocabulary_level', e.target.value)}
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="例如：通俗、文学、专业"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  句式结构 (sentence_structure)
+                </label>
+                <input
+                  value={localStyleSentenceStructure}
+                  onChange={e => handleStyleFieldChange('sentence_structure', e.target.value)}
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="例如：短句为主、长句铺陈"
+                />
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Modals */}
       <RuleModal

@@ -22,6 +22,7 @@ export interface Story {
   methodology_id?: string;
   methodology_step?: number;
   character_count?: number;
+  scene_count?: number;
   chapter_count?: number;
   word_count?: number;
   created_at: string;

@@ -375,6 +375,8 @@ export function Stories() {
   const currentStory = useAppStore(s => s.currentStory);
   const setCurrentStory = useAppStore(s => s.setCurrentStory);
   const setCurrentView = useAppStore(s => s.setCurrentView);
+  const pendingQuickCreate = useAppStore(s => s.pendingQuickCreate);
+  const setPendingQuickCreate = useAppStore(s => s.setPendingQuickCreate);
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -477,8 +479,8 @@ export function Stories() {
     }
   };
 
-  const handleQuickCreate = async (story: Story, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleQuickCreate = async (story: Story, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setShowAiMenu(null);
     setCreatingStoryId(story.id);
     startListening();
@@ -517,6 +519,20 @@ export function Stories() {
       stopListening();
     }
   };
+
+  // Dashboard CreationPathGuide「快速创作」跳转后自动触发
+  useEffect(() => {
+    if (!pendingQuickCreate) return;
+    setPendingQuickCreate(false);
+    const target = currentStory || stories[0];
+    if (!target) {
+      toast.error('请先创建或选择一个故事，再使用快速创作');
+      setIsModalOpen(true);
+      return;
+    }
+    void handleQuickCreate(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to pending flag
+  }, [pendingQuickCreate]);
 
   const handleWizardCreate = (story: Story, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -634,7 +650,15 @@ export function Stories() {
           setWizardStory(null);
           setIsWizardOpen(true);
         }}
-        onQuick={() => setIsModalOpen(true)}
+        onQuick={() => {
+          const target = currentStory || stories[0];
+          if (!target) {
+            toast.error('请先创建或选择一个故事，再使用快速创作');
+            setIsModalOpen(true);
+            return;
+          }
+          void handleQuickCreate(target);
+        }}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -16,6 +16,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 
 const loggedInvoke = vi.fn();
 const setCurrentView = vi.fn();
+const setPendingQuickCreate = vi.fn();
 
 // Mock Tauri services
 vi.mock('@/services/tauri', () => ({
@@ -25,17 +26,26 @@ vi.mock('@/services/tauri', () => ({
 
 // Mock app store
 vi.mock('@/stores/appStore', () => ({
-  useAppStore: (selector: (state: any) => any) =>
-    selector({
-      stories: [],
-      setStories: vi.fn(),
-      setCurrentUser: vi.fn(),
-      setCurrentStory: vi.fn(),
-      setCurrentView,
-      isLoading: false,
-      currentStory: null,
-      currentUser: null,
-    }),
+  useAppStore: Object.assign(
+    (selector: (state: any) => any) =>
+      selector({
+        stories: [],
+        setStories: vi.fn(),
+        setCurrentUser: vi.fn(),
+        setCurrentStory: vi.fn(),
+        setCurrentView,
+        isLoading: false,
+        currentStory: null,
+        currentUser: null,
+        setPendingQuickCreate,
+      }),
+    {
+      getState: () => ({
+        setPendingQuickCreate,
+        setCurrentView,
+      }),
+    }
+  ),
 }));
 
 // Mock useStories hook
@@ -47,7 +57,8 @@ vi.mock('@/hooks/useStories', () => ({
         title: '测试故事',
         genre: '科幻',
         character_count: 3,
-        chapter_count: 5,
+        scene_count: 5,
+        chapter_count: 2,
         word_count: 1200,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
