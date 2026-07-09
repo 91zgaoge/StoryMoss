@@ -2,6 +2,17 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.53] - 故事名取消单击回幕后（双击改名可用）（2026-07-09）
+
+### 修复
+
+- **根因**：故事名单击打开幕后，与双击改名冲突，用户无法可靠进入改名。
+- **修复**：故事名仅双击改名；回幕后改走右侧设置按钮（禅模式也保留该按钮）。章节标题本就无单击导航。
+
+### 验证
+
+- `FrontstageHeader` / `EditableChapterTitle` vitest：单击故事名不调用 `onOpenBackstage`；设置按钮可回幕后；双击仍进编辑。
+
 ## [v0.26.52] - 修复模型新增与默认创作模型即时生效（2026-07-09）
 
 ### 修复
@@ -20,7 +31,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 功能
 
-- **故事名**：空编辑器顶部显示「草苔」；粘贴/输入正文后显示「未命名」并自动创建故事+第一章场景（不走 `selectStory`，避免清空编辑器）；单击仍回幕后，双击内联改名（Enter/blur 保存，Esc/空 blur 取消）。
+- **故事名**：空编辑器顶部显示「草苔」；粘贴/输入正文后显示「未命名」并自动创建故事+第一章场景（不走 `selectStory`，避免清空编辑器）；双击内联改名（Enter/blur 保存，Esc/空 blur 取消）。回幕后走设置按钮。
 - **章节名**：编辑器上方大标题与顶栏状态章节标签统一双击改名；空标题展示 `第N章`；持久化优先 `update_scene`（title 回写关联 chapter）。
 
 ### 验证

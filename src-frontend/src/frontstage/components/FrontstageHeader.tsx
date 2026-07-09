@@ -56,8 +56,6 @@ interface FrontstageHeaderProps {
   onRenameChapter?: (title: string) => Promise<void> | void;
 }
 
-const CLICK_GUARD_MS = 350;
-
 const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   currentStory,
   displayTitle,
@@ -85,7 +83,6 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const clickGuardUntilRef = useRef(0);
   const titleBeforeEditRef = useRef('');
 
   const wensiTooltip =
@@ -136,17 +133,11 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
     }
   }, [draft, onRenameStory, saving, cancelEdit]);
 
-  const handleTitleClick = useCallback(() => {
-    if (Date.now() < clickGuardUntilRef.current) return;
-    if (editing) return;
-    onOpenBackstage();
-  }, [editing, onOpenBackstage]);
-
+  // v0.26.53: 故事名不再单击回幕后（与双击改名冲突）；回幕后走右侧设置按钮。
   const handleTitleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      clickGuardUntilRef.current = Date.now() + CLICK_GUARD_MS;
       if (!canRename || !onRenameStory) return;
       titleBeforeEditRef.current = displayTitle;
       setDraft(displayTitle);
@@ -186,16 +177,9 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
           />
         ) : (
           <span
-            className="frontstage-story-name"
-            onClick={handleTitleClick}
+            className={cn('frontstage-story-name', canRename && 'frontstage-story-name-renamable')}
             onDoubleClick={handleTitleDoubleClick}
-            title={
-              canRename
-                ? '单击回幕后工作室 · 双击改名'
-                : currentStory
-                  ? '点击回幕后工作室'
-                  : '点击回幕后工作室'
-            }
+            title={canRename ? '双击改名' : undefined}
           >
             {displayTitle}
           </span>
@@ -285,48 +269,55 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
         </div>
       </div>
 
-      {!isZenMode && (
-        <div className="frontstage-header-right">
-          <DebtIndicator
-            chapterId={currentChapter?.id || null}
-            storyId={currentStory?.id || null}
-          />
-          <IngestHealthIndicator storyId={currentStory?.id || null} />
-          <ColorThemeDot isZenMode={isZenMode} />
-          <button
-            className="settings-btn"
-            onClick={onOpenBackstage}
-            title="打开设置 / 幕后工作室"
-            aria-label="打开设置 / 幕后工作室"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-          <button
-            className={cn('wensi-mode-toggle', `wensi-${wensiMode}`)}
-            onClick={onCycleWensiMode}
-            title={wensiTooltip}
-            aria-label={wensiTooltip}
-          >
-            <span className="wensi-icon">
-              {wensiMode === 'active' ? (
-                <Flame className="w-3.5 h-3.5" />
-              ) : wensiMode === 'passive' ? (
-                <Sparkles className="w-3.5 h-3.5" />
-              ) : (
-                <ZapOff className="w-3.5 h-3.5" />
-              )}
-            </span>
-          </button>
-          <button
-            className="zen-mode-btn"
-            onClick={onToggleZenMode}
-            title="进入全屏禅写模式（F11）"
-            aria-label="进入全屏禅写模式（F11）"
-          >
-            <Maximize className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      <div className="frontstage-header-right">
+        {!isZenMode && (
+          <>
+            <DebtIndicator
+              chapterId={currentChapter?.id || null}
+              storyId={currentStory?.id || null}
+            />
+            <IngestHealthIndicator storyId={currentStory?.id || null} />
+            <ColorThemeDot isZenMode={isZenMode} />
+          </>
+        )}
+        {/* 故事名不再单击回幕后；设置按钮为回幕后入口（禅模式也保留） */}
+        <button
+          className="settings-btn"
+          onClick={onOpenBackstage}
+          title="打开设置 / 幕后工作室"
+          aria-label="打开设置 / 幕后工作室"
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
+        {!isZenMode && (
+          <>
+            <button
+              className={cn('wensi-mode-toggle', `wensi-${wensiMode}`)}
+              onClick={onCycleWensiMode}
+              title={wensiTooltip}
+              aria-label={wensiTooltip}
+            >
+              <span className="wensi-icon">
+                {wensiMode === 'active' ? (
+                  <Flame className="w-3.5 h-3.5" />
+                ) : wensiMode === 'passive' ? (
+                  <Sparkles className="w-3.5 h-3.5" />
+                ) : (
+                  <ZapOff className="w-3.5 h-3.5" />
+                )}
+              </span>
+            </button>
+            <button
+              className="zen-mode-btn"
+              onClick={onToggleZenMode}
+              title="进入全屏禅写模式（F11）"
+              aria-label="进入全屏禅写模式（F11）"
+            >
+              <Maximize className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+      </div>
     </header>
   );
 };

@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
 
-const CLICK_GUARD_MS = 350;
-
 export interface EditableChapterTitleProps {
   displayTitle: string;
   canRename: boolean;
@@ -14,7 +12,7 @@ export interface EditableChapterTitleProps {
 }
 
 /**
- * 章节标题内联编辑（与故事名同一套交互：双击编辑、Enter/blur 提交、Esc/空 blur 取消）。
+ * 章节标题内联编辑（双击编辑、Enter/blur 提交、Esc/空 blur 取消；无单击导航）。
  */
 const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
   displayTitle,
@@ -28,7 +26,6 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const clickGuardUntilRef = useRef(0);
   const titleBeforeEditRef = useRef('');
 
   useEffect(() => {
@@ -76,7 +73,6 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      clickGuardUntilRef.current = Date.now() + CLICK_GUARD_MS;
       if (!canRename || !onRename) return;
       titleBeforeEditRef.current = displayTitle;
       setDraft(displayTitle);

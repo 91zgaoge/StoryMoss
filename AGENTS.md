@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.52
+- **版本**: v0.26.53
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -81,6 +81,11 @@ type:
 
 ## 最近完成的功能
 
+### v0.26.53 — 故事名取消单击回幕后（双击改名可用）
+
+- **修复**：故事名不再单击打开幕后（与双击改名冲突）；回幕后走设置按钮（禅模式也保留）。
+- **验证**：Header 单击不调 `onOpenBackstage`；设置按钮可回幕后；双击仍进编辑。
+
 ### v0.26.52 — 修复模型新增与默认创作模型即时生效
 
 - **幕前连接状态**：`model_config`/`app_settings` 刷新同步失效 `gateway-status`；状态栏含 `Unknown`。
@@ -89,9 +94,9 @@ type:
 
 ### v0.26.51 — 幕前故事名与章节名内联改名
 
-- **故事名**：草苔/未命名展示；有正文自动建「未命名」故事；单击回幕后、双击改名。
+- **故事名**：草苔/未命名展示；有正文自动建「未命名」故事；双击改名。
 - **章节名**：编辑器上方 + 顶栏状态统一双击改名；空标题 `第N章`；`update_scene` 持久化。
-- **验证**：displayStoryTitle/ChapterTitle + Header/EditableChapterTitle 30 passed；tsc/format/architecture_guard。
+- **验证**：displayStoryTitle/ChapterTitle + Header/EditableChapterTitle 相关测试；tsc/format/architecture_guard。
 
 ### v0.26.50 — 修复打字触发后台运行与深度思考假超时
 
@@ -324,7 +329,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.52_
+_最后更新: 2026-07-09 - v0.26.53_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

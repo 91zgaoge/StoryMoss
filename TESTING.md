@@ -1,8 +1,12 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.52)
+# 🧪 StoryForge 自动化测试环境 (v0.26.53)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.53 变更说明
+
+- `FrontstageHeader`：单击故事名不得调用 `onOpenBackstage`；设置按钮可回幕后；双击仍进编辑。
 
 ### v0.26.52 变更说明
 

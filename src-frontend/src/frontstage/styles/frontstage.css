@@ -404,7 +404,7 @@ body {
   color: var(--charcoal);
   letter-spacing: 0.02em;
   font-family: var(--font-serif);
-  cursor: pointer;
+  cursor: default;
   transition: color var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
@@ -412,7 +412,11 @@ body {
   max-width: 240px;
 }
 
-.frontstage-story-name:hover {
+.frontstage-story-name-renamable {
+  cursor: text;
+}
+
+.frontstage-story-name-renamable:hover {
   color: var(--terracotta);
 }
 

@@ -85,27 +85,38 @@ describe('FrontstageHeader', () => {
     expect(screen.getByTitle(/文思/)).toBeInTheDocument();
   });
 
-  it('禅模式下右侧控制按钮应该隐藏', () => {
+  it('禅模式下文思/禅写按钮隐藏，但设置按钮仍可回幕后', () => {
     render(<FrontstageHeader {...defaultProps} isZenMode={true} />);
     expect(screen.queryByTitle('进入全屏禅写模式（F11）')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/文思/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('打开设置 / 幕后工作室')).toBeInTheDocument();
   });
 
-  it('单击故事名称应该触发打开幕后工作室', async () => {
+  it('单击故事名称不应打开幕后（避免与双击改名冲突）', async () => {
     const onOpenBackstage = vi.fn();
     render(<FrontstageHeader {...defaultProps} onOpenBackstage={onOpenBackstage} />);
 
     await userEvent.click(screen.getByText('测试故事'));
+    expect(onOpenBackstage).not.toHaveBeenCalled();
+  });
+
+  it('设置按钮应打开幕后工作室', async () => {
+    const onOpenBackstage = vi.fn();
+    render(<FrontstageHeader {...defaultProps} onOpenBackstage={onOpenBackstage} />);
+
+    await userEvent.click(screen.getByLabelText('打开设置 / 幕后工作室'));
     expect(onOpenBackstage).toHaveBeenCalledTimes(1);
   });
 
-  it('双击故事名称应该进入编辑态', async () => {
+  it('双击故事名称应该进入编辑态且不打开幕后', async () => {
     const user = userEvent.setup();
-    render(<FrontstageHeader {...defaultProps} />);
+    const onOpenBackstage = vi.fn();
+    render(<FrontstageHeader {...defaultProps} onOpenBackstage={onOpenBackstage} />);
 
     await user.dblClick(screen.getByText('测试故事'));
     expect(screen.getByLabelText('编辑故事名称')).toBeInTheDocument();
     expect(screen.getByDisplayValue('测试故事')).toBeInTheDocument();
+    expect(onOpenBackstage).not.toHaveBeenCalled();
   });
 
   it('改名后失焦应调用 onRenameStory', async () => {
