@@ -1,11 +1,17 @@
-# StoryForge (草苔) v0.26.51 项目完成状态
+# StoryForge (草苔) v0.26.52 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.51 幕前内联改名；v0.26.50 打字/假超时）
+> 最后更新: 2026-07-09（v0.26.52 模型热同步；v0.26.51 幕前内联改名）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.52 — 修复模型新增与默认创作模型即时生效（2026-07-09）
+
+- 幕前 `gateway-status` 随 `model_config` 失效；状态栏含 Unknown。
+- 创作角色允许 Unknown 置顶；同步 `active_llm_profile`。
+- ✅ **验证**：Rust 4；useSyncStore 5；tsc/fmt/architecture_guard。
 
 ### v0.26.51 — 幕前故事名与章节名内联改名（2026-07-09）
 

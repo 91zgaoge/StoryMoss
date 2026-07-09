@@ -1573,9 +1573,11 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'dataRefresh':
             // v0.11.2: 模型/应用设置变更时刷新 settings/models，让幕前立即感知
+            // v0.26.52: 同步失效 gateway-status，底部 AI 连接状态立即反映新模型
             if (payload?.entity === 'model_config' || payload?.entity === 'app_settings') {
               queryClient.invalidateQueries({ queryKey: ['settings'] });
               queryClient.invalidateQueries({ queryKey: ['models'] });
+              queryClient.invalidateQueries({ queryKey: ['gateway-status'] });
             }
             loadStories();
             // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理

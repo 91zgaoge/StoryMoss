@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.51 幕前内联改名）
+> 最后更新: 2026-07-09（v0.26.52 模型热同步）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.52 — 修复模型新增与默认创作模型即时生效 ✅ (2026-07-09)
+
+- [x] `model_config`/`app_settings` 刷新失效 `gateway-status`
+- [x] `get_gateway_status` 展示 Unknown；用户显式角色 `is_promotable_user_model`
+- [x] `set_active_model(creative)` / `save_settings` 同步 `active_llm_profile`
+- [x] `delete_model` 补齐 `emit_data_refresh`
 
 ### 📝 v0.26.51 — 幕前故事名与章节名内联改名 ✅ (2026-07-09)
 

@@ -8,6 +8,17 @@ use tauri::{command, AppHandle, Manager};
 use super::settings::*;
 use crate::error::AppError;
 
+/// v0.26.52: 将创作角色模型同步到 `active_llm_profile`。
+///
+/// 契约：设为创作模型后，仍走 `get_active_profile` / Creative 回退的生成路径
+/// 必须立刻使用同一模型，避免「设了创作模型仍用旧聊天活跃模型」。
+pub(crate) fn sync_creative_to_active_llm(
+    config: &mut AppConfig,
+    model_id: &str,
+) -> Result<(), AppError> {
+    config.set_active_llm_profile(model_id)
+}
+
 /// 模型类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -509,6 +520,10 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         } else {
             Some(creative_id.clone())
         };
+        // v0.26.52: 与 set_active_model(role=creative) 对齐，同步 active_llm_profile
+        if !creative_id.is_empty() {
+            let _ = sync_creative_to_active_llm(&mut config, creative_id);
+        }
     }
     if let Some(tool_id) = settings.active_models.get("tool") {
         config.tool_model_id = if tool_id.is_empty() {
@@ -1101,6 +1116,9 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
             entity: "model_config".to_string(),
         },
     );
+    // v0.26.52: 与 create/update/set_active 对齐，广播 sync-event 让幕前
+    // useSyncStore 失效 models + gateway-status
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "model_config");
 
     Ok(())
 }
@@ -1136,6 +1154,10 @@ pub fn set_active_model(
         config
             .set_model_for_role(model_role, &model_id)
             .map_err(AppError::from)?;
+        // v0.26.52: 设为创作模型时同步 active_llm_profile
+        if matches!(model_role, crate::config::settings::ModelRole::Creative) {
+            sync_creative_to_active_llm(&mut config, &model_id).map_err(AppError::from)?;
+        }
     } else {
         match model_type.as_str() {
             "chat" => config
@@ -1469,4 +1491,69 @@ pub async fn fetch_models(
     Err(AppError::internal(
         "无法从该 API 地址获取模型列表，请检查地址和密钥是否正确",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enabled_chat_profile(id: &str) -> LlmProfile {
+        LlmProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: ModelSource::UserOwned,
+            model: "gpt-4".to_string(),
+            api_key: String::new(),
+            api_base: None,
+            is_local_model: false,
+            max_tokens: 2000,
+            temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: 120,
+            is_default: false,
+            capabilities: vec![ModelCapability::Chat],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
+            system_prompt_override: None,
+        }
+    }
+
+    /// 契约：设为创作模型后 active_llm_profile 必须同步，生成回退路径立即生效。
+    #[test]
+    fn sync_creative_to_active_llm_updates_active_profile() {
+        let mut config = AppConfig::default();
+        config
+            .add_llm_profile(enabled_chat_profile("old-active"))
+            .unwrap();
+        config
+            .add_llm_profile(enabled_chat_profile("new-creative"))
+            .unwrap();
+        config.set_active_llm_profile("old-active").unwrap();
+        config
+            .set_model_for_role(ModelRole::Creative, "new-creative")
+            .unwrap();
+
+        sync_creative_to_active_llm(&mut config, "new-creative").unwrap();
+
+        assert_eq!(config.creative_model_id.as_deref(), Some("new-creative"));
+        assert_eq!(
+            config.active_llm_profile.as_deref(),
+            Some("new-creative"),
+            "creative role must sync active_llm_profile for generation fallback"
+        );
+    }
 }

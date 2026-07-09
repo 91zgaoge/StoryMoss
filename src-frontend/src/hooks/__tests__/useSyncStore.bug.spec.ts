@@ -204,6 +204,7 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
     expect(hasInvalidationForKey('settings')).toBe(true);
     expect(hasInvalidationForKey('models')).toBe(true);
+    expect(hasInvalidationForKey('gateway-status')).toBe(true);
 
     unmount();
   });
@@ -221,6 +222,7 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
     expect(hasInvalidationForKey('settings')).toBe(true);
     expect(hasInvalidationForKey('models')).toBe(true);
+    expect(hasInvalidationForKey('gateway-status')).toBe(true);
 
     unmount();
   });

@@ -116,8 +116,11 @@ impl<R: Runtime> GatewayExecutor<R> {
         })?;
 
         // 1. 用户已为该角色设置模型 → 检查健康后返回
+        // v0.26.52: 用户显式指定的角色模型允许 Unknown（刚创建尚未探测），
+        // 否则设为创作模型后仍回退到旧
+        // active_llm_profile，表现为「默认创作模型不生效」。
         if let Some(profile) = config.get_model_for_role(role) {
-            if self.is_model_available(&profile.id) {
+            if self.is_promotable_user_model(&profile.id) {
                 let failures = self
                     .health_registry()
                     .lock()
@@ -282,6 +285,34 @@ impl<R: Runtime> GatewayExecutor<R> {
             }
         }
         false
+    }
+
+    /// v0.26.52: 用户显式指定的角色/活跃模型是否可强制置顶。
+    ///
+    /// 比 `is_model_available` 更宽：允许 Unknown（刚新增尚未探测），
+    /// 仍拒绝 Unhealthy。自动候选池继续走 `is_model_available`，避免未探测模型
+    /// 被网关自动选中。
+    ///
+    /// 健康锁在嵌套块内释放后再读 registry，避免与持 registry 再锁 health
+    /// 的路径死锁。
+    fn is_promotable_user_model(&self, model_id: &str) -> bool {
+        let snapshot_status = {
+            let health = self.health_registry();
+            health
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(model_id).map(|s| s.status))
+        };
+        match snapshot_status {
+            Some(status) => matches!(
+                status,
+                super::types::HealthStatus::Healthy
+                    | super::types::HealthStatus::Degraded
+                    | super::types::HealthStatus::Unknown
+            ),
+            // 注册表有模型但尚无健康快照：视为 Unknown，允许用户显式选择
+            None => self.registry_guard().get(model_id).is_some(),
+        }
     }
 
     /// v0.23.59: 活跃模型连续失败次数达到降级阈值时返回 true。
@@ -573,7 +604,7 @@ impl<R: Runtime> GatewayExecutor<R> {
                     promote.id,
                     failures
                 );
-            } else if self.is_model_available(&promote.id) {
+            } else if self.is_promotable_user_model(&promote.id) {
                 if let Some(profile) = self.registry_guard().get(&promote.id).cloned() {
                     log::debug!("[Gateway] select_candidates: 注册表查询成功");
                     let mut candidates = decision.candidates.clone();
@@ -1381,5 +1412,32 @@ mod tests {
 
         executor.mark_unhealthy("m", "M", Some("down".to_string()));
         assert!(!executor.is_model_available("m"));
+    }
+
+    /// v0.26.52: 刚加入注册表、尚无健康快照的模型对用户显式选择可置顶，
+    /// 但对自动候选池仍不可用。
+    #[test]
+    fn test_promotable_allows_unknown_without_health_snapshot() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("new-m", "New")));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+
+        assert!(
+            !executor.is_model_available("new-m"),
+            "Unknown/no-snapshot must stay out of auto candidate pool"
+        );
+        assert!(
+            executor.is_promotable_user_model("new-m"),
+            "user-selected role/active model must promote before probe completes"
+        );
+    }
+
+    #[test]
+    fn test_promotable_rejects_unhealthy() {
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("bad", "Bad")));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+        executor.mark_unhealthy("bad", "Bad", Some("down".to_string()));
+        assert!(!executor.is_promotable_user_model("bad"));
     }
 }

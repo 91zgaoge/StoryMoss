@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.51
+- **版本**: v0.26.52
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -70,16 +70,22 @@ type:
 
 ## 当前编译状态
 
-- `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 701 passed / 0 failed / 2 ignored
+- `cargo check` ✅ 零错误（本版未全量重跑；聚焦 lib 测试通过）
+- `cargo test --lib` ✅ 聚焦：gateway status / promotable / sync_creative 4 passed（全量基线约 744+）
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 相关 frontstage 标题测试 30 passed（本版未全量重跑）
+- `npx vitest run` ✅ `useSyncStore.bug.spec` 5 passed
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
-- `cargo +nightly fmt -- --check` ✅（本版无 Rust 变更）
+- `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.52 — 修复模型新增与默认创作模型即时生效
+
+- **幕前连接状态**：`model_config`/`app_settings` 刷新同步失效 `gateway-status`；状态栏含 `Unknown`。
+- **创作模型**：用户显式角色允许 Unknown 置顶；`set_active_model(creative)` / `save_settings` 同步 `active_llm_profile`。
+- **验证**：Rust 4 + vitest 5；tsc/fmt/architecture_guard。
 
 ### v0.26.51 — 幕前故事名与章节名内联改名
 
@@ -318,7 +324,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.51_
+_最后更新: 2026-07-09 - v0.26.52_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

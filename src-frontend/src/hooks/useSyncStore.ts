@@ -419,10 +419,12 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                 queryClient.invalidateQueries({ queryKey: KEYS.storyTimeline(storyId) });
                 break;
               // v0.11.2: 模型配置变更时刷新 settings/models，让幕后立即感知新活跃模型
+              // v0.26.52: 同步失效 gateway-status，幕前底部信号条立即反映新增/角色模型
               case 'model_config':
               case 'app_settings':
                 queryClient.invalidateQueries({ queryKey: ['settings'] });
                 queryClient.invalidateQueries({ queryKey: ['models'] });
+                queryClient.invalidateQueries({ queryKey: ['gateway-status'] });
                 break;
               case 'all':
               default: {

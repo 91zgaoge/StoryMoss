@@ -6,9 +6,19 @@ use tauri::{command, AppHandle, State};
 
 use super::{
     executor::GatewayExecutor,
-    types::{GatewayRoutingDecision, GatewayStatus, ModelHealthSnapshot, ProbeResult},
+    types::{
+        GatewayRoutingDecision, GatewayStatus, HealthStatus, ModelHealthSnapshot, ProbeResult,
+    },
 };
 use crate::error::AppError;
+
+/// 幕前底部状态栏应展示的健康态（契约：含未探测，排除不可用）。
+pub(crate) fn include_in_gateway_status(status: &HealthStatus) -> bool {
+    matches!(
+        status,
+        HealthStatus::Healthy | HealthStatus::Degraded | HealthStatus::Unknown
+    )
+}
 
 /// 获取网关整体状态（供前端底部状态栏展示）
 #[command]
@@ -24,6 +34,8 @@ pub async fn get_gateway_status(
         guard.all()
     };
 
+    // v0.26.52: 含 Unknown（刚新增、尚未探测完成），否则幕前底部信号条要等
+    // 探测成功才出现新模型；Unhealthy 仍过滤，避免死模型占位。
     let models: Vec<_> = {
         let guard = executor.registry.lock().map_err(|_| AppError::Internal {
             message: "网关注册表锁定失败".to_string(),
@@ -31,10 +43,7 @@ pub async fn get_gateway_status(
         guard.models_with_health(&health)
     }
     .into_iter()
-    .filter(|m| {
-        m.status == super::types::HealthStatus::Healthy
-            || m.status == super::types::HealthStatus::Degraded
-    })
+    .filter(|m| include_in_gateway_status(&m.status))
     .collect();
 
     Ok(GatewayStatus {
@@ -46,6 +55,23 @@ pub async fn get_gateway_status(
         models,
         is_probing: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model_gateway::types::HealthStatus;
+
+    #[test]
+    fn include_in_gateway_status_shows_unknown_hides_unhealthy() {
+        assert!(include_in_gateway_status(&HealthStatus::Healthy));
+        assert!(include_in_gateway_status(&HealthStatus::Degraded));
+        assert!(
+            include_in_gateway_status(&HealthStatus::Unknown),
+            "new models must appear in frontstage status before probe completes"
+        );
+        assert!(!include_in_gateway_status(&HealthStatus::Unhealthy));
+    }
 }
 
 /// 重新探测单个模型

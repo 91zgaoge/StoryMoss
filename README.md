@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.51-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.52-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.51 幕前顶部故事名/章节名支持双击内联改名；有正文时空标题显示「未命名」并自动建故事。
+**最新动态**：v0.26.52 设置里新增模型 / 设为默认创作模型后，幕前底部连接状态与后续生成立即生效（无需重启）；v0.26.51 幕前故事名/章节名双击内联改名。
 
 **上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
 

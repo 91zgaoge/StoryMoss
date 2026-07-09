@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.52] - 修复模型新增与默认创作模型即时生效（2026-07-09）
+
+### 修复
+
+- **根因 1（幕前连接状态不刷新）**：底部信号条读 `gateway-status`，但 `model_config`/`app_settings` 刷新只失效 `settings`/`models`；且 `get_gateway_status` 过滤掉 `Unknown`，新模型探测完成前不可见。
+- **根因 2（默认创作模型不生效）**：用户指定的创作模型在健康态为 `Unknown`/无快照时被 `is_model_available` 拒绝，网关回退旧 `active_llm_profile`；`set_active_model(role=creative)` 未同步聊天活跃模型。
+- **修复**：`useSyncStore` / 幕前 `dataRefresh` 同步失效 `gateway-status`；状态栏展示含 `Unknown`；用户显式角色/活跃模型用 `is_promotable_user_model`（允许 Unknown）；设创作模型时 `sync_creative_to_active_llm`；`delete_model` 补齐 `emit_data_refresh`。
+
+### 验证
+
+- `cargo test --lib`：`include_in_gateway_status` / `test_promotable_*` / `sync_creative_to_active_llm` 4 passed
+- `npx vitest run useSyncStore.bug.spec.ts` 5 passed（含 gateway-status 失效）
+- `npx tsc --noEmit` ✅；`cargo +nightly fmt` ✅；`architecture_guard` ✅
+
 ## [v0.26.51] - 幕前故事名与章节名内联改名（2026-07-09）
 
 ### 功能

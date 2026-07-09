@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.51)
+# 🧪 StoryForge 自动化测试环境 (v0.26.52)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.52 变更说明
+
+- `include_in_gateway_status` / `is_promotable_user_model` / `sync_creative_to_active_llm` 契约 4 passed。
+- `useSyncStore.bug.spec`：`model_config`/`app_settings` 失效含 `gateway-status` 5 passed。
 
 ### v0.26.51 变更说明
 
