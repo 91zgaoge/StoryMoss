@@ -82,12 +82,22 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
     }
   };
 
+  const notifyContentChange = async () => {
+    if (!onContentChange) return;
+    const { activeDraft } = await refreshDrafts();
+    const content = activeDraft?.content || selectedDraft?.content || state.currentDraft?.content;
+    if (content) {
+      onContentChange(content);
+    }
+  };
+
   const handleFinalize = async () => {
     if (!selectedDraft && !state.currentDraft) return;
     const draft = selectedDraft || state.currentDraft;
     if (!draft) return;
     try {
       await runFinalize(draft.id, chapterTitle);
+      await notifyContentChange();
     } catch {
       // error handled in hook
     }
@@ -104,6 +114,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
   const handleMerge = async (revisionId: string) => {
     try {
       await mergeRevision(revisionId);
+      await notifyContentChange();
     } catch {
       // error handled in hook
     }
@@ -125,7 +136,10 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#1a1a2e] border-l border-white/5">
+    <div
+      className="flex flex-col h-full bg-[#1a1a2e] border-l border-white/5"
+      data-testid="pipeline-panel"
+    >
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/5">
         <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
@@ -135,6 +149,9 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
         <p className="text-xs text-white/40 mt-0.5">
           场景 #{chapterNumber} {chapterTitle || ''}
           <span className="ml-1 text-white/25">（管线序号）</span>
+        </p>
+        <p className="text-[11px] text-amber-400/80 mt-1.5" data-testid="pipeline-finalize-note">
+          Finalize 按章节号落盘
         </p>
       </div>
 

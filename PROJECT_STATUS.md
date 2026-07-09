@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.39 项目完成状态
+# StoryForge (草苔) v0.26.40 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.39 幕后信息架构全面重排）
+> 最后更新: 2026-07-09（v0.26.40 幕后资产闭环 P0–P3）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.40 — 幕后资产闭环 P0–P3（2026-07-09）
+
+- 侧栏影响徽章；SceneEditor 管线轨；KG→Bundle；MCP→设置扩展；MemoryFacade；prompt 覆盖率。
+- ✅ **验证**：memory::facade 5；相关 vitest 15+。
 
 ### v0.26.39 — 幕后信息架构全面重排（2026-07-09）
 

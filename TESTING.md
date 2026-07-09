@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.39)
+# 🧪 StoryForge 自动化测试环境 (v0.26.40)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.40 变更说明
+
+- Sidebar impact badges / 诊断默认折叠；SceneEditor pipeline rail；PromptCoverageBar；MemoryFacade KG top-5。
+- `cargo test --lib memory::facade` 5；相关 vitest 15+。
 
 ### v0.26.39 变更说明
 

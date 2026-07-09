@@ -89,6 +89,11 @@ export const useAppStore = create<AppState>(set => ({
       set({ currentView: 'usage-stats', insightsTab: 'writing' });
       return;
     }
+    // v0.26.40: MCP 降级为设置「扩展」Tab
+    if (view === 'mcp') {
+      set({ currentView: 'settings', settingsTab: 'extensions' });
+      return;
+    }
     set({ currentView: view });
   },
   insightsTab: 'usage',

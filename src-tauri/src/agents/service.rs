@@ -3383,7 +3383,9 @@ pub fn render_writer_system_from_bundle(
 /// - `methodology` → 映射到 PromptRegistry 方法论提示词
 /// - `contextual_injectors` → 逐 id resolve 后注入
 /// - `prompt_hints` → 额外提示词（既有行为）
-/// - `quality_gate` → 仅记录日志，不在热路径同步跑审校（0 额外 LLM）
+/// - `quality_gate` → **永久 defer 出热路径**：仅诊断日志，永不在续写/TriShot
+///   热路径同步跑审校（0 额外 LLM）。若未来落地，只允许 warm path（写后异步
+///   审校 / 后台质量巡检），不得回灌到 Writer 同步调用链。
 pub fn render_selected_asset_guidance(
     capability_manifest: Option<
         &crate::creative_engine::asset_capability_manifest::AssetCapabilityManifest,
@@ -3399,11 +3401,13 @@ pub fn render_selected_asset_guidance(
     const MAX_INJECTORS: usize = 3;
 
     if let Some(fs) = framework_selections {
-        // quality_gate：热路径不跑审校，仅诊断日志
+        // quality_gate：永久 defer 出热路径（0 LLM）。仅诊断日志；未来若落地
+        // 只允许 warm path（写后异步），禁止回灌 Writer 同步链。
         if let Some(ref qg) = fs.quality_gate {
             if !qg.is_empty() {
                 log::info!(
-                    "[PromptCompose] Call1 selected quality_gate={} (deferred, not run inline)",
+                    "[PromptCompose] Call1 selected quality_gate={} \
+                     (deferred forever from hot path; warm-path-only future)",
                     qg
                 );
             }

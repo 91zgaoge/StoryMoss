@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Plus, BookOpen, AlertCircle, History, FileText, Eye } from 'lucide-react';
+import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
 import { StoryTimeline } from '@/components/StoryTimeline';
 import { SceneEditor } from '@/components/SceneEditor';
 import { VersionTimeline } from '@/components/VersionTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
-import { PipelinePanel } from '@/components/pipeline/PipelinePanel';
 import {
   useScenes,
   useCreateScene,
@@ -19,13 +18,11 @@ import { useAppStore } from '@/stores/appStore';
 import { useCreateSceneVersion } from '@/hooks/useSceneVersions';
 import type { Scene, SceneVersion } from '@/types';
 import toast from 'react-hot-toast';
-import { useQueryClient } from '@tanstack/react-query';
 
 export function Scenes() {
   const currentStory = useAppStore(s => s.currentStory);
   const pendingSceneId = useAppStore(s => s.pendingSceneId);
   const setPendingSceneId = useAppStore(s => s.setPendingSceneId);
-  const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -415,16 +412,9 @@ export function Scenes() {
         )}
       </div>
 
-      {/* Right Panel - Pipeline when editing, Execution otherwise */}
-      <div className="w-72 flex-shrink-0">
-        {isEditing && selectedScene ? (
-          <PipelinePanel
-            storyId={selectedScene.story_id}
-            chapterNumber={selectedScene.sequence_number}
-            chapterTitle={selectedScene.title}
-            currentContent={selectedScene.content}
-          />
-        ) : (
+      {/* Right Panel - Execution preview only (pipeline lives inside SceneEditor when editing) */}
+      {!isEditing && (
+        <div className="w-72 flex-shrink-0" data-testid="scenes-execution-column">
           <ExecutionPanel
             storyId={currentStory.id}
             onCreateScene={handleCreateScene}
@@ -433,8 +423,8 @@ export function Scenes() {
               if (scene) handleEditScene(scene);
             }}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

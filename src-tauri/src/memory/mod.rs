@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+pub mod facade;
 pub mod health_daemon;
 pub mod hybrid_search;
 pub mod ingest;
@@ -25,6 +26,9 @@ pub mod retention;
 pub mod tokenizer;
 pub mod writer;
 
+pub use facade::{
+    format_entity_summary, MemoryFacade, DEFAULT_RELATED_ENTITY_LIMIT, ENTITY_DESC_TRUNCATE,
+};
 pub use orchestrator::{MemoryOrchestrator, MemoryTaskType};
 pub use tokenizer::CJKTokenizer;
 
@@ -93,10 +97,10 @@ impl ShortTermMemory {
             })
             .collect();
 
-        // 组装 MemoryPack
+        // 组装 MemoryPack（经 MemoryFacade 薄封装）
         let memory_pack = {
-            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(pool.clone());
-            match orchestrator.build_memory_pack(
+            match crate::memory::MemoryFacade::build_memory_pack(
+                pool,
                 &story.id,
                 target_chapter_number as i32,
                 MemoryTaskType::Write,

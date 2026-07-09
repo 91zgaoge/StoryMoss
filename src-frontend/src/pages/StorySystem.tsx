@@ -73,6 +73,14 @@ export function StorySystem() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white mb-1">故事合同</h1>
         <p className="text-gray-400 text-sm">{currentStory.title} — 合同驱动写作体系</p>
+        <div
+          className="mt-3 rounded-lg border border-cinema-gold/20 bg-cinema-gold/5 px-3 py-2 text-xs text-gray-300 leading-relaxed"
+          data-testid="story-system-impact-callout"
+        >
+          <span className="text-cinema-gold font-medium">影响默认生成：</span>
+          合同红线与运行时合同进入续写热路径（WriteTimeBundle）。「记忆」子 Tab 的语义事实主要在
+          Full/改写路径注入；知识图谱实体摘要在默认续写中以轻量【相关设定】注入（top-5）。
+        </div>
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-cinema-800 pb-2">

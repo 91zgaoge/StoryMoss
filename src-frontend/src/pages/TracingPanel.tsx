@@ -21,6 +21,7 @@ import {
   type GenerationTrace,
   type TraceStep,
 } from '@/services/api/tracing';
+import { PromptCoverageBar, extractPromptCoverage } from '@/components/PromptCoverageBar';
 import { useAppStore } from '@/stores/appStore';
 import toast from 'react-hot-toast';
 
@@ -293,6 +294,14 @@ export function TracingPanel() {
                       <p className="text-sm text-white">{selectedTrace.user_input}</p>
                     </div>
                   )}
+                  {(() => {
+                    const coverage = extractPromptCoverage(selectedTrace.steps);
+                    return coverage ? (
+                      <div className="mb-4 p-3 bg-cinema-900/50 rounded-xl border border-cinema-700/30">
+                        <PromptCoverageBar details={coverage} />
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="space-y-1">
                     {selectedTrace.steps.map((step, idx) => (
                       <TraceStepItem key={`${step.name}-${idx}`} step={step} />

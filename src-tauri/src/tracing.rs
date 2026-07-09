@@ -422,6 +422,21 @@ impl TraceStore {
             }
         })
     }
+
+    /// v0.26.40: 追加已完成步骤并写入 details（如 prompt_coverage）
+    pub fn add_completed_step_with_details(
+        &self,
+        trace_id: &str,
+        name: impl Into<String>,
+        phase: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Result<(), AppError> {
+        self.with_trace_mut(trace_id, |trace| {
+            let mut step = TraceStep::new(name, phase).finish("completed");
+            step.details = Some(details);
+            trace.steps.push(step);
+        })
+    }
 }
 
 /// 便捷函数：生成 UUIDv7 风格的 trace_id

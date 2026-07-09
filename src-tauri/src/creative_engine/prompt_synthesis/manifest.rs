@@ -236,6 +236,27 @@ impl AssetManifest {
             });
         }
 
+        // P1b: 相关设定（KG 摘要）
+        if !bundle.related_entity_summaries.is_empty() {
+            let preview = bundle
+                .related_entity_summaries
+                .iter()
+                .take(2)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("；");
+            items.push(AssetManifestItem {
+                id: "related_entities".into(),
+                kind: "knowledge".into(),
+                label: "相关设定".into(),
+                one_line: truncate(
+                    &format!("{}条：{}", bundle.related_entity_summaries.len(), preview),
+                    80,
+                ),
+                tags: vec!["soft_constraint".into(), "knowledge".into()],
+            });
+        }
+
         Self {
             items,
             story_title: bundle.story_meta.title.clone(),
@@ -336,6 +357,7 @@ mod tests {
             writing_strategy_constraints: None,
             runtime_contract: None,
             reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
         }
     }
 

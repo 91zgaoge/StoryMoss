@@ -290,6 +290,30 @@ impl GenerationTrace {
         self.record_step(phase, "orchestrator", details, "completed");
     }
 
+    /// v0.26.40: 记录 WriteTimeBundle 资产覆盖率到 TraceStore（供 Tracing
+    /// 面板）。
+    fn log_prompt_coverage(&self, coverage: serde_json::Value) {
+        if let Some(trace_id) = self.trace_id.as_ref() {
+            if let Some(store) = self.trace_store() {
+                let _ = store.add_completed_step_with_details(
+                    trace_id,
+                    "prompt_coverage",
+                    "bundle",
+                    coverage.clone(),
+                );
+            }
+        }
+        log::info!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "prompt_coverage",
+                "request_id": self.request_id,
+                "coverage": coverage,
+            })
+        );
+    }
+
     fn log_total(&self, elapsed_ms: u128, details: Option<&str>) {
         log::info!(
             target: "generation_trace",
@@ -957,6 +981,7 @@ impl AgentOrchestrator {
 
         // 构建精简 prompt：bundle 约束 + 前文回顾 + 用户指令
         let bundle_prompt = bundle.to_prompt();
+        trace.log_prompt_coverage(bundle.prompt_coverage());
         // v0.23.64: 注入前文回顾，让 Writer 能看到之前写过的正文（根因：此前
         // TimeSliced 完全不传 current_content，Writer 每次生成全新故事）
         let continuation_ctx = build_continuation_context(
@@ -1380,6 +1405,7 @@ impl AgentOrchestrator {
                 "genre_antipatterns_count": bundle.genre_antipatterns.len(),
             })),
         );
+        trace.log_prompt_coverage(bundle.prompt_coverage());
 
         // 注入叙事四元组
         if let Some(quartet_val) = task.parameters.get("narrative_quartet") {

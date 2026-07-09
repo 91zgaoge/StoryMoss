@@ -1,23 +1,36 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.39 幕后 IA 重排；v0.26.38 提示词；v0.26.37 幕前保存）
+> 最后更新: 2026-07-09（v0.26.40 资产闭环；v0.26.39 IA；v0.26.38 提示词）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.40 — 幕后资产闭环 P0–P3 ✅ (2026-07-09)
+
+- [x] P0 侧栏影响徽章 + 合同/KG 文案；诊断组默认折叠
+- [x] P1a SceneEditor 收纳 Pipeline 轨（UI 统一；finalize chapter_number 语义另债）
+- [x] P1b KG 轻量摘要进 WriteTimeBundle（top-5）
+- [x] P1c MCP 降级至设置「扩展」；不进热路径
+- [x] P2 MemoryFacade 统一读模型（表不合并）
+- [x] quality_gate：**明确永不热路径 LLM**（仅日志 / 未来温路径）
+- [x] P3 TracingPanel 资产→prompt 覆盖率
+- [ ] Schema 合并 kg_entities + memory_items（另开 campaign）
+- [ ] `run_finalize` chapter_number ↔ scene_id 根治（另开债）
+- [ ] 前端孤儿 IPC：`auto_write_cancel` / `auto_revise_cancel` / `get_canonical_state`（已 allowlist）
 
 ### 📝 v0.26.39 — 幕后信息架构全面重排 ✅ (2026-07-09)
 
 - [x] 侧栏五组分类 + 中文重命名
 - [x] 数据洞察合并（用量/写作/功能使用）
 - [x] 设置七 Tab 重组；拆书设置就近；账号死链修复
-- [ ] SceneEditor vs PipelinePanel 双轨统一（另开债）
-- [ ] KG 记忆与故事合同记忆数据模型合并（另开债）
+- [x] SceneEditor vs PipelinePanel UI 统一（v0.26.40）
+- [ ] KG 记忆与故事合同记忆 **schema** 合并（读模型已统一，表合并另开）
 
 ### 📝 v0.26.38 — 提示词面板与组合智能化 ✅ (2026-07-09)
 
 - [x] 面板 Loading / 打开目录 / 导出修复
 - [x] FrameworkSelections methodology + contextual_injectors 回灌 Call 3
 - [x] 场景组合预览（preview_prompt_composition）
-- [ ] 热路径按 quality_gate 条件审校（仍仅日志，不增 LLM）
+- [x] quality_gate 策略：永不热路径 LLM（v0.26.40 文档化）
 - [ ] 前端孤儿 IPC：`auto_write_cancel` / `auto_revise_cancel` / `get_canonical_state`（已 allowlist）
 
 ### 📝 v0.26.37 — 幕前保存与字数 ✅ (2026-07-09)

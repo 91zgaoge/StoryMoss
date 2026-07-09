@@ -165,6 +165,10 @@ fn default_context_cache() -> ContextCache {
 }
 
 /// 知识图谱实体摘要（用于注入提示词）
+///
+/// P1b 起热路径改用 `MemoryFacade::related_entity_summaries`（`Vec<String>`）。
+/// 本结构保留供诊断/调试或未来结构化扩展，当前无调用方。
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RelevantEntity {
     pub name: String,
@@ -424,9 +428,11 @@ impl StoryContextBuilder {
         let style = self
             .fetch_writing_style(repos.writing_style_repo.as_ref(), story_id)
             .map_err(AppError::internal)?;
-        let relevant_entities = self
-            .fetch_relevant_entities(repos.knowledge_graph_repo.as_ref(), story_id, 10)
-            .map_err(AppError::internal)?;
+        let relevant_entities = crate::memory::MemoryFacade::related_entity_summaries(
+            &self.pool,
+            story_id,
+            crate::memory::DEFAULT_RELATED_ENTITY_LIMIT,
+        );
 
         // 2. 从 all_scenes 推导依赖数据
         let previous_scenes = self.filter_previous_scenes(&all_scenes, scene_number);
@@ -541,9 +547,8 @@ impl StoryContextBuilder {
             &style_blend,
         );
         let memory_pack = {
-            let orchestrator =
-                crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
-            match orchestrator.build_memory_pack(
+            match crate::memory::MemoryFacade::build_memory_pack(
+                &self.pool,
                 story_id,
                 scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
                 MemoryTaskType::Write,
@@ -1029,15 +1034,13 @@ impl StoryContextBuilder {
         &self,
         story_id: &str,
         limit: usize,
-    ) -> Result<Vec<RelevantEntity>, AppError> {
+    ) -> Result<Vec<String>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let builder = Self::new(pool.clone());
-            let repo = KnowledgeGraphRepository::new(pool);
-            builder
-                .fetch_relevant_entities(&repo, &story_id, limit)
-                .map_err(AppError::internal)
+            Ok::<_, AppError>(crate::memory::MemoryFacade::related_entity_summaries(
+                &pool, &story_id, limit,
+            ))
         })
         .await
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
@@ -1171,8 +1174,8 @@ impl StoryContextBuilder {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(pool);
-            match orchestrator.build_memory_pack(
+            match crate::memory::MemoryFacade::build_memory_pack(
+                &pool,
                 &story_id,
                 scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
                 MemoryTaskType::Write,
@@ -1205,40 +1208,16 @@ impl StoryContextBuilder {
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
     }
 
+    /// P1b: 经 MemoryFacade 加载 KG 相关设定摘要（与 WriteTimeBundle 共用）。
     fn fetch_relevant_entities(
         &self,
-        kg_repo: &dyn KnowledgeGraphRepo,
+        _kg_repo: &dyn KnowledgeGraphRepo,
         story_id: &str,
         limit: usize,
-    ) -> Result<Vec<RelevantEntity>, String> {
-        let entities = kg_repo
-            .get_entities_by_story(story_id)
-            .map_err(|e| format!("获取知识图谱实体失败: {}", e))?;
-
-        let mut results: Vec<RelevantEntity> = entities
-            .into_iter()
-            .filter(|e| !e.is_archived)
-            .map(|e| {
-                let description = e
-                    .attributes
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("无描述")
-                    .to_string();
-                RelevantEntity {
-                    name: e.name,
-                    entity_type: e.entity_type.to_string(),
-                    description,
-                    relation_hint: None,
-                }
-            })
-            .collect();
-
-        // 按访问次数排序（优先返回重要实体）
-        results.sort_by(|a, b| b.entity_type.cmp(&a.entity_type));
-        results.truncate(limit);
-
-        Ok(results)
+    ) -> Result<Vec<String>, String> {
+        Ok(crate::memory::MemoryFacade::related_entity_summaries(
+            &self.pool, story_id, limit,
+        ))
     }
 
     /// 获取风格混合配置
@@ -1374,7 +1353,7 @@ impl StoryContextBuilder {
     /// 格式化场景结构为系统提示词可用文本
     fn format_scene_structure(
         scene: Option<&crate::db::models::Scene>,
-        relevant_entities: &[RelevantEntity],
+        related_entity_summaries: &[String],
     ) -> Option<String> {
         let mut parts = Vec::new();
 
@@ -1417,17 +1396,14 @@ impl StoryContextBuilder {
             }
         }
 
-        // 知识图谱实体（关键设定）
-        if !relevant_entities.is_empty() {
+        // 知识图谱实体（相关设定）——摘要已由 MemoryFacade 截断/限条
+        if !related_entity_summaries.is_empty() {
             if !parts.is_empty() {
                 parts.push(String::new());
             }
             parts.push("【相关设定】".to_string());
-            for entity in relevant_entities.iter().take(10) {
-                parts.push(format!(
-                    "- {}（{}）: {}",
-                    entity.name, entity.entity_type, entity.description
-                ));
+            for summary in related_entity_summaries {
+                parts.push(format!("- {}", summary));
             }
         }
 

@@ -5,7 +5,6 @@ import {
   Users,
   Clapperboard,
   Wand2,
-  Plug,
   Settings,
   Film,
   Sparkles,
@@ -38,68 +37,111 @@ interface SidebarProps {
   onNavigate: (view: ViewType) => void;
 }
 
-type NavItem = { id: ViewType; label: string; icon: React.ElementType };
+/** 是否影响默认生成（TimeSliced/TriShot）的认知标签 */
+export type NavImpact = 'hot' | 'warm' | 'cold' | 'config';
+
+export const IMPACT_LABELS: Record<NavImpact, string> = {
+  hot: '影响默认生成',
+  warm: '写后回流 / 条件注入',
+  cold: '诊断运维',
+  config: '配置生成行为',
+};
+
+type NavItem = {
+  id: ViewType;
+  label: string;
+  icon: React.ElementType;
+  impact: NavImpact;
+};
 
 type NavGroup = {
   id: string;
   label: string;
+  /** 非当前组时是否默认折叠（诊断组默认折叠） */
+  defaultCollapsed?: boolean;
   items: NavItem[];
 };
 
-/** v0.26.39: 五层信息架构 — 创作 / 故事资产 / 创作工具 / 洞察与运维 / 系统 */
+/** v0.26.40: 五层 IA + 生成影响徽章；诊断组默认折叠；MCP 在 P1c 移出 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'create',
     label: '创作',
     items: [
-      { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
-      { id: 'stories', label: '故事', icon: BookOpen },
+      { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, impact: 'warm' },
+      { id: 'stories', label: '故事', icon: BookOpen, impact: 'hot' },
     ],
   },
   {
     id: 'assets',
     label: '故事资产',
     items: [
-      { id: 'scenes', label: '场景', icon: Clapperboard },
-      { id: 'characters', label: '角色', icon: Users },
-      { id: 'world_building', label: '世界构建', icon: Globe },
-      { id: 'foreshadowing', label: '伏笔', icon: Eye },
-      { id: 'knowledge-graph', label: '知识图谱', icon: Network },
-      { id: 'story-system', label: '故事合同', icon: ShieldCheck },
+      { id: 'scenes', label: '场景', icon: Clapperboard, impact: 'hot' },
+      { id: 'characters', label: '角色', icon: Users, impact: 'hot' },
+      { id: 'world_building', label: '世界构建', icon: Globe, impact: 'hot' },
+      { id: 'foreshadowing', label: '伏笔', icon: Eye, impact: 'hot' },
+      { id: 'knowledge-graph', label: '知识图谱', icon: Network, impact: 'warm' },
+      { id: 'story-system', label: '故事合同', icon: ShieldCheck, impact: 'hot' },
     ],
   },
   {
     id: 'tools',
     label: '创作工具',
     items: [
-      { id: 'skills', label: '技能', icon: Wand2 },
-      { id: 'mcp', label: '扩展连接', icon: Plug },
-      { id: 'book-deconstruction', label: '拆书', icon: BookMarked },
+      { id: 'skills', label: '技能', icon: Wand2, impact: 'hot' },
+      { id: 'book-deconstruction', label: '拆书', icon: BookMarked, impact: 'warm' },
     ],
   },
   {
     id: 'insights',
-    label: '洞察与运维',
+    label: '诊断',
+    defaultCollapsed: true,
     items: [
-      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch },
-      { id: 'usage-stats', label: '数据洞察', icon: BarChart3 },
-      { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit },
-      { id: 'tracing', label: '生成链路', icon: Activity },
-      { id: 'logs', label: '日志', icon: ScrollText },
-      { id: 'tasks', label: '任务', icon: ListChecks },
+      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
+      { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
+      { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
+      { id: 'tracing', label: '生成链路', icon: Activity, impact: 'cold' },
+      { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },
+      { id: 'tasks', label: '任务', icon: ListChecks, impact: 'warm' },
     ],
   },
   {
     id: 'system',
     label: '系统',
-    items: [{ id: 'settings', label: '设置', icon: Settings }],
+    items: [{ id: 'settings', label: '设置', icon: Settings, impact: 'config' }],
   },
 ];
 
 function resolveActiveView(view: ViewType): ViewType {
-  // writing-stats 已合并进数据洞察
   if (view === 'writing-stats') return 'usage-stats';
+  if (view === 'mcp') return 'settings';
   return view;
+}
+
+function impactBadgeClass(impact: NavImpact): string {
+  switch (impact) {
+    case 'hot':
+      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+    case 'warm':
+      return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+    case 'cold':
+      return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    case 'config':
+      return 'bg-sky-500/20 text-sky-400 border-sky-500/30';
+  }
+}
+
+function impactShort(impact: NavImpact): string {
+  switch (impact) {
+    case 'hot':
+      return '热';
+    case 'warm':
+      return '温';
+    case 'cold':
+      return '冷';
+    case 'config':
+      return '配';
+  }
 }
 
 export function Sidebar({ currentView, onNavigate }: SidebarProps) {
@@ -113,8 +155,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     return 'create';
   }, [activeView]);
 
-  // 桌面默认全展开；用户可折叠非当前组
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // 诊断组默认折叠；用户可展开。当前组强制展开。
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const g of NAV_GROUPS) {
+      if (g.defaultCollapsed) init[g.id] = true;
+    }
+    return init;
+  });
 
   const handleOpenFrontstage = async () => {
     try {
@@ -130,9 +178,17 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     setCollapsed(prev => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
+  const handleNavigate = (view: ViewType) => {
+    if (view === 'mcp') {
+      useAppStore.getState().setSettingsTab('extensions');
+      onNavigate('settings');
+      return;
+    }
+    onNavigate(view);
+  };
+
   return (
     <aside className="w-20 lg:w-64 bg-cinema-900 border-r border-cinema-800 flex flex-col">
-      {/* Logo */}
       <div className="p-4 flex items-center justify-center lg:justify-start gap-3 border-b border-cinema-800">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center">
           <Film className="w-5 h-5 text-cinema-900" />
@@ -145,7 +201,6 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
         </div>
       </div>
 
-      {/* Frontstage Quick Access */}
       <div className="p-3 border-b border-cinema-800">
         <button
           onClick={handleOpenFrontstage}
@@ -157,7 +212,6 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
         <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">极简阅读写作界面</p>
       </div>
 
-      {/* Grouped Navigation */}
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto" data-testid="sidebar-nav">
         {NAV_GROUPS.map(group => {
           const isActiveGroup = group.id === activeGroupId;
@@ -185,12 +239,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                   {group.items.map(item => {
                     const Icon = item.icon;
                     const isActive = activeView === item.id;
+                    const tip = `${item.label} · ${IMPACT_LABELS[item.impact]}`;
 
                     return (
                       <button
                         key={item.id}
-                        onClick={() => onNavigate(item.id)}
-                        title={item.label}
+                        onClick={() => handleNavigate(item.id)}
+                        title={tip}
+                        data-impact={item.impact}
                         className={cn(
                           'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
                           'hover:bg-cinema-800',
@@ -202,7 +258,18 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         <Icon
                           className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-cinema-gold')}
                         />
-                        <span className="hidden lg:block font-medium text-sm">{item.label}</span>
+                        <span className="hidden lg:block font-medium text-sm flex-1 text-left">
+                          {item.label}
+                        </span>
+                        <span
+                          className={cn(
+                            'hidden lg:inline-flex text-[10px] px-1 py-0.5 rounded border leading-none',
+                            impactBadgeClass(item.impact)
+                          )}
+                          data-testid={`impact-badge-${item.id}`}
+                        >
+                          {impactShort(item.impact)}
+                        </span>
                       </button>
                     );
                   })}
@@ -213,7 +280,6 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
         })}
       </nav>
 
-      {/* Current Story Section */}
       <div className="p-3 border-t border-cinema-800">
         {currentStory ? (
           <div className="hidden lg:block">

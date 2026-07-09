@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StoryForge",
-  "version": "0.26.39",
+  "version": "0.26.40",
   "identifier": "com.storyforge.app",
   "build": {
     "beforeBuildCommand": "npm run --prefix src-frontend build",
@@ -13,7 +13,9 @@
     "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: *; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com",
-      "capabilities": ["main-capability"]
+      "capabilities": [
+        "main-capability"
+      ]
     },
     "windows": [
       {
@@ -54,10 +56,17 @@
       }
     ]
   },
-    "bundle": {
+  "bundle": {
     "active": true,
     "category": "Productivity",
-    "targets": ["msi", "nsis", "deb", "rpm", "dmg", "app"],
+    "targets": [
+      "msi",
+      "nsis",
+      "deb",
+      "rpm",
+      "dmg",
+      "app"
+    ],
     "resources": {
       "src/db/migrations/": "db/migrations/",
       "../resources/prompts/": "prompts/"

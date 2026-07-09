@@ -11,7 +11,6 @@ import { Scenes } from '@/pages/Scenes';
 import { WorldBuilding } from '@/pages/WorldBuilding';
 import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
 import { Skills } from '@/pages/Skills';
-import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
@@ -287,7 +286,8 @@ function App() {
       case 'skills':
         return <Skills />;
       case 'mcp':
-        return <Mcp />;
+        // v0.26.40: MCP 已迁至设置「扩展」；兜底仍渲染 Settings
+        return <Settings />;
       case 'settings':
         return <Settings />;
       case 'book-deconstruction':

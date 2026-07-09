@@ -49,6 +49,8 @@ pub struct WriteTimeBundle {
     pub runtime_contract: Option<RuntimeContract>,
     /// Phase 3.1: 参考场景 few-shots
     pub reference_scene_fewshots: Vec<ReferenceSceneFewShot>,
+    /// P1b: 知识图谱相关设定摘要（top-N，每条一行：名称（类型）: 描述）
+    pub related_entity_summaries: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

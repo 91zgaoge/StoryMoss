@@ -2,6 +2,23 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.40] - 幕后资产闭环 P0–P3（2026-07-09）
+
+### 增强
+
+- **P0 认知对齐**：侧栏每项「热/温/冷/配」影响徽章；故事合同 / 知识图谱页注明是否进入默认生成。
+- **P1a 场景管线统一**：PipelinePanel 收进 SceneEditor 可折叠「管线」轨；编辑态不再独立第三列。
+- **P1b KG→Bundle**：`related_entity_summaries`（top-5）进 WriteTimeBundle / `【相关设定】`；TriShot AssetManifest one-liner。
+- **P1c MCP 降级**：侧栏移除「扩展连接」；设置新增「扩展」Tab；`mcp` 视图重定向。
+- **P2 MemoryFacade**：KG 摘要与 Full MemoryPack 统一读入口；表不合并；quality_gate 明确永不热路径 LLM。
+- **P3 诊断瘦身**：侧栏「诊断」组默认折叠；生成链路展示资产→prompt 覆盖率条。
+
+### 验证
+
+- `cargo test --lib memory::facade`：5 passed；`to_prompt_includes_related`：passed
+- 相关 vitest（Sidebar IA / Pipeline / PromptCoverage）：15 passed
+- 版本四源：0.26.40
+
 ## [v0.26.39] - 幕后信息架构全面重排（2026-07-09）
 
 ### 增强

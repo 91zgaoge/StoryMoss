@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+import { cn } from '@/utils/cn';
 
 const kgLogger = createLogger('ui:KnowledgeGraph');
 import {
@@ -521,6 +522,13 @@ export const KnowledgeGraph: React.FC = () => {
               ? `${graphData.entities.length} 实体 · ${graphData.relations.length} 关系`
               : '加载中...'}
           </p>
+          <p
+            className="text-xs text-amber-400/90 mt-1.5 max-w-xl leading-relaxed"
+            data-testid="kg-impact-note"
+          >
+            未归档实体的名称与简介会以轻量【相关设定】（最多 5
+            条）进入默认续写；完整图谱与记忆健康仍属写后/诊断面。
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {/* Tabs */}
@@ -626,9 +634,5 @@ export const KnowledgeGraph: React.FC = () => {
     </div>
   );
 };
-
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ');
-}
 
 export default KnowledgeGraph;

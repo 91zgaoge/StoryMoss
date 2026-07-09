@@ -1,7 +1,7 @@
 /**
- * Settings Page - 工作室配置（v0.26.39 七 Tab 重组）
+ * Settings Page - 工作室配置（v0.26.40 八 Tab）
  *
- * 模型 | Agent | 写作 | 提示词 | 外观 | 关于 | 账号
+ * 模型 | Agent | 写作 | 提示词 | 扩展 | 外观 | 关于 | 账号
  */
 
 import { useState, useEffect } from 'react';
@@ -17,6 +17,7 @@ import {
   PenTool,
   Palette,
   Info,
+  Plug,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useExportSettings, useImportSettings } from '@/hooks/useSettings';
@@ -33,12 +34,14 @@ import { GeneralSettings } from './settings/GeneralSettings';
 import { AgentConfig } from './settings/AgentConfig';
 import { AccountSettings } from './settings/AccountSettings';
 import { PromptsPanel } from './settings/PromptsPanel';
+import { Mcp } from './Mcp';
 
 export type SettingsTabType =
   | 'models'
   | 'agents'
   | 'writing'
   | 'prompts'
+  | 'extensions'
   | 'appearance'
   | 'about'
   | 'account';
@@ -50,6 +53,7 @@ const SETTINGS_TABS: { id: SettingsTabType; label: string; icon: React.ElementTy
   { id: 'agents', label: 'Agent', icon: Bot },
   { id: 'writing', label: '写作', icon: PenTool },
   { id: 'prompts', label: '提示词', icon: FileText },
+  { id: 'extensions', label: '扩展', icon: Plug },
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'about', label: '关于', icon: Info },
   { id: 'account', label: '账号', icon: User },
@@ -62,6 +66,7 @@ function normalizeSettingsTab(raw: string | null | undefined): SettingsTabType |
   if (raw === 'methodology' || raw === 'workflows') return 'writing';
   if (raw === 'routing' || raw === 'health') return 'models';
   if (raw === 'stats') return 'about'; // 统计已迁至数据洞察
+  if (raw === 'mcp') return 'extensions';
   if (SETTINGS_TABS.some(t => t.id === raw)) return raw as SettingsTabType;
   return null;
 }
@@ -234,6 +239,14 @@ export function Settings() {
             </div>
           )}
           {activeTab === 'prompts' && <PromptsPanel />}
+          {activeTab === 'extensions' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500 leading-relaxed" data-testid="extensions-note">
+                MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
+              </p>
+              <Mcp />
+            </div>
+          )}
           {activeTab === 'appearance' && <GeneralSettings sections={['appearance']} />}
           {activeTab === 'about' && <GeneralSettings sections={['about']} />}
           {activeTab === 'account' && <AccountSettings />}

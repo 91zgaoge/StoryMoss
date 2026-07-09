@@ -71,6 +71,7 @@ mod integration_tests {
             writing_strategy_constraints: None,
             runtime_contract: None,
             reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
         }
     }
 }

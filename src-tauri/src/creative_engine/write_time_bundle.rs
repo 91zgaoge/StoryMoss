@@ -320,6 +320,13 @@ impl WriteTimeBundle {
         let overdue_foreshadowings = snapshot.overdue_foreshadowings(1);
         let style_dna_summary = snapshot.style_dna_summary;
 
+        // P1b: KG 相关设定摘要（与 StoryContextBuilder 共用 MemoryFacade）
+        let related_entity_summaries = crate::memory::MemoryFacade::related_entity_summaries(
+            pool,
+            story_id,
+            crate::memory::DEFAULT_RELATED_ENTITY_LIMIT,
+        );
+
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
@@ -340,6 +347,7 @@ impl WriteTimeBundle {
             writing_strategy_constraints,
             runtime_contract,
             reference_scene_fewshots,
+            related_entity_summaries,
         })
     }
 
@@ -656,7 +664,50 @@ impl WriteTimeBundle {
             ));
         }
 
+        // P1b: 知识图谱相关设定（轻量 top-N，零 LLM）
+        if !self.related_entity_summaries.is_empty() {
+            let lines: Vec<String> = self
+                .related_entity_summaries
+                .iter()
+                .map(|s| format!("  - {}", s))
+                .collect();
+            sections.push(format!("【相关设定】\n{}", lines.join("\n")));
+        }
+
         sections.join("\n\n")
+    }
+
+    /// v0.26.40: 资产→prompt 覆盖率（各槽是否非空），供 Tracing 面板展示。
+    pub fn prompt_coverage(&self) -> serde_json::Value {
+        let slots = [
+            self.contract_redlines.is_some(),
+            self.runtime_contract.is_some(),
+            !self.core_characters.is_empty(),
+            self.scene_outline.is_some(),
+            !self.pending_foreshadowings.is_empty() || !self.overdue_foreshadowings.is_empty(),
+            !self.genre_antipatterns.is_empty(),
+            self.style_slice.is_some() || self.style_dna_summary.is_some(),
+            self.methodology_extension.is_some(),
+            !self.related_entity_summaries.is_empty(),
+            !self.reference_scene_fewshots.is_empty(),
+        ];
+        let filled_slots = slots.iter().filter(|&&x| x).count();
+        serde_json::json!({
+            "contract_redlines": self.contract_redlines.is_some(),
+            "runtime_contract": self.runtime_contract.is_some(),
+            "core_characters": !self.core_characters.is_empty(),
+            "scene_outline": self.scene_outline.is_some(),
+            "pending_foreshadowings": !self.pending_foreshadowings.is_empty(),
+            "overdue_foreshadowings": !self.overdue_foreshadowings.is_empty(),
+            "genre_antipatterns": !self.genre_antipatterns.is_empty(),
+            "style_slice": self.style_slice.is_some(),
+            "style_dna_summary": self.style_dna_summary.is_some(),
+            "methodology_extension": self.methodology_extension.is_some(),
+            "related_entity_summaries": !self.related_entity_summaries.is_empty(),
+            "reference_scene_fewshots": !self.reference_scene_fewshots.is_empty(),
+            "filled_slots": filled_slots,
+            "total_slots": 10,
+        })
     }
 }
 
@@ -907,10 +958,50 @@ mod tests {
             writing_strategy_constraints: None,
             runtime_contract: None,
             reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
         };
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("次要题材画像补充"));
         assert!(prompt.contains("异星世界"));
+    }
+
+    #[test]
+    fn to_prompt_includes_related_entity_summaries() {
+        let bundle = WriteTimeBundle {
+            contract_redlines: None,
+            core_characters: vec![],
+            scene_outline: None,
+            genre_antipatterns: vec![],
+            style_slice: None,
+            story_meta: StoryMeta {
+                title: "测试".to_string(),
+                genre: Some("玄幻".to_string()),
+                tone: None,
+                pacing: None,
+                description: None,
+            },
+            genre_category: GenreCategory::Speculative,
+            narrative_phase_guidance: None,
+            pending_foreshadowings: vec![],
+            overdue_foreshadowings: vec![],
+            style_dna_summary: None,
+            narrative_quartet: None,
+            style_dna_extension: None,
+            methodology_extension: None,
+            genre_profile_strategy: None,
+            secondary_genre_profile_strategy: None,
+            writing_strategy_constraints: None,
+            runtime_contract: None,
+            reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![
+                "玄铁剑（Item）: 传说中的神兵".into(),
+                "北境（Location）: 苦寒之地".into(),
+            ],
+        };
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("【相关设定】"));
+        assert!(prompt.contains("玄铁剑（Item）"));
+        assert!(prompt.contains("北境（Location）"));
     }
 
     #[test]
@@ -948,6 +1039,7 @@ mod tests {
             writing_strategy_constraints: None,
             runtime_contract: None,
             reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);
