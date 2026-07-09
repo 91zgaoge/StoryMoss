@@ -3,7 +3,7 @@ id: writer_system
 name: "Writer 系统提示词"
 description: "AI 写作助手的基础角色设定与行为准则"
 category: writer
-version: 0.26.28
+version: 0.26.44
 variables:
   - story_title
   - genre

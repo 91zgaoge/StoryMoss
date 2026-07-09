@@ -339,6 +339,13 @@ pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::Stor
         pacing: extract_string(json_str, "pacing").unwrap_or_default(),
         themes: extract_array(json_str, "themes"),
         target_length: extract_string(json_str, "target_length").unwrap_or_default(),
+        protagonist_name: extract_string(json_str, "protagonist_name").filter(|s| !s.is_empty()),
+        protagonist_desire: extract_string(json_str, "protagonist_desire")
+            .filter(|s| !s.is_empty()),
+        protagonist_wound: extract_string(json_str, "protagonist_wound").filter(|s| !s.is_empty()),
+        core_conflict: extract_string(json_str, "core_conflict").filter(|s| !s.is_empty()),
+        world_one_liner: extract_string(json_str, "world_one_liner").filter(|s| !s.is_empty()),
+        survival_stakes: extract_string(json_str, "survival_stakes").filter(|s| !s.is_empty()),
         source: ElementSource::Generated,
         source_ref_id: None,
     })
@@ -503,6 +510,15 @@ pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryM
         pacing,
         themes,
         target_length,
+        protagonist_name: extract_field(text, &["主角", "protagonist_name", "主角姓名", "主角名"]),
+        protagonist_desire: extract_field(
+            text,
+            &["欲望", "protagonist_desire", "主角欲望", "目标"],
+        ),
+        protagonist_wound: extract_field(text, &["旧伤", "protagonist_wound", "软肋"]),
+        core_conflict: extract_field(text, &["核心冲突", "core_conflict", "冲突"]),
+        world_one_liner: extract_field(text, &["世界一句话", "world_one_liner", "世界规则"]),
+        survival_stakes: extract_field(text, &["生存代价", "survival_stakes", "代价"]),
         source: ElementSource::Generated,
         source_ref_id: None,
     })
@@ -626,6 +642,27 @@ mod tests {
         let result = extract_and_sanitize_json(content).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["title"], "真");
+    }
+
+    #[test]
+    fn test_extract_story_meta_fallback_reads_thickened_fields() {
+        let json = r#"{
+  "title": "荒星纪元",
+  "description": "末世求生",
+  "genre": "末世生存",
+  "tone": "暗黑",
+  "pacing": "快节奏",
+  "themes": ["生存"],
+  "target_length": "长篇",
+  "protagonist_name": "林深",
+  "core_conflict": "人与毒化环境",
+  "world_one_liner": "地表水全部带毒",
+  "survival_stakes": "脱水而死"
+}"#;
+        let meta = extract_story_meta_fallback(json).unwrap();
+        assert_eq!(meta.protagonist_name.as_deref(), Some("林深"));
+        assert_eq!(meta.core_conflict.as_deref(), Some("人与毒化环境"));
+        assert_eq!(meta.world_one_liner.as_deref(), Some("地表水全部带毒"));
     }
 
     #[test]

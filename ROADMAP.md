@@ -1,8 +1,17 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.43 状态栏图标；v0.26.42 续写幽灵锁）
+> 最后更新: 2026-07-09（v0.26.44 Genesis 开篇骨架；v0.26.43 状态栏图标）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.44 — Genesis 首章质量：开篇骨架与提示词加厚 ✅ (2026-07-09)
+
+- [x] Phase 1：概念提示加厚 + strategy_selector 中文化
+- [x] Phase 2：`OpeningSkeletonStep`（≤10s，fail-open + 概念映射降级）
+- [x] Phase 3：`infer_narrative_quartet` 接入 Genesis；TriShot 占位用骨架主角
+- [x] Phase 4：first_scene 输出纪律单源化；`genesis.opening_skeleton.done` 观测
+- [x] USER_GUIDE：创世 30–90s，先骨架后正文
+- [ ] Phase 5 A/B 盲测（末世等 5 题材样本）— 发布后对照 `creative_workflow.log`
 
 ### 📝 v0.26.43 — 修复底部状态栏 emoji 显示为方框 ✅ (2026-07-09)
 

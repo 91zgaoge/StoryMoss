@@ -74,6 +74,142 @@ impl GenesisStepError {
     }
 }
 
+/// v0.26.44: 开篇骨架——在写正文前填充戏剧槽位的极简结构。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpeningSkeleton {
+    pub protagonist: OpeningSkeletonProtagonist,
+    pub scene: OpeningSkeletonScene,
+    #[serde(default)]
+    pub world_rules_one_liner: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpeningSkeletonProtagonist {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub obstacle: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpeningSkeletonScene {
+    #[serde(default)]
+    pub dramatic_goal: String,
+    #[serde(default)]
+    pub conflict_type: String,
+    #[serde(default)]
+    pub external_pressure: String,
+    #[serde(default)]
+    pub setting_location: String,
+    #[serde(default)]
+    pub setting_time: String,
+    #[serde(default)]
+    pub setting_atmosphere: String,
+    #[serde(default)]
+    pub characters_present: Vec<String>,
+    #[serde(default)]
+    pub scene_outline: String,
+}
+
+/// 解析开篇骨架 JSON；残缺字段用默认空串，title/name 全空则视为无效。
+pub fn parse_opening_skeleton(json_str: &str) -> Option<OpeningSkeleton> {
+    let sanitized = super::extract_and_sanitize_json(json_str).ok()?;
+    let skeleton: OpeningSkeleton = serde_json::from_str(&sanitized).ok()?;
+    let has_signal = !skeleton.protagonist.name.trim().is_empty()
+        || !skeleton.scene.dramatic_goal.trim().is_empty()
+        || !skeleton.scene.scene_outline.trim().is_empty()
+        || !skeleton.world_rules_one_liner.trim().is_empty();
+    if has_signal {
+        Some(skeleton)
+    } else {
+        None
+    }
+}
+
+/// 从加厚概念字段规则映射开篇骨架（零额外 LLM，骨架步失败时的降级路径）。
+pub fn opening_skeleton_from_concept(meta: &StoryMetaElement) -> Option<OpeningSkeleton> {
+    let name = meta
+        .protagonist_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "主角" && *s != "男主" && *s != "女主")
+        .unwrap_or("")
+        .to_string();
+    let goal = meta
+        .protagonist_desire
+        .clone()
+        .or_else(|| meta.survival_stakes.clone())
+        .unwrap_or_default();
+    let dramatic_goal = meta.core_conflict.clone().unwrap_or_default();
+    let world = meta.world_one_liner.clone().unwrap_or_default();
+    let pressure = meta.survival_stakes.clone().unwrap_or_default();
+    if name.is_empty() && dramatic_goal.is_empty() && world.is_empty() {
+        return None;
+    }
+    let mut characters_present = Vec::new();
+    if !name.is_empty() {
+        characters_present.push(name.clone());
+    }
+    Some(OpeningSkeleton {
+        protagonist: OpeningSkeletonProtagonist {
+            name: name.clone(),
+            goal: goal.clone(),
+            obstacle: pressure.clone(),
+        },
+        scene: OpeningSkeletonScene {
+            dramatic_goal: dramatic_goal.clone(),
+            conflict_type: if meta.genre.contains("末世") || meta.genre.contains("生存") {
+                "人与环境".to_string()
+            } else {
+                "人与人".to_string()
+            },
+            external_pressure: pressure,
+            setting_location: String::new(),
+            setting_time: String::new(),
+            setting_atmosphere: meta.tone.clone(),
+            characters_present,
+            scene_outline: if dramatic_goal.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "开场建立处境；主角追求「{}」；遭遇阻力后做出第一次选择。",
+                    goal.chars().take(40).collect::<String>()
+                )
+            },
+        },
+        world_rules_one_liner: world,
+    })
+}
+
+/// 统计骨架非空槽位数（可观测性）。
+pub fn opening_skeleton_filled_slots(skeleton: &OpeningSkeleton) -> usize {
+    let mut n = 0usize;
+    if !skeleton.protagonist.name.trim().is_empty() {
+        n += 1;
+    }
+    if !skeleton.protagonist.goal.trim().is_empty() {
+        n += 1;
+    }
+    if !skeleton.scene.dramatic_goal.trim().is_empty() {
+        n += 1;
+    }
+    if !skeleton.scene.external_pressure.trim().is_empty() {
+        n += 1;
+    }
+    if !skeleton.scene.characters_present.is_empty() {
+        n += 1;
+    }
+    if !skeleton.scene.scene_outline.trim().is_empty() {
+        n += 1;
+    }
+    if !skeleton.world_rules_one_liner.trim().is_empty() {
+        n += 1;
+    }
+    n
+}
+
 /// 创世流水线上下文
 ///
 /// 在流水线执行过程中，各步骤通过此上下文共享数据和状态。
@@ -91,6 +227,8 @@ pub struct GenesisContext {
     pub first_chapter_content: Option<String>,
     /// 模型为当前故事选择的创作策略
     pub selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
+    /// v0.26.44: 开篇骨架（策略之后、正文之前；失败可为空）
+    pub opening_skeleton: Option<OpeningSkeleton>,
     /// v0.26.19 Phase 2.2: 后台步骤非致命错误累计。
     /// 使用 `Arc<Mutex<...>>` 以便 quick phase 与 background phase 共享同一集合
     /// （`for_background` 透传同一 Arc），最终在后台阶段结束时写入
@@ -131,6 +269,7 @@ impl GenesisContext {
             vector_store,
             first_chapter_content: None,
             selected_strategy: None,
+            opening_skeleton: None,
             errors: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -158,6 +297,7 @@ impl GenesisContext {
             vector_store,
             first_chapter_content: None,
             selected_strategy,
+            opening_skeleton: None,
             errors,
         }
     }
@@ -314,13 +454,15 @@ fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
 pub struct GenesisPipeline;
 
 impl GenesisPipeline {
-    /// 快速阶段：故事概念 → 策略选择 → 第一章正文，目标 30-90 秒返回给用户
-    /// v0.26.28 Phase 4: 策略选择从后台阶段前移至快速阶段，使 FirstChapter
-    /// 能使用 `ctx.selected_strategy` 注入体裁画像/方法论/风格 DNA。
+    /// 快速阶段：故事概念 → 策略选择 → 开篇骨架 → 第一章正文，目标 30-90
+    /// 秒返回给用户 v0.26.28 Phase 4: 策略选择从后台阶段前移至快速阶段，使
+    /// FirstChapter 能使用 `ctx.selected_strategy` 注入体裁画像/方法论/风格
+    /// DNA。 v0.26.44: 插入 OpeningSkeletonStep，使戏剧槽位在写正文前非空。
     pub fn quick_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
             Box::new(ConceptGenerationStep),
             Box::new(StrategySelectionStep),
+            Box::new(OpeningSkeletonStep),
             Box::new(FirstChapterGenerationStep),
         ]
     }
@@ -367,7 +509,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在调用AI生成故事概念...".to_string(),
                 progress_percent: 10,
@@ -386,9 +528,11 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                             .creative_temperature()
                             .or_else(|| profile.map(|p| p.temperature))
                             .unwrap_or(0.7);
-                        (profile.map(|p| p.max_tokens).unwrap_or(512), temp)
+                        // v0.26.44: 概念加厚后 JSON 更长，下限至少 768，避免截断新字段
+                        let tokens = profile.map(|p| p.max_tokens).unwrap_or(768).max(768);
+                        (tokens, temp)
                     })
-                    .unwrap_or((512, 0.7));
+                    .unwrap_or((768, 0.7));
 
             let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
             let available_profiles = genre_repo.get_all().unwrap_or_default();
@@ -399,7 +543,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 Some(&ctx.pool),
             );
             let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 3, "生成故事概念");
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 4, "生成故事概念");
             let request = RoutingRequest {
                 task: TaskType::WorldBuilding,
                 complexity: Complexity::Medium,
@@ -585,7 +729,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: format!("故事概念已生成：《{}", title),
                 progress_percent: 40,
@@ -626,7 +770,7 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在为故事匹配最优创作策略...".to_string(),
                 progress_percent: 45,
@@ -703,6 +847,28 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 strategy.style_dna_ids.join(", "),
                 strategy.skill_ids.join(", ")
             );
+
+            // v0.26.44: Genesis 接入叙事四元组启发式（不调 LLM）
+            let mut strategy = strategy;
+            let (canonical_genre, reader_promise) = strategy
+                .genre_profile_id
+                .as_ref()
+                .and_then(|id| {
+                    crate::db::GenreProfileRepository::new(ctx.pool.clone())
+                        .get_by_id(id)
+                        .ok()
+                        .flatten()
+                        .map(|p| (Some(p.canonical_name), p.reader_promise))
+                })
+                .unwrap_or((None, None));
+            let clarity = crate::intent::detect_input_clarity(&ctx.user_premise);
+            crate::strategy::quartet_inference::infer_narrative_quartet(
+                &mut strategy,
+                canonical_genre.as_deref(),
+                reader_promise.as_deref(),
+                clarity,
+            );
+
             ctx.selected_strategy = Some(strategy);
 
             progress(PipelineProgressEvent {
@@ -710,10 +876,10 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: format!("已选择创作策略：{}", strategy_summary),
-                progress_percent: 55,
+                progress_percent: 45,
                 elapsed_seconds: 0,
                 metadata: None,
             });
@@ -723,7 +889,204 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
     }
 }
 
-// ==================== Step 3: 第一章生成 ====================
+// ==================== Step 3: 开篇骨架 ====================
+
+/// v0.26.44: 在策略之后、正文之前，用一次最快模型调用产出可填槽骨架。
+/// 硬超时 10s；失败/超时则从加厚 concept 规则映射，再不济空槽——永不 fail
+/// pipeline。
+struct OpeningSkeletonStep;
+
+impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
+    fn name(&self) -> &'static str {
+        "铺设开篇骨架"
+    }
+    fn description(&self) -> &'static str {
+        "生成主角卡与场景戏剧卡，供第一章正文落地"
+    }
+    fn step_number(&self) -> usize {
+        3
+    }
+
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut GenesisContext,
+        llm: &'a LlmService,
+        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 4,
+                status: StepStatus::Running,
+                message: "正在铺设开篇骨架...".to_string(),
+                progress_percent: 55,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            let started = std::time::Instant::now();
+            let meta = {
+                let bundle = ctx.bundle.read().await;
+                bundle.story_meta.clone()
+            };
+
+            let Some(meta) = meta else {
+                ctx.record_error(self.name(), "故事概念缺失，跳过开篇骨架");
+                return Ok(());
+            };
+
+            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let prompt = opening_skeleton_prompt(
+                &ctx.user_premise,
+                &meta.title,
+                &meta.genre,
+                &meta.description,
+                meta.core_conflict.as_deref().unwrap_or(""),
+                meta.protagonist_name.as_deref().unwrap_or(""),
+                meta.protagonist_desire.as_deref().unwrap_or(""),
+                meta.world_one_liner.as_deref().unwrap_or(""),
+                meta.survival_stakes.as_deref().unwrap_or(""),
+                &strategy_notes,
+                Some(&ctx.pool),
+            );
+
+            let pipeline_ctx =
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 4, "铺设开篇骨架");
+            let request = RoutingRequest {
+                task: TaskType::Analysis,
+                complexity: Complexity::Low,
+                budget_priority: Priority::Low,
+                speed_priority: Priority::High,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            };
+
+            let skeleton_result = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                llm.generate_for_request_with_context_and_pipeline(
+                    request,
+                    prompt,
+                    Some(512),
+                    Some(0.4),
+                    Some("铺设开篇骨架"),
+                    Some(pipeline_ctx),
+                ),
+            )
+            .await;
+
+            let mut skeleton = match skeleton_result {
+                Ok(Ok(response)) => parse_opening_skeleton(&response.content),
+                Ok(Err(e)) => {
+                    ctx.record_error(
+                        self.name(),
+                        format!("开篇骨架 LLM 失败，降级为概念映射: {}", e),
+                    );
+                    None
+                }
+                Err(_) => {
+                    ctx.record_error(self.name(), "开篇骨架超时(10s)，降级为概念映射");
+                    None
+                }
+            };
+
+            if skeleton.is_none() {
+                skeleton = opening_skeleton_from_concept(&meta);
+            }
+
+            let duration_ms = started.elapsed().as_millis() as u64;
+            let filled_slots = skeleton
+                .as_ref()
+                .map(opening_skeleton_filled_slots)
+                .unwrap_or(0);
+
+            if let Some(logger) = ctx
+                .app_handle
+                .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+            {
+                logger.info(
+                    "genesis.opening_skeleton.done",
+                    "开篇骨架完成",
+                    Some(serde_json::json!({
+                        "duration_ms": duration_ms,
+                        "filled_slots": filled_slots,
+                        "from_llm": skeleton.is_some(),
+                        "protagonist": skeleton.as_ref().map(|s| s.protagonist.name.clone()),
+                    })),
+                );
+            }
+
+            // 可选：用骨架主角创建占位角色，替换硬编码「主角」
+            if let Some(ref sk) = skeleton {
+                let name = sk.protagonist.name.trim();
+                if !name.is_empty() && name != "主角" {
+                    let pool = ctx.pool.clone();
+                    let story_id = ctx.story_id.clone();
+                    let goal = sk.protagonist.goal.clone();
+                    let obstacle = sk.protagonist.obstacle.clone();
+                    let name_owned = name.to_string();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let char_repo = CharacterRepository::new(pool);
+                        let existing = char_repo.get_by_story(&story_id).unwrap_or_default();
+                        if existing.is_empty() {
+                            let req = CreateCharacterRequest {
+                                story_id,
+                                name: name_owned,
+                                background: Some(if obstacle.is_empty() {
+                                    "待定".to_string()
+                                } else {
+                                    obstacle
+                                }),
+                                personality: Some("待定".to_string()),
+                                goals: Some(if goal.is_empty() {
+                                    "生存".to_string()
+                                } else {
+                                    goal
+                                }),
+                                appearance: None,
+                                gender: None,
+                                age: None,
+                                source: Some("genesis_skeleton".to_string()),
+                                is_auto_generated: Some(true),
+                            };
+                            let _ = char_repo.create(req);
+                        }
+                    })
+                    .await;
+                }
+            }
+
+            ctx.opening_skeleton = skeleton;
+
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 4,
+                status: StepStatus::Completed,
+                message: if filled_slots > 0 {
+                    format!("开篇骨架已就绪（{} 个槽位）", filled_slots)
+                } else {
+                    "开篇骨架跳过，将按概念自由发挥".to_string()
+                },
+                progress_percent: 60,
+                elapsed_seconds: 0,
+                metadata: Some(serde_json::json!({
+                    "filled_slots": filled_slots,
+                    "duration_ms": duration_ms,
+                })),
+            });
+
+            Ok(())
+        })
+    }
+}
+
+// ==================== Step 4: 第一章生成 ====================
 
 struct FirstChapterGenerationStep;
 
@@ -735,7 +1098,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
         "生成第一章正文（用户立即可见）"
     }
     fn step_number(&self) -> usize {
-        3
+        4
     }
 
     fn execute<'a>(
@@ -762,7 +1125,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "正在构建写作指令...".to_string(),
                 progress_percent: 60,
@@ -809,59 +1172,84 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .unwrap_or_default();
 
             // Phase 4: 场景优先创世 — 加载 Scene 1 的戏剧结构注入 prompt
+            // v0.26.44: 优先用 opening_skeleton 填槽（quick 时 Scene 1 通常仍空）
             let scene_repo_for_prompt = SceneRepository::new(ctx.pool.clone());
-            let scene_dramatic_goal;
-            let scene_conflict_type;
-            let scene_external_pressure;
-            let scene_setting_location;
-            let scene_setting_time;
-            let scene_setting_atmosphere;
-            let scene_characters_present;
-            let scene_outline;
+            let mut scene_dramatic_goal = String::new();
+            let mut scene_conflict_type = String::new();
+            let mut scene_external_pressure = String::new();
+            let mut scene_setting_location = String::new();
+            let mut scene_setting_time = String::new();
+            let mut scene_setting_atmosphere = String::new();
+            let mut scene_characters_present = String::new();
+            let mut scene_outline = String::new();
             if let Ok(scenes) = scene_repo_for_prompt.get_by_story(&ctx.story_id) {
-                let scene1 = scenes.into_iter().find(|s| s.sequence_number == 1);
-                scene_dramatic_goal = scene1
-                    .as_ref()
-                    .and_then(|s| s.dramatic_goal.clone())
-                    .unwrap_or_default();
-                scene_conflict_type = scene1
-                    .as_ref()
-                    .and_then(|s| s.conflict_type.map(|c| c.to_string()))
-                    .unwrap_or_default();
-                scene_external_pressure = scene1
-                    .as_ref()
-                    .and_then(|s| s.external_pressure.clone())
-                    .unwrap_or_default();
-                scene_setting_location = scene1
-                    .as_ref()
-                    .and_then(|s| s.setting_location.clone())
-                    .unwrap_or_default();
-                scene_setting_time = scene1
-                    .as_ref()
-                    .and_then(|s| s.setting_time.clone())
-                    .unwrap_or_default();
-                scene_setting_atmosphere = scene1
-                    .as_ref()
-                    .and_then(|s| s.setting_atmosphere.clone())
-                    .unwrap_or_default();
-                scene_characters_present = scene1
-                    .as_ref()
-                    .map(|s| s.characters_present.join("、"))
-                    .unwrap_or_default();
-                scene_outline = scene1
-                    .as_ref()
-                    .and_then(|s| s.outline_content.clone())
-                    .unwrap_or_default();
-            } else {
-                scene_dramatic_goal = String::new();
-                scene_conflict_type = String::new();
-                scene_external_pressure = String::new();
-                scene_setting_location = String::new();
-                scene_setting_time = String::new();
-                scene_setting_atmosphere = String::new();
-                scene_characters_present = String::new();
-                scene_outline = String::new();
+                if let Some(scene1) = scenes.into_iter().find(|s| s.sequence_number == 1) {
+                    scene_dramatic_goal = scene1.dramatic_goal.clone().unwrap_or_default();
+                    scene_conflict_type = scene1
+                        .conflict_type
+                        .map(|c| c.to_string())
+                        .unwrap_or_default();
+                    scene_external_pressure = scene1.external_pressure.clone().unwrap_or_default();
+                    scene_setting_location = scene1.setting_location.clone().unwrap_or_default();
+                    scene_setting_time = scene1.setting_time.clone().unwrap_or_default();
+                    scene_setting_atmosphere =
+                        scene1.setting_atmosphere.clone().unwrap_or_default();
+                    scene_characters_present = scene1.characters_present.join("、");
+                    scene_outline = scene1.outline_content.clone().unwrap_or_default();
+                }
             }
+
+            if let Some(sk) = ctx.opening_skeleton.as_ref() {
+                if scene_dramatic_goal.is_empty() {
+                    scene_dramatic_goal = sk.scene.dramatic_goal.clone();
+                }
+                if scene_conflict_type.is_empty() {
+                    scene_conflict_type = sk.scene.conflict_type.clone();
+                }
+                if scene_external_pressure.is_empty() {
+                    scene_external_pressure = sk.scene.external_pressure.clone();
+                }
+                if scene_setting_location.is_empty() {
+                    scene_setting_location = sk.scene.setting_location.clone();
+                }
+                if scene_setting_time.is_empty() {
+                    scene_setting_time = sk.scene.setting_time.clone();
+                }
+                if scene_setting_atmosphere.is_empty() {
+                    scene_setting_atmosphere = sk.scene.setting_atmosphere.clone();
+                }
+                if scene_characters_present.is_empty() {
+                    scene_characters_present = sk.scene.characters_present.join("、");
+                }
+                if scene_outline.is_empty() {
+                    scene_outline = sk.scene.scene_outline.clone();
+                }
+            }
+
+            // 将世界一句话并入策略注解，避免 first_scene 模板再加参数
+            let mut strategy_notes = strategy_notes;
+            if let Some(sk) = ctx.opening_skeleton.as_ref() {
+                if !sk.world_rules_one_liner.trim().is_empty() {
+                    strategy_notes.push_str(&format!(
+                        "\n\n【开篇世界锚点】\n{}",
+                        sk.world_rules_one_liner
+                    ));
+                }
+                if !sk.protagonist.name.trim().is_empty() {
+                    strategy_notes.push_str(&format!(
+                        "\n【开篇主角】{}；目标：{}；阻力：{}",
+                        sk.protagonist.name, sk.protagonist.goal, sk.protagonist.obstacle
+                    ));
+                }
+            }
+
+            log::info!(
+                "[GenesisDiag] first_scene slots: dramatic_goal_empty={}, chars_empty={}, outline_empty={}, quartet_empty={}",
+                scene_dramatic_goal.is_empty(),
+                scene_characters_present.is_empty(),
+                scene_outline.is_empty(),
+                quartet_section.is_empty()
+            );
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
             // Phase 4: 使用场景优先模板替代旧章级模板
@@ -891,12 +1279,40 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 "",
                 Some(&ctx.pool),
             );
+            let mut parameters = HashMap::new();
+            if let Some(sk) = ctx.opening_skeleton.as_ref() {
+                if !sk.protagonist.name.trim().is_empty() {
+                    parameters.insert(
+                        "placeholder_protagonist_name".to_string(),
+                        serde_json::Value::String(sk.protagonist.name.clone()),
+                    );
+                }
+                if !sk.protagonist.goal.trim().is_empty() {
+                    parameters.insert(
+                        "placeholder_protagonist_goal".to_string(),
+                        serde_json::Value::String(sk.protagonist.goal.clone()),
+                    );
+                }
+            } else if let Some(name) = meta.protagonist_name.as_ref() {
+                if !name.trim().is_empty() {
+                    parameters.insert(
+                        "placeholder_protagonist_name".to_string(),
+                        serde_json::Value::String(name.clone()),
+                    );
+                }
+                if let Some(desire) = meta.protagonist_desire.as_ref() {
+                    parameters.insert(
+                        "placeholder_protagonist_goal".to_string(),
+                        serde_json::Value::String(desire.clone()),
+                    );
+                }
+            }
             let task = crate::domain::agent_types::AgentTask {
                 id: Uuid::new_v4().to_string(),
                 agent_type: crate::domain::agent_types::AgentType::Writer,
                 context: agent_context,
                 input: chapter_prompt,
-                parameters: HashMap::new(),
+                parameters,
                 tier: None,
             };
 
@@ -908,7 +1324,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Running,
                 message: "AI正在撰写第一章...".to_string(),
                 progress_percent: 75,
@@ -1277,7 +1693,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 3,
+                total_steps: 4,
                 status: StepStatus::Completed,
                 message: format!("第一章已完成！{}字", content_len),
                 progress_percent: 100,
@@ -2617,15 +3033,64 @@ mod world_character_order_tests {
         assert!(concept.is_empty());
     }
 
-    // v0.26.28 Phase 4 契约：quick_phase_steps 为「概念 → 策略选择 →
-    // 撰写开篇」三步， 策略选择已前移至快速阶段，使 FirstChapter 可消费
-    // `ctx.selected_strategy`。
+    // v0.26.44 契约：quick_phase_steps 为「概念 → 策略 → 开篇骨架 →
+    // 撰写开篇」四步。
     #[test]
     fn quick_phase_steps_remain_concept_then_first_chapter() {
         let steps = GenesisPipeline::quick_phase_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
-        assert_eq!(names, vec!["构思故事", "选择创作策略", "撰写开篇"]);
-        assert_eq!(names.len(), 3);
+        assert_eq!(
+            names,
+            vec!["构思故事", "选择创作策略", "铺设开篇骨架", "撰写开篇"]
+        );
+        assert_eq!(names.len(), 4);
+    }
+
+    // v0.26.44 契约：合法骨架 JSON 可解析；空壳无效；概念映射可降级填槽。
+    #[test]
+    fn parse_opening_skeleton_accepts_valid_and_rejects_empty() {
+        let valid = r#"{
+          "protagonist": {"name": "林深", "goal": "找到净水", "obstacle": "辐射尘暴"},
+          "scene": {
+            "dramatic_goal": "在废墟中找到净水",
+            "conflict_type": "人与环境",
+            "external_pressure": "水源即将耗尽",
+            "setting_location": "废弃水厂",
+            "setting_time": "黄昏",
+            "setting_atmosphere": "压抑",
+            "characters_present": ["林深"],
+            "scene_outline": "进入水厂→遭遇坍塌→做出抉择"
+          },
+          "world_rules_one_liner": "地表水全部带毒，只有深层井水可饮"
+        }"#;
+        let sk = parse_opening_skeleton(valid).expect("valid skeleton");
+        assert_eq!(sk.protagonist.name, "林深");
+        assert!(opening_skeleton_filled_slots(&sk) >= 5);
+
+        assert!(parse_opening_skeleton(r#"{"protagonist":{},"scene":{}}"#).is_none());
+
+        let meta = StoryMetaElement {
+            id: String::new(),
+            title: "荒星".into(),
+            description: "末世求生".into(),
+            genre: "末世生存".into(),
+            genre_profile_ids: vec!["apocalyptic".into()],
+            tone: "暗黑".into(),
+            pacing: "快节奏".into(),
+            themes: vec!["生存".into()],
+            target_length: "长篇".into(),
+            protagonist_name: Some("林深".into()),
+            protagonist_desire: Some("找到净水".into()),
+            protagonist_wound: None,
+            core_conflict: Some("人与毒化环境".into()),
+            world_one_liner: Some("地表水全部带毒".into()),
+            survival_stakes: Some("脱水而死".into()),
+            source: Default::default(),
+            source_ref_id: None,
+        };
+        let mapped = opening_skeleton_from_concept(&meta).expect("concept map");
+        assert_eq!(mapped.protagonist.name, "林深");
+        assert!(!mapped.scene.dramatic_goal.is_empty());
     }
 }
 

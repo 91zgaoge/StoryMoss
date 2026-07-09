@@ -78,7 +78,7 @@ pub fn story_concept_prompt(
             );
             resolve_and_render(
                 "narrative_story_concept_generate",
-                r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整的故事概念。
+                r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整、可写的故事概念。
 
 用户输入："{{user_input}}"
 
@@ -88,13 +88,19 @@ pub fn story_concept_prompt(
 请用 JSON 格式回复：
 {
   "title": "故事标题（有吸引力的中文标题）",
-  "description": "一句话简介（30-50字）",
-  "genre": "题材（如：都市玄幻、科幻、悬疑、古言）",
+  "description": "一句话简介（30-50字，必须点出核心冲突）",
+  "genre": "题材（如：都市玄幻、科幻、悬疑、古言、末世生存）",
   "genre_profile_ids": ["从上述目录中挑选最匹配的题材画像 id，可单选或多选"],
   "tone": "文风基调（如：热血、暗黑、轻松、沉重）",
   "pacing": "叙事节奏（如：快节奏、慢热、跌宕起伏）",
   "themes": ["主题1", "主题2"],
-  "target_length": "预计篇幅（如：中篇30万字、长篇100万字）"
+  "target_length": "预计篇幅（如：中篇30万字、长篇100万字）",
+  "protagonist_name": "主角姓名（具体中文名，勿用「主角」）",
+  "protagonist_desire": "主角此刻最想得到/保住的东西（一句话）",
+  "protagonist_wound": "主角的旧伤或软肋（一句话，可空）",
+  "core_conflict": "贯穿全书的核心冲突（谁与谁、争什么）",
+  "world_one_liner": "世界规则一句话（读者开篇就能感到的设定锚点）",
+  "survival_stakes": "若不行动会失去什么（末世/生存类必填；其他题材可写等价代价）"
 }
 
 要求：
@@ -104,7 +110,9 @@ pub fn story_concept_prompt(
 4. 题材要具体，不要笼统"小说"
 5. 如果用户输入包含复合题材（如"异星球末世生存"），请尽量映射多个 genre_profile_ids
 6. 如果目录中没有精确匹配，允许返回空数组，但必须在 genre 字段保留原始题材描述
-7. 只输出 JSON，不要其他内容"#,
+7. 末世/生存类必须给出非空的 world_one_liner 与 survival_stakes
+8. protagonist_name 必须是具体人名，禁止输出「主角」「男主」「女主」
+9. 只输出 JSON，不要其他内容"#,
                 &[
                     ("user_input", &context.replace('"', "'")),
                     ("genre_profiles", &profiles_json),
@@ -804,6 +812,64 @@ pub fn first_scene_prompt(
         "narrative_first_scene_generate",
         "你是一名专业的小说作家。请根据场景戏剧结构撰写正文，目标{{word_count}}字。",
         vars,
+        pool,
+    )
+}
+
+/// v0.26.44: 开篇骨架提示词——在写正文前产出主角卡 + 场景戏剧卡 + 世界一句话。
+pub fn opening_skeleton_prompt(
+    user_premise: &str,
+    story_title: &str,
+    genre: &str,
+    description: &str,
+    core_conflict: &str,
+    protagonist_name: &str,
+    protagonist_desire: &str,
+    world_one_liner: &str,
+    survival_stakes: &str,
+    strategy_notes: &str,
+    pool: Option<&DbPool>,
+) -> String {
+    let truncated_notes: String = strategy_notes.chars().take(800).collect();
+    resolve_and_render(
+        "narrative_opening_skeleton",
+        r#"你是开篇结构师。请为即将撰写的第一章生成极简开篇骨架（不要写正文）。
+
+用户原始要求：{{user_premise}}
+故事标题：{{story_title}}
+题材：{{genre}}
+简介：{{description}}
+核心冲突：{{core_conflict}}
+概念主角：{{protagonist_name}}（欲望：{{protagonist_desire}}）
+世界一句话：{{world_one_liner}}
+生存/代价：{{survival_stakes}}
+
+【已选策略摘要】
+{{strategy_notes}}
+
+请用 JSON 回复：
+{
+  "protagonist": {"name":"","goal":"","obstacle":""},
+  "scene": {
+    "dramatic_goal":"","conflict_type":"","external_pressure":"",
+    "setting_location":"","setting_time":"","setting_atmosphere":"",
+    "characters_present":[],"scene_outline":""
+  },
+  "world_rules_one_liner":""
+}
+只输出 JSON。"#,
+        &[
+            ("user_premise", user_premise),
+            ("story_title", story_title),
+            ("genre", genre),
+            ("description", description),
+            ("core_conflict", core_conflict),
+            ("protagonist_name", protagonist_name),
+            ("protagonist_desire", protagonist_desire),
+            ("world_one_liner", world_one_liner),
+            ("survival_stakes", survival_stakes),
+            ("strategy_notes", &truncated_notes),
+        ],
         pool,
     )
 }

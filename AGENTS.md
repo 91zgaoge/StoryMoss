@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.43
+- **版本**: v0.26.44
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.44 — Genesis 首章质量：开篇骨架与提示词加厚
+
+- **开篇骨架**：quick_phase 四步（概念→策略→骨架→开篇）；10s 超时 fail-open；概念字段规则映射降级。
+- **提示词**：概念加厚（主角/冲突/世界锚点）；strategy_selector 中文化；first_scene 纪律单源化。
+- **四元组 + 占位角色**：Genesis 接入 `infer_narrative_quartet`；TriShot 占位用骨架主角，去掉「异星末世」硬编码。
+- **验证**：`narrative::genesis` 12 passed；骨架解析契约 +1。
 
 ### v0.26.43 — 修复底部状态栏 emoji 显示为方框
 
@@ -272,7 +279,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.43_
+_最后更新: 2026-07-09 - v0.26.44_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

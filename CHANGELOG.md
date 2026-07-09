@@ -2,6 +2,27 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.44] - Genesis 首章质量：开篇骨架与提示词加厚（2026-07-09）
+
+### 增强
+
+- **开篇骨架步**：quick_phase 变为「概念 → 策略 → 铺设开篇骨架 → 撰写开篇」四步；骨架硬超时 10s，失败则从加厚概念字段规则映射，永不阻断开篇。
+- **概念提示加厚**：`narrative_story_concept_generate` 增加主角/冲突/世界一句话/生存代价/`genre_profile_ids`；概念步 max_tokens 下限 768。
+- **策略选择中文化**：`strategy_selector` 改为中文规则，末世类优先 `apocalyptic`。
+- **叙事四元组接入创世**：策略选择后调用 `infer_narrative_quartet`（纯启发式，不调 LLM）。
+- **占位角色去硬编码**：TriShot preflight 使用骨架/概念主角名与目标，不再写死「在异星末世中生存」。
+- **输出纪律单源**：`narrative_first_scene_generate` 去掉与 Call3 `NOVEL_OUTPUT_DISCIPLINE` 重复的纪律段；强调戏剧槽位非空时必须落地。
+
+### 文档
+
+- `USER_GUIDE`：创世延迟改为 30–90s，并说明先铺开篇骨架再写正文。
+
+### 验证
+
+- `cargo test --lib narrative::genesis`：12 passed（+1 骨架解析契约）
+- `cargo test --lib extract_story_meta`：2 passed
+- 全量验证见发布记录
+
 ## [v0.26.43] - 修复底部状态栏 emoji 显示为方框（2026-07-09）
 
 ### 修复

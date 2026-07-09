@@ -1308,17 +1308,34 @@ impl AgentOrchestrator {
             );
 
             // 同步创建占位角色，不调 LLM
+            // v0.26.44: 优先使用 Genesis 骨架/概念传入的主角名与目标，禁止写死「异星末世」
             let pool_clone = pool.inner().clone();
             let story_id_clone = task.context.story.story_id.clone();
+            let placeholder_name = task
+                .parameters
+                .get("placeholder_protagonist_name")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != "主角" && *s != "男主" && *s != "女主")
+                .unwrap_or("主角")
+                .to_string();
+            let placeholder_goal = task
+                .parameters
+                .get("placeholder_protagonist_goal")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("生存下去")
+                .to_string();
             let placeholder_created = tokio::task::spawn_blocking(move || {
                 use crate::db::{CharacterRepository, CreateCharacterRequest};
                 let char_repo = CharacterRepository::new(pool_clone);
                 let req = CreateCharacterRequest {
                     story_id: story_id_clone,
-                    name: "主角".to_string(),
+                    name: placeholder_name,
                     background: Some("待定".to_string()),
                     personality: Some("勇敢、坚韧".to_string()),
-                    goals: Some("在异星末世中生存".to_string()),
+                    goals: Some(placeholder_goal),
                     appearance: None,
                     gender: None,
                     age: None,

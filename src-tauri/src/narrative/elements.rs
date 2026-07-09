@@ -98,6 +98,12 @@ mod tests {
                 pacing: "快节奏".to_string(),
                 themes: vec!["成长".to_string()],
                 target_length: "长篇".to_string(),
+                protagonist_name: None,
+                protagonist_desire: None,
+                protagonist_wound: None,
+                core_conflict: None,
+                world_one_liner: None,
+                survival_stakes: None,
                 source: ElementSource::Generated,
                 source_ref_id: None,
             })

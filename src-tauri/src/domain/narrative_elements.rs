@@ -343,6 +343,19 @@ pub struct StoryMetaElement {
     pub pacing: String,
     pub themes: Vec<String>,
     pub target_length: String,
+    /// v0.26.44: 概念加厚字段（均可选；旧 JSON 缺字段不失败）
+    #[serde(default)]
+    pub protagonist_name: Option<String>,
+    #[serde(default)]
+    pub protagonist_desire: Option<String>,
+    #[serde(default)]
+    pub protagonist_wound: Option<String>,
+    #[serde(default)]
+    pub core_conflict: Option<String>,
+    #[serde(default)]
+    pub world_one_liner: Option<String>,
+    #[serde(default)]
+    pub survival_stakes: Option<String>,
     #[serde(default)]
     pub source: ElementSource,
     #[serde(default)]

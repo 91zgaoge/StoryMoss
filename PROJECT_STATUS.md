@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.43 项目完成状态
+# StoryForge (草苔) v0.26.44 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.43 底部状态栏 emoji→Lucide）
+> 最后更新: 2026-07-09（v0.26.44 Genesis 开篇骨架与提示词加厚）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.44 — Genesis 首章质量：开篇骨架与提示词加厚（2026-07-09）
+
+- quick_phase 四步；OpeningSkeletonStep（≤10s fail-open）；概念加厚；strategy 中文；四元组；占位角色去硬编码；纪律单源。
+- ✅ **验证**：`narrative::genesis` 12 passed；extract_story_meta 2 passed。
 
 ### v0.26.43 — 修复底部状态栏 emoji 显示为方框（2026-07-09）
 

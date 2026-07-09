@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.43)
+# 🧪 StoryForge 自动化测试环境 (v0.26.44)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.44 变更说明
+
+- Genesis `quick_phase_steps` 契约更新为四步（含「铺设开篇骨架」）；新增 `parse_opening_skeleton` / `opening_skeleton_from_concept` 契约测试。
+- `extract_story_meta_fallback` 覆盖加厚字段（protagonist_name / core_conflict / world_one_liner）。
 
 ### v0.26.43 变更说明
 
@@ -52,7 +57,7 @@
 | ----------------------------------- | -------- | ------------------------------ |
 | `cargo test --lib`                  | 690      | ✅ 0 failed / 2 ignored        |
 | `cargo test --lib prompt_synthesis` | 19       | ✅（TriShot 三击管线全部通过） |
-| `cargo test --lib narrative::genesis` | 11     | ✅（创世步骤/重试闸门/payload 契约） |
+| `cargo test --lib narrative::genesis` | 12     | ✅（创世四步/骨架解析/重试闸门/payload 契约） |
 | `npx tsc --noEmit`                  | 前端类型 | ✅                             |
 | `cargo check`                       | —        | ✅ 零错误                      |
 | `npm run format:check`              | 代码风格 | ✅ 零差异                      |
@@ -73,7 +78,7 @@
 
 ### v0.26.28 Phase 4 新增测试
 
-- **策略选择移入 Quick Phase**：`genesis.rs` `quick_phase_steps` 为「概念 → 策略选择 → 撰写开篇」三步、`background_steps` 为 5 步的单元契约；步骤 `step_number`/`total_steps`/`progress_percent` 一致性覆盖。
+- **策略选择移入 Quick Phase**：`genesis.rs` `quick_phase_steps` 为「概念 → 策略选择 → 铺设开篇骨架 → 撰写开篇」四步（v0.26.44）、`background_steps` 为 5 步的单元契约；步骤 `step_number`/`total_steps`/`progress_percent` 一致性覆盖。
 - **Prompts 外部化**：`prompts/registry.rs` 运行时加载 `resources/prompts/**/*.md` 的集成测试；95 个提示词全部可解析且公开 API 保持不变的回归测试。
 - **迁移脚本拆分**：`MigrationRunner` + `RustMigration` trait 对 70 个编号 Rust 迁移与 SQL 迁移统一排序、过滤、执行的测试；`schema_migrations` 版本语义保持不变的兼容性测试。
 - **知识图谱手动 CRUD UI**：新建实体、添加关系交互的 Playwright 覆盖。
