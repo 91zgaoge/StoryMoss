@@ -108,7 +108,11 @@ export const updateScene = (
     outline?: string;
     scene_number?: number;
   }
-) => loggedInvoke<void>('update_scene', { scene_id: sceneId, ...updates });
+) =>
+  loggedInvoke<void>('update_scene', {
+    scene_id: sceneId,
+    updates,
+  });
 
 export const deleteScene = (sceneId: string) =>
   loggedInvoke<void>('delete_scene', { scene_id: sceneId });

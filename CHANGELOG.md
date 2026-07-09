@@ -2,6 +2,19 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.37] - 修复幕前「保存中」常亮与字数不更新（2026-07-09）
+
+### 修复
+
+- **自动保存 IPC 参数错误**：幕前 `update_scene` 误传 `{ id, title, content, word_count }`，后端期望 `{ scene_id, updates }`，导致自动保存静默失败、「保存中...」永不消失。统一为 `buildUpdateSceneIpcArgs`。
+- **AI 追加后字数/保存脱节**：`appendAiContent` 只改正文与 store（`isSaved=false`），不更新顶部 `wordCount`、不调度自动保存；现追加后立即刷新字数并 `scheduleAutoSave`。
+- **stories API**：`updateScene` 改为嵌套 `updates` 参数，与后端签名对齐。
+
+### 验证
+
+- `npx vitest run`：242 passed / 3 skipped ✅
+- `npx tsc --noEmit` / `npm run format:check`：✅
+
 ## [v0.26.36] - 后台配置变更即时生效（超时/字体/主题热同步）（2026-07-09）
 
 ### 修复

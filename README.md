@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.36-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.37-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.36 后台配置变更即时生效——超时热重载、首字节超时接线、字体/色调主题跨窗口 Tauri 事件同步。上一版 v0.26.35 全面落地幕后审计残留 R1–R11。
+**最新动态**：v0.26.37 修复幕前「保存中」常亮与顶部字数不随正文增长——根因是 `update_scene` IPC 参数形状错误，以及 AI 追加路径未刷新字数/未调度自动保存。上一版 v0.26.36 后台配置即时生效。
 
 **上一版 v0.26.34** 修复后台提示词页面批量导入参数错误（`promptId` → `prompt_id`），新增「打开目录」按钮以在系统文件管理器中打开当前 prompts 资源目录，并新增「刷新」按钮重新加载提示词列表。
 

@@ -22,6 +22,7 @@ import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDupli
 import { trimSelfRepetition } from './utils/trimSelfRepetition';
 import { sanitizeContinuationOutput } from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
+import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -2514,12 +2515,15 @@ const FrontstageApp: React.FC = () => {
           }),
           async payload => {
             try {
-              await loggedInvoke<unknown>('update_scene', {
-                id: payload.sceneId,
-                title: payload.title,
-                content: payload.content,
-                word_count: payload.wordCount,
-              });
+              // 后端签名：update_scene(scene_id, updates: SceneUpdate)
+              await loggedInvoke<unknown>(
+                'update_scene',
+                buildUpdateSceneIpcArgs({
+                  sceneId: payload.sceneId,
+                  title: payload.title,
+                  content: payload.content,
+                })
+              );
               setWordCount(payload.wordCount);
               setIsSaved(true);
               justSavedRef.current = Date.now();
@@ -3194,9 +3198,52 @@ const FrontstageApp: React.FC = () => {
           const editorHtmlAfter = editorRef.current?.getHTML?.() || formatted;
           useFrontstageStore.getState().setContent(editorHtmlAfter);
           latestContentRef.current = editorHtmlAfter;
+          // v0.26.37: AI 追加后立即刷新顶部字数，并调度自动保存。
+          // 此前只改 store/content，不更新 wordCount、不 scheduleAutoSave，
+          // 导致顶部字数卡住，且 setContent 把 isSaved=false 后「保存中」永不消失。
+          const newWordCount = computeWordCount(editorHtmlAfter);
+          setWordCount(newWordCount);
+          const delta = newWordCount - currentChapterPrevWordCountRef.current;
+          if (delta !== 0) {
+            setTotalWordCount(prev => prev + delta);
+          }
+          currentChapterPrevWordCountRef.current = newWordCount;
+
+          const sceneIdForSave = useFrontstageStore.getState().sceneId;
+          const sceneTitleForSave = useFrontstageStore.getState().sceneTitle;
+          if (sceneIdForSave) {
+            scheduleAutoSave(
+              () => ({
+                sceneId: sceneIdForSave,
+                title: sceneTitleForSave ?? undefined,
+                content: latestContentRef.current,
+                wordCount: computeWordCount(latestContentRef.current),
+              }),
+              async payload => {
+                try {
+                  await loggedInvoke<unknown>(
+                    'update_scene',
+                    buildUpdateSceneIpcArgs({
+                      sceneId: payload.sceneId,
+                      title: payload.title,
+                      content: payload.content,
+                    })
+                  );
+                  setWordCount(payload.wordCount);
+                  setIsSaved(true);
+                  justSavedRef.current = Date.now();
+                } catch (e) {
+                  frontstageLogger.error('Auto-save after AI append failed', { error: e });
+                }
+              },
+              2000
+            );
+          }
+
           logToBackend('frontstage:append_ai_store_sync', 'synced store content after append', {
             source,
             htmlLen: editorHtmlAfter.length,
+            wordCount: newWordCount,
           });
         } catch (e) {
           // fallback：保留旧同步方式，确保 latestContentRef 至少有内容
@@ -3231,7 +3278,7 @@ const FrontstageApp: React.FC = () => {
         logToBackend('frontstage:auto_continue_queued', 'wensi active, queue next continuation');
       }
     },
-    [markAccepted]
+    [markAccepted, computeWordCount]
   );
 
   useEffect(() => {
@@ -3434,12 +3481,14 @@ const FrontstageApp: React.FC = () => {
           cancelAutoSave();
           try {
             const contentToSave = latestContentRef.current;
-            await loggedInvoke<unknown>('update_scene', {
-              id: currentSceneId,
-              title: useFrontstageStore.getState().sceneTitle ?? undefined,
-              content: contentToSave,
-              word_count: computeWordCount(contentToSave),
-            });
+            await loggedInvoke<unknown>(
+              'update_scene',
+              buildUpdateSceneIpcArgs({
+                sceneId: currentSceneId,
+                title: useFrontstageStore.getState().sceneTitle,
+                content: contentToSave,
+              })
+            );
             setIsSaved(true);
             justSavedRef.current = Date.now();
           } catch (e) {

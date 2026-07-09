@@ -1,4 +1,4 @@
-# StoryForge (草苔) v0.26.36 架构文档
+# StoryForge (草苔) v0.26.37 架构文档
 
 > **v0.26.36**：`save_settings` 热重载 LLM 并广播 `app_settings`；字体/主题经 Tauri 事件跨窗口同步；`llm_first_chunk_timeout_secs` 接入适配器。
 
