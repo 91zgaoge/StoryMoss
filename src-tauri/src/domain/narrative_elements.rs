@@ -343,6 +343,9 @@ pub struct StoryMetaElement {
     pub pacing: String,
     pub themes: Vec<String>,
     pub target_length: String,
+    /// 拆书元信息：可解析时写入；创世路径通常为 None
+    #[serde(default)]
+    pub author: Option<String>,
     /// v0.26.44: 概念加厚字段（均可选；旧 JSON 缺字段不失败）
     #[serde(default)]
     pub protagonist_name: Option<String>,

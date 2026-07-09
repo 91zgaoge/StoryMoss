@@ -1213,6 +1213,8 @@ impl GenreProfileRepository {
         Self { pool }
     }
 
+    /// 创建题材画像。`is_builtin=true` 仅用于启动种子；用户/创世动态创建须传
+    /// `false`。
     pub fn create(
         &self,
         genre_name: &str,
@@ -1223,9 +1225,11 @@ impl GenreProfileRepository {
         anti_patterns_json: Option<&str>,
         reference_tables_json: Option<&str>,
         typical_structure_json: Option<&str>,
+        is_builtin: bool,
     ) -> Result<GenreProfile, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
+        let builtin_flag = if is_builtin { 1 } else { 0 };
 
         let conn = self
             .pool
@@ -1246,7 +1250,7 @@ impl GenreProfileRepository {
                 anti_patterns_json,
                 reference_tables_json,
                 typical_structure_json,
-                1,
+                builtin_flag,
                 now.to_rfc3339()
             ],
         )?;
@@ -1266,7 +1270,7 @@ impl GenreProfileRepository {
             recommended_methodology_id: None,
             recommended_skill_ids: None,
             min_quality_tier: Some("medium".to_string()),
-            is_builtin: true,
+            is_builtin,
             created_at: now,
         })
     }

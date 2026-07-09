@@ -98,6 +98,7 @@ mod tests {
                 pacing: "快节奏".to_string(),
                 themes: vec!["成长".to_string()],
                 target_length: "长篇".to_string(),
+                author: None,
                 protagonist_name: None,
                 protagonist_desire: None,
                 protagonist_wound: None,

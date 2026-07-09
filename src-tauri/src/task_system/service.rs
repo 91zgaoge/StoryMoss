@@ -337,8 +337,12 @@ impl<R: Runtime> TaskService<R> {
             return Err(e);
         }
 
-        // P2-20 修复: 任务执行包装 timeout
-        let timeout_secs = task.heartbeat_timeout_seconds.max(60) as u64;
+        // 墙钟超时与心跳超时分离：
+        // - 心跳超时（HeartbeatMonitor）= 无进度多久杀任务
+        // - 墙钟超时 = 整任务最长允许跑多久
+        // 拆书是多块串行/并行 LLM，总时长可达数小时；若把 heartbeat 当墙钟，
+        // 中长篇必在 300s 被掐死。其它任务保持「heartbeat 兼墙钟」旧语义。
+        let timeout_secs = wall_clock_timeout_secs(&task);
         let result = match tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             executor.execute(&task),
@@ -398,4 +402,65 @@ impl<R: Runtime> TaskService<R> {
     }
 }
 
+/// 拆书墙钟上限：12 小时（心跳仍由 HeartbeatMonitor 按 heartbeat_timeout
+/// 杀僵死任务）
+pub(crate) const BOOK_DECONSTRUCTION_WALL_CLOCK_SECS: u64 = 12 * 60 * 60;
+
+/// 计算任务墙钟超时秒数。
+pub(crate) fn wall_clock_timeout_secs(task: &Task) -> u64 {
+    match task.task_type {
+        TaskType::BookDeconstruction => BOOK_DECONSTRUCTION_WALL_CLOCK_SECS,
+        _ => task.heartbeat_timeout_seconds.max(60) as u64,
+    }
+}
+
 use super::scheduler::TaskScheduler;
+
+#[cfg(test)]
+mod wall_clock_tests {
+    use chrono::Local;
+
+    use super::*;
+
+    fn sample_task(task_type: TaskType, heartbeat: i32) -> Task {
+        Task {
+            id: "t1".into(),
+            name: "test".into(),
+            description: None,
+            task_type,
+            schedule_type: ScheduleType::Once,
+            cron_pattern: None,
+            payload: None,
+            status: TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 0,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: heartbeat,
+            created_at: Local::now().to_rfc3339(),
+            updated_at: Local::now().to_rfc3339(),
+        }
+    }
+
+    #[test]
+    fn book_deconstruction_wall_clock_is_twelve_hours() {
+        let t = sample_task(TaskType::BookDeconstruction, 600);
+        assert_eq!(
+            wall_clock_timeout_secs(&t),
+            BOOK_DECONSTRUCTION_WALL_CLOCK_SECS
+        );
+    }
+
+    #[test]
+    fn other_tasks_use_heartbeat_as_wall_clock() {
+        let t = sample_task(TaskType::Custom, 300);
+        assert_eq!(wall_clock_timeout_secs(&t), 300);
+        let t2 = sample_task(TaskType::AiGeneration, 30);
+        assert_eq!(wall_clock_timeout_secs(&t2), 60); // floor at 60
+    }
+}

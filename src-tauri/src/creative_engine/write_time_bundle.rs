@@ -189,6 +189,7 @@ impl WriteTimeBundle {
         // v0.22.0: 加载方法论扩展
         let methodology_extension = match story.methodology_id.as_deref() {
             Some(mid) if !mid.is_empty() => {
+                let mid = crate::domain::methodology::normalize_methodology_id(mid);
                 let step = story.methodology_step.unwrap_or(1);
                 // v0.22.1: 按 methodology_id 动态选择 prompt ID
                 let (prompt_id, label) = match mid {

@@ -638,6 +638,7 @@ mod tests {
         // 验证 v0.21.0 新增的提示词全部注册
         let new_keys = [
             "narrative_story_concept_generate",
+            "narrative_genre_profile_generate",
             "narrative_world_building_generate",
             "pipeline_review",
             "pipeline_refine",

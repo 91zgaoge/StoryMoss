@@ -346,6 +346,7 @@ pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::Stor
         pacing: extract_string(json_str, "pacing").unwrap_or_default(),
         themes: extract_array(json_str, "themes"),
         target_length: extract_string(json_str, "target_length").unwrap_or_default(),
+        author: extract_string(json_str, "author").filter(|s| !s.is_empty()),
         protagonist_name: extract_string(json_str, "protagonist_name").filter(|s| !s.is_empty()),
         protagonist_desire: extract_string(json_str, "protagonist_desire")
             .filter(|s| !s.is_empty()),
@@ -517,6 +518,7 @@ pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryM
         pacing,
         themes,
         target_length,
+        author: extract_field(text, &["作者", "author", "著者"]),
         protagonist_name: extract_field(text, &["主角", "protagonist_name", "主角姓名", "主角名"]),
         protagonist_desire: extract_field(
             text,
@@ -670,6 +672,38 @@ mod tests {
         assert_eq!(meta.protagonist_name.as_deref(), Some("林深"));
         assert_eq!(meta.core_conflict.as_deref(), Some("人与毒化环境"));
         assert_eq!(meta.world_one_liner.as_deref(), Some("地表水全部带毒"));
+    }
+
+    #[test]
+    fn story_meta_deserializes_without_author() {
+        let json = r#"{
+  "title": "旧书",
+  "description": "简介",
+  "genre": "玄幻",
+  "tone": "热血",
+  "pacing": "快",
+  "themes": ["成长"],
+  "target_length": "长篇"
+}"#;
+        let meta: crate::domain::StoryMetaElement = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.title, "旧书");
+        assert!(meta.author.is_none());
+    }
+
+    #[test]
+    fn extract_story_meta_fallback_reads_author() {
+        let json = r#"{
+  "title": "拆书样例",
+  "author": "张三",
+  "description": "简介",
+  "genre": "科幻",
+  "tone": "暗黑",
+  "pacing": "快",
+  "themes": [],
+  "target_length": "中篇"
+}"#;
+        let meta = extract_story_meta_fallback(json).unwrap();
+        assert_eq!(meta.author.as_deref(), Some("张三"));
     }
 
     #[test]

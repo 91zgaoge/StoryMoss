@@ -27,11 +27,17 @@ const METHODOLOGIES = [
     description: '以人物为核心驱动故事，适合重视角色塑造的作者',
   },
   {
-    id: 'world_building',
+    id: 'high_density_world_building',
     name: '高密度世界构建',
     description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说',
   },
 ];
+
+/** 旧值 world_building 与 canonical 互认 */
+function normalizeMethodologyId(id: string): string {
+  if (id === 'world_building' || id === 'hdwb') return 'high_density_world_building';
+  return id;
+}
 
 const SNOWFLAKE_STEPS = [
   '1. 一句话概括',
@@ -57,16 +63,17 @@ export function MethodologySettings() {
   const currentStory = useAppStore(s => s.currentStory);
   const updateStoryMutation = useUpdateStory();
 
-  const methodologyId = currentStory?.methodology_id || '';
+  const methodologyId = normalizeMethodologyId(currentStory?.methodology_id || '');
   const methodologyStep = currentStory?.methodology_step || 1;
 
   const handleSelectMethodology = (id: string) => {
     if (!currentStory) return;
-    const isStructured = id === 'snowflake' || id === 'world_building';
+    const canonical = normalizeMethodologyId(id);
+    const isStructured = canonical === 'snowflake' || canonical === 'high_density_world_building';
     updateStoryMutation.mutate({
       id: currentStory.id,
       updates: {
-        methodology_id: id || undefined,
+        methodology_id: canonical || undefined,
         methodology_step: isStructured ? methodologyStep || 1 : undefined,
       },
     });
@@ -148,7 +155,7 @@ export function MethodologySettings() {
               </div>
             )}
 
-            {methodologyId === 'world_building' && (
+            {methodologyId === 'high_density_world_building' && (
               <div>
                 <label className="block text-sm text-gray-400 mb-2">
                   当前阶段（高密度世界构建）
@@ -182,7 +189,8 @@ export function MethodologySettings() {
                       updates: {
                         methodology_id: methodologyId || undefined,
                         methodology_step:
-                          methodologyId === 'snowflake' || methodologyId === 'world_building'
+                          methodologyId === 'snowflake' ||
+                          methodologyId === 'high_density_world_building'
                             ? methodologyStep
                             : undefined,
                       },

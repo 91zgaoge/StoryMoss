@@ -120,6 +120,7 @@ pub fn genre_profile_assets(profiles: &[GenreProfile]) -> Vec<SelectableAsset> {
                     "reference_tables": profile.reference_tables_json,
                     "typical_structure": typical_structure,
                     "reader_promise": profile.reader_promise,
+                    "recommended_methodology_id": profile.recommended_methodology_id,
                 }),
                 metadata: {
                     let mut m = std::collections::HashMap::new();
@@ -471,6 +472,7 @@ mod tests {
             Some("[\"反套路\"]"),
             Some("参考表"),
             Some("[{\"title\": \"第一章\", \"description\": \"...\"}]"),
+            false,
         );
 
         let assets = load_all_assets(&repo, &[]).unwrap();

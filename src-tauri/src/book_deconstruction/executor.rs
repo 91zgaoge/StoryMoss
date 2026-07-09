@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{chunker::create_chunks, models::*, parser::parse_book, repository::*};
 use crate::{
@@ -164,12 +164,21 @@ impl TaskExecutor for BookDeconstructionExecutor {
             })
             .collect();
 
-        let mut analysis_ctx = crate::narrative::analysis::AnalysisContext::new(
+        let concurrency = {
+            let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+            crate::config::AppConfig::load(&app_dir)
+                .map(|c| c.book_deconstruction_concurrency)
+                .unwrap_or(3)
+                .clamp(1, 100)
+        };
+
+        let mut analysis_ctx = crate::narrative::analysis::AnalysisContext::with_concurrency(
             book_id.to_string(),
             book_id.to_string(), // story_id 暂时用 book_id
             narrative_chunks,
             word_count,
             self.pool.clone(),
+            concurrency,
         );
 
         let llm = self.llm_service.clone();
@@ -404,6 +413,20 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 let wb_repo = NarrativeWorldBuildingRepository::new(self.pool.clone());
                 let _ = wb_repo.create(wb);
             }
+
+            // 伏笔写入 foreshadowing_tracker（story_id = book_id；转故事时再复制）
+            let fw_count = persist_bundle_foreshadowings(
+                &self.pool,
+                book_id,
+                &analysis_ctx.bundle.foreshadowings,
+            );
+            if fw_count > 0 {
+                log::info!(
+                    "[BookDeconstructionExecutor] persisted {} foreshadowings for book {}",
+                    fw_count,
+                    book_id
+                );
+            }
         }
 
         // 向量化存储
@@ -447,6 +470,85 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
 // ==================== 结果转换器 ====================
 /// 将 NarrativeBundle 转换为 BookAnalysisResult（兼容旧接口）
+/// 将 bundle 伏笔写入 foreshadowing_tracker；单条失败 warn，不 fail pipeline。
+/// 返回成功写入条数。
+pub(crate) fn persist_bundle_foreshadowings(
+    pool: &DbPool,
+    book_id: &str,
+    foreshadowings: &[crate::narrative::elements::ForeshadowingElement],
+) -> usize {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+
+    if foreshadowings.is_empty() {
+        return 0;
+    }
+    let tracker = ForeshadowingTracker::new(pool.clone());
+    let mut ok = 0usize;
+    for fw in foreshadowings {
+        let content = fw.content.trim();
+        if content.is_empty() {
+            continue;
+        }
+        match tracker.add_foreshadowing(
+            book_id,
+            content,
+            fw.setup_scene_id.as_deref(),
+            fw.importance,
+        ) {
+            Ok(_) => ok += 1,
+            Err(e) => {
+                log::warn!(
+                    "[BookDeconstructionExecutor] foreshadowing persist failed for book {}: {}",
+                    book_id,
+                    e
+                );
+            }
+        }
+    }
+    ok
+}
+
+/// 将参考书（book_id）上的伏笔复制到新故事；失败 fail-open。
+pub(crate) fn copy_foreshadowings_to_story(
+    pool: &DbPool,
+    from_book_id: &str,
+    to_story_id: &str,
+) -> usize {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+
+    let tracker = ForeshadowingTracker::new(pool.clone());
+    let records = match tracker.get_all(from_book_id) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!(
+                "[BookDeconstruction] list foreshadowings for {} failed: {}",
+                from_book_id,
+                e
+            );
+            return 0;
+        }
+    };
+    let mut ok = 0usize;
+    for r in records {
+        match tracker.add_foreshadowing(
+            to_story_id,
+            &r.content,
+            r.setup_scene_id.as_deref(),
+            r.importance,
+        ) {
+            Ok(_) => ok += 1,
+            Err(e) => {
+                log::warn!(
+                    "[BookDeconstruction] copy foreshadowing to story {} failed: {}",
+                    to_story_id,
+                    e
+                );
+            }
+        }
+    }
+    ok
+}
+
 fn convert_bundle_to_analysis_result(
     bundle: &crate::narrative::elements::NarrativeBundle,
 ) -> BookAnalysisResult {
@@ -474,7 +576,11 @@ fn convert_bundle_to_analysis_result(
         ReferenceBook {
             id: meta.id.clone(),
             title: meta.title.clone(),
-            author: None,
+            author: meta
+                .author
+                .as_ref()
+                .map(|a| a.trim().to_string())
+                .filter(|a| !a.is_empty()),
             genre: Some(meta.genre.clone()),
             word_count: None,
             file_format: None,
@@ -567,5 +673,73 @@ fn convert_bundle_to_analysis_result(
         book,
         characters,
         scenes,
+    }
+}
+
+#[cfg(test)]
+mod convert_bundle_tests {
+    use super::convert_bundle_to_analysis_result;
+    use crate::domain::{
+        ElementSource, NarrativeBundle, OutlineAct, OutlineElement, StoryMetaElement,
+    };
+
+    fn sample_meta(author: Option<&str>) -> StoryMetaElement {
+        StoryMetaElement {
+            id: "book-1".into(),
+            title: "样例".into(),
+            description: "简介".into(),
+            genre: "科幻".into(),
+            genre_profile_ids: vec![],
+            tone: "暗黑".into(),
+            pacing: "快".into(),
+            themes: vec![],
+            target_length: "长篇".into(),
+            author: author.map(|s| s.to_string()),
+            protagonist_name: None,
+            protagonist_desire: None,
+            protagonist_wound: None,
+            core_conflict: None,
+            world_one_liner: None,
+            survival_stakes: None,
+            source: ElementSource::Extracted,
+            source_ref_id: Some("book-1".into()),
+        }
+    }
+
+    #[test]
+    fn convert_bundle_passes_author_and_story_arc() {
+        let outline = OutlineElement {
+            id: "ol1".into(),
+            story_id: "book-1".into(),
+            acts: vec![OutlineAct {
+                act_number: 1,
+                title: "主线".into(),
+                summary: "崛起".into(),
+                key_plot_points: vec!["觉醒".into()],
+                estimated_scenes: 0,
+            }],
+            total_scenes_estimate: 0,
+            source: ElementSource::Extracted,
+            source_ref_id: Some("book-1".into()),
+        };
+        let bundle = NarrativeBundle::new()
+            .with_story_meta(sample_meta(Some("李四")))
+            .with_outline(outline);
+
+        let result = convert_bundle_to_analysis_result(&bundle);
+        assert_eq!(result.book.author.as_deref(), Some("李四"));
+        let arc = result.book.story_arc.expect("story_arc from outline");
+        assert!(
+            arc.contains("崛起"),
+            "story_arc should serialize acts: {arc}"
+        );
+    }
+
+    #[test]
+    fn convert_bundle_author_none_when_missing() {
+        let bundle = NarrativeBundle::new().with_story_meta(sample_meta(None));
+        let result = convert_bundle_to_analysis_result(&bundle);
+        assert!(result.book.author.is_none());
+        assert!(result.book.story_arc.is_none());
     }
 }

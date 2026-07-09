@@ -22,22 +22,54 @@ interface ActData {
   end_chapter: number;
 }
 
-export function StoryArcView({ book, scenes }: StoryArcViewProps) {
-  const parseStoryArc = () => {
-    if (!book.story_arc) return null;
-    try {
-      return JSON.parse(book.story_arc) as {
-        main_arc: string;
-        sub_arcs: string[];
-        climaxes: string[];
-        turning_points: string[];
-      };
-    } catch {
-      return null;
-    }
-  };
+/** Legacy BookAnalyzer shape */
+interface LegacyStoryArc {
+  main_arc: string;
+  sub_arcs: string[];
+  climaxes: string[];
+  turning_points: string[];
+}
 
-  const arc = parseStoryArc();
+/** AnalysisPipeline OutlineAct[] persisted into story_arc (v0.26.46+) */
+interface OutlineActArc {
+  act_number: number;
+  title: string;
+  summary: string;
+  key_plot_points?: string[];
+}
+
+function normalizeStoryArc(raw: string): LegacyStoryArc | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const acts = parsed as OutlineActArc[];
+      if (acts.length === 0) return null;
+      const main = acts[0];
+      const subs = acts
+        .slice(1)
+        .map(a => a.summary)
+        .filter(Boolean);
+      const turning = main.key_plot_points ?? [];
+      const last = acts[acts.length - 1];
+      const climaxes = acts.length > 1 ? (last.key_plot_points ?? []).filter(Boolean) : [];
+      return {
+        main_arc: main.summary || main.title || '',
+        sub_arcs: subs,
+        climaxes,
+        turning_points: turning,
+      };
+    }
+    if (parsed && typeof parsed === 'object' && 'main_arc' in parsed) {
+      return parsed as LegacyStoryArc;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function StoryArcView({ book, scenes }: StoryArcViewProps) {
+  const arc = book.story_arc ? normalizeStoryArc(book.story_arc) : null;
 
   // LitSeg: 解析叙事幕结构
   const parseActs = (): ActData[] | null => {

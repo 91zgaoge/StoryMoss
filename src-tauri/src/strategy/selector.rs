@@ -70,6 +70,25 @@ impl StrategySelector {
             }
         }
 
+        // 2.5 题材推荐方法论预填（LLM 仍可覆盖）
+        if strategy.methodology_id.is_none() {
+            if let (Some(repo), Some(gid)) = (genre_repo, strategy.genre_profile_id.as_deref()) {
+                if let Ok(Some(profile)) = repo.get_by_id(gid) {
+                    if let Some(rec) = profile.recommended_methodology_id.as_deref() {
+                        let canonical =
+                            crate::domain::methodology::normalize_methodology_id(rec).to_string();
+                        strategy.methodology_id = Some(canonical);
+                        if !strategy.rationale.is_empty() {
+                            strategy.rationale.push_str("; ");
+                        }
+                        strategy
+                            .rationale
+                            .push_str("methodology from genre recommendation");
+                    }
+                }
+            }
+        }
+
         // 3. 调用 LLM 做最终选择
         let prompt = build_selection_prompt(context, assets, &strategy, &self.pool);
         let response = self
@@ -87,10 +106,20 @@ impl StrategySelector {
 
         // 4. 合并 LLM 结果与精确匹配兜底
         strategy = merge_strategies(strategy, llm_strategy);
+        if let Some(mid) = strategy.methodology_id.take() {
+            strategy.methodology_id = Some(
+                crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
+            );
+        }
 
         // 5. 应用用户覆盖
         if let Some(ov) = overrides {
             strategy.merge_user_overrides(ov);
+        }
+        if let Some(mid) = strategy.methodology_id.take() {
+            strategy.methodology_id = Some(
+                crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
+            );
         }
 
         Ok(strategy)

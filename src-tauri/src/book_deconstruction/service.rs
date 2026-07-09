@@ -149,7 +149,9 @@ impl BookDeconstructionService {
             payload: Some(payload),
             enabled: Some(true),
             max_retries: Some(3),
-            heartbeat_timeout_seconds: Some(300),
+            // 心跳：600s 无进度则 HeartbeatMonitor 杀僵死任务。
+            // 墙钟由 TaskService 对 book_deconstruction 单独放宽到 12h（D0）。
+            heartbeat_timeout_seconds: Some(600),
         };
 
         // 使用全局共享的 TaskService（已注册 executor）
@@ -668,6 +670,18 @@ impl BookDeconstructionService {
                 "status_update",
                 book_id
             );
+        }
+
+        // 6. 复制参考书伏笔到新故事（fail-open）
+        {
+            let copied = super::executor::copy_foreshadowings_to_story(&pool, book_id, &story_id);
+            if copied > 0 {
+                log::info!(
+                    "[BookDeconstruction] Convert step {}: copied {} foreshadowings",
+                    "foreshadowings",
+                    copied
+                );
+            }
         }
 
         Ok(story_id)

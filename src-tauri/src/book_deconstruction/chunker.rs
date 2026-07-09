@@ -2,23 +2,22 @@
 //!
 //! 根据小说长度选择不同的分块策略，适配 LLM 上下文限制。
 //!
-//! 策略原则（A. 智能分块 + 增量归纳）：
-//! - 短篇(<10万字): 全文一次性分析
-//! - 中篇(10-50万字): 按章节分块，相邻短章节自动合并
-//! - 长篇(>50万字): 按固定大小（~5000字）顺序分块，所有块覆盖，逐块提取后汇总
+//! D0 策略（应用主导、有界分块）：
+//! - 短篇(≤10万字): 有章节则按章；无章节则叙事感知/固定窗口——**禁止整本单块**
+//! - 中篇(10-50万字): 按章节；>200 章则叙事感知
+//! - 长篇(>50万字): 叙事感知分块
+//! - 超大单章一律再切（LARGE_CHAPTER_THRESHOLD）
 //!
-//! 不设块数上限，所有内容都被分析。未来可通过心跳检测机制防止超长任务超时。
+//! 不设块数上限。墙钟由 TaskService 对拆书放宽；僵死由心跳杀。
 
 use super::models::{ChunkingStrategy, ParsedBook, ParsedChapter, TextChunk};
 
-/// 短篇字数阈值（<10万字）
+/// 短篇字数阈值（≤10万字）
 const SHORT_NOVEL_MAX: usize = 100_000;
 /// 中篇字数阈值（10-50万字）
 const MEDIUM_NOVEL_MAX: usize = 500_000;
-/// 长篇固定分块大小（字符数）— 仅作为 fallback
-const _LONG_CHUNK_SIZE: usize = 5_000;
-/// 中篇章节合并阈值：相邻章节合并的最小字数
-const _MEDIUM_MERGE_MIN_WORDS: usize = 3_000;
+/// 无章节时的固定窗口（字符）
+const FIXED_WINDOW_CHARS: usize = 5_000;
 /// 大章节阈值：超过此字数的章节需要按场景转换点再分
 const LARGE_CHAPTER_THRESHOLD: usize = 8_000;
 /// 短章节阈值：低于此字数的章节会累积合并
@@ -26,9 +25,12 @@ const _SHORT_CHAPTER_THRESHOLD: usize = 2_000;
 /// 合并缓冲目标字数：累积到此后生成一个 chunk
 const MERGE_BUFFER_TARGET: usize = 3_000;
 
-/// 根据字数确定分块策略
+/// 根据字数确定分块策略。
+///
+/// 注意：`Full` 已退役——短篇也走按章/叙事，避免「一整块 + 截头 4k」丢后半本。
 pub fn determine_strategy(word_count: usize) -> ChunkingStrategy {
     if word_count <= SHORT_NOVEL_MAX {
+        // 历史枚举保留 Full 名，语义改为「短篇有界分块」
         ChunkingStrategy::Full
     } else if word_count <= MEDIUM_NOVEL_MAX {
         ChunkingStrategy::ByChapters
@@ -41,56 +43,109 @@ pub fn determine_strategy(word_count: usize) -> ChunkingStrategy {
 pub fn create_chunks(book: &ParsedBook) -> Vec<TextChunk> {
     let strategy = determine_strategy(book.word_count);
 
-    match strategy {
-        ChunkingStrategy::Full => create_full_chunk(book),
+    let mut chunks = match strategy {
+        ChunkingStrategy::Full => create_short_novel_chunks(book),
         ChunkingStrategy::ByChapters => {
-            // 中篇：章节数过多时（>200章）用叙事感知分块，否则保留章节结构
             if book.chapters.len() > 200 {
                 split_narrative_aware(book)
+            } else if book.chapters.is_empty() {
+                create_short_novel_chunks(book)
             } else {
-                split_by_chapters(&book.chapters)
+                split_by_chapters_bounded(&book.chapters)
             }
         }
-        ChunkingStrategy::NarrativeAware => {
-            // 长篇：叙事感知分块——以章节边界为叙事边界
-            split_narrative_aware(book)
-        }
-        // 兼容旧代码
+        ChunkingStrategy::NarrativeAware => split_narrative_aware(book),
         ChunkingStrategy::MergedBlocks | ChunkingStrategy::SampledBlocks => {
             split_narrative_aware(book)
         }
+    };
+
+    // 防御：任何路径若仍只产出 1 个超大块，强制固定窗口再切
+    if chunks.len() == 1 && chunks[0].content.chars().count() > FIXED_WINDOW_CHARS {
+        let only = chunks.pop().unwrap();
+        chunks = split_by_fixed_size(&only.content, FIXED_WINDOW_CHARS);
+        if let Some(title) = only.title {
+            if let Some(first) = chunks.first_mut() {
+                first.title = Some(title);
+            }
+        }
     }
+
+    // 重排 index
+    for (i, c) in chunks.iter_mut().enumerate() {
+        c.index = i;
+    }
+    chunks
 }
 
-/// 短篇：整本作为一个 chunk
-fn create_full_chunk(book: &ParsedBook) -> Vec<TextChunk> {
-    vec![TextChunk {
-        index: 0,
-        title: book.title.clone(),
-        content: book.raw_text.clone(),
-        word_count: book.word_count,
-    }]
-}
-
-/// 中篇：按章节分块（保留原始章节结构）
-fn split_by_chapters(chapters: &[ParsedChapter]) -> Vec<TextChunk> {
-    chapters
-        .iter()
-        .enumerate()
-        .map(|(i, ch)| TextChunk {
-            index: i,
+/// 短篇有界分块：有章节按章（大章再切）；无章节固定窗口。
+fn create_short_novel_chunks(book: &ParsedBook) -> Vec<TextChunk> {
+    if book.chapters.len() >= 2 {
+        return split_by_chapters_bounded(&book.chapters);
+    }
+    if book.chapters.len() == 1 {
+        let ch = &book.chapters[0];
+        if ch.word_count > LARGE_CHAPTER_THRESHOLD {
+            return split_large_chapter(ch, 0);
+        }
+        // 单章但字符仍可能很大：按字符窗口切
+        if ch.content.chars().count() > FIXED_WINDOW_CHARS {
+            return split_by_fixed_size(&ch.content, FIXED_WINDOW_CHARS);
+        }
+        return vec![TextChunk {
+            index: 0,
             title: ch.title.clone(),
             content: ch.content.clone(),
             word_count: ch.word_count,
-        })
-        .collect()
+        }];
+    }
+    // 无章节结构
+    if book.raw_text.chars().count() > FIXED_WINDOW_CHARS {
+        split_by_fixed_size(&book.raw_text, FIXED_WINDOW_CHARS)
+    } else {
+        vec![TextChunk {
+            index: 0,
+            title: book.title.clone(),
+            content: book.raw_text.clone(),
+            word_count: book.word_count,
+        }]
+    }
+}
+
+/// 按章分块，并对超大章再切
+fn split_by_chapters_bounded(chapters: &[ParsedChapter]) -> Vec<TextChunk> {
+    let mut chunks: Vec<TextChunk> = Vec::new();
+    let mut index = 0usize;
+    for ch in chapters {
+        if ch.word_count > LARGE_CHAPTER_THRESHOLD
+            || ch.content.chars().count() > FIXED_WINDOW_CHARS * 2
+        {
+            let sub = split_large_chapter(ch, index);
+            index += sub.len();
+            chunks.extend(sub);
+        } else {
+            chunks.push(TextChunk {
+                index,
+                title: ch.title.clone(),
+                content: ch.content.clone(),
+                word_count: ch.word_count,
+            });
+            index += 1;
+        }
+    }
+    chunks
+}
+
+/// 中篇：按章节分块（保留原始章节结构）— 兼容旧测试/调用
+#[allow(dead_code)]
+fn split_by_chapters(chapters: &[ParsedChapter]) -> Vec<TextChunk> {
+    split_by_chapters_bounded(chapters)
 }
 
 /// 长篇：按固定字符大小顺序切分，覆盖全部文本，不跳过任何内容
 ///
 /// 算法：从文本开头开始，每 `chunk_size` 个字符切分为一个块，
 /// 确保所有字符都被包含，最后一个块可能小于 `chunk_size`。
-#[allow(dead_code)]
 fn split_by_fixed_size(text: &str, chunk_size: usize) -> Vec<TextChunk> {
     if text.is_empty() {
         return Vec::new();
@@ -136,6 +191,9 @@ fn split_by_fixed_size(text: &str, chunk_size: usize) -> Vec<TextChunk> {
 /// 4. 合并缓冲目标为 MERGE_BUFFER_TARGET 字符
 pub fn split_narrative_aware(book: &ParsedBook) -> Vec<TextChunk> {
     if book.chapters.is_empty() {
+        if book.raw_text.chars().count() > FIXED_WINDOW_CHARS {
+            return split_by_fixed_size(&book.raw_text, FIXED_WINDOW_CHARS);
+        }
         return vec![TextChunk {
             index: 0,
             title: book.title.clone(),
@@ -480,6 +538,64 @@ mod tests {
             determine_strategy(1_000_000),
             ChunkingStrategy::NarrativeAware
         );
+    }
+
+    #[test]
+    fn short_novel_multi_chapter_produces_multiple_chunks() {
+        let chapters = vec![
+            ParsedChapter {
+                title: Some("第一章".into()),
+                content: "甲".repeat(2000),
+                word_count: 2000,
+            },
+            ParsedChapter {
+                title: Some("第二章".into()),
+                content: "乙".repeat(2000),
+                word_count: 2000,
+            },
+            ParsedChapter {
+                title: Some("第三章".into()),
+                content: "丙".repeat(2000),
+                word_count: 2000,
+            },
+        ];
+        let raw: String = chapters.iter().map(|c| c.content.clone()).collect();
+        let book = ParsedBook {
+            title: Some("短篇".into()),
+            author: None,
+            chapters,
+            raw_text: raw,
+            word_count: 6000,
+        };
+        let chunks = create_chunks(&book);
+        assert!(
+            chunks.len() >= 3,
+            "short multi-chapter must not collapse to 1 chunk, got {}",
+            chunks.len()
+        );
+        let joined: String = chunks.iter().map(|c| c.content.as_str()).collect();
+        assert!(joined.contains("甲") && joined.contains("丙"));
+    }
+
+    #[test]
+    fn short_novel_blob_splits_by_fixed_window() {
+        let raw = "字".repeat(12_000);
+        let book = ParsedBook {
+            title: Some("无章".into()),
+            author: None,
+            chapters: vec![],
+            raw_text: raw.clone(),
+            word_count: 12_000,
+        };
+        let chunks = create_chunks(&book);
+        assert!(
+            chunks.len() >= 2,
+            "blob > {} chars must split, got {}",
+            FIXED_WINDOW_CHARS,
+            chunks.len()
+        );
+        let reconstructed: String = chunks.iter().map(|c| c.content.as_str()).collect();
+        assert_eq!(reconstructed, raw);
     }
 
     #[test]

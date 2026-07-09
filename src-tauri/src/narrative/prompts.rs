@@ -80,17 +80,18 @@ pub fn story_concept_prompt(
                 "narrative_story_concept_generate",
                 r#"你是一位资深小说编辑。请根据用户的创意，生成一个完整、可写的故事概念。
 
-用户输入："{{user_input}}"
+用户输入（最高优先级，题材与世界域以此为准）：
+「{{user_input}}」
 
-可选题材画像目录（仅供标准化映射，可单选或多选）：
+题材画像目录（**仅用于填写 genre_profile_ids 的 id 映射**；不是选题菜单，禁止用目录里的其它题材替换用户题材）：
 {{genre_profiles}}
 
 请用 JSON 格式回复：
 {
-  "title": "故事标题（有吸引力的中文标题）",
-  "description": "一句话简介（30-50字，必须点出核心冲突）",
-  "genre": "题材（如：都市玄幻、科幻、悬疑、古言、末世生存）",
-  "genre_profile_ids": ["从上述目录中挑选最匹配的题材画像 id，可单选或多选"],
+  "title": "故事标题（在用户题材域内取名；可有吸引力，但不得换题材）",
+  "description": "一句话简介（30-50字，必须点出核心冲突，且冲突发生在用户题材世界内）",
+  "genre": "题材标签（必须保留用户输入中的题材关键词；可略作规范化，禁止换成目录中的其它题材名）",
+  "genre_profile_ids": ["仅从上述目录选最贴近的 id；无贴近项则 []"],
   "tone": "文风基调（如：热血、暗黑、轻松、沉重）",
   "pacing": "叙事节奏（如：快节奏、慢热、跌宕起伏）",
   "themes": ["主题1", "主题2"],
@@ -98,21 +99,23 @@ pub fn story_concept_prompt(
   "protagonist_name": "主角姓名（具体中文名，勿用「主角」）",
   "protagonist_desire": "主角此刻最想得到/保住的东西（一句话）",
   "protagonist_wound": "主角的旧伤或软肋（一句话，可空）",
-  "core_conflict": "贯穿全书的核心冲突（谁与谁、争什么）",
-  "world_one_liner": "世界规则一句话（读者开篇就能感到的设定锚点）",
-  "survival_stakes": "若不行动会失去什么（末世/生存类必填；其他题材可写等价代价）"
+  "core_conflict": "贯穿全书的核心冲突（谁与谁、争什么；必须落在用户题材世界）",
+  "world_one_liner": "世界规则一句话（必须属于用户题材世界，禁止换成无关世界观）",
+  "survival_stakes": "若不行动会失去什么（末世/生存类必填；其他题材写等价代价）"
 }
 
-要求：
-1. 标题要有吸引力，避免俗套
-2. 简介要概括核心冲突和卖点
-3. 题材必须严格遵循用户输入中的要求
-4. 题材要具体，不要笼统"小说"
-5. 如果用户输入包含复合题材（如"异星球末世生存"），请尽量映射多个 genre_profile_ids
-6. 如果目录中没有精确匹配，允许返回空数组，但必须在 genre 字段保留原始题材描述
-7. 末世/生存类必须给出非空的 world_one_liner 与 survival_stakes
-8. protagonist_name 必须是具体人名，禁止输出「主角」「男主」「女主」
-9. 只输出 JSON，不要其他内容"#,
+## 硬约束（违反任一条即视为失败输出）
+
+1. **题材保真**：用户输入已给出题材/类型时，`genre`、`description`、`core_conflict`、`world_one_liner` 必须留在同一题材域。禁止为了「更好看/更燃/更具体」改换题材域。
+2. **反例（禁止）**：用户要「军事谍战」→ 禁止改成「星际机甲 / 科幻 / 宇宙失忆间谍」；用户要「都市奇幻」→ 禁止改成「修仙 / 末世」；用户要「古言」→ 禁止改成「现代都市」。
+3. **目录不是菜单**：`genre_profiles` 只用于选 `genre_profile_ids`。即使目录里有更炫的标签（如「星际机甲」），只要用户没写，就不得写入 `genre` 或世界设定。
+4. **无精确画像时**：`genre_profile_ids` 填 `[]` 即可；后续步骤会匹配现有目录或按指令生成新画像入库。`genre` 仍须用用户原词或同域近义（如「军事谍战」可写「军事谍战」或「军事/谍战」，不可写「星际机甲」）。
+5. **「具体」的含义**：在用户题材内部把冲突、人物、场景写清楚；不是换成另一个更具体的题材标签。
+6. **标题**：可在用户题材域内起名；禁止用标题暗示另一题材世界。
+7. 复合题材（如「异星球末世生存」）可映射多个 `genre_profile_ids`，但仍不得引入用户未提及的第三域。
+8. 末世/生存类必须给出非空的 `world_one_liner` 与 `survival_stakes`。
+9. `protagonist_name` 必须是具体人名，禁止「主角」「男主」「女主」。
+10. 只输出 JSON，不要其他内容。"#,
                 &[
                     ("user_input", &context.replace('"', "'")),
                     ("genre_profiles", &profiles_json),
@@ -130,6 +133,7 @@ pub fn story_concept_prompt(
 请用 JSON 格式回复：
 {
   "title": "小说标题（如无法确定则为null）",
+  "author": "作者姓名（文本中可识别则填写，否则为null）",
   "description": "一句话简介（30-50字，如无法确定则为null）",
   "genre": "题材（如：玄幻、都市、穿越、科幻、武侠等）",
   "tone": "文风基调（如：热血、暗黑、轻松、沉重）",
@@ -608,6 +612,7 @@ pub fn foreshadowing_prompt(
                     ("story_title", story_title),
                     ("genre", genre),
                     ("outline_summary", outline_summary),
+                    ("scenes", context),
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
@@ -646,6 +651,54 @@ pub fn foreshadowing_prompt(
             pool,
         ),
     }
+}
+
+// ==================== 题材画像生成 Prompt（目录无匹配时） ====================
+
+pub fn genre_profile_generate_prompt(
+    user_input: &str,
+    genre_hint: &str,
+    pool: Option<&DbPool>,
+) -> String {
+    resolve_and_render(
+        "narrative_genre_profile_generate",
+        r#"你是一位网文题材编辑。现有题材画像目录中没有足够贴近的项，请根据用户指令生成一份**新的**题材画像，供后续创作策略使用。
+
+用户原始指令：
+「{{user_input}}」
+
+概念步给出的题材标签（可为空）：
+「{{genre_hint}}」
+
+请用 JSON 格式回复：
+{
+  "genre_name": "中文题材名（2-8字，保留用户题材关键词，如「军事谍战」）",
+  "canonical_name": "英文规范名（Title Case，如 Military Espionage）",
+  "aliases": ["同义词1", "同义词2", "用户原词"],
+  "core_tone": "核心基调（2-4句，必须落在用户题材世界，禁止换成无关题材）",
+  "pacing_strategy": "节奏策略（开篇/升级/爽点/转折，条目式短文）",
+  "anti_patterns": ["反套路1", "反套路2", "反套路3"],
+  "reference_tables": "| 元素 | 建议比例 | 说明 |\n|------|----------|------|\n| ... | ... | ... |",
+  "typical_structure": [
+    {"title": "阶段名", "description": "一句话"},
+    {"title": "阶段名", "description": "一句话"}
+  ],
+  "reader_promise": "读者主情绪承诺（如：燃,惊,虐；1-3个）"
+}
+
+## 硬约束
+
+1. **题材保真**：一切字段必须服务用户指令中的题材域。禁止改写成目录里更炫的其它题材（如把「军事谍战」写成「星际机甲」）。
+2. `genre_name` 优先用用户原词或同域近义规范化，不要换成宽泛上位类以外的异域标签。
+3. `aliases` 至少包含用户题材关键词，便于下次匹配命中。
+4. `typical_structure` 给 4–6 个阶段即可。
+5. 只输出 JSON，不要其他内容。"#,
+        &[
+            ("user_input", &user_input.replace('"', "'")),
+            ("genre_hint", &genre_hint.replace('"', "'")),
+        ],
+        pool,
+    )
 }
 
 // ==================== 故事线/弧光 Prompt ====================
@@ -900,4 +953,145 @@ pub fn build_prompt_framework_catalog() -> String {
         ]
     })
     .to_string()
+}
+
+#[cfg(test)]
+mod concept_prompt_fidelity_tests {
+    use chrono::Local;
+
+    use super::*;
+    use crate::db::GenreProfile;
+
+    fn sample_profiles() -> Vec<GenreProfile> {
+        let now = Local::now();
+        vec![
+            GenreProfile {
+                id: "military-id".into(),
+                genre_name: "军事".into(),
+                canonical_name: "Military".into(),
+                aliases_json: Some(r#"["military"]"#.into()),
+                core_tone: None,
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: None,
+                recommended_style_dna_ids: None,
+                recommended_methodology_id: None,
+                recommended_skill_ids: None,
+                min_quality_tier: None,
+                is_builtin: true,
+                created_at: now,
+            },
+            GenreProfile {
+                id: "mecha-id".into(),
+                genre_name: "星际机甲".into(),
+                canonical_name: "Mecha / Stellar Warfare".into(),
+                aliases_json: Some(r#"["mecha"]"#.into()),
+                core_tone: None,
+                pacing_strategy: None,
+                anti_patterns_json: None,
+                reference_tables_json: None,
+                typical_structure_json: None,
+                reader_promise: None,
+                recommended_style_dna_ids: None,
+                recommended_methodology_id: None,
+                recommended_skill_ids: None,
+                min_quality_tier: None,
+                is_builtin: true,
+                created_at: now,
+            },
+        ]
+    }
+
+    #[test]
+    fn concept_generate_prompt_locks_genre_fidelity_against_menu_drift() {
+        let prompt = story_concept_prompt(
+            PromptMode::Generate,
+            "写一部军事谍战的长篇小说",
+            Some(&sample_profiles()),
+            None,
+        );
+
+        assert!(prompt.contains("军事谍战"));
+        assert!(
+            prompt.contains("题材保真") || prompt.contains("硬约束"),
+            "must state hard fidelity constraints"
+        );
+        assert!(
+            prompt.contains("星际机甲"),
+            "must include explicit anti-example naming 星际机甲"
+        );
+        assert!(
+            prompt.contains("不是选题菜单") || prompt.contains("仅用于填写 genre_profile_ids"),
+            "must demote genre_profiles from menu to id-map"
+        );
+        assert!(
+            prompt.contains("不是换成另一个更具体的题材标签"),
+            "must redefine「具体」to in-domain specificity"
+        );
+        assert!(
+            !prompt.contains("标题要有吸引力，避免俗套"),
+            "old title-rewrite incentive must be removed"
+        );
+        assert!(
+            !prompt.contains("可选题材画像目录"),
+            "must not call profiles a selectable menu"
+        );
+        assert!(
+            prompt.contains("匹配现有目录或按指令生成新画像"),
+            "must describe match-or-create follow-up"
+        );
+    }
+
+    #[test]
+    fn genre_profile_generate_prompt_locks_fidelity() {
+        let prompt = genre_profile_generate_prompt("写一部军事谍战的长篇小说", "军事谍战", None);
+        assert!(prompt.contains("军事谍战"));
+        assert!(prompt.contains("题材保真"));
+        assert!(prompt.contains("星际机甲"));
+        assert!(prompt.contains("genre_name"));
+        assert!(prompt.contains("typical_structure"));
+    }
+
+    #[test]
+    fn background_generate_templates_declare_strategy_section() {
+        let ids = [
+            "narrative_world_building_generate",
+            "narrative_outline_generate",
+            "narrative_character_generate",
+            "narrative_scene_generate",
+            "narrative_foreshadowing_generate",
+        ];
+        for id in ids {
+            let body = crate::prompts::registry::resolve_prompt_default(id)
+                .unwrap_or_else(|| panic!("missing builtin {id}"));
+            assert!(
+                body.contains("{{strategy_section}}"),
+                "{id} must include {{{{strategy_section}}}}"
+            );
+            assert!(
+                body.contains("{{quartet_section}}"),
+                "{id} must include {{{{quartet_section}}}}"
+            );
+        }
+    }
+
+    #[test]
+    fn world_building_prompt_includes_strategy_when_provided() {
+        let prompt = world_building_prompt(
+            PromptMode::Generate,
+            "荒星",
+            "末世",
+            "求生",
+            Some("应遵循的方法论：hero_journey\n英雄之旅十二阶段"),
+            Some(r#"{"run_mode":"文戏"}"#),
+            None,
+        );
+        assert!(
+            prompt.contains("创作策略参考") || prompt.contains("应遵循的方法论"),
+            "strategy must appear in rendered world prompt"
+        );
+        assert!(prompt.contains("hero_journey") || prompt.contains("英雄"));
+    }
 }

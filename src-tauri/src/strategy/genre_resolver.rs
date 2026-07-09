@@ -16,6 +16,10 @@ use crate::{
     error::AppError,
 };
 
+/// 接受现有题材画像的最低分。精确匹配约 10；弱子串/共现通常 < 8。
+/// 低于此分视为「目录无可用项」，应由上游生成新画像入库。
+pub const ACCEPT_SCORE: f64 = 8.0;
+
 /// 单个题材匹配结果
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenreMatch {
@@ -285,6 +289,40 @@ impl GenreResolver {
         matches
     }
 
+    /// 从目录中选出「足够贴近」的现有画像。
+    ///
+    /// 优先采用 `preferred_ids` 中得分 ≥ [`ACCEPT_SCORE`] 的项；否则取
+    /// `resolve_from_profiles` 中达标的匹配。空结果表示应生成新画像。
+    pub fn select_existing(
+        &self,
+        hint: &str,
+        preferred_ids: &[String],
+        profiles: &[GenreProfile],
+    ) -> Vec<GenreMatch> {
+        let all = self.resolve_from_profiles(hint, profiles);
+        if all.is_empty() {
+            return vec![];
+        }
+
+        if !preferred_ids.is_empty() {
+            let preferred_good: Vec<GenreMatch> = preferred_ids
+                .iter()
+                .filter_map(|id| {
+                    all.iter()
+                        .find(|m| m.profile_id == *id && m.score >= ACCEPT_SCORE)
+                        .cloned()
+                })
+                .collect();
+            if !preferred_good.is_empty() {
+                return preferred_good;
+            }
+        }
+
+        all.into_iter()
+            .filter(|m| m.score >= ACCEPT_SCORE)
+            .collect()
+    }
+
     /// 清洗用户输入，去掉常见噪音词
     fn clean_input(input: &str) -> String {
         let noise_words = [
@@ -540,5 +578,79 @@ mod tests {
         let ids: Vec<String> = matches.iter().map(|m| m.profile_id.clone()).collect();
         assert!(ids.contains(&"apocalyptic".to_string()));
         assert!(ids.contains(&"scifi".to_string()) || ids.contains(&"mecha-stellar".to_string()));
+    }
+
+    #[test]
+    fn select_existing_accepts_strong_match() {
+        let resolver = GenreResolver::new();
+        let profiles = test_profiles();
+        let matches = resolver.select_existing("末世", &[], &profiles);
+        assert_eq!(
+            matches.first().map(|m| m.profile_id.as_str()),
+            Some("apocalyptic")
+        );
+        assert!(matches[0].score >= ACCEPT_SCORE);
+    }
+
+    #[test]
+    fn select_existing_rejects_weak_or_empty() {
+        let resolver = GenreResolver::new();
+        let profiles = test_profiles();
+        // 与目录无实质重叠的冷门复合题材 → 应触发上游生成新画像
+        let matches = resolver.select_existing("阿卡狄亚牧歌式量子茶道", &[], &profiles);
+        assert!(
+            matches.is_empty() || matches.iter().all(|m| m.score < ACCEPT_SCORE),
+            "unexpected strong match: {:?}",
+            matches
+        );
+        let empty = resolver.select_existing("", &[], &profiles);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn select_existing_prefers_valid_preferred_ids() {
+        let resolver = GenreResolver::new();
+        let profiles = test_profiles();
+        let preferred = vec!["apocalyptic".to_string()];
+        let matches = resolver.select_existing("末世生存", &preferred, &profiles);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].profile_id, "apocalyptic");
+    }
+
+    #[test]
+    fn select_existing_ignores_wrong_preferred_mecha_for_military() {
+        let resolver = GenreResolver::new();
+        let mut profiles = test_profiles();
+        profiles.push(GenreProfile {
+            id: "military".to_string(),
+            genre_name: "军事".to_string(),
+            canonical_name: "Military".to_string(),
+            aliases_json: Some("[\"military\", \"军事\", \"军旅\"]".to_string()),
+            core_tone: Some("core".to_string()),
+            pacing_strategy: Some("pacing".to_string()),
+            anti_patterns_json: Some("[]".to_string()),
+            reference_tables_json: None,
+            typical_structure_json: None,
+            reader_promise: None,
+            recommended_style_dna_ids: None,
+            recommended_methodology_id: None,
+            recommended_skill_ids: None,
+            min_quality_tier: None,
+            is_builtin: true,
+            created_at: chrono::Local::now(),
+        });
+        let preferred = vec!["mecha-stellar".to_string()];
+        let matches = resolver.select_existing("军事谍战", &preferred, &profiles);
+        // 错误 preferred 不得强行采用；应回落到军事或空（再由上游生成）
+        assert!(
+            matches
+                .iter()
+                .all(|m| m.profile_id != "mecha-stellar" || m.score >= ACCEPT_SCORE),
+            "mecha must not win on 军事谍战: {:?}",
+            matches
+        );
+        if let Some(first) = matches.first() {
+            assert_eq!(first.profile_id, "military");
+        }
     }
 }

@@ -1961,12 +1961,16 @@ impl AgentService {
             emit_and_yield("正在加载创作方法论...", 0.17);
             if let Some(ref method_id) = ctx.world.methodology_id {
                 use crate::domain::methodology::MethodologyType;
-                let method_type = match method_id.as_str() {
+                let method_type = match crate::domain::methodology::normalize_methodology_id(
+                    method_id.as_str(),
+                ) {
                     "snowflake" => Some(MethodologyType::Snowflake),
                     "scene_structure" | "scene_beat" => Some(MethodologyType::SceneStructure),
                     "hero_journey" => Some(MethodologyType::HeroJourney),
                     "character_depth" => Some(MethodologyType::CharacterDepth),
-                    "world_building" => Some(MethodologyType::HighDensityWorldBuilding),
+                    "high_density_world_building" => {
+                        Some(MethodologyType::HighDensityWorldBuilding)
+                    }
                     _ => None,
                 };
                 if let Some(mt) = method_type {

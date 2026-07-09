@@ -347,8 +347,60 @@ impl GenesisContext {
     }
 }
 
-/// 根据已选策略和体裁画像构建写作指令中的策略注解
-fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
+/// 根据已选策略和体裁画像构建写作指令中的策略注解。
+/// `method_step` 为雪花/HDWB 子步 hint；`None` 时用方法论默认首步。
+fn build_strategy_notes(
+    ctx: &GenesisContext,
+    genre: &str,
+    method_step: Option<&str>,
+) -> String {
+    build_strategy_notes_inner(ctx, genre, method_step, false, None)
+}
+
+/// 开篇骨架专用：方法论 brief 优先，再拼画像 brief，总长 ≤800。
+fn build_opening_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
+    build_strategy_notes_inner(ctx, genre, Some("1"), true, Some(800))
+}
+
+fn build_strategy_notes_for_genesis_step(
+    ctx: &GenesisContext,
+    genre: &str,
+    step: crate::domain::methodology::GenesisMethodStep,
+) -> String {
+    let hint = ctx
+        .selected_strategy
+        .as_ref()
+        .and_then(|s| s.methodology_id.as_deref())
+        .and_then(|id| crate::domain::methodology::methodology_step_hint(id, step));
+    let mut notes = build_strategy_notes_inner(ctx, genre, hint, false, Some(4000));
+
+    // Character 步：主方法论非 character_depth 时叠加人物深度 brief
+    if matches!(step, crate::domain::methodology::GenesisMethodStep::Character) {
+        let primary = ctx
+            .selected_strategy
+            .as_ref()
+            .and_then(|s| s.methodology_id.as_deref())
+            .map(crate::domain::methodology::normalize_methodology_id);
+        if primary != Some("character_depth") {
+            if let Some(extra) = resolve_methodology_prompt("character_depth", None) {
+                let brief: String = extra.chars().take(200).collect();
+                notes.push_str(&format!("\n\n【人物深度补充】\n{}", brief));
+                if notes.chars().count() > 4000 {
+                    notes = notes.chars().take(4000).collect();
+                }
+            }
+        }
+    }
+    notes
+}
+
+fn build_strategy_notes_inner(
+    ctx: &GenesisContext,
+    genre: &str,
+    method_step: Option<&str>,
+    opening_brief: bool,
+    max_chars: Option<usize>,
+) -> String {
     let strategy = match &ctx.selected_strategy {
         Some(s) => s,
         None => return format!("（未选择策略，按题材 '{}' 自由发挥）", genre),
@@ -356,42 +408,79 @@ fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
 
     let mut notes = Vec::new();
 
-    if let Some(profile_id) = &strategy.genre_profile_id {
-        let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
-        if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
-            notes.push(format!(
-                "体裁画像：{}（{}）",
-                profile.genre_name, profile.canonical_name
-            ));
-            if let Some(tone) = &profile.core_tone {
-                notes.push(format!("核心基调：{}", tone));
+    // 开篇骨架：方法论 brief 优先，避免 800 截断挤掉方法论
+    if opening_brief {
+        if let Some(methodology_id) = &strategy.methodology_id {
+            let canonical = crate::domain::methodology::normalize_methodology_id(methodology_id);
+            if let Some(content) = resolve_methodology_prompt(canonical, method_step) {
+                let brief: String = content.chars().take(350).collect();
+                notes.push(format!("应遵循的方法论：{}\n{}", canonical, brief));
+            } else {
+                notes.push(format!("应遵循的方法论：{}", canonical));
             }
-            if let Some(pacing) = &profile.pacing_strategy {
-                notes.push(format!("节奏策略：\n{}", pacing));
-            }
-            if let Some(anti_patterns) = &profile.anti_patterns_json {
-                if let Ok(list) = serde_json::from_str::<Vec<String>>(anti_patterns) {
-                    if !list.is_empty() {
-                        notes.push(format!("应避免的反套路：\n- {}", list.join("\n- ")));
+        }
+        if let Some(profile_id) = &strategy.genre_profile_id {
+            let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+            if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
+                let mut genre_parts = vec![format!(
+                    "体裁画像：{}（{}）",
+                    profile.genre_name, profile.canonical_name
+                )];
+                if let Some(tone) = &profile.core_tone {
+                    let t: String = tone.chars().take(120).collect();
+                    genre_parts.push(format!("核心基调：{}", t));
+                }
+                if let Some(anti_patterns) = &profile.anti_patterns_json {
+                    if let Ok(list) = serde_json::from_str::<Vec<String>>(anti_patterns) {
+                        let top: Vec<_> = list.into_iter().take(3).collect();
+                        if !top.is_empty() {
+                            genre_parts.push(format!("应避免：{}", top.join("；")));
+                        }
                     }
                 }
+                let genre_brief: String = genre_parts.join("\n").chars().take(350).collect();
+                notes.push(genre_brief);
             }
-            if let Some(reference_tables) = &profile.reference_tables_json {
-                notes.push(format!("元素参考表：\n{}", reference_tables));
-            }
-            if let Some(typical_structure) = &profile.typical_structure_json {
-                notes.push(format!("典型结构：\n{}", typical_structure));
-            }
-        } else {
-            notes.push(format!("体裁画像 ID：{}（未找到详细内容）", profile_id));
         }
-    }
+    } else {
+        if let Some(profile_id) = &strategy.genre_profile_id {
+            let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+            if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
+                notes.push(format!(
+                    "体裁画像：{}（{}）",
+                    profile.genre_name, profile.canonical_name
+                ));
+                if let Some(tone) = &profile.core_tone {
+                    notes.push(format!("核心基调：{}", tone));
+                }
+                if let Some(pacing) = &profile.pacing_strategy {
+                    notes.push(format!("节奏策略：\n{}", pacing));
+                }
+                if let Some(anti_patterns) = &profile.anti_patterns_json {
+                    if let Ok(list) = serde_json::from_str::<Vec<String>>(anti_patterns) {
+                        if !list.is_empty() {
+                            notes.push(format!("应避免的反套路：\n- {}", list.join("\n- ")));
+                        }
+                    }
+                }
+                if let Some(reference_tables) = &profile.reference_tables_json {
+                    notes.push(format!("元素参考表：\n{}", reference_tables));
+                }
+                if let Some(typical_structure) = &profile.typical_structure_json {
+                    notes.push(format!("典型结构：\n{}", typical_structure));
+                }
+            } else {
+                notes.push(format!("体裁画像 ID：{}（未找到详细内容）", profile_id));
+            }
+        }
 
-    if let Some(methodology_id) = &strategy.methodology_id {
-        if let Some(content) = resolve_methodology_prompt(methodology_id, None) {
-            notes.push(format!("\n应遵循的方法论：{}\n{}", methodology_id, content));
-        } else {
-            notes.push(format!("\n应遵循的方法论：{}", methodology_id));
+        if let Some(methodology_id) = &strategy.methodology_id {
+            let canonical = crate::domain::methodology::normalize_methodology_id(methodology_id);
+            if let Some(content) = resolve_methodology_prompt(canonical, method_step) {
+                notes.push(format!("\n应遵循的方法论：{}\n{}", canonical, content));
+            } else {
+                notes.push(format!("\n应遵循的方法论：{}", canonical));
+            }
         }
     }
 
@@ -409,15 +498,22 @@ fn build_strategy_notes(ctx: &GenesisContext, genre: &str) -> String {
         ));
     }
 
-    if notes.is_empty() {
+    let mut joined = if notes.is_empty() {
         format!("（按题材 '{}' 自由发挥）", genre)
     } else {
         notes.join("\n")
+    };
+    if let Some(max) = max_chars {
+        if joined.chars().count() > max {
+            joined = joined.chars().take(max).collect();
+        }
     }
+    joined
 }
 
 /// 从 PromptRegistry 读取指定方法论的当前 prompt 内容（不引入新的硬编码文本）
 fn resolve_methodology_prompt(methodology_id: &str, step: Option<&str>) -> Option<String> {
+    let methodology_id = crate::domain::methodology::normalize_methodology_id(methodology_id);
     let prompt_id = match methodology_id {
         "snowflake" => format!("methodology_snowflake_step{}", step.unwrap_or("1")),
         "hero_journey" => "methodology_hero_journey".to_string(),
@@ -454,13 +550,17 @@ fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
 pub struct GenesisPipeline;
 
 impl GenesisPipeline {
-    /// 快速阶段：故事概念 → 策略选择 → 开篇骨架 → 第一章正文，目标 30-90
-    /// 秒返回给用户 v0.26.28 Phase 4: 策略选择从后台阶段前移至快速阶段，使
-    /// FirstChapter 能使用 `ctx.selected_strategy` 注入体裁画像/方法论/风格
-    /// DNA。 v0.26.44: 插入 OpeningSkeletonStep，使戏剧槽位在写正文前非空。
+    /// 快速阶段：故事概念 → 题材画像确保 → 策略选择 → 开篇骨架 → 第一章正文，
+    /// 目标 30-90 秒返回给用户。
+    /// v0.26.28 Phase 4: 策略选择从后台阶段前移至快速阶段，使 FirstChapter
+    /// 能使用 `ctx.selected_strategy` 注入体裁画像/方法论/风格 DNA。
+    /// v0.26.44: 插入 OpeningSkeletonStep，使戏剧槽位在写正文前非空。
+    /// v0.26.46: 插入 EnsureGenreProfileStep——目录有可用画像则复用，否则按指令
+    /// 生成新画像并入库。
     pub fn quick_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
             Box::new(ConceptGenerationStep),
+            Box::new(EnsureGenreProfileStep),
             Box::new(StrategySelectionStep),
             Box::new(OpeningSkeletonStep),
             Box::new(FirstChapterGenerationStep),
@@ -509,7 +609,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在调用AI生成故事概念...".to_string(),
                 progress_percent: 10,
@@ -543,7 +643,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 Some(&ctx.pool),
             );
             let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 4, "生成故事概念");
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 5, "生成故事概念");
             let request = RoutingRequest {
                 task: TaskType::WorldBuilding,
                 complexity: Complexity::Medium,
@@ -729,7 +829,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: format!("故事概念已生成：《{}", title),
                 progress_percent: 40,
@@ -742,16 +842,19 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
     }
 }
 
-// ==================== Step 2: 策略选择 ====================
+// ==================== Step 2: 题材画像确保（匹配或生成入库） ====================
 
-struct StrategySelectionStep;
+/// v0.26.46: 概念之后、策略之前。
+/// 目录有足够贴近的现有画像 → 写入 `genre_profile_ids`；
+/// 否则按用户指令 LLM 生成新画像并 `create(is_builtin=false)` 入库。
+struct EnsureGenreProfileStep;
 
-impl PipelineStep<GenesisContext> for StrategySelectionStep {
+impl PipelineStep<GenesisContext> for EnsureGenreProfileStep {
     fn name(&self) -> &'static str {
-        "选择创作策略"
+        "确保题材画像"
     }
     fn description(&self) -> &'static str {
-        "根据故事概念自动选择体裁画像、方法论、风格 DNA 与技能"
+        "匹配现有题材画像，或按指令生成新画像并加入目录"
     }
     fn step_number(&self) -> usize {
         2
@@ -770,7 +873,263 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
+                status: StepStatus::Running,
+                message: "正在匹配或生成题材画像...".to_string(),
+                progress_percent: 42,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            let (genre_hint, preferred_ids) = {
+                let bundle = ctx.bundle.read().await;
+                bundle
+                    .story_meta
+                    .as_ref()
+                    .map(|m| (m.genre.clone(), m.genre_profile_ids.clone()))
+                    .unwrap_or_default()
+            };
+
+            let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+            let profiles = genre_repo.get_all().unwrap_or_default();
+            let resolver = crate::strategy::GenreResolver::new();
+
+            // 以用户原指令为主匹配，避免概念步题材漂移后误选目录项
+            let mut selected = resolver.select_existing(&ctx.user_premise, &preferred_ids, &profiles);
+            if selected.is_empty() && !genre_hint.trim().is_empty() {
+                selected = resolver.select_existing(&genre_hint, &preferred_ids, &profiles);
+            }
+
+            let (profile_ids, message, synced_genre) = if !selected.is_empty() {
+                let ids: Vec<String> = selected.iter().map(|m| m.profile_id.clone()).collect();
+                let names: Vec<String> = selected.iter().map(|m| m.genre_name.clone()).collect();
+                let primary_name = selected[0].genre_name.clone();
+                log::info!(
+                    "[Genesis] EnsureGenreProfile: reuse existing {:?} (scores={:?})",
+                    names,
+                    selected.iter().map(|m| m.score).collect::<Vec<_>>()
+                );
+                (
+                    ids,
+                    format!("已匹配现有题材画像：{}", names.join("、")),
+                    primary_name,
+                )
+            } else {
+                // 目录无可用项 → 按指令生成并入库
+                let prompt = genre_profile_generate_prompt(
+                    &ctx.user_premise,
+                    &genre_hint,
+                    Some(&ctx.pool),
+                );
+                let pipeline_ctx =
+                    ctx.llm_pipeline_ctx(self.name(), self.step_number(), 5, "生成题材画像");
+                let request = RoutingRequest {
+                    task: TaskType::Analysis,
+                    complexity: Complexity::Medium,
+                    budget_priority: Priority::Low,
+                    speed_priority: Priority::Medium,
+                    estimated_input_tokens: 0,
+                    constraints: vec![],
+                };
+                let response = llm
+                    .generate_for_request_with_context_and_pipeline(
+                        request,
+                        prompt,
+                        Some(1024),
+                        Some(0.4),
+                        Some("生成题材画像"),
+                        Some(pipeline_ctx),
+                    )
+                    .await
+                    .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+
+                let json_str = super::extract_and_sanitize_json(response.content.trim())
+                    .map_err(|e| PipelineError::ParseError(format!("题材画像 JSON 解析失败: {}", e)))?;
+
+                let generated: GeneratedGenreProfile = serde_json::from_str(&json_str)
+                    .map_err(|e| PipelineError::ParseError(format!("题材画像反序列化失败: {}", e)))?;
+
+                let genre_name = generated.genre_name.trim().to_string();
+                let canonical = generated.canonical_name.trim().to_string();
+                if genre_name.is_empty() || canonical.is_empty() {
+                    return Err(PipelineError::ParseError(
+                        "题材画像缺少 genre_name 或 canonical_name".into(),
+                    ));
+                }
+
+                // 同名已存在则复用，避免重复入库
+                let created = if let Ok(Some(existing)) = genre_repo.get_by_name(&genre_name) {
+                    existing
+                } else {
+                    let aliases_json = serde_json::to_string(&generated.aliases).ok();
+                    let anti_json = serde_json::to_string(&generated.anti_patterns).ok();
+                    let structure_json = serde_json::to_string(&generated.typical_structure).ok();
+                    let pool = ctx.pool.clone();
+                    let gn = genre_name.clone();
+                    let cn = canonical.clone();
+                    let aj = aliases_json.clone();
+                    let ct = generated.core_tone.clone();
+                    let ps = generated.pacing_strategy.clone();
+                    let ap = anti_json.clone();
+                    let rt = generated.reference_tables.clone();
+                    let ts = structure_json.clone();
+                    let profile = tokio::task::spawn_blocking(move || {
+                        let repo = crate::db::GenreProfileRepository::new(pool);
+                        repo.create(
+                            &gn,
+                            &cn,
+                            aj.as_deref(),
+                            ct.as_deref(),
+                            ps.as_deref(),
+                            ap.as_deref(),
+                            rt.as_deref(),
+                            ts.as_deref(),
+                            false,
+                        )
+                    })
+                    .await
+                    .map_err(|e| PipelineError::StorageError(format!("spawn_blocking 失败: {}", e)))?
+                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+
+                    if let Some(promise) = generated
+                        .reader_promise
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        let _ = genre_repo.set_reader_promise(&profile.id, Some(promise));
+                    } else if let Some(promise) =
+                        crate::creative_engine::reader_promise::reader_promise_for(&canonical)
+                    {
+                        let _ = genre_repo.set_reader_promise(&profile.id, Some(promise));
+                    }
+                    profile
+                };
+
+                log::info!(
+                    "[Genesis] EnsureGenreProfile: created/reused new profile id={} name={}",
+                    created.id,
+                    created.genre_name
+                );
+                (
+                    vec![created.id.clone()],
+                    format!("已生成并入库题材画像：{}", created.genre_name),
+                    created.genre_name.clone(),
+                )
+            };
+
+            // 回写 bundle + story：画像 ID 必写；题材字符串在漂移或新建时校正
+            {
+                let mut bundle = ctx.bundle.write().await;
+                if let Some(meta) = bundle.story_meta.as_mut() {
+                    meta.genre_profile_ids = profile_ids.clone();
+                    if meta.genre.trim().is_empty()
+                        || genre_label_drifted(&meta.genre, &synced_genre)
+                    {
+                        meta.genre = synced_genre.clone();
+                    }
+                }
+            }
+
+            let story_id = ctx.story_id.clone();
+            if !story_id.is_empty() {
+                let update_req = UpdateStoryRequest {
+                    title: None,
+                    description: None,
+                    genre: Some(synced_genre.clone()),
+                    tone: None,
+                    pacing: None,
+                    style_dna_id: None,
+                    genre_profile_id: profile_ids.first().cloned(),
+                    methodology_id: None,
+                    methodology_step: None,
+                    reference_book_id: None,
+                };
+                let pool = ctx.pool.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let story_repo = StoryRepository::new(pool);
+                    story_repo.update(&story_id, &update_req)
+                })
+                .await;
+            }
+
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 5,
+                status: StepStatus::Completed,
+                message,
+                progress_percent: 45,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            Ok(())
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GeneratedGenreProfile {
+    genre_name: String,
+    canonical_name: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+    #[serde(default)]
+    core_tone: Option<String>,
+    #[serde(default)]
+    pacing_strategy: Option<String>,
+    #[serde(default)]
+    anti_patterns: Vec<String>,
+    #[serde(default)]
+    reference_tables: Option<String>,
+    #[serde(default)]
+    typical_structure: Vec<serde_json::Value>,
+    #[serde(default)]
+    reader_promise: Option<String>,
+}
+
+/// 概念题材标签相对画像名是否跨域漂移（同域近义子串不算漂移）。
+fn genre_label_drifted(current: &str, synced: &str) -> bool {
+    let g = current.trim().to_lowercase();
+    let syn = synced.trim().to_lowercase();
+    if g.is_empty() || syn.is_empty() {
+        return false;
+    }
+    !g.contains(&syn) && !syn.contains(&g)
+}
+
+// ==================== Step 3: 策略选择 ====================
+
+struct StrategySelectionStep;
+
+impl PipelineStep<GenesisContext> for StrategySelectionStep {
+    fn name(&self) -> &'static str {
+        "选择创作策略"
+    }
+    fn description(&self) -> &'static str {
+        "根据故事概念自动选择体裁画像、方法论、风格 DNA 与技能"
+    }
+    fn step_number(&self) -> usize {
+        3
+    }
+
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut GenesisContext,
+        llm: &'a LlmService,
+        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在为故事匹配最优创作策略...".to_string(),
                 progress_percent: 45,
@@ -822,18 +1181,26 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                     reason: format!("策略选择失败: {}", e),
                 })?;
 
+            // 落库前规范化方法论 ID；步进从 1 起，避免下游 unwrap_or(1) 歧义
+            let mut strategy = strategy;
+            if let Some(mid) = strategy.methodology_id.take() {
+                strategy.methodology_id = Some(
+                    crate::domain::methodology::normalize_methodology_id(&mid).to_string(),
+                );
+            }
+
             // 保存选择结果到 story 表
             let story_repo = StoryRepository::new(ctx.pool.clone());
             let update_req = UpdateStoryRequest {
                 title: None,
                 description: None,
-                genre: None,
+                genre: Some(genre.clone()),
                 tone: None,
                 pacing: None,
                 style_dna_id: strategy.style_dna_ids.first().cloned(),
                 genre_profile_id: strategy.genre_profile_id.clone(),
                 methodology_id: strategy.methodology_id.clone(),
-                methodology_step: None,
+                methodology_step: Some(1),
                 reference_book_id: None,
             };
             if let Err(e) = story_repo.update(&ctx.story_id, &update_req) {
@@ -848,8 +1215,13 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 strategy.skill_ids.join(", ")
             );
 
+            log::info!(
+                "[Genesis] strategy selected: genre_profile_id={:?} methodology_id={:?} methodology_step=1",
+                strategy.genre_profile_id,
+                strategy.methodology_id
+            );
+
             // v0.26.44: Genesis 接入叙事四元组启发式（不调 LLM）
-            let mut strategy = strategy;
             let (canonical_genre, reader_promise) = strategy
                 .genre_profile_id
                 .as_ref()
@@ -871,12 +1243,29 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
 
             ctx.selected_strategy = Some(strategy);
 
+            let notes_len = build_strategy_notes(
+                ctx,
+                &genre,
+                crate::domain::methodology::methodology_step_hint(
+                    ctx.selected_strategy
+                        .as_ref()
+                        .and_then(|s| s.methodology_id.as_deref())
+                        .unwrap_or(""),
+                    crate::domain::methodology::GenesisMethodStep::OpeningOrFirstChapter,
+                ),
+            )
+            .len();
+            log::info!(
+                "[Genesis] strategy notes_preview_len={} after selection",
+                notes_len
+            );
+
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: format!("已选择创作策略：{}", strategy_summary),
                 progress_percent: 45,
@@ -904,7 +1293,7 @@ impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
         "生成主角卡与场景戏剧卡，供第一章正文落地"
     }
     fn step_number(&self) -> usize {
-        3
+        4
     }
 
     fn execute<'a>(
@@ -920,7 +1309,7 @@ impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在铺设开篇骨架...".to_string(),
                 progress_percent: 55,
@@ -939,7 +1328,12 @@ impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
                 return Ok(());
             };
 
-            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let strategy_notes = build_opening_strategy_notes(ctx, &meta.genre);
+            log::info!(
+                "[Genesis] opening skeleton strategy_notes_len={} has_methodology={}",
+                strategy_notes.len(),
+                strategy_notes.contains("应遵循的方法论")
+            );
             let prompt = opening_skeleton_prompt(
                 &ctx.user_premise,
                 &meta.title,
@@ -955,7 +1349,7 @@ impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
             );
 
             let pipeline_ctx =
-                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 4, "铺设开篇骨架");
+                ctx.llm_pipeline_ctx(self.name(), self.step_number(), 5, "铺设开篇骨架");
             let request = RoutingRequest {
                 task: TaskType::Analysis,
                 complexity: Complexity::Low,
@@ -1066,7 +1460,7 @@ impl PipelineStep<GenesisContext> for OpeningSkeletonStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: if filled_slots > 0 {
                     format!("开篇骨架已就绪（{} 个槽位）", filled_slots)
@@ -1098,7 +1492,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
         "生成第一章正文（用户立即可见）"
     }
     fn step_number(&self) -> usize {
-        4
+        5
     }
 
     fn execute<'a>(
@@ -1125,7 +1519,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "正在构建写作指令...".to_string(),
                 progress_percent: 60,
@@ -1166,7 +1560,16 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             );
 
             // 构建策略注解：将模型选择的体裁画像、方法论等注入写作指令
-            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let strategy_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::OpeningOrFirstChapter,
+            );
+            log::info!(
+                "[Genesis] first chapter strategy_notes_len={} has_methodology={}",
+                strategy_notes.len(),
+                strategy_notes.contains("应遵循的方法论")
+            );
             let quartet_section = build_narrative_quartet(ctx)
                 .map(|q| format!("\n\n【中文叙事四元组】\n{}\n", q))
                 .unwrap_or_default();
@@ -1378,7 +1781,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Running,
                 message: "AI正在撰写第一章...".to_string(),
                 progress_percent: 75,
@@ -1819,7 +2222,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 pipeline_type: PipelineType::Genesis,
                 step_name: self.name().to_string(),
                 step_number: self.step_number(),
-                total_steps: 4,
+                total_steps: 5,
                 status: StepStatus::Completed,
                 message: format!("第一章已完成！{}字", content_len),
                 progress_percent: 100,
@@ -1976,7 +2379,28 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
             let llm = llm.clone();
             // v0.26.19 Phase 2.2: 错误集合 Arc，透传到各子 future 以收集非致命错误。
             let errors = ctx.errors.clone();
-            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let world_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::World,
+            );
+            let outline_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::Outline,
+            );
+            let character_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::Character,
+            );
+            log::info!(
+                "[Genesis] background world/outline/character strategy_notes_len={}/{}/{} has_methodology={}",
+                world_notes.len(),
+                outline_notes.len(),
+                character_notes.len(),
+                world_notes.contains("应遵循的方法论")
+            );
             let narrative_quartet = build_narrative_quartet(ctx);
 
             let world_gen = {
@@ -1986,7 +2410,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let pool = pool.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
-                let strategy_notes = strategy_notes.clone();
+                let strategy_notes = world_notes;
                 let narrative_quartet = narrative_quartet.clone();
                 let errors = errors.clone();
                 async move {
@@ -2116,7 +2540,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let pool = pool.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
-                let strategy_notes = strategy_notes.clone();
+                let strategy_notes = outline_notes;
                 let narrative_quartet = narrative_quartet.clone();
                 let errors = errors.clone();
                 async move {
@@ -2234,7 +2658,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                 let world_concept = world_concept.clone();
                 let llm = llm.clone();
                 let progress = progress.clone();
-                let strategy_notes = strategy_notes.clone();
+                let strategy_notes = character_notes;
                 let narrative_quartet = narrative_quartet.clone();
                 let errors = errors.clone();
                 async move {
@@ -2468,7 +2892,16 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                     .join(", ");
                 (meta, character_names)
             };
-            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let strategy_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::Scene,
+            );
+            log::info!(
+                "[Genesis] scene strategy_notes_len={} has_methodology={}",
+                strategy_notes.len(),
+                strategy_notes.contains("应遵循的方法论")
+            );
             let narrative_quartet = build_narrative_quartet(ctx);
 
             progress(PipelineProgressEvent {
@@ -2679,7 +3112,16 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 let first_scene_id = bundle.scenes.first().map(|s| s.id.clone());
                 (meta, outline_summary, first_scene_id)
             };
-            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+            let strategy_notes = build_strategy_notes_for_genesis_step(
+                ctx,
+                &meta.genre,
+                crate::domain::methodology::GenesisMethodStep::Foreshadow,
+            );
+            log::info!(
+                "[Genesis] foreshadow strategy_notes_len={} has_methodology={}",
+                strategy_notes.len(),
+                strategy_notes.contains("应遵循的方法论")
+            );
             let narrative_quartet = build_narrative_quartet(ctx);
 
             progress(PipelineProgressEvent {
@@ -2956,6 +3398,44 @@ impl PipelineStep<GenesisContext> for ContractSeedingStep {
                 ctx.record_error_level("播种故事合同", format!("{}", e), "error");
             }
 
+            // v0.26.46: 创世后台完成后推进 methodology_step，供续写接续
+            if let Some(mid) = ctx
+                .selected_strategy
+                .as_ref()
+                .and_then(|s| s.methodology_id.as_deref())
+            {
+                let step =
+                    crate::domain::methodology::final_methodology_step_after_genesis(mid);
+                let update_req = UpdateStoryRequest {
+                    title: None,
+                    description: None,
+                    genre: None,
+                    tone: None,
+                    pacing: None,
+                    style_dna_id: None,
+                    genre_profile_id: None,
+                    methodology_id: Some(
+                        crate::domain::methodology::normalize_methodology_id(mid).to_string(),
+                    ),
+                    methodology_step: Some(step),
+                    reference_book_id: None,
+                };
+                let story_repo = StoryRepository::new(ctx.pool.clone());
+                if let Err(e) = story_repo.update(&ctx.story_id, &update_req) {
+                    log::warn!(
+                        "[Genesis] advance methodology_step to {} failed: {}",
+                        step,
+                        e
+                    );
+                } else {
+                    log::info!(
+                        "[Genesis] advanced methodology_step={} for methodology_id={}",
+                        step,
+                        mid
+                    );
+                }
+            }
+
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
@@ -3159,17 +3639,38 @@ mod world_character_order_tests {
         assert!(concept.is_empty());
     }
 
-    // v0.26.44 契约：quick_phase_steps 为「概念 → 策略 → 开篇骨架 →
-    // 撰写开篇」四步。
+    // v0.26.46 契约：quick_phase_steps 为「概念 → 题材画像确保 → 策略 →
+    // 开篇骨架 → 撰写开篇」五步。
     #[test]
     fn quick_phase_steps_remain_concept_then_first_chapter() {
         let steps = GenesisPipeline::quick_phase_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
         assert_eq!(
             names,
-            vec!["构思故事", "选择创作策略", "铺设开篇骨架", "撰写开篇"]
+            vec![
+                "构思故事",
+                "确保题材画像",
+                "选择创作策略",
+                "铺设开篇骨架",
+                "撰写开篇"
+            ]
         );
-        assert_eq!(names.len(), 4);
+        assert_eq!(names.len(), 5);
+        assert_eq!(steps[0].step_number(), 1);
+        assert_eq!(steps[1].step_number(), 2);
+        assert_eq!(steps[2].step_number(), 3);
+        assert_eq!(steps[3].step_number(), 4);
+        assert_eq!(steps[4].step_number(), 5);
+    }
+
+    // v0.26.46 契约：题材字符串漂移判定——同域近义不覆盖，异域标签覆盖。
+    #[test]
+    fn genre_label_drift_detects_cross_domain_swap() {
+        assert!(!genre_label_drifted("军事谍战", "军事"));
+        assert!(!genre_label_drifted("军事", "军事谍战"));
+        assert!(genre_label_drifted("星际机甲", "军事"));
+        assert!(genre_label_drifted("星际机甲", "军事谍战"));
+        assert!(!genre_label_drifted("", "军事"));
     }
 
     // v0.26.44 契约：合法骨架 JSON 可解析；空壳无效；概念映射可降级填槽。
@@ -3205,6 +3706,7 @@ mod world_character_order_tests {
             pacing: "快节奏".into(),
             themes: vec!["生存".into()],
             target_length: "长篇".into(),
+            author: None,
             protagonist_name: Some("林深".into()),
             protagonist_desire: Some("找到净水".into()),
             protagonist_wound: None,

@@ -59,7 +59,7 @@ pub fn save_genre_profile(
             .map_err(AppError::from)?
             .ok_or_else(|| AppError::not_found("GenreProfile", &existing_id))
     } else {
-        // 创建新记录（is_builtin = 0）
+        // 创建新记录（用户自定义，is_builtin = false）
         repo.create(
             &genre_name,
             &canonical_name,
@@ -69,6 +69,7 @@ pub fn save_genre_profile(
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
             typical_structure_json.as_deref(),
+            false,
         )
         .map_err(AppError::from)
     }

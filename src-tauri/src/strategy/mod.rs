@@ -10,7 +10,7 @@ pub mod quartet_inference;
 pub mod selector;
 
 pub use asset_catalog::load_all_assets;
-pub use genre_resolver::{GenreMatch, GenreResolver};
+pub use genre_resolver::{GenreMatch, GenreResolver, ACCEPT_SCORE};
 pub use models::{
     AssetKind, SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides,
 };

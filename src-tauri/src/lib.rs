@@ -229,6 +229,7 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                     anti_patterns_json.as_deref(),
                                     reference_tables_json,
                                     typical_structure_json.as_deref(),
+                                    true,
                                 );
                                 // v0.17.0: 回填读者主情绪承诺
                                 if let Ok(profile) = created {

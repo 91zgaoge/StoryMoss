@@ -1385,6 +1385,7 @@ mod tests {
                 Some("[]"),
                 None,
                 None,
+                true,
             )
             .expect("create apocalyptic");
         let alien = repo
@@ -1397,6 +1398,7 @@ mod tests {
                 Some("[]"),
                 None,
                 None,
+                true,
             )
             .expect("create alien-world");
 

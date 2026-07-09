@@ -18,6 +18,7 @@ use std::{
     },
 };
 
+use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 // use tauri::AppHandle;
@@ -86,7 +87,18 @@ impl AnalysisContext {
         total_word_count: usize,
         pool: crate::db::DbPool,
     ) -> Self {
-        let concurrency = 3; // 默认并发数
+        Self::with_concurrency(book_id, story_id, chunks, total_word_count, pool, 3)
+    }
+
+    pub fn with_concurrency(
+        book_id: String,
+        story_id: String,
+        chunks: Vec<TextChunk>,
+        total_word_count: usize,
+        pool: crate::db::DbPool,
+        concurrency: usize,
+    ) -> Self {
+        let concurrency = concurrency.clamp(1, 100);
         Self {
             book_id,
             story_id,
@@ -400,94 +412,132 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
 
             let mut character_results: Vec<Vec<CharacterElement>> = Vec::new();
 
-            for (i, chunk) in ctx.chunks.iter().enumerate() {
-                let sample = if chunk.content.chars().count() > 4000 {
-                    chunk.content.chars().take(4000).collect()
-                } else {
-                    chunk.content.clone()
-                };
+            let title_owned = title.to_string();
+            let genre_owned = genre.to_string();
+            let pool = ctx.pool.clone();
+            let semaphore = ctx.semaphore.clone();
+            let active = ctx.active_requests.clone();
+            let concurrency = ctx.concurrency;
+            let book_id = ctx.book_id.clone();
+            let progress_cb = progress.clone();
+            let step_name = self.name().to_string();
+            let step_number = self.step_number();
 
-                let prompt = character_prompt(
-                    PromptMode::Extract,
-                    title,
-                    genre,
-                    "",
-                    &sample,
-                    None,
-                    None,
-                    Some(&ctx.pool),
-                );
-                let pipeline_ctx = ctx.llm_pipeline_ctx(
-                    self.name(),
-                    self.step_number(),
-                    7,
-                    &format!("提取角色 ({}/{})", i + 1, total),
-                );
-                let _pipeline_ctx = pipeline_ctx.clone();
+            let chunk_jobs: Vec<(usize, String)> = ctx
+                .chunks
+                .iter()
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let sample = if chunk.content.chars().count() > 4000 {
+                        chunk.content.chars().take(4000).collect()
+                    } else {
+                        chunk.content.clone()
+                    };
+                    (i, sample)
+                })
+                .collect();
 
-                let _permit = ctx
-                    .semaphore
-                    .acquire()
-                    .await
-                    .map_err(|e| PipelineError::LlmError(format!("并发控制错误: {}", e)))?;
-                ctx.active_requests.fetch_add(1, Ordering::Relaxed);
-
-                let response = llm
-                    .generate_for_task(
-                        TaskType::Analysis,
-                        prompt,
-                        Some(1000),
-                        Some(0.3),
-                        Some(&format!("分析-提取角色 {}/{}", i + 1, total)),
-                    )
-                    .await;
-
-                ctx.active_requests.fetch_sub(1, Ordering::Relaxed);
-                drop(_permit);
-
-                match response {
-                    Ok(resp) => {
-                        let content = resp.content.trim();
-                        if let Ok(json_str) = extract_json(content) {
-                            #[derive(Debug, Deserialize)]
-                            struct CharacterResponse {
-                                characters: Vec<CharacterElement>,
+            let results: Vec<(usize, Vec<CharacterElement>)> = stream::iter(chunk_jobs)
+                .map(|(i, sample)| {
+                    let title = title_owned.clone();
+                    let genre = genre_owned.clone();
+                    let pool = pool.clone();
+                    let semaphore = semaphore.clone();
+                    let active = active.clone();
+                    let progress_cb = progress_cb.clone();
+                    let step_name = step_name.clone();
+                    let book_id = book_id.clone();
+                    async move {
+                        let prompt = character_prompt(
+                            PromptMode::Extract,
+                            &title,
+                            &genre,
+                            "",
+                            &sample,
+                            None,
+                            None,
+                            Some(&pool),
+                        );
+                        let _permit = match semaphore.acquire().await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                log::warn!(
+                                    "[AnalysisPipeline] 角色提取块 {} 并发控制失败: {}",
+                                    i,
+                                    e
+                                );
+                                return (i, Vec::new());
                             }
-                            if let Ok(result) = serde_json::from_str::<CharacterResponse>(&json_str)
-                            {
-                                character_results.push(result.characters);
-                            } else {
-                                character_results.push(Vec::new());
-                            }
-                        } else {
-                            character_results.push(Vec::new());
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("[AnalysisPipeline] 角色提取块 {} 失败: {}", i, e);
-                        character_results.push(Vec::new());
-                    }
-                }
+                        };
+                        active.fetch_add(1, Ordering::Relaxed);
 
-                let progress_pct = 30 + ((i + 1) * 15 / total.max(1)) as i32;
-                progress(PipelineProgressEvent {
-                    pipeline_id: ctx.book_id.clone(),
-                    pipeline_type: PipelineType::Analysis,
-                    step_name: self.name().to_string(),
-                    step_number: self.step_number(),
-                    total_steps: 7,
-                    status: StepStatus::Running,
-                    message: format!(
-                        "正在提取角色 ({}/{}) — 活跃线程 {}/{}",
-                        i + 1,
-                        total,
-                        ctx.active_requests.load(Ordering::Relaxed),
-                        ctx.concurrency
-                    ),
-                    progress_percent: progress_pct,
-                    elapsed_seconds: 0,
-                    metadata: None,
-                });
+                        let response = llm
+                            .generate_for_task(
+                                TaskType::Analysis,
+                                prompt,
+                                Some(1000),
+                                Some(0.3),
+                                Some(&format!("分析-提取角色 {}/{}", i + 1, total)),
+                            )
+                            .await;
+
+                        active.fetch_sub(1, Ordering::Relaxed);
+                        drop(_permit);
+
+                        let chars = match response {
+                            Ok(resp) => {
+                                let content = resp.content.trim();
+                                if let Ok(json_str) = extract_json(content) {
+                                    #[derive(Debug, Deserialize)]
+                                    struct CharacterResponse {
+                                        characters: Vec<CharacterElement>,
+                                    }
+                                    serde_json::from_str::<CharacterResponse>(&json_str)
+                                        .map(|r| r.characters)
+                                        .unwrap_or_default()
+                                } else {
+                                    Vec::new()
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("[AnalysisPipeline] 角色提取块 {} 失败: {}", i, e);
+                                Vec::new()
+                            }
+                        };
+
+                        let done = i + 1;
+                        let progress_pct = 30 + (done * 15 / total.max(1)) as i32;
+                        progress_cb(PipelineProgressEvent {
+                            pipeline_id: book_id.clone(),
+                            pipeline_type: PipelineType::Analysis,
+                            step_name: step_name.clone(),
+                            step_number,
+                            total_steps: 7,
+                            status: StepStatus::Running,
+                            message: format!(
+                                "正在提取角色 ({}/{}) — 活跃线程 {}/{}",
+                                done,
+                                total,
+                                active.load(Ordering::Relaxed),
+                                concurrency
+                            ),
+                            progress_percent: progress_pct,
+                            elapsed_seconds: 0,
+                            metadata: None,
+                        });
+
+                        (i, chars)
+                    }
+                })
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+
+            // 按块序合并，保证确定性
+            let mut ordered = results;
+            ordered.sort_by_key(|(i, _)| *i);
+            for (_, chars) in ordered {
+                character_results.push(chars);
             }
 
             // 合并去重
@@ -569,95 +619,141 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
 
             let mut scenes = Vec::new();
 
-            for (i, chunk) in ctx.chunks.iter().enumerate() {
-                let sample = if chunk.content.chars().count() > 5000 {
-                    chunk.content.chars().take(5000).collect()
-                } else {
-                    chunk.content.clone()
-                };
+            let title_owned = title.to_string();
+            let genre_owned = genre.to_string();
+            let pool = ctx.pool.clone();
+            let semaphore = ctx.semaphore.clone();
+            let active = ctx.active_requests.clone();
+            let concurrency = ctx.concurrency;
+            let book_id = ctx.book_id.clone();
+            let story_id = ctx.story_id.clone();
+            let progress_cb = progress.clone();
+            let step_name = self.name().to_string();
+            let step_number = self.step_number();
 
-                let prompt = scene_prompt(
-                    PromptMode::Extract,
-                    title,
-                    genre,
-                    "",
-                    &sample,
-                    None,
-                    None,
-                    Some(&ctx.pool),
-                );
-                let pipeline_ctx = ctx.llm_pipeline_ctx(
-                    self.name(),
-                    self.step_number(),
-                    7,
-                    &format!("提取场景 ({}/{})", i + 1, total),
-                );
-                let _pipeline_ctx = pipeline_ctx.clone();
+            let chunk_jobs: Vec<(usize, String)> = ctx
+                .chunks
+                .iter()
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let sample = if chunk.content.chars().count() > 5000 {
+                        chunk.content.chars().take(5000).collect()
+                    } else {
+                        chunk.content.clone()
+                    };
+                    (i, sample)
+                })
+                .collect();
 
-                let _permit = ctx
-                    .semaphore
-                    .acquire()
-                    .await
-                    .map_err(|e| PipelineError::LlmError(format!("并发控制错误: {}", e)))?;
-                ctx.active_requests.fetch_add(1, Ordering::Relaxed);
-
-                let response = llm
-                    .generate_for_task(
-                        TaskType::Analysis,
-                        prompt,
-                        Some(1000),
-                        Some(0.3),
-                        Some(&format!("分析-提取场景 {}/{}", i + 1, total)),
-                    )
-                    .await;
-
-                ctx.active_requests.fetch_sub(1, Ordering::Relaxed);
-                drop(_permit);
-
-                match response {
-                    Ok(resp) => {
-                        let content = resp.content.trim();
-                        if let Ok(json_str) = extract_json(content) {
-                            #[derive(Debug, Deserialize)]
-                            struct SceneResponse {
-                                scenes: Vec<SceneElement>,
+            let results: Vec<(usize, Vec<SceneElement>)> = stream::iter(chunk_jobs)
+                .map(|(i, sample)| {
+                    let title = title_owned.clone();
+                    let genre = genre_owned.clone();
+                    let pool = pool.clone();
+                    let semaphore = semaphore.clone();
+                    let active = active.clone();
+                    let progress_cb = progress_cb.clone();
+                    let step_name = step_name.clone();
+                    let book_id = book_id.clone();
+                    let story_id = story_id.clone();
+                    async move {
+                        let prompt = scene_prompt(
+                            PromptMode::Extract,
+                            &title,
+                            &genre,
+                            "",
+                            &sample,
+                            None,
+                            None,
+                            Some(&pool),
+                        );
+                        let _permit = match semaphore.acquire().await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                log::warn!(
+                                    "[AnalysisPipeline] 场景提取块 {} 并发控制失败: {}",
+                                    i,
+                                    e
+                                );
+                                return (i, Vec::new());
                             }
-                            if let Ok(result) = serde_json::from_str::<SceneResponse>(&json_str) {
-                                for s in result.scenes {
-                                    scenes.push(SceneElement {
-                                        id: Uuid::new_v4().to_string(),
-                                        story_id: ctx.story_id.clone(),
-                                        source: ElementSource::Extracted,
-                                        source_ref_id: Some(ctx.book_id.clone()),
-                                        ..s
-                                    });
+                        };
+                        active.fetch_add(1, Ordering::Relaxed);
+
+                        let response = llm
+                            .generate_for_task(
+                                TaskType::Analysis,
+                                prompt,
+                                Some(1000),
+                                Some(0.3),
+                                Some(&format!("分析-提取场景 {}/{}", i + 1, total)),
+                            )
+                            .await;
+
+                        active.fetch_sub(1, Ordering::Relaxed);
+                        drop(_permit);
+
+                        let mut batch = Vec::new();
+                        match response {
+                            Ok(resp) => {
+                                let content = resp.content.trim();
+                                if let Ok(json_str) = extract_json(content) {
+                                    #[derive(Debug, Deserialize)]
+                                    struct SceneResponse {
+                                        scenes: Vec<SceneElement>,
+                                    }
+                                    if let Ok(result) =
+                                        serde_json::from_str::<SceneResponse>(&json_str)
+                                    {
+                                        for s in result.scenes {
+                                            batch.push(SceneElement {
+                                                id: Uuid::new_v4().to_string(),
+                                                story_id: story_id.clone(),
+                                                source: ElementSource::Extracted,
+                                                source_ref_id: Some(book_id.clone()),
+                                                ..s
+                                            });
+                                        }
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                log::warn!("[AnalysisPipeline] 场景提取块 {} 失败: {}", i, e);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        log::warn!("[AnalysisPipeline] 场景提取块 {} 失败: {}", i, e);
-                    }
-                }
 
-                let progress_pct = 50 + ((i + 1) * 10 / total.max(1)) as i32;
-                progress(PipelineProgressEvent {
-                    pipeline_id: ctx.book_id.clone(),
-                    pipeline_type: PipelineType::Analysis,
-                    step_name: self.name().to_string(),
-                    step_number: self.step_number(),
-                    total_steps: 7,
-                    status: StepStatus::Running,
-                    message: format!(
-                        "正在提取场景 ({}/{}) — 已处理 {} 章",
-                        i + 1,
-                        total,
-                        scenes.len()
-                    ),
-                    progress_percent: progress_pct,
-                    elapsed_seconds: 0,
-                    metadata: None,
-                });
+                        let done = i + 1;
+                        let progress_pct = 50 + (done * 10 / total.max(1)) as i32;
+                        progress_cb(PipelineProgressEvent {
+                            pipeline_id: book_id.clone(),
+                            pipeline_type: PipelineType::Analysis,
+                            step_name: step_name.clone(),
+                            step_number,
+                            total_steps: 7,
+                            status: StepStatus::Running,
+                            message: format!(
+                                "正在提取场景 ({}/{}) — 活跃线程 {}/{}",
+                                done,
+                                total,
+                                active.load(Ordering::Relaxed),
+                                concurrency
+                            ),
+                            progress_percent: progress_pct,
+                            elapsed_seconds: 0,
+                            metadata: None,
+                        });
+
+                        (i, batch)
+                    }
+                })
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+
+            let mut ordered = results;
+            ordered.sort_by_key(|(i, _)| *i);
+            for (_, batch) in ordered {
+                scenes.extend(batch);
             }
 
             for s in scenes {
@@ -752,17 +848,19 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
             let content = response.content.trim();
             let json_str = extract_json(content).map_err(|e| PipelineError::ParseError(e))?;
 
-            #[derive(Debug, Deserialize)]
-            struct ArcResponse {
-                main_arc: String,
-                sub_arcs: Vec<String>,
-                climaxes: Vec<String>,
-                turning_points: Vec<String>,
-            }
-            let _arc: ArcResponse = serde_json::from_str(&json_str)
+            let arc: ArcResponse = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事线失败: {}", e)))?;
 
-            // 故事线不直接存储为 NarrativeElement，而是作为 Outline 的补充信息
+            if arc.main_arc.trim().is_empty() && arc.sub_arcs.is_empty() {
+                log::warn!(
+                    "[StoryArcExtractionStep] empty arc for book {}; skip outline write",
+                    ctx.book_id
+                );
+            } else {
+                let outline = arc_response_to_outline(&ctx.book_id, &arc);
+                ctx.bundle = ctx.bundle.clone().with_outline(outline);
+            }
+
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.book_id.clone(),
                 pipeline_type: PipelineType::Analysis,
@@ -1034,6 +1132,91 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
     }
 }
 
+// ==================== 故事线 → Outline ====================
+
+/// LLM 故事线提取响应（与 prompts.rs Extract fallback / analyzer 对齐）
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ArcResponse {
+    pub main_arc: String,
+    #[serde(default)]
+    pub sub_arcs: Vec<String>,
+    #[serde(default)]
+    pub climaxes: Vec<String>,
+    #[serde(default)]
+    pub turning_points: Vec<String>,
+}
+
+/// 将故事线响应映射为 OutlineElement，供 AnalysisPipeline 写入 bundle.outline。
+///
+/// 约定：
+/// - Act 1：main_arc；key_plot_points = turning_points（≤8）
+/// - 后续 Act：每个非空 sub_arc 一幕
+/// - climaxes 并入最后一幕 key_plot_points
+pub(crate) fn arc_response_to_outline(book_id: &str, arc: &ArcResponse) -> OutlineElement {
+    let mut acts = Vec::new();
+
+    let mut act1_points: Vec<String> = arc
+        .turning_points
+        .iter()
+        .filter(|p| !p.trim().is_empty())
+        .take(8)
+        .cloned()
+        .collect();
+
+    let sub_arcs: Vec<&str> = arc
+        .sub_arcs
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // 无支线时，高潮并入第一幕
+    if sub_arcs.is_empty() {
+        for c in arc.climaxes.iter().filter(|c| !c.trim().is_empty()) {
+            if !act1_points.iter().any(|p| p == c) {
+                act1_points.push(c.clone());
+            }
+        }
+    }
+
+    acts.push(OutlineAct {
+        act_number: 1,
+        title: "主线".to_string(),
+        summary: arc.main_arc.trim().to_string(),
+        key_plot_points: act1_points,
+        estimated_scenes: 0,
+    });
+
+    for (i, sub) in sub_arcs.iter().enumerate() {
+        let act_number = (i + 2) as i32;
+        let mut points = Vec::new();
+        // 高潮并入最后一幕
+        if i + 1 == sub_arcs.len() {
+            for c in arc.climaxes.iter().filter(|c| !c.trim().is_empty()) {
+                if !points.iter().any(|p: &String| p == c) {
+                    points.push(c.clone());
+                }
+            }
+        }
+        acts.push(OutlineAct {
+            act_number,
+            title: format!("支线{}", i + 1),
+            summary: (*sub).to_string(),
+            key_plot_points: points,
+            estimated_scenes: 0,
+        });
+    }
+
+    OutlineElement {
+        id: Uuid::new_v4().to_string(),
+        story_id: book_id.to_string(),
+        acts,
+        total_scenes_estimate: 0,
+        source: ElementSource::Extracted,
+        source_ref_id: Some(book_id.to_string()),
+    }
+}
+
 // ==================== 辅助函数 ====================
 
 fn extract_json(content: &str) -> Result<String, String> {
@@ -1059,4 +1242,75 @@ fn merge_characters(results: Vec<Vec<CharacterElement>>) -> Vec<CharacterElement
         }
     }
     merged.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arc_response_maps_main_and_sub_arcs_to_acts() {
+        let arc = ArcResponse {
+            main_arc: "主角从废土崛起".to_string(),
+            sub_arcs: vec!["盟友线".to_string(), "反派线".to_string()],
+            climaxes: vec!["终局对决".to_string()],
+            turning_points: vec!["觉醒".to_string(), "背叛".to_string(), "抉择".to_string()],
+        };
+        let outline = arc_response_to_outline("book-1", &arc);
+
+        assert_eq!(outline.story_id, "book-1");
+        assert_eq!(outline.source, ElementSource::Extracted);
+        assert_eq!(outline.acts.len(), 3);
+
+        assert_eq!(outline.acts[0].act_number, 1);
+        assert_eq!(outline.acts[0].title, "主线");
+        assert_eq!(outline.acts[0].summary, "主角从废土崛起");
+        assert_eq!(
+            outline.acts[0].key_plot_points,
+            vec!["觉醒".to_string(), "背叛".to_string(), "抉择".to_string()]
+        );
+
+        assert_eq!(outline.acts[1].summary, "盟友线");
+        assert!(outline.acts[1].key_plot_points.is_empty());
+
+        assert_eq!(outline.acts[2].summary, "反派线");
+        assert!(
+            outline.acts[2]
+                .key_plot_points
+                .iter()
+                .any(|p| p == "终局对决"),
+            "climaxes must land on the last act"
+        );
+    }
+
+    #[test]
+    fn arc_response_without_sub_arcs_puts_climaxes_on_act1() {
+        let arc = ArcResponse {
+            main_arc: "单线故事".to_string(),
+            sub_arcs: vec![],
+            climaxes: vec!["高潮".to_string()],
+            turning_points: vec!["转折".to_string()],
+        };
+        let outline = arc_response_to_outline("b2", &arc);
+        assert_eq!(outline.acts.len(), 1);
+        assert!(outline.acts[0]
+            .key_plot_points
+            .contains(&"转折".to_string()));
+        assert!(outline.acts[0]
+            .key_plot_points
+            .contains(&"高潮".to_string()));
+    }
+
+    #[test]
+    fn arc_response_truncates_turning_points_to_eight() {
+        let points: Vec<String> = (1..=12).map(|i| format!("tp{i}")).collect();
+        let arc = ArcResponse {
+            main_arc: "主线".to_string(),
+            sub_arcs: vec!["支".to_string()],
+            climaxes: vec![],
+            turning_points: points,
+        };
+        let outline = arc_response_to_outline("b3", &arc);
+        assert_eq!(outline.acts[0].key_plot_points.len(), 8);
+    }
 }

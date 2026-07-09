@@ -60,3 +60,87 @@ impl Default for MethodologyConfig {
         }
     }
 }
+
+/// 将别名规范为 Strategy / Genesis / WriteTimeBundle 使用的 canonical id。
+/// `world_building` / `hdwb` → `high_density_world_building`。
+pub fn normalize_methodology_id(id: &str) -> &str {
+    match id.trim() {
+        "world_building" | "hdwb" | "high_density_world_building" => "high_density_world_building",
+        other => other,
+    }
+}
+
+/// 创世结束后写入 `stories.methodology_step` 的保守推进值。
+pub fn final_methodology_step_after_genesis(methodology_id: &str) -> i32 {
+    match normalize_methodology_id(methodology_id) {
+        "snowflake" => 4,
+        "high_density_world_building" => 2,
+        _ => 1,
+    }
+}
+
+/// Genesis 步骤 → 方法论子步/阶段 hint（供 resolve_methodology_prompt）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenesisMethodStep {
+    OpeningOrFirstChapter,
+    World,
+    Outline,
+    Character,
+    Scene,
+    Foreshadow,
+}
+
+pub fn methodology_step_hint(methodology_id: &str, step: GenesisMethodStep) -> Option<&'static str> {
+    match (normalize_methodology_id(methodology_id), step) {
+        ("snowflake", GenesisMethodStep::OpeningOrFirstChapter) => Some("1"),
+        ("snowflake", GenesisMethodStep::Outline) => Some("2"),
+        ("snowflake", GenesisMethodStep::Character) => Some("3"),
+        ("snowflake", GenesisMethodStep::Scene) => Some("8"),
+        ("high_density_world_building", GenesisMethodStep::World) => Some("1"),
+        ("high_density_world_building", GenesisMethodStep::Outline)
+        | ("high_density_world_building", GenesisMethodStep::Character) => Some("2"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod methodology_id_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_aliases_hdwb() {
+        assert_eq!(
+            normalize_methodology_id("world_building"),
+            "high_density_world_building"
+        );
+        assert_eq!(normalize_methodology_id("hdwb"), "high_density_world_building");
+        assert_eq!(
+            normalize_methodology_id("high_density_world_building"),
+            "high_density_world_building"
+        );
+        assert_eq!(normalize_methodology_id("snowflake"), "snowflake");
+    }
+
+    #[test]
+    fn final_step_mapping() {
+        assert_eq!(final_methodology_step_after_genesis("snowflake"), 4);
+        assert_eq!(final_methodology_step_after_genesis("world_building"), 2);
+        assert_eq!(final_methodology_step_after_genesis("hero_journey"), 1);
+    }
+
+    #[test]
+    fn step_hint_mapping() {
+        assert_eq!(
+            methodology_step_hint("snowflake", GenesisMethodStep::Scene),
+            Some("8")
+        );
+        assert_eq!(
+            methodology_step_hint("hdwb", GenesisMethodStep::World),
+            Some("1")
+        );
+        assert_eq!(
+            methodology_step_hint("hero_journey", GenesisMethodStep::World),
+            None
+        );
+    }
+}

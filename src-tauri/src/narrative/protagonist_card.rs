@@ -267,6 +267,7 @@ mod tests {
             pacing: "快节奏".into(),
             themes: vec![],
             target_length: "长篇".into(),
+            author: None,
             protagonist_name: name.map(|s| s.to_string()),
             protagonist_desire: desire.map(|s| s.to_string()),
             protagonist_wound: wound.map(|s| s.to_string()),

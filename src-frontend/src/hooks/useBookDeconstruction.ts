@@ -82,7 +82,8 @@ export function useBookAnalysisStatus(bookId: string | null) {
       }>('pipeline-progress', event => {
         const p = event.payload;
         if (p.pipeline_type !== 'analysis') return;
-        // pipeline_id 对应 book_id
+        // pipeline_id 对应 book_id；过滤串扰
+        if (p.pipeline_id !== bookId) return;
         setLiveStatus(prev => ({
           book_id: bookId,
           status:
