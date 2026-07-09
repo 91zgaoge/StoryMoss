@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.41)
+# 🧪 StoryForge 自动化测试环境 (v0.26.42)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.42 变更说明
+
+- RichTextEditor：接受后 30s 内新续写须显示幽灵段落（+1）。
+- `RichTextEditor.duplicate.test.tsx` 6 passed。
 
 ### v0.26.41 变更说明
 

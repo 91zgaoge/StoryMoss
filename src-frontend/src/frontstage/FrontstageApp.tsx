@@ -375,6 +375,8 @@ const FrontstageApp: React.FC = () => {
           );
           return;
         }
+        // v0.26.42: 新幽灵内容写入前解除渲染锁，避免接受后 30s 内续写只有 Tab 条无正文。
+        setHideGhostUntil(0);
         frontstageLogger.info('[GEN-TEXT] setGeneratedText non-empty', {
           textLen: text.length,
           preview: text.slice(0, 80),
@@ -2692,6 +2694,9 @@ const FrontstageApp: React.FC = () => {
 
       setGeneratedText('');
       genesisDeliveryRef.current = 'idle';
+      // v0.26.42: 续写入口同步解除幽灵渲染锁（与 handleSmartGeneration 对齐）
+      postAcceptLockRef.current = 0;
+      setHideGhostUntil(0);
       setIsGenerating(true);
       setGenerationStatus('正在续写...');
       setOrchestratorStatus(null);
@@ -3426,6 +3431,9 @@ const FrontstageApp: React.FC = () => {
       clearAccepted();
       // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
       postAcceptLockRef.current = 0;
+      // v0.26.42: 同步解除幽灵渲染锁。此前只清 postAcceptLock，未清 hideGhostUntil，
+      // 导致接受后 30s 内续写：Tab 提示可见、幽灵段落被压住、用户以为无内容。
+      setHideGhostUntil(0);
       // v0.26.13 fix: 新请求开始时重置 Genesis 自动接受标记，避免上一本小说的状态阻塞续写生成。
       genesisDeliveryRef.current = 'idle';
       if (isGenerating) {

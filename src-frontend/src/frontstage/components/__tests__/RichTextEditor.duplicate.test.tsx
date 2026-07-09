@@ -217,4 +217,72 @@ describe('RichTextEditor 内容重复防护', () => {
 
     expect(screen.getByTestId('ghost-paragraph')).toBeInTheDocument();
   });
+
+  it('接受后 30s 内新续写到达时，应显示幽灵段落（不只是 Tab 提示）', async () => {
+    // 契约：Tab 接受后 hideGhostUntil / postAcceptHideUntil 会压住幽灵段落；
+    // 新一轮 generatedText 到达时必须解除该锁，否则用户只看到 Tab 条、看不到续写正文。
+    const NEW_CONTINUATION =
+      '他蹲下身，指尖触碰那嫩绿的芽尖，冰凉的触感带着一种近乎神圣的微弱生命力。';
+    const onAccept = vi.fn();
+
+    const { rerender } = render(
+      <RichTextEditor
+        content=""
+        generatedText={GENERATED_TEXT}
+        isGenerating={false}
+        onChange={vi.fn()}
+        onAcceptGeneration={onAccept}
+        hideGhostUntil={0}
+      />
+    );
+
+    expect(screen.getByTestId('ghost-paragraph')).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.queryByTestId('ghost-paragraph')).not.toBeInTheDocument();
+    expect(onAccept).toHaveBeenCalled();
+
+    // 模拟父组件：接受后设置 30s 锁，清空 generatedText，正文已追加
+    fakeHTML = `<p>${GENERATED_TEXT.replace(/\n\n/g, '</p><p>')}</p>`;
+    fakeText = GENERATED_TEXT.replace(/\n\n/g, '');
+    fakeEditor.isEmpty = false;
+    const hideUntil = Date.now() + 30000;
+
+    rerender(
+      <RichTextEditor
+        content={fakeHTML}
+        generatedText=""
+        isGenerating={false}
+        onChange={vi.fn()}
+        onAcceptGeneration={onAccept}
+        hideGhostUntil={hideUntil}
+      />
+    );
+
+    // 新续写结果到达：父组件应已清零 hideGhostUntil；即便短暂残留，新 generatedText
+    // 也必须解除本地 postAcceptHideUntil，让幽灵段落可见。
+    rerender(
+      <RichTextEditor
+        content={fakeHTML}
+        generatedText={NEW_CONTINUATION}
+        isGenerating={false}
+        onChange={vi.fn()}
+        onAcceptGeneration={onAccept}
+        hideGhostUntil={0}
+      />
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const ghost = screen.getByTestId('ghost-paragraph');
+    expect(ghost).toBeInTheDocument();
+    expect(ghost.textContent).toContain('他蹲下身');
+    // Tab 提示也应同时可见
+    expect(screen.getByText('接受')).toBeInTheDocument();
+  });
 });

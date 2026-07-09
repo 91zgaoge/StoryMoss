@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.41 项目完成状态
+# StoryForge (草苔) v0.26.42 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.41 记忆统一读模型 + Finalize scene_id）
+> 最后更新: 2026-07-09（v0.26.42 修复续写幽灵文本被 post-accept 锁压住）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.42 — 修复续写 Tab 提示可见但无幽灵文本（2026-07-09）
+
+- 新续写清零 hideGhostUntil / postAcceptHideUntil；接受中不误解除。
+- ✅ **验证**：RichTextEditor.duplicate 6 passed（+1）。
 
 ### v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治（2026-07-09）
 

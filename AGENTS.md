@@ -7,7 +7,7 @@
 **StoryForge (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
-- **版本**: v0.26.41
+- **版本**: v0.26.42
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -73,13 +73,19 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 701 passed / 0 failed / 2 ignored
 - `npx tsc --noEmit` ✅ 零错误
-- `npx vitest run` ✅ 261 passed / 3 skipped
+- `npx vitest run` ✅ 262 passed / 3 skipped
 - `npx playwright test` ✅ 36 passed / 5 skipped（本版未重跑 E2E）
 - `cargo +nightly fmt -- --check` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.42 — 修复续写 Tab 提示可见但无幽灵文本
+
+- **根因**：Tab 接受后 30s `hideGhostUntil` / `postAcceptHideUntilRef` 未在新续写时清零；幽灵树仍渲染 Tab 条，幽灵段落被压住。
+- **修复**：续写入口与 `setGeneratedText` 清零父级锁；RichTextEditor 新幽灵到达时清零本地锁（接受中不解除）。
+- **验证**：`RichTextEditor.duplicate.test.tsx` 6 passed（+1）。
 
 ### v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治
 
@@ -260,7 +266,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.41_
+_最后更新: 2026-07-09 - v0.26.42_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

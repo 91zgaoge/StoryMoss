@@ -563,27 +563,35 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // v0.23.89: 记录 generatedText 变化，便于无 devtools 时追踪幽灵文本生命周期
     useEffect(() => {
-      // v0.23.98: 父组件 hideGhostUntil 可能 remount 后才到达，同步到本地 ref
-      if (hideGhostUntil > postAcceptHideUntilRef.current) {
+      // v0.23.98: 父组件 hideGhostUntil 可能 remount 后才到达，同步到本地 ref。
+      // v0.26.42: 父组件显式清零（新续写开始）时必须同步清零本地锁，否则
+      // shouldShowGhostParagraph 仍被旧的 postAcceptHideUntil 压住——表现为
+      // Tab 提示可见、幽灵正文不可见（creative_workflow.log 2026-07-09）。
+      // 接受瞬间 isHidingGhost=true 且父级可能尚未写入新的 hideGhostUntil（仍为 0），
+      // 此时不得清零本地锁，否则与 Tab 接受竞态。
+      if (hideGhostUntil === 0 && !isHidingGhost) {
+        postAcceptHideUntilRef.current = 0;
+      } else if (hideGhostUntil > postAcceptHideUntilRef.current) {
         postAcceptHideUntilRef.current = hideGhostUntil;
       }
       if (generatedText && generatedText.length > 10) {
+        // Tab 接受瞬间：isHidingGhost 已 true、generatedText 尚未被父组件清空。
+        // 此时不得解除渲染锁，否则幽灵段落会在接受后立刻复现。
+        if (isHidingGhost) {
+          return;
+        }
         // v0.24.4: 新的生成内容到达时，解除永久隐藏，让幽灵文本正常渲染
         document.body.classList.remove('force-hide-ghost');
         // v0.26.22 Bug A: 同步响应式镜像，触发重渲染让 shouldShowGhostTree 立即翻转
         setBodyForceHideGhost(false);
-        if (Date.now() < postAcceptHideUntilRef.current) {
-          rtEditorLogger.warn('[RichTextEditor] ghost text suppressed by post-accept hide', {
-            len: generatedText.length,
-            preview: generatedText.slice(0, 80),
-            hideMsRemaining: postAcceptHideUntilRef.current - Date.now(),
-          });
-        } else {
-          rtEditorLogger.warn('[RichTextEditor] ghost text rendered', {
-            len: generatedText.length,
-            preview: generatedText.slice(0, 80),
-          });
-        }
+        // v0.26.42: 新幽灵内容到达 = 新一轮生成，必须解除 post-accept 渲染锁。
+        // 此前只移除 force-hide-ghost 类，未清 postAcceptHideUntilRef，导致接受后
+        // 30s 内续写只有 Tab 条、无幽灵段落。
+        postAcceptHideUntilRef.current = 0;
+        rtEditorLogger.warn('[RichTextEditor] ghost text rendered', {
+          len: generatedText.length,
+          preview: generatedText.slice(0, 80),
+        });
       }
       // v0.23.90: generatedText 真正清空后，解除本地隐藏锁定
       if (!generatedText && isHidingGhost) {
@@ -1226,6 +1234,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 空幽灵容器；若该容器残留旧内容或 React 复用 DOM 节点异常，就会出现"正文 + 幽灵文本"
     // 同框的虚假重复。生成状态有独立的 `generationStatus` / 后台活动指示器，无需空容器占位。
     const shouldShowGhostTree = !!generatedText && !isHidingGhost && !bodyHidingGhost;
+    // v0.26.42: 新续写开始时父组件清零 hideGhostUntil，本地 postAcceptHideUntilRef
+    // 也在新 generatedText 到达时清零。两道锁任一残留都会压住幽灵段落（Tab 条仍可见）。
     const shouldShowGhostParagraph = !!(
       generatedText &&
       Date.now() > postAcceptHideUntilRef.current &&

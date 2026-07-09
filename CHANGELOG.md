@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.42] - 修复续写 Tab 提示可见但无幽灵文本（2026-07-09）
+
+### 修复
+
+- **续写无幽灵文本 / Tab 确认后无追加**：Tab 接受后 `hideGhostUntil`（30s）与 `postAcceptHideUntilRef` 未在新续写开始时清零，导致 `shouldShowGhostTree` 仍渲染 Tab 提示条，但 `shouldShowGhostParagraph` 被压住——用户只见「按 Tab 接受」、不见续写正文，确认后也无内容可追加。
+- **根因**（`creative_workflow.log` 2026-07-09）：`handleSmartGeneration` 只清 `postAcceptLock`，未清 `hideGhostUntil`；RichTextEditor 新 `generatedText` 到达时只移除 `force-hide-ghost` 类，未清本地时间锁。
+- **修复**：新续写入口与 `setGeneratedText` 非空写入时清零 `hideGhostUntil`；RichTextEditor 在新幽灵内容到达（非接受中）时清零 `postAcceptHideUntilRef`；父级 `hideGhostUntil===0` 时同步清本地锁。
+
+### 验证
+
+- vitest `RichTextEditor.duplicate.test.tsx`：6 passed（+1 回归：接受后 30s 内新续写须显示幽灵段落）
+- `npx vitest run`：262 passed / 3 skipped
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard`：✅
+
 ## [v0.26.41] - 记忆统一读模型与 Finalize scene_id 根治（2026-07-09）
 
 ### 修复

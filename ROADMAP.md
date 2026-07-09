@@ -1,8 +1,14 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.41 记忆统一读 + finalize scene_id；v0.26.40 资产闭环）
+> 最后更新: 2026-07-09（v0.26.42 续写幽灵锁；v0.26.41 记忆统一读 + finalize scene_id）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.42 — 修复续写 Tab 提示可见但无幽灵文本 ✅ (2026-07-09)
+
+- [x] 新续写入口 / setGeneratedText 清零 hideGhostUntil
+- [x] RichTextEditor 新幽灵到达时清零 postAcceptHideUntilRef（接受中不解除）
+- [x] 回归测试：接受后 30s 内新续写须显示幽灵段落
 
 ### 📝 v0.26.41 — 记忆统一读模型与 Finalize scene_id 根治 ✅ (2026-07-09)
 

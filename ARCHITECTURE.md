@@ -1,4 +1,6 @@
-# StoryForge (草苔) v0.26.41 架构文档
+# StoryForge (草苔) v0.26.42 架构文档
+
+> **v0.26.42**：续写幽灵渲染锁——Tab 接受后的 `hideGhostUntil` / `postAcceptHideUntilRef` 必须在新续写开始时清零，否则只见 Tab 条不见幽灵正文。
 
 > **v0.26.36**：`save_settings` 热重载 LLM 并广播 `app_settings`；字体/主题经 Tauri 事件跨窗口同步；`llm_first_chunk_timeout_secs` 接入适配器。
 
