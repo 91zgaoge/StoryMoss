@@ -60,7 +60,8 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setIsOpen(false);
-                // W2-F2: show-settings 为孤儿事件，无监听器，已移除
+                useAppStore.getState().setSettingsTab('account');
+                useAppStore.getState().setCurrentView('settings');
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors"
             >

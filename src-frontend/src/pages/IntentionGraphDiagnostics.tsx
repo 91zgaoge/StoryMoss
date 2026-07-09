@@ -118,7 +118,7 @@ export function IntentionGraphDiagnostics() {
       <div className="p-6 space-y-6">
         <div className="flex items-center gap-3 mb-6">
           <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">SING 意图图诊断</h1>
+          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
@@ -140,7 +140,7 @@ export function IntentionGraphDiagnostics() {
       <div className="p-6">
         <div className="flex items-center gap-3 mb-6">
           <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">SING 意图图诊断</h1>
+          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
         </div>
         <Card>
           <CardContent className="p-8 text-center">
@@ -161,7 +161,7 @@ export function IntentionGraphDiagnostics() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">SING 意图图诊断</h1>
+          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
         </div>
         <Button onClick={fetchDiagnostics} variant="ghost" size="sm">
           <Activity className="w-4 h-4 mr-2" />

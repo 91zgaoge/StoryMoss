@@ -18,8 +18,7 @@ import { Tasks } from '@/pages/Tasks';
 import { Foreshadowing } from '@/pages/Foreshadowing';
 import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
-import { UsageStats } from '@/pages/UsageStats';
-import { WritingStats } from '@/pages/WritingStats';
+import { Insights } from '@/pages/Insights';
 import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
 import { Logs } from '@/pages/Logs';
 import { TracingPanel } from '@/pages/TracingPanel';
@@ -302,9 +301,8 @@ function App() {
       case 'story-system':
         return <StorySystem />;
       case 'usage-stats':
-        return <UsageStats />;
       case 'writing-stats':
-        return <WritingStats />;
+        return <Insights />;
       case 'intention-graph':
         return <IntentionGraphDiagnostics />;
       case 'logs':

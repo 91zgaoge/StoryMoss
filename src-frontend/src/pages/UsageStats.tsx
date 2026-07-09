@@ -71,12 +71,12 @@ function deriveOperation(call: LlmCall): OperationTab {
 
 const TAB_LABELS: Record<OperationTab, string> = {
   all: '全部',
-  bootstrap: 'bootstrap',
-  smart_execute: 'smart_execute',
+  bootstrap: '创世',
+  smart_execute: '智能续写',
   other: '其他',
 };
 
-export function UsageStats() {
+export function UsageStats({ embedded = false }: { embedded?: boolean }) {
   const currentStory = useAppStore(s => s.currentStory);
   const [globalStats, setGlobalStats] = useState<{
     count: number;
@@ -138,7 +138,7 @@ export function UsageStats() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center h-full">
+      <div className={cn('flex items-center justify-center', embedded ? 'py-16' : 'p-8 h-full')}>
         <Loader2 className="w-8 h-8 text-cinema-gold animate-spin" />
       </div>
     );
@@ -157,15 +157,17 @@ export function UsageStats() {
   };
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">用量统计</h1>
-          <p className="text-gray-400">
-            {currentStory ? `${currentStory.title} - ` : ''}LLM 调用与 Token 消耗概览
-          </p>
+    <div className={cn(embedded ? 'space-y-6' : 'p-8 space-y-6 animate-fade-in')}>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-3xl font-bold text-white">用量统计</h1>
+            <p className="text-gray-400">
+              {currentStory ? `${currentStory.title} - ` : ''}LLM 调用与 Token 消耗概览
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Operation grouping tabs */}
       <div className="flex flex-wrap items-center gap-2">

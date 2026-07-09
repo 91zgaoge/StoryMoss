@@ -294,9 +294,12 @@ export type ViewType =
   | 'tasks'
   | 'foreshadowing'
   | 'narrative-analysis'
+  /** @deprecated 孤儿视图，无侧栏/App 路由；保留以兼容旧类型引用 */
   | 'creation-wizard'
   | 'story-system'
+  /** 数据洞察壳（用量 | 写作 | 功能使用） */
   | 'usage-stats'
+  /** @deprecated 已合并进 usage-stats / Insights，setCurrentView 会重定向 */
   | 'writing-stats'
   | 'intention-graph'
   | 'logs'

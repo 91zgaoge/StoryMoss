@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Plus } from 'lucide-react';
+import { Search, Plus, Settings2, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
@@ -17,11 +17,14 @@ import { BookUploadPanel } from '@/components/book-deconstruction/BookUploadPane
 import { BookListGrid } from '@/components/book-deconstruction/BookListGrid';
 import { BookDetailView } from '@/components/book-deconstruction/BookDetailView';
 import { AnalysisProgress } from '@/components/book-deconstruction/AnalysisProgress';
+import { GeneralSettings } from '@/pages/settings/GeneralSettings';
+import { cn } from '@/utils/cn';
 
 export function BookDeconstruction() {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const queryClient = useQueryClient();
   const setCurrentStory = useAppStore(s => s.setCurrentStory);
@@ -211,6 +214,28 @@ export function BookDeconstruction() {
           ) : (
             <div className="text-center py-8 text-gray-500">
               {searchQuery ? '未找到匹配的书籍' : '暂无分析记录'}
+            </div>
+          )}
+        </div>
+
+        {/* v0.26.39: 拆书设置就近（从通用设置迁出） */}
+        <div className="border-t border-cinema-800">
+          <button
+            type="button"
+            onClick={() => setShowSettings(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-cinema-800/50"
+          >
+            <span className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              拆书设置
+            </span>
+            <ChevronDown
+              className={cn('w-4 h-4 transition-transform', showSettings && 'rotate-180')}
+            />
+          </button>
+          {showSettings && (
+            <div className="px-3 pb-4 max-h-64 overflow-y-auto">
+              <GeneralSettings sections={['book']} />
             </div>
           )}
         </div>

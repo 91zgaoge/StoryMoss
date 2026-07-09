@@ -71,7 +71,7 @@ export function StorySystem() {
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white mb-1">Story System</h1>
+        <h1 className="text-2xl font-bold text-white mb-1">故事合同</h1>
         <p className="text-gray-400 text-sm">{currentStory.title} — 合同驱动写作体系</p>
       </div>
 

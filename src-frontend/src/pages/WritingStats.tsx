@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { FileText, Layers, Flame, Target, TrendingUp, Calendar, Loader2 } from 'lucide-react';
 import type { WritingAnalytics } from '@/types/v3';
 
-export function WritingStats() {
+export function WritingStats({ embedded = false }: { embedded?: boolean }) {
   const currentStory = useAppStore(s => s.currentStory);
   const [analytics, setAnalytics] = useState<WritingAnalytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,7 +32,7 @@ export function WritingStats() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center h-full">
+      <div className={`flex items-center justify-center ${embedded ? 'py-16' : 'p-8 h-full'}`}>
         <Loader2 className="w-8 h-8 text-cinema-gold animate-spin" />
       </div>
     );
@@ -57,15 +57,17 @@ export function WritingStats() {
   };
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">写作统计</h1>
-          <p className="text-gray-400">
-            {currentStory ? `${currentStory.title} - ` : ''}创作进度与写作习惯分析
-          </p>
+    <div className={embedded ? 'space-y-6' : 'p-8 space-y-6 animate-fade-in'}>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-3xl font-bold text-white">写作统计</h1>
+            <p className="text-gray-400">
+              {currentStory ? `${currentStory.title} - ` : ''}创作进度与写作习惯分析
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {!currentStory ? (
         <Card>

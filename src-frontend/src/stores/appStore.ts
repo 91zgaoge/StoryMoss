@@ -6,6 +6,12 @@ interface AppState {
   // Navigation
   currentView: ViewType;
   setCurrentView: (view: ViewType) => void;
+  /** 数据洞察页内 Tab：用量 | 写作 | 功能使用 */
+  insightsTab: 'usage' | 'writing' | 'features';
+  setInsightsTab: (tab: 'usage' | 'writing' | 'features') => void;
+  /** 设置页深链 Tab（账号/外观等） */
+  settingsTab: string | null;
+  setSettingsTab: (tab: string | null) => void;
 
   // Current Story Context
   currentStory: Story | null;
@@ -78,7 +84,17 @@ interface AppState {
 export const useAppStore = create<AppState>(set => ({
   // Navigation
   currentView: 'dashboard',
-  setCurrentView: view => set({ currentView: view }),
+  setCurrentView: view => {
+    if (view === 'writing-stats') {
+      set({ currentView: 'usage-stats', insightsTab: 'writing' });
+      return;
+    }
+    set({ currentView: view });
+  },
+  insightsTab: 'usage',
+  setInsightsTab: tab => set({ insightsTab: tab }),
+  settingsTab: null,
+  setSettingsTab: tab => set({ settingsTab: tab }),
 
   // Current Story
   currentStory: null,

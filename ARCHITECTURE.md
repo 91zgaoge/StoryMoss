@@ -1,9 +1,10 @@
-# StoryForge (草苔) v0.26.38 架构文档
+# StoryForge (草苔) v0.26.39 架构文档
 
 > **v0.26.36**：`save_settings` 热重载 LLM 并广播 `app_settings`；字体/主题经 Tauri 事件跨窗口同步；`llm_first_chunk_timeout_secs` 接入适配器。
 
 
 > 本文档反映 v0.26.34 最新架构状态（2026-07-09）
+> **v0.26.39 幕后信息架构**：侧栏由扁平 19 项改为五组（创作 / 故事资产 / 创作工具 / 洞察与运维 / 系统）；`Insights` 合并用量/写作/功能使用；Settings 收敛为七 Tab（模型含二级 pill）；`GeneralSettings` 支持 `sections` 选择性渲染；拆书并发设置就近到 BookDeconstruction。
 > **v0.26.38 提示词组合智能化**：`render_selected_asset_guidance` 消费完整 `FrameworkSelections`（methodology → registry 方法论提示词；contextual_injectors → 条件注入；prompt_hints 既有；quality_gate 仅日志不增 LLM）。新增 `preview_prompt_composition` 静态场景分层预览；`open_prompts_directory` 原生打开资源目录。面板去掉 Monaco CDN，改用 textarea。
 > **v0.26.34 提示词注册表可观测性**：`prompts/registry.rs` 新增 `get_prompts_directory()` 暴露当前 prompts 资源目录路径；`prompts/commands.rs` 新增 `get_prompts_directory` Tauri 命令；前端 `PromptsPanel` 新增「打开目录」「刷新」按钮，支持在系统文件管理器中打开 prompts 资源目录并重新加载列表；修复批量导入时 `promptId` → `prompt_id` 参数命名不匹配问题。
 > **v0.26.28 Phase 4 架构债务与工程体验**：知识图谱手动 CRUD UI、世界构建 AI 生成、角色 AI 扩展、叙事分析图表；`genesis.rs` 策略选择步骤从后台阶段前移至 Quick Phase，`quick_phase_steps` 变为「概念 → 策略选择 → 撰写开篇」三步，`background_steps` 变为 5 步；`prompts/registry.rs` 中 95 个内置提示词外部化至 `resources/prompts/{category}/{id}.md`，运行时从 Tauri 资源目录加载；`db/connection.rs` 中 ~2,650 行 inline `run_migrations` 拆分为 `src/db/migrations/V028__*.rs` … `V099__*.rs` 共 70 个编号 Rust 迁移文件，`MigrationRunner` 新增 `RustMigration` trait 统一执行 SQL 与 Rust 迁移。

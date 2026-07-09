@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import {
   LayoutDashboard,
   BookOpen,
@@ -17,10 +18,10 @@ import {
   ShieldCheck,
   BarChart3,
   Globe,
-  PenLine,
   BrainCircuit,
   ScrollText,
   Activity,
+  ChevronDown,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -37,31 +38,83 @@ interface SidebarProps {
   onNavigate: (view: ViewType) => void;
 }
 
-const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
-  { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
-  { id: 'stories', label: '故事', icon: BookOpen },
-  { id: 'characters', label: '角色', icon: Users },
-  { id: 'world_building', label: '世界构建', icon: Globe },
-  { id: 'scenes', label: '场景', icon: Clapperboard },
-  { id: 'knowledge-graph', label: '知识图谱', icon: Network },
-  { id: 'skills', label: '技能', icon: Wand2 },
-  { id: 'mcp', label: 'MCP', icon: Plug },
-  { id: 'book-deconstruction', label: '拆书', icon: BookMarked },
-  { id: 'tasks', label: '任务', icon: ListChecks },
-  { id: 'foreshadowing', label: '伏笔看板', icon: Eye },
-  { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch },
-  { id: 'story-system', label: 'Story System', icon: ShieldCheck },
-  { id: 'usage-stats', label: '用量统计', icon: BarChart3 },
-  { id: 'writing-stats', label: '写作统计', icon: PenLine },
-  { id: 'intention-graph', label: '意图图', icon: BrainCircuit },
-  { id: 'logs', label: '日志', icon: ScrollText },
-  { id: 'tracing', label: '生成链路', icon: Activity },
-  { id: 'settings', label: '设置', icon: Settings },
+type NavItem = { id: ViewType; label: string; icon: React.ElementType };
+
+type NavGroup = {
+  id: string;
+  label: string;
+  items: NavItem[];
+};
+
+/** v0.26.39: 五层信息架构 — 创作 / 故事资产 / 创作工具 / 洞察与运维 / 系统 */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'create',
+    label: '创作',
+    items: [
+      { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
+      { id: 'stories', label: '故事', icon: BookOpen },
+    ],
+  },
+  {
+    id: 'assets',
+    label: '故事资产',
+    items: [
+      { id: 'scenes', label: '场景', icon: Clapperboard },
+      { id: 'characters', label: '角色', icon: Users },
+      { id: 'world_building', label: '世界构建', icon: Globe },
+      { id: 'foreshadowing', label: '伏笔', icon: Eye },
+      { id: 'knowledge-graph', label: '知识图谱', icon: Network },
+      { id: 'story-system', label: '故事合同', icon: ShieldCheck },
+    ],
+  },
+  {
+    id: 'tools',
+    label: '创作工具',
+    items: [
+      { id: 'skills', label: '技能', icon: Wand2 },
+      { id: 'mcp', label: '扩展连接', icon: Plug },
+      { id: 'book-deconstruction', label: '拆书', icon: BookMarked },
+    ],
+  },
+  {
+    id: 'insights',
+    label: '洞察与运维',
+    items: [
+      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch },
+      { id: 'usage-stats', label: '数据洞察', icon: BarChart3 },
+      { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit },
+      { id: 'tracing', label: '生成链路', icon: Activity },
+      { id: 'logs', label: '日志', icon: ScrollText },
+      { id: 'tasks', label: '任务', icon: ListChecks },
+    ],
+  },
+  {
+    id: 'system',
+    label: '系统',
+    items: [{ id: 'settings', label: '设置', icon: Settings }],
+  },
 ];
+
+function resolveActiveView(view: ViewType): ViewType {
+  // writing-stats 已合并进数据洞察
+  if (view === 'writing-stats') return 'usage-stats';
+  return view;
+}
 
 export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const currentStory = useAppStore(s => s.currentStory);
-  const currentUser = useAppStore(s => s.currentUser);
+  const activeView = resolveActiveView(currentView);
+
+  const activeGroupId = useMemo(() => {
+    for (const g of NAV_GROUPS) {
+      if (g.items.some(i => i.id === activeView)) return g.id;
+    }
+    return 'create';
+  }, [activeView]);
+
+  // 桌面默认全展开；用户可折叠非当前组
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const handleOpenFrontstage = async () => {
     try {
@@ -71,6 +124,10 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
       sidebarLogger.error('Failed to open frontstage', { error });
       toast.error('无法打开幕前界面');
     }
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsed(prev => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
   return (
@@ -95,31 +152,63 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-cinema-gold/20 to-cinema-gold/5 text-cinema-gold border border-cinema-gold/30 hover:from-cinema-gold/30 hover:to-cinema-gold/10"
         >
           <MonitorPlay className="w-5 h-5 flex-shrink-0" />
-          <span className="hidden lg:block font-medium">开幕前写作</span>
+          <span className="hidden lg:block font-medium">打开幕前写作</span>
         </button>
         <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">极简阅读写作界面</p>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map(item => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
+      {/* Grouped Navigation */}
+      <nav className="flex-1 p-3 space-y-3 overflow-y-auto" data-testid="sidebar-nav">
+        {NAV_GROUPS.map(group => {
+          const isActiveGroup = group.id === activeGroupId;
+          const isCollapsed = collapsed[group.id] === true && !isActiveGroup;
 
           return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200',
-                'hover:bg-cinema-800',
-                isActive && 'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/20',
-                !isActive && 'text-gray-400'
+            <div key={group.id} data-testid={`nav-group-${group.id}`}>
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+                className="hidden lg:flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500 hover:text-gray-300"
+              >
+                <span>{group.label}</span>
+                <ChevronDown
+                  className={cn(
+                    'w-3.5 h-3.5 transition-transform',
+                    isCollapsed && '-rotate-90',
+                    isActiveGroup && 'text-cinema-gold/70'
+                  )}
+                />
+              </button>
+
+              {!isCollapsed && (
+                <div className="space-y-1 mt-0.5">
+                  {group.items.map(item => {
+                    const Icon = item.icon;
+                    const isActive = activeView === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => onNavigate(item.id)}
+                        title={item.label}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+                          'hover:bg-cinema-800',
+                          isActive &&
+                            'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/20',
+                          !isActive && 'text-gray-400'
+                        )}
+                      >
+                        <Icon
+                          className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-cinema-gold')}
+                        />
+                        <span className="hidden lg:block font-medium text-sm">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-            >
-              <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-cinema-gold')} />
-              <span className="hidden lg:block font-medium">{item.label}</span>
-            </button>
+            </div>
           );
         })}
       </nav>
@@ -150,7 +239,6 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           </div>
         )}
 
-        {/* User Menu */}
         <div className="mt-3 pt-3 border-t border-cinema-800/50">
           <UserMenu />
         </div>
