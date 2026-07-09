@@ -201,22 +201,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux 自动更新需要 AppImage（.sig）；deb 仍供手动安装
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            args: --target x86_64-unknown-linux-gnu --bundles deb
+            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc --bundles msi
+          # macOS：dmg 供手动安装；createUpdaterArtifacts 会额外产出 .app.tar.gz + .sig
           - os: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles dmg
+            args: --target aarch64-apple-darwin --bundles app,dmg
     env:
       # 加速 release 编译：增加 codegen-units 减少单编译单元工作量
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256
       # 禁用 LTO 进一步加速（默认已关闭，显式声明以防万一）
       CARGO_PROFILE_RELEASE_LTO: false
-      # Tauri 更新包签名私钥
+      # Tauri 更新包签名私钥（与 tauri.conf.json plugins.updater.pubkey 配对）
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      # 无私钥口令时留空；若密钥有口令请配置同名 Secret
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -322,6 +326,18 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Verify updater signing key present
+        # createUpdaterArtifacts=true 时无私钥会构建失败；push/tag 必须有密钥
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is empty — updater artifacts cannot be signed"
+            echo "Action: Settings → Secrets → ensure TAURI_SIGNING_PRIVATE_KEY matches plugins.updater.pubkey"
+            exit 1
+          fi
+          echo "TAURI_SIGNING_PRIVATE_KEY is set (${#TAURI_SIGNING_PRIVATE_KEY} chars)"
+
       - name: Build Tauri app (PR)
         if: github.event_name == 'pull_request'
         uses: tauri-apps/tauri-action@v0
@@ -339,9 +355,14 @@ jobs:
         with:
           name: storyforge-pr-${{ matrix.os }}
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/appimage/*.AppImage
+            src-tauri/target/**/bundle/appimage/*.AppImage.sig
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/msi/*.msi.sig
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: ignore
 
       - name: Get version from package.json
@@ -391,9 +412,14 @@ jobs:
         with:
           name: storyforge-nightly-${{ matrix.os }}
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/appimage/*.AppImage
+            src-tauri/target/**/bundle/appimage/*.AppImage.sig
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/msi/*.msi.sig
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: ignore
 
       - name: Build Tauri app and release (stable)
@@ -422,10 +448,11 @@ jobs:
             ## 注意
             - 升级前建议导出当前工作室配置作为备份
 
-            包含三个平台的安装包：
-            - Windows (.msi)
-            - macOS (.dmg)
-            - Linux (.deb)
+            包含平台安装包与自动更新产物：
+            - Windows (.msi + .msi.sig)
+            - macOS (.dmg + .app.tar.gz/.sig)
+            - Linux (.deb + .AppImage/.sig)
+            - 升级清单 latest.json（应用内「检查更新」读取）
 
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交: ${{ github.sha }}
@@ -441,7 +468,44 @@ jobs:
         with:
           name: storyforge-stable-${{ matrix.os }}
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/appimage/*.AppImage
+            src-tauri/target/**/bundle/appimage/*.AppImage.sig
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/msi/*.msi.sig
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: ignore
+
+  # tag 发布后确认 GitHub Release 含 latest.json（应用内升级器依赖）
+  verify-updater-manifest:
+    needs: [tauri-build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify latest.json on GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          URL="https://github.com/91zgaoge/StoryForge/releases/download/${TAG}/latest.json"
+          echo "Checking ${URL}"
+          for i in $(seq 1 36); do
+            if curl -fsSIL "$URL" >/dev/null 2>&1; then
+              echo "✅ latest.json present on ${TAG}"
+              curl -fsSL "$URL" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("version=", d.get("version")); print("platforms=", sorted((d.get("platforms") or {}).keys()))'
+              # 同时确认 /releases/latest 指向本 tag（非 prerelease）
+              LATEST=$(gh api repos/91zgaoge/StoryForge/releases/latest --jq .tag_name)
+              echo "GitHub /releases/latest -> ${LATEST}"
+              if [ "$LATEST" != "$TAG" ]; then
+                echo "::warning::/releases/latest is ${LATEST}, not ${TAG}. Updater endpoint follows GitHub latest."
+              fi
+              exit 0
+            fi
+            echo "attempt ${i}/36: not ready yet..."
+            sleep 10
+          done
+          echo "::error::latest.json missing from release ${TAG} after waiting"
+          gh release view "$TAG" --json assets --jq '.assets[].name' || true
+          exit 1

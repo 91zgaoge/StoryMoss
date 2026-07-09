@@ -1,5 +1,7 @@
-# StoryForge (草苔) v0.26.47 架构文档
+# StoryForge (草苔) v0.26.48 架构文档
 
+> **v0.26.48**：自动更新闭环——`bundle.createUpdaterArtifacts=true` 产出签名更新包；端点仍为 GitHub `releases/latest/download/latest.json`；Linux 需 AppImage（deb 仅手动安装）；CI `verify-updater-manifest` 门禁。
+>
 > **v0.26.47**：无架构变更；Rust fmt 热修复。
 >
 > **v0.26.46**：创世 background 五步恢复 `strategy_section` 注入（修复 v0.26.28 外部化断链）；`build_strategy_notes_for_genesis_step` 分步注入；ContractSeeding 后 `methodology_step` 推进（雪花→4、HDWB→2）；`normalize_methodology_id` 统一 HDWB 别名；quick phase `EnsureGenreProfileStep` match-or-create；拆书 StoryArc/作者/伏笔持久化 + chunker 墙钟止血。

@@ -2,6 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.26.48] - 修复自动更新：GitHub Releases + latest.json（2026-07-09）
+
+### 修复
+
+- **根因**：`bundle.createUpdaterArtifacts` 未开启，Release 只有 `.dmg/.msi/.deb`，无 `latest.json` 与 `.sig`，应用内「检查更新」拉取 `releases/latest/download/latest.json` 恒 404。
+- **配置**：`tauri.conf.json` 开启 `createUpdaterArtifacts: true`；bundle 增加 `appimage`；Windows updater `installMode: passive`。
+- **CI**：Linux 构建 `deb,appimage`；macOS 显式 `app,dmg`；上传 `.sig` / `.app.tar.gz` / AppImage；tag 后 `verify-updater-manifest` 门禁确认 `latest.json` 存在。
+- **运行时**：下载进度按 chunk 累加；404/清单缺失时给出可操作的 GitHub 错误提示。
+
+### 验证
+
+- `cargo test --lib updater::` 2 passed
+- `cargo +nightly fmt -- --check` ✅
+
 ## [v0.26.47] - CI 热修复：Rust 格式化（2026-07-09）
 
 ### 修复

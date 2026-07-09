@@ -1,8 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.47)
+# 🧪 StoryForge 自动化测试环境 (v0.26.48)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.26.48 变更说明
+
+- `updater::tests`：下载进度累加 + 404 错误文案契约 2 passed。
+- CI：`verify-updater-manifest` 在 tag 发布后校验 `latest.json`。
 
 ### v0.26.47 变更说明
 

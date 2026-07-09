@@ -1,11 +1,16 @@
-# StoryForge (草苔) v0.26.47 项目完成状态
+# StoryForge (草苔) v0.26.48 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.47 fmt 热修复；v0.26.46 方法论全链路）
+> 最后更新: 2026-07-09（v0.26.48 自动更新修复；v0.26.47 fmt）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.48 — 修复自动更新：GitHub Releases + latest.json（2026-07-09）
+
+- `createUpdaterArtifacts` + AppImage；CI 上传签名包；tag 后校验 `latest.json`。
+- ✅ **验证**：updater 2 passed。
 
 ### v0.26.47 — CI 热修复：Rust fmt（2026-07-09）
 

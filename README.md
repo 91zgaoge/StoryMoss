@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.47-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.48-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.47 CI 热修复——`cargo +nightly fmt` 格式化 v0.26.46 方法论/Genesis 代码，恢复 rust-check 全绿。
+**最新动态**：v0.26.48 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
+
+**上一版 v0.26.47** CI 热修复——`cargo +nightly fmt` 格式化 v0.26.46 方法论/Genesis 代码，恢复 rust-check 全绿。
 
 **上一版 v0.26.46** 创世方法论全链路注入——修复 background 模板断链，按步骤注入雪花/HDWB 并推进 `methodology_step`；题材画像 match-or-create；拆书 StoryArc/作者/伏笔落库与分块超时止血。
 

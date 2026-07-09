@@ -1,8 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-07-09（v0.26.47 fmt 热修复）
+> 最后更新: 2026-07-09（v0.26.48 自动更新）
 
 ## ✅ v0.26.x 已实施完成
+
+### 📝 v0.26.48 — 修复自动更新（GitHub Releases） ✅ (2026-07-09)
+
+- [x] `createUpdaterArtifacts: true` + AppImage bundle
+- [x] CI 上传 `.sig` / `.app.tar.gz` / AppImage；tag 后校验 `latest.json`
+- [x] 下载进度累加；清单 404 可操作错误提示
+- [ ] 发布后人工确认旧版客户端能检出并安装本版
 
 ### 📝 v0.26.47 — CI 热修复：Rust fmt ✅ (2026-07-09)
 

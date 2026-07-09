@@ -58,7 +58,7 @@ gh run list --limit 3
 cd src-tauri && cargo tauri build
 ```
 
-CI 在 tag push 时触发 `tauri-build` 的 stable 分支，发布 GitHub Release（含 `.msi`/`.dmg`/`.deb`）并生成 `latest.json` 供应用内升级器拉取（端点：`https://github.com/91zgaoge/StoryForge/releases/latest/download/latest.json`）。
+CI 在 tag push 时触发 `tauri-build` 的 stable 分支，发布 GitHub Release（含 `.msi`/`.dmg`/`.deb`/`.AppImage` 及 `.sig` / `.app.tar.gz`）并生成 `latest.json` 供应用内升级器拉取（端点：`https://github.com/91zgaoge/StoryForge/releases/latest/download/latest.json`）。前提：`bundle.createUpdaterArtifacts=true` + Secret `TAURI_SIGNING_PRIVATE_KEY`；`verify-updater-manifest` job 会在 tag 构建后校验清单存在。
 
 ## 生成链路观测
 
