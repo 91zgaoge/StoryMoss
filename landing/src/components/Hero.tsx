@@ -67,7 +67,15 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="flex flex-col items-center justify-center gap-4 sm:flex-row"
         >
-          <InkButton variant="primary">免费下载桌面版</InkButton>
+          <InkButton
+            as="a"
+            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            target="_blank"
+            rel="noreferrer"
+            variant="primary"
+          >
+            免费下载桌面版
+          </InkButton>
           <a href="#genesis">
             <InkButton variant="secondary" className="group">
               看 Genesis 如何工作

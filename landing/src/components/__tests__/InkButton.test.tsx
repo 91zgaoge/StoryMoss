@@ -24,4 +24,14 @@ describe('InkButton', () => {
     const button = screen.getByRole('button', { name: /下载/i });
     expect(button.className).toContain('extra-class');
   });
+
+  it('renders as anchor when as="a"', () => {
+    render(
+      <InkButton as="a" href="https://example.com" variant="primary">
+        下载
+      </InkButton>
+    );
+    const link = screen.getByRole('link', { name: /下载/i });
+    expect(link).toHaveAttribute('href', 'https://example.com');
+  });
 });

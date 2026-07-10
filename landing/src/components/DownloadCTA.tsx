@@ -36,7 +36,14 @@ export function DownloadCTA() {
           Windows / macOS / Linux 桌面版免费下载。本地运行，数据归你。
         </motion.p>
         <motion.div variants={reduced ? undefined : item}>
-          <InkButton variant="primary" className="px-10 py-4 text-base">
+          <InkButton
+            as="a"
+            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            target="_blank"
+            rel="noreferrer"
+            variant="primary"
+            className="px-10 py-4 text-base"
+          >
             立即下载
           </InkButton>
         </motion.div>

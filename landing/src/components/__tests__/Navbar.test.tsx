@@ -14,7 +14,7 @@ describe('Navbar', () => {
   it('renders links on desktop', () => {
     render(<Navbar />);
     expect(screen.getByRole('link', { name: /功能/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /免费下载/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /免费下载/i })).toBeInTheDocument();
   });
 
   it('toggles mobile menu', async () => {

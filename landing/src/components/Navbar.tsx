@@ -50,7 +50,14 @@ export function Navbar() {
               {l.label}
             </a>
           ))}
-          <InkButton variant="primary" className="px-5 py-2 text-xs">
+          <InkButton
+            as="a"
+            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            target="_blank"
+            rel="noreferrer"
+            variant="primary"
+            className="px-5 py-2 text-xs"
+          >
             免费下载
           </InkButton>
         </div>
