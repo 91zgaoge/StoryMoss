@@ -6,7 +6,7 @@ describe('ValueProp', () => {
   it('renders the value proposition', () => {
     render(<ValueProp />);
     expect(
-      screen.getByText(/草苔是专为长篇小说作者设计的系统工作台/i)
+      screen.getByText(/草苔不是聊天式 AI，而是一套把「灵感 → 规划 → 写作 → 审校」串起来的长篇小说创作系统/i)
     ).toBeInTheDocument();
   });
 });

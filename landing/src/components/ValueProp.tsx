@@ -13,7 +13,7 @@ export function ValueProp() {
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         className="mx-auto max-w-[860px] text-[20px] leading-relaxed text-ink md:text-[26px]"
       >
-        草苔是专为长篇小说作者设计的系统工作台：幕后管理故事资产，幕前沉浸式写作，Genesis 把创意变成可执行的创作结构。
+        草苔不是聊天式 AI，而是一套把「灵感 → 规划 → 写作 → 审校」串起来的长篇小说创作系统。
       </motion.p>
     </section>
   );
