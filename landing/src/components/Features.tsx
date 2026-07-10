@@ -64,7 +64,7 @@ export function Features() {
     <section id="features" className="border-y border-ink-line bg-cream py-[100px] md:py-[160px]">
       <div className="mx-auto max-w-[980px] px-6">
         <SectionTitle
-          label="03"
+          label="06"
           title="一套完整的创作系统"
           description="从灵感、规划、写作到分析，草苔把长篇小说创作的每个环节都装进了工作台。"
         />
