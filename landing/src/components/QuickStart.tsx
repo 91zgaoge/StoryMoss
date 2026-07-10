@@ -11,8 +11,8 @@ const steps = [
   },
   {
     number: '02',
-    title: '创建你的第一个故事',
-    description: '用 AI 创建故事框架，或手动填写标题与简介，从零开始。',
+    title: '用 Genesis 创建故事',
+    description: '输入一句话创意，30–90 秒生成故事框架、角色与开篇场景。',
   },
   {
     number: '03',
@@ -36,7 +36,7 @@ export function QuickStart() {
   return (
     <section id="quickstart" className="mx-auto max-w-[980px] px-6 py-[100px] md:py-[160px]">
       <SectionTitle
-        label="05"
+        label="07"
         title="三步开始写"
         description="不需要复杂配置，安装后即可开始你的第一本书。"
       />
