@@ -53,14 +53,14 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          草苔 StoryForge 是专为长篇小说作者设计的系统工作台。幕后规划角色、场景、世界观；幕前沉浸式写作；Genesis 一键生成故事框架。
+          草苔 StoryForge 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
         </motion.p>
 
         <motion.p
           variants={reduced ? undefined : child}
           className="mx-auto mb-10 max-w-[600px] text-sm text-stone"
         >
-          分时介入，写得快也审得深；资产不崩，角色、伏笔、设定始终自洽。
+          v0.26.58 · 本地运行 · 开源可审计
         </motion.p>
 
         <motion.div
