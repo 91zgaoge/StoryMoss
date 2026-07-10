@@ -33,27 +33,34 @@ export function Hero() {
         animate="visible"
         className="max-w-[720px]"
       >
+        <motion.div variants={reduced ? undefined : child} className="mb-6 flex justify-center">
+          <img
+            src="/logo.png"
+            alt="StoryForge 草苔"
+            className="h-16 w-16 object-contain"
+          />
+        </motion.div>
+
+        <motion.h1
+          variants={reduced ? undefined : child}
+          className="mb-6 text-[40px] leading-[1.12] tracking-[-0.02em] text-ink md:text-[64px]"
+        >
+          把一句话创意，<br className="hidden md:block" />
+          变成一本有序的小说
+        </motion.h1>
+
         <motion.p
           variants={reduced ? undefined : child}
-          className="mb-6 font-mono text-xs uppercase tracking-widest text-charcoal"
+          className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          StoryForge · 草苔
+          草苔 StoryForge 是专为长篇小说作者设计的系统工作台。幕后规划角色、场景、世界观；幕前沉浸式写作；Genesis 一键生成故事框架。
         </motion.p>
 
-        <h1 className="mb-8 text-[40px] leading-[1.12] tracking-[-0.02em] text-ink md:text-[64px]">
-          <motion.span variants={reduced ? undefined : child} className="block">
-            写长篇，
-          </motion.span>
-          <motion.span variants={reduced ? undefined : child} className="block">
-            先让灵感有处安放
-          </motion.span>
-        </h1>
-
         <motion.p
           variants={reduced ? undefined : child}
-          className="mx-auto mb-10 max-w-[560px] text-base leading-relaxed text-charcoal md:text-lg"
+          className="mx-auto mb-10 max-w-[600px] text-sm text-stone"
         >
-          草苔是 AI 随行的小说创作工作台。幕后管好角色、场景、世界观；幕前只留你和文字。
+          分时介入，写得快也审得深；资产不崩，角色、伏笔、设定始终自洽。
         </motion.p>
 
         <motion.div
@@ -61,9 +68,9 @@ export function Hero() {
           className="flex flex-col items-center justify-center gap-4 sm:flex-row"
         >
           <InkButton variant="primary">免费下载桌面版</InkButton>
-          <a href="#features">
+          <a href="#genesis">
             <InkButton variant="secondary" className="group">
-              看它是如何工作的
+              看 Genesis 如何工作
               <ChevronDown
                 className="ml-1 inline-block transition-transform group-hover:translate-y-0.5"
                 size={16}
