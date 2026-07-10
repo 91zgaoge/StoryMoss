@@ -3,9 +3,9 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import { SectionTitle } from './SectionTitle';
 
 const pains = [
-  { title: '角色写着写着崩了', description: '人设越写越散，前后言行不一致。' },
-  { title: '伏笔埋了忘了回收', description: '前期线索后期无踪，读者白期待。' },
-  { title: '世界观越写越矛盾', description: '设定越来越多，互相冲突难以自洽。' },
+  { title: '角色写着写着崩了', description: '人设越写越散，前后言行不一致，读者直呼“换作者了”。' },
+  { title: '伏笔埋了忘了回收', description: '前期精彩线索后期无踪，期待落空，故事虎头蛇尾。' },
+  { title: '世界观越写越矛盾', description: '设定越堆越多，互相冲突难以自洽，回头改成本巨大。' },
 ];
 
 export function PainPoints() {
