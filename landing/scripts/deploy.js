@@ -5,6 +5,7 @@
  * 用法：
  *   1. 在 landing/ 目录下创建 .env 文件，填写 FTP 信息：
  *      FTP_HOST=ai.91z.net
+ *      FTP_PORT=21       （可选，默认 21）
  *      FTP_USER=your-ftp-user
  *      FTP_PASS=your-ftp-password
  *      FTP_REMOTE_DIR=/  （可选，默认 FTP 根目录）
@@ -35,6 +36,7 @@ for (const key of required) {
 }
 
 const host = process.env.FTP_HOST;
+const port = parseInt(process.env.FTP_PORT || '21', 10);
 const user = process.env.FTP_USER;
 const password = process.env.FTP_PASS;
 const remoteDir = process.env.FTP_REMOTE_DIR || '/';
@@ -62,8 +64,10 @@ async function deploy() {
   client.ftp.verbose = process.env.FTP_VERBOSE === 'true';
 
   try {
-    await client.access({ host, user, password, secure: false });
-    await client.ensureDir(remoteDir);
+    await client.access({ host, port, user, password, secure: false });
+    if (remoteDir && remoteDir !== '/') {
+      await client.ensureDir(remoteDir);
+    }
 
     let uploaded = 0;
     for await (const localPath of walk(localDir)) {
@@ -78,6 +82,10 @@ async function deploy() {
       await client.uploadFrom(localPath, remotePath.split('/').pop());
       console.log(`  ✓ ${relPath}`);
       uploaded++;
+
+      if (remoteFolder) {
+        await client.cd('/');
+      }
     }
 
     console.log(`\n✅ 部署完成，共上传 ${uploaded} 个文件`);
