@@ -12,12 +12,12 @@ const steps = [
   {
     number: '02',
     title: '审计时刻',
-    description: '后台自动审校，问题以标注形式回流编辑器，当场处理小债。',
+    description: '后台 7 维 Inspector 异步审校，问题以红黄蓝标注回流编辑器，当场处理小债。',
   },
   {
     number: '03',
     title: '洞察时刻',
-    description: '定期产出叙事健康度报告，发现节奏与结构问题。',
+    description: '定期产出叙事健康度报告，节奏、戏份、结构问题一目了然。',
   },
 ];
 
