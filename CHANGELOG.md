@@ -2,6 +2,12 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [Unreleased]
+
+### 功能
+
+- **官网落地页**：新增 `landing/` 独立站点，采用暖赭文学风格，面向新用户引导下载桌面版。技术栈为 React 18 + Vite 6 + Tailwind CSS 3 + Framer Motion，包含 Hero 书写动效、痛点区、幕后/幕前双空间、功能长卷、分时介入架构强调区、下载 CTA 与页脚。支持 `prefers-reduced-motion` 与移动端响应式布局。
+
 ## [v0.26.58] - 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败（2026-07-09）
 
 ### 修复

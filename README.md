@@ -465,6 +465,16 @@ npm run dev
 
 然后在浏览器打开 `http://localhost:5173/`。
 
+### 构建官网落地页
+
+```bash
+cd landing
+npm install
+npm run build
+```
+
+构建产物位于 `landing/dist/`，可部署到任意静态托管服务。开发模式运行 `npm run dev`，测试运行 `npm run test`。
+
 ---
 
 ## 🏗️ 技术栈
