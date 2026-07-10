@@ -15,6 +15,7 @@ export function Navbar() {
   const links = [
     { href: '#features', label: '功能' },
     { href: '#approach', label: '方法' },
+    { href: '#genesis', label: '创世' },
     { href: '#quickstart', label: '上手' },
     { href: '#download', label: '下载' },
   ];
@@ -29,7 +30,12 @@ export function Navbar() {
         className="mx-auto flex h-full max-w-[980px] items-center justify-between px-6"
         aria-label="主导航"
       >
-        <a href="/" className="flex items-baseline gap-2 font-display text-xl text-ink">
+        <a href="/" className="flex items-center gap-2.5 font-display text-xl text-ink">
+          <img
+            src="/logo.png"
+            alt="StoryForge 草苔"
+            className="h-8 w-8 object-contain"
+          />
           <span>草苔</span>
           <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
         </a>
