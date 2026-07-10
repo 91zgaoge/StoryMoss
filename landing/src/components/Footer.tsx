@@ -1,21 +1,21 @@
 export function Footer() {
   return (
-    <footer className="border-t border-[#ddd7cd] bg-parchment py-10">
-      <div className="mx-auto flex max-w-[1100px] flex-col items-center justify-between gap-4 px-6 md:flex-row">
-        <p className="text-sm text-stone">
-          © 2026 StoryForge Team. 保留所有权利。
-        </p>
-        <nav className="flex gap-6" aria-label="页脚链接">
-          <a href="https://github.com/91zgaoge/StoryForge" className="text-sm text-charcoal hover:text-ink">
+    <footer className="border-t border-ink-line bg-parchment py-8">
+      <div className="mx-auto flex max-w-[980px] flex-col items-center justify-between gap-4 px-6 md:flex-row">
+        <p className="text-sm text-charcoal">© 2026 StoryForge · 草苔</p>
+        <div className="flex gap-6 text-sm text-charcoal">
+          <a
+            href="https://github.com/91zgaoge/StoryForge"
+            className="hover:text-ink"
+            target="_blank"
+            rel="noreferrer"
+          >
             GitHub
           </a>
-          <a href="#" className="text-sm text-charcoal hover:text-ink">
+          <a href="#" className="hover:text-ink">
             用户指南
           </a>
-          <a href="#" className="text-sm text-charcoal hover:text-ink">
-            更新日志
-          </a>
-        </nav>
+        </div>
       </div>
     </footer>
   );

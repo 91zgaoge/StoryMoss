@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useReducedMotion } from '../hooks/useReducedMotion';
-import { InkRippleButton } from './InkRippleButton';
+import { InkButton } from './InkButton';
 
 export function DownloadCTA() {
   const reduced = useReducedMotion();
@@ -15,12 +15,13 @@ export function DownloadCTA() {
   };
 
   return (
-    <section id="download" className="mx-auto max-w-[1100px] px-6 py-[120px] text-center md:py-[160px]">
+    <section id="download" className="border-t border-ink-line bg-cream py-[100px] text-center md:py-[160px]">
       <motion.div
         initial={reduced ? undefined : 'hidden'}
         whileInView={reduced ? undefined : 'visible'}
         viewport={{ once: true, margin: '-100px' }}
-        variants={reduced ? undefined : { visible: { transition: { staggerChildren: 0.12 } } }}
+        variants={reduced ? undefined : { visible: { transition: { staggerChildren: 0.1 } } }}
+        className="mx-auto max-w-[980px] px-6"
       >
         <motion.h2
           variants={reduced ? undefined : item}
@@ -28,15 +29,18 @@ export function DownloadCTA() {
         >
           开始你的第一本书
         </motion.h2>
-        <motion.p variants={reduced ? undefined : item} className="mx-auto mb-10 max-w-[560px] text-lg text-charcoal">
+        <motion.p
+          variants={reduced ? undefined : item}
+          className="mx-auto mb-8 max-w-[560px] text-lg text-charcoal"
+        >
           Windows / macOS / Linux 桌面版免费下载。本地运行，数据归你。
         </motion.p>
         <motion.div variants={reduced ? undefined : item}>
-          <InkRippleButton variant="primary" className="px-10 py-4 text-lg">
+          <InkButton variant="primary" className="px-10 py-4 text-base">
             立即下载
-          </InkRippleButton>
+          </InkButton>
         </motion.div>
-        <motion.p variants={reduced ? undefined : item} className="mt-4 text-sm text-stone">
+        <motion.p variants={reduced ? undefined : item} className="mt-4 text-sm text-charcoal">
           开源项目，源代码可在 GitHub 查看
         </motion.p>
       </motion.div>
