@@ -22,7 +22,7 @@ const steps = [
   {
     number: '04',
     title: '生成正文',
-    description: '自动进入幕前写作台，第一章正文已就绪，可立即开始修改与续写。',
+    description: '自动进入幕前写作台，第一章正文已就绪，可立即修改与续写。',
   },
 ];
 
@@ -41,7 +41,7 @@ export function Genesis() {
   return (
     <section id="genesis" className="mx-auto max-w-[980px] px-6 py-[100px] md:py-[160px]">
       <SectionTitle
-        label="02"
+        label="03"
         title="从一句话创意，到可写的世界"
         description="输入一句话，30–90 秒生成故事框架。Genesis 把灵感变成可执行的创作结构。"
       />
