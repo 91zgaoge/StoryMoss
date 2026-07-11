@@ -16,7 +16,7 @@ export function BrandSlogan() {
         transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
         className="relative mx-auto max-w-[760px] px-6 text-center"
       >
-        <p className="mb-10 text-[28px] leading-snug tracking-[-0.01em] text-ink md:text-[40px]">
+        <p className="mb-10 font-display text-[28px] leading-snug tracking-[-0.02em] text-ink md:text-[40px]">
           故事如苔，沉静漫长。
         </p>
 
