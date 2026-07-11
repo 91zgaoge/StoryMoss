@@ -597,10 +597,7 @@ fn git_available() -> bool {
 
 fn git_author_env() -> HashMap<String, String> {
     let mut map = HashMap::new();
-    map.insert(
-        "GIT_AUTHOR_NAME".to_string(),
-        "StoryMoss Agent".to_string(),
-    );
+    map.insert("GIT_AUTHOR_NAME".to_string(), "StoryMoss Agent".to_string());
     map.insert(
         "GIT_AUTHOR_EMAIL".to_string(),
         "agent@storymoss.app".to_string(),

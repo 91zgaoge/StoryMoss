@@ -1484,8 +1484,7 @@ mod tests {
     /// (Windows/macOS/Linux).
     #[test]
     fn init_db_succeeds_on_fresh_directory() {
-        let dir =
-            std::env::temp_dir().join(format!("storymoss_fresh_init_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("storymoss_fresh_init_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         let pool = init_db(&dir, None).expect("fresh init_db should succeed");
