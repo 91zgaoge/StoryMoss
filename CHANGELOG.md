@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to StoryForge (草苔) project will be documented in this file.
+All notable changes to StoryMoss (草苔) project will be documented in this file.
+
+## [Unreleased]
+
+### 功能
+
+- **官网落地页**：新增 `landing/` 独立站点，采用暖赭文学风格，面向新用户引导下载桌面版。技术栈为 React 18 + Vite 6 + Tailwind CSS 3 + Framer Motion，包含 Hero 书写动效、痛点区、幕后/幕前双空间、功能长卷、分时介入架构强调区、下载 CTA 与页脚。支持 `prefers-reduced-motion` 与移动端响应式布局。
 
 ## [v0.26.58] - 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败（2026-07-09）
 
@@ -1123,7 +1129,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 数据飞轮与共同进化
 
 - `RecordFeedbackRequest` 与 `FeedbackEvent` 扩展 `original_prompt` / `generated_content` / `subsequent_edit_diff` 字段，让每一次接受/拒绝都携带完整上下文。
-- 新建 `creative_engine/adaptive/preference_pair_exporter.rs`，将近期反馈导出为 `.storyforge/feedback/preference_pairs.jsonl`，格式兼容 RLHF / DPO 训练。
+- 新建 `creative_engine/adaptive/preference_pair_exporter.rs`，将近期反馈导出为 `.storymoss/feedback/preference_pairs.jsonl`，格式兼容 RLHF / DPO 训练。
 - `commands/intent::record_feedback` 直接构建 `FeedbackEvent` 并调用 `PreferencePairExporter::export`，写入工作空间反馈目录。
 - 前端 `handleAcceptGeneration` / `handleRejectGeneration` 在 `FrontstageApp.tsx` 中自动收集原始提示词与生成内容，并透传 `subsequent_edit_diff`（接受后的编辑差异）。
 
@@ -1147,7 +1153,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 文件系统工作空间
 
-- 新增 `workspace/` 模块与 `WorkspaceService`，启动时自动在应用数据目录下创建 `.storyforge/` 工作空间。
+- 新增 `workspace/` 模块与 `WorkspaceService`，启动时自动在应用数据目录下创建 `.storymoss/` 工作空间。
 - 自动生成 `AGENTS.md` / `MEMORY.md` / `LOOPS.md` / `PROGRESS.md` 等上下文文件，为 AI 协作与长期记忆提供锚点。
 - 集成 `git2` 进行自动 `git init`、初始提交与后续变更自动提交，使创作过程可追踪、可回滚。
 - 新增 `commands/workspace.rs` 提供工作空间初始化与状态查询命令。
@@ -2487,7 +2493,7 @@ v0.23.1 清除了全局单例与模块循环依赖后，后端仍缺少一次完
 - **P1-1 评分权重对齐论文**：`discover_tool_level` 评分公式从 `0.3·desc + 0.4·intent + 0.2·ppr + 0.1·collab` 改为论文等权 `desc + intent + ppr`（collab 作为 0.2 权重辅助信号）。
 - **P1-2 PPR 真实传播**：`discover_server_level` 重写——构建异构图邻接表（intention→asset 双向边 + asset→asset tool_next/tool_cooccur 边），真正调用 `GraphScorer::ppr_propagate` 从根意图种子传播（此前是一跳邻域冒充 PPR）。`discover_tool_level` 从 server-level 结果接收真实 PPR 分数（替代 `0.5` 占位）。
 - **P1-4 语义嵌入生成**：`AssetSyncEngine` 所有资产/意图节点创建时调用 `generate_embedding` 生成语义嵌入（Ollama/OpenAI provider 优先，失败 graceful fallback）。修复后 `discover_tool_level` 描述匹配走余弦相似度而非 Jaccard 词重叠。
-- **P1-3 Server 节点**：StoryForge 语境下 MCP server 未建模为独立图节点（无 `AssetType::Server` 变体），当前以 MCP tool 资产直接参与图传播。此为有意的简化，非缺陷。
+- **P1-3 Server 节点**：StoryMoss 语境下 MCP server 未建模为独立图节点（无 `AssetType::Server` 变体），当前以 MCP tool 资产直接参与图传播。此为有意的简化，非缺陷。
 
 ### 验证
 
@@ -2573,7 +2579,7 @@ v0.23.1 清除了全局单例与模块循环依赖后，后端仍缺少一次完
   - `commands/orchestrator.rs` `smart_execute` 总超时读取
   - `planner/executor.rs` 单步超时读取
   - `model_gateway/executor.rs` 探测提示词覆盖读取
-  - **根因**：配置存储在应用数据目录（`~/Library/Application Support/com.storyforge.app/`），但代码从当前工作目录读取，导致总是读到默认值（180 秒），用户在前端设置的 600 秒总超时永不生效。
+  - **根因**：配置存储在应用数据目录（`~/Library/Application Support/com.storymoss.app/`），但代码从当前工作目录读取，导致总是读到默认值（180 秒），用户在前端设置的 600 秒总超时永不生效。
 
 ## [v0.18.0] - 后台资产深度审计 × 智能创作流程全面优化（2026-06-20）
 
@@ -4189,7 +4195,7 @@ v0.13.2 已修复多数诊断卡片问题，但用户反馈「输入续写指令
 
 ### 编译状态
 
-- `cargo build --package storyforge` ✅ 成功
+- `cargo build --package storymoss` ✅ 成功
 - `cargo test --lib` ✅ **318/318** 通过
 - `cd src-frontend && npx tsc --noEmit` ✅ 零错误
 - `cd src-frontend && vitest run` ✅ 124 passed, 3 skipped, 0 failed
@@ -4235,7 +4241,7 @@ v0.13.2 已修复多数诊断卡片问题，但用户反馈「输入续写指令
   - `pipeline/review`：parse_review_json JSON 提取与容错 — 3 例
   - `story_system/scene_service`：should_ingest 场景更新过滤 — 5 例
 - **E2E 测试重写（36 测试，7 文件）**：
-  - 重写 `storyforge.spec.ts`：从截图驱动转为行为驱动，12 个真实断言
+  - 重写 `storymoss.spec.ts`：从截图驱动转为行为驱动，12 个真实断言
   - 新建 `frontstage-editing.spec.ts`：编辑器输入、自动保存、禅/修订模式 — 7 例
   - 新建 `navigation.spec.ts`：URL 路由、前后台导航 — 4 例
   - 新建 `backstage-pages.spec.ts`：仪表盘/故事/角色/场景/设置/世界观/知识图谱页面加载 — 8 例
@@ -6397,7 +6403,7 @@ v0.13.2 已修复多数诊断卡片问题，但用户反馈「输入续写指令
 - **LLM 分析 Pipeline**: 5 步深度分析 — 元信息识别 → 世界观提取 → 人物拆解 → 章节概要 → 故事线生成
 - **分析结果**: 小说类型、基本信息(标题/作者)、世界观设定、人物角色与性格、章节大纲、故事线(主线/支线/高潮/转折)
 - **参考素材库**: 独立 `reference_books`/`reference_characters`/`reference_scenes` 表存储，支持 file_hash 去重
-- **一键转故事**: 拆书结果可一键转化为 StoryForge 故事项目
+- **一键转故事**: 拆书结果可一键转化为 StoryMoss 故事项目
 - **前端界面**: 幕后界面新增「拆书」页面，支持上传/列表/搜索/详情查看（概览/人物/章节/故事线标签页）
 
 **任务系统（参考 memoh-X 设计）**
@@ -6897,7 +6903,7 @@ v0.13.2 已修复多数诊断卡片问题，但用户反馈「输入续写指令
 
 ### 🎨 全新应用图标
 
-- 从 [iconbuddy.com](https://iconbuddy.com) 引入 **Lucide `feather`** 作为 StoryForge 品牌图标
+- 从 [iconbuddy.com](https://iconbuddy.com) 引入 **Lucide `feather`** 作为 StoryMoss 品牌图标
 - 设计理念：羽毛笔象征创作与文学，金色羽毛配合深色背景，优雅且富有辨识度
 - 使用 `cargo tauri icon` 重新生成全平台图标包（Windows .ico / macOS .icns / iOS / Android / UWP）
 - 前端 favicon 同步替换为 `feather.svg`

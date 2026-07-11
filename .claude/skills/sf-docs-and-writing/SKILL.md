@@ -1,9 +1,9 @@
 ---
 name: sf-docs-and-writing
-description: StoryForge 文档维护规范、docs of record 清单、版本号同步、提交信息与 house style。何时加载：要发布或推送、要写/更新文档、要 bump 版本、要写 commit message、或被问“文档怎么写/要更新哪些/版本号在哪”时。
+description: StoryMoss 文档维护规范、docs of record 清单、版本号同步、提交信息与 house style。何时加载：要发布或推送、要写/更新文档、要 bump 版本、要写 commit message、或被问“文档怎么写/要更新哪些/版本号在哪”时。
 ---
 
-# StoryForge 文档与写作
+# StoryMoss 文档与写作
 
 ## Docs of record（每次推送必须同步，AGENTS.md 强制）
 

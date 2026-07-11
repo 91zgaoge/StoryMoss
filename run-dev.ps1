@@ -1,5 +1,5 @@
-# StoryForge Development Runner for Windows
-Write-Host "Starting StoryForge (草苔) Development Environment..." -ForegroundColor Green
+# StoryMoss Development Runner for Windows
+Write-Host "Starting StoryMoss (草苔) Development Environment..." -ForegroundColor Green
 
 # Check if Node.js is installed
 $nodeVersion = node --version 2>$null

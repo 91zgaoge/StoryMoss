@@ -1,4 +1,4 @@
-# StoryForge v4.0.0 代码全面审查报告
+# StoryMoss v4.0.0 代码全面审查报告
 
 > 审查日期: 2026-04-22
 > 审查范围: 后端 Rust (`src-tauri/src`) + 前端 TypeScript (`src-frontend/src`)

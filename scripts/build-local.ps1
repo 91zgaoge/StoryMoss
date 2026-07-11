@@ -1,4 +1,4 @@
-# StoryForge (草苔) 本地构建脚本
+# StoryMoss (草苔) 本地构建脚本
 # 支持平台: Windows (当前主机), Linux (需 WSL), macOS (不可在 Windows 构建)
 # 永久规则: 每次推送到 GitHub 前，必须先在本地执行此脚本构建
 

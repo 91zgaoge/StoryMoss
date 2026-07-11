@@ -167,7 +167,7 @@ async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserInfo, Str
     let response = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("token {}", access_token))
-        .header("User-Agent", "StoryForge-Server/4.5.0")
+        .header("User-Agent", "StoryMoss-Server/4.5.0")
         .send()
         .await
         .map_err(|e| format!("Failed to fetch GitHub user: {}", e))?;
@@ -202,7 +202,7 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
     let response = client
         .get("https://api.github.com/user/emails")
         .header("Authorization", format!("token {}", access_token))
-        .header("User-Agent", "StoryForge-Server/4.5.0")
+        .header("User-Agent", "StoryMoss-Server/4.5.0")
         .send()
         .await
         .map_err(|e| e.to_string())?;

@@ -1,4 +1,4 @@
-# StoryForge 幕后工作室（Backstage）全面审计报告
+# StoryMoss 幕后工作室（Backstage）全面审计报告
 
 > **版本基准**：v0.26.34  
 > **审计日期**：2026-07-09  

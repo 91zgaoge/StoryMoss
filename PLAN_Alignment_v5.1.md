@@ -1,4 +1,4 @@
-# StoryForge v5.1.x 设计-实现对齐实施计划
+# StoryMoss v5.1.x 设计-实现对齐实施计划
 
 > **基于**: AUDIT_GAP_REPORT_v5.1.md
 > **目标**: 消灭 P0 差距，补齐 P1 差距，全面达到 v5.1.0 设计目标
@@ -184,7 +184,7 @@
 ### Phase 3 验收（P2）
 - [ ] 文档中 SyncEvent 数量准确（16 种）
 - [ ] 版本号统一为 5.1.1
-- [ ] `StoryForge_5.1.1_x64-setup.exe` 和 `.msi` 已生成并复制到根目录
+- [ ] `StoryMoss_5.1.1_x64-setup.exe` 和 `.msi` 已生成并复制到根目录
 
 ---
 

@@ -1,4 +1,4 @@
-# StoryForge 创世-拆书同构架构重构计划
+# StoryMoss 创世-拆书同构架构重构计划
 
 ## 背景与洞察
 
@@ -70,7 +70,7 @@ analyze():
 
 ---
 
-## 二、架构愿景：StoryForge 叙事元素模型（Narrative Element Model）
+## 二、架构愿景：StoryMoss 叙事元素模型（Narrative Element Model）
 
 ### 2.1 核心设计理念
 

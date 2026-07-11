@@ -2,7 +2,7 @@
 
 ## 背景与现状
 
-StoryForge 当前采用 **Scene 为内容真相源** 的架构（Phase 1）：`scenes` 表存储实际正文，`chapters` 表作为章节容器，通过 `chapter_id` 关联多个 Scene。`ChapterRepository` 已提供创建、查询、更新、删除章节的接口。
+StoryMoss 当前采用 **Scene 为内容真相源** 的架构（Phase 1）：`scenes` 表存储实际正文，`chapters` 表作为章节容器，通过 `chapter_id` 关联多个 Scene。`ChapterRepository` 已提供创建、查询、更新、删除章节的接口。
 
 **导出功能已存在**：`src-frontend/src/components/ExportDialog.tsx` 已支持 `txt`、`md`（markdown）、`pdf`、`epub`、`html`、`json` 六种格式，并在 `src/pages/Stories.tsx` 的故事卡片与详情区域提供「导出」按钮，后端由 `src-tauri/src/commands/export.rs` 的 `export_story` 命令实现。
 

@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-//! StoryForge 结构化日志系统
+//! StoryMoss 结构化日志系统
 //!
 //! 使用 tracing + tracing-subscriber + tracing-appender 实现：
 //! - 文件日志按日期轮转（daily rotation）
@@ -39,14 +39,14 @@ const LOG_FILE_MAX_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     let log_dir = app_dir.join("logs");
     if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("[StoryForge] Failed to create log directory: {}", e);
+        eprintln!("[StoryMoss] Failed to create log directory: {}", e);
     }
 
     // 清理过期日志
     cleanup_old_logs(&log_dir);
 
     // 文件追加器：按日期轮转
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "storyforge");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "storymoss");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     // 构建 EnvFilter
@@ -57,7 +57,7 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     };
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(format!(
-            "{}={},storyforge_lib={}",
+            "{}={},storymoss_lib={}",
             default_level, default_level, default_level,
         ))
     });
@@ -114,10 +114,10 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     }
 
     tracing::info!(
-        target: "storyforge_lib::logging",
+        target: "storymoss_lib::logging",
         log_dir = %log_dir.display(),
         retention_days = LOG_RETENTION_DAYS,
-        "StoryForge logging system initialized"
+        "StoryMoss logging system initialized"
     );
 
     guard
@@ -136,7 +136,7 @@ pub fn write_frontend_log(
     match level.as_str() {
         "error" => {
             tracing::error!(
-                target = "storyforge_lib::frontend",
+                target = "storymoss_lib::frontend",
                 frontend_target = %target,
                 metadata = ?metadata,
                 "[FE] {}",
@@ -145,7 +145,7 @@ pub fn write_frontend_log(
         }
         "warn" => {
             tracing::warn!(
-                target = "storyforge_lib::frontend",
+                target = "storymoss_lib::frontend",
                 frontend_target = %target,
                 metadata = ?metadata,
                 "[FE] {}",
@@ -154,7 +154,7 @@ pub fn write_frontend_log(
         }
         "info" => {
             tracing::info!(
-                target = "storyforge_lib::frontend",
+                target = "storymoss_lib::frontend",
                 frontend_target = %target,
                 metadata = ?metadata,
                 "[FE] {}",
@@ -163,7 +163,7 @@ pub fn write_frontend_log(
         }
         "debug" => {
             tracing::debug!(
-                target = "storyforge_lib::frontend",
+                target = "storymoss_lib::frontend",
                 frontend_target = %target,
                 metadata = ?metadata,
                 "[FE] {}",
@@ -172,7 +172,7 @@ pub fn write_frontend_log(
         }
         _ => {
             tracing::info!(
-                target = "storyforge_lib::frontend",
+                target = "storymoss_lib::frontend",
                 frontend_target = %target,
                 metadata = ?metadata,
                 "[FE] {}",
@@ -202,7 +202,7 @@ fn cleanup_old_logs(log_dir: &Path) {
 
             // 检查文件扩展名或前缀是否匹配日志文件
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !file_name.starts_with("storyforge") {
+            if !file_name.starts_with("storymoss") {
                 continue;
             }
 
@@ -231,7 +231,7 @@ fn cleanup_old_logs(log_dir: &Path) {
 
     if cleaned > 0 || skipped_large > 0 {
         tracing::info!(
-            target: "storyforge_lib::logging",
+            target: "storymoss_lib::logging",
             cleaned,
             skipped_large,
             "Log cleanup completed"
@@ -271,7 +271,7 @@ pub fn get_recent_logs(
                 continue;
             }
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !name.starts_with("storyforge") {
+            if !name.starts_with("storymoss") {
                 continue;
             }
             if let Ok(meta) = entry.metadata() {

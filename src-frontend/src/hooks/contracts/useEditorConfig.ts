@@ -7,7 +7,7 @@ import type { EditorConfig } from '@/types/editor';
 
 const editorConfigLogger = createLogger('hooks:contracts:useEditorConfig');
 
-export const STORAGE_KEY = 'storyforge-editor-config';
+export const STORAGE_KEY = 'storymoss-editor-config';
 
 /** 从 localStorage 加载编辑器配置 */
 export function loadEditorConfig(): EditorConfig {

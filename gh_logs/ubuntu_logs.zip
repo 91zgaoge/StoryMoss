@@ -35,7 +35,7 @@
 2026-05-06T03:30:36.3091021Z Complete job name: rust-check (ubuntu-latest)
 2026-05-06T03:30:36.3971082Z ##[group]Run actions/checkout@v4
 2026-05-06T03:30:36.3972374Z with:
-2026-05-06T03:30:36.3973095Z   repository: 91zgaoge/StoryForge
+2026-05-06T03:30:36.3973095Z   repository: 91zgaoge/StoryMoss
 2026-05-06T03:30:36.3974309Z   token: ***
 2026-05-06T03:30:36.3975022Z   ssh-strict: true
 2026-05-06T03:30:36.3975745Z   ssh-user: git
@@ -51,18 +51,18 @@
 2026-05-06T03:30:36.3984087Z env:
 2026-05-06T03:30:36.3984797Z   CARGO_TERM_COLOR: always
 2026-05-06T03:30:36.3985603Z ##[endgroup]
-2026-05-06T03:30:36.5147367Z Syncing repository: 91zgaoge/StoryForge
+2026-05-06T03:30:36.5147367Z Syncing repository: 91zgaoge/StoryMoss
 2026-05-06T03:30:36.5150649Z ##[group]Getting Git version info
-2026-05-06T03:30:36.5152953Z Working directory is '/home/runner/work/StoryForge/StoryForge'
+2026-05-06T03:30:36.5152953Z Working directory is '/home/runner/work/StoryMoss/StoryMoss'
 2026-05-06T03:30:36.5156299Z [command]/usr/bin/git version
 2026-05-06T03:30:36.5180672Z git version 2.53.0
 2026-05-06T03:30:36.5209310Z ##[endgroup]
 2026-05-06T03:30:36.5231874Z Temporarily overriding HOME='/home/runner/work/_temp/15cda151-4317-4fc3-b44a-fe5bb0bea58b' before making global git config changes
 2026-05-06T03:30:36.5234739Z Adding repository directory to the temporary git global config as a safe directory
-2026-05-06T03:30:36.5238053Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/StoryForge/StoryForge
-2026-05-06T03:30:36.5274407Z Deleting the contents of '/home/runner/work/StoryForge/StoryForge'
+2026-05-06T03:30:36.5238053Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/StoryMoss/StoryMoss
+2026-05-06T03:30:36.5274407Z Deleting the contents of '/home/runner/work/StoryMoss/StoryMoss'
 2026-05-06T03:30:36.5278240Z ##[group]Initializing the repository
-2026-05-06T03:30:36.5284300Z [command]/usr/bin/git init /home/runner/work/StoryForge/StoryForge
+2026-05-06T03:30:36.5284300Z [command]/usr/bin/git init /home/runner/work/StoryMoss/StoryMoss
 2026-05-06T03:30:36.5382808Z hint: Using 'master' as the name for the initial branch. This default branch name
 2026-05-06T03:30:36.5385002Z hint: will change to "main" in Git 3.0. To configure the initial branch name
 2026-05-06T03:30:36.5387612Z hint: to use in all of your new repositories, which will suppress this warning,
@@ -76,8 +76,8 @@
 2026-05-06T03:30:36.5398370Z hint: 	git branch -m <name>
 2026-05-06T03:30:36.5399629Z hint:
 2026-05-06T03:30:36.5400906Z hint: Disable this message with "git config set advice.defaultBranchName false"
-2026-05-06T03:30:36.5403065Z Initialized empty Git repository in /home/runner/work/StoryForge/StoryForge/.git/
-2026-05-06T03:30:36.5406149Z [command]/usr/bin/git remote add origin https://github.com/91zgaoge/StoryForge
+2026-05-06T03:30:36.5403065Z Initialized empty Git repository in /home/runner/work/StoryMoss/StoryMoss/.git/
+2026-05-06T03:30:36.5406149Z [command]/usr/bin/git remote add origin https://github.com/91zgaoge/StoryMoss
 2026-05-06T03:30:36.5430898Z ##[endgroup]
 2026-05-06T03:30:36.5432414Z ##[group]Disabling automatic garbage collection
 2026-05-06T03:30:36.5434311Z [command]/usr/bin/git config --local gc.auto 0
@@ -93,7 +93,7 @@
 2026-05-06T03:30:36.6357669Z ##[endgroup]
 2026-05-06T03:30:36.6360087Z ##[group]Fetching the repository
 2026-05-06T03:30:36.6366845Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +315964720e5bacc81fda733737c6af5bb103291c:refs/remotes/origin/master
-2026-05-06T03:30:37.1396032Z From https://github.com/91zgaoge/StoryForge
+2026-05-06T03:30:37.1396032Z From https://github.com/91zgaoge/StoryMoss
 2026-05-06T03:30:37.1398839Z  * [new ref]         315964720e5bacc81fda733737c6af5bb103291c -> origin/master
 2026-05-06T03:30:37.1430982Z ##[endgroup]
 2026-05-06T03:30:37.1433240Z ##[group]Determining the checkout info
@@ -1475,7 +1475,7 @@
 2026-05-06T03:31:12.7784745Z Cache hit for: node-cache-Linux-x64-npm-aae74e2c7e347e20385a7fdc34dfc044c4fc856cc7bc6885be38e50b8fef759b
 2026-05-06T03:31:13.2110826Z Received 64288451 of 64288451 (100.0%), 160.5 MBs/sec
 2026-05-06T03:31:13.2112341Z Cache Size: ~61 MB (64288451 B)
-2026-05-06T03:31:13.2143521Z [command]/usr/bin/tar -xf /home/runner/work/_temp/212c2055-2b80-4907-af98-5b7c164fd8a8/cache.tzst -P -C /home/runner/work/StoryForge/StoryForge --use-compress-program unzstd
+2026-05-06T03:31:13.2143521Z [command]/usr/bin/tar -xf /home/runner/work/_temp/212c2055-2b80-4907-af98-5b7c164fd8a8/cache.tzst -P -C /home/runner/work/StoryMoss/StoryMoss --use-compress-program unzstd
 2026-05-06T03:31:13.4075630Z Cache restored successfully
 2026-05-06T03:31:13.4109361Z Cache restored from key: node-cache-Linux-x64-npm-aae74e2c7e347e20385a7fdc34dfc044c4fc856cc7bc6885be38e50b8fef759b
 2026-05-06T03:31:13.4276401Z ##[group]Run npm ci
@@ -1513,7 +1513,7 @@
 2026-05-06T03:31:21.0121624Z   CARGO_INCREMENTAL: 0
 2026-05-06T03:31:21.0121832Z ##[endgroup]
 2026-05-06T03:31:21.1215662Z 
-2026-05-06T03:31:21.1216106Z > storyforge-frontend@5.3.1 build
+2026-05-06T03:31:21.1216106Z > storymoss-frontend@5.3.1 build
 2026-05-06T03:31:21.1216597Z > tsc && vite build
 2026-05-06T03:31:21.1216771Z 
 2026-05-06T03:31:30.9227049Z [36mvite v6.4.2 [32mbuilding for production...[36m[39m
@@ -1521,10 +1521,10 @@
 2026-05-06T03:31:37.9245725Z [32m✓[39m 2376 modules transformed.
 2026-05-06T03:31:38.5140369Z rendering chunks...
 2026-05-06T03:31:38.7861135Z [33m[plugin vite:reporter] 
-2026-05-06T03:31:38.7863125Z (!) /home/runner/work/StoryForge/StoryForge/src-frontend/src/services/auth.ts is dynamically imported by /home/runner/work/StoryForge/StoryForge/src-frontend/src/pages/Settings.tsx but also statically imported by /home/runner/work/StoryForge/StoryForge/src-frontend/src/stores/useAuthStore.ts, dynamic import will not move module into another chunk.
+2026-05-06T03:31:38.7863125Z (!) /home/runner/work/StoryMoss/StoryMoss/src-frontend/src/services/auth.ts is dynamically imported by /home/runner/work/StoryMoss/StoryMoss/src-frontend/src/pages/Settings.tsx but also statically imported by /home/runner/work/StoryMoss/StoryMoss/src-frontend/src/stores/useAuthStore.ts, dynamic import will not move module into another chunk.
 2026-05-06T03:31:38.7864670Z [39m
 2026-05-06T03:31:38.7866793Z [33m[plugin vite:reporter] 
-2026-05-06T03:31:38.7869585Z (!) /home/runner/work/StoryForge/StoryForge/src-frontend/node_modules/@tauri-apps/plugin-dialog/dist-js/index.js is dynamically imported by /home/runner/work/StoryForge/StoryForge/src-frontend/src/components/book-deconstruction/BookUploadPanel.tsx but also statically imported by /home/runner/work/StoryForge/StoryForge/src-frontend/src/pages/Skills.tsx, dynamic import will not move module into another chunk.
+2026-05-06T03:31:38.7869585Z (!) /home/runner/work/StoryMoss/StoryMoss/src-frontend/node_modules/@tauri-apps/plugin-dialog/dist-js/index.js is dynamically imported by /home/runner/work/StoryMoss/StoryMoss/src-frontend/src/components/book-deconstruction/BookUploadPanel.tsx but also statically imported by /home/runner/work/StoryMoss/StoryMoss/src-frontend/src/pages/Skills.tsx, dynamic import will not move module into another chunk.
 2026-05-06T03:31:38.7871355Z [39m
 2026-05-06T03:31:39.2613347Z computing gzip size...
 2026-05-06T03:31:39.3070932Z [2mdist/[22m[32mfrontstage.html                  [39m[1m[2m  1.02 kB[22m[1m[22m[2m │ gzip:   0.54 kB[22m
@@ -1565,14 +1565,14 @@
 2026-05-06T03:31:39.7984588Z Cache Provider:
 2026-05-06T03:31:39.7984955Z     github
 2026-05-06T03:31:39.7985269Z Workspaces:
-2026-05-06T03:31:39.7985752Z     /home/runner/work/StoryForge/StoryForge/src-tauri
+2026-05-06T03:31:39.7985752Z     /home/runner/work/StoryMoss/StoryMoss/src-tauri
 2026-05-06T03:31:39.7986303Z Cache Paths:
 2026-05-06T03:31:39.7986645Z     /home/runner/.cargo/bin
 2026-05-06T03:31:39.7987094Z     /home/runner/.cargo/.crates.toml
 2026-05-06T03:31:39.7987585Z     /home/runner/.cargo/.crates2.json
 2026-05-06T03:31:39.7988060Z     /home/runner/.cargo/registry
 2026-05-06T03:31:39.7988472Z     /home/runner/.cargo/git
-2026-05-06T03:31:39.7989030Z     /home/runner/work/StoryForge/StoryForge/src-tauri/target
+2026-05-06T03:31:39.7989030Z     /home/runner/work/StoryMoss/StoryMoss/src-tauri/target
 2026-05-06T03:31:39.7989794Z Restore Key:
 2026-05-06T03:31:39.7990221Z     v0-rust-rust-check-Linux-x64-e88b75f5
 2026-05-06T03:31:39.7990669Z Cache Key:
@@ -1587,8 +1587,8 @@
 2026-05-06T03:31:39.7995566Z   - CARGO_INCREMENTAL
 2026-05-06T03:31:39.7995799Z   - CARGO_TERM_COLOR
 2026-05-06T03:31:39.7996052Z .. Lockfiles considered:
-2026-05-06T03:31:39.7996415Z   - /home/runner/work/StoryForge/StoryForge/src-core/Cargo.toml
-2026-05-06T03:31:39.7996879Z   - /home/runner/work/StoryForge/StoryForge/src-tauri/Cargo.toml
+2026-05-06T03:31:39.7996415Z   - /home/runner/work/StoryMoss/StoryMoss/src-core/Cargo.toml
+2026-05-06T03:31:39.7996879Z   - /home/runner/work/StoryMoss/StoryMoss/src-tauri/Cargo.toml
 2026-05-06T03:31:39.7997375Z ##[endgroup]
 2026-05-06T03:31:39.7997489Z 
 2026-05-06T03:31:39.7997883Z ... Restoring cache ...
@@ -1596,7 +1596,7 @@
 2026-05-06T03:31:40.9067816Z Received 155189248 of 190784039 (81.3%), 148.0 MBs/sec
 2026-05-06T03:31:41.0737097Z Received 190784039 of 190784039 (100.0%), 155.9 MBs/sec
 2026-05-06T03:31:41.0738124Z Cache Size: ~182 MB (190784039 B)
-2026-05-06T03:31:41.0778010Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f63773e8-d809-4aea-bb67-d7e09e4545e6/cache.tzst -P -C /home/runner/work/StoryForge/StoryForge --use-compress-program unzstd
+2026-05-06T03:31:41.0778010Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f63773e8-d809-4aea-bb67-d7e09e4545e6/cache.tzst -P -C /home/runner/work/StoryMoss/StoryMoss --use-compress-program unzstd
 2026-05-06T03:31:42.0313277Z Cache restored successfully
 2026-05-06T03:31:42.0398901Z Restored from cache key "v0-rust-rust-check-Linux-x64-e88b75f5-b21cdb23" full match: false.
 2026-05-06T03:31:42.0604641Z ##[group]Run cargo check
@@ -2366,7 +2366,7 @@
 2026-05-06T03:33:36.6218712Z [1m[91merror[0m: failed to run custom build command for `lance-encoding v4.0.0`
 2026-05-06T03:33:36.6219975Z 
 2026-05-06T03:33:36.6220326Z Caused by:
-2026-05-06T03:33:36.6221931Z   process didn't exit successfully: `/home/runner/work/StoryForge/StoryForge/target/debug/build/lance-encoding-ac458ce9c5d77367/build-script-build` (exit status: 1)
+2026-05-06T03:33:36.6221931Z   process didn't exit successfully: `/home/runner/work/StoryMoss/StoryMoss/target/debug/build/lance-encoding-ac458ce9c5d77367/build-script-build` (exit status: 1)
 2026-05-06T03:33:36.6223500Z   --- stdout
 2026-05-06T03:33:36.6224168Z   cargo:rerun-if-changed=protos
 2026-05-06T03:33:36.6224699Z 
@@ -2379,7 +2379,7 @@
 2026-05-06T03:33:46.7192664Z git version 2.53.0
 2026-05-06T03:33:46.7238922Z Temporarily overriding HOME='/home/runner/work/_temp/13c762a3-6fcb-4174-ba4f-a2f4b9cb0538' before making global git config changes
 2026-05-06T03:33:46.7240734Z Adding repository directory to the temporary git global config as a safe directory
-2026-05-06T03:33:46.7253476Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/StoryForge/StoryForge
+2026-05-06T03:33:46.7253476Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/StoryMoss/StoryMoss
 2026-05-06T03:33:46.7288570Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
 2026-05-06T03:33:46.7321489Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
 2026-05-06T03:33:46.7547593Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader

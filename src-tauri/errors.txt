@@ -1,6 +1,6 @@
 warning: F:\mywork\CINEMA-AI\v2-rust\src-tauri\Cargo.toml: unused manifest key: env
 help: env is a valid .cargo/config.toml key
-    Checking storyforge v7.0.0 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
+    Checking storymoss v7.0.0 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
 warning: unused imports: `MEMORY_PRIORITY`, `MemoryBudget`, `MemoryEntry`, `MemoryItemDto`, `MemoryStats`, and `MemoryWarning`
   --> src-tauri\src\memory\mod.rs:24:37
    |
@@ -424,5 +424,5 @@ warning: variable does not need to be mutable
 
 Some errors have detailed explanations: E0277, E0308.
 For more information about an error, try `rustc --explain E0277`.
-warning: `storyforge` (lib) generated 25 warnings
-error: could not compile `storyforge` (lib) due to 10 previous errors; 25 warnings emitted
+warning: `storymoss` (lib) generated 25 warnings
+error: could not compile `storymoss` (lib) due to 10 previous errors; 25 warnings emitted

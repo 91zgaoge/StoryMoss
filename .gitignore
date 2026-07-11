@@ -80,3 +80,6 @@ github_secrets_*.txt
 # Archived ghost crate
 src-core-archived/
 
+# Git worktrees
+.worktrees/
+

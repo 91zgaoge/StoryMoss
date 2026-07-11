@@ -1,10 +1,10 @@
-# StoryForge 项目架构与代码检视报告
+# StoryMoss 项目架构与代码检视报告
 
 ---
 
 ## 1. 项目概况
 
-**StoryForge（草苔）** 是一个基于 Tauri 的 AI 辅助小说创作桌面应用，采用 monorepo 结构，包含两套后端和两套前端。Tauri 桌面端（`src-tauri` + `src-frontend`）是主要产品——一个本地优先的应用，使用 SQLite 做数据持久化，LLM API 做 AI 写作辅助，LanceDB 向量库做知识检索。服务端部署（`src-server` + `src-server-web`）提供 OAuth2/JWT 认证和 PostgreSQL 后端的多用户场景。
+**StoryMoss（草苔）** 是一个基于 Tauri 的 AI 辅助小说创作桌面应用，采用 monorepo 结构，包含两套后端和两套前端。Tauri 桌面端（`src-tauri` + `src-frontend`）是主要产品——一个本地优先的应用，使用 SQLite 做数据持久化，LLM API 做 AI 写作辅助，LanceDB 向量库做知识检索。服务端部署（`src-server` + `src-server-web`）提供 OAuth2/JWT 认证和 PostgreSQL 后端的多用户场景。
 
 应用采用双窗口架构：幕前（写作界面）和幕后（故事管理）。前端通过 Tauri IPC 命令与 Rust 后端通信，而非 HTTP API。
 
@@ -160,7 +160,7 @@
 
 5. **MCP 服务器启动的命令注入**: 用户可配置的命令路径在 `McpServer::start()` 中允许任意进程执行。`FileSystemTool` 允许对系统上任意文件进行不受限制的读/写。
 
-6. **两个后端都有默认 JWT 密钥**: `storyforge-default-secret-change-me`（服务端）和 `storyforge-default-jwt-secret-change-in-production`（Tauri）是硬编码的后备方案，极易被利用。
+6. **两个后端都有默认 JWT 密钥**: `storymoss-default-secret-change-me`（服务端）和 `storymoss-default-jwt-secret-change-in-production`（Tauri）是硬编码的后备方案，极易被利用。
 
 7. **任何 API 端点都没有速率限制**: 启用暴力破解攻击、API 滥用和通过无限生成请求耗尽 LLM 成本。
 

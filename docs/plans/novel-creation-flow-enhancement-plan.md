@@ -2,7 +2,7 @@
 
 ## 上下文
 
-通过全面代码审计发现，StoryForge 后端设计了大量高级子系统（合同、提交链、追读力、预检、自动化、叙事审计、风格进化、状态管理等），但多数未真正融入小说创作的核心流程。前端 `StorySystem.tsx` 虽有展示界面，但大量功能仅为只读，缺少操作入口。
+通过全面代码审计发现，StoryMoss 后端设计了大量高级子系统（合同、提交链、追读力、预检、自动化、叙事审计、风格进化、状态管理等），但多数未真正融入小说创作的核心流程。前端 `StorySystem.tsx` 虽有展示界面，但大量功能仅为只读，缺少操作入口。
 
 **当前创作流程**：CreationWizard → create_story → writer_agent_execute → update_chapter → finalize_draft。该流程基本绕过了所有高级子系统。
 

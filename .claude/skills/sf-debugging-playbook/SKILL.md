@@ -1,9 +1,9 @@
 ---
 name: sf-debugging-playbook
-description: StoryForge 失败模式的症状→分诊表、卡时间的陷阱与区分实验。何时加载：报告了 bug、续写卡死、Genesis 第一章重复、生成无输出、启动崩溃、CI 失败、JSON 解析空对象、超时、白屏、或被问“为什么 X 失败/卡住”时。先建反馈回路再下结论（见 diagnose 技能 Phase 1）。
+description: StoryMoss 失败模式的症状→分诊表、卡时间的陷阱与区分实验。何时加载：报告了 bug、续写卡死、Genesis 第一章重复、生成无输出、启动崩溃、CI 失败、JSON 解析空对象、超时、白屏、或被问“为什么 X 失败/卡住”时。先建反馈回路再下结论（见 diagnose 技能 Phase 1）。
 ---
 
-# StoryForge 调试手册
+# StoryMoss 调试手册
 
 **铁律**：先建反馈回路再下结论。本项目大多数“卡死/重复/无输出”都是竞态或同步阻塞，肉眼盯代码无效。参考 `diagnose` 技能 Phase 1 构造回路；本项目特有回路见下文。
 

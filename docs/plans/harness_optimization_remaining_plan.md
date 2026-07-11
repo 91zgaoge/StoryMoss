@@ -1,4 +1,4 @@
-# StoryForge Harness 完善与优化执行计划
+# StoryMoss Harness 完善与优化执行计划
 
 > 基于附件《基于 Harness 框架的完善与优化方案》的未落地项，制定本计划并逐项执行。当前版本 v0.25.1，目标版本 v0.26.0。
 
@@ -6,7 +6,7 @@
 
 ## 目标
 
-将 StoryForge 从“能生成”推进到“持续生成、可验证、可恢复”，补齐剩余 7 个方向的完善与优化：
+将 StoryMoss 从“能生成”推进到“持续生成、可验证、可恢复”，补齐剩余 7 个方向的完善与优化：
 
 1. Context Rot 防御剩余项（分层摘要、预算可视化）
 2. 验证循环前置（P1）
@@ -146,26 +146,26 @@
 
 **实现位置**：`src-tauri/src/workspace/` 新建模块，IPC 命令在 `src-tauri/src/commands/workspace.rs`
 
-**目标**：为每个故事/项目生成 `.storyforge/` 工作空间，并支持 Git 版本化。
+**目标**：为每个故事/项目生成 `.storymoss/` 工作空间，并支持 Git 版本化。
 
 **步骤**：
 
 1. 新增 `WorkspaceService`：
    - 根据故事 ID 获取项目目录（`app_data_dir / stories / {story_id}`）。
-   - 初始化 `.storyforge/` 目录。
-2. 在 `.storyforge/` 下生成：
+   - 初始化 `.storymoss/` 目录。
+2. 在 `.storymoss/` 下生成：
    - `AGENTS.md`：角色、目标、规则（从 `AppConfig` 和当前故事元数据生成）。
    - `MEMORY.md`：跨会话记忆摘要（从 `KnowledgeGraphRepository` 和 `scene_commits` 聚合）。
    - `LOOPS.md`：当前进行中任务状态（在 `WorkflowScheduler` 任务启动/完成时更新）。
    - `PROGRESS.md`：已完成章节摘要（每次 `ChapterCommitted` 后追加）。
 3. 初始化 Git：
    - 若目录无 `.git`，执行 `git init`。
-   - 在每次生成完成后（`ChapterCommitted`）自动 `git add .storyforge/` 并 `git commit -m "chore: update storyforge workspace after chapter commit"`。
+   - 在每次生成完成后（`ChapterCommitted`）自动 `git add .storymoss/` 并 `git commit -m "chore: update storymoss workspace after chapter commit"`。
 4. 新增 IPC 命令：
-   - `get_workspace_files(story_id)` 返回 `.storyforge/` 下文件内容；
+   - `get_workspace_files(story_id)` 返回 `.storymoss/` 下文件内容；
    - `sync_workspace_memory(story_id)` 将数据库记忆写入 `MEMORY.md`。
 
-**验收**：创建新故事时自动生成 `.storyforge/` 和 Git 仓库；每次提交后新增 commit；`cargo test` 通过。
+**验收**：创建新故事时自动生成 `.storymoss/` 和 Git 仓库；每次提交后新增 commit；`cargo test` 通过。
 
 ---
 
@@ -183,7 +183,7 @@
    - `StyleAgent`：检查句长、对话比例、比喻密度、内心独白比例与风格 DNA 偏差；
    - `WorldAgent`：检查世界观规则、设定冲突、地理/时间一致性。
 3. 在 `AgentOrchestrator` 的 `generate` 成功后，启动 `tokio::spawn` 并发执行三个子代理审查。
-4. 将 `ReviewNotes` 写入 `DiagnosticStore` 和 `.storyforge/LOOPS.md`。
+4. 将 `ReviewNotes` 写入 `DiagnosticStore` 和 `.storymoss/LOOPS.md`。
 5. 若 ReviewNotes 包含 HIGH 级别问题，触发 `RevisionSuggested` SyncEvent，前端在审阅面板展示。
 
 **验收**：三个子代理存在并返回结构化 ReviewNotes；并发执行不阻塞主流程；单元测试覆盖核心规则。
@@ -206,7 +206,7 @@
 3. 新增 `PreferencePairExporter`：
    - 每 N 条反馈或定时任务，将 `user_feedback_log` 导出为 `preference_pairs.jsonl`；
    - chosen = 用户编辑后最终内容；rejected = 原始生成内容。
-4. 在 `.storyforge/` 下生成 `feedback/` 目录保存 `preference_pairs.jsonl`。
+4. 在 `.storymoss/` 下生成 `feedback/` 目录保存 `preference_pairs.jsonl`。
 
 **验收**：`record_feedback` 记录完整字段；`preference_pairs.jsonl` 可正确生成；测试通过。
 

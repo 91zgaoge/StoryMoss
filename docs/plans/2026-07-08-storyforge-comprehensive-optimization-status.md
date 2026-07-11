@@ -1,6 +1,6 @@
-# StoryForge 综合优化计划执行状态
+# StoryMoss 综合优化计划执行状态
 
-> **关联计划**：`docs/plans/2026-07-07-storyforge-comprehensive-optimization-plan.md`  
+> **关联计划**：`docs/plans/2026-07-07-storymoss-comprehensive-optimization-plan.md`  
 > **当前版本**：v0.26.33  
 > **日期**：2026-07-08
 
@@ -30,14 +30,14 @@
 | 5 | 小说初始化策略 JSON 解析失败：`missing field rationale` | `strategy.rs`, `selector.rs` |
 | 6 | 获取角色报错：`no such column: source` | `connection.rs` |
 
-- CI：`https://github.com/91zgaoge/StoryForge/actions/runs/28929492984` ✅
+- CI：`https://github.com/91zgaoge/StoryMoss/actions/runs/28929492984` ✅
 
 ### v0.26.32 — 完成阶段一剩余项
 
 - **L1 创作入口 UX 统一**：`CreationPathGuide` 卡片可点击；Dashboard “AI 创建故事”进入幕前 Genesis。
 - **仪表盘统计卡修正**：“章节”→“场景”，新增“字数”统计卡。
 - **`memory/ingest` 测试补齐**：5 条 happy/error 路径测试。
-- CI：`https://github.com/91zgaoge/StoryForge/actions/runs/28935204061` ✅
+- CI：`https://github.com/91zgaoge/StoryMoss/actions/runs/28935204061` ✅
 
 ### v0.26.33 — 补齐阶段 2/3/4 具体缺口
 

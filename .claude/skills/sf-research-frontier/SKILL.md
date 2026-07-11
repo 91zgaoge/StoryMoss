@@ -1,6 +1,6 @@
 ---
 name: sf-research-frontier
-description: StoryForge 可推进的开放前沿——Context Rot 防御深化（长篇连载下记忆衰减量化与对抗）。何时加载：要规划研究、要评估长上下文记忆方向、要量化 Lost in the Middle、要扩展 ContextPrioritizer、或被问“下一步研究做什么/本项目的前沿在哪”时。
+description: StoryMoss 可推进的开放前沿——Context Rot 防御深化（长篇连载下记忆衰减量化与对抗）。何时加载：要规划研究、要评估长上下文记忆方向、要量化 Lost in the Middle、要扩展 ContextPrioritizer、或被问“下一步研究做什么/本项目的前沿在哪”时。
 ---
 
 # 研究前沿：Context Rot 防御深化

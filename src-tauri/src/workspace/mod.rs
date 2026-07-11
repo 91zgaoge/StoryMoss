@@ -1,6 +1,6 @@
 //! 文件系统工作空间
 //!
-//! 为每个故事生成 `.storyforge/` 目录，作为可 Git 版本化的项目级记忆。
+//! 为每个故事生成 `.storymoss/` 目录，作为可 Git 版本化的项目级记忆。
 //! 包含：
 //! - AGENTS.md：当前故事角色、目标与规则
 //! - MEMORY.md：跨会话记忆摘要（KG + scene_commits + 世界观）
@@ -24,7 +24,7 @@ use crate::{
     error::AppError,
 };
 
-const WORKSPACE_DIR: &str = ".storyforge";
+const WORKSPACE_DIR: &str = ".storymoss";
 const AGENTS_FILE: &str = "AGENTS.md";
 const MEMORY_FILE: &str = "MEMORY.md";
 const LOOPS_FILE: &str = "LOOPS.md";
@@ -84,7 +84,7 @@ impl WorkspaceService {
         tokio::task::spawn_blocking(move || {
             svc.sync_after_commit_sync(&story_id, chapter_number, content.as_deref())?;
             let message = format!(
-                "chore: update storyforge workspace after chapter {} commit",
+                "chore: update storymoss workspace after chapter {} commit",
                 chapter_number
             );
             svc.git_commit_sync(&story_id, &message)
@@ -183,7 +183,7 @@ impl WorkspaceService {
         }
 
         self.ensure_git_sync(&story.id)?;
-        self.git_commit_sync(&story.id, "chore: initialize storyforge workspace")?;
+        self.git_commit_sync(&story.id, "chore: initialize storymoss workspace")?;
 
         Ok(())
     }
@@ -377,7 +377,7 @@ impl WorkspaceService {
 
         let mut md = String::new();
         md.push_str("# 跨会话记忆\n\n");
-        md.push_str("> 由 StoryForge 自动从知识图谱、场景提交和世界观聚合。\n\n");
+        md.push_str("> 由 StoryMoss 自动从知识图谱、场景提交和世界观聚合。\n\n");
 
         md.push_str("## 世界观规则\n\n");
         if world.concept.is_empty() && world.rules.is_empty() {
@@ -456,8 +456,8 @@ fn render_agents_md(
     world: &crate::db::WorldBuilding,
 ) -> String {
     let mut md = String::new();
-    md.push_str("# StoryForge Agent 指南\n\n");
-    md.push_str("> 本文件由 StoryForge 自动生成，描述当前项目的角色、目标与规则。\n\n");
+    md.push_str("# StoryMoss Agent 指南\n\n");
+    md.push_str("> 本文件由 StoryMoss 自动生成，描述当前项目的角色、目标与规则。\n\n");
 
     md.push_str("## 项目信息\n\n");
     md.push_str(&format!("- 故事 ID：`{}`\n", story.id));
@@ -576,7 +576,7 @@ fn render_agents_md(
 fn render_loops_md() -> String {
     let mut md = String::new();
     md.push_str("# 当前任务循环\n\n");
-    md.push_str("> 由 StoryForge 记录当前进行中的子代理/工作流任务。\n\n");
+    md.push_str("> 由 StoryMoss 记录当前进行中的子代理/工作流任务。\n\n");
     md.push_str("（暂无进行中的任务）\n\n");
     md
 }
@@ -599,19 +599,19 @@ fn git_author_env() -> HashMap<String, String> {
     let mut map = HashMap::new();
     map.insert(
         "GIT_AUTHOR_NAME".to_string(),
-        "StoryForge Agent".to_string(),
+        "StoryMoss Agent".to_string(),
     );
     map.insert(
         "GIT_AUTHOR_EMAIL".to_string(),
-        "agent@storyforge.app".to_string(),
+        "agent@storymoss.app".to_string(),
     );
     map.insert(
         "GIT_COMMITTER_NAME".to_string(),
-        "StoryForge Agent".to_string(),
+        "StoryMoss Agent".to_string(),
     );
     map.insert(
         "GIT_COMMITTER_EMAIL".to_string(),
-        "agent@storyforge.app".to_string(),
+        "agent@storymoss.app".to_string(),
     );
     map
 }

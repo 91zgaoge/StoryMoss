@@ -34,7 +34,7 @@ export function useWorkflowLogs(count: number, autoRefresh: boolean) {
 }
 
 /**
- * 获取系统 tracing 日志（storyforge.* 日志文件），纯文本。
+ * 获取系统 tracing 日志（storymoss.* 日志文件），纯文本。
  * @param lines 获取最后 N 行
  * @param autoRefresh 是否自动刷新（5s 轮询，tracing 日志更大）
  */

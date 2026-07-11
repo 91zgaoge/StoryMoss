@@ -19,16 +19,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/91zgaoge/storyforge.git"
+    "url": "git+https://github.com/91zgaoge/storymoss.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/91zgaoge/storyforge/issues"
+    "url": "https://github.com/91zgaoge/storymoss/issues"
   },
-  "homepage": "https://github.com/91zgaoge/storyforge#readme",
+  "homepage": "https://github.com/91zgaoge/storymoss#readme",
   "devDependencies": {
     "@playwright/test": "^1.59.1"
   }

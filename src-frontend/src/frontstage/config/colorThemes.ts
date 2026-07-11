@@ -46,7 +46,7 @@ export interface ColorTheme {
   gold: string;
 }
 
-export const COLOR_THEME_STORAGE_KEY = 'storyforge-color-theme';
+export const COLOR_THEME_STORAGE_KEY = 'storymoss-color-theme';
 const STORAGE_KEY = COLOR_THEME_STORAGE_KEY;
 
 function deriveTheme(

@@ -108,7 +108,7 @@ export interface AppSettings {
 运行：
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo check 2>&1 | tail -20
 ```
 
 预期：零错误（允许既有 warning）。
@@ -116,7 +116,7 @@ cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-tauri/src/chapter_division/types.rs src-tauri/src/config/settings.rs src-frontend/src/types/llm.ts
 git commit -m "feat: 章节划分配置类型与设置模型扩展"
 ```
@@ -275,7 +275,7 @@ mod tests;
 - [ ] **Step 5: 运行测试**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo test --lib chapter_division::tests 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo test --lib chapter_division::tests 2>&1 | tail -20
 ```
 
 预期：3 个测试全部通过。
@@ -283,7 +283,7 @@ cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo test --lib chapter_divi
 - [ ] **Step 6: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-tauri/src/chapter_division/
 git commit -m "feat: 章节划分字数模式与单元测试"
 ```
@@ -406,7 +406,7 @@ fn test_build_division_prompt_contains_scenes() {
 - [ ] **Step 3: 编译检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo check 2>&1 | tail -20
 ```
 
 预期：零错误。
@@ -414,7 +414,7 @@ cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-tauri/src/chapter_division/
 git commit -m "feat: 章节划分情节模式实现"
 ```
@@ -583,13 +583,13 @@ fn test_apply_divisions_replaces_chapters() {
 - [ ] **Step 3: 编译检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo check 2>&1 | tail -20
 ```
 
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-tauri/src/chapter_division/
 git commit -m "feat: 章节划分结果事务化持久化"
 ```
@@ -684,13 +684,13 @@ commands::chapter_division::divide_chapters,
 - [ ] **Step 4: 编译检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo check 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo check 2>&1 | tail -20
 ```
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-tauri/src/commands/chapter_division.rs src-tauri/src/handlers.rs src-tauri/src/chapter_division/types.rs
 git commit -m "feat: divide_chapters Tauri 命令"
 ```
@@ -786,7 +786,7 @@ const handleWordCountChange = (value: string) => {
 - [ ] **Step 3: TypeScript 检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx tsc --noEmit 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-frontend && npx tsc --noEmit 2>&1 | tail -20
 ```
 
 预期：零错误。
@@ -794,7 +794,7 @@ cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx tsc --noEmit 2>&1 | ta
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-frontend/src/pages/settings/GeneralSettings.tsx
 git commit -m "feat: 后台设置页章节划分策略 UI"
 ```
@@ -924,13 +924,13 @@ const handleDivideChapters = async () => {
 - [ ] **Step 3: TypeScript 检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx tsc --noEmit 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-frontend && npx tsc --noEmit 2>&1 | tail -20
 ```
 
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-frontend/src/services/api/chapterDivision.ts src-frontend/src/pages/Stories.tsx
 git commit -m "feat: 故事管理页章节划分按钮与确认对话框"
 ```
@@ -1014,7 +1014,7 @@ describe('Stories chapter division', () => {
 - [ ] **Step 2: 运行测试**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx vitest run src/pages/__tests__/Stories.division.test.tsx 2>&1 | tail -20
+cd /Users/yuzaimu/projects/StoryMoss/src-frontend && npx vitest run src/pages/__tests__/Stories.division.test.tsx 2>&1 | tail -20
 ```
 
 预期：2 个测试通过。
@@ -1022,7 +1022,7 @@ cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx vitest run src/pages/_
 - [ ] **Step 3: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add src-frontend/src/pages/__tests__/Stories.division.test.tsx
 git commit -m "test: 故事管理页章节划分按钮测试"
 ```
@@ -1054,7 +1054,7 @@ git commit -m "test: 故事管理页章节划分按钮测试"
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge
+cd /Users/yuzaimu/projects/StoryMoss
 git add -A
 git commit -m "docs: 更新 v0.26.35 发布文档"
 ```
@@ -1066,18 +1066,18 @@ git commit -m "docs: 更新 v0.26.35 发布文档"
 - [ ] **Step 1: 运行完整测试**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo test --lib 2>&1 | tail -10
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo test --lib 2>&1 | tail -10
 ```
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-frontend && npx vitest run 2>&1 | tail -10
+cd /Users/yuzaimu/projects/StoryMoss/src-frontend && npx vitest run 2>&1 | tail -10
 ```
 
 - [ ] **Step 2: 格式与类型检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/src-tauri && cargo +nightly fmt -- --check
-cd /Users/yuzaimu/projects/StoryForge/src-frontend && npm run format:check && npx tsc --noEmit
+cd /Users/yuzaimu/projects/StoryMoss/src-tauri && cargo +nightly fmt -- --check
+cd /Users/yuzaimu/projects/StoryMoss/src-frontend && npm run format:check && npx tsc --noEmit
 ```
 
 - [ ] **Step 3: 提交（如需要）**

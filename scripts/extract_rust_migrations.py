@@ -4,7 +4,7 @@
 import re
 from pathlib import Path
 
-ROOT = Path("/Users/yuzaimu/projects/StoryForge")
+ROOT = Path("/Users/yuzaimu/projects/StoryMoss")
 SRC = ROOT / "src-tauri/src/db/connection.rs"
 OUT_DIR = ROOT / "src-tauri/src/db/migrations"
 

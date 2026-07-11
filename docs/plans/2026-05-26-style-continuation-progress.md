@@ -103,7 +103,7 @@
 
 1. **当前工作区有未提交改动** — 先确认是否需要调整：
    ```bash
-   cd /Users/yuzaimu/projects/StoryForge
+   cd /Users/yuzaimu/projects/StoryMoss
    git diff --stat          # 查看改动文件
    git diff --cached        # 查看暂存区
    ```

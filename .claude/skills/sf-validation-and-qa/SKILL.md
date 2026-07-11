@@ -1,9 +1,9 @@
 ---
 name: sf-validation-and-qa
-description: StoryForge 的证据标准、测试命令、门槛、golden inventory、如何加测试。何时加载：改完代码要跑验证、要加回归测试、CI 检查失败、要确认“算不算通过”、要跑跨层 golden fixture、或被问“怎么测/跑哪些/门槛是多少”时。
+description: StoryMoss 的证据标准、测试命令、门槛、golden inventory、如何加测试。何时加载：改完代码要跑验证、要加回归测试、CI 检查失败、要确认“算不算通过”、要跑跨层 golden fixture、或被问“怎么测/跑哪些/门槛是多少”时。
 ---
 
-# StoryForge 验证与 QA
+# StoryMoss 验证与 QA
 
 ## 证据标准（什么算“通过”）
 
@@ -45,7 +45,7 @@ python3 scripts/architecture_guard.py
 
 - Rust：`src-tauri/src/db/{repositories_tests,cascade_tests}.rs`、`canonical_state/tests.rs`、`task_system/{tests,integration_tests}.rs`、`prompts/registry.rs`、`creative_engine/anti_ai/`、`utils/{validation_tests,style_align,text,file}.rs`、`pipeline/{executor,refine,review}.rs`、`story_system/scene_service.rs`、`narrative/elements.rs`、`config/settings_tests.rs`。
 - 前端：`src-frontend/src/frontstage/{hooks,components}/*.test.{ts,tsx}`、`utils/*.test.ts`、`hooks/*.test.ts`、`services/*.test.ts`、`textCleanup.golden.test.ts`。
-- E2E：`e2e/*.spec.ts`（`storyforge`/`frontstage-editing`/`backstage-pages`/`navigation`/`context-menu`/`genesis-duplicate`/`performance/tiptap-benchmark`）。
+- E2E：`e2e/*.spec.ts`（`storymoss`/`frontstage-editing`/`backstage-pages`/`navigation`/`context-menu`/`genesis-duplicate`/`performance/tiptap-benchmark`）。
 
 ## 如何加测试（按场景）
 

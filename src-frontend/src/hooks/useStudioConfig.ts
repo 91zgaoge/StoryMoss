@@ -67,8 +67,8 @@ export function useExportStudio() {
 
       // Save to file
       const filePath = await save({
-        filters: [{ name: 'StoryForge Studio', extensions: ['storyforge'] }],
-        defaultPath: `${request.story_id}.storyforge`,
+        filters: [{ name: 'StoryMoss Studio', extensions: ['storymoss'] }],
+        defaultPath: `${request.story_id}.storymoss`,
       });
 
       if (filePath) {
@@ -87,7 +87,7 @@ export function useImportStudio() {
     mutationFn: async (options: ImportOptions) => {
       // Open file dialog
       const filePath = await open({
-        filters: [{ name: 'StoryForge Studio', extensions: ['storyforge'] }],
+        filters: [{ name: 'StoryMoss Studio', extensions: ['storymoss'] }],
         multiple: false,
       });
 

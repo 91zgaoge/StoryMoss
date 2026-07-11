@@ -305,7 +305,7 @@ mod tests {
 
     use crate::intention_graph::builder::IntentSynthesisPipeline;
 
-    /// 真实模型端点（从本机 StoryForge app_config 读取）
+    /// 真实模型端点（从本机 StoryMoss app_config 读取）
     const REAL_LLM_URL: &str = "http://10.62.239.13:17092/v1/chat/completions";
     const REAL_LLM_MODEL: &str = "gemma4-e2b";
 

@@ -1,4 +1,4 @@
-//! StoryForge Server — Linux 服务端主站
+//! StoryMoss Server — Linux 服务端主站
 //!
 //! v4.5.0: Actix-web + PostgreSQL + OAuth2
 
@@ -21,7 +21,7 @@ async fn main() -> std::io::Result<()> {
     // Initialize logger
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
-    log::info!("🚀 StoryForge Server v{}", env!("CARGO_PKG_VERSION"));
+    log::info!("🚀 StoryMoss Server v{}", env!("CARGO_PKG_VERSION"));
     log::info!("📡 Starting HTTP server on {}:{}", CONFIG.server_host, CONFIG.server_port);
 
     // Initialize database pool

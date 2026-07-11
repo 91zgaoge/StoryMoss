@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * StoryForge 测试助手 CLI
+ * StoryMoss 测试助手 CLI
  * 简化测试流程，一键截图、测试等功能
  */
 
@@ -22,7 +22,7 @@ const commands = {
    * 启动开发服务器
    */
   start: () => {
-    console.log('🚀 启动 StoryForge 开发服务器...');
+    console.log('🚀 启动 StoryMoss 开发服务器...');
     try {
       execSync('cd src-frontend && npm run dev', { 
         stdio: 'inherit',
@@ -69,7 +69,7 @@ const commands = {
   screenshot: () => {
     console.log('📸 截图所有页面...');
     try {
-      execSync('npx playwright test e2e/storyforge.spec.ts --grep "截图"', { 
+      execSync('npx playwright test e2e/storymoss.spec.ts --grep "截图"', { 
         stdio: 'inherit',
         cwd: path.join(__dirname, '..')
       });
@@ -84,7 +84,7 @@ const commands = {
   'shot:front': () => {
     console.log('📸 截图幕前界面...');
     try {
-      execSync('npx playwright test e2e/storyforge.spec.ts --grep "幕前界面加载"', { 
+      execSync('npx playwright test e2e/storymoss.spec.ts --grep "幕前界面加载"', { 
         stdio: 'inherit',
         cwd: path.join(__dirname, '..')
       });
@@ -99,7 +99,7 @@ const commands = {
   'shot:back': () => {
     console.log('📸 截图幕后界面...');
     try {
-      execSync('npx playwright test e2e/storyforge.spec.ts --grep "幕后仪表盘"', { 
+      execSync('npx playwright test e2e/storymoss.spec.ts --grep "幕后仪表盘"', { 
         stdio: 'inherit',
         cwd: path.join(__dirname, '..')
       });
@@ -174,7 +174,7 @@ const commands = {
    */
   help: () => {
     console.log(`
-🌿 StoryForge 测试助手
+🌿 StoryMoss 测试助手
 
 使用方法: node scripts/test-helper.js [command]
 

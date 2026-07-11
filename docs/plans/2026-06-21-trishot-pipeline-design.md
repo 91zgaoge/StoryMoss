@@ -8,7 +8,7 @@
 
 ### 问题
 
-当前 StoryForge 智能创作主流程存在两个核心痛点：
+当前 StoryMoss 智能创作主流程存在两个核心痛点：
 
 1. **资产注入是「笨拼接」**：`WriteTimeBundle::to_prompt()`（`creative_engine/write_time_bundle.rs:638-813`）把 ~17 个创作资产段落 `sections.join("\n\n")` 无差别堆砌，不区分与当前指令的相关性，不解决段落间冲突，不精炼。所有资产一股脑塞进 Writer，prompt 膨胀 → 本地慢模型生成慢。
 

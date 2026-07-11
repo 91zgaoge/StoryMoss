@@ -1,4 +1,4 @@
--- StoryForge Server v4.5.0 — 认证系统初始化
+-- StoryMoss Server v4.5.0 — 认证系统初始化
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

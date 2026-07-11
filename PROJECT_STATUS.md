@@ -1,7 +1,7 @@
-# StoryForge (草苔) v0.26.58 项目完成状态
+# StoryMoss (草苔) v0.26.58 项目完成状态
 
 > 最后更新: 2026-07-09（v0.26.58 修复 OpenAI/Deepseek top_p=0 健康检测失败）
-> GitHub: https://github.com/91zgaoge/StoryForge
+> GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
@@ -163,7 +163,7 @@
 - **L1 创作入口 UX 统一**：`CreationPathGuide` 卡片可点击；Dashboard “AI 创建故事”主按钮进入幕前 Genesis 流程。
 - **仪表盘统计卡修正**：“章节”改为“场景”，新增“字数”统计卡，数据源对齐 `useStories`。
 - **`memory/ingest` 测试补齐**：新增 5 条 happy/error 路径测试，不依赖 LLM。
-- **新增文档**：`docs/plans/2026-07-08-storyforge-phase1-execution-plan.md` 记录与综合优化计划的对照及执行方案。
+- **新增文档**：`docs/plans/2026-07-08-storymoss-phase1-execution-plan.md` 记录与综合优化计划的对照及执行方案。
 - ✅ **验证**：`cargo test --lib` 682 passed；`cargo +nightly fmt -- --check` 通过；`cargo clippy --lib` 通过；`npx vitest run` 222 passed / 3 skipped；`npx tsc --noEmit` / `architecture_guard.py` / `npm run format:check` 通过。
 
 ### v0.26.31 — 修复幕前状态栏体验、策略解析鲁棒性与新数据库 schema（2026-07-08）

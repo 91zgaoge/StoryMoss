@@ -1,4 +1,4 @@
-# StoryForge v3.5.2 剩余修复实施计划书
+# StoryMoss v3.5.2 剩余修复实施计划书
 
 > 制定时间: 2026-04-22
 > 基于: `docs/FULL_CODE_AUDIT_REPORT.md` 审计报告

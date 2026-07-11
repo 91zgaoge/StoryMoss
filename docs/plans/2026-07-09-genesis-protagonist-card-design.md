@@ -4,7 +4,7 @@
 > **路线：** A — Character Card Enforcement  
 > **约束：** 先创世后续写 · 延迟优先（p95 ≤90s）· 零新增 LLM  
 > **双目标：** ① 人物辨识度 ② 冲突与目标清晰（开篇就知道要什么、阻力是什么）  
-> **画布：** [genesis-protagonist-card-design.canvas.tsx](file:///Users/yuzaimu/.cursor/projects/Users-yuzaimu-projects-StoryForge/canvases/genesis-protagonist-card-design.canvas.tsx)
+> **画布：** [genesis-protagonist-card-design.canvas.tsx](file:///Users/yuzaimu/.cursor/projects/Users-yuzaimu-projects-StoryMoss/canvases/genesis-protagonist-card-design.canvas.tsx)
 
 ## 1. 问题
 

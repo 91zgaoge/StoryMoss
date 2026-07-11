@@ -1,4 +1,4 @@
-# StoryForge (草苔) v0.23.61 功能清单
+# StoryMoss (草苔) v0.23.61 功能清单
 
 > 按幕前幕后双界面架构整理，当前项目版本：**v0.23.61**
 >
@@ -281,7 +281,7 @@ Layer 1: Raw Sources (原始内容)
 
 #### 配置结构
 ```
-~/.config/storyforge/studios/{story_id}/
+~/.config/storymoss/studios/{story_id}/
 ├── studio.json          # 工作室主配置
 ├── llm_config.json      # LLM配置
 ├── ui_config.json       # 界面配置
@@ -289,7 +289,7 @@ Layer 1: Raw Sources (原始内容)
 ```
 
 #### 导入/导出
-- **导出** - `.storyforge` ZIP 格式
+- **导出** - `.storymoss` ZIP 格式
 - **导入** - 选择性导入配置模块
 - **冲突处理** - 同名小说检测
 

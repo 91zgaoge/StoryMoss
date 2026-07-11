@@ -232,7 +232,7 @@ export function GeneralSettings({
                   <span className="text-white font-serif text-2xl font-bold">草</span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white">StoryForge (草苔)</h3>
+                  <h3 className="text-lg font-medium text-white">StoryMoss (草苔)</h3>
                   <p className="text-gray-400">当前版本: v{currentVersion}</p>
                   {hasUpdate && !isInstalling && (
                     <p className="text-terracotta text-sm">新版本可用: v{latestVersion}</p>

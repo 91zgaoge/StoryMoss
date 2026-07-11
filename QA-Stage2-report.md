@@ -1,4 +1,4 @@
-# StoryForge 阶段二修复验证报告（QA-Stage2）
+# StoryMoss 阶段二修复验证报告（QA-Stage2）
 
 > 验证人：B5
 > 日期：2026-06-13

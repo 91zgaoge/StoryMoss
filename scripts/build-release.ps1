@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    StoryForge 生产版本一键构建脚本
+    StoryMoss 生产版本一键构建脚本
 .DESCRIPTION
     执行完整生产构建流程：前端构建 → Rust release 编译 → MSI/NSIS 打包
     构建产物：.exe / .msi / -setup.exe
@@ -35,7 +35,7 @@ $frontendDir = Join-Path $projectRoot 'src-frontend'
 $tauriDir = Join-Path $projectRoot 'src-tauri'
 $startTime = Get-Date
 
-Write-Info "StoryForge v5.3.1 生产构建开始"
+Write-Info "StoryMoss v5.3.1 生产构建开始"
 Write-Info "项目根目录: $projectRoot"
 Write-Info "构建目标: $Target"
 
@@ -74,7 +74,7 @@ Write-Success "Rust release 编译完成"
 Write-Info "Phase 3/3: 打包安装程序..."
 
 # 构建产物路径
-$exePath = Join-Path $tauriDir 'target\release\storyforge.exe'
+$exePath = Join-Path $tauriDir 'target\release\storymoss.exe'
 $bundleDir = Join-Path $tauriDir 'target\release\bundle'
 
 if ($Target -eq 'exe' -or $Target -eq 'all') {
@@ -130,7 +130,7 @@ Write-Info "产物目录: $bundleDir"
 # 显示日志系统信息
 Write-Host ""
 Write-Host "📋 日志系统信息" -ForegroundColor Magenta
-Write-Host "  日志目录: %APPDATA%\storyforge\logs\" -ForegroundColor Gray
+Write-Host "  日志目录: %APPDATA%\storymoss\logs\" -ForegroundColor Gray
 Write-Host "  日志级别: 生产环境 info，开发环境 debug" -ForegroundColor Gray
 Write-Host "  日志保留: 7天自动清理，单文件10MB上限" -ForegroundColor Gray
 Write-Host "  前端日志: warn/error 自动同步到后端日志文件" -ForegroundColor Gray

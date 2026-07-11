@@ -1451,7 +1451,7 @@ mod tests {
     /// would panic on startup).
     #[test]
     fn issue_4_init_db_failure_returns_err_on_unwritable_app_dir() {
-        let dir = std::env::temp_dir().join(format!("storyforge_issue4_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("storymoss_issue4_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
@@ -1485,7 +1485,7 @@ mod tests {
     #[test]
     fn init_db_succeeds_on_fresh_directory() {
         let dir =
-            std::env::temp_dir().join(format!("storyforge_fresh_init_{}", std::process::id()));
+            std::env::temp_dir().join(format!("storymoss_fresh_init_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         let pool = init_db(&dir, None).expect("fresh init_db should succeed");

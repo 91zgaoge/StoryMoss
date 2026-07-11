@@ -141,7 +141,7 @@ No separate confirmation is required or allowed.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **StoryForge** (19433 symbols, 39706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **StoryMoss** (19433 symbols, 39706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -165,10 +165,10 @@ This project is indexed by GitNexus as **StoryForge** (19433 symbols, 39706 rela
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/StoryForge/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/StoryForge/clusters` | All functional areas |
-| `gitnexus://repo/StoryForge/processes` | All execution flows |
-| `gitnexus://repo/StoryForge/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/StoryMoss/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/StoryMoss/clusters` | All functional areas |
+| `gitnexus://repo/StoryMoss/processes` | All execution flows |
+| `gitnexus://repo/StoryMoss/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

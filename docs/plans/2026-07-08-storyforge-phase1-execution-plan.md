@@ -1,6 +1,6 @@
-# StoryForge 综合优化计划 — 阶段一执行方案
+# StoryMoss 综合优化计划 — 阶段一执行方案
 
-> **关联计划**：`docs/plans/2026-07-07-storyforge-comprehensive-optimization-plan.md`  
+> **关联计划**：`docs/plans/2026-07-07-storymoss-comprehensive-optimization-plan.md`  
 > **当前版本**：v0.26.31（已修复 6 项 UI/后端热修复并通过 CI）  
 > **目标版本**：v0.26.32  
 > **日期**：2026-07-08
@@ -29,7 +29,7 @@
 - `cargo clippy --lib`：通过
 - `python3 scripts/architecture_guard.py`：PASSED
 - GitHub Actions run `28929492984`：✅ 全部成功（包含 Windows tauri-build）
-- Tag `v0.26.31` 已推送：`https://github.com/91zgaoge/StoryForge/actions/runs/28929492984`
+- Tag `v0.26.31` 已推送：`https://github.com/91zgaoge/StoryMoss/actions/runs/28929492984`
 
 ### GitHub Issues
 
@@ -39,7 +39,7 @@
 
 ## 二、与综合优化计划的对照
 
-`docs/plans/2026-07-07-storyforge-comprehensive-optimization-plan.md` 规划了 v0.26.25–v0.26.28 四个阶段。当前实际版本为 v0.26.31，说明原计划版本号未按预期推进。以下按阶段核对完成度：
+`docs/plans/2026-07-07-storymoss-comprehensive-optimization-plan.md` 规划了 v0.26.25–v0.26.28 四个阶段。当前实际版本为 v0.26.31，说明原计划版本号未按预期推进。以下按阶段核对完成度：
 
 | 阶段 | 目标版本 | 完成度 | 说明 |
 |------|----------|--------|------|
@@ -147,12 +147,12 @@ cd src-frontend && npx vitest run
 cd src-frontend && npx tsc --noEmit
 
 # 后端
-cd /Users/yuzaimu/projects/StoryForge && cargo test --lib
-cd /Users/yuzaimu/projects/StoryForge && cargo +nightly fmt -- --check
-cd /Users/yuzaimu/projects/StoryForge && cargo clippy --lib
+cd /Users/yuzaimu/projects/StoryMoss && cargo test --lib
+cd /Users/yuzaimu/projects/StoryMoss && cargo +nightly fmt -- --check
+cd /Users/yuzaimu/projects/StoryMoss && cargo clippy --lib
 
 # 架构守卫
-cd /Users/yuzaimu/projects/StoryForge && python3 scripts/architecture_guard.py
+cd /Users/yuzaimu/projects/StoryMoss && python3 scripts/architecture_guard.py
 
 # 格式化
 cd src-frontend && npm run format:check

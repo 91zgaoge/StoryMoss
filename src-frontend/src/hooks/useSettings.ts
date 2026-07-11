@@ -85,7 +85,7 @@ export function useExportSettings() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `storyforge-settings-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `storymoss-settings-${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

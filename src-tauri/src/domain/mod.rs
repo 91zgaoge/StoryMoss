@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-//! StoryForge 中性领域类型模块
+//! StoryMoss 中性领域类型模块
 //!
 //! 本模块只包含纯数据结构（DTO / Value Objects /
 //! Entities），不依赖任何业务模块。 目标：切断 `db`、`narrative`、

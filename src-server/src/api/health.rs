@@ -11,7 +11,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().json(json!({
         "status": "ok",
-        "service": "storyforge-server",
+        "service": "storymoss-server",
         "version": env!("CARGO_PKG_VERSION"),
         "timestamp": chrono::Utc::now().to_rfc3339(),
     }))

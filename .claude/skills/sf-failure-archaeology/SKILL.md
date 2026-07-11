@@ -1,9 +1,9 @@
 ---
 name: sf-failure-archaeology
-description: StoryForge 重大调查、死路、被拒修复、revert 的编年史（symptom→root cause→evidence→status），防止重打已定胜负的仗。何时加载：要修一个反复出现的 bug、要判断某修复方向是否已被试过、看到“第一章重复/卡死/死锁/超时/JSON 空/启动崩溃”等历史问题复现、或被问“这问题以前怎么修的”时。
+description: StoryMoss 重大调查、死路、被拒修复、revert 的编年史（symptom→root cause→evidence→status），防止重打已定胜负的仗。何时加载：要修一个反复出现的 bug、要判断某修复方向是否已被试过、看到“第一章重复/卡死/死锁/超时/JSON 空/启动崩溃”等历史问题复现、或被问“这问题以前怎么修的”时。
 ---
 
-# StoryForge 失败考古
+# StoryMoss 失败考古
 
 > 目的：每个已定胜负的战役写清 symptom→root cause→evidence→status，让后来者不再重打。**改一个“似曾相识”的 bug 前先查这里。**
 

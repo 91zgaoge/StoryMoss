@@ -1,7 +1,7 @@
 # Brooks-Lint Review
 
 **Mode:** Architecture Audit
-**Scope:** StoryForge (草苔) v0.22.4 全项目 — Rust 后端 (`src-tauri/src`)、前端 (`src-frontend/src`)、模板与资产 (`templates/`)
+**Scope:** StoryMoss (草苔) v0.22.4 全项目 — Rust 后端 (`src-tauri/src`)、前端 (`src-frontend/src`)、模板与资产 (`templates/`)
 **Health Score:** 18/100
 
 项目核心架构存在严重的层间循环依赖：约半数后端模块构成一个巨型强连通分量，数据层反向依赖领域层，生成/记忆/编排层彼此纠缠，导致变更传播半径过大、单元测试困难、核心子系统难以独立演化。
@@ -264,7 +264,7 @@ Remedy: 在编排层（`agents`/`commands`）统一消费 `router`，通过 `Pla
 
 ## Summary
 
-StoryForge v0.22.4 的功能迭代非常密集（Genesis、拆书、Story System、PromptRegistry、意图图等），但架构层正在承受快速增长带来的耦合压力。最紧迫的问题是 **20 模块强连通分量** 和 **数据层反向依赖领域层**，它们已经导致核心域无法独立演化。建议优先执行两项结构性改革：
+StoryMoss v0.22.4 的功能迭代非常密集（Genesis、拆书、Story System、PromptRegistry、意图图等），但架构层正在承受快速增长带来的耦合压力。最紧迫的问题是 **20 模块强连通分量** 和 **数据层反向依赖领域层**，它们已经导致核心域无法独立演化。建议优先执行两项结构性改革：
 
 1. **提取中性领域类型模块**，切断 `db ↔ narrative`、`creative_engine ↔ agents`、`memory ↔ agents` 的循环依赖；
 2. **将全局基础设施访问点改为注入式 seams**，为 DB、LLM、向量存储引入 trait，使核心域能够脱离真实基础设施进行单元测试。

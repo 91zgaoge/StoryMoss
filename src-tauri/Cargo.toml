@@ -1,5 +1,5 @@
 [package]
-name = "storyforge"
+name = "storymoss"
 version = "0.26.58"
 edition = "2021"
 
@@ -110,5 +110,5 @@ default = ["custom-protocol"]
 custom-protocol = []
 
 [lib]
-name = "storyforge_lib"
+name = "storymoss_lib"
 crate-type = ["lib", "cdylib"]

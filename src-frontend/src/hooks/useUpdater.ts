@@ -47,7 +47,7 @@ export interface UseUpdaterReturn {
 /** 检查指定版本是否处于忽略冷却期 */
 function isVersionDismissed(version: string): boolean {
   try {
-    const stored = localStorage.getItem('storyforge_dismissed_update');
+    const stored = localStorage.getItem('storymoss_dismissed_update');
     if (!stored) return false;
     const { version: dismissedVersion, timestamp } = JSON.parse(stored);
     if (dismissedVersion !== version) return false;
@@ -61,7 +61,7 @@ function isVersionDismissed(version: string): boolean {
 /** 记录忽略版本（7天冷却） */
 function dismissVersion(version: string) {
   localStorage.setItem(
-    'storyforge_dismissed_update',
+    'storymoss_dismissed_update',
     JSON.stringify({ version, timestamp: Date.now() })
   );
 }

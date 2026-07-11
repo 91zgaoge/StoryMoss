@@ -1,5 +1,5 @@
 [package]
-name = "storyforge-server"
+name = "storymoss-server"
 version = "4.5.0"
 edition = "2021"
 

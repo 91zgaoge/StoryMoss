@@ -353,7 +353,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: storyforge-pr-${{ matrix.os }}
+          name: storymoss-pr-${{ matrix.os }}
           path: |
             src-tauri/target/**/bundle/dmg/*.dmg
             src-tauri/target/**/bundle/deb/*.deb
@@ -389,7 +389,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v${{ steps.get_version.outputs.version }}-nightly
-          releaseName: 'StoryForge v${{ steps.get_version.outputs.version }} Nightly'
+          releaseName: 'StoryMoss v${{ steps.get_version.outputs.version }} Nightly'
           releaseBody: |
             ## 新增
             - Nightly 自动构建版本
@@ -410,7 +410,7 @@ jobs:
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: storyforge-nightly-${{ matrix.os }}
+          name: storymoss-nightly-${{ matrix.os }}
           path: |
             src-tauri/target/**/bundle/dmg/*.dmg
             src-tauri/target/**/bundle/deb/*.deb
@@ -437,7 +437,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'StoryForge ${{ github.ref_name }}'
+          releaseName: 'StoryMoss ${{ github.ref_name }}'
           releaseBody: |
             ## 新增
             - 详见 CHANGELOG.md
@@ -466,7 +466,7 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: storyforge-stable-${{ matrix.os }}
+          name: storymoss-stable-${{ matrix.os }}
           path: |
             src-tauri/target/**/bundle/dmg/*.dmg
             src-tauri/target/**/bundle/deb/*.deb
@@ -489,14 +489,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          URL="https://github.com/91zgaoge/StoryForge/releases/download/${TAG}/latest.json"
+          URL="https://github.com/91zgaoge/StoryMoss/releases/download/${TAG}/latest.json"
           echo "Checking ${URL}"
           for i in $(seq 1 36); do
             if curl -fsSIL "$URL" >/dev/null 2>&1; then
               echo "✅ latest.json present on ${TAG}"
               curl -fsSL "$URL" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("version=", d.get("version")); print("platforms=", sorted((d.get("platforms") or {}).keys()))'
               # 同时确认 /releases/latest 指向本 tag（非 prerelease）
-              LATEST=$(gh api repos/91zgaoge/StoryForge/releases/latest --jq .tag_name)
+              LATEST=$(gh api repos/91zgaoge/StoryMoss/releases/latest --jq .tag_name)
               echo "GitHub /releases/latest -> ${LATEST}"
               if [ "$LATEST" != "$TAG" ]; then
                 echo "::warning::/releases/latest is ${LATEST}, not ${TAG}. Updater endpoint follows GitHub latest."

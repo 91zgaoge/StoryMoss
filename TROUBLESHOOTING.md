@@ -1,4 +1,4 @@
-# StoryForge 故障排除指南
+# StoryMoss 故障排除指南
 
 ## 常见问题
 
@@ -18,7 +18,7 @@ netstat -an | findstr "5173"
 
 # 清理占用端口的进程
 taskkill /F /IM node.exe
-taskkill /F /IM storyforge.exe
+taskkill /F /IM storymoss.exe
 
 # 重新启动应用
 cd src-frontend && npm run dev

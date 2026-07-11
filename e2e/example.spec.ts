@@ -4,7 +4,7 @@ import { getMockTauriInitScript } from './mock-tauri';
 /**
  * 基本冒烟测试 — 验证应用能启动且核心页面可达
  */
-test.describe('StoryForge 基本冒烟测试', () => {
+test.describe('StoryMoss 基本冒烟测试', () => {
   test('首页加载并显示 body', async ({ page }) => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/');

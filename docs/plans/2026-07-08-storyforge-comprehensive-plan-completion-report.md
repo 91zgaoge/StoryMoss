@@ -1,6 +1,6 @@
-# StoryForge 综合优化实施方案 — 完成度验收报告
+# StoryMoss 综合优化实施方案 — 完成度验收报告
 
-> **关联计划**：`docs/plans/2026-07-07-storyforge-comprehensive-optimization-plan.md`  
+> **关联计划**：`docs/plans/2026-07-07-storymoss-comprehensive-optimization-plan.md`  
 > **验收版本**：v0.26.29（2026-07-08）  
 > **验收人**：AI Assistant  
 
@@ -8,7 +8,7 @@
 
 ## 1. 验收结论
 
-`2026-07-07-storyforge-comprehensive-optimization-plan.md` 中规划的 **四个阶段全部完成**，并额外修复了 v0.26.28 prompts 外部化后引入的策略选择 JSON schema 不匹配问题。当前 `master`（`235b311`）状态健康，所有质量门禁通过。
+`2026-07-07-storymoss-comprehensive-optimization-plan.md` 中规划的 **四个阶段全部完成**，并额外修复了 v0.26.28 prompts 外部化后引入的策略选择 JSON schema 不匹配问题。当前 `master`（`235b311`）状态健康，所有质量门禁通过。
 
 | 阶段 | 版本目标 | 状态 | 关键交付物 |
 |------|----------|------|------------|
@@ -89,8 +89,8 @@ python3 scripts/architecture_guard.py   # PASSED ✅
 ```
 
 本地 `cargo tauri build`（macOS aarch64）已通过，产物：
-- `target/release/bundle/macos/StoryForge.app`
-- `target/release/bundle/dmg/StoryForge_0.26.29_aarch64.dmg`
+- `target/release/bundle/macos/StoryMoss.app`
+- `target/release/bundle/dmg/StoryMoss_0.26.29_aarch64.dmg`
 
 ---
 

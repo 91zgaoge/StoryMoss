@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * StoryForge CDP 页面检查与截图脚本
+ * StoryMoss CDP 页面检查与截图脚本
  * 使用 Playwright + Chrome DevTools Protocol 遍历应用所有视图，
  * 捕获截图并提取关键交互元素信息，用于生成产品说明文档。
  */

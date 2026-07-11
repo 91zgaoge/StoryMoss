@@ -1,4 +1,4 @@
-# StoryForge Server Stack
+# StoryMoss Server Stack
 # v4.5.0 — Linux 服务端一键部署
 #
 # 使用方法:
@@ -11,18 +11,18 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: storyforge-postgres
+    container_name: storymoss-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-storyforge}
+      POSTGRES_USER: ${POSTGRES_USER:-storymoss}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-storyforge}
+      POSTGRES_DB: ${POSTGRES_DB:-storymoss}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storyforge}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storymoss}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,13 +31,13 @@ services:
     build:
       context: ./src-server
       dockerfile: Dockerfile
-    container_name: storyforge-server
+    container_name: storymoss-server
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-storyforge}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-storyforge}
+      DATABASE_URL: postgres://${POSTGRES_USER:-storymoss}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-storymoss}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
@@ -57,7 +57,7 @@ services:
     build:
       context: ./src-server-web
       dockerfile: Dockerfile
-    container_name: storyforge-web
+    container_name: storymoss-web
     restart: unless-stopped
     depends_on:
       - server

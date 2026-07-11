@@ -1,4 +1,4 @@
-# StoryForge 模块职责清单
+# StoryMoss 模块职责清单
 
 > 本文档定义 `src-tauri/src` 各顶层模块的职责边界与依赖规则，用于防止架构腐化回潮。  
 > 配套工具：`scripts/architecture_guard.py`（CI 中运行）。
