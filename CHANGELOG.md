@@ -4,9 +4,20 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ## [Unreleased]
 
+## [v0.26.59] - StoryForge → StoryMoss 品牌收尾，官网落地页上线（2026-07-11）
+
 ### 功能
 
-- **官网落地页**：新增 `landing/` 独立站点，采用暖赭文学风格，面向新用户引导下载桌面版。技术栈为 React 18 + Vite 6 + Tailwind CSS 3 + Framer Motion，包含 Hero 书写动效、痛点区、幕后/幕前双空间、功能长卷、分时介入架构强调区、下载 CTA 与页脚。支持 `prefers-reduced-motion` 与移动端响应式布局。
+- **官网落地页上线**：`landing/` 独立站点部署到 `https://ai.91z.net`，面向新用户展示产品核心卖点并引导下载桌面版。技术栈为 React 18 + Vite 6 + Tailwind CSS 3 + Framer Motion，包含 Hero、痛点区、幕后/幕前双空间、Genesis 创世流程、分时介入架构、功能长卷、下载 CTA 与页脚，支持 `prefers-reduced-motion` 与移动端响应式布局。
+- **平台感知下载按钮**：落地页根据访问者操作系统自动提供 macOS / Windows / Linux 对应安装包下载链接，点击直接触发下载。
+
+### 重构 / 品牌
+
+- 完成 StoryForge → StoryMoss 全局重命名：所有文档、GitHub 仓库元数据、Release 标题、CI 配置与 Tauri 产物名统一为 StoryMoss。
+
+### 验证
+
+- `npx vitest run`（landing）：19 passed ✅
 
 ## [v0.26.58] - 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败（2026-07-09）
 

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.26.58
+- **版本**: v0.26.59
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,6 +80,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.26.59 — StoryForge → StoryMoss 品牌收尾，官网落地页上线
+
+- **品牌重命名**：完成仓库文档、CI、Tauri 配置与 GitHub Release 的 StoryForge → StoryMoss 全局替换。
+- **官网落地页**：`landing/` 站点部署至 `https://ai.91z.net`，重写产品介绍并加入 Logo；下载按钮按平台自动匹配安装包。
+- **验证**：landing 19 tests passed。
 
 ### v0.26.58 — 修复 OpenAI/Deepseek 模型因 top_p=0 健康检测失败
 

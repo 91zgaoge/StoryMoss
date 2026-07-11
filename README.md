@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.58-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.26.59-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败；v0.26.57 自动划分章节 + 导出本地保存对话框 + 提示词目录本地打开；v0.26.56 契约测试串行化；v0.26.55 幕后模型列表可开启/关闭。
+**最新动态**：v0.26.59 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
 
 **上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
 

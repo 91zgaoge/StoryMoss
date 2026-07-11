@@ -1,11 +1,17 @@
-# StoryMoss (草苔) v0.26.58 项目完成状态
+# StoryMoss (草苔) v0.26.59 项目完成状态
 
-> 最后更新: 2026-07-09（v0.26.58 修复 OpenAI/Deepseek top_p=0 健康检测失败）
+> 最后更新: 2026-07-11（v0.26.59 完成 StoryForge → StoryMoss 品牌收尾并上线官网落地页）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.26.59 — StoryForge → StoryMoss 品牌收尾，官网落地页上线（2026-07-11）
+
+- 完成仓库 tracked 文件 StoryForge → StoryMoss 全局替换；GitHub Release 标题更新为 StoryMoss。
+- `landing/` 官网站点部署至 `https://ai.91z.net`，重写 Hero / ValueProp 产品介绍，加入 Logo，新增平台感知下载按钮。
+- ✅ **验证**：landing `npx vitest run` 19 passed。
 
 ### v0.26.58 — 修复 OpenAI/Deepseek 因 top_p=0 健康检测失败（2026-07-09）
 

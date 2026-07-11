@@ -1,13 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.26.58)
+# 🧪 StoryMoss 自动化测试环境 (v0.26.59)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.26.58 变更说明
+### v0.26.59 变更说明
 
-- 新增 `llm::openai::tests::sanitize_top_p_keeps_valid_values`，验证 `top_p` 非法值（≤0、>1）被过滤，合法值保留。
-- 全量基线：`cargo test --lib` 770 passed。
+- 新增官网落地页组件测试（landing）：`DownloadButton` 平台检测与链接断言 8 tests；全量 landing 19 passed。
+- 无 Rust/前端应用逻辑变更，全量基线保持 `cargo test --lib` 770 passed、`npx vitest run` 292 passed。
 
 ### v0.26.57 变更说明
 

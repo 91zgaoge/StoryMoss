@@ -61,7 +61,7 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mx-auto mb-10 max-w-[600px] text-sm text-stone"
         >
-          v0.26.58 · 本地运行 · 开源可审计 · Windows / macOS / Linux
+          v0.26.59 · 本地运行 · 开源可审计 · Windows / macOS / Linux
         </motion.p>
 
         <motion.div

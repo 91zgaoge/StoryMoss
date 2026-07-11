@@ -19,7 +19,7 @@ describe('DownloadButton', () => {
   it('points to GitHub release asset', () => {
     render(<DownloadButton variant="primary" />);
     const link = screen.getByRole('link', { name: /下载 macOS 版/i }) as HTMLAnchorElement;
-    expect(link.href).toContain('github.com/91zgaoge/StoryMoss/releases/download/v0.26.58');
+    expect(link.href).toContain('github.com/91zgaoge/StoryMoss/releases/download/v0.26.59');
     expect(link.href).toMatch(/\.dmg$/);
   });
 
