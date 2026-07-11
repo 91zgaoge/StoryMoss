@@ -2,13 +2,13 @@ import type { ReactNode, AnchorHTMLAttributes } from 'react';
 import { useEffect, useState } from 'react';
 
 const RELEASE_BASE =
-  'https://github.com/91zgaoge/StoryMoss/releases/download/v0.26.59';
+  'https://github.com/91zgaoge/StoryMoss/releases/download/v0.26.58';
 
 const ASSETS = {
-  mac: `${RELEASE_BASE}/StoryMoss_0.26.59_aarch64.dmg`,
-  macIntel: `${RELEASE_BASE}/StoryMoss_0.26.59_x64.dmg`,
-  windows: `${RELEASE_BASE}/StoryMoss_0.26.59_x64-setup.exe`,
-  linux: `${RELEASE_BASE}/StoryMoss_0.26.59_amd64.AppImage`,
+  mac: `${RELEASE_BASE}/StoryForge_0.26.58_aarch64.dmg`,
+  macIntel: `${RELEASE_BASE}/StoryForge_0.26.58_x64.dmg`,
+  windows: `${RELEASE_BASE}/StoryForge_0.26.58_x64-setup.exe`,
+  linux: `${RELEASE_BASE}/StoryForge_0.26.58_amd64.AppImage`,
 };
 
 export type Platform = 'mac' | 'macIntel' | 'windows' | 'linux' | 'unknown';
