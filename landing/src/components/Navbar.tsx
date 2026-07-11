@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
-import { InkButton } from './InkButton';
+import { DownloadButton } from './DownloadButton';
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -50,16 +50,13 @@ export function Navbar() {
               {l.label}
             </a>
           ))}
-          <InkButton
-            as="a"
-            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
-            target="_blank"
-            rel="noreferrer"
+          <DownloadButton
             variant="primary"
             className="px-5 py-2 text-xs"
+            aria-label="免费下载"
           >
             免费下载
-          </InkButton>
+          </DownloadButton>
         </div>
 
         <button
@@ -87,9 +84,9 @@ export function Navbar() {
               </li>
             ))}
             <li>
-              <InkButton variant="primary" className="w-full">
+              <DownloadButton variant="primary" className="w-full">
                 免费下载
-              </InkButton>
+              </DownloadButton>
             </li>
           </ul>
         </div>

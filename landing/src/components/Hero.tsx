@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { DownloadButton } from './DownloadButton';
 import { InkButton } from './InkButton';
 import { ChevronDown } from 'lucide-react';
 
@@ -31,13 +32,13 @@ export function Hero() {
         variants={reduced ? undefined : container}
         initial="hidden"
         animate="visible"
-        className="max-w-[720px]"
+        className="max-w-[760px]"
       >
         <motion.div variants={reduced ? undefined : child} className="mb-6 flex justify-center">
           <img
             src="/logo.png"
             alt="StoryMoss 草苔"
-            className="h-16 w-16 object-contain"
+            className="h-20 w-20 object-contain"
           />
         </motion.div>
 
@@ -45,46 +46,41 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mb-6 text-[40px] leading-[1.12] tracking-[-0.02em] text-ink md:text-[64px]"
         >
-          把一句话创意，<br className="hidden md:block" />
-          变成一本有序的小说
+          写长篇小说，<br className="hidden md:block" />
+          终于有一间自己的工作室
         </motion.h1>
 
         <motion.p
           variants={reduced ? undefined : child}
-          className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
+          className="mx-auto mb-4 max-w-[640px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          草苔 StoryMoss 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
+          草苔 StoryMoss 是专为长篇小说作者打造的 AI 创作系统：幕后用知识图谱、伏笔看板、角色与世界观把创作资产管清楚；幕前给你无干扰的写作台，AI 在需要时续写、润色、审校，创作主权始终在你。
         </motion.p>
 
         <motion.p
           variants={reduced ? undefined : child}
           className="mx-auto mb-10 max-w-[600px] text-sm text-stone"
         >
-          v0.26.58 · 本地运行 · 开源可审计
+          v0.26.58 · 本地运行 · 开源可审计 · Windows / macOS / Linux
         </motion.p>
 
         <motion.div
           variants={reduced ? undefined : child}
           className="flex flex-col items-center justify-center gap-4 sm:flex-row"
         >
+          <DownloadButton variant="primary" />
           <InkButton
             as="a"
-            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
-            target="_blank"
-            rel="noreferrer"
-            variant="primary"
+            href="#approach"
+            variant="secondary"
+            className="group"
           >
-            免费下载桌面版
+            了解草苔如何工作
+            <ChevronDown
+              className="ml-1 inline-block transition-transform group-hover:translate-y-0.5"
+              size={16}
+            />
           </InkButton>
-          <a href="#genesis">
-            <InkButton variant="secondary" className="group">
-              看 Genesis 如何工作
-              <ChevronDown
-                className="ml-1 inline-block transition-transform group-hover:translate-y-0.5"
-                size={16}
-              />
-            </InkButton>
-          </a>
         </motion.div>
       </motion.div>
     </section>

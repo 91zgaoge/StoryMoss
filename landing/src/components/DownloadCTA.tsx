@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useReducedMotion } from '../hooks/useReducedMotion';
-import { InkButton } from './InkButton';
+import { DownloadButton } from './DownloadButton';
 
 export function DownloadCTA() {
   const reduced = useReducedMotion();
@@ -36,16 +36,10 @@ export function DownloadCTA() {
           Windows / macOS / Linux 桌面版免费下载。本地运行，数据归你。
         </motion.p>
         <motion.div variants={reduced ? undefined : item}>
-          <InkButton
-            as="a"
-            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
-            target="_blank"
-            rel="noreferrer"
+          <DownloadButton
             variant="primary"
             className="px-10 py-4 text-base"
-          >
-            立即下载
-          </InkButton>
+          />
         </motion.div>
         <motion.p variants={reduced ? undefined : item} className="mt-4 text-sm text-charcoal">
           开源项目，源代码可在 GitHub 查看
