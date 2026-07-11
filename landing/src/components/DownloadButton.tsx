@@ -2,13 +2,12 @@ import type { ReactNode, AnchorHTMLAttributes } from 'react';
 import { useEffect, useState } from 'react';
 
 const RELEASE_BASE =
-  'https://github.com/91zgaoge/StoryMoss/releases/download/v0.26.58';
+  'https://github.com/91zgaoge/StoryMoss/releases/download/v0.26.59';
 
 const ASSETS = {
-  mac: `${RELEASE_BASE}/StoryForge_0.26.58_aarch64.dmg`,
-  macIntel: `${RELEASE_BASE}/StoryForge_0.26.58_x64.dmg`,
-  windows: `${RELEASE_BASE}/StoryForge_0.26.58_x64-setup.exe`,
-  linux: `${RELEASE_BASE}/StoryForge_0.26.58_amd64.AppImage`,
+  mac: `${RELEASE_BASE}/StoryMoss_0.26.59_aarch64.dmg`,
+  windows: `${RELEASE_BASE}/StoryMoss_0.26.59_x64_zh-CN.msi`,
+  linux: `${RELEASE_BASE}/StoryMoss_0.26.59_amd64.AppImage`,
 };
 
 export type Platform = 'mac' | 'macIntel' | 'windows' | 'linux' | 'unknown';
@@ -32,10 +31,10 @@ export function detectPlatform(): Platform {
 }
 
 export function downloadUrl(platform: Platform): string {
-  if (platform === 'macIntel') return ASSETS.macIntel;
   if (platform === 'windows') return ASSETS.windows;
   if (platform === 'linux') return ASSETS.linux;
   if (platform === 'mac') return ASSETS.mac;
+  // macIntel and unknown fall back to the releases page so users can pick a build.
   return 'https://github.com/91zgaoge/StoryMoss/releases/latest';
 }
 
