@@ -1,5 +1,6 @@
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { BrandSlogan } from './components/BrandSlogan';
 import { ValueProp } from './components/ValueProp';
 import { PainPoints } from './components/PainPoints';
 import { BackstageFrontstage } from './components/BackstageFrontstage';
@@ -17,6 +18,7 @@ export default function App() {
       <Navbar />
       <main>
         <Hero />
+        <BrandSlogan />
         <ValueProp />
         <PainPoints />
         <BackstageFrontstage />
