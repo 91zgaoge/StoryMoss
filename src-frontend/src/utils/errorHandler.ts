@@ -1,5 +1,5 @@
 /**
- * StoryForge 统一错误处理系统
+ * StoryMoss 统一错误处理系统
  *
  * 对接后端 AppError 结构化错误：{ code, message, data }
  * 根据 code 渲染差异化恢复 UI。

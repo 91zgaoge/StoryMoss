@@ -1,19 +1,19 @@
 <!--
 Sync Impact Report:
 - Version change: template → 1.0.0
-- Modified principles: All placeholders replaced with StoryForge-specific principles
+- Modified principles: All placeholders replaced with StoryMoss-specific principles
 - Added sections: Technology Stack, Build & Release Policy, UI/UX Design System
 - Removed sections: None (all template placeholders filled)
 - Templates requiring updates: plan-template.md, spec-template.md, tasks-template.md (core templates align)
 - Follow-up TODOs: None
 -->
 
-# StoryForge (草苔) Constitution
+# StoryMoss (草苔) Constitution
 
 ## Core Principles
 
 ### I. Dual-Interface Architecture (双界面架构)
-StoryForge operates on a theatrical metaphor: **Frontstage (幕前)** for immersive writing and **Backstage (幕后)** for studio management. Every feature MUST respect this duality:
+StoryMoss operates on a theatrical metaphor: **Frontstage (幕前)** for immersive writing and **Backstage (幕后)** for studio management. Every feature MUST respect this duality:
 - Frontstage: Distraction-free, warm-toned (#f5f4ed), Claude-reading-experience design
 - Backstage: Professional dark-themed (Cinema), data-dense management interface
 - Cross-interface data flows through Tauri IPC, never bypassing the bridge
@@ -47,7 +47,7 @@ Every code change MUST be validated through the build pipeline BEFORE any git pu
 - Git tag format: `vX.Y.Z` for stable releases
 
 ### V. AI-Native Creative Workflow (AI 原生创作流)
-StoryForge is built around AI assistance, not bolted-on:
+StoryMoss is built around AI assistance, not bolted-on:
 - Writer Agent: context-aware continuation with automatic follow-up triggers
 - Multi-Agent System: World-building, Character, Style, Plot agents with session memory
 - AI features MUST gracefully degrade when models are unavailable
@@ -76,8 +76,8 @@ StoryForge is built around AI assistance, not bolted-on:
 ```powershell
 # Full release build — MUST pass before any push
 .\scripts\build-local.ps1
-# Outputs: src-tauri/target/release/bundle/msi/StoryForge_0.22.2_x64_en-US.msi
-#          src-tauri/target/release/bundle/nsis/StoryForge_0.22.2_x64-setup.exe
+# Outputs: src-tauri/target/release/bundle/msi/StoryMoss_0.22.2_x64_en-US.msi
+#          src-tauri/target/release/bundle/nsis/StoryMoss_0.22.2_x64-setup.exe
 ```
 
 ### GitHub Actions (Cross-Platform)

@@ -1,6 +1,6 @@
 //! IntentionGraphPlanner - SING 意图图驱动的计划生成器
 //!
-//! 将 SING 意图图理论集成到 StoryForge 的计划生成流程中：
+//! 将 SING 意图图理论集成到 StoryMoss 的计划生成流程中：
 //! 1. 意图合成（IntentSynthesisPipeline）→ 原子意图
 //! 2. 分层发现（LayeredDiscovery）→ 相关资产
 //! 3. 执行图构建（ExecutionGraphBuilder）→ ExecutionPlan

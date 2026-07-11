@@ -1,4 +1,4 @@
-# StoryForge 全面实施计划
+# StoryMoss 全面实施计划
 
 > 由 2026-05-16 重大设计周期产出。涵盖 Q1–Q70 全部设计-代码差距检视结果。
 > 
@@ -178,7 +178,7 @@
 | W4-F3 | useSyncStore 回归测试 | 取消 skip，使用 mock Tauri event 验证 `invalidateQueries` 被正确调用。 | `src-frontend/src/hooks/__tests__/useSyncStore.bug.spec.ts` | 测试通过；可防止 sync 逻辑回归 |
 | W4-B4 | StoryContextBuilder 错误测试 | 验证 DB 错误时返回 `Err` 而非空默认值。 | `src-tauri/src/creative_engine/context_builder.rs` | 单元测试覆盖致命错误路径 |
 | W4-B5 | LlmService 配额 mock 测试 | mock LLM 服务，验证配额不足时返回 `AppError::QuotaExceeded` 且无 HTTP 请求发出。 | `src-tauri/src/llm/service.rs` | 配额逻辑 100% 单元测试覆盖 |
-| W4-F4 | E2E 断言补齐 | `e2e/storyforge.spec.ts` 至少加入一个核心断言：保存章节后重进 Frontstage，内容仍存在。 | `e2e/storyforge.spec.ts` | E2E 有实际断言；非纯截图 |
+| W4-F4 | E2E 断言补齐 | `e2e/storymoss.spec.ts` 至少加入一个核心断言：保存章节后重进 Frontstage，内容仍存在。 | `e2e/storymoss.spec.ts` | E2E 有实际断言；非纯截图 |
 | W4-F5 | 删除 `--disable-web-security` | 从 `playwright.config.ts` 移除该标志。修复因此暴露的跨域问题（如有）。 | `playwright.config.ts` | 测试环境不再关闭同源策略 |
 
 ### 6.6 前端性能与架构

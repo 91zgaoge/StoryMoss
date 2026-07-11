@@ -1,4 +1,4 @@
-# StoryForge (草苔) 运行指南
+# StoryMoss (草苔) 运行指南
 
 ## 项目结构
 
@@ -119,7 +119,7 @@ cargo clippy -- -D warnings
 
 ### LLM 配置
 
-配置文件位置: `~/.config/storyforge/config.json`
+配置文件位置: `~/.config/storymoss/config.json`
 
 ```json
 {
@@ -135,7 +135,7 @@ cargo clippy -- -D warnings
 
 ### 向量数据库
 
-向量数据存储在应用数据目录: `~/.config/storyforge/vector_db/`
+向量数据存储在应用数据目录: `~/.config/storymoss/vector_db/`
 
 ## 故障排除
 
@@ -153,7 +153,7 @@ taskkill /PID <PID> /F
 
 # 或终止所有相关进程
 taskkill /F /IM node.exe
-taskkill /F /IM storyforge.exe
+taskkill /F /IM storymoss.exe
 ```
 
 ### 无法连接本地服务端口

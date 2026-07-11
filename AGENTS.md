@@ -1,14 +1,14 @@
-# StoryForge Agent 指南
+# StoryMoss Agent 指南
 
 > 本文件包含 AI 助手需要了解的项目背景、编码风格、工具配置与强制构建规则。
 
 ## 项目背景
 
-**StoryForge (草苔)** — AI 辅助小说创作桌面应用
+**StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
-- **项目根目录**: `/Users/yuzaimu/projects/StoryForge`
+- **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
 - **版本**: v0.26.58
-- **GitHub**: https://github.com/91zgaoge/StoryForge
+- **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
 
@@ -364,7 +364,7 @@ _最后更新: 2026-07-09 - v0.26.56_
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **StoryForge** (19433 symbols, 39706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **StoryMoss** (19433 symbols, 39706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -388,10 +388,10 @@ This project is indexed by GitNexus as **StoryForge** (19433 symbols, 39706 rela
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/StoryForge/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/StoryForge/clusters` | All functional areas |
-| `gitnexus://repo/StoryForge/processes` | All execution flows |
-| `gitnexus://repo/StoryForge/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/StoryMoss/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/StoryMoss/clusters` | All functional areas |
+| `gitnexus://repo/StoryMoss/processes` | All execution flows |
+| `gitnexus://repo/StoryMoss/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

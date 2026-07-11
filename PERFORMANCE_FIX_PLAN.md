@@ -1,8 +1,8 @@
-# StoryForge 智能创作流程卡顿问题 — 专家级代码审计与修复计划
+# StoryMoss 智能创作流程卡顿问题 — 专家级代码审计与修复计划
 
 ## 1. 执行摘要
 
-**审计范围**：StoryForge v0.11.1（项目根目录 `/Users/yuzaimu/projects/StoryForge`）中「智能创作」功能的完整链路，涵盖前端（`src-frontend/src`）、Tauri 后端（`src-tauri/src`）、数据库/向量层（SQLite + LanceDB）。
+**审计范围**：StoryMoss v0.11.1（项目根目录 `/Users/yuzaimu/projects/StoryMoss`）中「智能创作」功能的完整链路，涵盖前端（`src-frontend/src`）、Tauri 后端（`src-tauri/src`）、数据库/向量层（SQLite + LanceDB）。
 
 **基于用户反馈的关键上下文**：
 1. 当前最严重症状：**点击「写一部小说/续写」等生成命令后，长期在个别进程上无响应，最后无输出**。

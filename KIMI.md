@@ -4,8 +4,8 @@ shell commands, and other important information, read the current plan.
 
 ## Project Context
 
-**StoryForge (草苔)** — AI-assisted novel writing desktop application
-- GitHub: https://github.com/91zgaoge/StoryForge
+**StoryMoss (草苔)** — AI-assisted novel writing desktop application
+- GitHub: https://github.com/91zgaoge/StoryMoss
 - Version: v0.22.2
 - Tech Stack: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 

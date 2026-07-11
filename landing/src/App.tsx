@@ -5,7 +5,7 @@ import { PainPoints } from './components/PainPoints';
 import { BackstageFrontstage } from './components/BackstageFrontstage';
 import { Genesis } from './components/Genesis';
 import { TimeSliced } from './components/TimeSliced';
-import { WhyStoryForge } from './components/WhyStoryForge';
+import { WhyStoryMoss } from './components/WhyStoryMoss';
 import { Features } from './components/Features';
 import { QuickStart } from './components/QuickStart';
 import { DownloadCTA } from './components/DownloadCTA';
@@ -22,7 +22,7 @@ export default function App() {
         <BackstageFrontstage />
         <Genesis />
         <TimeSliced />
-        <WhyStoryForge />
+        <WhyStoryMoss />
         <Features />
         <QuickStart />
         <DownloadCTA />

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""StoryForge 架构守护脚本
+"""StoryMoss 架构守护脚本
 
 检查关键模块之间是否存在禁止的依赖关系，防止循环依赖回潮。
 

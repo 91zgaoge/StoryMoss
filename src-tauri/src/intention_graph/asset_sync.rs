@@ -1,6 +1,6 @@
 //! 意图图资产同步引擎
 //!
-//! 将 StoryForge 现有的 CapabilityRegistry、SelectableAsset、Agent、Skill 等
+//! 将 StoryMoss 现有的 CapabilityRegistry、SelectableAsset、Agent、Skill 等
 //! 系统资产同步到意图图存储层，构建初始的意图-资产异构图。
 
 use std::collections::HashMap;

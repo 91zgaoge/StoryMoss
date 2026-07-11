@@ -1,8 +1,8 @@
-# StoryForge 落地页重新设计实现计划
+# StoryMoss 落地页重新设计实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 StoryForge 现有 `landing/` 落地页从暖赭文学风重做为「极简东方书卷」风格，新增真实产品截图与快速上手指南，并确保构建、类型检查与测试全绿。
+**Goal:** 将 StoryMoss 现有 `landing/` 落地页从暖赭文学风重做为「极简东方书卷」风格，新增真实产品截图与快速上手指南，并确保构建、类型检查与测试全绿。
 
 **Architecture:** 在现有 React + Vite + Tailwind + Framer Motion 脚手架基础上，全面替换视觉 token、共享组件与页面区块；通过复用抽象组件（按钮、标题、卡片、画框）减少重复；真实截图从 `docs/product-screenshots/` 复制到 `landing/public/screenshots/` 并懒加载。
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 项目根目录：`/Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page`
+- 项目根目录：`/Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page`
 - 落地页目录：`landing/`
 - 所有命令默认在 `landing/` 下执行，除非另有说明
 - 颜色 token 必须与设计文档一致：`parchment #f8f6f1`, `ink #1a1816`, `charcoal #6b6560`, `cinnabar #a83f2e`, `ink-line #e3ded4`
@@ -80,7 +80,7 @@ landing/
 
 ```json
 {
-  "name": "storyforge-landing",
+  "name": "storymoss-landing",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -122,7 +122,7 @@ landing/
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 rm -rf node_modules package-lock.json
 npm install
 ```
@@ -169,15 +169,15 @@ export default {
 
 Run:
 ```bash
-rm /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/src/components/InkRippleButton.tsx
-rm /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/src/components/__tests__/InkRippleButton.test.tsx
+rm /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/src/components/InkRippleButton.tsx
+rm /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/src/components/__tests__/InkRippleButton.test.tsx
 ```
 
 - [ ] **Step 5: 提交**
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/package.json landing/package-lock.json landing/tailwind.config.js landing/src/components/InkRippleButton.tsx landing/src/components/__tests__/InkRippleButton.test.tsx
 git commit -m "chore(landing): update deps and tailwind tokens for redesign"
 ```
@@ -259,7 +259,7 @@ git commit -m "chore(landing): update deps and tailwind tokens for redesign"
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StoryForge · 草苔 — AI 辅助小说创作</title>
+    <title>StoryMoss · 草苔 — AI 辅助小说创作</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="stylesheet"
@@ -277,7 +277,7 @@ git commit -m "chore(landing): update deps and tailwind tokens for redesign"
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/index.css landing/index.html
 git commit -m "style(landing): paper texture and LXGW WenKai font loading"
 ```
@@ -331,7 +331,7 @@ describe('InkButton', () => {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/InkButton.test.tsx
 ```
 
@@ -369,7 +369,7 @@ export function InkButton({ variant, className = '', children, ...rest }: InkBut
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/InkButton.test.tsx
 ```
 
@@ -379,7 +379,7 @@ Expected: PASS (3 tests).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/InkButton.tsx landing/src/components/__tests__/InkButton.test.tsx
 git commit -m "feat(landing): add InkButton shared component"
 ```
@@ -481,7 +481,7 @@ export function StepCard({ number, title, description }: StepCardProps) {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/SectionTitle.tsx landing/src/components/FeatureFrame.tsx landing/src/components/StepCard.tsx
 git commit -m "feat(landing): add SectionTitle, FeatureFrame and StepCard"
 ```
@@ -511,7 +511,7 @@ describe('Navbar', () => {
   it('renders brand and links on desktop', () => {
     render(<Navbar />);
     expect(screen.getByText('草苔')).toBeInTheDocument();
-    expect(screen.getByText('StoryForge')).toBeInTheDocument();
+    expect(screen.getByText('StoryMoss')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /功能/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /免费下载/i })).toBeInTheDocument();
   });
@@ -563,7 +563,7 @@ export function Navbar() {
       >
         <a href="/" className="flex items-baseline gap-2 font-display text-xl text-ink">
           <span>草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -622,7 +622,7 @@ export function Navbar() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Navbar.test.tsx
 ```
 
@@ -632,7 +632,7 @@ Expected: PASS (2 tests).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Navbar.tsx landing/src/components/__tests__/Navbar.test.tsx
 git commit -m "feat(landing): redesign Navbar"
 ```
@@ -691,7 +691,7 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mb-6 font-mono text-xs uppercase tracking-widest text-charcoal"
         >
-          StoryForge · 草苔
+          StoryMoss · 草苔
         </motion.p>
 
         <h1 className="mb-8 text-[40px] leading-[1.12] tracking-[-0.02em] text-ink md:text-[64px]">
@@ -741,7 +741,7 @@ export function Hero() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Hero.tsx
 git commit -m "feat(landing): redesign Hero"
 ```
@@ -818,7 +818,7 @@ export function PainPoints() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/PainPoints.tsx
 git commit -m "feat(landing): redesign PainPoints"
 ```
@@ -900,7 +900,7 @@ export function Solution() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Solution.tsx
 git commit -m "feat(landing): redesign Solution"
 ```
@@ -920,11 +920,11 @@ git commit -m "feat(landing): redesign Solution"
 
 Run:
 ```bash
-mkdir -p /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/02_stories.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/stories.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/03_characters.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/characters.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/00_frontstage.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/frontstage.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/09_book-deconstruction.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/book-deconstruction.png
+mkdir -p /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/02_stories.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/stories.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/03_characters.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/characters.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/00_frontstage.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/frontstage.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/09_book-deconstruction.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/book-deconstruction.png
 ```
 
 - [ ] **Step 2: 重写 Features**
@@ -1030,7 +1030,7 @@ export function Features() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Features.tsx landing/public/screenshots/
 git commit -m "feat(landing): redesign Features with real screenshots"
 ```
@@ -1118,7 +1118,7 @@ export function TimeSliced() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/TimeSliced.tsx
 git commit -m "feat(landing): redesign TimeSliced"
 ```
@@ -1157,7 +1157,7 @@ describe('QuickStart', () => {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/QuickStart.test.tsx
 ```
 
@@ -1233,7 +1233,7 @@ export function QuickStart() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/QuickStart.test.tsx
 ```
 
@@ -1243,7 +1243,7 @@ Expected: PASS (1 test).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/QuickStart.tsx landing/src/components/__tests__/QuickStart.test.tsx
 git commit -m "feat(landing): add QuickStart section"
 ```
@@ -1324,9 +1324,9 @@ export function Footer() {
   return (
     <footer className="border-t border-ink-line bg-parchment py-8">
       <div className="mx-auto flex max-w-[980px] flex-col items-center justify-between gap-4 px-6 md:flex-row">
-        <p className="text-sm text-charcoal">© 2026 StoryForge · 草苔</p>
+        <p className="text-sm text-charcoal">© 2026 StoryMoss · 草苔</p>
         <div className="flex gap-6 text-sm text-charcoal">
-          <a href="https://github.com/91zgaoge/StoryForge" className="hover:text-ink" target="_blank" rel="noreferrer">
+          <a href="https://github.com/91zgaoge/StoryMoss" className="hover:text-ink" target="_blank" rel="noreferrer">
             GitHub
           </a>
           <a href="#" className="hover:text-ink">
@@ -1343,7 +1343,7 @@ export function Footer() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/DownloadCTA.tsx landing/src/components/Footer.tsx
 git commit -m "feat(landing): redesign DownloadCTA and Footer"
 ```
@@ -1396,7 +1396,7 @@ export default function App() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/App.tsx
 git commit -m "feat(landing): assemble redesigned landing page"
 ```
@@ -1416,7 +1416,7 @@ git commit -m "feat(landing): assemble redesigned landing page"
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx tsc --noEmit
 ```
 
@@ -1426,7 +1426,7 @@ Expected: 无错误。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run
 ```
 
@@ -1436,7 +1436,7 @@ Expected: PASS（至少 6 个测试：InkButton 3 + Navbar 2 + QuickStart 1）�
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npm run build
 ```
 
@@ -1450,7 +1450,7 @@ Expected: 构建成功，生成 `landing/dist/`。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/dist landing/README.md 2>/dev/null || true
 git commit -m "chore(landing): verify build, types and tests"
 ```

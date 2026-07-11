@@ -1,4 +1,4 @@
-# StoryForge (草苔) 一键测试脚本
+# StoryMoss (草苔) 一键测试脚本
 # 运行全部测试：Rust 后端 + 前端单元测试 + E2E
 
 $ErrorActionPreference = "Stop"

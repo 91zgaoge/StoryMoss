@@ -1,5 +1,5 @@
 /**
- * StoryForge 统一日志系统
+ * StoryMoss 统一日志系统
  *
  * 设计原则：
  * - 分级控制：debug / info / warn / error
@@ -30,7 +30,7 @@ interface LogEntry {
 
 // ---- 全局配置 ----
 
-const STORAGE_KEY = 'storyforge:log:config';
+const STORAGE_KEY = 'storymoss:log:config';
 
 interface LogConfig {
   /** 全局最低级别 */

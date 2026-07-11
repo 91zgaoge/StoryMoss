@@ -1,4 +1,4 @@
-# StoryForge (草苔) 开发环境启动脚本
+# StoryMoss (草苔) 开发环境启动脚本
 # 自动启动前端和 Tauri 后端
 
 param(
@@ -7,7 +7,7 @@ param(
 )
 
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  StoryForge (草苔) 开发环境启动器" -ForegroundColor Cyan
+Write-Host "  StoryMoss (草苔) 开发环境启动器" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -94,4 +94,4 @@ Set-Location src-tauri
 cargo tauri dev
 
 Write-Host ""
-Write-Host "应用已关闭。感谢使用 StoryForge!" -ForegroundColor Green
+Write-Host "应用已关闭。感谢使用 StoryMoss!" -ForegroundColor Green

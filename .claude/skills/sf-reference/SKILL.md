@@ -1,9 +1,9 @@
 ---
 name: sf-reference
-description: StoryForge 领域理论包（中级工程师/Sonnet 级模型缺乏的背景知识，在本项目的具体应用而非教科书）。何时加载：要改 TipTap/ProseMirror、Tauri IPC、rusqlite/r2d2、LanceDB、Zustand/TanStack、ts-rs、CJK 分词、KMP border、RRF、艾宾浩斯、合同驱动等，或不理解某个模块背后的原理时。
+description: StoryMoss 领域理论包（中级工程师/Sonnet 级模型缺乏的背景知识，在本项目的具体应用而非教科书）。何时加载：要改 TipTap/ProseMirror、Tauri IPC、rusqlite/r2d2、LanceDB、Zustand/TanStack、ts-rs、CJK 分词、KMP border、RRF、艾宾浩斯、合同驱动等，或不理解某个模块背后的原理时。
 ---
 
-# StoryForge 领域参考
+# StoryMoss 领域参考
 
 > 每条都是“在本项目怎么用/为什么”，不是通用教材。
 

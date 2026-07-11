@@ -90,7 +90,7 @@ pub async fn record_feedback(
     let recorder = crate::creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
     recorder.record(event.clone())?;
 
-    // 导出偏好对到 `.storyforge/feedback/preference_pairs.jsonl`
+    // 导出偏好对到 `.storymoss/feedback/preference_pairs.jsonl`
     if let Err(e) = PreferencePairExporter::export(&app, &event) {
         log::warn!("[record_feedback] Preference pair export failed: {}", e);
     }

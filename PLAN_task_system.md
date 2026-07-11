@@ -1,4 +1,4 @@
-# StoryForge 任务系统 + 拆书改进 + 向量化存储 实施计划
+# StoryMoss 任务系统 + 拆书改进 + 向量化存储 实施计划
 
 > 参考 memoh-X 项目 (`github.com/91zgaoge/memoh-X`) 的 `internal/schedule`、`internal/heartbeat`、`internal/automation/cron_pool` 源代码设计。
 

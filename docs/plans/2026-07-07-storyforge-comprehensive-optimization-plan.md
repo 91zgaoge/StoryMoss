@@ -1,4 +1,4 @@
-# StoryForge 综合优化实施方案
+# StoryMoss 综合优化实施方案
 
 > **关联审计**：[`docs/AUDIT_BACKSTAGE_STUDIO_v0.26.24.md`](../AUDIT_BACKSTAGE_STUDIO_v0.26.24.md)  
 > **健康仪表盘**：基于 Brooks-Lint Health Dashboard（v0.26.24，Composite Score 66/100）  

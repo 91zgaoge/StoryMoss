@@ -1,9 +1,9 @@
 ---
 name: sf-build-and-env
-description: 从零重建 StoryForge 开发与构建环境，含已知陷阱。何时加载：首次 clone 后要跑起来、换机器、CI 本地复现、`cargo tauri dev/build` 报环境错、前端起不来、跨平台构建失败、或被问“怎么构建/怎么跑”时。
+description: 从零重建 StoryMoss 开发与构建环境，含已知陷阱。何时加载：首次 clone 后要跑起来、换机器、CI 本地复现、`cargo tauri dev/build` 报环境错、前端起不来、跨平台构建失败、或被问“怎么构建/怎么跑”时。
 ---
 
-# StoryForge 构建与环境
+# StoryMoss 构建与环境
 
 ## 前置依赖
 
@@ -24,8 +24,8 @@ sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicat
 
 ```bash
 # 1. clone
-git clone https://github.com/91zgaoge/StoryForge.git
-cd StoryForge
+git clone https://github.com/91zgaoge/StoryMoss.git
+cd StoryMoss
 
 # 2. 前端依赖
 cd src-frontend && npm ci      # 用 ci 而非 install，保证与 lockfile 一致
@@ -59,7 +59,7 @@ cd src-tauri && cargo tauri build
 
 ## 跨平台构建产物
 
-`cargo tauri build` 在本机产出（macOS）：`src-tauri/target/release/bundle/dmg/StoryForge_<ver>_aarch64.dmg`。
+`cargo tauri build` 在本机产出（macOS）：`src-tauri/target/release/bundle/dmg/StoryMoss_<ver>_aarch64.dmg`。
 CI 矩阵：Ubuntu→`.deb`、Windows→`.msi`、macOS→`.dmg`（见 `.github/workflows/build.yml` 的 `tauri-build` job）。
 
 ## 何时 NOT 用本技能

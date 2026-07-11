@@ -38,7 +38,7 @@ export function DownloadCTA() {
         <motion.div variants={reduced ? undefined : item}>
           <InkButton
             as="a"
-            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
             target="_blank"
             rel="noreferrer"
             variant="primary"

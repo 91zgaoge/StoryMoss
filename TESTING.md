@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v0.26.58)
+# 🧪 StoryMoss 自动化测试环境 (v0.26.58)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -222,7 +222,7 @@
 
 **E2E 测试** (`e2e/*.spec.ts`):
 
-- `storyforge.spec.ts`：12 例（数据持久化、页面加载、响应式）
+- `storymoss.spec.ts`：12 例（数据持久化、页面加载、响应式）
 - `frontstage-editing.spec.ts`：7 例（编辑器、自动保存、模式切换）
 - `backstage-pages.spec.ts`：8 例（各页面加载与导航）
 - `navigation.spec.ts`：4 例（URL 路由）
@@ -468,7 +468,7 @@ timeout: 60000, // 60秒
 
 - [Playwright 官方文档](https://playwright.dev/)
 - [bunwv GitHub](https://github.com/NatiCha/bunwv)
-- [StoryForge 架构文档](./ARCHITECTURE.md)
+- [StoryMoss 架构文档](./ARCHITECTURE.md)
 
 ---
 

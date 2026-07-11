@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
+  <img src="docs/images/logo.png" alt="StoryMoss 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) — AI 辅助小说创作系统
+# StoryMoss (草苔) — AI 辅助小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作桌面应用
 >
@@ -110,7 +110,7 @@ v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系
 
 ### 一、产品概览
 
-**草苔 StoryForge** 将创作流程分为两大空间：
+**草苔 StoryMoss** 将创作流程分为两大空间：
 
 | 空间                   | 作用                                  | 适合场景                 |
 | ---------------------- | ------------------------------------- | ------------------------ |
@@ -442,8 +442,8 @@ releases 页面提供 Windows / macOS 安装包，下载后直接安装即可。
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/91zgaoge/StoryForge.git
-cd StoryForge
+git clone https://github.com/91zgaoge/StoryMoss.git
+cd StoryMoss
 
 # 2. 安装前端依赖
 cd src-frontend && npm install
@@ -539,5 +539,5 @@ npm run build
 ---
 
 <p align="center">
-  Made with 🌿 by StoryForge Team
+  Made with 🌿 by StoryMoss Team
 </p>

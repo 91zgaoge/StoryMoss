@@ -5,18 +5,18 @@ export function Footer() {
         <div className="flex items-center gap-2.5">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-7 w-7 object-contain"
           />
           <span className="font-display text-lg text-ink">草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </div>
 
-        <p className="text-sm text-charcoal">© 2026 StoryForge · 草苔</p>
+        <p className="text-sm text-charcoal">© 2026 StoryMoss · 草苔</p>
 
         <div className="flex gap-6 text-sm text-charcoal">
           <a
-            href="https://github.com/91zgaoge/StoryForge"
+            href="https://github.com/91zgaoge/StoryMoss"
             className="hover:text-ink"
             target="_blank"
             rel="noreferrer"

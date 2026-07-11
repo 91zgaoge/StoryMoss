@@ -329,7 +329,7 @@ export function PromptsPanel() {
         content: e.current_content,
       }));
       const ok = await writeJsonViaDialog(
-        `storyforge-prompt-overrides-${new Date().toISOString().slice(0, 10)}.json`,
+        `storymoss-prompt-overrides-${new Date().toISOString().slice(0, 10)}.json`,
         exportData
       );
       if (ok) toast.success(`已导出 ${overridden.length} 条提示词覆盖`);
@@ -353,7 +353,7 @@ export function PromptsPanel() {
         is_overridden: e.is_overridden,
       }));
       const ok = await writeJsonViaDialog(
-        `storyforge-prompts-full-${new Date().toISOString().slice(0, 10)}.json`,
+        `storymoss-prompts-full-${new Date().toISOString().slice(0, 10)}.json`,
         exportData
       );
       if (ok) toast.success(`已导出完整包 ${exportData.length} 条`);

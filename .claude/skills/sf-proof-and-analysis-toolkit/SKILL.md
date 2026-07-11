@@ -1,9 +1,9 @@
 ---
 name: sf-proof-and-analysis-toolkit
-description: StoryForge 领域的第一性原理分析方法（“证明它，别只装它”），每条配本 repo 历史的 worked example。何时加载：要为某个阈值/设计决策找推导依据、要量化验证一个架构假设、要做 A/B 盲测、要证明单写者状态机/竞态修复有效、或被问“怎么证明这个对”时。
+description: StoryMoss 领域的第一性原理分析方法（“证明它，别只装它”），每条配本 repo 历史的 worked example。何时加载：要为某个阈值/设计决策找推导依据、要量化验证一个架构假设、要做 A/B 盲测、要证明单写者状态机/竞态修复有效、或被问“怎么证明这个对”时。
 ---
 
-# StoryForge 证明与分析工具包
+# StoryMoss 证明与分析工具包
 
 > R5：执行是 ground truth。每个“证明它”都配一个本 repo 历史的 worked example。
 

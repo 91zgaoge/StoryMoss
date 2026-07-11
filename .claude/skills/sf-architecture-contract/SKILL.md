@@ -1,9 +1,9 @@
 ---
 name: sf-architecture-contract
-description: StoryForge 承重设计决策与 WHY、必须成立的不变量、已知弱点。何时加载：要改架构、要动数据真相源、要改生成链路、要改 IPC/SyncEvent、要动数据库层、要评估“能不能这样改”、或被问“为什么这样设计/哪些不能动”时。改任何符号前先用 gitnexus impact。
+description: StoryMoss 承重设计决策与 WHY、必须成立的不变量、已知弱点。何时加载：要改架构、要动数据真相源、要改生成链路、要改 IPC/SyncEvent、要动数据库层、要评估“能不能这样改”、或被问“为什么这样设计/哪些不能动”时。改任何符号前先用 gitnexus impact。
 ---
 
-# StoryForge 架构契约
+# StoryMoss 架构契约
 
 > 改任何函数/类/方法前，先跑 `gitnexus_impact({target, direction:"upstream"})` 评估爆炸半径；HIGH/CRITICAL 必须先告知用户。这是 `CLAUDE.md` 强制项。
 

@@ -1,4 +1,4 @@
-# StoryForge Web Frontend Dockerfile
+# StoryMoss Web Frontend Dockerfile
 # Multi-stage build with Nginx
 
 # Stage 1: Build

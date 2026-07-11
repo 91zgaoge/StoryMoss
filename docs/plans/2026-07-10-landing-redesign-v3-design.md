@@ -1,11 +1,11 @@
-# StoryForge 落地页重新设计 v3 文档
+# StoryMoss 落地页重新设计 v3 文档
 
 ## 背景
 
 用户对 v2 落地页的产品介绍仍不满意，主要反馈：
 - 缺少项目 LOGO（v2 已加入，但需继续保留并强化）。
 - 产品介绍不够深入，未充分引用项目文档中的真实能力。
-- 未突出 StoryForge 真正的特色优势。
+- 未突出 StoryMoss 真正的特色优势。
 
 本版本保留「极简东方书卷」视觉系统，根据 README、AGENTS.md、ARCHITECTURE.md 等文档重新组织页面结构并全面重写文案，重点突出：
 1. **幕后 + 幕前双空间** — 专业长篇小说创作工作台。
@@ -45,7 +45,7 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 5. **BackstageFrontstage** — 左右对比：幕后工作室 vs 幕前写作台。
 6. **Genesis** — 创世四步流程。
 7. **TimeSliced** — 分时介入三条时间线。
-8. **WhyStoryForge** — 三大技术优势（长上下文防御、稳定性、本地运行）。
+8. **WhyStoryMoss** — 三大技术优势（长上下文防御、稳定性、本地运行）。
 9. **Features** — 6 项真实产品能力，每项配截图。
 10. **QuickStart** — 三步上手。
 11. **DownloadCTA + Footer** — 下载号召、平台标签、LOGO、版权信息。
@@ -55,7 +55,7 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 ### Hero
 
 - 主标题：**把一句话创意，变成一本有序的小说**
-- 副标题：草苔 StoryForge 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
+- 副标题：草苔 StoryMoss 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
 - 信任小字：v0.26.58 · 本地运行 · 开源可审计
 - CTA：免费下载桌面版 / 看 Genesis 如何工作
 
@@ -93,7 +93,7 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 - 审计时刻：后台 7 维 Inspector 异步审校，问题以红黄蓝标注回流编辑器，当场处理小债。
 - 洞察时刻：定期产出叙事健康度报告，节奏、戏份、结构一目了然。
 
-### WhyStoryForge
+### WhyStoryMoss
 
 - 标题：**为什么草苔能 hold 住长篇？**
 - 长上下文不丢约束：Context Prioritizer 按关键程度排序系统提示，并在结尾双重锚定，缓解「Lost in the Middle」。
@@ -125,8 +125,8 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 
 ### Footer
 
-- 左侧 LOGO + 草苔 / StoryForge
-- 中部版权：© 2026 StoryForge · 草苔
+- 左侧 LOGO + 草苔 / StoryMoss
+- 中部版权：© 2026 StoryMoss · 草苔
 - 右侧：GitHub / 用户指南
 
 ## 组件调整
@@ -138,11 +138,11 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 - `BackstageFrontstage`：保留双栏结构，更新文案。
 - `Genesis`：保留四步流程，更新文案。
 - `TimeSliced`：保留三步流程，更新描述以贴近文档。
-- `WhyStoryForge`：新增组件，展示三大技术优势。
+- `WhyStoryMoss`：新增组件，展示三大技术优势。
 - `Features`：保留 6 项，更新文案与截图。
 - `QuickStart`：更新步骤 2 文案为「用 Genesis 创建故事」，同步更新测试。
 - `Footer`：加入 LOGO。
-- `App.tsx`：按新结构组装，移除旧 `Solution`，新增 `WhyStoryForge`。
+- `App.tsx`：按新结构组装，移除旧 `Solution`，新增 `WhyStoryMoss`。
 
 ## 截图需求
 
@@ -161,7 +161,7 @@ LOGO 复用 `docs/images/logo.png`，在 Navbar、Hero、Footer 中展示。
 
 - [ ] 视觉继承「极简东方书卷」方向。
 - [ ] LOGO 出现在 Navbar、Hero、Footer。
-- [ ] Hero / ValueProp / PainPoints / BackstageFrontstage / Genesis / TimeSliced / WhyStoryForge 文案准确、来自项目文档。
+- [ ] Hero / ValueProp / PainPoints / BackstageFrontstage / Genesis / TimeSliced / WhyStoryMoss 文案准确、来自项目文档。
 - [ ] Features 6 项均配真实截图。
 - [ ] `npx vitest run` 通过。
 - [ ] `npx tsc --noEmit` 无错误。

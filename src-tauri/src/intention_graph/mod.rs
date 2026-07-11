@@ -6,7 +6,7 @@
 //! - 动态 ReAct（Discover → Invoke → Respond）
 //! - 图传播评分（Personalized PageRank + 协同过滤）
 //!
-//! 核心目标：将用户自然语言意图准确映射到 StoryForge
+//! 核心目标：将用户自然语言意图准确映射到 StoryMoss
 //! 的技能、方法论、风格等资产。
 
 pub mod asset_sync;

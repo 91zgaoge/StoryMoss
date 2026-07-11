@@ -36,7 +36,7 @@ export function Hero() {
         <motion.div variants={reduced ? undefined : child} className="mb-6 flex justify-center">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-16 w-16 object-contain"
           />
         </motion.div>
@@ -53,7 +53,7 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          草苔 StoryForge 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
+          草苔 StoryMoss 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
         </motion.p>
 
         <motion.p
@@ -69,7 +69,7 @@ export function Hero() {
         >
           <InkButton
             as="a"
-            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
             target="_blank"
             rel="noreferrer"
             variant="primary"

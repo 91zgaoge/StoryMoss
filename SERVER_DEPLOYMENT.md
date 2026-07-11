@@ -1,14 +1,14 @@
-# StoryForge Server 部署指南
+# StoryMoss Server 部署指南
 
 ## 概述
 
-StoryForge Server v4.5.0 包含三个组件：
+StoryMoss Server v4.5.0 包含三个组件：
 
 | 组件 | 技术 | 端口 | 说明 |
 |------|------|------|------|
 | PostgreSQL | 数据库 | 5432 | 用户/会话数据持久化 |
-| StoryForge Server | Actix-web (Rust) | 8080 | REST API + OAuth |
-| StoryForge Web | React + Nginx | 80 | 落地页 + Web登录 + Dashboard |
+| StoryMoss Server | Actix-web (Rust) | 8080 | REST API + OAuth |
+| StoryMoss Web | React + Nginx | 80 | 落地页 + Web登录 + Dashboard |
 
 ## 快速开始（Docker Compose）
 
@@ -19,8 +19,8 @@ StoryForge Server v4.5.0 包含三个组件：
 # https://docs.docker.com/get-docker/
 
 # 克隆项目
-git clone https://github.com/91zgaoge/StoryForge.git
-cd StoryForge
+git clone https://github.com/91zgaoge/StoryMoss.git
+cd StoryMoss
 ```
 
 ### 2. 配置环境变量
@@ -75,7 +75,7 @@ open http://localhost
 ## 目录结构
 
 ```
-StoryForge/
+StoryMoss/
 ├── src-tauri/           # 桌面端（Tauri + Rust）
 │   └── src/auth/        # 桌面端认证模块
 ├── src-frontend/        # 桌面端前端（React）

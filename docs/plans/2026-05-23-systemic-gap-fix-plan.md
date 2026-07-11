@@ -1,4 +1,4 @@
-# StoryForge 系统性差距修复实施计划
+# StoryMoss 系统性差距修复实施计划
 
 > 基于审计报告: `2026-05-23-systemic-gap-audit.md`
 > 计划日期: 2026-05-23

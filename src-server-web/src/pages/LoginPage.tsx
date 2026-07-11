@@ -61,7 +61,7 @@ export default function LoginPage() {
         <div className="bg-cinema-900/50 border border-cinema-800/50 rounded-2xl p-8">
           <div className="text-center mb-8">
             <h1 className="font-display text-2xl font-bold text-white mb-2">
-              登录 StoryForge
+              登录 StoryMoss
             </h1>
             <p className="text-sm text-gray-400">
               选择以下方式登录或注册

@@ -65,7 +65,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
         {/* Header */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-semibold text-stone-800">登录 StoryForge</h2>
+          <h2 className="text-xl font-semibold text-stone-800">登录 StoryMoss</h2>
           <p className="text-sm text-stone-500 mt-1">登录后可解锁云同步等跨设备功能</p>
         </div>
 

@@ -58,10 +58,10 @@ describe('PromptsPanel', () => {
         return [mockEntry];
       }
       if (cmd === 'get_prompts_directory') {
-        return '/Users/yuzaimu/projects/StoryForge/resources/prompts';
+        return '/Users/yuzaimu/projects/StoryMoss/resources/prompts';
       }
       if (cmd === 'open_prompts_directory') {
-        return '/Users/yuzaimu/projects/StoryForge/resources/prompts';
+        return '/Users/yuzaimu/projects/StoryMoss/resources/prompts';
       }
       if (cmd === 'preview_prompt_composition') {
         return mockComposition;

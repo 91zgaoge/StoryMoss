@@ -1,7 +1,7 @@
 # Brooks-Lint Health Dashboard
 
 **Mode:** Health Dashboard
-**Scope:** StoryForge（草苔）v0.26.28 → v0.26.29 热修复前基线 — /Users/yuzaimu/projects/StoryForge 全项目
+**Scope:** StoryMoss（草苔）v0.26.28 → v0.26.29 热修复前基线 — /Users/yuzaimu/projects/StoryMoss 全项目
 > 注：本扫描在 v0.26.29 文档/版本号提交前执行，代码功能与 v0.26.29 一致，仅版本元数据不同。
 **Composite Score:** 78/100
 **Trend:** 66 → 78 (+12) over last run

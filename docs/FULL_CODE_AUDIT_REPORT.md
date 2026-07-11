@@ -1,4 +1,4 @@
-# StoryForge v3.5.0 全面功能审计报告
+# StoryMoss v3.5.0 全面功能审计报告
 
 > 审计时间: 2026-04-22
 > 审计范围: 后端 Rust + 前端 TypeScript，共 5 个模块

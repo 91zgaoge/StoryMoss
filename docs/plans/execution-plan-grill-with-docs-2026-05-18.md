@@ -1,4 +1,4 @@
-# StoryForge 执行计划 — Grill-with-Docs 对齐产出
+# StoryMoss 执行计划 — Grill-with-Docs 对齐产出
 
 > 产出日期：2026-05-18
 > 来源：`/grill-with-docs` 深度对齐 session

@@ -1,9 +1,9 @@
 ---
 name: sf-run-and-operate
-description: 运行/部署 StoryForge 的命令解剖、运行时数据与产物落点。何时加载：要启动应用、要找日志、要找数据库/配置文件、要发布 tag、要看生成链路日志、或被问“日志在哪/数据在哪/怎么发布”时。
+description: 运行/部署 StoryMoss 的命令解剖、运行时数据与产物落点。何时加载：要启动应用、要找日志、要找数据库/配置文件、要发布 tag、要看生成链路日志、或被问“日志在哪/数据在哪/怎么发布”时。
 ---
 
-# StoryForge 运行与操作
+# StoryMoss 运行与操作
 
 ## 启动命令解剖
 
@@ -28,7 +28,7 @@ cd src-frontend && npm run dev   # http://localhost:5173/
 
 | 内容 | 位置 | 说明 |
 | --- | --- | --- |
-| 应用数据根 | `<app_data_dir>/` | Tauri `app_data_dir()`；macOS `~/Library/Application Support/com.storyforge.app/`，Win `%APPDATA%\com.storyforge.app\`，Linux `~/.local/share/com.storyforge.app/` |
+| 应用数据根 | `<app_data_dir>/` | Tauri `app_data_dir()`；macOS `~/Library/Application Support/com.storymoss.app/`，Win `%APPDATA%\com.storymoss.app\`，Linux `~/.local/share/com.storymoss.app/` |
 | SQLite 数据库 | `<app_data_dir>/` 下 | 由 `init_db` 创建；删掉可重置 |
 | 生成链路日志 | `<app_data_dir>/logs/creative_workflow.log` | `WorkflowLogger`（`src-tauri/src/workflow_logger.rs`）；诊断卡片会显示路径与最近日志 |
 | 全局配置 | `<app_data_dir>/config.json` 等 | `AppConfig` |
@@ -58,7 +58,7 @@ gh run list --limit 3
 cd src-tauri && cargo tauri build
 ```
 
-CI 在 tag push 时触发 `tauri-build` 的 stable 分支，发布 GitHub Release（含 `.msi`/`.dmg`/`.deb`/`.AppImage` 及 `.sig` / `.app.tar.gz`）并生成 `latest.json` 供应用内升级器拉取（端点：`https://github.com/91zgaoge/StoryForge/releases/latest/download/latest.json`）。前提：`bundle.createUpdaterArtifacts=true` + Secret `TAURI_SIGNING_PRIVATE_KEY`；`verify-updater-manifest` job 会在 tag 构建后校验清单存在。
+CI 在 tag push 时触发 `tauri-build` 的 stable 分支，发布 GitHub Release（含 `.msi`/`.dmg`/`.deb`/`.AppImage` 及 `.sig` / `.app.tar.gz`）并生成 `latest.json` 供应用内升级器拉取（端点：`https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json`）。前提：`bundle.createUpdaterArtifacts=true` + Secret `TAURI_SIGNING_PRIVATE_KEY`；`verify-updater-manifest` job 会在 tag 构建后校验清单存在。
 
 ## 生成链路观测
 

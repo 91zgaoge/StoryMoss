@@ -1,4 +1,4 @@
-# StoryForge Server Dockerfile
+# StoryMoss Server Dockerfile
 # Multi-stage build for minimal runtime image
 
 # Stage 1: Build
@@ -32,11 +32,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary and migrations
-COPY --from=builder /app/target/release/storyforge-server /app/storyforge-server
+COPY --from=builder /app/target/release/storymoss-server /app/storymoss-server
 COPY --from=builder /app/migrations /app/migrations
 
 # Expose port
 EXPOSE 8080
 
 # Run
-CMD ["./storyforge-server"]
+CMD ["./storymoss-server"]

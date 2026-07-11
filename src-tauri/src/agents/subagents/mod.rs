@@ -376,7 +376,7 @@ pub async fn run_subagent_review(context: &AgentContext, content: &str) -> Vec<R
 pub fn render_notes_to_markdown(notes: &[ReviewNotes]) -> String {
     let mut md = String::new();
     md.push_str("# 当前任务循环\n\n");
-    md.push_str("> 由 StoryForge 子代理在生成后自动审查。\n\n");
+    md.push_str("> 由 StoryMoss 子代理在生成后自动审查。\n\n");
 
     for n in notes {
         md.push_str(&format!("## {}（{}）\n\n", n.agent, n.severity.as_str()));

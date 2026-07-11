@@ -1,4 +1,4 @@
-//! StoryForge Model Gateway — v0.14.0
+//! StoryMoss Model Gateway — v0.14.0
 //!
 //! 模型网关统一接管所有 LLM 调用方的路由、模型健康探测、任务分配与 fallback。
 //!

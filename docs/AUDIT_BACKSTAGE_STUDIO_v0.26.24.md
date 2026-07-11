@@ -1,4 +1,4 @@
-# StoryForge 幕后工作室（Backstage）全面审计报告
+# StoryMoss 幕后工作室（Backstage）全面审计报告
 
 > **版本基准**：v0.26.24  
 > **审计日期**：2026-07-07  
@@ -12,7 +12,7 @@
 
 ### 0.1 核心结论
 
-StoryForge 幕后工作室在 **资产消费与配置** 层面功能覆盖面广（19 个导航模块），但存在三类系统性问题：
+StoryMoss 幕后工作室在 **资产消费与配置** 层面功能覆盖面广（19 个导航模块），但存在三类系统性问题：
 
 1. **创世（Genesis）路径分裂**：幕前 `smart_execute` + Genesis Pipeline 是主创世路径；幕后另有 `NovelCreationWizard` + `createStoryWithWizard` 与 `runCreationWorkflow` 两条平行路径，三者语义重叠、UI 无决策引导，用户易误判「已走完整创世」。
 2. **Genesis 观测与消费断层**：`GenesisPanel` 步骤模型与后端 Quick（2 步）+ Background（6 步）不一致；v0.26.19 的 `steps_json.errors` 非致命错误未在面板展示；L2 资产页除伏笔外均无「创世来源」溯源 UI。

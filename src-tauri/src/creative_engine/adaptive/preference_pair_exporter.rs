@@ -1,6 +1,6 @@
 //! 偏好对导出器
 //!
-//! 将每次用户反馈追加写入 `.storyforge/feedback/preference_pairs.jsonl`，
+//! 将每次用户反馈追加写入 `.storymoss/feedback/preference_pairs.jsonl`，
 //! 为后续 RLHF / 共同进化提供可训练数据。
 
 use std::{fs::OpenOptions, io::Write, path::PathBuf};
@@ -33,7 +33,7 @@ pub struct PreferencePairRecord {
 pub struct PreferencePairExporter;
 
 impl PreferencePairExporter {
-    /// 将反馈事件追加为 `.storyforge/feedback/preference_pairs.jsonl` 的一行
+    /// 将反馈事件追加为 `.storymoss/feedback/preference_pairs.jsonl` 的一行
     pub fn export(app: &AppHandle, event: &FeedbackEvent) -> Result<(), AppError> {
         let app_dir = app.path().app_data_dir().map_err(|e| AppError::Internal {
             message: format!("无法获取应用数据目录: {}", e),
@@ -41,7 +41,7 @@ impl PreferencePairExporter {
         let feedback_dir = app_dir
             .join("stories")
             .join(&event.story_id)
-            .join(".storyforge")
+            .join(".storymoss")
             .join(FEEDBACK_DIR);
         std::fs::create_dir_all(&feedback_dir).map_err(|e| AppError::Internal {
             message: format!("创建 feedback 目录失败: {}", e),
@@ -92,7 +92,7 @@ impl PreferencePairExporter {
         Ok(app_dir
             .join("stories")
             .join(story_id)
-            .join(".storyforge")
+            .join(".storymoss")
             .join(FEEDBACK_DIR)
             .join(PREFERENCE_PAIRS_FILE))
     }

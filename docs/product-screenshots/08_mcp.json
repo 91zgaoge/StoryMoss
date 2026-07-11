@@ -320,5 +320,5 @@
       }
     }
   ],
-  "pageText": "无法连接到本地服务\n请确保应用已正确启动\n重试\n无法连接到本地服务\n请确保应用已正确启动\n重试\n草苔\nStoryForge\n开幕前写作\n\n极简阅读写作界面\n\n仪表盘\n故事\n角色\n世界构建\n场景\n知识图谱\n技能\nMCP\n拆书\n任务\n伏笔看板\n叙事分析\nStory System\n用量统计\n写作统计\n设置\n\n未选择故事\n\n登录\nMCP 工具\n\n内置与外部 Model Context Protocol 工具\n\n刷新工具\n外部服务器\n服务器名称\n启动命令\n参数 (空格分隔)\n环境变量 JSON (可选)\n连接服务器\n\n暂无可用工具\n\n工具执行\n\n选择一个工具开始执行\n\n获取工具列表失败: Cannot read properties of undefined (reading 'invoke')\n获取工具列表失败: Cannot read properties of undefined (reading 'invoke')"
+  "pageText": "无法连接到本地服务\n请确保应用已正确启动\n重试\n无法连接到本地服务\n请确保应用已正确启动\n重试\n草苔\nStoryMoss\n开幕前写作\n\n极简阅读写作界面\n\n仪表盘\n故事\n角色\n世界构建\n场景\n知识图谱\n技能\nMCP\n拆书\n任务\n伏笔看板\n叙事分析\nStory System\n用量统计\n写作统计\n设置\n\n未选择故事\n\n登录\nMCP 工具\n\n内置与外部 Model Context Protocol 工具\n\n刷新工具\n外部服务器\n服务器名称\n启动命令\n参数 (空格分隔)\n环境变量 JSON (可选)\n连接服务器\n\n暂无可用工具\n\n工具执行\n\n选择一个工具开始执行\n\n获取工具列表失败: Cannot read properties of undefined (reading 'invoke')\n获取工具列表失败: Cannot read properties of undefined (reading 'invoke')"
 }

@@ -1,4 +1,4 @@
-# StoryForge (草苔) 开发路线图
+# StoryMoss (草苔) 开发路线图
 
 > 最后更新: 2026-07-09（v0.26.58 修复 OpenAI/Deepseek top_p=0 健康检测失败）
 
@@ -680,11 +680,11 @@ $ cd src-frontend && npm run build
 ```bash
 $ cd src-tauri && cargo tauri build
     Finished release profile [optimized] target(s) in 8m 04s
-       Built application at: target/release/storyforge
+       Built application at: target/release/storymoss
     Finished 3 bundles at:
-        target/release/bundle/dmg/StoryForge_0.23.6_aarch64.dmg
-        target/release/bundle/deb/storyforge_0.23.6_amd64.deb
-        target/release/bundle/msi/StoryForge_0.23.6_x64_en-US.msi
+        target/release/bundle/dmg/StoryMoss_0.23.6_aarch64.dmg
+        target/release/bundle/deb/storymoss_0.23.6_amd64.deb
+        target/release/bundle/msi/StoryMoss_0.23.6_x64_en-US.msi
 ```
 
 ```bash

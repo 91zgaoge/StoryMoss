@@ -20,7 +20,7 @@ const advantages = [
   },
 ];
 
-export function WhyStoryForge() {
+export function WhyStoryMoss() {
   const reduced = useReducedMotion();
 
   const item = {

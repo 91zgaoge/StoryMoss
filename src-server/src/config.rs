@@ -28,7 +28,7 @@ impl ServerConfig {
     pub fn from_env() -> Self {
         Self {
             database_url: env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "storyforge-default-secret-change-me".to_string()),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "storymoss-default-secret-change-me".to_string()),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: env::var("SERVER_PORT")
                 .ok()

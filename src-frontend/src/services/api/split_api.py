@@ -4,7 +4,7 @@
 """
 from pathlib import Path
 
-SRC = Path('/Users/yuzaimu/projects/StoryForge/src-frontend/src/services/api/index.ts')
+SRC = Path('/Users/yuzaimu/projects/StoryMoss/src-frontend/src/services/api/index.ts')
 API_DIR = SRC.parent
 
 # 读取原始文件

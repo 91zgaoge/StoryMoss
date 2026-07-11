@@ -1,4 +1,4 @@
-# StoryForge 全面完善计划 — 执行状态追踪
+# StoryMoss 全面完善计划 — 执行状态追踪
 
 **更新日期**: 2026-05-24
 **基准计划**: [2026-05-23-comprehensive-improvement-plan.md](./2026-05-23-comprehensive-improvement-plan.md)
@@ -179,7 +179,7 @@
 **验收**:
 - `story_commands.rs` 不再使用 `use crate::db::*`
 - `cargo test` 通过，包含 2 个使用 mock 仓库的 trait 测试
-- `cargo test --package storyforge`: 252 passed, 0 failed
+- `cargo test --package storymoss`: 252 passed, 0 failed
 
 ---
 
@@ -285,7 +285,7 @@
 ## 回归测试基线
 
 - `cargo check`: 通过（190 warnings，主要是未使用代码警告）
-- `cargo test --package storyforge`: **252 passed, 0 failed**
+- `cargo test --package storymoss`: **252 passed, 0 failed**
 - `npm run build`: 通过
 - **无新增回归**
 

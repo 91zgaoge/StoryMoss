@@ -1,4 +1,4 @@
-# StoryForge (草苔) 电影感设计系统
+# StoryMoss (草苔) 电影感设计系统
 
 基于 Anthropic frontend-design skill 实现的独特视觉设计。
 

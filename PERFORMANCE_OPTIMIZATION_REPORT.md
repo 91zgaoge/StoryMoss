@@ -1,4 +1,4 @@
-# StoryForge 性能优化回归测试与对比报告
+# StoryMoss 性能优化回归测试与对比报告
 
 > 本报告汇总了 Phase 1、Phase 2 以及 Phase 3.1/3.2 的性能优化工作，并给出回归测试结果与性能影响分析。
 
@@ -16,7 +16,7 @@
 
 ## 2. 测试环境
 
-- 项目版本：storyforge v0.9.4/v0.9.5
+- 项目版本：storymoss v0.9.4/v0.9.5
 - 运行平台：macOS
 - Rust 测试：`cargo test --lib`
 - 静态检查：`cargo clippy --lib`

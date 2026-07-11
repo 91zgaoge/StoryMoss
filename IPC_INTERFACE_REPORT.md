@@ -1,4 +1,4 @@
-﻿# StoryForge 前后端 IPC 接口对比报告
+﻿# StoryMoss 前后端 IPC 接口对比报告
 
 > 生成时间: 2026-04-22
 > 工具: Python 正则提取 + 手动校验

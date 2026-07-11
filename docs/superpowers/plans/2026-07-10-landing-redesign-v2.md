@@ -1,8 +1,8 @@
-# StoryForge 落地页 v2 重新设计实现计划
+# StoryMoss 落地页 v2 重新设计实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在保留现有「极简东方书卷」视觉基础上，全面重写 StoryForge 落地页内容与结构：加入 LOGO、突出「幕后+幕前双空间」与「Genesis 创世」两大特色、扩展 Features 至 6 项、移除 TimeSliced 独立区块，并重新部署到 ai.91z.net。
+**Goal:** 在保留现有「极简东方书卷」视觉基础上，全面重写 StoryMoss 落地页内容与结构：加入 LOGO、突出「幕后+幕前双空间」与「Genesis 创世」两大特色、扩展 Features 至 6 项、移除 TimeSliced 独立区块，并重新部署到 ai.91z.net。
 
 **Architecture:** 复用现有 React + Vite + Tailwind + Framer Motion 组件体系，新增/修改页面区块组件；通过真实产品截图与项目 LOGO 增强产品介绍；最终通过 `npm run deploy` 脚本重新部署。
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 项目根目录：`/Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page`
+- 项目根目录：`/Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page`
 - 落地页目录：`landing/`
 - 所有命令默认在 `landing/` 下执行，部署命令除外
 - 颜色、字体、圆角等视觉 token 与 v1 保持一致
@@ -64,25 +64,25 @@ landing/
 
 Run:
 ```bash
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/images/logo.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/logo.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/images/logo.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/logo.png
 ```
 
 - [ ] **Step 2: 复制新增截图**
 
 Run:
 ```bash
-mkdir -p /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/01_dashboard.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/dashboard.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/06_knowledge-graph.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/knowledge-graph.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/11_foreshadowing.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/foreshadowing.png
-cp /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/docs/product-screenshots/16_settings.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/settings.png
+mkdir -p /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/01_dashboard.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/dashboard.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/06_knowledge-graph.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/knowledge-graph.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/11_foreshadowing.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/foreshadowing.png
+cp /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/docs/product-screenshots/16_settings.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/settings.png
 ```
 
 - [ ] **Step 3: 验证文件存在**
 
 Run:
 ```bash
-ls -la /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/logo.png /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/public/screenshots/
+ls -la /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/logo.png /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/public/screenshots/
 ```
 
 Expected: `logo.png` 与 8 张截图均存在。
@@ -91,7 +91,7 @@ Expected: `logo.png` 与 8 张截图均存在。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/public/logo.png landing/public/screenshots/
 git commit -m "assets(landing): add logo and additional product screenshots"
 ```
@@ -121,9 +121,9 @@ import { Navbar } from '../Navbar';
 describe('Navbar', () => {
   it('renders logo and brand', () => {
     render(<Navbar />);
-    expect(screen.getByAltText('StoryForge 草苔')).toBeInTheDocument();
+    expect(screen.getByAltText('StoryMoss 草苔')).toBeInTheDocument();
     expect(screen.getByText('草苔')).toBeInTheDocument();
-    expect(screen.getByText('StoryForge')).toBeInTheDocument();
+    expect(screen.getByText('StoryMoss')).toBeInTheDocument();
   });
 
   it('renders links on desktop', () => {
@@ -145,11 +145,11 @@ describe('Navbar', () => {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Navbar.test.tsx
 ```
 
-Expected: FAIL — `StoryForge 草苔` alt text not found.
+Expected: FAIL — `StoryMoss 草苔` alt text not found.
 
 - [ ] **Step 3: 重写 Navbar 组件**
 
@@ -191,11 +191,11 @@ export function Navbar() {
         <a href="/" className="flex items-center gap-2.5 font-display text-xl text-ink">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-8 w-8 object-contain"
           />
           <span>草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -254,7 +254,7 @@ export function Navbar() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Navbar.test.tsx
 ```
 
@@ -264,7 +264,7 @@ Expected: PASS (3 tests).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Navbar.tsx landing/src/components/__tests__/Navbar.test.tsx
 git commit -m "feat(landing): add logo to Navbar"
 ```
@@ -323,7 +323,7 @@ export function Hero() {
         <motion.div variants={reduced ? undefined : child} className="mb-6 flex justify-center">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-16 w-16 object-contain"
           />
         </motion.div>
@@ -340,7 +340,7 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          草苔 StoryForge 是专为长篇小说作者设计的系统工作台。幕后规划角色、场景、世界观；幕前沉浸式写作；Genesis 一键生成故事框架。
+          草苔 StoryMoss 是专为长篇小说作者设计的系统工作台。幕后规划角色、场景、世界观；幕前沉浸式写作；Genesis 一键生成故事框架。
         </motion.p>
 
         <motion.p
@@ -375,7 +375,7 @@ export function Hero() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Hero.tsx
 git commit -m "feat(landing): rewrite Hero with logo and new positioning"
 ```
@@ -415,7 +415,7 @@ describe('ValueProp', () => {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/ValueProp.test.tsx
 ```
 
@@ -452,7 +452,7 @@ export function ValueProp() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/ValueProp.test.tsx
 ```
 
@@ -462,7 +462,7 @@ Expected: PASS (1 test).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/ValueProp.tsx landing/src/components/__tests__/ValueProp.test.tsx
 git commit -m "feat(landing): add ValueProp section"
 ```
@@ -483,7 +483,7 @@ git commit -m "feat(landing): add ValueProp section"
 
 Run:
 ```bash
-rm /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/src/components/Solution.tsx
+rm /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/src/components/Solution.tsx
 ```
 
 - [ ] **Step 2: 实现新组件**
@@ -570,7 +570,7 @@ export function BackstageFrontstage() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Solution.tsx landing/src/components/BackstageFrontstage.tsx
 git commit -m "feat(landing): replace Solution with BackstageFrontstage"
 ```
@@ -611,7 +611,7 @@ describe('Genesis', () => {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Genesis.test.tsx
 ```
 
@@ -692,7 +692,7 @@ export function Genesis() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Genesis.test.tsx
 ```
 
@@ -702,7 +702,7 @@ Expected: PASS (1 test).
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Genesis.tsx landing/src/components/__tests__/Genesis.test.tsx
 git commit -m "feat(landing): add Genesis workflow section"
 ```
@@ -837,7 +837,7 @@ export function Features() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Features.tsx
 git commit -m "feat(landing): expand Features to 6 items with new screenshots"
 ```
@@ -923,7 +923,7 @@ export function QuickStart() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/QuickStart.test.tsx
 ```
 
@@ -933,7 +933,7 @@ Expected: PASS (1 test)。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/QuickStart.tsx
 git commit -m "feat(landing): update QuickStart copy"
 ```
@@ -960,18 +960,18 @@ export function Footer() {
         <div className="flex items-center gap-2.5">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-7 w-7 object-contain"
           />
           <span className="font-display text-lg text-ink">草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </div>
 
-        <p className="text-sm text-charcoal">© 2026 StoryForge · 草苔</p>
+        <p className="text-sm text-charcoal">© 2026 StoryMoss · 草苔</p>
 
         <div className="flex gap-6 text-sm text-charcoal">
           <a
-            href="https://github.com/91zgaoge/StoryForge"
+            href="https://github.com/91zgaoge/StoryMoss"
             className="hover:text-ink"
             target="_blank"
             rel="noreferrer"
@@ -992,7 +992,7 @@ export function Footer() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Footer.tsx
 git commit -m "feat(landing): add logo to Footer"
 ```
@@ -1013,7 +1013,7 @@ git commit -m "feat(landing): add logo to Footer"
 
 Run:
 ```bash
-rm /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/src/components/TimeSliced.tsx
+rm /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/src/components/TimeSliced.tsx
 ```
 
 - [ ] **Step 2: 重写 App.tsx**
@@ -1054,7 +1054,7 @@ export default function App() {
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/App.tsx landing/src/components/TimeSliced.tsx
 git commit -m "feat(landing): assemble v2 landing page structure"
 ```
@@ -1073,7 +1073,7 @@ git commit -m "feat(landing): assemble v2 landing page structure"
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx tsc --noEmit
 ```
 
@@ -1083,7 +1083,7 @@ Expected: 无错误。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run
 ```
 
@@ -1093,7 +1093,7 @@ Expected: PASS（至少 8 个测试：InkButton 3 + Navbar 3 + QuickStart 1 + Ge
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npm run build
 ```
 
@@ -1103,7 +1103,7 @@ Expected: 构建成功。
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/dist 2>/dev/null || true
 git commit -m "chore(landing): verify build, types and tests for v2"
 ```
@@ -1122,7 +1122,7 @@ git commit -m "chore(landing): verify build, types and tests for v2"
 
 Run:
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 FTP_HOST=23.106.154.76 FTP_PORT=14121 FTP_USER=gaoge FTP_PASS=88152353 npm run deploy
 ```
 

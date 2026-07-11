@@ -28,7 +28,7 @@
 
 ## Local Skills (~/.claude/skills/)
 
-### StoryForge Specific
+### StoryMoss Specific
 | Skill | Purpose | Source |
 |-------|---------|--------|
 | `shadcn-ui-design` | Modern React UI with shadcn/ui patterns | github.com/shadcn-ui/ui |
@@ -49,7 +49,7 @@ npx skills check
 npx skills update
 ```
 
-## StoryForge Recommended Skills
+## StoryMoss Recommended Skills
 
 ### Must-Have
 1. **shadcn-ui-design** - For modern UI components

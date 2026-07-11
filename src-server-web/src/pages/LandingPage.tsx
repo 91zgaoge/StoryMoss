@@ -15,11 +15,11 @@ export default function LandingPage() {
               <BookOpen className="w-5 h-5 text-cinema-900" />
             </div>
             <span className="font-display text-xl font-bold text-white">草苔</span>
-            <span className="text-xs text-gray-500 hidden sm:inline">StoryForge</span>
+            <span className="text-xs text-gray-500 hidden sm:inline">StoryMoss</span>
           </div>
           <div className="flex items-center gap-4">
             <a 
-              href="https://github.com/91zgaoge/StoryForge" 
+              href="https://github.com/91zgaoge/StoryMoss" 
               target="_blank" 
               rel="noopener noreferrer"
               className="p-2 text-gray-400 hover:text-white transition-colors"
@@ -44,7 +44,7 @@ export default function LandingPage() {
             <span className="text-cinema-gold"> 创作伙伴</span>
           </h1>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            StoryForge (草苔) — 越写越懂的 AI 辅助小说创作平台。
+            StoryMoss (草苔) — 越写越懂的 AI 辅助小说创作平台。
             从灵感构思到完稿出版，AI 深度理解你的故事世界。
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -117,10 +117,10 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm">
             <BookOpen className="w-4 h-4" />
-            <span>StoryForge (草苔) v4.5.0</span>
+            <span>StoryMoss (草苔) v4.5.0</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-gray-500">
-            <a href="https://github.com/91zgaoge/StoryForge" className="hover:text-gray-300 transition-colors">
+            <a href="https://github.com/91zgaoge/StoryMoss" className="hover:text-gray-300 transition-colors">
               GitHub
             </a>
             <span>开源 · 免费 · 本地优先</span>

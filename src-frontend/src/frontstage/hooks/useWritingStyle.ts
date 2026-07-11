@@ -15,7 +15,7 @@ import {
 
 const writingStyleLogger = createLogger('hooks:useWritingStyle');
 
-const STORAGE_KEY = 'storyforge-writing-style';
+const STORAGE_KEY = 'storymoss-writing-style';
 
 export function useWritingStyle() {
   const [currentStyle, setCurrentStyle] = useState<WritingStyle>(defaultStyle);

@@ -1,9 +1,9 @@
 #!/bin/bash
-# StoryForge Server 一键部署脚本
+# StoryMoss Server 一键部署脚本
 # 在 Linux 服务器上执行此脚本完成部署
 # 使用方法:
-#   1. git clone https://github.com/91zgaoge/StoryForge.git
-#   2. cd StoryForge
+#   1. git clone https://github.com/91zgaoge/StoryMoss.git
+#   2. cd StoryMoss
 #   3. chmod +x deploy.sh
 #   4. ./deploy.sh
 
@@ -14,7 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}🚀 StoryForge Server 部署脚本 v4.5.0${NC}"
+echo -e "${GREEN}🚀 StoryMoss Server 部署脚本 v4.5.0${NC}"
 echo "=========================================="
 
 # 检查 Docker 和 Docker Compose
@@ -88,7 +88,7 @@ done
 
 # 显示状态
 echo ""
-echo -e "${GREEN}🎉 StoryForge Server 部署完成！${NC}"
+echo -e "${GREEN}🎉 StoryMoss Server 部署完成！${NC}"
 echo "=========================================="
 echo ""
 echo "服务地址:"

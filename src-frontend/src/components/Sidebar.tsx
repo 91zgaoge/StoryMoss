@@ -197,7 +197,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <span className="font-display text-xl font-bold text-white block leading-tight">
             草苔
           </span>
-          <span className="text-xs text-gray-500">StoryForge</span>
+          <span className="text-xs text-gray-500">StoryMoss</span>
         </div>
       </div>
 

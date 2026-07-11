@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { getMockTauriInitScript } from './mock-tauri';
 
 /**
- * StoryForge 核心应用测试套件
+ * StoryMoss 核心应用测试套件
  * 行为驱动测试：验证关键用户流程和 UI 状态
  */
-test.describe('StoryForge 应用测试', () => {
+test.describe('StoryMoss 应用测试', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
   });

@@ -118,7 +118,7 @@ Required before declaring done:
 
 ---
 
-## StoryForge 专属补充
+## StoryMoss 专属补充
 
 本项目已有一套成熟的诊断基础设施，优先用它们构造反馈回路，不要从零搭。
 
@@ -135,13 +135,13 @@ Required before declaring done:
 
 完整 symptom→root cause→evidence→status 编年史见 `sf-failure-archaeology`；症状分诊表见 `sf-debugging-playbook`；诊断工具用法见 `sf-diagnostics-and-tooling`。改任何符号前先 `gitnexus_impact`。任何修复在合并前必须走 `sf-change-control`（变更门禁）+ `sf-validation-and-qa`（证据标准）。
 
-## 何时 NOT 用本技能（StoryForge 场景）
+## 何时 NOT 用本技能（StoryMoss 场景）
 
 - 已修复战役编年史 → `sf-failure-archaeology`。
 - 诊断工具具体用法 → `sf-diagnostics-and-tooling`。
 - 架构不变量 → `sf-architecture-contract`。
 
-## 出处与维护（StoryForge 补充）
+## 出处与维护（StoryMoss 补充）
 
 - 重验证命令：`rg -n 'genesis\.first_chapter|smart_execute\.start|trishot\.call3\.done|pre_call_probe' src-tauri/src | head`（日志阶段标记是否仍在）
 - 易漂移项：日志阶段标记名、`is_silent_background` 白名单、超时常量。

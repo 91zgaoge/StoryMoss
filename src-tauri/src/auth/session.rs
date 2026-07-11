@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
 const JWT_SECRET_ENV: &str = "STORYFORGE_JWT_SECRET";
-const DEFAULT_SECRET: &str = "storyforge-default-jwt-secret-change-in-production";
+const DEFAULT_SECRET: &str = "storymoss-default-jwt-secret-change-in-production";
 const TOKEN_EXPIRY_SECONDS: i64 = 7 * 24 * 3600; // 7天
 
 /// JWT Claims

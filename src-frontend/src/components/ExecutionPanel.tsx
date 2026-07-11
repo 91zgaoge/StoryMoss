@@ -301,7 +301,7 @@ export function ExecutionPanel({
       {/* Footer */}
       <div className="p-3 border-t border-cinema-800">
         <div className="flex items-center justify-between text-xs text-gray-600">
-          <span>StoryForge AI</span>
+          <span>StoryMoss AI</span>
           <span>v4.0.0</span>
         </div>
       </div>

@@ -6,9 +6,9 @@ import { Navbar } from '../Navbar';
 describe('Navbar', () => {
   it('renders logo and brand', () => {
     render(<Navbar />);
-    expect(screen.getByAltText('StoryForge 草苔')).toBeInTheDocument();
+    expect(screen.getByAltText('StoryMoss 草苔')).toBeInTheDocument();
     expect(screen.getByText('草苔')).toBeInTheDocument();
-    expect(screen.getByText('StoryForge')).toBeInTheDocument();
+    expect(screen.getByText('StoryMoss')).toBeInTheDocument();
   });
 
   it('renders links on desktop', () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * StoryForge 落地页自动部署脚本
+ * StoryMoss 落地页自动部署脚本
  *
  * 用法：
  *   1. 在 landing/ 目录下创建 .env 文件，填写 FTP 信息：

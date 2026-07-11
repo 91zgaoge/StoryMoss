@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright 配置 - 为 AI 助手设计的无头浏览器测试环境
- * 专为 StoryForge 项目配置
+ * 专为 StoryMoss 项目配置
  */
 export default defineConfig({
   testDir: './e2e',

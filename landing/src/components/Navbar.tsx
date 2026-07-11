@@ -33,11 +33,11 @@ export function Navbar() {
         <a href="/" className="flex items-center gap-2.5 font-display text-xl text-ink">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-8 w-8 object-contain"
           />
           <span>草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -52,7 +52,7 @@ export function Navbar() {
           ))}
           <InkButton
             as="a"
-            href="https://github.com/91zgaoge/StoryForge/releases/latest"
+            href="https://github.com/91zgaoge/StoryMoss/releases/latest"
             target="_blank"
             rel="noreferrer"
             variant="primary"

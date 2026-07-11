@@ -38,8 +38,8 @@ while ($job.State -eq "Running") {
     }
     
     # 检查 EXE 是否生成
-    if (Test-Path "F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe") {
-        $exe = Get-Item "F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe"
+    if (Test-Path "F:\mywork\CINEMA-AI\v2-rust\target\release\storymoss.exe") {
+        $exe = Get-Item "F:\mywork\CINEMA-AI\v2-rust\target\release\storymoss.exe"
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] EXE found! Size: $($exe.Length) bytes"
     }
 }
@@ -52,8 +52,8 @@ foreach ($line in $newFinalOutput) {
 }
 
 # 检查构建结果
-if (Test-Path "F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe") {
-    $exe = Get-Item "F:\mywork\CINEMA-AI\v2-rust\target\release\storyforge.exe"
+if (Test-Path "F:\mywork\CINEMA-AI\v2-rust\target\release\storymoss.exe") {
+    $exe = Get-Item "F:\mywork\CINEMA-AI\v2-rust\target\release\storymoss.exe"
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] BUILD SUCCESS! EXE: $($exe.Length) bytes"
     exit 0
 } else {

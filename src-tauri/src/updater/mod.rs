@@ -4,7 +4,7 @@
 //! 基于 tauri-plugin-updater
 //!
 //! 下载源：`plugins.updater.endpoints` → GitHub Releases
-//! `https://github.com/91zgaoge/StoryForge/releases/latest/download/latest.json`
+//! `https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json`
 #![allow(unused_imports)]
 
 use std::sync::{
@@ -74,7 +74,7 @@ fn format_updater_error(err: impl std::fmt::Display) -> String {
         format!(
             "无法从 GitHub 读取更新清单（latest.json）。\
              请确认最新正式版 Release 已包含 latest.json：\
-             https://github.com/91zgaoge/StoryForge/releases/latest 。详情: {msg}"
+             https://github.com/91zgaoge/StoryMoss/releases/latest 。详情: {msg}"
         )
     } else {
         format!("Failed to check update: {msg}")

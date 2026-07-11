@@ -20,7 +20,7 @@ import sys
 import os
 
 APP_DB = os.path.expanduser(
-    "~/Library/Application Support/com.storyforge.app/cinema_ai.db"
+    "~/Library/Application Support/com.storymoss.app/cinema_ai.db"
 )
 
 

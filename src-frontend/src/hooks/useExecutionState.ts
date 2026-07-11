@@ -84,7 +84,7 @@ export function useExecutionState(storyId: string | null): {
 
   // B2: 全文字数由后端 SQL 聚合返回，避免把全量 scenes content 传到前端再 reduce
   const { data: wordCountData, isLoading: wordCountLoading } = useQuery({
-    queryKey: ['storyforge', 'word_count', storyId],
+    queryKey: ['storymoss', 'word_count', storyId],
     queryFn: async () => {
       if (!storyId) return { total_chars: 0 };
       return getStoryWordCount(storyId);

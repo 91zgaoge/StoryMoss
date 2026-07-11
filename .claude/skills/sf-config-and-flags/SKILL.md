@@ -1,9 +1,9 @@
 ---
 name: sf-config-and-flags
-description: StoryForge 全部配置轴：选项、默认值、生产 vs 实验、守卫、如何新增。何时加载：要改生成模式、要改并发/超时、要加 PromptRegistry 覆盖、要调体裁模板、要改 silent_background 白名单、要动 rustfmt、或被问“在哪配/默认是什么/这个开关干啥”时。
+description: StoryMoss 全部配置轴：选项、默认值、生产 vs 实验、守卫、如何新增。何时加载：要改生成模式、要改并发/超时、要加 PromptRegistry 覆盖、要调体裁模板、要改 silent_background 白名单、要动 rustfmt、或被问“在哪配/默认是什么/这个开关干啥”时。
 ---
 
-# StoryForge 配置与开关
+# StoryMoss 配置与开关
 
 ## 生成模式（GenerationMode）
 

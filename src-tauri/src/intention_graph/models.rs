@@ -106,7 +106,7 @@ impl IntentionNode {
 
 // ==================== 资产节点 ====================
 
-/// 资产类型：StoryForge 可调用的所有能力
+/// 资产类型：StoryMoss 可调用的所有能力
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetType {
@@ -159,7 +159,7 @@ impl std::str::FromStr for AssetType {
     }
 }
 
-/// 资产节点：StoryForge 可调用的能力单元
+/// 资产节点：StoryMoss 可调用的能力单元
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetNode {
     pub id: String,

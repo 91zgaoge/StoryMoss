@@ -1,2 +1,2 @@
-   Compiling storyforge v5.3.1 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
+   Compiling storymoss v5.3.1 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
     Finished `release` profile [optimized] target(s) in 14m 06s

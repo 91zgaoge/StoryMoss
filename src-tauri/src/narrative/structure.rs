@@ -2,7 +2,7 @@
 //! 叙事结构定位模型 — LitSeg 叙事感知分段与检索增强 (E1)
 //!
 //! 基于 LitSeg 论文：识别叙事结构转折点——如亚里士多德的"发现/逆转"、
-//! 弗莱塔格的"上升-高潮-下降"。这是 StoryForge 最大的缺失模块。
+//! 弗莱塔格的"上升-高潮-下降"。这是 StoryMoss 最大的缺失模块。
 
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};

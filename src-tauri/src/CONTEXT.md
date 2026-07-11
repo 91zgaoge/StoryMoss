@@ -105,7 +105,7 @@ The v0.7.0 AI 3-review Pipeline (`Refine → Review → Finalize`) implementatio
 
 ### Business model: subscription unlocks features, not model quotas
 
-**Status: Resolved.** StoryForge does not bill for model usage. Users supply their own API keys or run local models. The software's monetization is subscription-based: subscribed users unlock full functionality; free users have feature limitations.
+**Status: Resolved.** StoryMoss does not bill for model usage. Users supply their own API keys or run local models. The software's monetization is subscription-based: subscribed users unlock full functionality; free users have feature limitations.
 
 **Consequence for code:** The existing `check_platform_quota` and per-feature quota checks (`auto_write_quota`, `auto_revise_quota`) in `agents/commands.rs` and `llm/service.rs` contradict this principle. They assume a freemium model where the software controls model consumption. This logic should be removed or refactored into feature-gating (e.g., "Bootstrap is a Pro feature") rather than consumption-metering.
 

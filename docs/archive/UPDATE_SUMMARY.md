@@ -1,4 +1,4 @@
-# StoryForge v3.0 更新摘要
+# StoryMoss v3.0 更新摘要
 
 > 发布日期: 2025-04-12  
 > 版本: v3.0.0  
@@ -8,7 +8,7 @@
 
 ## 📋 概述
 
-StoryForge v3.0 是一次**重大架构调整**，包含四个核心方向的全面重构：
+StoryMoss v3.0 是一次**重大架构调整**，包含四个核心方向的全面重构：
 
 1. 🎪 **场景化叙事架构** - 以场景取代章节，戏剧冲突驱动
 2. 🧠 **增强记忆系统** - 基于 llm_wiki 方法论，真正的"越写越懂"
@@ -168,7 +168,7 @@ impl NovelCreationAgent {
 每部小说拥有独立的工作室配置：
 
 ```
-~/.config/storyforge/
+~/.config/storymoss/
 ├── config.json              # 全局配置
 └── studios/
     └── {story_id}/
@@ -180,7 +180,7 @@ impl NovelCreationAgent {
 
 ### 导入/导出
 
-- **导出格式**: `.storyforge` (ZIP)
+- **导出格式**: `.storymoss` (ZIP)
 - **选择性导入**: 勾选需要导入的配置模块
 - **冲突处理**: 同名小说检测，提示覆盖或重命名
 
@@ -295,4 +295,4 @@ impl NovelCreationAgent {
 
 ---
 
-**StoryForge (草苔)** - 让创作更智能 🌿
+**StoryMoss (草苔)** - 让创作更智能 🌿

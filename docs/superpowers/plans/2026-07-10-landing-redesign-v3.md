@@ -1,8 +1,8 @@
-# StoryForge 落地页 v3 重新设计实现计划
+# StoryMoss 落地页 v3 重新设计实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在保留现有「极简东方书卷」视觉系统与已完成的 LOGO/截图资源基础上，根据 v3 设计文档全面重写落地页文案，新增 `WhyStoryForge` 技术优势区块，重组 `App.tsx` 页面结构，修复现有失败测试，通过类型检查与测试，并最终部署到 ai.91z.net。
+**Goal:** 在保留现有「极简东方书卷」视觉系统与已完成的 LOGO/截图资源基础上，根据 v3 设计文档全面重写落地页文案，新增 `WhyStoryMoss` 技术优势区块，重组 `App.tsx` 页面结构，修复现有失败测试，通过类型检查与测试，并最终部署到 ai.91z.net。
 
 **Architecture:** 复用现有 React + Vite + Tailwind + Framer Motion 组件体系；每个区块一个独立组件；`App.tsx` 按新顺序组装；文案直接来自项目文档；新增组件同步编写测试。
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 项目根目录：`/Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page`
+- 项目根目录：`/Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page`
 - 落地页目录：`landing/`
 - 所有命令默认在 `landing/` 下执行，部署命令除外。
 - 颜色、字体、圆角等视觉 token 与 v2 保持一致。
@@ -34,11 +34,11 @@
 - `landing/src/components/QuickStart.tsx` — 三步上手。
 - `landing/src/components/__tests__/QuickStart.test.tsx` — 同步更新断言。
 - `landing/src/components/Footer.tsx` — 加入 LOGO。
-- `landing/src/App.tsx` — 按新结构组装，移除 `Solution`，新增 `WhyStoryForge`。
+- `landing/src/App.tsx` — 按新结构组装，移除 `Solution`，新增 `WhyStoryMoss`。
 
 本次新增文件：
-- `landing/src/components/WhyStoryForge.tsx` — 三大技术优势。
-- `landing/src/components/__tests__/WhyStoryForge.test.tsx` — 对应测试。
+- `landing/src/components/WhyStoryMoss.tsx` — 三大技术优势。
+- `landing/src/components/__tests__/WhyStoryMoss.test.tsx` — 对应测试。
 
 ---
 
@@ -94,7 +94,7 @@ export function Hero() {
         <motion.div variants={reduced ? undefined : child} className="mb-6 flex justify-center">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-16 w-16 object-contain"
           />
         </motion.div>
@@ -111,7 +111,7 @@ export function Hero() {
           variants={reduced ? undefined : child}
           className="mx-auto mb-4 max-w-[600px] text-base leading-relaxed text-charcoal md:text-lg"
         >
-          草苔 StoryForge 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
+          草苔 StoryMoss 是专为长篇小说作者打造的系统工作台。幕后管理角色、场景、世界观；幕前沉浸式写作；AI 随行辅助，但不抢戏。
         </motion.p>
 
         <motion.p
@@ -145,7 +145,7 @@ export function Hero() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Hero.tsx
 git commit -m "feat(landing): update Hero copy for v3"
 ```
@@ -191,7 +191,7 @@ export function ValueProp() {
 - [ ] **Step 2: 运行测试确认通过**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/ValueProp.test.tsx
 ```
 
@@ -200,7 +200,7 @@ Expected: PASS (1 test).
 - [ ] **Step 3: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/ValueProp.tsx
 git commit -m "feat(landing): update ValueProp copy for v3"
 ```
@@ -277,7 +277,7 @@ export function PainPoints() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/PainPoints.tsx
 git commit -m "feat(landing): update PainPoints copy for v3"
 ```
@@ -376,7 +376,7 @@ export function BackstageFrontstage() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/BackstageFrontstage.tsx
 git commit -m "feat(landing): update BackstageFrontstage copy for v3"
 ```
@@ -466,7 +466,7 @@ export function Genesis() {
 - [ ] **Step 2: 运行测试确认通过**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/Genesis.test.tsx
 ```
 
@@ -475,7 +475,7 @@ Expected: PASS (1 test).
 - [ ] **Step 3: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Genesis.tsx
 git commit -m "feat(landing): update Genesis copy for v3"
 ```
@@ -563,35 +563,35 @@ export function TimeSliced() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/TimeSliced.tsx
 git commit -m "feat(landing): update TimeSliced copy for v3"
 ```
 
 ---
 
-### Task 7: 新增 WhyStoryForge 组件
+### Task 7: 新增 WhyStoryMoss 组件
 
 **Files:**
-- Create: `landing/src/components/WhyStoryForge.tsx`
-- Create: `landing/src/components/__tests__/WhyStoryForge.test.tsx`
+- Create: `landing/src/components/WhyStoryMoss.tsx`
+- Create: `landing/src/components/__tests__/WhyStoryMoss.test.tsx`
 
 **Interfaces:**
 - Consumes: `SectionTitle`, `useReducedMotion`
-- Produces: `<WhyStoryForge>`
+- Produces: `<WhyStoryMoss>`
 
 - [ ] **Step 1: 写测试**
 
-创建 `landing/src/components/__tests__/WhyStoryForge.test.tsx`：
+创建 `landing/src/components/__tests__/WhyStoryMoss.test.tsx`：
 
 ```tsx
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { WhyStoryForge } from '../WhyStoryForge';
+import { WhyStoryMoss } from '../WhyStoryMoss';
 
-describe('WhyStoryForge', () => {
+describe('WhyStoryMoss', () => {
   it('renders three advantage cards', () => {
-    render(<WhyStoryForge />);
+    render(<WhyStoryMoss />);
     expect(screen.getByText('长上下文不丢约束')).toBeInTheDocument();
     expect(screen.getByText('稳定压倒灵感')).toBeInTheDocument();
     expect(screen.getByText('本地运行，数据归你')).toBeInTheDocument();
@@ -602,15 +602,15 @@ describe('WhyStoryForge', () => {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
-npx vitest run src/components/__tests__/WhyStoryForge.test.tsx
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
+npx vitest run src/components/__tests__/WhyStoryMoss.test.tsx
 ```
 
-Expected: FAIL — `WhyStoryForge` not found.
+Expected: FAIL — `WhyStoryMoss` not found.
 
 - [ ] **Step 3: 实现组件**
 
-创建 `landing/src/components/WhyStoryForge.tsx`：
+创建 `landing/src/components/WhyStoryMoss.tsx`：
 
 ```tsx
 import { motion } from 'framer-motion';
@@ -635,7 +635,7 @@ const advantages = [
   },
 ];
 
-export function WhyStoryForge() {
+export function WhyStoryMoss() {
   const reduced = useReducedMotion();
 
   const item = {
@@ -681,8 +681,8 @@ export function WhyStoryForge() {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
-npx vitest run src/components/__tests__/WhyStoryForge.test.tsx
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
+npx vitest run src/components/__tests__/WhyStoryMoss.test.tsx
 ```
 
 Expected: PASS (1 test).
@@ -690,9 +690,9 @@ Expected: PASS (1 test).
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
-git add landing/src/components/WhyStoryForge.tsx landing/src/components/__tests__/WhyStoryForge.test.tsx
-git commit -m "feat(landing): add WhyStoryForge advantage section"
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
+git add landing/src/components/WhyStoryMoss.tsx landing/src/components/__tests__/WhyStoryMoss.test.tsx
+git commit -m "feat(landing): add WhyStoryMoss advantage section"
 ```
 
 ---
@@ -824,7 +824,7 @@ export function Features() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Features.tsx
 git commit -m "feat(landing): update Features copy for v3"
 ```
@@ -929,7 +929,7 @@ export function QuickStart() {
 - [ ] **Step 3: 运行测试确认通过**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run src/components/__tests__/QuickStart.test.tsx
 ```
 
@@ -938,7 +938,7 @@ Expected: PASS (1 test).
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/QuickStart.tsx landing/src/components/__tests__/QuickStart.test.tsx
 git commit -m "feat(landing): update QuickStart copy and fix test"
 ```
@@ -965,18 +965,18 @@ export function Footer() {
         <div className="flex items-center gap-2.5">
           <img
             src="/logo.png"
-            alt="StoryForge 草苔"
+            alt="StoryMoss 草苔"
             className="h-7 w-7 object-contain"
           />
           <span className="font-display text-lg text-ink">草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryForge</span>
+          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
         </div>
 
-        <p className="text-sm text-charcoal">© 2026 StoryForge · 草苔</p>
+        <p className="text-sm text-charcoal">© 2026 StoryMoss · 草苔</p>
 
         <div className="flex gap-6 text-sm text-charcoal">
           <a
-            href="https://github.com/91zgaoge/StoryForge"
+            href="https://github.com/91zgaoge/StoryMoss"
             className="hover:text-ink"
             target="_blank"
             rel="noreferrer"
@@ -996,7 +996,7 @@ export function Footer() {
 - [ ] **Step 2: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/components/Footer.tsx
 git commit -m "feat(landing): add logo to Footer"
 ```
@@ -1010,13 +1010,13 @@ git commit -m "feat(landing): add logo to Footer"
 - Delete: `landing/src/components/Solution.tsx`（如仍存在）
 
 **Interfaces:**
-- Consumes: `Navbar`, `Hero`, `ValueProp`, `PainPoints`, `BackstageFrontstage`, `Genesis`, `TimeSliced`, `WhyStoryForge`, `Features`, `QuickStart`, `DownloadCTA`, `Footer`
+- Consumes: `Navbar`, `Hero`, `ValueProp`, `PainPoints`, `BackstageFrontstage`, `Genesis`, `TimeSliced`, `WhyStoryMoss`, `Features`, `QuickStart`, `DownloadCTA`, `Footer`
 - Produces: 落地页整体布局
 
 - [ ] **Step 1: 删除旧 Solution 组件（如存在）**
 
 ```bash
-rm -f /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing/src/components/Solution.tsx
+rm -f /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing/src/components/Solution.tsx
 ```
 
 - [ ] **Step 2: 重写 App.tsx**
@@ -1031,7 +1031,7 @@ import { PainPoints } from './components/PainPoints';
 import { BackstageFrontstage } from './components/BackstageFrontstage';
 import { Genesis } from './components/Genesis';
 import { TimeSliced } from './components/TimeSliced';
-import { WhyStoryForge } from './components/WhyStoryForge';
+import { WhyStoryMoss } from './components/WhyStoryMoss';
 import { Features } from './components/Features';
 import { QuickStart } from './components/QuickStart';
 import { DownloadCTA } from './components/DownloadCTA';
@@ -1048,7 +1048,7 @@ export default function App() {
         <BackstageFrontstage />
         <Genesis />
         <TimeSliced />
-        <WhyStoryForge />
+        <WhyStoryMoss />
         <Features />
         <QuickStart />
         <DownloadCTA />
@@ -1062,7 +1062,7 @@ export default function App() {
 - [ ] **Step 3: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/src/App.tsx
 git rm -f landing/src/components/Solution.tsx || true
 git commit -m "feat(landing): assemble v3 layout in App.tsx"
@@ -1081,7 +1081,7 @@ git commit -m "feat(landing): assemble v3 layout in App.tsx"
 - [ ] **Step 1: 类型检查**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx tsc --noEmit
 ```
 
@@ -1090,7 +1090,7 @@ Expected: 零错误。
 - [ ] **Step 2: 运行测试**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npx vitest run
 ```
 
@@ -1099,7 +1099,7 @@ Expected: 全部通过。
 - [ ] **Step 3: 构建生产版本**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 npm run build
 ```
 
@@ -1108,7 +1108,7 @@ Expected: `landing/dist/` 生成成功。
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/dist || true
 git commit -m "chore(landing): verify tsc, tests and build" || true
 ```
@@ -1127,7 +1127,7 @@ git commit -m "chore(landing): verify tsc, tests and build" || true
 - [ ] **Step 1: 设置环境变量并执行部署脚本**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page/landing
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page/landing
 FTP_HOST=23.106.154.76 FTP_PORT=14121 FTP_USER=gaoge FTP_PASS=88152353 npm run deploy
 ```
 
@@ -1146,7 +1146,7 @@ Expected: 部署脚本输出上传进度，无错误。
 - [ ] **Step 3: 提交/记录部署**
 
 ```bash
-cd /Users/yuzaimu/projects/StoryForge/.worktrees/feat-landing-page
+cd /Users/yuzaimu/projects/StoryMoss/.worktrees/feat-landing-page
 git add landing/dist || true
 git commit -m "deploy(landing): deploy v3 to ai.91z.net" || true
 ```
@@ -1156,7 +1156,7 @@ git commit -m "deploy(landing): deploy v3 to ai.91z.net" || true
 ## Self-Review
 
 **Spec coverage:**
-- Hero / ValueProp / PainPoints / BackstageFrontstage / Genesis / TimeSliced / WhyStoryForge / Features / QuickStart / Footer / App.tsx 均已对应设计文档任务。
+- Hero / ValueProp / PainPoints / BackstageFrontstage / Genesis / TimeSliced / WhyStoryMoss / Features / QuickStart / Footer / App.tsx 均已对应设计文档任务。
 - 部署到 ai.91z.net 已包含凭据与验证步骤。
 
 **Placeholder scan:**
@@ -1165,4 +1165,4 @@ git commit -m "deploy(landing): deploy v3 to ai.91z.net" || true
 
 **Type consistency：**
 - 所有组件沿用现有 `useReducedMotion`、`SectionTitle`、`StepCard`、`FeatureFrame`、`InkButton` 接口，无新增 props 或签名变更。
-- `App.tsx` 中新增的 `WhyStoryForge` 为默认导出函数组件，与其他组件一致。
+- `App.tsx` 中新增的 `WhyStoryMoss` 为默认导出函数组件，与其他组件一致。
