@@ -13,8 +13,10 @@
  *   node .github/scripts/upload-releases-ftp.js <source-dir>
  */
 
-import { Client } from 'basic-ftp';
-import { config } from 'dotenv';
+// basic-ftp is a dependency of landing/; resolve it relatively so this script
+// can be run from the repo root without requiring a root-level node_modules.
+import { Client } from '../../landing/node_modules/basic-ftp/dist/index.js';
+import { config } from '../../landing/node_modules/dotenv/lib/main.js';
 import { readdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
