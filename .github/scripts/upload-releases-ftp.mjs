@@ -20,7 +20,7 @@
 // can be run from the repo root without requiring a root-level node_modules.
 import { Client } from '../../landing/node_modules/basic-ftp/dist/index.js';
 import { config } from '../../landing/node_modules/dotenv/lib/main.js';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
 config();
@@ -69,6 +69,30 @@ function parseFtpHost(rawHost, rawPort) {
   return { host, port };
 }
 
+const WEBSITE_RELEASES_URL =
+  process.env.WEBSITE_RELEASES_URL || 'https://storymoss.top/releases';
+
+/**
+ * Rewrite the updater manifest so that binary download URLs point to the
+ * website source instead of GitHub Releases. GitHub Releases keeps the
+ * original manifest as the fallback endpoint.
+ */
+async function rewriteLatestJsonForWebsite(latestPath) {
+  const content = JSON.parse(await readFile(latestPath, 'utf8'));
+  if (!content.platforms) return;
+
+  for (const platform of Object.values(content.platforms)) {
+    const url = platform.url;
+    if (typeof url !== 'string') continue;
+    const fileName = url.split('/').pop();
+    if (!fileName) continue;
+    platform.url = `${WEBSITE_RELEASES_URL}/${fileName}`;
+  }
+
+  await writeFile(latestPath, JSON.stringify(content, null, 2));
+  console.log(`📝 Rewrote latest.json download URLs to ${WEBSITE_RELEASES_URL}`);
+}
+
 async function* walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -109,6 +133,11 @@ async function main() {
     const bIsManifest = b.endsWith('latest.json') ? 1 : 0;
     return aIsManifest - bIsManifest;
   });
+
+  const latestPath = files.find((f) => f.endsWith('latest.json'));
+  if (latestPath) {
+    await rewriteLatestJsonForWebsite(latestPath);
+  }
 
   const client = new Client();
   client.ftp.verbose = process.env.FTP_VERBOSE === 'true';
