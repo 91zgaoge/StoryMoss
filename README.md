@@ -13,7 +13,7 @@
 
 **最新动态**：v0.26.59 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
 
-**上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并从 GitHub Releases 下载；Linux 补 AppImage。
+**上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并同步到 `https://storymoss.top/releases/`；应用内优先从官网检查更新，GitHub Releases 保留为回退源；Linux 补 AppImage。
 
 **上一版 v0.26.47** CI 热修复——`cargo +nightly fmt` 格式化 v0.26.46 方法论/Genesis 代码，恢复 rust-check 全绿。
 
@@ -433,7 +433,7 @@ MCP（Model Context Protocol）让草苔连接外部模型或数据源，扩展 
 
 ### 下载预构建版本
 
-releases 页面提供 Windows / macOS 安装包，下载后直接安装即可。
+访问官网 `https://storymoss.top` 或 GitHub Releases 页面，下载对应平台安装包后直接安装即可。
 
 ### 从源码运行
 
