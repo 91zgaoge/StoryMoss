@@ -531,7 +531,7 @@ fn init_workflow_engine(app: &mut tauri::App, app_handle: tauri::AppHandle, pool
     log::info!("[WorkflowLoader] File system workflow watcher initialized");
 }
 
-/// 初始化窗口状态：隐藏 backstage，聚焦 frontstage，禁用 Windows 右键菜单
+/// 初始化窗口状态：隐藏 backstage，聚焦 frontstage
 fn init_windows(app: &mut tauri::App) {
     log::info!("[StateSync] State synchronization service initialized");
 
@@ -542,23 +542,9 @@ fn init_windows(app: &mut tauri::App) {
         let _ = frontstage.set_focus();
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        for label in ["frontstage", "backstage"] {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.with_webview(|webview| {
-                    let controller = webview.controller();
-                    unsafe {
-                        if let Ok(core) = controller.CoreWebView2() {
-                            if let Ok(settings) = core.Settings() {
-                                let _ = settings.SetAreDefaultContextMenusEnabled(false);
-                            }
-                        }
-                    }
-                });
-            }
-        }
-    }
+    // NOTE: Windows 右键菜单禁用已迁移到前端全局处理。
+    // 此前在 setup 中通过 with_webview + CoreWebView2 COM 调用禁用右键菜单，
+    // 在某些 Windows/WebView2 环境下会在启动时触发 BEX64 / 0xc0000409 崩溃。
 }
 
 /// 启动后台任务：能力进化自动触发

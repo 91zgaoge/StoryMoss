@@ -20,6 +20,21 @@ window.addEventListener('unhandledrejection', event => {
   console.error('[GLOBAL UNHANDLED REJECTION]', event.reason);
 });
 
+// v0.26.60-hotfix: 全局禁用右键菜单（替代 Rust 端的 CoreWebView2 COM 调用）。
+// 原 Rust 实现在部分 Windows 设备上会在启动时触发 BEX64 / 0xc0000409 崩溃。
+window.addEventListener('contextmenu', event => {
+  // 保留输入框、文本域等原生右键菜单，避免影响文本编辑体验
+  const target = event.target as HTMLElement;
+  const isEditable =
+    target.isContentEditable ||
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.closest('[data-keep-context-menu]') !== null;
+  if (!isEditable) {
+    event.preventDefault();
+  }
+});
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
