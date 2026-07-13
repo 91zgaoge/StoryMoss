@@ -4,6 +4,10 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ## [Unreleased]
 
+### 基础设施
+
+- **自动更新源迁移到官网**：应用内 updater 主端点改为 `https://storymoss.top/releases/latest.json`，GitHub Releases 保留为回退源；CI 构建完成后自动通过 FTP 将签名产物同步到 `storymoss.top/releases/`；落地页下载按钮同步指向官网源。
+
 ## [v0.26.59] - StoryForge → StoryMoss 品牌收尾，官网落地页上线（2026-07-11）
 
 ### 功能
