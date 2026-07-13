@@ -3,8 +3,9 @@
 //! 提供应用自动检测更新和安装的功能
 //! 基于 tauri-plugin-updater
 //!
-//! 下载源：`plugins.updater.endpoints` → GitHub Releases
-//! `https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json`
+//! 下载源：`plugins.updater.endpoints` → 优先 storymoss.top/releases，回退
+//! GitHub Releases 主端点：`https://storymoss.top/releases/latest.json`
+//! 回退端点：`https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json`
 #![allow(unused_imports)]
 
 use std::sync::{
@@ -72,8 +73,10 @@ fn format_updater_error(err: impl std::fmt::Display) -> String {
         || lower.contains("error decoding response body")
     {
         format!(
-            "无法从 GitHub 读取更新清单（latest.json）。\
-             请确认最新正式版 Release 已包含 latest.json：\
+            "无法从 storymoss.top 读取更新清单（latest.json）。\
+             请确认官网下载目录已包含最新版本的更新文件：\
+             https://storymoss.top/releases/ 。\
+             也可手动前往 GitHub Releases 下载：\
              https://github.com/91zgaoge/StoryMoss/releases/latest 。详情: {msg}"
         )
     } else {
@@ -197,11 +200,12 @@ mod tests {
     }
 
     #[test]
-    fn format_updater_error_mentions_github_on_404() {
+    fn format_updater_error_mentions_storymoss_top_on_404() {
         let msg = format_updater_error(
-            "error sending request for url (https://github.com/.../latest.json): 404 Not Found",
+            "error sending request for url (https://storymoss.top/releases/latest.json): 404 Not Found",
         );
         assert!(msg.contains("latest.json"));
+        assert!(msg.contains("storymoss.top"));
         assert!(msg.contains("GitHub"));
     }
 }
