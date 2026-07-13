@@ -4,13 +4,16 @@
  *
  * Environment variables:
  *   FTP_HOST        (default: storymoss.top)
+ *                     Supports plain host, host:port, or URL forms such as
+ *                     ftp://host:port. When a port is present in FTP_HOST it
+ *                     is used unless FTP_PORT is also set.
  *   FTP_USER        (required)
  *   FTP_PASS        (required)
  *   FTP_PORT        (default: 21)
  *   FTP_REMOTE_DIR  (default: /releases)
  *
  * Usage:
- *   node .github/scripts/upload-releases-ftp.js <source-dir>
+ *   node .github/scripts/upload-releases-ftp.mjs <source-dir>
  */
 
 // basic-ftp is a dependency of landing/; resolve it relatively so this script
@@ -39,6 +42,33 @@ function matchesReleaseFile(name) {
   );
 }
 
+/**
+ * Parse FTP_HOST into { host, port }.
+ * Accepts: host | host:port | ftp://host | ftp://host:port
+ * Explicit FTP_PORT environment variable takes precedence.
+ */
+function parseFtpHost(rawHost, rawPort) {
+  let host = rawHost || 'storymoss.top';
+  let port = rawPort ? parseInt(rawPort, 10) : 21;
+
+  // Strip ftp:// or ftps:// scheme if present.
+  const schemeMatch = host.match(/^ftps?:\/\/(.+)$/i);
+  if (schemeMatch) {
+    host = schemeMatch[1];
+  }
+
+  // If host still contains a port, extract it unless FTP_PORT was explicitly set.
+  const portMatch = host.match(/^([^:\]]+):(\d+)$/);
+  if (portMatch) {
+    host = portMatch[1];
+    if (!rawPort) {
+      port = parseInt(portMatch[2], 10);
+    }
+  }
+
+  return { host, port };
+}
+
 async function* walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -53,8 +83,7 @@ async function* walk(dir) {
 
 async function main() {
   const sourceDir = resolve(process.argv[2] || 'src-tauri/target/release/bundle');
-  const host = process.env.FTP_HOST || 'storymoss.top';
-  const port = parseInt(process.env.FTP_PORT || '21', 10);
+  const { host, port } = parseFtpHost(process.env.FTP_HOST, process.env.FTP_PORT);
   const user = process.env.FTP_USER;
   const password = process.env.FTP_PASS;
   const remoteDir = process.env.FTP_REMOTE_DIR || '/releases';
