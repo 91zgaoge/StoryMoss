@@ -521,6 +521,8 @@ jobs:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
           FTP_REMOTE_DIR: /releases
+          # basic-ftp is installed under landing/, make it resolvable from repo root
+          NODE_PATH: ./landing/node_modules
         run: node .github/scripts/upload-releases-ftp.mjs artifacts
 
       - name: Verify latest.json is accessible
