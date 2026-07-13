@@ -4,6 +4,10 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ## [Unreleased]
 
+### 修复
+
+- **Windows 启动闪退（BEX64 / 0xc0000409）**：移除 `init_windows` 中 setup 阶段对 `CoreWebView2` 的 unsafe COM 调用，该调用在部分 Windows/WebView2 环境下会在启动时触发缓冲区溢出异常；Windows 右键菜单禁用功能迁移到前端全局 `contextmenu` 事件处理，保留输入框/文本域的原生菜单。
+
 ### 基础设施
 
 - **自动更新源迁移到官网**：应用内 updater 主端点改为 `https://storymoss.top/releases/latest.json`，GitHub Releases 保留为回退源；CI 构建完成后自动通过 FTP 将签名产物同步到 `storymoss.top/releases/`；落地页下载按钮同步指向官网源。
