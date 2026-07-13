@@ -499,12 +499,20 @@ jobs:
         working-directory: landing
         run: npm ci
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: storymoss-*
-          path: artifacts
-          merge-multiple: true
+      - name: Download release assets from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./src-frontend/package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v${VERSION}-nightly"
+          fi
+          echo "Downloading release assets for tag: ${TAG}"
+          mkdir -p artifacts
+          gh release download "${TAG}" --repo "${{ github.repository }}" --dir artifacts
+          ls -la artifacts
 
       - name: Upload release artifacts to storymoss.top
         env:
@@ -513,7 +521,7 @@ jobs:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
           FTP_REMOTE_DIR: /releases
-        run: node .github/scripts/upload-releases-ftp.js artifacts
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts
 
       - name: Verify latest.json is accessible
         run: |
