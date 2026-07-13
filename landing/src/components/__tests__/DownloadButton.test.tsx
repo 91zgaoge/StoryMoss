@@ -16,10 +16,10 @@ describe('DownloadButton', () => {
     expect(screen.getByRole('link', { name: /下载 macOS 版/i })).toBeInTheDocument();
   });
 
-  it('points to GitHub release asset', () => {
+  it('points to storymoss.top release asset', () => {
     render(<DownloadButton variant="primary" />);
     const link = screen.getByRole('link', { name: /下载 macOS 版/i }) as HTMLAnchorElement;
-    expect(link.href).toContain('github.com/91zgaoge/StoryMoss/releases/download/v0.26.59');
+    expect(link.href).toContain('storymoss.top/releases/StoryMoss_0.26.59');
     expect(link.href).toContain('StoryMoss_0.26.59');
     expect(link.href).toMatch(/\.dmg$/);
   });
@@ -28,7 +28,7 @@ describe('DownloadButton', () => {
     vi.stubGlobal('navigator', { userAgent: '', platform: '' });
     render(<DownloadButton variant="primary" />);
     const link = screen.getByRole('link') as HTMLAnchorElement;
-    expect(link.href).toBe('https://github.com/91zgaoge/StoryMoss/releases/latest');
+    expect(link.href).toBe('https://storymoss.top/releases/');
   });
 });
 
@@ -54,6 +54,6 @@ describe('download helpers', () => {
   });
 
   it('returns fallback url for unknown platform', () => {
-    expect(downloadUrl('unknown')).toBe('https://github.com/91zgaoge/StoryMoss/releases/latest');
+    expect(downloadUrl('unknown')).toBe('https://storymoss.top/releases/');
   });
 });
