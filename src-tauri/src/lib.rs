@@ -34,6 +34,7 @@ mod llm;
 mod logging;
 mod mcp;
 mod memory;
+mod migration;
 mod model_gateway;
 mod narrative;
 mod pipeline;
