@@ -4,6 +4,13 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ## [Unreleased]
 
+### 功能
+
+- **StoryForge 数据自动迁移**：首次启动 StoryMoss 时，若检测到旧版 StoryForge 数据目录存在，会通过弹窗提示用户并自动导入配置与数据，避免品牌更名造成的数据丢失。
+  - 迁移范围：文件树复制、`cinema_ai.db` SQLite 合并、`config.json` 浅合并；StoryMoss 已存在的文件与数据库记录不会被覆盖。
+  - 安全策略：迁移前对 StoryMoss 当前数据做备份，旧 StoryForge 目录完整保留，迁移完成后写入 `.storyforge_migrated` 标记避免重复弹窗，并提示用户重启应用以使用导入数据。
+  - 实现位置：后端 `src-tauri/src/migration/storyforge.rs` + 前端 `src-frontend/src/components/StoryForgeMigrationDialog.tsx`。
+
 ### 修复
 
 - **Windows 启动闪退（BEX64 / 0xc0000409）**：移除 `init_windows` 中 setup 阶段对 `CoreWebView2` 的 unsafe COM 调用，该调用在部分 Windows/WebView2 环境下会在启动时触发缓冲区溢出异常；Windows 右键菜单禁用功能迁移到前端全局 `contextmenu` 事件处理，保留输入框/文本域的原生菜单。
