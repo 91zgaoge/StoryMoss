@@ -75,13 +75,12 @@ use std::collections::HashMap;
 use config::AppConfig;
 use db::{init_db, DbPool};
 use migration::storyforge::{
-    check_storyforge_migration, mark_migration_skipped, migrate_storyforge_data, migration_needed,
-    storyforge_data_dir, MigrationPromptPayload,
+    check_storyforge_migration, migration_needed, run_storyforge_migration,
 };
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::{path::BaseDirectory, Emitter, Manager};
+use tauri::{path::BaseDirectory, Manager};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -567,7 +566,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -604,21 +602,19 @@ pub fn run() {
                 );
             }
 
-            // StoryForge 数据迁移检测
-            let app_handle = app.handle();
-            if migration_needed(app_handle) {
-                if let Some(src) = storyforge_data_dir(app_handle) {
-                    log::info!("[Migration] Detected StoryForge data at {:?}; prompting user", src);
-                    let _ = app.emit("storyforge-migration-prompt", MigrationPromptPayload {
-                        source_path: src.to_string_lossy().to_string(),
-                    });
-                }
-            }
-
-            // 初始化结构化日志系统（必须在其他操作之前）
+            // 初始化结构化日志系统（必须在其他操作之前，包括迁移日志）
             let _log_guard = logging::init_logger(&app_dir);
 
             log::info!("App directory: {:?}", app_dir);
+
+            // StoryForge 数据自动迁移（必须在数据库初始化之前完成，避免新库被锁定）
+            let app_handle = app.handle();
+            if migration_needed(app_handle) {
+                if let Err(e) = run_storyforge_migration(app_handle) {
+                    log::error!("[Migration] Failed to migrate StoryForge data: {}", e);
+                    // 迁移失败不阻塞启动，让用户在空/新数据上继续，避免启动卡死
+                }
+            }
 
             let bundled_migrations = app
                 .path()

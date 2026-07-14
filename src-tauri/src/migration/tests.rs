@@ -86,7 +86,7 @@ fn merge_sqlite_keeps_target_conflicts() {
 }
 
 #[test]
-fn merge_sqlite_rolls_back_on_table_error() {
+fn merge_sqlite_ignores_extra_source_columns() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("target.db");
     let source = dir.path().join("source.db");
@@ -114,8 +114,8 @@ fn merge_sqlite_rolls_back_on_table_error() {
         .unwrap();
     drop(s);
 
-    let result = merge_sqlite_databases(&target, &source);
-    assert!(result.is_err());
+    let merged = merge_sqlite_databases(&target, &source).unwrap();
+    assert_eq!(merged, 1);
 
     let t = Connection::open(&target).unwrap();
     let names: Vec<String> = t
@@ -125,7 +125,56 @@ fn merge_sqlite_rolls_back_on_table_error() {
         .unwrap()
         .map(|x| x.unwrap())
         .collect();
-    assert_eq!(names, vec!["target-1", "target-2"]);
+    assert_eq!(names, vec!["target-1", "target-2", "source-3"]);
+}
+
+#[test]
+fn merge_sqlite_skips_missing_target_tables() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.db");
+    let source = dir.path().join("source.db");
+
+    let t = Connection::open(&target).unwrap();
+    t.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    drop(t);
+
+    let s = Connection::open(&source).unwrap();
+    s.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute("INSERT INTO items VALUES (1, 'source-1');", [])
+        .unwrap();
+    s.execute("CREATE TABLE legacy (id INTEGER PRIMARY KEY);", [])
+        .unwrap();
+    s.execute("INSERT INTO legacy VALUES (42);", []).unwrap();
+    drop(s);
+
+    let merged = merge_sqlite_databases(&target, &source).unwrap();
+    // legacy 表在目标库不存在，应被跳过；items 合并 1 条
+    assert_eq!(merged, 1);
+
+    let t = Connection::open(&target).unwrap();
+    let count: i64 = t
+        .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    let legacy_exists: bool = t
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        !legacy_exists,
+        "legacy table should not be created in target"
+    );
 }
 
 use serde_json::json;
@@ -140,7 +189,9 @@ fn merge_json_preserves_target_keys() {
     assert_eq!(merged, json!({"a": "new", "b": {"x": 2, "y": 3}, "c": 4}));
 }
 
-use super::storyforge::{backup_and_prepare_dir, rollback_backup, rollback_or_cleanup};
+use super::storyforge::{
+    backup_and_prepare_dir, merge_json_config, rollback_backup, rollback_or_cleanup,
+};
 
 #[test]
 fn backup_and_restore_roundtrip() {
@@ -150,15 +201,31 @@ fn backup_and_restore_roundtrip() {
     fs::write(dst.join("file.txt"), "original").unwrap();
 
     let backup = backup_and_prepare_dir(&dst).unwrap().unwrap();
-    assert!(!dst.exists());
-    assert!(backup.exists());
-
-    rollback_backup(&backup, &dst).unwrap();
+    // 复制式备份保留原目录，同时生成备份副本
     assert!(dst.exists());
-    assert!(!backup.exists());
+    assert!(backup.exists());
     assert_eq!(
         fs::read_to_string(dst.join("file.txt")).unwrap(),
         "original"
+    );
+    assert_eq!(
+        fs::read_to_string(backup.join("file.txt")).unwrap(),
+        "original"
+    );
+
+    // 模拟迁移写入新文件
+    fs::write(dst.join("new.txt"), "new").unwrap();
+
+    rollback_backup(&backup, &dst).unwrap();
+    assert!(dst.exists());
+    assert!(backup.exists());
+    assert_eq!(
+        fs::read_to_string(dst.join("file.txt")).unwrap(),
+        "original"
+    );
+    assert!(
+        !dst.join("new.txt").exists(),
+        "rollback should remove files not in backup"
     );
 }
 
@@ -167,6 +234,16 @@ fn backup_and_prepare_returns_none_when_target_missing() {
     let dir = TempDir::new().unwrap();
     let dst = dir.path().join("com.storymoss.app");
     assert!(!dst.exists());
+
+    let backup = backup_and_prepare_dir(&dst).unwrap();
+    assert!(backup.is_none());
+}
+
+#[test]
+fn backup_and_prepare_returns_none_when_target_empty() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir(&dst).unwrap();
 
     let backup = backup_and_prepare_dir(&dst).unwrap();
     assert!(backup.is_none());
@@ -197,11 +274,14 @@ fn rollback_backup_cleans_partial_destination() {
         fs::read_to_string(dst.join("original.txt")).unwrap(),
         "original-data"
     );
-    assert!(!backup.exists(), "backup directory should no longer exist");
+    assert!(
+        backup.exists(),
+        "copy-based backup should remain after restore"
+    );
 }
 
 #[test]
-fn rollback_or_cleanup_removes_partial_destination_when_no_backup() {
+fn rollback_or_cleanup_clears_partial_destination_when_no_backup() {
     let dir = TempDir::new().unwrap();
     let dst = dir.path().join("com.storymoss.app");
     fs::create_dir(&dst).unwrap();
@@ -209,13 +289,41 @@ fn rollback_or_cleanup_removes_partial_destination_when_no_backup() {
 
     rollback_or_cleanup(None, &dst);
 
+    assert!(dst.exists(), "destination directory should remain");
     assert!(
-        !dst.exists(),
-        "destination should be cleaned up when no backup existed"
+        !dst.join("partial.txt").exists(),
+        "destination contents should be cleaned up when no backup existed"
     );
 }
 
-// migrate_storyforge_data 是 #[command] 且要求 AppHandle<Wry>，在单元测试环境中
-// 无法构造 Wry runtime（需要显示服务器等），因此端到端集成测试在此跳过。
-// 迁移涉及的路径操作（复制、数据库合并、JSON 合并、备份/回滚/清理）已由
-// 上述各 helper 测试覆盖。
+#[test]
+fn merge_json_config_errors_on_malformed_target() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("config.json");
+    let source = dir.path().join("old-config.json");
+
+    fs::write(&target, "not valid json").unwrap();
+    fs::write(&source, r#"{"key": "value"}"#).unwrap();
+
+    let result = merge_json_config(&target, &source);
+    assert!(
+        result.is_err(),
+        "malformed target config should fail instead of being overwritten"
+    );
+}
+
+#[test]
+fn merge_json_config_creates_target_when_missing() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("config.json");
+    let source = dir.path().join("old-config.json");
+
+    fs::write(&source, r#"{"key": "value", "nested": {"a": 1}}"#).unwrap();
+
+    merge_json_config(&target, &source).unwrap();
+
+    let content = fs::read_to_string(&target).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(parsed["key"], "value");
+    assert_eq!(parsed["nested"]["a"], 1);
+}
