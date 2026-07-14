@@ -38,12 +38,12 @@ fn merge_sqlite_keeps_target_conflicts() {
     let target = dir.path().join("target.db");
     let source = dir.path().join("source.db");
 
-    let mut t = Connection::open(&target).unwrap();
+    let t = Connection::open(&target).unwrap();
     t.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
     t.execute("INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');", []).unwrap();
     drop(t);
 
-    let mut s = Connection::open(&source).unwrap();
+    let s = Connection::open(&source).unwrap();
     s.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
     s.execute("INSERT INTO items VALUES (1, 'source-1'), (3, 'source-3');", []).unwrap();
     drop(s);
@@ -60,4 +60,34 @@ fn merge_sqlite_keeps_target_conflicts() {
         .map(|x| x.unwrap())
         .collect();
     assert_eq!(names, vec!["target-1", "target-2", "source-3"]);
+}
+
+#[test]
+fn merge_sqlite_rolls_back_on_table_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.db");
+    let source = dir.path().join("source.db");
+
+    let t = Connection::open(&target).unwrap();
+    t.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
+    t.execute("INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');", []).unwrap();
+    drop(t);
+
+    let s = Connection::open(&source).unwrap();
+    s.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, extra TEXT);", []).unwrap();
+    s.execute("INSERT INTO items VALUES (3, 'source-3', 'extra');", []).unwrap();
+    drop(s);
+
+    let result = merge_sqlite_databases(&target, &source);
+    assert!(result.is_err());
+
+    let t = Connection::open(&target).unwrap();
+    let names: Vec<String> = t
+        .prepare("SELECT name FROM items ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert_eq!(names, vec!["target-1", "target-2"]);
 }

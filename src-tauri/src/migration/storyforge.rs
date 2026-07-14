@@ -94,58 +94,88 @@ pub async fn check_storyforge_migration(app_handle: AppHandle) -> Result<Migrati
     Ok(MigrationStatus { needed, source_path })
 }
 
-pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, String> {
-    let mut conn = Connection::open(target).map_err(|e| format!("打开目标数据库失败: {}", e))?;
-    let source_path = source.to_string_lossy();
+fn escape_sql_string(s: &str) -> String {
+    s.replace('\'', "''")
+}
 
-    conn.execute(&format!("ATTACH DATABASE '{}' AS old", source_path.replace('\'', "''")), [])
+fn quote_identifier(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, String> {
+    let conn = Connection::open(target).map_err(|e| format!("打开目标数据库失败: {}", e))?;
+
+    let source_path = source.to_string_lossy();
+    let attach_sql = format!("ATTACH DATABASE '{}' AS old", escape_sql_string(&source_path));
+    conn.execute(&attach_sql, [])
         .map_err(|e| format!("ATTACH 旧数据库失败: {}", e))?;
 
-    let mut count = 0u64;
-    let mut stmt = conn
-        .prepare("SELECT name FROM old.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        .map_err(|e| format!("读取旧库表列表失败: {}", e))?;
-    let tables: Vec<String> = stmt
-        .query_map([], |row| row.get(0))
-        .map_err(|e| format!("枚举旧库表失败: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("枚举旧库表失败: {}", e))?;
-    drop(stmt);
+    let merge_result: Result<u64, String> = (|| {
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| format!("开始事务失败: {}", e))?;
 
-    for table in tables {
-        let sql = format!("INSERT OR IGNORE INTO \"{}\" SELECT * FROM old.\"{}\"", table, table);
-        match conn.execute(&sql, []) {
-            Ok(n) => count += n as u64,
-            Err(e) => {
-                let _ = conn.execute("DETACH DATABASE old", []);
-                return Err(format!("合并表 {} 失败: {}", table, e));
+        let mut count = 0u64;
+        let mut stmt = conn
+            .prepare("SELECT name FROM old.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            .map_err(|e| format!("读取旧库表列表失败: {}", e))?;
+        let tables: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| format!("枚举旧库表失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("枚举旧库表失败: {}", e))?;
+        drop(stmt);
+
+        for table in tables {
+            let target_table = quote_identifier(&table);
+            let source_table = format!("old.{}", quote_identifier(&table));
+            let sql = format!("INSERT OR IGNORE INTO {} SELECT * FROM {}", target_table, source_table);
+            let n = conn
+                .execute(&sql, [])
+                .map_err(|e| format!("合并表 {} 失败: {}", table, e))?;
+            count += n as u64;
+        }
+
+        // 处理 sqlite_sequence：仅当目标库也存在该内部表时才合并，避免无效写入
+        let has_source_seq: bool = conn
+            .query_row("SELECT 1 FROM old.sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
+            .unwrap_or(false);
+        let has_target_seq: bool = conn
+            .query_row("SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
+            .unwrap_or(false);
+        if has_source_seq && has_target_seq {
+            let mut seq_stmt = conn
+                .prepare("SELECT name, seq FROM old.sqlite_sequence")
+                .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?;
+            let seqs: Vec<(String, i64)> = seq_stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?;
+            drop(seq_stmt);
+
+            for (name, seq) in seqs {
+                conn.execute(
+                    "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES (?1, ?2)",
+                    [&name, &seq.to_string()],
+                )
+                .map_err(|e| format!("合并 sqlite_sequence 行 {} 失败: {}", name, e))?;
             }
         }
-    }
 
-    // 处理 sqlite_sequence：旧库自增值仅用于未设置的表
-    let has_seq: bool = conn
-        .query_row("SELECT 1 FROM old.sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
-        .unwrap_or(false);
-    if has_seq {
-        let seqs: Vec<(String, i64)> = conn
-            .prepare("SELECT name, seq FROM old.sqlite_sequence")
-            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?;
-        for (name, seq) in seqs {
-            let _ = conn.execute(
-                "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES (?1, ?2)",
-                [&name, &seq.to_string()],
-            );
-        }
-    }
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("提交事务失败: {}", e))?;
+        Ok(count)
+    })();
 
-    conn.execute("DETACH DATABASE old", [])
-        .map_err(|e| format!("DETACH 旧数据库失败: {}", e))?;
-    Ok(count)
+    if merge_result.is_err() {
+        let _ = conn.execute("ROLLBACK", []);
+    }
+    let detach_result = conn.execute("DETACH DATABASE old", []);
+
+    match merge_result {
+        Ok(count) => detach_result.map(|_| count).map_err(|e| format!("DETACH 旧数据库失败: {}", e)),
+        Err(e) => Err(e),
+    }
 }
 
 #[command]
