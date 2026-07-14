@@ -91,3 +91,33 @@ fn merge_sqlite_rolls_back_on_table_error() {
         .collect();
     assert_eq!(names, vec!["target-1", "target-2"]);
 }
+
+use serde_json::json;
+use super::storyforge::merge_json_values;
+
+#[test]
+fn merge_json_preserves_target_keys() {
+    let target = json!({"a": "new", "b": {"x": 2}});
+    let source = json!({"a": "old", "b": {"x": 1, "y": 3}, "c": 4});
+    let merged = merge_json_values(target, source);
+    assert_eq!(merged, json!({"a": "new", "b": {"x": 2, "y": 3}, "c": 4}));
+}
+
+use super::storyforge::{backup_moss_dir, restore_backup};
+
+#[test]
+fn backup_and_restore_roundtrip() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir(&dst).unwrap();
+    fs::write(dst.join("file.txt"), "original").unwrap();
+
+    let backup = backup_moss_dir(&dst).unwrap().unwrap();
+    assert!(!dst.exists());
+    assert!(backup.exists());
+
+    restore_backup(&backup, &dst).unwrap();
+    assert!(dst.exists());
+    assert!(!backup.exists());
+    assert_eq!(fs::read_to_string(dst.join("file.txt")).unwrap(), "original");
+}

@@ -1,7 +1,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tauri::command;
 use rusqlite::Connection;
@@ -178,6 +180,64 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
     }
 }
 
+pub fn merge_json_values(target: Value, source: Value) -> Value {
+    match (target, source) {
+        (Value::Object(mut t), Value::Object(s)) => {
+            for (k, v) in s {
+                if let Some(existing) = t.get_mut(&k) {
+                    let taken = std::mem::take(existing);
+                    *existing = merge_json_values(taken, v);
+                } else {
+                    t.insert(k, v);
+                }
+            }
+            Value::Object(t)
+        }
+        (t, _) => t,
+    }
+}
+
+pub fn merge_json_config(target: &Path, source: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Ok(());
+    }
+    let source_text = fs::read_to_string(source).map_err(|e| format!("读取旧 config.json 失败: {}", e))?;
+    let source_value: Value = serde_json::from_str(&source_text).map_err(|e| format!("解析旧 config.json 失败: {}", e))?;
+
+    let target_value = if target.exists() {
+        let text = fs::read_to_string(target).map_err(|e| format!("读取新 config.json 失败: {}", e))?;
+        serde_json::from_str(&text).unwrap_or(Value::Object(Default::default()))
+    } else {
+        Value::Object(Default::default())
+    };
+
+    let merged = merge_json_values(target_value, source_value);
+    fs::write(target, serde_json::to_string_pretty(&merged).map_err(|e| format!("序列化 config.json 失败: {}", e))?)
+        .map_err(|e| format!("写入 config.json 失败: {}", e))?;
+    Ok(())
+}
+
+pub fn backup_moss_dir(dst: &Path) -> Result<Option<PathBuf>, String> {
+    if !dst.exists() {
+        return Ok(None);
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("获取时间戳失败: {}", e))?
+        .as_secs();
+    let backup = dst.with_extension(format!("app.bak.{}", timestamp));
+    fs::rename(dst, &backup).map_err(|e| format!("备份目录失败: {}", e))?;
+    Ok(Some(backup))
+}
+
+pub fn restore_backup(backup: &Path, target: &Path) -> Result<(), String> {
+    if target.exists() {
+        fs::remove_dir_all(target).map_err(|e| format!("清理目标目录失败: {}", e))?;
+    }
+    fs::rename(backup, target).map_err(|e| format!("恢复备份失败: {}", e))?;
+    Ok(())
+}
+
 #[command]
 pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationResult, String> {
     let Some(src) = storyforge_data_dir(&app_handle) else {
@@ -187,23 +247,48 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
         return Err("无法定位 StoryMoss 数据目录".to_string());
     };
 
-    let copied = copy_directory_tree(&src, &dst, true)
-        .map_err(|e| format!("复制文件失败: {}", e))?;
+    let backup = backup_moss_dir(&dst)?;
 
-    let target_db = dst.join("cinema_ai.db");
-    let source_db = src.join("cinema_ai.db");
-    let mut merged = 0u64;
-    if target_db.exists() && source_db.exists() {
-        merged = merge_sqlite_databases(&target_db, &source_db)?;
+    let result = (|| -> Result<MigrationResult, String> {
+        fs::create_dir_all(&dst).map_err(|e| format!("创建目标目录失败: {}", e))?;
+        let copied = copy_directory_tree(&src, &dst, true)
+            .map_err(|e| format!("复制文件失败: {}", e))?;
+
+        let target_db = dst.join("cinema_ai.db");
+        let source_db = src.join("cinema_ai.db");
+        let mut merged = 0u64;
+        if target_db.exists() && source_db.exists() {
+            merged = merge_sqlite_databases(&target_db, &source_db)?;
+        }
+
+        let target_cfg = dst.join("config.json");
+        let source_cfg = src.join("config.json");
+        if target_cfg.exists() || source_cfg.exists() {
+            merge_json_config(&target_cfg, &source_cfg)?;
+        }
+
+        if let Some(marker) = migration_marker_path(&app_handle) {
+            fs::write(&marker, "").map_err(|e| format!("写入迁移标记失败: {}", e))?;
+        }
+
+        Ok(MigrationResult {
+            success: true,
+            message: format!("已复制 {} 个文件，合并 {} 条数据库记录", copied, merged),
+        })
+    })();
+
+    match result {
+        Ok(res) => {
+            if let Some(b) = backup {
+                let _ = fs::remove_dir_all(b);
+            }
+            Ok(res)
+        }
+        Err(e) => {
+            if let Some(b) = backup {
+                let _ = restore_backup(&b, &dst);
+            }
+            Err(e)
+        }
     }
-
-    // 写入迁移标记
-    if let Some(marker) = migration_marker_path(&app_handle) {
-        fs::write(&marker, "").map_err(|e| format!("写入迁移标记失败: {}", e))?;
-    }
-
-    Ok(MigrationResult {
-        success: true,
-        message: format!("已复制 {} 个文件，合并 {} 条数据库记录", copied, merged),
-    })
 }
