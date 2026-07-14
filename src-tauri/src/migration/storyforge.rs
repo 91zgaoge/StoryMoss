@@ -1,12 +1,13 @@
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
-use tauri::command;
-use rusqlite::Connection;
+use tauri::{command, AppHandle, Manager};
 
 const OLD_IDENTIFIER: &str = "com.storyforge.app";
 const NEW_IDENTIFIER: &str = "com.storymoss.app";
@@ -99,7 +100,10 @@ pub fn copy_directory_tree(src: &Path, dst: &Path, skip_existing: bool) -> io::R
 pub async fn check_storyforge_migration(app_handle: AppHandle) -> Result<MigrationStatus, String> {
     let needed = migration_needed(&app_handle);
     let source_path = storyforge_data_dir(&app_handle).map(|p| p.to_string_lossy().to_string());
-    Ok(MigrationStatus { needed, source_path })
+    Ok(MigrationStatus {
+        needed,
+        source_path,
+    })
 }
 
 fn escape_sql_string(s: &str) -> String {
@@ -114,7 +118,10 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
     let conn = Connection::open(target).map_err(|e| format!("打开目标数据库失败: {}", e))?;
 
     let source_path = source.to_string_lossy();
-    let attach_sql = format!("ATTACH DATABASE '{}' AS old", escape_sql_string(&source_path));
+    let attach_sql = format!(
+        "ATTACH DATABASE '{}' AS old",
+        escape_sql_string(&source_path)
+    );
     conn.execute(&attach_sql, [])
         .map_err(|e| format!("ATTACH 旧数据库失败: {}", e))?;
 
@@ -136,7 +143,10 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
         for table in tables {
             let target_table = quote_identifier(&table);
             let source_table = format!("old.{}", quote_identifier(&table));
-            let sql = format!("INSERT OR IGNORE INTO {} SELECT * FROM {}", target_table, source_table);
+            let sql = format!(
+                "INSERT OR IGNORE INTO {} SELECT * FROM {}",
+                target_table, source_table
+            );
             let n = conn
                 .execute(&sql, [])
                 .map_err(|e| format!("合并表 {} 失败: {}", table, e))?;
@@ -145,10 +155,18 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
 
         // 处理 sqlite_sequence：仅当目标库也存在该内部表时才合并，避免无效写入
         let has_source_seq: bool = conn
-            .query_row("SELECT 1 FROM old.sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
+            .query_row(
+                "SELECT 1 FROM old.sqlite_master WHERE name='sqlite_sequence' AND type='table'",
+                [],
+                |_| Ok(true),
+            )
             .unwrap_or(false);
         let has_target_seq: bool = conn
-            .query_row("SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence' AND type='table'",
+                [],
+                |_| Ok(true),
+            )
             .unwrap_or(false);
         if has_source_seq && has_target_seq {
             let mut seq_stmt = conn
@@ -181,7 +199,9 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
     let detach_result = conn.execute("DETACH DATABASE old", []);
 
     match merge_result {
-        Ok(count) => detach_result.map(|_| count).map_err(|e| format!("DETACH 旧数据库失败: {}", e)),
+        Ok(count) => detach_result
+            .map(|_| count)
+            .map_err(|e| format!("DETACH 旧数据库失败: {}", e)),
         Err(e) => Err(e),
     }
 }
@@ -207,24 +227,36 @@ pub fn merge_json_config(target: &Path, source: &Path) -> Result<(), String> {
     if !source.exists() {
         return Ok(());
     }
-    let source_text = fs::read_to_string(source).map_err(|e| format!("读取旧 config.json 失败: {}", e))?;
-    let source_value: Value = serde_json::from_str(&source_text).map_err(|e| format!("解析旧 config.json 失败: {}", e))?;
+    let source_text =
+        fs::read_to_string(source).map_err(|e| format!("读取旧 config.json 失败: {}", e))?;
+    let source_value: Value = serde_json::from_str(&source_text)
+        .map_err(|e| format!("解析旧 config.json 失败: {}", e))?;
 
     let target_value = if target.exists() {
-        let text = fs::read_to_string(target).map_err(|e| format!("读取新 config.json 失败: {}", e))?;
+        let text =
+            fs::read_to_string(target).map_err(|e| format!("读取新 config.json 失败: {}", e))?;
         serde_json::from_str(&text).unwrap_or(Value::Object(Default::default()))
     } else {
         Value::Object(Default::default())
     };
 
     let merged = merge_json_values(target_value, source_value);
-    fs::write(target, serde_json::to_string_pretty(&merged).map_err(|e| format!("序列化 config.json 失败: {}", e))?)
-        .map_err(|e| format!("写入 config.json 失败: {}", e))?;
+    fs::write(
+        target,
+        serde_json::to_string_pretty(&merged)
+            .map_err(|e| format!("序列化 config.json 失败: {}", e))?,
+    )
+    .map_err(|e| format!("写入 config.json 失败: {}", e))?;
     Ok(())
 }
 
-pub fn backup_and_prepare<R: tauri::Runtime>(app_handle: &AppHandle<R>) -> Result<Option<PathBuf>, String> {
-    let dst = app_handle.path().app_data_dir().map_err(|e| format!("无法定位 StoryMoss 数据目录: {}", e))?;
+pub fn backup_and_prepare<R: tauri::Runtime>(
+    app_handle: &AppHandle<R>,
+) -> Result<Option<PathBuf>, String> {
+    let dst = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 StoryMoss 数据目录: {}", e))?;
     backup_and_prepare_dir(&dst)
 }
 
@@ -249,6 +281,19 @@ pub fn rollback_backup(backup: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn rollback_or_cleanup(backup: Option<&Path>, dst: &Path) {
+    if let Some(b) = backup {
+        if let Err(err) = rollback_backup(b, dst) {
+            log::error!("迁移失败且回滚备份失败: {}", err);
+        }
+    } else if dst.exists() {
+        // 目标目录原本不存在，迁移失败后清理任何已创建的部分目录
+        if let Err(err) = fs::remove_dir_all(dst) {
+            log::error!("迁移失败且清理部分创建的目标目录失败: {}", err);
+        }
+    }
+}
+
 #[command]
 pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationResult, String> {
     let Some(src) = storyforge_data_dir(&app_handle) else {
@@ -262,8 +307,8 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
 
     let result = (|| -> Result<MigrationResult, String> {
         fs::create_dir_all(&dst).map_err(|e| format!("创建目标目录失败: {}", e))?;
-        let copied = copy_directory_tree(&src, &dst, true)
-            .map_err(|e| format!("复制文件失败: {}", e))?;
+        let copied =
+            copy_directory_tree(&src, &dst, true).map_err(|e| format!("复制文件失败: {}", e))?;
 
         let target_db = dst.join("cinema_ai.db");
         let source_db = src.join("cinema_ai.db");
@@ -299,16 +344,7 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
             Ok(res)
         }
         Err(e) => {
-            if let Some(b) = backup {
-                if let Err(err) = rollback_backup(&b, &dst) {
-                    log::error!("迁移失败且回滚备份失败: {}", err);
-                }
-            } else if dst.exists() {
-                // 目标目录原本不存在，迁移失败后清理任何已创建的部分目录
-                if let Err(err) = fs::remove_dir_all(&dst) {
-                    log::error!("迁移失败且清理部分创建的目标目录失败: {}", err);
-                }
-            }
+            rollback_or_cleanup(backup.as_deref(), &dst);
             Err(e)
         }
     }

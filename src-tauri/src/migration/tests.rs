@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+
 use super::storyforge::storyforge_data_dir_from;
 
 #[test]
@@ -12,7 +13,9 @@ fn replaces_last_path_component() {
 }
 
 use std::fs;
+
 use tempfile::TempDir;
+
 use super::storyforge::copy_directory_tree;
 
 #[test]
@@ -26,10 +29,14 @@ fn copy_directory_tree_skips_existing_files() {
     let copied = copy_directory_tree(src.path(), dst.path(), true).unwrap();
     assert_eq!(copied, 1);
     assert_eq!(fs::read_to_string(dst.path().join("a.txt")).unwrap(), "new");
-    assert_eq!(fs::read_to_string(dst.path().join("b.txt")).unwrap(), "old-b");
+    assert_eq!(
+        fs::read_to_string(dst.path().join("b.txt")).unwrap(),
+        "old-b"
+    );
 }
 
 use rusqlite::Connection;
+
 use super::storyforge::merge_sqlite_databases;
 
 #[test]
@@ -39,13 +46,29 @@ fn merge_sqlite_keeps_target_conflicts() {
     let source = dir.path().join("source.db");
 
     let t = Connection::open(&target).unwrap();
-    t.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
-    t.execute("INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');", []).unwrap();
+    t.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    t.execute(
+        "INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');",
+        [],
+    )
+    .unwrap();
     drop(t);
 
     let s = Connection::open(&source).unwrap();
-    s.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
-    s.execute("INSERT INTO items VALUES (1, 'source-1'), (3, 'source-3');", []).unwrap();
+    s.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute(
+        "INSERT INTO items VALUES (1, 'source-1'), (3, 'source-3');",
+        [],
+    )
+    .unwrap();
     drop(s);
 
     let merged = merge_sqlite_databases(&target, &source).unwrap();
@@ -69,13 +92,26 @@ fn merge_sqlite_rolls_back_on_table_error() {
     let source = dir.path().join("source.db");
 
     let t = Connection::open(&target).unwrap();
-    t.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
-    t.execute("INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');", []).unwrap();
+    t.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    t.execute(
+        "INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');",
+        [],
+    )
+    .unwrap();
     drop(t);
 
     let s = Connection::open(&source).unwrap();
-    s.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, extra TEXT);", []).unwrap();
-    s.execute("INSERT INTO items VALUES (3, 'source-3', 'extra');", []).unwrap();
+    s.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, extra TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute("INSERT INTO items VALUES (3, 'source-3', 'extra');", [])
+        .unwrap();
     drop(s);
 
     let result = merge_sqlite_databases(&target, &source);
@@ -93,6 +129,7 @@ fn merge_sqlite_rolls_back_on_table_error() {
 }
 
 use serde_json::json;
+
 use super::storyforge::merge_json_values;
 
 #[test]
@@ -103,7 +140,7 @@ fn merge_json_preserves_target_keys() {
     assert_eq!(merged, json!({"a": "new", "b": {"x": 2, "y": 3}, "c": 4}));
 }
 
-use super::storyforge::{backup_and_prepare_dir, rollback_backup};
+use super::storyforge::{backup_and_prepare_dir, rollback_backup, rollback_or_cleanup};
 
 #[test]
 fn backup_and_restore_roundtrip() {
@@ -119,7 +156,10 @@ fn backup_and_restore_roundtrip() {
     rollback_backup(&backup, &dst).unwrap();
     assert!(dst.exists());
     assert!(!backup.exists());
-    assert_eq!(fs::read_to_string(dst.join("file.txt")).unwrap(), "original");
+    assert_eq!(
+        fs::read_to_string(dst.join("file.txt")).unwrap(),
+        "original"
+    );
 }
 
 #[test]
@@ -131,3 +171,51 @@ fn backup_and_prepare_returns_none_when_target_missing() {
     let backup = backup_and_prepare_dir(&dst).unwrap();
     assert!(backup.is_none());
 }
+
+#[test]
+fn rollback_backup_cleans_partial_destination() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir(&dst).unwrap();
+    fs::write(dst.join("partial.txt"), "partial-data").unwrap();
+
+    let backup = dir.path().join("com.storymoss.app.bak.12345");
+    fs::create_dir(&backup).unwrap();
+    fs::write(backup.join("original.txt"), "original-data").unwrap();
+
+    rollback_backup(&backup, &dst).unwrap();
+
+    assert!(
+        !dst.join("partial.txt").exists(),
+        "partial file should be removed before restore"
+    );
+    assert!(
+        dst.join("original.txt").exists(),
+        "original file should be restored"
+    );
+    assert_eq!(
+        fs::read_to_string(dst.join("original.txt")).unwrap(),
+        "original-data"
+    );
+    assert!(!backup.exists(), "backup directory should no longer exist");
+}
+
+#[test]
+fn rollback_or_cleanup_removes_partial_destination_when_no_backup() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir(&dst).unwrap();
+    fs::write(dst.join("partial.txt"), "partial-data").unwrap();
+
+    rollback_or_cleanup(None, &dst);
+
+    assert!(
+        !dst.exists(),
+        "destination should be cleaned up when no backup existed"
+    );
+}
+
+// migrate_storyforge_data 是 #[command] 且要求 AppHandle<Wry>，在单元测试环境中
+// 无法构造 Wry runtime（需要显示服务器等），因此端到端集成测试在此跳过。
+// 迁移涉及的路径操作（复制、数据库合并、JSON 合并、备份/回滚/清理）已由
+// 上述各 helper 测试覆盖。

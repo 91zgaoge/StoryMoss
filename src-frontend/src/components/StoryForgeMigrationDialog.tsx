@@ -32,14 +32,11 @@ export function StoryForgeMigrationDialog() {
 
     const setup = async () => {
       try {
-        unlisten = await listen<MigrationPromptPayload>(
-          'storyforge-migration-prompt',
-          event => {
-            setSourcePath(event.payload.source_path);
-            setState({ kind: 'prompt' });
-            setOpen(true);
-          }
-        );
+        unlisten = await listen<MigrationPromptPayload>('storyforge-migration-prompt', event => {
+          setSourcePath(event.payload.source_path);
+          setState({ kind: 'prompt' });
+          setOpen(true);
+        });
       } catch (e) {
         logger.error('Failed to setup migration prompt listener', { error: e });
       }
@@ -103,9 +100,7 @@ export function StoryForgeMigrationDialog() {
             <p className="mb-4 text-sm text-cinema-300">
               是否将配置、故事和数据库全部导入到 StoryMoss？导入后原 StoryForge 数据仍会保留。
             </p>
-            <p className="mb-6 text-xs text-cinema-400 break-all">
-              来源：{sourcePath}
-            </p>
+            <p className="mb-6 text-xs text-cinema-400 break-all">来源：{sourcePath}</p>
             <div className="flex justify-end gap-3">
               <button
                 type="button"
@@ -134,9 +129,7 @@ export function StoryForgeMigrationDialog() {
 
         {state.kind === 'success' && (
           <>
-            <h2 className="mb-2 text-lg font-semibold text-emerald-400">
-              迁移完成
-            </h2>
+            <h2 className="mb-2 text-lg font-semibold text-emerald-400">迁移完成</h2>
             <p className="mb-4 text-sm text-cinema-200">{state.message}</p>
             <p className="mb-6 text-sm text-cinema-300">
               需要重启应用以使用迁移后的数据初始化数据库。
@@ -155,9 +148,7 @@ export function StoryForgeMigrationDialog() {
 
         {state.kind === 'error' && (
           <>
-            <h2 className="mb-2 text-lg font-semibold text-red-400">
-              迁移失败
-            </h2>
+            <h2 className="mb-2 text-lg font-semibold text-red-400">迁移失败</h2>
             <p className="mb-6 text-sm text-cinema-200">{state.message}</p>
             <div className="flex justify-end gap-3">
               <button
