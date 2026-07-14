@@ -86,6 +86,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-http = "2"
+tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 
 # TypeScript type generation from Rust types (Phase 1.1)

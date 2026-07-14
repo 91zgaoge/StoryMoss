@@ -62,6 +62,7 @@ pub struct MigrationStatus {
 pub struct MigrationResult {
     pub success: bool,
     pub message: String,
+    pub needs_restart: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -284,6 +285,7 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
         Ok(MigrationResult {
             success: true,
             message: format!("已复制 {} 个文件，合并 {} 条数据库记录", copied, merged),
+            needs_restart: true,
         })
     })();
 
