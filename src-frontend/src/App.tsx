@@ -24,7 +24,6 @@ import { TracingPanel } from '@/pages/TracingPanel';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { StoryForgeMigrationDialog } from '@/components/StoryForgeMigrationDialog';
 import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
@@ -318,7 +317,6 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen bg-cinema-950 film-grain">
-        <StoryForgeMigrationDialog />
         <DataLoader />
         <ConnectionStatus />
         <UpdateNotification
