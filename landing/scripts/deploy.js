@@ -10,6 +10,9 @@
  *      FTP_PASS=your-ftp-password
  *      FTP_REMOTE_DIR=/  （可选，默认 FTP 根目录）
  *
+ *      FTP_HOST 也支持 ftp://host:port 形式；如果 URL 中带端口，会优先使用，
+ *      除非同时显式设置了 FTP_PORT。
+ *
  *   2. 运行：
  *      npm run deploy
  *
@@ -26,6 +29,31 @@ import { join, relative } from 'node:path';
 
 config();
 
+/**
+ * Parse FTP_HOST into { host, port }.
+ * Accepts: host | host:port | ftp://host | ftp://host:port
+ * Explicit FTP_PORT environment variable takes precedence.
+ */
+function parseFtpHost(rawHost, rawPort) {
+  let host = rawHost;
+  let port = rawPort ? parseInt(rawPort, 10) : 21;
+
+  const schemeMatch = host.match(/^ftps?:\/\/(.+)$/i);
+  if (schemeMatch) {
+    host = schemeMatch[1];
+  }
+
+  const portMatch = host.match(/^([^:\]]+):(\d+)$/);
+  if (portMatch) {
+    host = portMatch[1];
+    if (!rawPort) {
+      port = parseInt(portMatch[2], 10);
+    }
+  }
+
+  return { host, port };
+}
+
 const required = ['FTP_HOST', 'FTP_USER', 'FTP_PASS'];
 for (const key of required) {
   if (!process.env[key]) {
@@ -35,8 +63,7 @@ for (const key of required) {
   }
 }
 
-const host = process.env.FTP_HOST;
-const port = parseInt(process.env.FTP_PORT || '21', 10);
+const { host, port } = parseFtpHost(process.env.FTP_HOST, process.env.FTP_PORT);
 const user = process.env.FTP_USER;
 const password = process.env.FTP_PASS;
 const remoteDir = process.env.FTP_REMOTE_DIR || '/';
