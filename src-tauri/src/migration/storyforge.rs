@@ -7,7 +7,7 @@ use std::{
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{command, AppHandle, Manager};
+use tauri::{AppHandle, Manager};
 
 const OLD_IDENTIFIER: &str = "com.storyforge.app";
 const NEW_IDENTIFIER: &str = "com.storymoss.app";
@@ -52,12 +52,6 @@ pub fn migration_needed(app_handle: &AppHandle) -> bool {
         return false;
     };
     !marker.exists() && has_storyforge_data(app_handle)
-}
-
-#[derive(Serialize)]
-pub struct MigrationStatus {
-    pub needed: bool,
-    pub source_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -469,14 +463,4 @@ pub fn run_storyforge_migration(app_handle: &AppHandle) -> Result<MigrationResul
         Err(e) => log::error!("[Migration] StoryForge migration failed: {}", e),
     }
     result
-}
-
-#[command]
-pub async fn check_storyforge_migration(app_handle: AppHandle) -> Result<MigrationStatus, String> {
-    let needed = migration_needed(&app_handle);
-    let source_path = storyforge_data_dir(&app_handle).map(|p| p.to_string_lossy().to_string());
-    Ok(MigrationStatus {
-        needed,
-        source_path,
-    })
 }

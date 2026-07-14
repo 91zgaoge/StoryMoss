@@ -315,6 +315,4 @@ tauri::generate_handler![
     // Tracing commands
     commands::tracing::get_generation_trace,
     commands::tracing::list_recent_generation_traces,
-    // StoryForge → StoryMoss migration status query
-    check_storyforge_migration,
 ]

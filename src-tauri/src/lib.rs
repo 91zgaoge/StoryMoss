@@ -74,9 +74,7 @@ use std::collections::HashMap;
 
 use config::AppConfig;
 use db::{init_db, DbPool};
-use migration::storyforge::{
-    check_storyforge_migration, migration_needed, run_storyforge_migration,
-};
+use migration::storyforge::{migration_needed, run_storyforge_migration};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;

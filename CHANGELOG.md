@@ -7,7 +7,7 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 ### 功能
 
 - **StoryForge 数据自动迁移**：首次启动 StoryMoss 时，若检测到旧版 StoryForge 数据目录存在，会在数据库初始化之前自动导入全部配置与数据，避免品牌更名造成的数据丢失。
-  - 迁移范围：文件树复制、`cinema_ai.db` SQLite 合并（按共有列合并，自动跳过目标库不存在的旧表）、`config.json` 浅合并；StoryMoss 已存在的文件、记录与配置键不会被覆盖。
+  - 迁移范围：文件树复制、`cinema_ai.db` SQLite 合并（按共有列合并，自动跳过目标库不存在的旧表）、`config.json` 递归对象合并；StoryMoss 已存在的文件、记录与配置键不会被覆盖。
   - 安全策略：迁移前对 StoryMoss 当前数据做复制式备份，旧 StoryForge 目录完整保留，迁移完成后写入 `.storyforge_migrated` 标记避免重复执行；迁移在 `init_db` 之前完成，无需重启即可使用导入数据。
   - 实现位置：后端 `src-tauri/src/migration/storyforge.rs`，由 `src-tauri/src/lib.rs` 的 `setup` 钩子调用。
 

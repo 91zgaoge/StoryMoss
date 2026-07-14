@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB- SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 StoryMoss 首次启动时检测旧版 StoryForge 数据目录，经用户弹窗确认后自动导入全部配置与数据到新目录。
+**Goal:** 在 StoryMoss 首次启动时检测旧版 Story Forge 数据目录，并**自动**导入全部配置与数据到新目录，无需弹窗确认、无需重启。
 
-**Architecture:** 后端在 Tauri `setup` 阶段检测旧数据并emit事件；前端监听事件弹出确认对话框；用户确认后调用后端迁移命令，后端复制文件、合并SQLite数据库、合并JSON配置，并写入迁移标记避免重复提示。
+**Architecture:** 后端在 Tauri `setup` 阶段检测旧数据；若满足条件，直接同步调用迁移逻辑完成文件复制、SQLite 数据库合并（按共有列）、JSON 配置合并，并写入迁移标记避免重复执行。迁移在数据库初始化之前完成，因此不存在新库锁定问题。前端无专门弹窗。
 
 **Tech Stack:** Rust (Tauri v2), React + TypeScript, SQLite via `rusqlite`, `@tauri-apps/api/event`.
 
@@ -14,7 +14,7 @@
 - 迁移必须保留旧目录，不删除 `com.storyforge.app`。
 - 文件复制遵循「新数据优先」：StoryMoss 已存在则跳过。
 - 数据库合并使用 `INSERT OR IGNORE`，主键冲突时保留 StoryMoss 新数据。
-- 配置合并使用递归浅合并，已有键保留新值。
+- 配置合并使用递归合并对象，已有键保留新值。
 - 任何失败必须回滚到备份状态。
 - 迁移完成后写入 `.storyforge_migrated` 标记文件。
 
@@ -27,13 +27,13 @@
 - **Create** `src-tauri/src/migration/storyforge.rs`
   - 实现旧目录定位、检测、文件复制、数据库合并、配置合并、标记写入与回滚。
 - **Modify** `src-tauri/src/lib.rs`
-  - 在 `setup` 中创建 `app_data_dir` 之后、初始化数据库之前调用迁移检测并emit事件。
+  - 在 `setup` 中创建 `app_data_dir` 之后、初始化日志与数据库之前直接调用 `run_storyforge_migration` 执行自动迁移。
 - **Modify** `src-tauri/src/handlers.rs`
-  - 注册 `check_storyforge_migration` 与 `migrate_storyforge_data` 命令。
-- **Create** `src-frontend/src/components/StoryForgeMigrationDialog.tsx`
-  - 迁移确认弹窗组件。
-- **Modify** `src-frontend/src/App.tsx`
-  - 监听 `storyforge-migration-prompt` 事件并渲染弹窗。
+  - 可选注册 `check_storyforge_migration` 诊断命令。
+- ~~**Create** `src-frontend/src/components/StoryForgeMigrationDialog.tsx`~~
+  - 已移除：迁移改为自动执行，无需前端弹窗。
+- ~~**Modify** `src-frontend/src/App.tsx`~~
+  - 已移除：无需监听 `storyforge-migration-prompt` 事件。
 - **Create** `src-tauri/src/migration/tests.rs`
   - 迁移模块单元测试。
 - **Modify** `CHANGELOG.md`
