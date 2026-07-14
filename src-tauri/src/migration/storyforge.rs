@@ -311,3 +311,12 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
         }
     }
 }
+
+#[command]
+pub async fn mark_migration_skipped(app_handle: AppHandle) -> Result<(), String> {
+    let Some(marker) = migration_marker_path(&app_handle) else {
+        return Err("无法定位迁移标记路径".to_string());
+    };
+    fs::write(&marker, "").map_err(|e| format!("写入迁移标记失败: {}", e))?;
+    Ok(())
+}
