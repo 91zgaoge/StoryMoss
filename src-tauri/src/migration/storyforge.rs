@@ -217,7 +217,12 @@ pub fn merge_json_config(target: &Path, source: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn backup_moss_dir(dst: &Path) -> Result<Option<PathBuf>, String> {
+pub fn backup_and_prepare<R: tauri::Runtime>(app_handle: &AppHandle<R>) -> Result<Option<PathBuf>, String> {
+    let dst = app_handle.path().app_data_dir().map_err(|e| format!("无法定位 StoryMoss 数据目录: {}", e))?;
+    backup_and_prepare_dir(&dst)
+}
+
+pub(super) fn backup_and_prepare_dir(dst: &Path) -> Result<Option<PathBuf>, String> {
     if !dst.exists() {
         return Ok(None);
     }
@@ -230,7 +235,7 @@ pub fn backup_moss_dir(dst: &Path) -> Result<Option<PathBuf>, String> {
     Ok(Some(backup))
 }
 
-pub fn restore_backup(backup: &Path, target: &Path) -> Result<(), String> {
+pub fn rollback_backup(backup: &Path, target: &Path) -> Result<(), String> {
     if target.exists() {
         fs::remove_dir_all(target).map_err(|e| format!("清理目标目录失败: {}", e))?;
     }
@@ -247,7 +252,7 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
         return Err("无法定位 StoryMoss 数据目录".to_string());
     };
 
-    let backup = backup_moss_dir(&dst)?;
+    let backup = backup_and_prepare(&app_handle)?;
 
     let result = (|| -> Result<MigrationResult, String> {
         fs::create_dir_all(&dst).map_err(|e| format!("创建目标目录失败: {}", e))?;
@@ -280,13 +285,22 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
     match result {
         Ok(res) => {
             if let Some(b) = backup {
-                let _ = fs::remove_dir_all(b);
+                if let Err(e) = fs::remove_dir_all(b) {
+                    log::warn!("删除迁移备份目录失败: {}", e);
+                }
             }
             Ok(res)
         }
         Err(e) => {
             if let Some(b) = backup {
-                let _ = restore_backup(&b, &dst);
+                if let Err(err) = rollback_backup(&b, &dst) {
+                    log::error!("迁移失败且回滚备份失败: {}", err);
+                }
+            } else if dst.exists() {
+                // 目标目录原本不存在，迁移失败后清理任何已创建的部分目录
+                if let Err(err) = fs::remove_dir_all(&dst) {
+                    log::error!("迁移失败且清理部分创建的目标目录失败: {}", err);
+                }
             }
             Err(e)
         }

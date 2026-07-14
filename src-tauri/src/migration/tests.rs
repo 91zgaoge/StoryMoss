@@ -103,7 +103,7 @@ fn merge_json_preserves_target_keys() {
     assert_eq!(merged, json!({"a": "new", "b": {"x": 2, "y": 3}, "c": 4}));
 }
 
-use super::storyforge::{backup_moss_dir, restore_backup};
+use super::storyforge::{backup_and_prepare_dir, rollback_backup};
 
 #[test]
 fn backup_and_restore_roundtrip() {
@@ -112,12 +112,22 @@ fn backup_and_restore_roundtrip() {
     fs::create_dir(&dst).unwrap();
     fs::write(dst.join("file.txt"), "original").unwrap();
 
-    let backup = backup_moss_dir(&dst).unwrap().unwrap();
+    let backup = backup_and_prepare_dir(&dst).unwrap().unwrap();
     assert!(!dst.exists());
     assert!(backup.exists());
 
-    restore_backup(&backup, &dst).unwrap();
+    rollback_backup(&backup, &dst).unwrap();
     assert!(dst.exists());
     assert!(!backup.exists());
     assert_eq!(fs::read_to_string(dst.join("file.txt")).unwrap(), "original");
+}
+
+#[test]
+fn backup_and_prepare_returns_none_when_target_missing() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    assert!(!dst.exists());
+
+    let backup = backup_and_prepare_dir(&dst).unwrap();
+    assert!(backup.is_none());
 }
