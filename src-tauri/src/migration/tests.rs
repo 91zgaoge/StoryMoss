@@ -28,3 +28,36 @@ fn copy_directory_tree_skips_existing_files() {
     assert_eq!(fs::read_to_string(dst.path().join("a.txt")).unwrap(), "new");
     assert_eq!(fs::read_to_string(dst.path().join("b.txt")).unwrap(), "old-b");
 }
+
+use rusqlite::Connection;
+use super::storyforge::merge_sqlite_databases;
+
+#[test]
+fn merge_sqlite_keeps_target_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.db");
+    let source = dir.path().join("source.db");
+
+    let mut t = Connection::open(&target).unwrap();
+    t.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
+    t.execute("INSERT INTO items VALUES (1, 'target-1'), (2, 'target-2');", []).unwrap();
+    drop(t);
+
+    let mut s = Connection::open(&source).unwrap();
+    s.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);", []).unwrap();
+    s.execute("INSERT INTO items VALUES (1, 'source-1'), (3, 'source-3');", []).unwrap();
+    drop(s);
+
+    let merged = merge_sqlite_databases(&target, &source).unwrap();
+    assert_eq!(merged, 1);
+
+    let t = Connection::open(&target).unwrap();
+    let names: Vec<String> = t
+        .prepare("SELECT name FROM items ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert_eq!(names, vec!["target-1", "target-2", "source-3"]);
+}

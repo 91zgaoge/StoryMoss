@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri::command;
+use rusqlite::Connection;
 
 const OLD_IDENTIFIER: &str = "com.storyforge.app";
 const NEW_IDENTIFIER: &str = "com.storymoss.app";
@@ -93,6 +94,60 @@ pub async fn check_storyforge_migration(app_handle: AppHandle) -> Result<Migrati
     Ok(MigrationStatus { needed, source_path })
 }
 
+pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, String> {
+    let mut conn = Connection::open(target).map_err(|e| format!("打开目标数据库失败: {}", e))?;
+    let source_path = source.to_string_lossy();
+
+    conn.execute(&format!("ATTACH DATABASE '{}' AS old", source_path.replace('\'', "''")), [])
+        .map_err(|e| format!("ATTACH 旧数据库失败: {}", e))?;
+
+    let mut count = 0u64;
+    let mut stmt = conn
+        .prepare("SELECT name FROM old.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        .map_err(|e| format!("读取旧库表列表失败: {}", e))?;
+    let tables: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| format!("枚举旧库表失败: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("枚举旧库表失败: {}", e))?;
+    drop(stmt);
+
+    for table in tables {
+        let sql = format!("INSERT OR IGNORE INTO \"{}\" SELECT * FROM old.\"{}\"", table, table);
+        match conn.execute(&sql, []) {
+            Ok(n) => count += n as u64,
+            Err(e) => {
+                let _ = conn.execute("DETACH DATABASE old", []);
+                return Err(format!("合并表 {} 失败: {}", table, e));
+            }
+        }
+    }
+
+    // 处理 sqlite_sequence：旧库自增值仅用于未设置的表
+    let has_seq: bool = conn
+        .query_row("SELECT 1 FROM old.sqlite_master WHERE name='sqlite_sequence' AND type='table'", [], |_| Ok(true))
+        .unwrap_or(false);
+    if has_seq {
+        let seqs: Vec<(String, i64)> = conn
+            .prepare("SELECT name, seq FROM old.sqlite_sequence")
+            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("读取旧库 sqlite_sequence 失败: {}", e))?;
+        for (name, seq) in seqs {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES (?1, ?2)",
+                [&name, &seq.to_string()],
+            );
+        }
+    }
+
+    conn.execute("DETACH DATABASE old", [])
+        .map_err(|e| format!("DETACH 旧数据库失败: {}", e))?;
+    Ok(count)
+}
+
 #[command]
 pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationResult, String> {
     let Some(src) = storyforge_data_dir(&app_handle) else {
@@ -102,11 +157,23 @@ pub async fn migrate_storyforge_data(app_handle: AppHandle) -> Result<MigrationR
         return Err("无法定位 StoryMoss 数据目录".to_string());
     };
 
-    match copy_directory_tree(&src, &dst, true) {
-        Ok(copied) => Ok(MigrationResult {
-            success: true,
-            message: format!("已复制 {} 个文件", copied),
-        }),
-        Err(e) => Err(format!("复制失败: {}", e)),
+    let copied = copy_directory_tree(&src, &dst, true)
+        .map_err(|e| format!("复制文件失败: {}", e))?;
+
+    let target_db = dst.join("cinema_ai.db");
+    let source_db = src.join("cinema_ai.db");
+    let mut merged = 0u64;
+    if target_db.exists() && source_db.exists() {
+        merged = merge_sqlite_databases(&target_db, &source_db)?;
     }
+
+    // 写入迁移标记
+    if let Some(marker) = migration_marker_path(&app_handle) {
+        fs::write(&marker, "").map_err(|e| format!("写入迁移标记失败: {}", e))?;
+    }
+
+    Ok(MigrationResult {
+        success: true,
+        message: format!("已复制 {} 个文件，合并 {} 条数据库记录", copied, merged),
+    })
 }
