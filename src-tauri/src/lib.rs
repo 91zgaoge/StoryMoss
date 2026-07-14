@@ -74,10 +74,11 @@ use std::collections::HashMap;
 
 use config::AppConfig;
 use db::{init_db, DbPool};
+use migration::storyforge::{migration_needed, storyforge_data_dir, MigrationPromptPayload};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::{path::BaseDirectory, Manager};
+use tauri::{path::BaseDirectory, Emitter, Manager};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -597,6 +598,17 @@ pub fn run() {
                     app_dir.display(),
                     e
                 );
+            }
+
+            // StoryForge 数据迁移检测
+            let app_handle = app.handle();
+            if migration_needed(app_handle) {
+                if let Some(src) = storyforge_data_dir(app_handle) {
+                    log::info!("[Migration] Detected StoryForge data at {:?}; prompting user", src);
+                    let _ = app.emit("storyforge-migration-prompt", MigrationPromptPayload {
+                        source_path: src.to_string_lossy().to_string(),
+                    });
+                }
             }
 
             // 初始化结构化日志系统（必须在其他操作之前）

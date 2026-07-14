@@ -64,6 +64,11 @@ pub struct MigrationResult {
     pub message: String,
 }
 
+#[derive(Serialize, Clone)]
+pub struct MigrationPromptPayload {
+    pub source_path: String,
+}
+
 pub fn copy_directory_tree(src: &Path, dst: &Path, skip_existing: bool) -> io::Result<u64> {
     let mut copied = 0u64;
     fs::create_dir_all(dst)?;
