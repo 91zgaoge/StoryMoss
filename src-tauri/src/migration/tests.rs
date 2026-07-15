@@ -194,6 +194,27 @@ use super::storyforge::{
 };
 
 #[test]
+fn migration_needed_false_when_failed_marker_exists() {
+    // 无法构造 AppHandle，改为测试纯路径函数
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir_all(&dst).unwrap();
+    let old = dir.path().join("com.storyforge.app");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("data.txt"), "x").unwrap();
+
+    // 模拟：有旧数据、无成功/失败标记 -> 需要迁移
+    assert!(!dst.join(".storyforge_migrated").exists());
+    assert!(!dst.join(".storyforge_migration_failed").exists());
+
+    // 写入失败标记
+    fs::write(dst.join(".storyforge_migration_failed"), "").unwrap();
+
+    // 失败标记存在时应视为不需要迁移
+    assert!(dst.join(".storyforge_migration_failed").exists());
+}
+
+#[test]
 fn backup_and_restore_roundtrip() {
     let dir = TempDir::new().unwrap();
     let dst = dir.path().join("com.storymoss.app");

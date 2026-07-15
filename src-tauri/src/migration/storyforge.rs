@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager};
 const OLD_IDENTIFIER: &str = "com.storyforge.app";
 const NEW_IDENTIFIER: &str = "com.storymoss.app";
 const MIGRATION_MARKER: &str = ".storyforge_migrated";
+const MIGRATION_FAILED_MARKER: &str = ".storyforge_migration_failed";
 const SOURCE_SCHEMA: &str = "legacy";
 
 pub fn storyforge_data_dir_from(moss_dir: &Path) -> Option<PathBuf> {
@@ -36,6 +37,10 @@ pub fn migration_marker_path(app_handle: &AppHandle) -> Option<PathBuf> {
     Some(moss_data_dir(app_handle)?.join(MIGRATION_MARKER))
 }
 
+pub fn migration_failed_marker_path(app_handle: &AppHandle) -> Option<PathBuf> {
+    Some(moss_data_dir(app_handle)?.join(MIGRATION_FAILED_MARKER))
+}
+
 pub fn has_storyforge_data(app_handle: &AppHandle) -> bool {
     let Some(old) = storyforge_data_dir(app_handle) else {
         return false;
@@ -51,7 +56,16 @@ pub fn migration_needed(app_handle: &AppHandle) -> bool {
     let Some(marker) = migration_marker_path(app_handle) else {
         return false;
     };
-    !marker.exists() && has_storyforge_data(app_handle)
+    if marker.exists() {
+        return false;
+    }
+    let Some(failed_marker) = migration_failed_marker_path(app_handle) else {
+        return false;
+    };
+    if failed_marker.exists() {
+        return false;
+    }
+    has_storyforge_data(app_handle)
 }
 
 #[derive(Serialize)]
@@ -386,6 +400,17 @@ fn write_migration_marker(app_handle: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn write_migration_failed_marker(app_handle: &AppHandle) -> Result<(), String> {
+    let Some(marker) = migration_failed_marker_path(app_handle) else {
+        return Err("无法定位迁移失败标记路径".to_string());
+    };
+    if let Some(parent) = marker.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建迁移失败标记父目录失败: {}", e))?;
+    }
+    fs::write(&marker, "").map_err(|e| format!("写入迁移失败标记失败: {}", e))?;
+    Ok(())
+}
+
 fn run_migration_with_backup(
     src: &Path,
     dst: &Path,
@@ -460,7 +485,12 @@ pub fn run_storyforge_migration(app_handle: &AppHandle) -> Result<MigrationResul
     let result = run_migration_with_backup(&src, &dst, app_handle);
     match &result {
         Ok(res) => log::info!("[Migration] {}", res.message),
-        Err(e) => log::error!("[Migration] StoryForge migration failed: {}", e),
+        Err(e) => {
+            if let Err(marker_err) = write_migration_failed_marker(app_handle) {
+                log::error!("[Migration] Failed to write failure marker: {}", marker_err);
+            }
+            log::error!("[Migration] StoryForge migration failed: {}", e);
+        }
     }
     result
 }
