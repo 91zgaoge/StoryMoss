@@ -177,11 +177,12 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
     conn.execute(&attach_sql, [])
         .map_err(|e| format!("ATTACH 旧数据库失败: {}", e))?;
 
+    conn.execute("PRAGMA foreign_keys = OFF", [])
+        .map_err(|e| format!("禁用外键失败: {}", e))?;
+
     let merge_result: Result<u64, String> = (|| {
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("开始事务失败: {}", e))?;
-        conn.execute("PRAGMA foreign_keys = OFF", [])
-            .map_err(|e| format!("禁用外键失败: {}", e))?;
 
         let mut count = 0u64;
         let mut stmt = conn
@@ -281,17 +282,32 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
             }
         }
 
-        conn.execute("PRAGMA foreign_keys = ON", [])
-            .map_err(|e| format!("恢复外键失败: {}", e))?;
         conn.execute("COMMIT", [])
             .map_err(|e| format!("提交事务失败: {}", e))?;
         Ok(count)
     })();
 
-    if merge_result.is_err() {
+    let restore_fk = || {
+        conn.execute("PRAGMA foreign_keys = ON", [])
+            .map(|_| ())
+            .map_err(|e| format!("恢复外键失败: {}", e))
+    };
+
+    let merge_result = if merge_result.is_err() {
         let _ = conn.execute("ROLLBACK", []);
-        let _ = conn.execute("PRAGMA foreign_keys = ON", []);
-    }
+        match restore_fk() {
+            Ok(()) => merge_result,
+            Err(restore_err) => {
+                merge_result.map_err(|e| format!("{}（恢复外键失败: {}）", e, restore_err))
+            }
+        }
+    } else {
+        match restore_fk() {
+            Ok(()) => merge_result,
+            Err(restore_err) => Err(restore_err),
+        }
+    };
+
     let detach_result = conn.execute(
         &format!("DETACH DATABASE {}", quote_identifier(SOURCE_SCHEMA)),
         [],

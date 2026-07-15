@@ -185,13 +185,16 @@ fn merge_sqlite_with_foreign_keys() {
 
     let t = Connection::open(&target).unwrap();
     t.execute("PRAGMA foreign_keys = ON;", []).unwrap();
+    // Create children before parents so sqlite_master enumerates children first.
+    // With foreign keys enabled on the merge connection, inserting the child
+    // row before its parent must fail unless we disable foreign keys during merge.
     t.execute(
-        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
+        "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
         [],
     )
     .unwrap();
     t.execute(
-        "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
+        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
         [],
     )
     .unwrap();
@@ -200,22 +203,21 @@ fn merge_sqlite_with_foreign_keys() {
     let s = Connection::open(&source).unwrap();
     s.execute("PRAGMA foreign_keys = ON;", []).unwrap();
     s.execute(
-        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
-        [],
-    )
-    .unwrap();
-    s.execute(
         "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
         [],
     )
     .unwrap();
-    s.execute("INSERT INTO parents VALUES (1, 'p1');", []).unwrap();
+    s.execute(
+        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute("INSERT INTO parents VALUES (1, 'p1');", [])
+        .unwrap();
     s.execute("INSERT INTO children VALUES (10, 1, 'c1');", [])
         .unwrap();
     drop(s);
 
-    // 默认外键开启时，子表在 sqlite_master 中可能排在父表之后，但按字母顺序 children < parents，
-    // 会触发子表先于父表插入。我们的实现应通过禁用外键避免失败。
     let merged = merge_sqlite_databases(&target, &source).unwrap();
     assert_eq!(merged, 2);
 
