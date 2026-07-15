@@ -194,7 +194,7 @@ use super::storyforge::{
 };
 
 #[test]
-fn migration_needed_false_when_failed_marker_exists() {
+fn migration_needed_at_false_when_failed_marker_exists() {
     let dir = TempDir::new().unwrap();
     let dst = dir.path().join("com.storymoss.app");
     fs::create_dir_all(&dst).unwrap();
@@ -304,7 +304,7 @@ fn rollback_or_cleanup_clears_partial_destination_when_no_backup() {
     fs::create_dir(&dst).unwrap();
     fs::write(dst.join("partial.txt"), "partial-data").unwrap();
 
-    rollback_or_cleanup(None, &dst);
+    rollback_or_cleanup(None, &dst).unwrap();
 
     assert!(dst.exists(), "destination directory should remain");
     assert!(

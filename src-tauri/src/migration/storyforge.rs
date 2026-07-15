@@ -377,16 +377,14 @@ pub fn rollback_backup(backup: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn rollback_or_cleanup(backup: Option<&Path>, dst: &Path) {
+pub(super) fn rollback_or_cleanup(backup: Option<&Path>, dst: &Path) -> Result<(), String> {
     if let Some(b) = backup {
-        if let Err(err) = rollback_backup(b, dst) {
-            log::error!("迁移失败且回滚备份失败: {}", err);
-        }
+        rollback_backup(b, dst)
     } else if dst.exists() {
         // 目标目录原本为空/不存在，迁移失败后清理任何已创建的部分目录
-        if let Err(err) = remove_dir_contents(dst) {
-            log::error!("迁移失败且清理部分创建的目标目录失败: {}", err);
-        }
+        remove_dir_contents(dst).map_err(|e| format!("清理部分创建的目标目录失败: {}", e))
+    } else {
+        Ok(())
     }
 }
 
@@ -460,7 +458,12 @@ fn run_migration_with_backup(
             Ok(res)
         }
         Err(e) => {
-            rollback_or_cleanup(backup.as_deref(), dst);
+            if let Err(rollback_err) = rollback_or_cleanup(backup.as_deref(), dst) {
+                return Err(format!("{}（回滚失败: {}）", e, rollback_err));
+            }
+            if let Err(marker_err) = write_migration_failed_marker(app_handle) {
+                return Err(format!("{}（写入失败标记失败: {}）", e, marker_err));
+            }
             Err(e)
         }
     }
@@ -486,10 +489,6 @@ pub fn run_storyforge_migration(app_handle: &AppHandle) -> Result<MigrationResul
     match &result {
         Ok(res) => log::info!("[Migration] {}", res.message),
         Err(e) => {
-            if let Err(marker_err) = write_migration_failed_marker(app_handle) {
-                log::error!("[Migration] Failed to write failure marker: {}", marker_err);
-                log::warn!("[Migration] Failure marker could not be written; failed migration may be retried on next startup.");
-            }
             log::error!("[Migration] StoryForge migration failed: {}", e);
         }
     }
