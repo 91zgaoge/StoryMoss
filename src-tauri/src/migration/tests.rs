@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::storyforge::{migration_needed_at, storyforge_data_dir_from};
+use super::storyforge::{has_storyforge_data_at, migration_needed_at, storyforge_data_dir_from};
 
 #[test]
 fn replaces_last_path_component() {
@@ -398,4 +398,23 @@ fn merge_json_config_creates_target_when_missing() {
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(parsed["key"], "value");
     assert_eq!(parsed["nested"]["a"], 1);
+}
+
+#[test]
+fn has_storyforge_data_true_for_non_empty_dir() {
+    let dir = TempDir::new().unwrap();
+    let old = dir.path().join("com.storyforge.app");
+    fs::create_dir(&old).unwrap();
+    fs::write(old.join("story.txt"), "once upon a time").unwrap();
+
+    assert!(has_storyforge_data_at(&old));
+}
+
+#[test]
+fn has_storyforge_data_false_for_empty_dir() {
+    let dir = TempDir::new().unwrap();
+    let old = dir.path().join("com.storyforge.app");
+    fs::create_dir(&old).unwrap();
+
+    assert!(!has_storyforge_data_at(&old));
 }

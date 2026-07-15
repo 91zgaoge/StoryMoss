@@ -41,12 +41,21 @@ pub fn migration_failed_marker_path(app_handle: &AppHandle) -> Option<PathBuf> {
     Some(moss_data_dir(app_handle)?.join(MIGRATION_FAILED_MARKER))
 }
 
-fn has_storyforge_data_at(old_dir: &Path) -> bool {
-    if !old_dir.is_dir() {
+pub fn has_storyforge_data_at(old: &Path) -> bool {
+    if !old.is_dir() {
         return false;
     }
-    // 至少包含核心文件之一才认为有数据
-    old_dir.join("cinema_ai.db").exists() || old_dir.join("config.json").exists()
+    match old.read_dir() {
+        Ok(mut entries) => entries.next().is_some(),
+        Err(_) => false,
+    }
+}
+
+pub fn has_storyforge_data(app_handle: &AppHandle) -> bool {
+    let Some(old) = storyforge_data_dir(app_handle) else {
+        return false;
+    };
+    has_storyforge_data_at(&old)
 }
 
 pub(super) fn migration_needed_at(moss_dir: &Path, old_dir: &Path) -> bool {
