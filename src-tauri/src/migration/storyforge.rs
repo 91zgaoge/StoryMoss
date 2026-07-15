@@ -41,31 +41,32 @@ pub fn migration_failed_marker_path(app_handle: &AppHandle) -> Option<PathBuf> {
     Some(moss_data_dir(app_handle)?.join(MIGRATION_FAILED_MARKER))
 }
 
-pub fn has_storyforge_data(app_handle: &AppHandle) -> bool {
-    let Some(old) = storyforge_data_dir(app_handle) else {
-        return false;
-    };
-    if !old.is_dir() {
+fn has_storyforge_data_at(old_dir: &Path) -> bool {
+    if !old_dir.is_dir() {
         return false;
     }
     // 至少包含核心文件之一才认为有数据
-    old.join("cinema_ai.db").exists() || old.join("config.json").exists()
+    old_dir.join("cinema_ai.db").exists() || old_dir.join("config.json").exists()
+}
+
+pub(super) fn migration_needed_at(moss_dir: &Path, old_dir: &Path) -> bool {
+    if moss_dir.join(MIGRATION_MARKER).exists() {
+        return false;
+    }
+    if moss_dir.join(MIGRATION_FAILED_MARKER).exists() {
+        return false;
+    }
+    has_storyforge_data_at(old_dir)
 }
 
 pub fn migration_needed(app_handle: &AppHandle) -> bool {
-    let Some(marker) = migration_marker_path(app_handle) else {
+    let Some(moss) = moss_data_dir(app_handle) else {
         return false;
     };
-    if marker.exists() {
-        return false;
-    }
-    let Some(failed_marker) = migration_failed_marker_path(app_handle) else {
+    let Some(old) = storyforge_data_dir(app_handle) else {
         return false;
     };
-    if failed_marker.exists() {
-        return false;
-    }
-    has_storyforge_data(app_handle)
+    migration_needed_at(&moss, &old)
 }
 
 #[derive(Serialize)]
@@ -389,26 +390,25 @@ pub(super) fn rollback_or_cleanup(backup: Option<&Path>, dst: &Path) {
     }
 }
 
+fn write_empty_marker(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建标记父目录失败: {}", e))?;
+    }
+    fs::write(path, "").map_err(|e| format!("写入标记失败: {}", e))
+}
+
 fn write_migration_marker(app_handle: &AppHandle) -> Result<(), String> {
     let Some(marker) = migration_marker_path(app_handle) else {
         return Err("无法定位迁移标记路径".to_string());
     };
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建迁移标记父目录失败: {}", e))?;
-    }
-    fs::write(&marker, "").map_err(|e| format!("写入迁移标记失败: {}", e))?;
-    Ok(())
+    write_empty_marker(&marker)
 }
 
-pub fn write_migration_failed_marker(app_handle: &AppHandle) -> Result<(), String> {
+fn write_migration_failed_marker(app_handle: &AppHandle) -> Result<(), String> {
     let Some(marker) = migration_failed_marker_path(app_handle) else {
         return Err("无法定位迁移失败标记路径".to_string());
     };
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建迁移失败标记父目录失败: {}", e))?;
-    }
-    fs::write(&marker, "").map_err(|e| format!("写入迁移失败标记失败: {}", e))?;
-    Ok(())
+    write_empty_marker(&marker)
 }
 
 fn run_migration_with_backup(
@@ -488,6 +488,7 @@ pub fn run_storyforge_migration(app_handle: &AppHandle) -> Result<MigrationResul
         Err(e) => {
             if let Err(marker_err) = write_migration_failed_marker(app_handle) {
                 log::error!("[Migration] Failed to write failure marker: {}", marker_err);
+                log::warn!("[Migration] Failure marker could not be written; failed migration may be retried on next startup.");
             }
             log::error!("[Migration] StoryForge migration failed: {}", e);
         }
