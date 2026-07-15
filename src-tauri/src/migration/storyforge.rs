@@ -180,6 +180,8 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
     let merge_result: Result<u64, String> = (|| {
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("开始事务失败: {}", e))?;
+        conn.execute("PRAGMA foreign_keys = OFF", [])
+            .map_err(|e| format!("禁用外键失败: {}", e))?;
 
         let mut count = 0u64;
         let mut stmt = conn
@@ -279,6 +281,8 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
             }
         }
 
+        conn.execute("PRAGMA foreign_keys = ON", [])
+            .map_err(|e| format!("恢复外键失败: {}", e))?;
         conn.execute("COMMIT", [])
             .map_err(|e| format!("提交事务失败: {}", e))?;
         Ok(count)
@@ -286,6 +290,7 @@ pub fn merge_sqlite_databases(target: &Path, source: &Path) -> Result<u64, Strin
 
     if merge_result.is_err() {
         let _ = conn.execute("ROLLBACK", []);
+        let _ = conn.execute("PRAGMA foreign_keys = ON", []);
     }
     let detach_result = conn.execute(
         &format!("DETACH DATABASE {}", quote_identifier(SOURCE_SCHEMA)),

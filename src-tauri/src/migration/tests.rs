@@ -177,6 +177,59 @@ fn merge_sqlite_skips_missing_target_tables() {
     );
 }
 
+#[test]
+fn merge_sqlite_with_foreign_keys() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.db");
+    let source = dir.path().join("source.db");
+
+    let t = Connection::open(&target).unwrap();
+    t.execute("PRAGMA foreign_keys = ON;", []).unwrap();
+    t.execute(
+        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    t.execute(
+        "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
+        [],
+    )
+    .unwrap();
+    drop(t);
+
+    let s = Connection::open(&source).unwrap();
+    s.execute("PRAGMA foreign_keys = ON;", []).unwrap();
+    s.execute(
+        "CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute(
+        "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute("INSERT INTO parents VALUES (1, 'p1');", []).unwrap();
+    s.execute("INSERT INTO children VALUES (10, 1, 'c1');", [])
+        .unwrap();
+    drop(s);
+
+    // 默认外键开启时，子表在 sqlite_master 中可能排在父表之后，但按字母顺序 children < parents，
+    // 会触发子表先于父表插入。我们的实现应通过禁用外键避免失败。
+    let merged = merge_sqlite_databases(&target, &source).unwrap();
+    assert_eq!(merged, 2);
+
+    let t = Connection::open(&target).unwrap();
+    let parent_count: i64 = t
+        .query_row("SELECT COUNT(*) FROM parents", [], |r| r.get(0))
+        .unwrap();
+    let child_count: i64 = t
+        .query_row("SELECT COUNT(*) FROM children", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(parent_count, 1);
+    assert_eq!(child_count, 1);
+}
+
 use serde_json::json;
 
 use super::storyforge::merge_json_values;
