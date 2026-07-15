@@ -418,3 +418,73 @@ fn has_storyforge_data_false_for_empty_dir() {
 
     assert!(!has_storyforge_data_at(&old));
 }
+
+#[test]
+fn merge_sqlite_restores_foreign_keys_after_failure() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.db");
+    let source = dir.path().join("source.db");
+
+    let t = Connection::open(&target).unwrap();
+    t.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    t.execute("INSERT INTO items VALUES (1, 'target-1');", [])
+        .unwrap();
+    // A trigger that deliberately aborts any insert lets us exercise the
+    // failure/rollback path inside merge_sqlite_databases.
+    t.execute(
+        "CREATE TRIGGER fail_insert BEFORE INSERT ON items BEGIN SELECT RAISE(ABORT, 'forced failure'); END;",
+        [],
+    )
+    .unwrap();
+    drop(t);
+
+    let s = Connection::open(&source).unwrap();
+    s.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);",
+        [],
+    )
+    .unwrap();
+    s.execute("INSERT INTO items VALUES (2, 'source-2');", [])
+        .unwrap();
+    drop(s);
+
+    let result = merge_sqlite_databases(&target, &source);
+    assert!(result.is_err(), "merge should fail due to abort trigger");
+
+    let t = Connection::open(&target).unwrap();
+    let count: i64 = t
+        .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "failed merge should be rolled back");
+
+    let fk: i64 = t
+        .pragma_query_value(None, "foreign_keys", |r| r.get(0))
+        .unwrap();
+    assert_eq!(fk, 1, "foreign_keys should be restored after failure");
+}
+
+#[test]
+fn rollback_or_cleanup_propagates_backup_failure() {
+    let dir = TempDir::new().unwrap();
+    let dst = dir.path().join("com.storymoss.app");
+    fs::create_dir(&dst).unwrap();
+    fs::write(dst.join("file.txt"), "data").unwrap();
+
+    let missing_backup = dir.path().join("does_not_exist.bak");
+    let result = rollback_or_cleanup(Some(&missing_backup), &dst);
+    assert!(
+        result.is_err(),
+        "rollback_or_cleanup should propagate a rollback_backup failure"
+    );
+
+    // The destination is cleared before attempting the restore.
+    assert!(dst.exists(), "destination directory should remain");
+    assert!(
+        !dst.join("file.txt").exists(),
+        "destination contents should be cleared during rollback attempt"
+    );
+}

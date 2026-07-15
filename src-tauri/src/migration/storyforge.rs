@@ -41,7 +41,7 @@ pub fn migration_failed_marker_path(app_handle: &AppHandle) -> Option<PathBuf> {
     Some(moss_data_dir(app_handle)?.join(MIGRATION_FAILED_MARKER))
 }
 
-pub fn has_storyforge_data_at(old: &Path) -> bool {
+pub(super) fn has_storyforge_data_at(old: &Path) -> bool {
     if !old.is_dir() {
         return false;
     }
@@ -49,13 +49,6 @@ pub fn has_storyforge_data_at(old: &Path) -> bool {
         Ok(mut entries) => entries.next().is_some(),
         Err(_) => false,
     }
-}
-
-pub fn has_storyforge_data(app_handle: &AppHandle) -> bool {
-    let Some(old) = storyforge_data_dir(app_handle) else {
-        return false;
-    };
-    has_storyforge_data_at(&old)
 }
 
 pub(super) fn migration_needed_at(moss_dir: &Path, old_dir: &Path) -> bool {
