@@ -13,6 +13,11 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ### 修复
 
+- **StoryForge 迁移健壮性增强**：
+  - 迁移失败时写入 `.storyforge_migration_failed` 标记，避免每次启动都重试并堆积备份。
+  - 数据库合并期间临时关闭外键检查，避免子表先于父表插入导致失败。
+  - 旧数据检测改为只要 `com.storyforge.app` 目录非空即触发迁移，不再硬依赖 `cinema_ai.db` / `config.json`。
+
 - **Windows 启动闪退（BEX64 / 0xc0000409）**：移除 `init_windows` 中 setup 阶段对 `CoreWebView2` 的 unsafe COM 调用，该调用在部分 Windows/WebView2 环境下会在启动时触发缓冲区溢出异常；Windows 右键菜单禁用功能迁移到前端全局 `contextmenu` 事件处理，保留输入框/文本域的原生菜单。
 
 ### 基础设施
