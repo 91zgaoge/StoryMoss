@@ -90,6 +90,7 @@ impl ToolRegistry {
         let mut registry = Self::new();
         registry.register(Arc::new(BoardReadTool));
         registry.register(Arc::new(BoardWriteTool));
+        registry.register(Arc::new(BoardReviseTool));
         registry.register(Arc::new(StoryInfoTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
@@ -98,6 +99,7 @@ impl ToolRegistry {
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
         registry.allow(AgentRole::LeadWriter, "board_write");
         registry.allow(AgentRole::Producer, "board_write");
+        registry.allow(AgentRole::LeadWriter, "board_revise");
         registry
     }
 }
@@ -180,6 +182,32 @@ impl AgentTool for BoardWriteTool {
             board.write(&run_id, &story_id, role, zone, &item_type, &key, &content, &summary)
         }).await.map_err(|e| AppError::from(format!("board_write join error: {}", e)))?
         .map(|item| format!("已写入 [{}/{}] status={} id={}", item.zone.as_str(), item.key, item.status, item.id))
+    }
+}
+
+pub struct BoardReviseTool;
+
+#[async_trait::async_trait]
+impl AgentTool for BoardReviseTool {
+    fn name(&self) -> &'static str { "board_revise" }
+    fn description(&self) -> &'static str { "修订自己分区的既有条目（版本乐观锁；用于按审查意见修订草稿）" }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"item_id": "条目 id", "expected_version": "当前版本号（整数）", "content": "修订后全文", "summary": "一句话摘要"})
+    }
+
+    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
+        let item_id = args.get("item_id").and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::validation_failed("board_revise 缺少 item_id", None::<String>))?.to_string();
+        let expected_version = args.get("expected_version").and_then(|v| v.as_i64())
+            .ok_or_else(|| AppError::validation_failed("board_revise 缺少 expected_version", None::<String>))? as i32;
+        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let board = ctx.board.clone();
+        let role = ctx.role;
+        tokio::task::spawn_blocking(move || {
+            board.revise(&item_id, role, &content, &summary, expected_version)
+        }).await.map_err(|e| AppError::from(format!("board_revise join error: {}", e)))?
+        .map(|item| format!("已修订 [{}/{}] 到 v{}", item.zone.as_str(), item.key, item.version))
     }
 }
 
@@ -297,5 +325,39 @@ mod tests {
         assert!(catalog.contains("story_info"));
         let editor_catalog = registry.catalog_for_role(AgentRole::EditorAuditor);
         assert!(!editor_catalog.contains("board_write"));
+    }
+
+    #[tokio::test]
+    async fn test_board_revise_tool() {
+        let pool = create_test_pool().unwrap();
+        seed_run(&pool);
+        let registry = ToolRegistry::agency_default();
+        let context = ctx(pool.clone(), AgentRole::LeadWriter);
+        // 先由 owner 写入 draft
+        let draft = context.board.write("r1", "s1", AgentRole::LeadWriter, BoardZone::Draft,
+            "chapter", "第一章", "初稿", "初稿").unwrap();
+        let revise = registry.get_for_role(AgentRole::LeadWriter, "board_revise")
+            .expect("LeadWriter 应有 board_revise");
+        let out = revise.execute(&context, serde_json::json!({
+            "item_id": draft.id, "expected_version": 1,
+            "content": "修订稿", "summary": "修订稿"
+        })).await.unwrap();
+        assert!(out.contains("v2") || out.contains("version=2"));
+        let item = context.board.repo().get_item(&draft.id).unwrap().unwrap();
+        assert_eq!(item.content, "修订稿");
+        assert_eq!(item.version, 2);
+        // 版本冲突 → 错误回显（工具 Ok 但内容提示冲突，或 Err——以实现为准断言其一）
+        let conflict = revise.execute(&context, serde_json::json!({
+            "item_id": draft.id, "expected_version": 1,
+            "content": "并发", "summary": "x"
+        })).await;
+        assert!(conflict.is_err() || conflict.unwrap().contains("冲突"));
+    }
+
+    #[tokio::test]
+    async fn test_board_revise_whitelist() {
+        let registry = ToolRegistry::agency_default();
+        assert!(registry.get_for_role(AgentRole::Producer, "board_revise").is_none());
+        assert!(registry.get_for_role(AgentRole::EditorAuditor, "board_revise").is_none());
     }
 }

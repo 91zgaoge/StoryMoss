@@ -111,6 +111,9 @@ impl BlackboardService {
     /// 提案晋升为正式（协调器仲裁用）。
     pub fn promote(&self, item_id: &str) -> Result<(), AppError> {
         self.repo.promote_item(item_id).map_err(AppError::from)?;
+        if let Ok(Some(item)) = self.repo.get_item(item_id) {
+            self.emit_changed(&item);
+        }
         Ok(())
     }
 
@@ -217,5 +220,16 @@ mod tests {
         svc.promote(&p.id).unwrap();
         let snap = svc.snapshot("r1").unwrap();
         assert_eq!(snap.assets[0].status, "active");
+    }
+
+    #[test]
+    fn test_promote_emits_no_panic_without_handle() {
+        // 无 app_handle 时 promote 不 panic（事件 best-effort）
+        let svc = board();
+        seed_run(&svc, "r1");
+        let p = svc.write("r1", "s1", AgentRole::LeadWriter, BoardZone::Asset,
+            "world", "提案", "x", "提案").unwrap();
+        svc.promote(&p.id).unwrap();
+        assert_eq!(svc.snapshot("r1").unwrap().assets[0].status, "active");
     }
 }

@@ -381,7 +381,10 @@ impl AgencyCoordinator {
                 let issues = verdict.blocking_issues.join("；");
                 let revise_out = self.run_role(
                     &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
-                    &format!("修订「{}」。审查阻断问题：{}。先 board_read 读草稿与资产，再把修订后的完整正文用 board_write 写入 draft 区（同 key）。", draft.key, issues),
+                    &format!(
+                        "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。审查阻断问题：{}",
+                        draft.key, draft.id, draft.version, issues
+                    ),
                 ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                 if revise_out.aborted {
                     return Err(AppError::from("主创 Agent 修订轮被熔断"));

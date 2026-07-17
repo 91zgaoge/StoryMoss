@@ -53,4 +53,16 @@ mod tests {
         assert_eq!(spec_for(AgentRole::Producer).task_type, TaskType::WorldBuilding);
         assert_eq!(spec_for(AgentRole::EditorAuditor).task_type, TaskType::Proofreading);
     }
+
+    #[test]
+    fn test_agency_prompts_loadable() {
+        for role in AgentRole::all() {
+            let id = spec_for(role).prompt_id;
+            assert!(
+                crate::prompts::registry::resolve_prompt_default(id).is_some(),
+                "提示词应能被注册表加载: {}",
+                id
+            );
+        }
+    }
 }

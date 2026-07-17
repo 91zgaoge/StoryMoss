@@ -214,17 +214,25 @@ impl AgencyRepository {
 fn map_board_item(row: &rusqlite::Row) -> Result<BoardItem, rusqlite::Error> {
     let zone_str: String = row.get(3)?;
     let producer_str: String = row.get(9)?;
+    let zone = BoardZone::from_str(&zone_str).unwrap_or_else(|| {
+        log::warn!("agency_board_items 非法 zone 值 {:?}，回退 asset", zone_str);
+        BoardZone::Asset
+    });
+    let producer = AgentRole::from_str(&producer_str).unwrap_or_else(|| {
+        log::warn!("agency_board_items 非法 producer 值 {:?}，回退 producer", producer_str);
+        AgentRole::Producer
+    });
     Ok(BoardItem {
         id: row.get(0)?,
         run_id: row.get(1)?,
         story_id: row.get(2)?,
-        zone: BoardZone::from_str(&zone_str).unwrap_or(BoardZone::Asset),
+        zone,
         item_type: row.get(4)?,
         key: row.get(5)?,
         content: row.get(6)?,
         summary: row.get(7)?,
         version: row.get(8)?,
-        producer: AgentRole::from_str(&producer_str).unwrap_or(AgentRole::Producer),
+        producer,
         status: row.get(10)?,
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
@@ -234,11 +242,19 @@ fn map_board_item(row: &rusqlite::Row) -> Result<BoardItem, rusqlite::Error> {
 fn map_message(row: &rusqlite::Row) -> Result<AgencyMessage, rusqlite::Error> {
     let from_str: String = row.get(2)?;
     let to_str: String = row.get(3)?;
+    let from_role = AgentRole::from_str(&from_str).unwrap_or_else(|| {
+        log::warn!("agency_messages 非法 from_role 值 {:?}，回退 producer", from_str);
+        AgentRole::Producer
+    });
+    let to_role = AgentRole::from_str(&to_str).unwrap_or_else(|| {
+        log::warn!("agency_messages 非法 to_role 值 {:?}，回退 lead_writer", to_str);
+        AgentRole::LeadWriter
+    });
     Ok(AgencyMessage {
         id: row.get(0)?,
         run_id: row.get(1)?,
-        from_role: AgentRole::from_str(&from_str).unwrap_or(AgentRole::Producer),
-        to_role: AgentRole::from_str(&to_str).unwrap_or(AgentRole::LeadWriter),
+        from_role,
+        to_role,
         msg_type: row.get(4)?,
         payload: row.get(5)?,
         created_at: row.get(6)?,
