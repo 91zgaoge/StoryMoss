@@ -350,9 +350,11 @@ impl AgencyCoordinator {
 
         // producer 完成后落库（黑板资产区 → characters/world_buildings/story_outlines）
         {
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let assets = self.db(move || board_c.list_zone(&rid, BoardZone::Asset)).await?;
             let pool = self.pool.clone();
             let sid = story_id.clone();
-            let assets = board.list_zone(run_id, BoardZone::Asset)?;
             let inserted = tokio::task::spawn_blocking(move || {
                 crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
             }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
@@ -453,12 +455,17 @@ impl AgencyCoordinator {
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
-                let _ = repo.finish_run(run_id, "completed", Some(&json), None);
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
                 self.emit_progress(run_id, "assembly", "completed", "续写完成");
             }
             Err(e) => {
-                let status = if cancel.load(std::sync::atomic::Ordering::SeqCst) { "cancelled" } else { "failed" };
-                let _ = repo.finish_run(run_id, status, None, Some(&e.to_string()));
+                let status = if cancel.load(Ordering::SeqCst) { "cancelled" } else { "failed" };
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let msg = e.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
                 self.emit_progress(run_id, "assembly", status, &e.to_string());
             }
         }
@@ -476,9 +483,14 @@ impl AgencyCoordinator {
         let llm = self.llm_for_run(run_id);
         let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章", title, chapter_number);
-        repo.create_run(&AgencyRun::new(run_id, &premise)).map_err(AppError::from)?;
-        repo.set_run_story(run_id, story_id).map_err(AppError::from)?;
-        repo.update_run_phase(run_id, "running", "assets").map_err(AppError::from)?;
+        let run = AgencyRun::new(run_id, &premise);
+        let repo_c = repo.clone();
+        self.db(move || repo_c.create_run(&run).map_err(AppError::from)).await?;
+        let repo_c = repo.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from)).await?;
+        self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 1) 资产确认/补齐：先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让 producer 现场补齐
@@ -493,9 +505,13 @@ impl AgencyCoordinator {
         };
         if character_count == 0 {
             // 先尝试从本 story 历史黑板条目落库（免费路径）
+            let repo_c = repo.clone();
+            let sid = story_id.to_string();
+            let history_items = self.db(move ||
+                repo_c.list_items_for_story(&sid, Some(BoardZone::Asset)).map_err(AppError::from)
+            ).await?;
             let pool = self.pool.clone();
             let sid = story_id.to_string();
-            let history_items = repo.list_items_for_story(story_id, Some(BoardZone::Asset)).map_err(AppError::from)?;
             let inserted = tokio::task::spawn_blocking(move || {
                 crate::agency::materialize::materialize_assets(&pool, &sid, &history_items)
             }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
@@ -510,7 +526,9 @@ impl AgencyCoordinator {
                 if producer_out.aborted {
                     return Err(AppError::from("管理 Agent 被熔断，资产补齐未完成"));
                 }
-                let assets = board.list_zone(run_id, BoardZone::Asset)?;
+                let board_c = board.clone();
+                let rid = run_id.to_string();
+                let assets = self.db(move || board_c.list_zone(&rid, BoardZone::Asset)).await?;
                 let pool = self.pool.clone();
                 let sid = story_id.to_string();
                 tokio::task::spawn_blocking(move || {
@@ -521,7 +539,7 @@ impl AgencyCoordinator {
         self.check_cancel(cancel)?;
 
         // 2) 写作
-        repo.update_run_phase(run_id, "running", "writing").map_err(AppError::from)?;
+        self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", &format!("主创 Agent 正在写作第{}章", chapter_number));
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
@@ -542,14 +560,14 @@ impl AgencyCoordinator {
         // 3) 质量门 + 至多 1 轮修订（与 genesis 同门径）
         let mut revised = false;
         let final_verdict = loop {
-            repo.update_run_phase(run_id, "running", "review").map_err(AppError::from)?;
+            self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "质量门评估中");
             let outcome = self.evaluate_gate(&llm, &board, &registry, run_id, story_id, &premise, &draft).await?;
             match outcome {
                 GateOutcome::Passed { verdict } => break verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
                     revised = true;
-                    repo.update_run_phase(run_id, "running", "revision").map_err(AppError::from)?;
+                    self.update_phase(repo, run_id, "revision").await?;
                     let task = Self::build_revision_task(&draft, &issues);
                     let revise_out = self.run_role_with_llm(
                         &llm, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise, &task,
@@ -572,7 +590,7 @@ impl AgencyCoordinator {
         };
 
         // 4) 装配
-        repo.update_run_phase(run_id, "running", "assembly").map_err(AppError::from)?;
+        self.update_phase(repo, run_id, "assembly").await?;
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let content = draft.content.clone();
