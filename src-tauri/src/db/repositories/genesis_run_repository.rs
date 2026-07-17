@@ -6,6 +6,8 @@ pub struct GenesisRunRepository {
     pool: DbPool,
 }
 
+// Task 7: 创世写路径已切到 agency，部分方法暂失消费者（读路径仪表盘仍在用）；Task 8 处理。
+#[allow(dead_code)]
 impl GenesisRunRepository {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }

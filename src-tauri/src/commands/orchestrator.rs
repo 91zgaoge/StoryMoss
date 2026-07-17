@@ -241,329 +241,84 @@ async fn smart_execute_inner(
     );
 
     if is_bootstrap_intent {
-        wf(
-            "smart_execute.bootstrap.enter",
-            "进入创世模式（GenesisPipeline 快速阶段）",
-            Some(serde_json::json!({
-                "total_timeout_secs": crate::config::AppConfig::load(&app_handle.path().app_data_dir().unwrap_or_default())
-                    .map(|c| c.smart_execute_total_timeout_secs).unwrap_or(180u64),
-            })),
-        );
-        let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+        // 创世 2.0 走 agency 多代理框架：进度镜像到 smart-execute-progress，
+        // 返回形状满足前端兼容契约（见 P2 计划 Global Constraints）。
+        // total_timeout 读取沿用函数顶部现有代码（config.smart_execute_total_timeout_secs，默认 600）。
+        let app_dir = app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         let total_timeout = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.smart_execute_total_timeout_secs)
             .unwrap_or(180u64);
         log::warn!(
-            "[smart_execute] 检测到小说创建意图，启动 GenesisPipeline 快速阶段，total_timeout={}s",
+            "[smart_execute] 检测到小说创建意图，启动 agency 创世流程，total_timeout={}s",
             total_timeout
         );
-        let mut ctx =
-            crate::narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
-        let session_id = ctx.session_id.clone();
-        let llm = crate::llm::LlmService::new(app_handle.clone());
-        let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(&session_id);
-
-        // v0.23.14: 快速阶段 = 故事概念 + 第一章正文（TriShot 模式，目标 30-60 秒）
-        // 正文生成后立即返回给用户，策略选择与世界观/大纲/角色等推入后台。
-        let quick_steps = crate::narrative::genesis::GenesisPipeline::quick_phase_steps();
-        let quick_step_count = quick_steps.len();
-
-        // v0.26.19 P0-4: 接入 genesis_runs 表，记录创世运行状态机。
-        //   仪表盘「Genesis 运行记录」依赖此表；此前 GenesisPipeline 全程不写，
-        //   导致 USER_GUIDE 承诺的运行记录永远为空。
-        //   total_steps = quick(2) + background(6) = 8，覆盖完整创世流程。
-        let genesis_run_id = Uuid::new_v4().to_string();
-        let genesis_run_repo = crate::db::GenesisRunRepository::new(pool.clone());
-        let bg_step_count =
-            crate::narrative::genesis::GenesisPipeline::background_steps().len() as i32;
-        let total_steps = (quick_step_count as i32) + bg_step_count;
-        if let Err(e) =
-            genesis_run_repo.create(&genesis_run_id, &session_id, &user_input, total_steps)
-        {
-            log::warn!(
-                "[smart_execute] genesis_runs.create 失败（不阻塞主流程）: {}",
-                e
-            );
-        }
-        // 标记进入 running 态（create 默认 pending，显式切 running 以便仪表盘区分）
-        let _ = genesis_run_repo.update_step(&genesis_run_id, "构思故事", 1, "running", "{}");
-        let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
-            .with_cancel_flag(cancel_flag.clone());
-
-        // 进度回调：同时发射新旧两种事件（向后兼容）
-        let app_handle_progress = app_handle.clone();
-        let progress_callback = std::sync::Arc::new(
-            move |evt: crate::narrative::progress::PipelineProgressEvent| {
-                let _ = app_handle_progress.emit("pipeline-progress", &evt);
-                let _ = app_handle_progress.emit(
-                    "novel-bootstrap-progress",
-                    crate::planner::bootstrap::BootstrapProgressEvent {
-                        session_id: evt.pipeline_id.clone(),
-                        step_name: evt.step_name.clone(),
-                        step_number: evt.step_number,
-                        total_steps: evt.total_steps,
-                        message: evt.message.clone(),
-                        status: format!("{:?}", evt.status).to_lowercase(),
+        emit_progress("analyzing", "创世 2.0 启动（多代理）", 0, 6);
+        let run_id = Uuid::new_v4().to_string();
+        let coordinator =
+            crate::agency::coordinator::AgencyCoordinator::new(app_handle.clone(), pool.clone());
+        // 进度镜像：agency phase → smart-execute-progress
+        let sink: crate::agency::coordinator::ProgressSink = std::sync::Arc::new({
+            let app = app_handle.clone();
+            move |phase: &str, status: &str, message: &str| {
+                let step = match phase {
+                    "concept" => 1,
+                    "assets" => 2,
+                    "writing" => 3,
+                    "review" | "revision" => 4,
+                    "assembly" => 5,
+                    _ => 6,
+                };
+                let _ = app.emit(
+                    "smart-execute-progress",
+                    crate::planner::SmartExecuteProgress {
+                        stage: if status == "running" {
+                            phase.to_string()
+                        } else {
+                            status.to_string()
+                        },
+                        message: message.to_string(),
+                        step_number: step,
+                        total_steps: 6,
                     },
                 );
-            },
-        );
-
-        log::warn!(
-            "[smart_execute] GenesisPipeline 快速阶段开始执行，共 {} 步",
-            quick_step_count
-        );
-        match executor
-            .execute(&mut ctx, &llm, progress_callback.clone())
+            }
+        });
+        let genesis_future = coordinator.run_genesis_with_sink(&run_id, &user_input, Some(sink));
+        match tokio::time::timeout(std::time::Duration::from_secs(total_timeout), genesis_future)
             .await
         {
-            Ok(()) => {
-                log::warn!(
-                    "[smart_execute] GenesisPipeline 快速阶段成功完成 story_id={}",
-                    ctx.story_id
-                );
-                // 从上下文读取第一章正文内容（已在 FirstChapterGenerationStep
-                // 中保存到数据库并发射 ChapterSwitch 事件）
-                // Phase 4 fix: final_content 优先用实际正文（走 Tab 确认），
-                // 其次用摘要消息。之前优先级颠倒——正文被摘要覆盖，导致前端拿不到
-                // 实际内容走 generatedText 流程。
-                let final_content = if let Some(content) = ctx.first_chapter_content.clone() {
-                    Some(content)
-                } else {
-                    let bundle = ctx.bundle.read().await;
-                    bundle.story_meta.as_ref().and_then(|meta| {
-                        if meta.title.is_empty() {
-                            None
-                        } else {
-                            Some(format!("故事《{}》已创建，第一章正文已生成。", meta.title))
-                        }
-                    })
-                };
+            Ok(Ok(result)) => {
+                // 取装配场景正文（final_content 契约：完整第一章正文，非摘要文案）
+                let pool_c = pool.clone();
+                let scene_id = result.scene_id.clone();
+                let content = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+                    let scene = crate::db::repositories::SceneRepository::new(pool_c)
+                        .get_by_id(&scene_id)
+                        .map_err(AppError::from)?
+                        .ok_or_else(|| AppError::from("装配场景不存在"))?;
+                    Ok(scene.content.unwrap_or_default())
+                })
+                .await
+                .map_err(|e| AppError::from(format!("scene read join error: {}", e)))??;
 
-                // [DEBUG] Bug A 关键日志：final_content 是摘要还是完整正文？
-                wf(
-                    "genesis.final_content",
-                    "Genesis 快速阶段完成，确定 final_content",
-                    Some(serde_json::json!({
-                        "story_id": &ctx.story_id,
-                        "story_meta_title": ctx.bundle.read().await.story_meta.as_ref().map(|m| m.title.clone()).unwrap_or_default(),
-                        "first_chapter_content_len": ctx.first_chapter_content.as_ref().map(|s| s.len()).unwrap_or(0),
-                        "final_content_len": final_content.as_ref().map(|s| s.len()).unwrap_or(0),
-                        "final_content_is_summary": final_content.as_ref().map(|s| s.contains("已创建，第一章正文已生成")).unwrap_or(false),
-                        "final_content_preview": final_content.as_ref().map(|s| s.chars().take(100).collect::<String>()).unwrap_or_else(|| "EMPTY".to_string()),
-                        "messages": ["story_created", "novel_bootstrap_first_chapter_ready"],
-                    })),
-                );
-
-                let story_id = ctx.story_id.clone();
-                let session_id = ctx.session_id.clone();
-                let bundle = ctx.bundle.read().await.clone();
-                let selected_strategy = ctx.selected_strategy.clone();
-                // v0.26.19 Phase 2.2: 透传 quick phase 的 errors Arc 到后台 ctx，
-                //   让后台步骤的非致命错误累计到同一集合，最终一次性写入 genesis_runs。
-                let errors_arc = ctx.errors.clone();
-
-                // v0.26.19 P0-4: 概念生成完成、首章已就绪，记录 story_id 并切 quick_done。
-                //   后台阶段完成后再 complete；失败则 fail。
-                if !story_id.is_empty() {
-                    let _ = genesis_run_repo.set_story_id_and_status(
-                        &genesis_run_id,
-                        &story_id,
-                        "quick_done",
-                    );
-                }
-
-                // 发射 story_created 同步事件，让前端立即进入工作台
+                // 与旧路径一致的通知：发射 story_created，让前端立即进入工作台（签名见原 :377）
                 let _ = crate::state_sync::StateSync::emit_story_created(
                     &app_handle,
-                    &story_id,
+                    &result.story_id,
                     "新故事",
                 );
 
-                // v0.23.56: record_ai_operation 已移至 emit_progress("completed") 之后
-                // 的 spawn_blocking 中，此处不再同步调用。
-
-                // v0.23.14: 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱
-                let app_handle_bg = app_handle.clone();
-                let story_id_bg = story_id.clone();
-                let session_id_bg = session_id.clone();
-                let user_input_bg = user_input.clone();
-                let genesis_run_id_bg = genesis_run_id.clone();
-                let pool_bg = pool.clone();
-                tauri::async_runtime::spawn(async move {
-                    // v0.23.66: Genesis 后台流水线加 BACKGROUND_LLM_SEMAPHORE 保护。
-                    // 后台 6 个步骤（含 ParallelWorldOutlineCharacterStep 的世界观/大纲/角色 3 路）
-                    // 加上 BGP-4 深度洞察同时打向同一本地模型 → 模型过载 → INTERNAL_ERROR 洪流
-                    // → 前端页面崩溃（与 v0.23.45 IngestPipeline 同根因）。
-                    let _bg_pipeline_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
-                        .acquire()
-                        .await;
-                    let story_id_for_emit = story_id_bg.clone();
-                    let app_handle_for_emit = app_handle_bg.clone();
-                    let mut bg_ctx = crate::narrative::genesis::GenesisContext::for_background(
-                        app_handle_bg.clone(),
-                        story_id_bg,
-                        session_id_bg.clone(),
-                        user_input_bg,
-                        bundle,
-                        selected_strategy,
-                        errors_arc.clone(),
-                    );
-                    let llm_bg = crate::llm::LlmService::new(app_handle_bg.clone());
-
-                    // v0.23.14: background_steps 包含 StrategySelectionStep +
-                    // 世界观/大纲/角色/场景/伏笔/知识图谱
-                    let bg_steps = crate::narrative::genesis::GenesisPipeline::background_steps();
-                    let bg_cancel_flag =
-                        crate::narrative::pipeline::register_pipeline_cancel(&session_id_bg);
-                    let bg_executor =
-                        crate::narrative::pipeline::NarrativePipelineExecutor::new(bg_steps)
-                            .with_cancel_flag(bg_cancel_flag);
-
-                    let progress_callback_bg = std::sync::Arc::new(
-                        move |mut evt: crate::narrative::progress::PipelineProgressEvent| {
-                            // 标记为后台阶段：前端监听器据此跳过注册 running activity，
-                            // 不禁用输入框（后台作业只做状态提示，不阻塞用户写作）。
-                            evt.metadata = Some(serde_json::json!({"background": true}));
-                            let _ = app_handle_bg.emit("pipeline-progress", &evt);
-                            let _ = app_handle_bg.emit(
-                                "novel-bootstrap-progress",
-                                crate::planner::bootstrap::BootstrapProgressEvent {
-                                    session_id: evt.pipeline_id.clone(),
-                                    step_name: evt.step_name.clone(),
-                                    step_number: evt.step_number,
-                                    total_steps: evt.total_steps,
-                                    message: evt.message.clone(),
-                                    status: format!("{:?}", evt.status).to_lowercase(),
-                                },
-                            );
-                        },
-                    );
-
-                    let bg_start = std::time::Instant::now();
-                    let bg_result = bg_executor
-                        .execute(&mut bg_ctx, &llm_bg, progress_callback_bg)
-                        .await;
-                    let bg_elapsed = bg_start.elapsed().as_secs();
-
-                    // v0.26.19 Phase 2.2: 序列化累计的非致命错误到 genesis_runs.steps_json，
-                    //   供仪表盘「Genesis 运行记录」展示；若存在错误，发射前端 toast 事件。
-                    let step_errors = bg_ctx.snapshot_errors();
-                    if !step_errors.is_empty() {
-                        let errors_json = serde_json::to_string(&serde_json::json!({
-                            "errors": step_errors,
-                        }))
-                        .unwrap_or_else(|_| "{}".to_string());
-                        let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
-                        if let Err(e) = repo.update_steps_json(&genesis_run_id_bg, &errors_json) {
-                            log::warn!(
-                                "[GenesisPipeline] genesis_runs.update_steps_json 失败（不阻塞）: {}",
-                                e
-                            );
-                        }
-                        // 发射 genesis-warnings 事件，前端 toast 提示用户部分资产生成失败
-                        let warning_count = step_errors.len();
-                        let has_error_level = step_errors.iter().any(|e| e.severity == "error");
-                        let toast_msg = if has_error_level {
-                            format!(
-                                "创世完成，但有 {} 项资产生成失败（含关键错误），可在仪表盘查看详情",
-                                warning_count
-                            )
-                        } else {
-                            format!(
-                                "创世完成，但有 {} 项次要资产未完整生成，不影响写作",
-                                warning_count
-                            )
-                        };
-                        let _ = app_handle_for_emit.emit(
-                            "genesis-warnings",
-                            serde_json::json!({
-                                "session_id": session_id_bg,
-                                "story_id": story_id_for_emit,
-                                "count": warning_count,
-                                "has_error": has_error_level,
-                                "message": toast_msg,
-                            }),
-                        );
-                    }
-
-                    let (success, error_message) = match &bg_result {
-                        Ok(_) => {
-                            log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
-                            crate::state_sync::StateSync::emit_data_refresh(
-                                &app_handle_for_emit,
-                                Some(&story_id_for_emit),
-                                "all",
-                            );
-                            // v0.26.19 P0-4: 后台阶段成功，标记 genesis_run 完成。
-                            let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
-                            if let Err(e) =
-                                repo.complete(&genesis_run_id_bg, Some(&story_id_for_emit))
-                            {
-                                log::warn!(
-                                    "[GenesisPipeline] genesis_runs.complete 失败（不阻塞）: {}",
-                                    e
-                                );
-                            }
-                            (true, None)
-                        }
-                        Err(e) => {
-                            log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
-                            // v0.26.19 P0-4: 后台阶段失败，记录错误信息。
-                            let repo = crate::db::GenesisRunRepository::new(pool_bg.clone());
-                            if let Err(db_err) = repo.fail(&genesis_run_id_bg, &format!("{}", e)) {
-                                log::warn!(
-                                    "[GenesisPipeline] genesis_runs.fail 失败（不阻塞）: {}",
-                                    db_err
-                                );
-                            }
-                            (false, Some(format!("{}", e)))
-                        }
-                    };
-
-                    let elements_created = if success {
-                        let mut counts = crate::narrative::progress::ElementsCount::default();
-                        let bundle = bg_ctx.bundle.read().await;
-                        counts.world_rules = if bundle.world_building.is_some() {
-                            1
-                        } else {
-                            0
-                        };
-                        counts.characters = bundle.characters.len();
-                        counts.scenes = bundle.scenes.len();
-                        counts.foreshadowings = bundle.foreshadowings.len();
-                        counts.plot_points = if bundle.outline.is_some() { 1 } else { 0 };
-                        counts
-                    } else {
-                        crate::narrative::progress::ElementsCount::default()
-                    };
-                    let _ = app_handle_for_emit.emit(
-                        "pipeline-complete",
-                        crate::narrative::progress::PipelineCompleteEvent {
-                            pipeline_id: session_id_bg.clone(),
-                            pipeline_type: crate::narrative::progress::PipelineType::Genesis,
-                            success,
-                            total_elapsed_seconds: bg_elapsed,
-                            elements_created,
-                            error_message,
-                        },
-                    );
-                });
-
-                // v0.23.37: Genesis 快速阶段成功后补发 completed，清除前端主活动。
-                // 此前 Genesis 路径在 :115 发了 loading_context（映射为"准备上下文"）后
-                // 直接 return，跳过了常规路径 :819 的 completed，导致主活动永远 running、
-                // 底部状态栏卡在"准备上下文"。
-                // v0.23.56: emit_progress("completed") 必须在 record_ai_operation 之前，
-                // 确保前端立即收到完成事件并释放等待，不因 DB 写入阻塞 invoke resolve。
-                emit_progress("completed", "小说创世完成", 5, 5);
-
-                // v0.23.56: record_ai_operation 是同步 DB 写入，移入 spawn_blocking
-                // 避免 tokio worker 线程被 DB 操作阻塞导致 smart_execute invoke 延迟 resolve。
+                // record_ai_operation（沿用原 :561-586 代码，operation_type="bootstrap"，
+                // metadata 记 run_id/story_id）；同步 DB 写入移入 spawn_blocking，
+                // 避免阻塞 tokio worker 导致 invoke 延迟 resolve。
                 let pool_for_record = pool.clone();
                 let input_for_record = user_input.clone();
-                let sid_for_record = story_id.clone();
-                let sid_session = session_id.clone();
+                let sid_for_record = result.story_id.clone();
+                let sid_session = run_id.clone();
+                let sid_meta = result.story_id.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     let _ = record_ai_operation(
                         &pool_for_record,
@@ -578,56 +333,29 @@ async fn smart_execute_inner(
                             previous_content: None,
                             new_content: None,
                             metadata: Some(
-                                serde_json::json!({"session_id": sid_session, "mode": "quick_phase"})
+                                serde_json::json!({"session_id": sid_session, "story_id": sid_meta})
                                     .to_string(),
                             ),
                         },
                     );
                 });
 
-                return Ok(crate::planner::PlanExecutionResult {
-                    success: true,
-                    steps_completed: 1,
-                    // v0.23.14: 返回第一章正文（已在快速阶段生成），让用户立即可见
-                    final_content,
-                    messages: vec![
-                        format!("story_created:{}", story_id),
-                        format!("session_id:{}", session_id),
-                        // v0.23.15: 语义变更——第一章已就绪，后台仅生成世界观/大纲等。
-                        // 前端据此走"正文已就绪"路径，而非"后台生成中"路径。
-                        "novel_bootstrap_first_chapter_ready".to_string(),
-                    ],
-                    error: None,
-                });
+                emit_progress("completed", "小说创世完成", 6, 6);
+                return Ok(crate::agency::coordinator::AgencyCoordinator::build_bootstrap_result(
+                    &result, content, &run_id,
+                ));
             }
-            Err(e) => {
-                log::error!(
-                    "[smart_execute] GenesisPipeline concept generation failed: {}",
-                    e
-                );
-                // v0.26.19 P0-4: 快速阶段失败，记录 genesis_run 失败状态。
-                if let Err(db_err) = genesis_run_repo.fail(&genesis_run_id, &format!("{}", e)) {
-                    log::warn!(
-                        "[smart_execute] genesis_runs.fail 失败（不阻塞）: {}",
-                        db_err
-                    );
-                }
-                // v0.23.37: 同样补发 error，避免主活动卡在 running。
-                emit_progress("error", &format!("小说初始化失败: {}", e), 5, 5);
-                // 将 PipelineError 转换为 AppError，保留 LLM 超时语义
-                let app_err = match e {
-                    crate::narrative::pipeline::PipelineError::LlmError(ref msg)
-                        if msg.to_lowercase().contains("timeout")
-                            || msg.to_lowercase().contains("timed out") =>
-                    {
-                        AppError::llm_timeout(300_000)
-                    }
-                    crate::narrative::pipeline::PipelineError::Cancelled(msg) => {
-                        AppError::cancelled(msg)
-                    }
-                    _ => AppError::internal(format!("小说初始化失败: {}", e)),
-                };
-                return Err(app_err);
+            Ok(Err(e)) => {
+                log::error!("[smart_execute] agency 创世失败: {}", e);
+                emit_progress("error", &format!("创世失败: {}", e), 6, 6);
+                return Err(e);
+            }
+            Err(_) => {
+                // 超时：定点取消本 run 在途 LLM 调用，保留 LLM_TIMEOUT 语义（用法见 :86）
+                let llm = crate::llm::LlmService::new(app_handle.clone());
+                crate::agency::coordinator::cancel_requests_for_run(&llm, &run_id);
+                emit_progress("timeout", "创世超时", 6, 6);
+                return Err(AppError::llm_timeout(total_timeout * 1000));
             }
         }
     }

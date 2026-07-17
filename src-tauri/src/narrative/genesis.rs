@@ -254,6 +254,8 @@ impl StepContext for GenesisContext {
     }
 }
 
+// Task 7: smart_execute 创世分支已切到 agency，下列项暂失消费者；Task 8 将整体删除本模块。
+#[allow(dead_code)]
 impl GenesisContext {
     pub fn new(app_handle: AppHandle, user_premise: String) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
@@ -546,8 +548,11 @@ fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
 
 // ==================== GenesisPipeline 构建器 ====================
 
+// Task 7: 创世分支已切到 agency，本构建器暂失消费者；Task 8 将整体删除。
+#[allow(dead_code)]
 pub struct GenesisPipeline;
 
+#[allow(dead_code)]
 impl GenesisPipeline {
     /// 快速阶段：故事概念 → 题材画像确保 → 策略选择 → 开篇骨架 → 第一章正文，
     /// 目标 30-90 秒返回给用户。

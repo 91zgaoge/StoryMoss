@@ -991,8 +991,28 @@ impl AgencyCoordinator {
     }
 }
 
-// ---- 自由函数：纯依赖版本，供协调器与 'static GateRunner 共用 ----
+impl AgencyCoordinator {
+    /// smart_execute 创世分支的返回形状（前端兼容契约，见 P2 计划 Global Constraints）。
+    pub fn build_bootstrap_result(
+        result: &AgencyGenesisResult,
+        scene_content: String,
+        run_id: &str,
+    ) -> crate::planner::PlanExecutionResult {
+        crate::planner::PlanExecutionResult {
+            success: true,
+            steps_completed: 1,
+            final_content: Some(scene_content),
+            messages: vec![
+                format!("story_created:{}", result.story_id),
+                format!("session_id:{}", run_id),
+                "novel_bootstrap_first_chapter_ready".to_string(),
+            ],
+            error: None,
+        }
+    }
+}
 
+// ---- 自由函数：纯依赖版本，供协调器与 'static GateRunner 共用 ----
 /// 纯依赖版角色驱动（从 run_role_with_llm_and_budget 提取）：
 /// spec/提示词解析/ToolContext/BudgetedLlm/ToolLoop，pool 显式传入，不依赖 &self。
 #[allow(clippy::too_many_arguments)]
@@ -1729,5 +1749,26 @@ mod tests {
             "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿");
         assert_eq!(s2.content.as_deref(), Some("第二章正文：星舰苏醒。"));
         assert_ne!(s1.content, s2.content, "两章正文不得相同");
+    }
+
+    #[test]
+    fn test_build_bootstrap_result_contract() {
+        let result = AgencyGenesisResult {
+            run_id: "r1".into(),
+            story_id: "story-9".into(),
+            scene_id: "scene-3".into(),
+            revised: false,
+            verdict: EditorVerdict { verdict: "pass".into(), blocking_issues: vec![], suggestions: vec![], comments: "好".into() },
+            chapter_chars: 2000,
+        };
+        let out = AgencyCoordinator::build_bootstrap_result(&result, "完整第一章正文……".to_string(), "r1");
+        assert!(out.success);
+        assert_eq!(out.steps_completed, 1);
+        assert_eq!(out.final_content.as_deref(), Some("完整第一章正文……"));
+        assert_eq!(out.messages, vec![
+            "story_created:story-9".to_string(),
+            "session_id:r1".to_string(),
+            "novel_bootstrap_first_chapter_ready".to_string(),
+        ]);
     }
 }
