@@ -831,6 +831,31 @@ function assertUnreachable(x: never): never {
 
 ---
 
+### 🤝 Agency 多代理创作框架（创世 2.0）
+
+**职责**：多代理创作框架的创世 2.0 实现——黑板模型 + ReAct 工具循环 + 三角色（主创 Writer / 管理 Producer / 编辑审计 Editor）+ 串行协调器，端到端从一句话 premise 生成新故事（世界观/角色/大纲/首章草稿）。
+
+**模块**：`src-tauri/src/agency/`
+
+- `board.rs`：BlackboardService（资产区/草稿区/审查区分区读写）
+- `tool_loop.rs`：ReAct 工具循环（JSON action 协议 + 熔断）
+- `tools.rs`：工具注册表（按角色白名单，内置黑板/故事工具）
+- `roles.rs`：三角色 spec 与系统提示词
+- `coordinator.rs`：串行创世协调器（编辑审计闸门 + 取消令牌）
+- `repository.rs` / `models.rs`：`agency_runs` / `agency_board_items` 持久化
+- `bus.rs`：消息总线（P1 串行协调器暂无消费方，P2 接线）
+- `commands.rs`：IPC 命令
+
+**IPC**：`agency_start_genesis`（立即返回 run_id，进度经 `agency-run-progress` 事件推送）/ `agency_get_run` / `agency_list_board` / `agency_cancel_run`。
+
+**依赖**：db / llm / router / prompts；**被依赖**：无（禁止反向依赖）。
+
+**提示词**：`resources/prompts/agency/`。
+
+**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1 已完成，除真机验收外）。
+
+---
+
 ## 目录结构
 
 ```
@@ -986,6 +1011,7 @@ StoryMoss/
 │   │   │   ├── events.rs          # SyncEvent (ts-rs)
 │   │   │   └── service.rs
 │   │   │
+│   │   ├── agency/                 # 多代理创作框架（创世 2.0：黑板/工具循环/三角色/协调器）
 │   │   ├── agents/                 # Agent 系统
 │   │   ├── memory/                 # 四层记忆系统
 │   │   ├── pipeline/               # Pipeline 审校

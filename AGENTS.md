@@ -71,7 +71,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 770 passed
+- `cargo test --lib` ✅ 816 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 292 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -80,6 +80,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### Agency 多代理创作框架 P1 — 创世 2.0 骨架（串行端到端）
+
+- **新模块**：`src-tauri/src/agency/`（board 黑板 / tool_loop ReAct 工具循环 / roles 三角色 / coordinator 串行协调器 / repository+models 持久化 / bus 消息总线[P2 接线] / commands IPC）。
+- **IPC**：`agency_start_genesis` / `agency_get_run` / `agency_list_board` / `agency_cancel_run`。
+- **提示词目录**：`resources/prompts/agency/`。
+- **依赖边界**：agency 允许依赖 db/llm/router/prompts，不允许被反向依赖。
+- 设计：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1 已完成，除真机验收外）。
 
 ### v0.26.59 — StoryForge → StoryMoss 品牌收尾，官网落地页上线
 

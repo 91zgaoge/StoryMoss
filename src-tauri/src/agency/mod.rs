@@ -4,12 +4,12 @@
 
 pub mod board;
 pub mod bus;
+pub mod commands;
 pub mod coordinator;
 pub mod models;
 pub mod repository;
 pub mod roles;
 pub mod tool_loop;
 pub mod tools;
-// 后续任务补回：commands
 
 pub use models::*;

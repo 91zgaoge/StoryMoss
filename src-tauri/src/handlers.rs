@@ -224,6 +224,9 @@ tauri::generate_handler![
     // Audit commands
     audit::commands::audit_scene,
     commands::audit::audit_story,
+    // Agency (Genesis 2.0) commands
+    agency::commands::agency_start_genesis, agency::commands::agency_get_run,
+    agency::commands::agency_list_board, agency::commands::agency_cancel_run,
     // Auth commands
     auth::commands::get_auth_config,
     auth::commands::oauth_start,
