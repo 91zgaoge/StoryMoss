@@ -1,4 +1,4 @@
-# StoryMoss (草苔) v0.26.59 架构文档
+# StoryMoss (草苔) v0.27.0 架构文档
 
 > **v0.26.58**：OpenAI 兼容适配器（含 Deepseek）在序列化请求前对 `top_p` 做 `(0, 1.0]` 范围过滤，解决配置中 `top_p=0.0` 导致健康探测/生成被服务端拒绝的问题；新增 `llm::openai` 单元测试覆盖过滤逻辑。**v0.26.57**：自动划分章节——`chapter_splitter` 在 `SceneService` 的 `auto_commit` 防抖窗口内按 `chapter_split_mode`（`word_count`/`plot`）与 `chapter_split_max_chars`（默认 3000 字）仅切分故事最新章；导出以 `scenes.content` 为真相源通过 `assemble_export_chapters` 聚合，并走系统保存对话框落盘；提示词注册表支持「打开目录」与原生 textarea 编辑。**v0.26.56**：executor 写 config 契约测试串行化（mock app_data_dir 锁）。**v0.26.55**：幕后模型列表开启/关闭——`update_model(enabled)` + 列表开关；禁用模型不进 `UnifiedModelRegistry`/`get_gateway_status`/probe；`is_promotable_user_model` 要求仍在注册表。**v0.26.54**：创作模型粘性降级绕过——显式 `creative`/`tool`/`background` 角色不受连续失败 demotion 拦截；粘性 Unhealthy 在 `resolve_role_model` 清一次→Unknown 再探；`set_active_model`/`save_settings` 调 `clear_model_demotion`；`generate()` 再提升用 `is_promotable_user_model`。**v0.26.53**：幕前故事名取消单击→回幕后；回幕后入口为 Header 设置按钮。**v0.26.52**：模型配置热同步——`gateway-status` 失效；`is_promotable_user_model`；`sync_creative_to_active_llm`。**v0.26.51**：幕前顶部故事名/章节名内联编辑——`displayStoryTitle`/`displayChapterTitle` 纯函数管展示；无故事有正文时 `ensureUntitledStory` 建「未命名」+ scene（不走 `selectStory`）；章节改名优先 `update_scene`（title 回写 chapter）。**v0.26.50**：幕前自动保存 → AutoIngest 改为 30s 防抖并受 `BACKGROUND_LLM_SEMAPHORE` 约束；`contract-auto-progress` 不再驱动 `isGenerating`；`isGenerating` 超时看门狗强制诊断。**v0.26.49**：续写连贯——`build_ending_anchor` 将正文末 2 句硬锚点追加到 Call3/TimeSliced prompt **最末尾**（在 `NOVEL_OUTPUT_DISCIPLINE` 之后），覆盖 WriteTimeBundle「开场建立处境」等开篇指令，抗 Lost-in-the-Middle。
 >
@@ -833,7 +833,7 @@ function assertUnreachable(x: never): never {
 
 ### 🤝 Agency 多代理创作框架（创世 2.0）
 
-**职责**：多代理创作框架的创世 2.0 实现——黑板模型 + ReAct 工具循环 + 三角色（主创 Writer / 管理 Producer / 编辑审计 Editor）+ 串行协调器，端到端从一句话 premise 生成新故事（世界观/角色/大纲/首章草稿）。
+**职责**：多代理创作框架的创世 2.0 实现——黑板模型 + ReAct 工具循环 + 三角色（主创 Writer / 管理 Producer / 编辑审计 Editor），端到端从一句话 premise 生成新故事（世界观/角色/大纲/首章草稿），并支持逐章续写的并行稳态循环。
 
 **模块**：`src-tauri/src/agency/`
 
@@ -841,18 +841,23 @@ function assertUnreachable(x: never): never {
 - `tool_loop.rs`：ReAct 工具循环（JSON action 协议 + 熔断）
 - `tools.rs`：工具注册表（按角色白名单，内置黑板/故事工具）
 - `roles.rs`：三角色 spec 与系统提示词
-- `coordinator.rs`：串行创世协调器（编辑审计闸门 + 取消令牌）
+- `coordinator.rs`：创世/续写协调器——质量门判定（`evaluate_gate`）、并行稳态循环（编辑审第 N 章与主创写第 N+1 章并发）、request_id 定点取消
+- `gate.rs`：质量门规则复检（规则问题归并 + 复检上下文构建）；门径为编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配
+- `budget.rs`：AgencyBudget——按角色并发信号量（writer/producer/editor）+ run 级 token 预算硬上限（默认 30 万 tokens）
+- `materialize.rs`：创作资产自动落库（characters / world_buildings / story_outlines）
 - `repository.rs` / `models.rs`：`agency_runs` / `agency_board_items` 持久化
-- `bus.rs`：消息总线（P1 串行协调器暂无消费方，P2 接线）
+- `bus.rs`：消息总线（P2 已接线，协调器回收代理消息）
 - `commands.rs`：IPC 命令
 
-**IPC**：`agency_start_genesis`（立即返回 run_id，进度经 `agency-run-progress` 事件推送）/ `agency_get_run` / `agency_list_board` / `agency_cancel_run`。
+**IPC**：`agency_start_genesis`（立即返回 run_id，进度经 `agency-run-progress` 事件推送）/ `agency_continue_chapter` / `agency_continue_batch`（续写循环）/ `agency_get_run` / `agency_list_board` / `agency_cancel_run`（按 request_id 定点取消该 run 的在途 LLM 调用，不再全局取消）。
 
 **依赖**：db / llm / router / prompts；**被依赖**：无（禁止反向依赖）。
 
 **提示词**：`resources/prompts/agency/`。
 
-**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1 已完成，除真机验收外）。
+**创世入口**：`smart_execute` 检测到小说创建意图即切换到 agency 创世流程，进度镜像到 `smart-execute-progress`；旧 GenesisPipeline 已移除（TriShot 续写路径保留）。
+
+**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1/P2 已完成，除真机验收外）。
 
 ---
 

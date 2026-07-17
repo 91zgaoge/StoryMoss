@@ -26,6 +26,16 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **CI FTP 主机解析兼容 URL 格式**：`.github/scripts/upload-releases-ftp.mjs` 现在支持 `FTP_HOST` 为 `ftp://host:port` 形式，优先使用 URL 中的端口，同时保留显式 `FTP_PORT` 的覆盖能力，避免 `ftp://` 前缀被错误地当作主机名解析。
 - **官网 latest.json 使用官网下载源**：上传脚本在把 `latest.json` 同步到 `storymoss.top` 前，会将其中的二进制下载 URL 从 GitHub Releases 重写为 `https://storymoss.top/releases/<filename>`；GitHub Releases 上的原始 `latest.json` 仍保留为回退端点。
 
+## v0.27.0（2026-07-17）
+
+### Agency 多代理创作框架（创世 2.0）P1+P2
+- 新增 agency 模块：黑板协作 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）
+- 质量门：编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配
+- 并行稳态循环：编辑审 N 与主创写 N+1 并发；按角色并发预算与 run 级 token 预算
+- request_id 定点取消（不再全局取消）；续写循环 agency_continue_chapter/batch
+- 创作资产自动落库（characters/world_buildings/story_outlines）
+- smart_execute 创世路径切换到 agency；旧 GenesisPipeline 移除（TriShot 续写保留）
+
 ## [v0.26.59] - StoryForge → StoryMoss 品牌收尾，官网落地页上线（2026-07-11）
 
 ### 功能

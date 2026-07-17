@@ -1,17 +1,27 @@
-# StoryMoss (草苔) v0.26.59 项目完成状态
+# StoryMoss (草苔) v0.27.0 项目完成状态
 
-> 最后更新: 2026-07-17（v0.26.59 完成 StoryForge → StoryMoss 品牌收尾并上线官网落地页）
+> 最后更新: 2026-07-17（v0.27.0 发布 Agency 多代理创作框架（创世 2.0）P1+P2，smart_execute 创世路径切换到 agency）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## 🚧 当前迭代
 
-- **Agency 多代理创作框架**：P1 多代理框架骨架完成（串行端到端）——`src-tauri/src/agency/` 黑板模型 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）+ 串行协调器 + 4 个 IPC 命令；后端 816 tests 全绿。除真机验收外 P1 已完成；P2–P5（并行化/代币优化+记忆/验证循环/持续学习/前端可视化）按计划边界另行制定。
+- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）已完成，后端 834 tests 全绿。除真机验收外 P1/P2 已完成；P3–P5（代币优化+记忆/持续学习/前端可视化）按计划边界另行制定。
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.27.0 — Agency 多代理创作框架（创世 2.0）P1+P2（2026-07-17）
+
+- 新增 `src-tauri/src/agency/` 模块：黑板协作 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）。
+- 质量门：编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配。
+- 并行稳态循环：编辑审第 N 章与主创写第 N+1 章并发；按角色并发预算与 run 级 token 预算。
+- request_id 定点取消（不再全局取消）；续写循环 `agency_continue_chapter` / `agency_continue_batch`。
+- 创作资产自动落库（characters / world_buildings / story_outlines）。
+- `smart_execute` 创世路径切换到 agency；旧 GenesisPipeline 移除（TriShot 续写保留）。
+- ✅ **验证**：`cargo test --lib` 834 passed；`npx vitest run` 292 passed；architecture_guard PASSED。
 
 ### v0.26.59 — StoryForge → StoryMoss 品牌收尾，官网落地页上线（2026-07-11）
 
