@@ -132,6 +132,11 @@ impl BlackboardService {
         self.repo.list_items(run_id, Some(zone)).map_err(AppError::from)
     }
 
+    /// 按可选分区过滤列出条目（None = 全部），供 board_read 工具的 key 精确查找使用。
+    pub fn list_zone_filtered(&self, run_id: &str, zone: Option<BoardZone>) -> Result<Vec<BoardItem>, AppError> {
+        self.repo.list_items(run_id, zone).map_err(AppError::from)
+    }
+
     fn emit_changed(&self, item: &BoardItem) {
         if let Some(app) = &self.app_handle {
             let _ = app.emit(EVENT_BOARD_CHANGED, item.clone());

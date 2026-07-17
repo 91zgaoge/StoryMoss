@@ -6,6 +6,7 @@ pub mod board;
 pub mod bus;
 pub mod models;
 pub mod repository;
-// 后续任务补回：tools / tool_loop / roles / coordinator / commands
+pub mod tools;
+// 后续任务补回：tool_loop / roles / coordinator / commands
 
 pub use models::*;
