@@ -961,7 +961,7 @@ mod tests {
     // v0.26.19 P0-4 契约：genesis_runs 表必须记录创世运行的完整状态机迁移：
     //   pending → running → quick_done → completed（成功路径）
     //   pending → running → failed（快速阶段失败路径）
-    //   仪表盘「Genesis 运行记录」依赖此表，此前 GenesisPipeline 不写导致永远为空。
+    //   仪表盘「Genesis 运行记录」依赖此表，此前旧创世管线不写导致永远为空。
     #[test]
     fn test_genesis_run_lifecycle_success() {
         let pool = create_test_pool().unwrap();

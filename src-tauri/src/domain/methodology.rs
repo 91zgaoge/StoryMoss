@@ -71,6 +71,8 @@ pub fn normalize_methodology_id(id: &str) -> &str {
 }
 
 /// 创世结束后写入 `stories.methodology_step` 的保守推进值。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn final_methodology_step_after_genesis(methodology_id: &str) -> i32 {
     match normalize_methodology_id(methodology_id) {
         "snowflake" => 4,
@@ -80,6 +82,8 @@ pub fn final_methodology_step_after_genesis(methodology_id: &str) -> i32 {
 }
 
 /// Genesis 步骤 → 方法论子步/阶段 hint（供 resolve_methodology_prompt）。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenesisMethodStep {
     OpeningOrFirstChapter,
@@ -90,6 +94,8 @@ pub enum GenesisMethodStep {
     Foreshadow,
 }
 
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn methodology_step_hint(
     methodology_id: &str,
     step: GenesisMethodStep,

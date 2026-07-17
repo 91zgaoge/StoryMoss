@@ -10,6 +10,8 @@ use crate::db::DbPool;
 /// Prompt 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptMode {
+    // Task 8 保留：唯一消费者（旧创世管线）已删除，留待新创世路径复用
+    #[allow(dead_code)]
     Generate, // 正向：从零生成
     Extract,  // 逆向：从文本提取
 }
@@ -461,6 +463,8 @@ pub fn scene_prompt(
 
 // ==================== 大纲 Prompt ====================
 
+// Task 8 保留：Generate 模式唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn outline_prompt(
     mode: PromptMode,
     story_title: &str,
@@ -655,6 +659,8 @@ pub fn foreshadowing_prompt(
 
 // ==================== 题材画像生成 Prompt（目录无匹配时） ====================
 
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn genre_profile_generate_prompt(
     user_input: &str,
     genre_hint: &str,
@@ -810,6 +816,8 @@ pub fn first_chapter_prompt(
 /// Phase 4: 场景优先创世——以 Scene 为单位生成正文，
 /// 注入场景级戏剧结构变量（dramatic_goal, conflict_type, characters_present
 /// 等）。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn first_scene_prompt(
     title: &str,
     genre: &str,
@@ -872,6 +880,8 @@ pub fn first_scene_prompt(
 }
 
 /// v0.26.44: 开篇骨架提示词——在写正文前产出主角卡 + 场景戏剧卡 + 世界一句话。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn opening_skeleton_prompt(
     user_premise: &str,
     story_title: &str,

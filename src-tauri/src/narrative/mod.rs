@@ -7,7 +7,6 @@
 //! - elements: 统一数据模型（CharacterElement, SceneElement 等）
 //! - pipeline: Pipeline trait 和通用基础设施
 //! - prompts: 统一 Prompt 模板（生成/提取两用）
-//! - genesis: GenesisPipeline — 正向/创世流程
 //! - analysis: AnalysisPipeline — 逆向/分析流程
 //! - progress: 统一进度事件系统
 //! - audit: StoryStructureAuditor — 故事结构审计
@@ -22,7 +21,6 @@ pub mod audit;
 pub mod chunker;
 pub mod elements;
 pub mod event;
-pub mod genesis;
 pub mod health;
 pub mod intensity_mapper;
 pub mod litseg_pipeline;
@@ -36,12 +34,6 @@ pub mod structure;
 pub mod structure_analyzer;
 pub mod thread;
 pub mod thread_tracker;
-
-pub use protagonist_card::{
-    anti_empty_retry_directive, merge_protagonist_card, probe_protagonist_card,
-    render_protagonist_card, should_soft_retry_protagonist_card, ProtagonistCard,
-    ProtagonistProbeResult, SkeletonHints,
-};
 
 /// 剥离推理模型在正文前输出的「思考链」块。
 ///
@@ -292,6 +284,8 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
 ///
 /// 提取策略：匹配 `"key": "value"` 或 `"key": [array]` 模式，值取到下一个未转义
 /// `"` 或行尾。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::StoryMetaElement> {
     use crate::domain::{ElementSource, StoryMetaElement};
 
@@ -364,6 +358,8 @@ pub fn extract_story_meta_fallback(json_str: &str) -> Option<crate::domain::Stor
 /// 部分本地量化模型无视"只输出 JSON"指令，以自然语言返回概念（如
 /// "标题：《荒星纪元》\n简介：...\n题材：科幻末世..."）。
 /// 本函数用中文/英文关键词匹配逐字段提取，作为 JSON 解析失败后的最后兜底。
+// Task 8 保留：唯一消费者（旧创世管线）已删除
+#[allow(dead_code)]
 pub fn extract_story_meta_from_prose(text: &str) -> Option<crate::domain::StoryMetaElement> {
     use crate::domain::{ElementSource, StoryMetaElement};
 

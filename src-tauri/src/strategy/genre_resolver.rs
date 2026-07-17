@@ -18,6 +18,8 @@ use crate::{
 
 /// 接受现有题材画像的最低分。精确匹配约 10；弱子串/共现通常 < 8。
 /// 低于此分视为「目录无可用项」，应由上游生成新画像入库。
+// Task 8 保留：唯一消费者（select_existing ← 旧创世管线）已删除
+#[allow(dead_code)]
 pub const ACCEPT_SCORE: f64 = 8.0;
 
 /// 单个题材匹配结果
@@ -293,6 +295,8 @@ impl GenreResolver {
     ///
     /// 优先采用 `preferred_ids` 中得分 ≥ [`ACCEPT_SCORE`] 的项；否则取
     /// `resolve_from_profiles` 中达标的匹配。空结果表示应生成新画像。
+    // Task 8 保留：唯一消费者（旧创世管线）已删除
+    #[allow(dead_code)]
     pub fn select_existing(
         &self,
         hint: &str,

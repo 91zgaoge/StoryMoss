@@ -26,6 +26,7 @@ pub mod orchestrator;
 pub mod pre_generation_gate;
 pub mod service;
 pub mod subagents;
+pub(crate) mod trim_utils;
 
 // 数据类型已下沉到中性 domain 层以打破循环依赖；agents
 // 继续重新导出保持向后兼容。

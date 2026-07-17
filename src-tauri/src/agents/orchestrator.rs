@@ -1829,9 +1829,9 @@ impl AgentOrchestrator {
             let raw_chars = content.chars().count();
             let cleaned_chars = cleaned.chars().count();
             let trim_ratio =
-                crate::narrative::genesis::compute_trim_ratio(raw_chars, cleaned_chars);
+                crate::agents::trim_utils::compute_trim_ratio(raw_chars, cleaned_chars);
 
-            if crate::narrative::genesis::should_retry_self_repetition(trim_ratio, raw_chars) {
+            if crate::agents::trim_utils::should_retry_self_repetition(trim_ratio, raw_chars) {
                 let elapsed = total_start.elapsed().as_secs();
                 let remaining = total_budget.saturating_sub(elapsed);
                 // 仅当剩余预算足够再跑一次 writer（至少 30s）才重试
@@ -1901,12 +1901,12 @@ impl AgentOrchestrator {
                                 let retry_raw_chars = retry_content.chars().count();
                                 let retry_cleaned_chars = retry_cleaned.chars().count();
                                 let retry_trim_ratio =
-                                    crate::narrative::genesis::compute_trim_ratio(
+                                    crate::agents::trim_utils::compute_trim_ratio(
                                         retry_raw_chars,
                                         retry_cleaned_chars,
                                     );
                                 let selected =
-                                    crate::narrative::genesis::select_first_chapter_content(
+                                    crate::agents::trim_utils::select_first_chapter_content(
                                         trim_ratio,
                                         retry_trim_ratio,
                                         cleaned.clone(),

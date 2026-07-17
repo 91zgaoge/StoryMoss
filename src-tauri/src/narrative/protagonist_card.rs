@@ -2,6 +2,10 @@
 //!
 //! v0.26.45：强制落地姓名 + 欲望/阻力，专治「人空」与「戏空」。
 
+// Task 8 保留：唯一生产消费者（旧创世管线）已删除，模块整体留待
+// 新创世路径复用，故模块级豁免 dead_code。
+#![allow(dead_code)]
+
 use crate::domain::StoryMetaElement;
 
 /// 从 OpeningSkeleton 抽出的提示（避免本模块依赖 genesis 造成循环引用）。
