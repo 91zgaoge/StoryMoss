@@ -457,7 +457,7 @@ impl AgencyCoordinator {
                     if revise_out.aborted {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
                     }
-                    draft = self.latest_draft(&board, run_id).await?;
+                    draft = self.latest_draft_by_key(&board, run_id, &draft.key).await?;
                     self.check_cancel(cancel)?;
                     // 复审：无论结果都进入装配（Failed 除外）
                     let second = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
@@ -701,7 +701,8 @@ impl AgencyCoordinator {
                 if revise_out.aborted {
                     return Err(AppError::from("主创 Agent 修订轮被熔断"));
                 }
-                draft = self.latest_draft(board, run_id).await?;
+                // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
+                draft = self.latest_draft_by_key(board, run_id, &draft.key).await?;
                 self.check_cancel(cancel)?;
                 let second = self.evaluate_gate(llm, budget, board, registry, run_id, story_id, premise, &draft).await?;
                 match second {
@@ -940,6 +941,21 @@ impl AgencyCoordinator {
             drafts.into_iter().rev()
                 .find(|d| d.status == "active" && !d.content.is_empty())
                 .ok_or_else(|| AppError::from("草稿区为空：主创未产出正文"))
+        }).await
+    }
+
+    /// 按 key 取最新有效草稿（修订轮专用）：并行循环中 draft 区可能已有后续章节草稿，
+    /// 修订后必须按本章 key 取回，避免跨章串稿。尾部反向查找最后一条 key 匹配、
+    /// content 非空的 active draft（覆盖 board_revise 原地更新与 board_write 新行两种模型行为）。
+    async fn latest_draft_by_key(&self, board: &BlackboardService, run_id: &str, key: &str) -> Result<BoardItem, AppError> {
+        let board = board.clone();
+        let run_id = run_id.to_string();
+        let key = key.to_string();
+        self.db(move || {
+            let drafts = board.list_zone(&run_id, BoardZone::Draft)?;
+            drafts.into_iter().rev()
+                .find(|d| d.status == "active" && !d.content.is_empty() && d.key == key)
+                .ok_or_else(|| AppError::from(format!("草稿区缺少「{}」：修订后未取回本章草稿", key)))
         }).await
     }
 
@@ -1639,5 +1655,79 @@ mod tests {
         let bus = crate::agency::bus::MessageBus::new(pool.clone());
         let inbox = bus.inbox("rb-2", AgentRole::LeadWriter).unwrap();
         assert!(inbox.iter().any(|m| m.msg_type == "proposal" && m.payload.contains("动机弱")));
+    }
+
+    /// 修订回归用 mock：writer 修订轮（任务含「修订「第一章」」指引）动态读 DB 取草稿
+    /// item_id，回 board_revise 原地更新——覆盖 board_revise 模型行为；并行循环中
+    /// 此时第二章草稿已在 draft 区，验证修订取稿按 key 匹配、不跨章串稿。
+    struct ReviseAwareMock {
+        inner: Arc<RoutingMock>,
+        pool: crate::db::DbPool,
+        run_id: String,
+        fired: AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for ReviseAwareMock {
+        async fn complete(&self, system: &str, u: &str, t: crate::router::TaskType, m: i32) -> Result<String, AppError> {
+            // 只拦截一次：对话上下文累计会保留任务文本，后续轮次须走队列取 final
+            if system.contains("你是「主创」") && u.contains("修订「第一章」")
+                && !self.fired.swap(true, Ordering::SeqCst)
+            {
+                let conn = self.pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                let (id, version): (String, i32) = conn.query_row(
+                    "SELECT id, version FROM agency_board_items
+                     WHERE run_id = ?1 AND zone = 'draft' AND key = '第一章'
+                     ORDER BY rowid DESC LIMIT 1",
+                    rusqlite::params![self.run_id], |r| Ok((r.get(0)?, r.get(1)?)),
+                ).map_err(|e| AppError::from(format!("draft lookup: {}", e)))?;
+                return Ok(format!(
+                    r#"{{"type":"tool","name":"board_revise","args":{{"item_id":"{}","expected_version":{},"content":"第一章修订稿：阿苔的动机已补足。","summary":"一修"}}}}"#,
+                    id, version
+                ));
+            }
+            self.inner.complete(system, u, t, m).await
+        }
+    }
+
+    /// 回归：并行批量中第 1 章修订不得串第 2 章草稿
+    ///（board_revise 原地更新后 latest_draft 尾部是第 2 章——必须按 key 取回）。
+    #[tokio::test]
+    async fn test_batch_revision_no_cross_chapter_mixup() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        let mock = RoutingMock::new(0);
+        mock.push("writer", vec![
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"第一章初稿。","summary":"一"}}"#,
+            r#"{"type":"final","content":"第一章完成"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文：星舰苏醒。","summary":"二"}}"#,
+            r#"{"type":"final","content":"第二章完成"}"#,
+            // 修订轮第 2 步（board_revise 由 ReviseAwareMock 动态注入后的 final）
+            r#"{"type":"final","content":"修订完成"}"#,
+        ]);
+        mock.push("editor", vec![
+            r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过1\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过2\"}"}"#,
+        ]);
+        let revise_mock = Arc::new(ReviseAwareMock {
+            inner: mock,
+            pool: pool.clone(),
+            run_id: "rb-3".to_string(),
+            fired: AtomicBool::new(false),
+        });
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), revise_mock);
+        let result = coordinator.run_continue_batch("rb-3", &story_id, 1, 2).await.unwrap();
+        assert_eq!(result.chapters.len(), 2);
+        assert!(result.chapters[0].revised, "第 1 章应经历修订");
+        assert!(!result.chapters[1].revised, "第 2 章应一次通过");
+        let scenes = crate::db::repositories::SceneRepository::new(pool.clone()).get_by_story(&story_id).unwrap();
+        assert_eq!(scenes.len(), 2);
+        let s1 = scenes.iter().find(|s| s.sequence_number == 1).unwrap();
+        let s2 = scenes.iter().find(|s| s.sequence_number == 2).unwrap();
+        assert_eq!(s1.content.as_deref(), Some("第一章修订稿：阿苔的动机已补足。"),
+            "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿");
+        assert_eq!(s2.content.as_deref(), Some("第二章正文：星舰苏醒。"));
+        assert_ne!(s1.content, s2.content, "两章正文不得相同");
     }
 }
