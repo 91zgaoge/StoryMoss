@@ -26,6 +26,43 @@ pub async fn agency_start_genesis(
     Ok(run_id)
 }
 
+/// 续写下一章：同一 story 不允许并行 run；章号 = MAX(sequence_number)+1。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_continue_chapter(
+    story_id: String,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<String, AppError> {
+    let pool = pool.inner().clone();
+    // 并发护栏：同一 story 不允许并行 run
+    let pool_guard = pool.clone();
+    let sid_guard = story_id.clone();
+    let has_running = tokio::task::spawn_blocking(move || {
+        crate::agency::repository::AgencyRepository::new(pool_guard).has_running_run_for_story(&sid_guard)
+    }).await.map_err(|e| AppError::from(format!("guard join error: {}", e)))?
+        .map_err(AppError::from)?;
+    if has_running {
+        return Err(AppError::validation_failed("该故事已有进行中的创作任务", None::<String>));
+    }
+    // 下一章号
+    let pool2 = pool.clone();
+    let sid2 = story_id.clone();
+    let chapter_number = tokio::task::spawn_blocking(move || -> Result<i32, AppError> {
+        let conn = pool2.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+        conn.query_row("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM scenes WHERE story_id = ?1",
+            rusqlite::params![sid2], |r| r.get(0)).map_err(AppError::from)
+    }).await.map_err(|e| AppError::from(format!("chapter join error: {}", e)))??;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let coordinator = AgencyCoordinator::new(app_handle, pool);
+    let rid = run_id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = coordinator.run_continue(&rid, &story_id, chapter_number).await {
+            log::error!("agency continue run {} failed: {}", rid, e);
+        }
+    });
+    Ok(run_id)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_get_run(
     run_id: String,

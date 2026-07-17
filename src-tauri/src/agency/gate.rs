@@ -3,7 +3,7 @@
 
 use crate::agents::subagents::{ReviewNotes, ReviewSeverity};
 use crate::db::DbPool;
-use crate::domain::agent_context::{AgentContext, CharacterInfo};
+use crate::domain::agent_context::{AgentContext, ChapterSummary, CharacterInfo};
 
 /// 收集规则审查中 High 及以上问题，格式化为 "[agent] category: description"。
 pub fn merge_rule_issues(notes: &[ReviewNotes]) -> Vec<String> {
@@ -41,6 +41,26 @@ pub fn build_review_context(pool: &DbPool, story_id: &str, foreshadowing_hints: 
     if let Ok(Some(world)) = crate::db::repositories::WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
         let rules_text = serde_json::to_string(&world.rules).unwrap_or_default();
         ctx.world.world_rules = Some(format!("{}\n{}", world.concept, rules_text));
+    }
+    // 最近场景开头 → previous_chapters（ContinuityAgent 重复开头 High 检查依赖此字段；
+    // 与 asset_query scenes 同一查询，sequence_number 可能为负需钳制到 u32）
+    if let Ok(conn) = pool.get() {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
+             FROM scenes WHERE story_id = ?1 ORDER BY sequence_number DESC LIMIT 5",
+        ) {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![story_id], |r| {
+                Ok(ChapterSummary {
+                    title: r.get::<_, String>(1)?,
+                    number: r.get::<_, i32>(0)?.max(0) as u32,
+                    summary: r.get::<_, String>(2)?,
+                })
+            }) {
+                let mut chapters: Vec<ChapterSummary> = rows.flatten().collect();
+                chapters.reverse(); // 恢复时间序
+                ctx.narrative.previous_chapters = chapters;
+            }
+        }
     }
     ctx.narrative.active_threads = foreshadowing_hints.to_vec();
     ctx

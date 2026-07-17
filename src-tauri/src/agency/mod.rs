@@ -7,6 +7,7 @@ pub mod bus;
 pub mod commands;
 pub mod coordinator;
 pub mod gate;
+pub mod materialize;
 pub mod models;
 pub mod repository;
 pub mod roles;

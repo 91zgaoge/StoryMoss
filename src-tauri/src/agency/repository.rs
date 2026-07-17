@@ -174,6 +174,39 @@ impl AgencyRepository {
         )
     }
 
+    /// 并发护栏：同一 story 是否存在 pending/running 的 run。
+    pub fn has_running_run_for_story(&self, story_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM agency_runs WHERE story_id = ?1 AND status IN ('pending', 'running')",
+            params![story_id],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// 跨 run 列出某 story 的全部黑板条目（续写时回收历史资产用）。
+    pub fn list_items_for_story(&self, story_id: &str, zone: Option<BoardZone>) -> Result<Vec<BoardItem>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let items = match zone {
+            Some(z) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at
+                     FROM agency_board_items WHERE story_id = ?1 AND zone = ?2 ORDER BY created_at ASC, rowid ASC")?;
+                let rows = stmt.query_map(params![story_id, z.as_str()], map_board_item)?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at
+                     FROM agency_board_items WHERE story_id = ?1 ORDER BY created_at ASC, rowid ASC")?;
+                let rows = stmt.query_map(params![story_id], map_board_item)?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            }
+        };
+        Ok(items)
+    }
+
     // ---- messages ----
 
     pub fn insert_message(&self, msg: &AgencyMessage) -> Result<(), rusqlite::Error> {
@@ -366,6 +399,19 @@ mod tests {
         assert!(inbox[0].payload.contains("建议加强冲突"));
         let all = repo.list_messages("run-1", None).unwrap();
         assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn test_has_running_run_for_story() {
+        let (repo, _) = repo();
+        let mut run = AgencyRun::new("r1", "前提");
+        run.story_id = Some("s1".into());
+        repo.create_run(&run).unwrap();
+        repo.update_run_phase("r1", "running", "assets").unwrap();
+        assert!(repo.has_running_run_for_story("s1").unwrap());
+        repo.finish_run("r1", "completed", None, None).unwrap();
+        assert!(!repo.has_running_run_for_story("s1").unwrap());
+        assert!(!repo.has_running_run_for_story("s2").unwrap());
     }
 
     #[test]

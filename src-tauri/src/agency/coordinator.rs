@@ -178,6 +178,16 @@ pub struct AgencyGenesisResult {
     pub chapter_chars: usize,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgencyContinueResult {
+    pub run_id: String,
+    pub story_id: String,
+    pub scene_id: String,
+    pub chapter_number: i32,
+    pub revised: bool,
+    pub verdict: EditorVerdict,
+}
+
 #[derive(Debug, Deserialize)]
 struct ConceptOut {
     title: Option<String>,
@@ -338,6 +348,17 @@ impl AgencyCoordinator {
         }
         self.check_cancel(cancel)?;
 
+        // producer 完成后落库（黑板资产区 → characters/world_buildings/story_outlines）
+        {
+            let pool = self.pool.clone();
+            let sid = story_id.clone();
+            let assets = board.list_zone(run_id, BoardZone::Asset)?;
+            let inserted = tokio::task::spawn_blocking(move || {
+                crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
+            }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+            log::info!("agency: 资产落库 {} 条", inserted);
+        }
+
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
@@ -416,6 +437,174 @@ impl AgencyCoordinator {
             verdict: final_verdict,
             chapter_chars: draft.content.chars().count(),
         })
+    }
+
+    /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
+    pub async fn run_continue(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<AgencyContinueResult, AppError> {
+        let repo = AgencyRepository::new(self.pool.clone());
+        let cancel = register_agency_cancel(run_id);
+        let result = self.run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel).await;
+        unregister_agency_cancel(run_id);
+        match &result {
+            Ok(r) => {
+                let json = serde_json::to_string(r).unwrap_or_default();
+                let _ = repo.finish_run(run_id, "completed", Some(&json), None);
+                self.emit_progress(run_id, "assembly", "completed", "续写完成");
+            }
+            Err(e) => {
+                let status = if cancel.load(std::sync::atomic::Ordering::SeqCst) { "cancelled" } else { "failed" };
+                let _ = repo.finish_run(run_id, status, None, Some(&e.to_string()));
+                self.emit_progress(run_id, "assembly", status, &e.to_string());
+            }
+        }
+        result
+    }
+
+    async fn run_continue_inner(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        chapter_number: i32,
+        repo: &AgencyRepository,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<AgencyContinueResult, AppError> {
+        let llm = self.llm_for_run(run_id);
+        let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
+        let premise = format!("续写《{}》第{}章", title, chapter_number);
+        repo.create_run(&AgencyRun::new(run_id, &premise)).map_err(AppError::from)?;
+        repo.set_run_story(run_id, story_id).map_err(AppError::from)?;
+        repo.update_run_phase(run_id, "running", "assets").map_err(AppError::from)?;
+        self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
+
+        // 1) 资产确认/补齐：先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让 producer 现场补齐
+        let character_count = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
+                let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                conn.query_row("SELECT COUNT(*) FROM characters WHERE story_id = ?1",
+                    rusqlite::params![sid], |r| r.get(0)).map_err(AppError::from)
+            }).await.map_err(|e| AppError::from(format!("asset check join error: {}", e)))??
+        };
+        if character_count == 0 {
+            // 先尝试从本 story 历史黑板条目落库（免费路径）
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let history_items = repo.list_items_for_story(story_id, Some(BoardZone::Asset)).map_err(AppError::from)?;
+            let inserted = tokio::task::spawn_blocking(move || {
+                crate::agency::materialize::materialize_assets(&pool, &sid, &history_items)
+            }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+            if inserted == 0 {
+                // 仍无资产：producer 现场补齐
+                let board = self.board();
+                let registry = Arc::new(ToolRegistry::agency_default());
+                let producer_out = self.run_role_with_llm(
+                    &llm, AgentRole::Producer, &board, &registry, run_id, story_id, &premise,
+                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。",
+                ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
+                if producer_out.aborted {
+                    return Err(AppError::from("管理 Agent 被熔断，资产补齐未完成"));
+                }
+                let assets = board.list_zone(run_id, BoardZone::Asset)?;
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                tokio::task::spawn_blocking(move || {
+                    crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
+                }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+            }
+        }
+        self.check_cancel(cancel)?;
+
+        // 2) 写作
+        repo.update_run_phase(run_id, "running", "writing").map_err(AppError::from)?;
+        self.emit_progress(run_id, "writing", "running", &format!("主创 Agent 正在写作第{}章", chapter_number));
+        let board = self.board();
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let key = format!("第{}章", chapter_number);
+        let writer_out = self.run_role_with_llm(
+            &llm, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise,
+            &format!(
+                "续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
+                key, key
+            ),
+        ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
+        if writer_out.aborted {
+            return Err(AppError::from("主创 Agent 被熔断，本章未完成"));
+        }
+        let mut draft = self.latest_draft(&board, run_id).await?;
+        self.check_cancel(cancel)?;
+
+        // 3) 质量门 + 至多 1 轮修订（与 genesis 同门径）
+        let mut revised = false;
+        let final_verdict = loop {
+            repo.update_run_phase(run_id, "running", "review").map_err(AppError::from)?;
+            self.emit_progress(run_id, "review", "running", "质量门评估中");
+            let outcome = self.evaluate_gate(&llm, &board, &registry, run_id, story_id, &premise, &draft).await?;
+            match outcome {
+                GateOutcome::Passed { verdict } => break verdict,
+                GateOutcome::RevisionRequired { issues, .. } if !revised => {
+                    revised = true;
+                    repo.update_run_phase(run_id, "running", "revision").map_err(AppError::from)?;
+                    let task = Self::build_revision_task(&draft, &issues);
+                    let revise_out = self.run_role_with_llm(
+                        &llm, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise, &task,
+                    ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
+                    if revise_out.aborted {
+                        return Err(AppError::from("主创 Agent 修订轮被熔断"));
+                    }
+                    draft = self.latest_draft(&board, run_id).await?;
+                    self.check_cancel(cancel)?;
+                    let second = self.evaluate_gate(&llm, &board, &registry, run_id, story_id, &premise, &draft).await?;
+                    match second {
+                        GateOutcome::Passed { verdict } => break verdict,
+                        GateOutcome::RevisionRequired { verdict, .. } => break verdict,
+                        GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
+                    }
+                }
+                GateOutcome::RevisionRequired { verdict, .. } => break verdict,
+                GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
+            }
+        };
+
+        // 4) 装配
+        repo.update_run_phase(run_id, "running", "assembly").map_err(AppError::from)?;
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let content = draft.content.clone();
+        let title_c = key.clone();
+        let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
+            let repo = crate::db::repositories::SceneRepository::new(pool);
+            let scene = repo.create(&sid, chapter_number, Some(&title_c)).map_err(AppError::from)?;
+            repo.update(&scene.id, &crate::db::repositories::SceneUpdate {
+                content: Some(content),
+                ..Default::default()
+            }).map_err(AppError::from)?;
+            Ok(scene)
+        }).await.map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+
+        Ok(AgencyContinueResult {
+            run_id: run_id.to_string(),
+            story_id: story_id.to_string(),
+            scene_id: scene.id,
+            chapter_number,
+            revised,
+            verdict: final_verdict,
+        })
+    }
+
+    async fn story_title(&self, story_id: &str) -> Option<String> {
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.get().ok()?;
+            conn.query_row("SELECT title FROM stories WHERE id = ?1",
+                rusqlite::params![sid], |r| r.get::<_, String>(0)).ok()
+        }).await.ok().flatten()
     }
 
     /// 质量门：editor 裁决（解析失败重试 1 次）→ pass 后再经规则复检。
@@ -874,5 +1063,107 @@ mod tests {
         assert!(task.contains(&format!("item_id={}", draft.id)));
         assert!(task.contains("expected_version=1"));
         assert!(task.contains("动机缺失"));
+    }
+
+    #[tokio::test]
+    async fn test_continue_chapter_end_to_end() {
+        let pool = create_test_pool().unwrap();
+        // 预置故事 + 一个角色 + 第一章场景
+        let story = crate::db::repositories::StoryRepository::new(pool.clone()).create(crate::db::dto::CreateStoryRequest {
+            title: "续写书".into(), description: Some("前提".into()), genre: None,
+            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
+        }).unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
+        }
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo.update(&ch1.id, &crate::db::repositories::SceneUpdate {
+            content: Some("第一章正文。".to_string()),
+            ..Default::default()
+        }).unwrap();
+
+        let llm = MockLlm::scripted(vec![
+            // writer: 查前文 + 写第二章
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文：星舰苏醒。","summary":"星舰苏醒"}}"#,
+            r#"{"type":"final","content":"第二章完成"}"#,
+            // editor: pass
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let result = coordinator.run_continue("rc-1", &story.id, 2).await.unwrap();
+        assert_eq!(result.chapter_number, 2);
+        let scene = crate::db::repositories::SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id).unwrap().unwrap();
+        assert_eq!(scene.content.as_deref(), Some("第二章正文：星舰苏醒。"));
+        let run = AgencyRepository::new(pool.clone()).get_run("rc-1").unwrap().unwrap();
+        assert_eq!(run.status, "completed");
+    }
+
+    #[tokio::test]
+    async fn test_continue_fails_without_assets_and_producer_aborts() {
+        // 无资产且 producer 熔断 → failed（验证资产补齐路径的熔断传播）
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone()).create(crate::db::dto::CreateStoryRequest {
+            title: "无资产书".into(), description: None, genre: None,
+            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
+        }).unwrap();
+        let llm = MockLlm::scripted(vec!["不是 JSON", "还不是", "依然不是"]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let err = coordinator.run_continue("rc-2", &story.id, 1).await.unwrap_err();
+        assert!(err.to_string().contains("管理") || err.to_string().contains("熔断") || err.to_string().contains("资产"));
+        assert_eq!(AgencyRepository::new(pool.clone()).get_run("rc-2").unwrap().unwrap().status, "failed");
+    }
+
+    /// T3 遗留修复：build_review_context 填充 previous_chapters 后，
+    /// 规则复检（ContinuityAgent 重复开头检查 → High）必须能拦截 editor 放行的草稿。
+    #[tokio::test]
+    async fn test_gate_rule_recheck_blocks_repeated_opening() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone()).create(crate::db::dto::CreateStoryRequest {
+            title: "复检书".into(), description: None, genre: None,
+            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
+        }).unwrap();
+        // 预置第一章场景，后续草稿开头与其高度重复
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo.update(&ch1.id, &crate::db::repositories::SceneUpdate {
+            content: Some("风沙掠过双星废土的清晨，阿苔在残骸中醒来，耳边是磁力风暴的低鸣。".to_string()),
+            ..Default::default()
+        }).unwrap();
+
+        let repo = AgencyRepository::new(pool.clone());
+        repo.create_run(&AgencyRun::new("rg-1", "续写")).unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let draft = board.write(
+            "rg-1", &story.id, AgentRole::LeadWriter, BoardZone::Draft, "chapter", "第二章",
+            "风沙掠过双星废土的清晨，阿苔在残骸中醒来，这一次她抬头看到了星环。", "第二章草稿",
+        ).unwrap();
+
+        // editor 放行（pass）；门应被规则复检拦下 → RevisionRequired
+        let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let outcome = coordinator
+            .evaluate_gate(&llm, &board, &registry, "rg-1", &story.id, "续写", &draft)
+            .await
+            .unwrap();
+        match outcome {
+            GateOutcome::RevisionRequired { issues, .. } => {
+                assert!(
+                    issues.iter().any(|i| i.contains("重复")),
+                    "规则复检应报告重复开头问题: {:?}",
+                    issues
+                );
+            }
+            other => panic!("规则复检应拦截重复开头的草稿，实际: {:?}", other),
+        }
     }
 }

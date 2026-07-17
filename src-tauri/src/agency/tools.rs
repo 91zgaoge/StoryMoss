@@ -92,9 +92,11 @@ impl ToolRegistry {
         registry.register(Arc::new(BoardWriteTool));
         registry.register(Arc::new(BoardReviseTool));
         registry.register(Arc::new(StoryInfoTool));
+        registry.register(Arc::new(AssetQueryTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
             registry.allow(role, "story_info");
+            registry.allow(role, "asset_query");
         }
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
         registry.allow(AgentRole::LeadWriter, "board_write");
@@ -239,6 +241,64 @@ impl AgentTool for StoryInfoTool {
     }
 }
 
+pub struct AssetQueryTool;
+
+#[async_trait::async_trait]
+impl AgentTool for AssetQueryTool {
+    fn name(&self) -> &'static str { "asset_query" }
+    fn description(&self) -> &'static str { "查询故事资产库：characters 角色卡 / world 世界观 / outline 大纲 / scenes 最近场景摘要" }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"kind": "characters|world|outline|scenes"})
+    }
+
+    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
+        let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let pool = ctx.pool.clone();
+        let story_id = ctx.story_id.clone();
+        tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+            let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+            let out = match kind.as_str() {
+                "characters" => {
+                    let mut stmt = conn.prepare(
+                        "SELECT name, COALESCE(personality,''), COALESCE(goals,''), COALESCE(background,'')
+                         FROM characters WHERE story_id = ?1 ORDER BY created_at LIMIT 20")?;
+                    let rows = stmt.query_map(rusqlite::params![story_id], |r| {
+                        Ok(format!("- {}｜性格:{}｜目标:{}｜背景:{}", r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+                    })?;
+                    let list: Vec<String> = rows.collect::<Result<_, _>>()?;
+                    if list.is_empty() { "（资产库无角色）".to_string() } else { list.join("\n") }
+                }
+                "world" => {
+                    conn.query_row(
+                        "SELECT concept, COALESCE(history,'') FROM world_buildings WHERE story_id = ?1",
+                        rusqlite::params![story_id],
+                        |r| Ok(format!("概念: {}\n历史: {}", r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                    ).optional()?.unwrap_or_else(|| "（资产库无世界观）".to_string())
+                }
+                "outline" => {
+                    conn.query_row(
+                        "SELECT content FROM story_outlines WHERE story_id = ?1",
+                        rusqlite::params![story_id],
+                        |r| r.get::<_, String>(0),
+                    ).optional()?.unwrap_or_else(|| "（资产库无大纲）".to_string())
+                }
+                "scenes" => {
+                    let mut stmt = conn.prepare(
+                        "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
+                         FROM scenes WHERE story_id = ?1 ORDER BY sequence_number DESC LIMIT 5")?;
+                    let mut rows: Vec<String> = stmt.query_map(rusqlite::params![story_id], |r| {
+                        Ok(format!("- 第{}场 {}: {}…", r.get::<_, i32>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                    })?.collect::<Result<_, _>>()?;
+                    rows.reverse(); // 恢复时间序
+                    if rows.is_empty() { "（尚无场景）".to_string() } else { rows.join("\n") }
+                }
+                other => return Ok(format!("非法 kind: {}，可选 characters|world|outline|scenes", other)),
+            };
+            Ok(out)
+        }).await.map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +419,36 @@ mod tests {
         let registry = ToolRegistry::agency_default();
         assert!(registry.get_for_role(AgentRole::Producer, "board_revise").is_none());
         assert!(registry.get_for_role(AgentRole::EditorAuditor, "board_revise").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_asset_query_tool() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone()).create(CreateStoryRequest {
+            title: "资产书".into(), description: None, genre: None,
+            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
+        }).unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
+        }
+        let registry = ToolRegistry::agency_default();
+        // 三角色白名单均可读
+        for role in AgentRole::all() {
+            assert!(registry.get_for_role(role, "asset_query").is_some(), "{:?} 应可读 asset_query", role);
+        }
+        let mut context = ctx(pool, AgentRole::LeadWriter);
+        context.story_id = story.id.clone();
+        let tool = registry.get_for_role(AgentRole::LeadWriter, "asset_query").unwrap();
+        let out = tool.execute(&context, serde_json::json!({"kind": "characters"})).await.unwrap();
+        assert!(out.contains("阿苔"));
+        let empty = tool.execute(&context, serde_json::json!({"kind": "outline"})).await.unwrap();
+        assert!(empty.contains("无大纲"));
+        let bad = tool.execute(&context, serde_json::json!({"kind": "nope"})).await.unwrap();
+        assert!(bad.contains("非法 kind"));
     }
 }
