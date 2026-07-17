@@ -21,6 +21,11 @@ use crate::llm::LlmService;
 use crate::router::TaskType;
 
 pub const EVENT_RUN_PROGRESS: &str = "agency-run-progress";
+/// 代理活动事件：角色开始/完成某动作（payload {run_id, role, action, detail}）。
+pub const EVENT_AGENT_ACTIVITY: &str = "agency-agent-activity";
+/// 进度回调（Task 7 smart_execute 用）：参数为 (phase, status, message)。
+/// 必须用 Send+Sync：coordinator 在 commands 的 spawn 中跨 await 持有 &self，要求 Self: Sync。
+pub type ProgressSink = std::sync::Arc<dyn Fn(&str, &str, &str) + Send + Sync>;
 
 // ---- 取消注册表（镜像 narrative/pipeline.rs 模式） ----
 
@@ -200,6 +205,14 @@ pub struct AgencyContinueResult {
     pub verdict: EditorVerdict,
 }
 
+/// 批量续写结果：每章一个 AgencyContinueResult（按章号升序）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgencyBatchResult {
+    pub run_id: String,
+    pub story_id: String,
+    pub chapters: Vec<AgencyContinueResult>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ConceptOut {
     title: Option<String>,
@@ -222,16 +235,19 @@ pub struct AgencyCoordinator {
     app_handle: Option<AppHandle>,
     pool: DbPool,
     llm: Option<Arc<dyn LoopLlm>>,
+    // 进度回调（Task 7 用）。必须用 std::sync::Mutex 而非 RefCell：
+    // RefCell 会让 coordinator !Sync，commands spawn 中跨 await 持 &self 的 future 不再 Send。
+    progress_sink: Mutex<Option<ProgressSink>>,
 }
 
 impl AgencyCoordinator {
     pub fn new(app_handle: AppHandle, pool: DbPool) -> Self {
-        Self { app_handle: Some(app_handle), pool, llm: None }
+        Self { app_handle: Some(app_handle), pool, llm: None, progress_sink: Mutex::new(None) }
     }
 
     /// 测试/无界面环境构造：不发 Tauri 事件，使用注入的 mock LLM。
     pub fn for_test(pool: DbPool, llm: Arc<dyn LoopLlm>) -> Self {
-        Self { app_handle: None, pool, llm: Some(llm) }
+        Self { app_handle: None, pool, llm: Some(llm), progress_sink: Mutex::new(None) }
     }
 
     /// 按 run 取得生产 LLM（带定点取消注册）；测试时返回注入的 mock。
@@ -296,6 +312,39 @@ impl AgencyCoordinator {
         result
     }
 
+    /// sink 版创世（Task 7 smart_execute 用）；默认走 run_genesis（sink=None）。
+    pub async fn run_genesis_with_sink(
+        &self,
+        run_id: &str,
+        premise: &str,
+        sink: Option<ProgressSink>,
+    ) -> Result<AgencyGenesisResult, AppError> {
+        *self.progress_sink.lock().unwrap_or_else(|p| p.into_inner()) = sink;
+        self.run_genesis(run_id, premise).await
+    }
+
+    /// 代理活动事件（agency-agent-activity）：角色开始/完成某动作。
+    fn emit_activity(&self, run_id: &str, role: AgentRole, action: &str, detail: &str) {
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit(EVENT_AGENT_ACTIVITY, serde_json::json!({
+                "run_id": run_id,
+                "role": role.as_str(),
+                "action": action,
+                "detail": detail,
+            }));
+        }
+    }
+
+    /// 下一章号 = MAX(sequence_number)+1（同步 DB，调用方需 spawn_blocking）。
+    pub fn next_chapter_number(pool: &DbPool, story_id: &str) -> Result<i32, AppError> {
+        let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+        conn.query_row(
+            "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM scenes WHERE story_id = ?1",
+            rusqlite::params![story_id],
+            |r| r.get(0),
+        ).map_err(AppError::from)
+    }
+
     async fn run_genesis_inner(
         &self,
         run_id: &str,
@@ -312,8 +361,9 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "concept").await?;
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
-        // 1) 概念：标题与类型
-        let concept_raw = llm.complete(
+        // 1) 概念：标题与类型（经 BudgetedLlm 记账/限流，按 Producer 档）
+        let concept_llm = BudgetedLlm::new(llm.clone(), budget.clone(), AgentRole::Producer);
+        let concept_raw = concept_llm.complete(
             "你是小说策划。只输出 JSON。",
             &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\"}}", premise),
             TaskType::Brainstorming,
@@ -353,7 +403,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产创作资产");
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        let producer_out = self.run_role_with_llm(
+        let producer_out = self.run_role_with_llm_and_budget(
             &llm, &budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
@@ -378,7 +428,7 @@ impl AgencyCoordinator {
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
-        let writer_out = self.run_role_with_llm(
+        let writer_out = self.run_role_with_llm_and_budget(
             &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
@@ -401,7 +451,7 @@ impl AgencyCoordinator {
                     self.update_phase(repo, run_id, "revision").await?;
                     self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
                     let task = Self::build_revision_task(&draft, &issues);
-                    let revise_out = self.run_role_with_llm(
+                    let revise_out = self.run_role_with_llm_and_budget(
                         &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
                     ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                     if revise_out.aborted {
@@ -509,7 +559,39 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
-        // 1) 资产确认/补齐：先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让 producer 现场补齐
+        // 1) 资产确认/补齐
+        self.ensure_assets(&llm, &budget, repo, run_id, story_id, &premise).await?;
+        self.check_cancel(cancel)?;
+
+        // 2) 写作
+        self.update_phase(repo, run_id, "writing").await?;
+        self.emit_progress(run_id, "writing", "running", &format!("主创 Agent 正在写作第{}章", chapter_number));
+        let board = self.board();
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let draft = self.write_chapter(&llm, &budget, &board, &registry, run_id, story_id, &premise, chapter_number).await?;
+        self.check_cancel(cancel)?;
+
+        // 3) 质量门 + 至多 1 轮修订 + 装配（与 genesis 同门径）
+        self.update_phase(repo, run_id, "review").await?;
+        self.emit_progress(run_id, "review", "running", "质量门评估中");
+        let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
+        self.handle_gate(
+            &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+            chapter_number, draft, false, outcome, cancel,
+        ).await
+    }
+
+    /// 资产确认/补齐（Task 4 run_continue_inner 第 1 步提取）：
+    /// 先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让 producer 现场补齐。
+    async fn ensure_assets(
+        &self,
+        llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
+        repo: &AgencyRepository,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+    ) -> Result<(), AppError> {
         let character_count = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
@@ -535,8 +617,8 @@ impl AgencyCoordinator {
                 // 仍无资产：producer 现场补齐
                 let board = self.board();
                 let registry = Arc::new(ToolRegistry::agency_default());
-                let producer_out = self.run_role_with_llm(
-                    &llm, &budget, AgentRole::Producer, &board, &registry, run_id, story_id, &premise,
+                let producer_out = self.run_role_with_llm_and_budget(
+                    llm, budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
                     "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。",
                 ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                 if producer_out.aborted {
@@ -552,65 +634,91 @@ impl AgencyCoordinator {
                 }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             }
         }
-        self.check_cancel(cancel)?;
+        Ok(())
+    }
 
-        // 2) 写作
-        self.update_phase(repo, run_id, "writing").await?;
-        self.emit_progress(run_id, "writing", "running", &format!("主创 Agent 正在写作第{}章", chapter_number));
-        let board = self.board();
-        let registry = Arc::new(ToolRegistry::agency_default());
+    /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft 条目。
+    async fn write_chapter(
+        &self,
+        llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        chapter_number: i32,
+    ) -> Result<BoardItem, AppError> {
         let key = format!("第{}章", chapter_number);
-        let writer_out = self.run_role_with_llm(
-            &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise,
-            &format!(
-                "续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
-                key, key
-            ),
+        let writer_out = self.run_role_with_llm_and_budget(
+            llm, budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise,
+            &format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key),
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
             return Err(AppError::from("主创 Agent 被熔断，本章未完成"));
         }
-        let mut draft = self.latest_draft(&board, run_id).await?;
-        self.check_cancel(cancel)?;
+        self.latest_draft(board, run_id).await
+    }
 
-        // 3) 质量门 + 至多 1 轮修订（与 genesis 同门径）
-        let mut revised = false;
-        let final_verdict = loop {
-            self.update_phase(repo, run_id, "review").await?;
-            self.emit_progress(run_id, "review", "running", "质量门评估中");
-            let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
-            match outcome {
-                GateOutcome::Passed { verdict } => break verdict,
-                GateOutcome::RevisionRequired { issues, .. } if !revised => {
-                    revised = true;
-                    self.update_phase(repo, run_id, "revision").await?;
-                    let task = Self::build_revision_task(&draft, &issues);
-                    let revise_out = self.run_role_with_llm(
-                        &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise, &task,
-                    ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
-                    if revise_out.aborted {
-                        return Err(AppError::from("主创 Agent 修订轮被熔断"));
-                    }
-                    draft = self.latest_draft(&board, run_id).await?;
-                    self.check_cancel(cancel)?;
-                    let second = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
-                    match second {
-                        GateOutcome::Passed { verdict } => break verdict,
-                        GateOutcome::RevisionRequired { verdict, .. } => break verdict,
-                        GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
-                    }
+    /// 单章 gate 结果处理：修订（≤1 轮，总线记录 proposal）→ 装配 Scene。
+    /// 返回该章的 AgencyContinueResult。
+    #[allow(clippy::too_many_arguments)]
+    async fn handle_gate(
+        &self,
+        llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+        repo: &AgencyRepository,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        chapter_number: i32,
+        draft: BoardItem,
+        mut revised: bool,
+        outcome: GateOutcome,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<AgencyContinueResult, AppError> {
+        let mut draft = draft;
+        let final_verdict = match outcome {
+            GateOutcome::Passed { verdict } => verdict,
+            GateOutcome::RevisionRequired { issues, .. } if !revised => {
+                revised = true;
+                // 总线：修订提案（P5 时间线/学习中心数据源）
+                let pool = self.pool.clone();
+                let rid = run_id.to_string();
+                let issues_c = issues.clone();
+                let _ = self.db(move || {
+                    crate::agency::bus::MessageBus::new(pool)
+                        .send(&rid, AgentRole::EditorAuditor, AgentRole::LeadWriter,
+                            "proposal", serde_json::json!({"chapter": chapter_number, "issues": issues_c}))
+                }).await;
+                self.update_phase(repo, run_id, "revision").await?;
+                let task = Self::build_revision_task(&draft, &issues);
+                let revise_out = self.run_role_with_llm_and_budget(
+                    llm, budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise, &task,
+                ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
+                if revise_out.aborted {
+                    return Err(AppError::from("主创 Agent 修订轮被熔断"));
                 }
-                GateOutcome::RevisionRequired { verdict, .. } => break verdict,
-                GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
+                draft = self.latest_draft(board, run_id).await?;
+                self.check_cancel(cancel)?;
+                let second = self.evaluate_gate(llm, budget, board, registry, run_id, story_id, premise, &draft).await?;
+                match second {
+                    GateOutcome::Passed { verdict } => verdict,
+                    GateOutcome::RevisionRequired { verdict, .. } => verdict,
+                    GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
+                }
             }
+            GateOutcome::RevisionRequired { verdict, .. } => verdict,
+            GateOutcome::Failed { reason } => return Err(AppError::from(format!("质量门未通过: {}", reason))),
         };
-
-        // 4) 装配
+        // 装配：草稿 → Scene 真源
         self.update_phase(repo, run_id, "assembly").await?;
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let content = draft.content.clone();
-        let title_c = key.clone();
+        let title_c = format!("第{}章", chapter_number);
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool);
             let scene = repo.create(&sid, chapter_number, Some(&title_c)).map_err(AppError::from)?;
@@ -620,7 +728,6 @@ impl AgencyCoordinator {
             }).map_err(AppError::from)?;
             Ok(scene)
         }).await.map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
-
         Ok(AgencyContinueResult {
             run_id: run_id.to_string(),
             story_id: story_id.to_string(),
@@ -629,6 +736,145 @@ impl AgencyCoordinator {
             revised,
             verdict: final_verdict,
         })
+    }
+
+    /// 并行稳态循环：gate(n-1) 与 writer(n) 并发，修订在本章 handle_gate 内串行处理。
+    pub async fn run_continue_batch(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        start_chapter: i32,
+        count: usize,
+    ) -> Result<AgencyBatchResult, AppError> {
+        let repo = AgencyRepository::new(self.pool.clone());
+        let cancel = register_agency_cancel(run_id);
+        let result = self.run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel).await;
+        unregister_agency_cancel(run_id);
+        match &result {
+            Ok(r) => {
+                let json = serde_json::to_string(r).unwrap_or_default();
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
+                self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+            }
+            Err(e) => {
+                let status = if cancel.load(Ordering::SeqCst) { "cancelled" } else { "failed" };
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let msg = e.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
+                self.emit_progress(run_id, "assembly", status, &e.to_string());
+            }
+        }
+        result
+    }
+
+    async fn run_batch_inner(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        start_chapter: i32,
+        count: usize,
+        repo: &AgencyRepository,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<AgencyBatchResult, AppError> {
+        let llm = self.llm_for_run(run_id);
+        // run 级并发预算：贯穿本 run 全部角色调用（与单章续写共用同一门径）
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
+        let premise = format!("续写《{}》第{}章起", title, start_chapter);
+        let run = AgencyRun::new(run_id, &premise);
+        let repo_c = repo.clone();
+        self.db(move || repo_c.create_run(&run).map_err(AppError::from)).await?;
+        let repo_c = repo.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from)).await?;
+        self.update_phase(repo, run_id, "assets").await?;
+        self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
+
+        // 资产确认/补齐（与单章续写同路径）
+        self.ensure_assets(&llm, &budget, repo, run_id, story_id, &premise).await?;
+        self.check_cancel(cancel)?;
+
+        let board = self.board();
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let mut chapters: Vec<AgencyContinueResult> = Vec::new();
+        let mut pending_gate: Option<tokio::task::JoinHandle<Result<GateOutcome, AppError>>> = None;
+        let mut pending_chapter: Option<(i32, BoardItem, bool)> = None; // (章号, 草稿, 是否已修订过)
+
+        for offset in 0..count {
+            let chapter_number = start_chapter + offset as i32;
+            if let Err(e) = self.check_cancel(cancel) {
+                // 取消时终止在途 gate，避免其向已结束 run 的黑板写审查条目
+                if let Some(jh) = pending_gate.take() {
+                    jh.abort();
+                }
+                return Err(e);
+            }
+            self.update_phase(repo, run_id, "writing").await?;
+            self.emit_activity(run_id, AgentRole::LeadWriter, "start", &format!("第{}章", chapter_number));
+
+            let write_fut = self.write_chapter(&llm, &budget, &board, &registry, run_id, story_id, &premise, chapter_number);
+            let draft = match pending_gate.take() {
+                Some(jh) => {
+                    // gate(n-1) 与 writer(n) 并发
+                    let (gate_res, write_res) = tokio::join!(jh, write_fut);
+                    let outcome = gate_res.map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
+                    let draft = write_res?;
+                    self.emit_activity(run_id, AgentRole::LeadWriter, "done", &format!("第{}章草稿", chapter_number));
+                    let (prev_num, prev_draft, prev_revised) = pending_chapter.take().unwrap();
+                    let prev = self.handle_gate(
+                        &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+                        prev_num, prev_draft, prev_revised, outcome, cancel,
+                    ).await?;
+                    chapters.push(prev);
+                    draft
+                }
+                None => {
+                    let draft = write_fut.await?;
+                    self.emit_activity(run_id, AgentRole::LeadWriter, "done", &format!("第{}章草稿", chapter_number));
+                    draft
+                }
+            };
+
+            // spawn gate(n)（'static，与下一轮 writer 并发）
+            let runner = self.gate_runner(&llm, &budget, &board, &registry);
+            let (rid, sid, prem, d) = (run_id.to_string(), story_id.to_string(), premise.clone(), draft.clone());
+            self.emit_activity(run_id, AgentRole::EditorAuditor, "start", &format!("审查第{}章", chapter_number));
+            pending_gate = Some(tokio::spawn(async move { runner.evaluate(rid, sid, prem, d).await }));
+            pending_chapter = Some((chapter_number, draft, false));
+        }
+
+        // 收尾：最后一章 gate
+        if let (Some(jh), Some((num, draft, revised))) = (pending_gate.take(), pending_chapter.take()) {
+            let outcome = jh.await.map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
+            let last = self.handle_gate(
+                &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+                num, draft, revised, outcome, cancel,
+            ).await?;
+            chapters.push(last);
+        }
+
+        Ok(AgencyBatchResult { run_id: run_id.to_string(), story_id: story_id.to_string(), chapters })
+    }
+
+    /// 'static gate 执行器（spawn 用，全部依赖按值持有）。
+    fn gate_runner(
+        &self,
+        llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+    ) -> GateRunner {
+        GateRunner {
+            llm: llm.clone(),
+            budget: budget.clone(),
+            board: board.clone(),
+            registry: registry.clone(),
+            pool: self.pool.clone(),
+        }
     }
 
     async fn story_title(&self, story_id: &str) -> Option<String> {
@@ -656,68 +902,7 @@ impl AgencyCoordinator {
         premise: &str,
         draft: &BoardItem,
     ) -> Result<GateOutcome, AppError> {
-        // 1) editor 裁决（解析失败重试一次）
-        let mut verdict: Option<EditorVerdict> = None;
-        let mut last_raw = String::new();
-        for attempt in 0..2 {
-            let editor_out = self.run_role_with_llm(
-                llm, budget, AgentRole::EditorAuditor, board, registry, run_id, story_id, premise,
-                &format!("审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。", draft.key),
-            ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
-            if editor_out.aborted {
-                let outcome = GateOutcome::Failed { reason: "编辑审计 Agent 被熔断".to_string() };
-                self.record_gate(board, run_id, story_id, draft, &outcome).await?;
-                return Ok(outcome);
-            }
-            last_raw = editor_out.output.clone();
-            if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
-                verdict = Some(v);
-                break;
-            }
-            log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
-        }
-        let verdict = match verdict {
-            Some(v) => v,
-            None => {
-                let outcome = GateOutcome::Failed {
-                    reason: format!(
-                        "裁决解析失败（重试 1 次后仍失败）: {}",
-                        last_raw.chars().take(120).collect::<String>()
-                    ),
-                };
-                self.record_gate(board, run_id, story_id, draft, &outcome).await?;
-                return Ok(outcome);
-            }
-        };
-        // 2) 判定：revise+blocking 直接 RevisionRequired；否则确定性规则复检（LLM 说 pass 也要过规则）
-        let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
-            GateOutcome::RevisionRequired { issues: verdict.blocking_issues.clone(), verdict }
-        } else {
-            let board_c = board.clone();
-            let rid = run_id.to_string();
-            let hints = self.db(move || {
-                Ok(board_c.list_zone(&rid, BoardZone::Asset)?
-                    .into_iter()
-                    .filter(|i| i.item_type == "foreshadowing")
-                    .map(|i| i.summary)
-                    .collect::<Vec<_>>())
-            }).await?;
-            let pool = self.pool.clone();
-            let sid = story_id.to_string();
-            let ctx = tokio::task::spawn_blocking(move || {
-                crate::agency::gate::build_review_context(&pool, &sid, &hints)
-            }).await.map_err(|e| AppError::from(format!("gate ctx join error: {}", e)))?;
-            let notes = crate::agents::subagents::run_subagent_review(&ctx, &draft.content).await;
-            let merged = crate::agency::gate::merge_rule_issues(&notes);
-            if merged.is_empty() {
-                GateOutcome::Passed { verdict }
-            } else {
-                GateOutcome::RevisionRequired { issues: merged, verdict }
-            }
-        };
-        // 3) 判定落审查区（编辑审计为审查区 owner，active）
-        self.record_gate(board, run_id, story_id, draft, &outcome).await?;
-        Ok(outcome)
+        evaluate_gate_impl(llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft).await
     }
 
     /// 供 Task 2 修订路径与测试使用的指令生成（纯函数）。
@@ -728,40 +913,9 @@ impl AgencyCoordinator {
         )
     }
 
-    /// 门判定落审查区：item_type="gate"，content=裁决 JSON + 规则问题数，status=active。
-    async fn record_gate(
-        &self,
-        board: &BlackboardService,
-        run_id: &str,
-        story_id: &str,
-        draft: &BoardItem,
-        outcome: &GateOutcome,
-    ) -> Result<(), AppError> {
-        let (kind, detail, issues) = match outcome {
-            GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
-            GateOutcome::RevisionRequired { issues, .. } => {
-                ("revise", format!("{} 条问题", issues.len()), issues.clone())
-            }
-            GateOutcome::Failed { reason } => ("failed", reason.clone(), Vec::new()),
-        };
-        let content = serde_json::json!({
-            "outcome": kind,
-            "verdict": gate_verdict(outcome),
-            "rule_issue_count": issues.len(),
-            "issues": issues,
-            "comments": verdict_comments(outcome),
-        }).to_string();
-        let summary = format!("gate:{} {}", kind, detail).chars().take(80).collect::<String>();
-        let board_c = board.clone();
-        let rid = run_id.to_string();
-        let sid = story_id.to_string();
-        let key = format!("gate-{}", draft.key);
-        self.db(move || board_c.write(&rid, &sid, AgentRole::EditorAuditor, BoardZone::Review,
-            "gate", &key, &content, &summary)).await?;
-        Ok(())
-    }
-
-    async fn run_role_with_llm(
+    /// 角色驱动（委托自由函数 run_role_loop，与 'static GateRunner 共用同一逻辑）。
+    #[allow(clippy::too_many_arguments)]
+    async fn run_role_with_llm_and_budget(
         &self,
         llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
@@ -773,21 +927,7 @@ impl AgencyCoordinator {
         premise: &str,
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
-        let spec = spec_for(role);
-        let system_prompt = self.resolve_role_prompt(spec.prompt_id, premise).await;
-        let ctx = ToolContext {
-            run_id: run_id.to_string(),
-            story_id: story_id.to_string(),
-            role,
-            board: board.clone(),
-            pool: self.pool.clone(),
-        };
-        // 预算包装：角色信号量限流 + token 记账，对 ToolLoop 透明
-        let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
-        ToolLoop::new(budgeted, registry.clone())
-            .with_max_turns(spec.max_turns)
-            .run(role, &ctx, &system_prompt, task)
-            .await
+        run_role_loop(llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task).await
     }
 
     /// 最新有效草稿：从尾部反向查找最后一条 content 非空的 active draft
@@ -810,17 +950,6 @@ impl AgencyCoordinator {
         }
     }
 
-    /// 角色系统提示词：优先 PromptRegistry（支持用户覆盖），注册表不可用时回退内置短提示。
-    /// 注册表走 DB，同样经 db() 防阻塞。
-    async fn resolve_role_prompt(&self, prompt_id: &str, premise: &str) -> String {
-        let mut vars = HashMap::new();
-        vars.insert("premise".to_string(), premise.to_string());
-        let pool = self.pool.clone();
-        let pid = prompt_id.to_string();
-        let resolved = self.db(move || crate::prompts::registry::resolve_prompt_with_vars(&pool, &pid, &vars)).await;
-        resolved.unwrap_or_else(|_| format!("{}\n\n当前故事前提：{}", default_role_prompt(prompt_id), premise))
-    }
-
     fn check_cancel(&self, cancel: &Arc<AtomicBool>) -> Result<(), AppError> {
         if cancel.load(Ordering::SeqCst) {
             Err(AppError::from("创世已取消"))
@@ -838,6 +967,187 @@ impl AgencyCoordinator {
                 "message": message,
             }));
         }
+        // 进度回调（Task 7 smart_execute 用）：(phase, status, message)
+        let sink = self.progress_sink.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if let Some(sink) = sink {
+            sink(phase, status, message);
+        }
+    }
+}
+
+// ---- 自由函数：纯依赖版本，供协调器与 'static GateRunner 共用 ----
+
+/// 纯依赖版角色驱动（从 run_role_with_llm_and_budget 提取）：
+/// spec/提示词解析/ToolContext/BudgetedLlm/ToolLoop，pool 显式传入，不依赖 &self。
+#[allow(clippy::too_many_arguments)]
+async fn run_role_loop(
+    llm: &Arc<dyn LoopLlm>,
+    budget: &Arc<AgencyBudget>,
+    pool: &DbPool,
+    board: &BlackboardService,
+    registry: &Arc<ToolRegistry>,
+    role: AgentRole,
+    run_id: &str,
+    story_id: &str,
+    premise: &str,
+    task: &str,
+) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
+    let spec = spec_for(role);
+    let system_prompt = resolve_role_prompt_with_pool(pool, spec.prompt_id, premise).await;
+    let ctx = ToolContext {
+        run_id: run_id.to_string(),
+        story_id: story_id.to_string(),
+        role,
+        board: board.clone(),
+        pool: pool.clone(),
+    };
+    // 预算包装：角色信号量限流 + token 记账，对 ToolLoop 透明
+    let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
+    ToolLoop::new(budgeted, registry.clone())
+        .with_max_turns(spec.max_turns)
+        .run(role, &ctx, &system_prompt, task)
+        .await
+}
+
+/// 角色系统提示词（自由函数版）：优先 PromptRegistry（支持用户覆盖），注册表不可用时回退内置短提示。
+/// 注册表走 DB，经 spawn_blocking 防阻塞。
+async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: &str) -> String {
+    let mut vars = HashMap::new();
+    vars.insert("premise".to_string(), premise.to_string());
+    let pool = pool.clone();
+    let pid = prompt_id.to_string();
+    let resolved = tokio::task::spawn_blocking(move || crate::prompts::registry::resolve_prompt_with_vars(&pool, &pid, &vars))
+        .await
+        .ok()
+        .and_then(|r| r.ok());
+    resolved.unwrap_or_else(|| format!("{}\n\n当前故事前提：{}", default_role_prompt(prompt_id), premise))
+}
+
+/// 质量门实现（自由函数版）：editor 裁决（解析失败重试 1 次）→ pass 后再经规则复检；
+/// 每次判定（含 Failed）落审查区 item_type="gate"。行为规格见 evaluate_gate 文档。
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_gate_impl(
+    llm: &Arc<dyn LoopLlm>,
+    budget: &Arc<AgencyBudget>,
+    pool: &DbPool,
+    board: &BlackboardService,
+    registry: &Arc<ToolRegistry>,
+    run_id: &str,
+    story_id: &str,
+    premise: &str,
+    draft: &BoardItem,
+) -> Result<GateOutcome, AppError> {
+    // 1) editor 裁决（解析失败重试一次）
+    let mut verdict: Option<EditorVerdict> = None;
+    let mut last_raw = String::new();
+    for attempt in 0..2 {
+        let editor_out = run_role_loop(
+            llm, budget, pool, board, registry, AgentRole::EditorAuditor, run_id, story_id, premise,
+            &format!("审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。", draft.key),
+        ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
+        if editor_out.aborted {
+            let outcome = GateOutcome::Failed { reason: "编辑审计 Agent 被熔断".to_string() };
+            record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+            return Ok(outcome);
+        }
+        last_raw = editor_out.output.clone();
+        if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
+            verdict = Some(v);
+            break;
+        }
+        log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
+    }
+    let verdict = match verdict {
+        Some(v) => v,
+        None => {
+            let outcome = GateOutcome::Failed {
+                reason: format!(
+                    "裁决解析失败（重试 1 次后仍失败）: {}",
+                    last_raw.chars().take(120).collect::<String>()
+                ),
+            };
+            record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+            return Ok(outcome);
+        }
+    };
+    // 2) 判定：revise+blocking 直接 RevisionRequired；否则确定性规则复检（LLM 说 pass 也要过规则）
+    let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
+        GateOutcome::RevisionRequired { issues: verdict.blocking_issues.clone(), verdict }
+    } else {
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let hints = tokio::task::spawn_blocking(move || -> Result<Vec<String>, AppError> {
+            Ok(board_c.list_zone(&rid, BoardZone::Asset)?
+                .into_iter()
+                .filter(|i| i.item_type == "foreshadowing")
+                .map(|i| i.summary)
+                .collect::<Vec<_>>())
+        }).await.map_err(|e| AppError::from(format!("gate hints join error: {}", e)))??;
+        let pool_c = pool.clone();
+        let sid = story_id.to_string();
+        let ctx = tokio::task::spawn_blocking(move || {
+            crate::agency::gate::build_review_context(&pool_c, &sid, &hints)
+        }).await.map_err(|e| AppError::from(format!("gate ctx join error: {}", e)))?;
+        let notes = crate::agents::subagents::run_subagent_review(&ctx, &draft.content).await;
+        let merged = crate::agency::gate::merge_rule_issues(&notes);
+        if merged.is_empty() {
+            GateOutcome::Passed { verdict }
+        } else {
+            GateOutcome::RevisionRequired { issues: merged, verdict }
+        }
+    };
+    // 3) 判定落审查区（编辑审计为审查区 owner，active）
+    record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+    Ok(outcome)
+}
+
+/// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON + 规则问题数，status=active。
+async fn record_gate_impl(
+    board: &BlackboardService,
+    run_id: &str,
+    story_id: &str,
+    draft: &BoardItem,
+    outcome: &GateOutcome,
+) -> Result<(), AppError> {
+    let (kind, detail, issues) = match outcome {
+        GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
+        GateOutcome::RevisionRequired { issues, .. } => {
+            ("revise", format!("{} 条问题", issues.len()), issues.clone())
+        }
+        GateOutcome::Failed { reason } => ("failed", reason.clone(), Vec::new()),
+    };
+    let content = serde_json::json!({
+        "outcome": kind,
+        "verdict": gate_verdict(outcome),
+        "rule_issue_count": issues.len(),
+        "issues": issues,
+        "comments": verdict_comments(outcome),
+    }).to_string();
+    let summary = format!("gate:{} {}", kind, detail).chars().take(80).collect::<String>();
+    let board_c = board.clone();
+    let rid = run_id.to_string();
+    let sid = story_id.to_string();
+    let key = format!("gate-{}", draft.key);
+    tokio::task::spawn_blocking(move || board_c.write(&rid, &sid, AgentRole::EditorAuditor, BoardZone::Review,
+        "gate", &key, &content, &summary))
+        .await
+        .map_err(|e| AppError::from(format!("record gate join error: {}", e)))??;
+    Ok(())
+}
+
+/// 'static gate 执行器（spawn 用，全部依赖按值持有）。见 gate_runner。
+pub struct GateRunner {
+    llm: Arc<dyn LoopLlm>,
+    budget: Arc<AgencyBudget>,
+    board: BlackboardService,
+    registry: Arc<ToolRegistry>,
+    pool: DbPool,
+}
+
+impl GateRunner {
+    pub async fn evaluate(self, run_id: String, story_id: String, premise: String, draft: BoardItem) -> Result<GateOutcome, AppError> {
+        evaluate_gate_impl(&self.llm, &self.budget, &self.pool, &self.board, &self.registry,
+            &run_id, &story_id, &premise, &draft).await
     }
 }
 
@@ -1204,5 +1514,130 @@ mod tests {
             }
             other => panic!("规则复检应拦截重复开头的草稿，实际: {:?}", other),
         }
+    }
+
+    /// 按系统提示词路由的 mock：区分 主创/编辑/管理 三队列，且记录调用时间窗用于并发断言。
+    struct RoutingMock {
+        writer: Mutex<VecDeque<String>>,
+        editor: Mutex<VecDeque<String>>,
+        producer: Mutex<VecDeque<String>>,
+        intervals: Mutex<Vec<(String, std::time::Instant, std::time::Instant)>>,
+        delay_ms: u64,
+    }
+
+    impl RoutingMock {
+        fn new(delay_ms: u64) -> Arc<Self> {
+            Arc::new(Self {
+                writer: Mutex::new(VecDeque::new()),
+                editor: Mutex::new(VecDeque::new()),
+                producer: Mutex::new(VecDeque::new()),
+                intervals: Mutex::new(Vec::new()),
+                delay_ms,
+            })
+        }
+        fn push(&self, role: &str, lines: Vec<&str>) {
+            let q = match role {
+                "writer" => &self.writer,
+                "editor" => &self.editor,
+                _ => &self.producer,
+            };
+            q.lock().unwrap().extend(lines.into_iter().map(String::from));
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for RoutingMock {
+        async fn complete(&self, system: &str, _u: &str, _t: crate::router::TaskType, _m: i32) -> Result<String, AppError> {
+            // 按角色标记路由（真实种子提示词与内置回退提示词均以 你是「角色」开头；
+            // 不能裸判 "编辑"——writer 提示词中也含「编辑审计」字样）
+            let role = if system.contains("你是「编辑审计」") { "editor" }
+                else if system.contains("你是「主创」") { "writer" }
+                else { "producer" };
+            let start = std::time::Instant::now();
+            tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+            let out = {
+                let q = match role {
+                    "editor" => &self.editor,
+                    "writer" => &self.writer,
+                    _ => &self.producer,
+                };
+                q.lock().unwrap().pop_front()
+                    .ok_or_else(|| AppError::validation_failed(format!("mock[{}] exhausted", role), None::<String>))?
+            };
+            self.intervals.lock().unwrap().push((role.to_string(), start, std::time::Instant::now()));
+            Ok(out)
+        }
+    }
+
+    fn seed_story_with_assets(pool: &crate::db::DbPool) -> String {
+        let story = crate::db::repositories::StoryRepository::new(pool.clone()).create(crate::db::dto::CreateStoryRequest {
+            title: "并行书".into(), description: Some("前提".into()), genre: None,
+            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
+        }).unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        story.id
+    }
+
+    #[tokio::test]
+    async fn test_batch_parallel_two_chapters() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        let mock = RoutingMock::new(60);
+        mock.push("writer", vec![
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"第一章正文。","summary":"一"}}"#,
+            r#"{"type":"final","content":"第一章完成"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文。","summary":"二"}}"#,
+            r#"{"type":"final","content":"第二章完成"}"#,
+        ]);
+        mock.push("editor", vec![
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+        let result = coordinator.run_continue_batch("rb-1", &story_id, 1, 2).await.unwrap();
+        assert_eq!(result.chapters.len(), 2);
+        // 两章场景均落库
+        let scenes = crate::db::repositories::SceneRepository::new(pool.clone()).get_by_story(&story_id).unwrap();
+        assert_eq!(scenes.len(), 2);
+        // 并发证据：gate1(editor) 与 writer2 的时间窗存在交叠
+        let intervals = mock.intervals.lock().unwrap();
+        let editor_first = intervals.iter().find(|(r, _, _)| r == "editor").unwrap();
+        let writer_windows: Vec<_> = intervals.iter().filter(|(r, _, _)| r == "writer").collect();
+        let overlapped = writer_windows.iter().any(|(_, s, e)| *s < editor_first.2 && editor_first.1 < *e);
+        assert!(overlapped, "gate(1) 应与 writer(2) 并发: {:?}", *intervals);
+        let run = AgencyRepository::new(pool.clone()).get_run("rb-1").unwrap().unwrap();
+        assert_eq!(run.status, "completed");
+    }
+
+    #[tokio::test]
+    async fn test_batch_revision_sends_bus_proposal() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        let mock = RoutingMock::new(0);
+        mock.push("writer", vec![
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"初稿。","summary":"一"}}"#,
+            r#"{"type":"final","content":"完成"}"#,
+            // 修订轮：mock 无法预知 board_revise 所需的动态 item_id，
+            // 用 final 直接返回（draft 未变，第二轮 gate pass 放行）；
+            // board_revise 语义已由 Task 2 测试覆盖，本用例只断言 bus 消息与放行。
+            r#"{"type":"final","content":"已知晓修订意见"}"#,
+        ]);
+        mock.push("editor", vec![
+            r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
+        let result = coordinator.run_continue_batch("rb-2", &story_id, 1, 1).await.unwrap();
+        assert_eq!(result.chapters.len(), 1);
+        assert!(result.chapters[0].revised);
+        // 总线：editor→writer 的 proposal 消息存在
+        let bus = crate::agency::bus::MessageBus::new(pool.clone());
+        let inbox = bus.inbox("rb-2", AgentRole::LeadWriter).unwrap();
+        assert!(inbox.iter().any(|m| m.msg_type == "proposal" && m.payload.contains("动机弱")));
     }
 }

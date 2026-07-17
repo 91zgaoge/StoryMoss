@@ -83,8 +83,8 @@ type:
 
 ### Agency 多代理创作框架 P1 — 创世 2.0 骨架（串行端到端）
 
-- **新模块**：`src-tauri/src/agency/`（board 黑板 / tool_loop ReAct 工具循环 / roles 三角色 / coordinator 串行协调器 / repository+models 持久化 / bus 消息总线[P2 接线] / commands IPC）。
-- **IPC**：`agency_start_genesis` / `agency_get_run` / `agency_list_board` / `agency_cancel_run`。
+- **新模块**：`src-tauri/src/agency/`（board 黑板 / tool_loop ReAct 工具循环 / roles 三角色 / coordinator 协调器（P2 起含并行稳态循环 gate(n-1)∥writer(n)）/ repository+models 持久化 / bus 消息总线（P2 已接线：修订提案 proposal）/ budget 角色预算 / commands IPC）。
+- **IPC**：`agency_start_genesis` / `agency_get_run` / `agency_list_board` / `agency_cancel_run` / `agency_continue_chapter` / `agency_continue_batch`。
 - **提示词目录**：`resources/prompts/agency/`。
 - **依赖边界**：agency 允许依赖 db/llm/router/prompts，不允许被反向依赖。
 - 设计：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1 已完成，除真机验收外）。

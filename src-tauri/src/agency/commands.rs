@@ -63,6 +63,44 @@ pub async fn agency_continue_chapter(
     Ok(run_id)
 }
 
+/// 批量续写：并行稳态循环（gate(n-1) ∥ writer(n)），立即返回 run_id。
+/// count 默认 3，钳制 1..=5；起始章号 = MAX(sequence_number)+1。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_continue_batch(
+    story_id: String,
+    count: Option<u32>,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<String, AppError> {
+    let count = (count.unwrap_or(3) as usize).clamp(1, 5);
+    let pool = pool.inner().clone();
+    // 并发护栏：同一 story 不允许并行 run
+    let pool_guard = pool.clone();
+    let sid = story_id.clone();
+    let has_running = tokio::task::spawn_blocking(move || {
+        crate::agency::repository::AgencyRepository::new(pool_guard).has_running_run_for_story(&sid)
+    }).await.map_err(|e| AppError::from(format!("guard join error: {}", e)))?
+        .map_err(AppError::from)?;
+    if has_running {
+        return Err(AppError::validation_failed("该故事已有进行中的创作任务", None::<String>));
+    }
+    // 起始章号
+    let pool2 = pool.clone();
+    let sid2 = story_id.clone();
+    let start_chapter = tokio::task::spawn_blocking(move || {
+        AgencyCoordinator::next_chapter_number(&pool2, &sid2)
+    }).await.map_err(|e| AppError::from(format!("chapter join error: {}", e)))??;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let coordinator = AgencyCoordinator::new(app_handle, pool);
+    let rid = run_id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = coordinator.run_continue_batch(&rid, &story_id, start_chapter, count).await {
+            log::error!("agency batch run {} failed: {}", rid, e);
+        }
+    });
+    Ok(run_id)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_get_run(
     run_id: String,
