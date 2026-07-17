@@ -20,8 +20,6 @@ use crate::llm::LlmService;
 use crate::router::TaskType;
 
 pub const EVENT_RUN_PROGRESS: &str = "agency-run-progress";
-/// P1 串行：至多 1 轮修订（第二轮审查后无论结果放行）。
-const MAX_REVISION_PASSES: usize = 1;
 
 // ---- 取消注册表（镜像 narrative/pipeline.rs 模式） ----
 
@@ -160,6 +158,14 @@ pub struct EditorVerdict {
     pub suggestions: Vec<String>,
     #[serde(default)]
     pub comments: String,
+}
+
+/// 质量门判定结果（取代 P1 的 fail-open 默认放行）。
+#[derive(Debug)]
+pub enum GateOutcome {
+    Passed { verdict: EditorVerdict },
+    RevisionRequired { verdict: EditorVerdict, issues: Vec<String> },
+    Failed { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -323,7 +329,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产创作资产");
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        let producer_out = self.run_role(
+        let producer_out = self.run_role_with_llm(
             &llm, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
@@ -335,7 +341,7 @@ impl AgencyCoordinator {
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
-        let writer_out = self.run_role(
+        let writer_out = self.run_role_with_llm(
             &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
@@ -345,55 +351,42 @@ impl AgencyCoordinator {
         let mut draft = self.latest_draft(&board, run_id).await?;
         self.check_cancel(cancel)?;
 
-        // 5) 编辑审计 + 至多 MAX_REVISION_PASSES 轮修订
+        // 5) 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）
         let mut revised = false;
-        let mut revision_passes = 0usize;
-        let verdict = loop {
+        let final_verdict = loop {
             self.update_phase(repo, run_id, "review").await?;
-            self.emit_progress(run_id, "review", "running", "编辑审计 Agent 正在审查草稿");
-            let editor_out = self.run_role(
-                &llm, AgentRole::EditorAuditor, &board, &registry, run_id, &story_id, premise,
-                &format!("审查 draft 区的最新章节草稿（当前版本：{}）。按系统提示词出具裁决 JSON。", draft.key),
-            ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
-            if editor_out.aborted {
-                return Err(AppError::from("编辑审计 Agent 被熔断，审查未完成"));
-            }
-            let verdict: EditorVerdict = parse_lenient(&editor_out.output).unwrap_or(EditorVerdict {
-                verdict: "pass".to_string(),
-                blocking_issues: vec![],
-                suggestions: vec![],
-                comments: format!("（裁决解析失败，默认放行）原文：{}", editor_out.output.chars().take(200).collect::<String>()),
-            });
-            // 裁决落审查区（编辑审计为审查区 owner，active）
-            let summary = format!("{}：{}", verdict.verdict, verdict.comments.chars().take(60).collect::<String>());
-            let board_c = board.clone();
-            let rid = run_id.to_string();
-            let sid = story_id.clone();
-            let vkey = format!("{}-v{}", draft.key, draft.version);
-            let vraw = editor_out.output.clone();
-            self.db(move || board_c.write(&rid, &sid, AgentRole::EditorAuditor, BoardZone::Review,
-                "verdict", &vkey, &vraw, &summary)).await?;
-            if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() && revision_passes < MAX_REVISION_PASSES {
-                revision_passes += 1;
-                revised = true;
-                self.update_phase(repo, run_id, "revision").await?;
-                self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
-                let issues = verdict.blocking_issues.join("；");
-                let revise_out = self.run_role(
-                    &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
-                    &format!(
-                        "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。审查阻断问题：{}",
-                        draft.key, draft.id, draft.version, issues
-                    ),
-                ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
-                if revise_out.aborted {
-                    return Err(AppError::from("主创 Agent 修订轮被熔断"));
+            self.emit_progress(run_id, "review", "running", "质量门评估中");
+            let outcome = self.evaluate_gate(&llm, &board, &registry, run_id, &story_id, premise, &draft).await?;
+            match outcome {
+                GateOutcome::Passed { verdict } => break verdict,
+                GateOutcome::RevisionRequired { issues, .. } if !revised => {
+                    revised = true;
+                    self.update_phase(repo, run_id, "revision").await?;
+                    self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
+                    let task = Self::build_revision_task(&draft, &issues);
+                    let revise_out = self.run_role_with_llm(
+                        &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
+                    ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
+                    if revise_out.aborted {
+                        return Err(AppError::from("主创 Agent 修订轮被熔断"));
+                    }
+                    draft = self.latest_draft(&board, run_id).await?;
+                    self.check_cancel(cancel)?;
+                    // 复审：无论结果都进入装配（Failed 除外）
+                    let second = self.evaluate_gate(&llm, &board, &registry, run_id, &story_id, premise, &draft).await?;
+                    match second {
+                        GateOutcome::Passed { verdict } => break verdict,
+                        GateOutcome::RevisionRequired { verdict, .. } => break verdict, // 第二轮放行
+                        GateOutcome::Failed { reason } => {
+                            return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                        }
+                    }
                 }
-                draft = self.latest_draft(&board, run_id).await?;
-                self.check_cancel(cancel)?;
-                continue; // 修订后再审一次（P1 第二轮无论结果都放行）
+                GateOutcome::RevisionRequired { verdict, .. } => break verdict,
+                GateOutcome::Failed { reason } => {
+                    return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                }
             }
-            break verdict;
         };
         self.check_cancel(cancel)?;
 
@@ -420,12 +413,131 @@ impl AgencyCoordinator {
             story_id,
             scene_id: scene.id,
             revised,
-            verdict,
+            verdict: final_verdict,
             chapter_chars: draft.content.chars().count(),
         })
     }
 
-    async fn run_role(
+    /// 质量门：editor 裁决（解析失败重试 1 次）→ pass 后再经规则复检。
+    /// 行为规格：aborted → Failed；裁决解析重试后仍失败 → Failed；
+    /// revise+blocking → RevisionRequired；pass → 规则复检 High+ → RevisionRequired，否则 Passed；
+    /// 每次判定（含 Failed）落审查区 item_type="gate"。
+    pub(crate) async fn evaluate_gate(
+        &self,
+        llm: &Arc<dyn LoopLlm>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        draft: &BoardItem,
+    ) -> Result<GateOutcome, AppError> {
+        // 1) editor 裁决（解析失败重试一次）
+        let mut verdict: Option<EditorVerdict> = None;
+        let mut last_raw = String::new();
+        for attempt in 0..2 {
+            let editor_out = self.run_role_with_llm(
+                llm, AgentRole::EditorAuditor, board, registry, run_id, story_id, premise,
+                &format!("审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。", draft.key),
+            ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
+            if editor_out.aborted {
+                let outcome = GateOutcome::Failed { reason: "编辑审计 Agent 被熔断".to_string() };
+                self.record_gate(board, run_id, story_id, draft, &outcome).await?;
+                return Ok(outcome);
+            }
+            last_raw = editor_out.output.clone();
+            if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
+                verdict = Some(v);
+                break;
+            }
+            log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
+        }
+        let verdict = match verdict {
+            Some(v) => v,
+            None => {
+                let outcome = GateOutcome::Failed {
+                    reason: format!(
+                        "裁决解析失败（重试 1 次后仍失败）: {}",
+                        last_raw.chars().take(120).collect::<String>()
+                    ),
+                };
+                self.record_gate(board, run_id, story_id, draft, &outcome).await?;
+                return Ok(outcome);
+            }
+        };
+        // 2) 判定：revise+blocking 直接 RevisionRequired；否则确定性规则复检（LLM 说 pass 也要过规则）
+        let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
+            GateOutcome::RevisionRequired { issues: verdict.blocking_issues.clone(), verdict }
+        } else {
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let hints = self.db(move || {
+                Ok(board_c.list_zone(&rid, BoardZone::Asset)?
+                    .into_iter()
+                    .filter(|i| i.item_type == "foreshadowing")
+                    .map(|i| i.summary)
+                    .collect::<Vec<_>>())
+            }).await?;
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let ctx = tokio::task::spawn_blocking(move || {
+                crate::agency::gate::build_review_context(&pool, &sid, &hints)
+            }).await.map_err(|e| AppError::from(format!("gate ctx join error: {}", e)))?;
+            let notes = crate::agents::subagents::run_subagent_review(&ctx, &draft.content).await;
+            let merged = crate::agency::gate::merge_rule_issues(&notes);
+            if merged.is_empty() {
+                GateOutcome::Passed { verdict }
+            } else {
+                GateOutcome::RevisionRequired { issues: merged, verdict }
+            }
+        };
+        // 3) 判定落审查区（编辑审计为审查区 owner，active）
+        self.record_gate(board, run_id, story_id, draft, &outcome).await?;
+        Ok(outcome)
+    }
+
+    /// 供 Task 2 修订路径与测试使用的指令生成（纯函数）。
+    pub(crate) fn build_revision_task(draft: &BoardItem, issues: &[String]) -> String {
+        format!(
+            "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。审查阻断问题：{}",
+            draft.key, draft.id, draft.version, issues.join("；")
+        )
+    }
+
+    /// 门判定落审查区：item_type="gate"，content=裁决 JSON + 规则问题数，status=active。
+    async fn record_gate(
+        &self,
+        board: &BlackboardService,
+        run_id: &str,
+        story_id: &str,
+        draft: &BoardItem,
+        outcome: &GateOutcome,
+    ) -> Result<(), AppError> {
+        let (kind, detail, issues) = match outcome {
+            GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
+            GateOutcome::RevisionRequired { issues, .. } => {
+                ("revise", format!("{} 条问题", issues.len()), issues.clone())
+            }
+            GateOutcome::Failed { reason } => ("failed", reason.clone(), Vec::new()),
+        };
+        let content = serde_json::json!({
+            "outcome": kind,
+            "verdict": gate_verdict(outcome),
+            "rule_issue_count": issues.len(),
+            "issues": issues,
+            "comments": verdict_comments(outcome),
+        }).to_string();
+        let summary = format!("gate:{} {}", kind, detail).chars().take(80).collect::<String>();
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let key = format!("gate-{}", draft.key);
+        self.db(move || board_c.write(&rid, &sid, AgentRole::EditorAuditor, BoardZone::Review,
+            "gate", &key, &content, &summary)).await?;
+        Ok(())
+    }
+
+    async fn run_role_with_llm(
         &self,
         llm: &Arc<dyn LoopLlm>,
         role: AgentRole,
@@ -499,6 +611,22 @@ impl AgencyCoordinator {
                 "message": message,
             }));
         }
+    }
+}
+
+fn verdict_comments(outcome: &GateOutcome) -> String {
+    match outcome {
+        GateOutcome::Passed { verdict } => verdict.comments.clone(),
+        GateOutcome::RevisionRequired { verdict, .. } => verdict.comments.clone(),
+        GateOutcome::Failed { .. } => String::new(),
+    }
+}
+
+fn gate_verdict(outcome: &GateOutcome) -> Option<&EditorVerdict> {
+    match outcome {
+        GateOutcome::Passed { verdict } => Some(verdict),
+        GateOutcome::RevisionRequired { verdict, .. } => Some(verdict),
+        GateOutcome::Failed { .. } => None,
     }
 }
 
@@ -708,5 +836,43 @@ mod tests {
         assert!(validate_premise(&too_long).is_err());
         let at_limit = "长".repeat(2000);
         assert!(validate_premise(&at_limit).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_gate_fails_after_verdict_parse_retry() {
+        let pool = create_test_pool().unwrap();
+        // concept + producer(tool,final) + writer(tool,final) + editor 两次非法裁决
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#,
+            r#"{"type":"final","content":"资产就绪"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"正文。","summary":"初稿"}}"#,
+            r#"{"type":"final","content":"完成"}"#,
+            r#"{"type":"final","content":"这根本不是JSON裁决"}"#,
+            r#"{"type":"final","content":"依然不是JSON"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let err = coordinator.run_genesis("r-gate-1", "前提").await.unwrap_err();
+        assert!(err.to_string().contains("质量门") || err.to_string().contains("裁决") || err.to_string().contains("审查"));
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(repo.get_run("r-gate-1").unwrap().unwrap().status, "failed");
+        // 规格 5：门判定（含 Failed）落审查区 item_type="gate"
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let snap = board.snapshot("r-gate-1").unwrap();
+        assert!(snap.reviews.iter().any(|i| i.item_type == "gate"), "Failed 判定也应写 gate 条目");
+    }
+
+    /// 修订指令（纯函数）须携带 item_id 与 expected_version，供 board_revise 原地修订。
+    #[test]
+    fn test_build_revision_task_contains_item_ref() {
+        let draft = BoardItem::new(
+            "r", "s", BoardZone::Draft, "chapter", "第一章", "初稿。", "初稿",
+            AgentRole::LeadWriter, "active",
+        );
+        let task = AgencyCoordinator::build_revision_task(&draft, &["动机缺失".to_string()]);
+        assert!(task.contains("board_revise"));
+        assert!(task.contains(&format!("item_id={}", draft.id)));
+        assert!(task.contains("expected_version=1"));
+        assert!(task.contains("动机缺失"));
     }
 }

@@ -1,0 +1,72 @@
+//! 质量门 v1：规则问题归并与规则复检上下文构建。
+//! 门判定逻辑（evaluate_gate）在 coordinator.rs；Task 4/6 复用同一门径。
+
+use crate::agents::subagents::{ReviewNotes, ReviewSeverity};
+use crate::db::DbPool;
+use crate::domain::agent_context::{AgentContext, CharacterInfo};
+
+/// 收集规则审查中 High 及以上问题，格式化为 "[agent] category: description"。
+pub fn merge_rule_issues(notes: &[ReviewNotes]) -> Vec<String> {
+    notes
+        .iter()
+        .flat_map(|n| {
+            n.issues.iter().filter_map(move |i| {
+                if i.severity >= ReviewSeverity::High {
+                    Some(format!("[{}] {}: {}", n.agent, i.category, i.description))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect()
+}
+
+/// 为规则复检构建最小 AgentContext：角色/世界规则取自 DB 资产（Task 4 落库后可用），
+/// 活跃线索取自黑板伏笔条目摘要。
+pub fn build_review_context(pool: &DbPool, story_id: &str, foreshadowing_hints: &[String]) -> AgentContext {
+    let mut ctx = AgentContext::minimal(story_id.to_string(), String::new());
+    if let Ok(chars) = crate::db::repositories::CharacterRepository::new(pool.clone()).get_by_story(story_id) {
+        ctx.narrative.characters = chars
+            .iter()
+            .map(|c| CharacterInfo {
+                name: c.name.clone(),
+                personality: c.personality.clone().unwrap_or_default(),
+                role: String::new(),
+                appearance: c.appearance.clone(),
+                gender: c.gender.clone(),
+                age: c.age,
+            })
+            .collect();
+    }
+    if let Ok(Some(world)) = crate::db::repositories::WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+        let rules_text = serde_json::to_string(&world.rules).unwrap_or_default();
+        ctx.world.world_rules = Some(format!("{}\n{}", world.concept, rules_text));
+    }
+    ctx.narrative.active_threads = foreshadowing_hints.to_vec();
+    ctx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::subagents::{ReviewIssue, ReviewNotes, ReviewSeverity};
+
+    #[test]
+    fn test_merge_rule_issues_high_and_above_only() {
+        let mut notes = ReviewNotes::new("style", "风格审查");
+        notes.add_issue(ReviewIssue::new(ReviewSeverity::High, "AI腔", "陈词滥调", "删掉"));
+        notes.add_issue(ReviewIssue::new(ReviewSeverity::Low, "句长", "偏长", "可拆"));
+        let mut notes2 = ReviewNotes::new("continuity", "连续性");
+        notes2.add_issue(ReviewIssue::new(ReviewSeverity::Critical, "矛盾", "角色已死却出场", "改"));
+        let merged = merge_rule_issues(&[notes, notes2]);
+        assert_eq!(merged.len(), 2);
+        assert!(merged[0].contains("AI腔"));
+        assert!(merged[1].contains("矛盾"));
+    }
+
+    #[test]
+    fn test_merge_empty() {
+        assert!(merge_rule_issues(&[]).is_empty());
+        assert!(merge_rule_issues(&[ReviewNotes::new("world", "无问题")]).is_empty());
+    }
+}

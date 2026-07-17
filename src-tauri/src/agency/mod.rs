@@ -6,6 +6,7 @@ pub mod board;
 pub mod bus;
 pub mod commands;
 pub mod coordinator;
+pub mod gate;
 pub mod models;
 pub mod repository;
 pub mod roles;
