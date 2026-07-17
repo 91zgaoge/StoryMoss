@@ -1,6 +1,3 @@
-// 部分 API（如 set_run_story）在 Task 2-7 的消费方落地前暂无调用点。
-#![allow(dead_code)]
-
 use rusqlite::{params, OptionalExtension};
 
 use crate::agency::models::*;
@@ -60,6 +57,7 @@ impl AgencyRepository {
         Ok(())
     }
 
+    /// 终态守护：cancelled/completed/failed 后不再允许覆盖（取消竞态防护）。
     pub fn finish_run(
         &self,
         run_id: &str,
@@ -69,7 +67,8 @@ impl AgencyRepository {
     ) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
-            "UPDATE agency_runs SET status = ?2, result_json = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1",
+            "UPDATE agency_runs SET status = ?2, result_json = ?3, error_message = ?4, updated_at = ?5
+             WHERE id = ?1 AND status NOT IN ('cancelled', 'completed', 'failed')",
             params![run_id, status, result_json, error_message, now()],
         )?;
         Ok(())
@@ -150,7 +149,7 @@ impl AgencyRepository {
             Some(z) => {
                 let mut stmt = conn.prepare(
                     "SELECT id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at
-                     FROM agency_board_items WHERE run_id = ?1 AND zone = ?2 ORDER BY created_at ASC",
+                     FROM agency_board_items WHERE run_id = ?1 AND zone = ?2 ORDER BY created_at ASC, rowid ASC",
                 )?;
                 let rows = stmt.query_map(params![run_id, z.as_str()], map_board_item)?;
                 rows.collect::<Result<Vec<_>, _>>()?
@@ -158,7 +157,7 @@ impl AgencyRepository {
             None => {
                 let mut stmt = conn.prepare(
                     "SELECT id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at
-                     FROM agency_board_items WHERE run_id = ?1 ORDER BY created_at ASC",
+                     FROM agency_board_items WHERE run_id = ?1 ORDER BY created_at ASC, rowid ASC",
                 )?;
                 let rows = stmt.query_map(params![run_id], map_board_item)?;
                 rows.collect::<Result<Vec<_>, _>>()?
@@ -194,7 +193,7 @@ impl AgencyRepository {
             Some(role) => {
                 let mut stmt = conn.prepare(
                     "SELECT id, run_id, from_role, to_role, msg_type, payload, created_at
-                     FROM agency_messages WHERE run_id = ?1 AND to_role = ?2 ORDER BY created_at ASC",
+                     FROM agency_messages WHERE run_id = ?1 AND to_role = ?2 ORDER BY created_at ASC, rowid ASC",
                 )?;
                 let rows = stmt.query_map(params![run_id, role.as_str()], map_message)?;
                 rows.collect::<Result<Vec<_>, _>>()?
@@ -202,7 +201,7 @@ impl AgencyRepository {
             None => {
                 let mut stmt = conn.prepare(
                     "SELECT id, run_id, from_role, to_role, msg_type, payload, created_at
-                     FROM agency_messages WHERE run_id = ?1 ORDER BY created_at ASC",
+                     FROM agency_messages WHERE run_id = ?1 ORDER BY created_at ASC, rowid ASC",
                 )?;
                 let rows = stmt.query_map(params![run_id], map_message)?;
                 rows.collect::<Result<Vec<_>, _>>()?
@@ -249,7 +248,6 @@ fn map_message(row: &rusqlite::Row) -> Result<AgencyMessage, rusqlite::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::models::*;
     use crate::db::create_test_pool;
 
     fn repo() -> (AgencyRepository, DbPool) {

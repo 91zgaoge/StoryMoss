@@ -121,15 +121,21 @@ impl AgentTool for BoardReadTool {
         let key = args.get("key").and_then(|v| v.as_str()).map(String::from);
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
             let board = BlackboardService::new(pool);
+            // zone 非空但非法时回显错误让模型自愈（不再静默读全部）
+            let zone = match zone.as_deref() {
+                Some(z) => match BoardZone::from_str(z) {
+                    Some(parsed) => Some(parsed),
+                    None => return Ok(format!("非法 zone: {}，可选 asset|draft|review|schedule", z)),
+                },
+                None => None,
+            };
             if let Some(k) = key {
-                let zone = zone.as_deref().and_then(BoardZone::from_str);
                 let items = board.list_zone_filtered(&run_id, zone)?;
                 if let Some(item) = items.into_iter().find(|i| i.key == k) {
                     return Ok(format!("[{}/{}] v{}\n{}", item.zone.as_str(), item.key, item.version, item.content));
                 }
                 return Ok(format!("未找到 key={} 的条目", k));
             }
-            let zone = zone.as_deref().and_then(BoardZone::from_str);
             match zone {
                 Some(z) => {
                     let items = board.list_zone(&run_id, z)?;

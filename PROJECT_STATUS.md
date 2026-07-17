@@ -1,6 +1,6 @@
 # StoryMoss (草苔) v0.26.59 项目完成状态
 
-> 最后更新: 2026-07-11（v0.26.59 完成 StoryForge → StoryMoss 品牌收尾并上线官网落地页）
+> 最后更新: 2026-07-17（v0.26.59 完成 StoryForge → StoryMoss 品牌收尾并上线官网落地页）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---

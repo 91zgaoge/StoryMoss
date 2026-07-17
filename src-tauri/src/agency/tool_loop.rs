@@ -103,7 +103,7 @@ impl ToolLoop {
                 Ok(LoopAction::Tool { name, args }) => {
                     parse_failures = 0;
                     let observation = match self.registry.get_for_role(role, &name) {
-                        Some(tool) => match tool.execute(ctx, args).await {
+                        Some(tool) => match tool.execute(ctx, args.clone()).await {
                             Ok(out) => {
                                 // observation 摘要化：防止超长工具结果爆上下文
                                 if out.chars().count() > 4000 {
@@ -117,7 +117,8 @@ impl ToolLoop {
                         None => format!("工具 {} 对你的角色不可用或不存在，请改用可用工具", name),
                     };
                     conversation.push_str(&format!("\n\n你的上一步：{}\n观察结果：{}", raw, observation));
-                    turns.push(LoopTurn { raw_response: raw, action: Some(LoopAction::Tool { name, args: serde_json::Value::Null }), observation: Some(observation) });
+                    // 保留真实 args（P4 trace 回放需要），不再置 Null
+                    turns.push(LoopTurn { raw_response: raw, action: Some(LoopAction::Tool { name, args }), observation: Some(observation) });
                 }
                 Err(e) => {
                     parse_failures += 1;

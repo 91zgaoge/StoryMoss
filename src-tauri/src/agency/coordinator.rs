@@ -144,6 +144,25 @@ impl AgencyCoordinator {
         Self { app_handle: None, pool, llm }
     }
 
+    /// 同步 DB 调用一律经 spawn_blocking，避免阻塞 tokio 运行时线程。
+    async fn db<T, F>(&self, f: F) -> Result<T, AppError>
+    where
+        F: FnOnce() -> Result<T, AppError> + Send + 'static,
+        T: Send + 'static,
+    {
+        tokio::task::spawn_blocking(f)
+            .await
+            .map_err(|e| AppError::from(format!("agency db join error: {}", e)))?
+    }
+
+    /// run 阶段推进（协调器运行期间 status 恒为 running）。
+    async fn update_phase(&self, repo: &AgencyRepository, run_id: &str, phase: &str) -> Result<(), AppError> {
+        let repo = repo.clone();
+        let run_id = run_id.to_string();
+        let phase = phase.to_string();
+        self.db(move || repo.update_run_phase(&run_id, "running", &phase).map_err(AppError::from)).await
+    }
+
     /// 创世 2.0 串行端到端：concept → assets(producer) → writing(writer)
     /// → review(editor) → [revision ≤1] → assembly(Scene 装配)。
     pub async fn run_genesis(&self, run_id: &str, premise: &str) -> Result<AgencyGenesisResult, AppError> {
@@ -154,13 +173,23 @@ impl AgencyCoordinator {
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
-                let _ = repo.finish_run(run_id, "completed", Some(&json), None);
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
                 self.emit_progress(run_id, "assembly", "completed", "创世完成");
             }
             Err(e) => {
                 let status = if cancel.load(Ordering::SeqCst) { "cancelled" } else { "failed" };
-                let _ = repo.finish_run(run_id, status, None, Some(&e.to_string()));
-                self.emit_progress(run_id, "assembly", status, &e.to_string());
+                // 失败/取消事件的 phase 取 run 当前落库阶段（不再硬编码 assembly）
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let phase = self.db(move || repo_c.get_run(&rid).map_err(AppError::from)).await
+                    .ok().flatten().map(|r| r.phase).unwrap_or_else(|| "unknown".to_string());
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let msg = e.to_string();
+                let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
+                self.emit_progress(run_id, &phase, status, &e.to_string());
             }
         }
         result
@@ -173,8 +202,10 @@ impl AgencyCoordinator {
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyGenesisResult, AppError> {
-        repo.create_run(&AgencyRun::new(run_id, premise)).map_err(AppError::from)?;
-        repo.update_run_phase(run_id, "running", "concept").map_err(AppError::from)?;
+        let run = AgencyRun::new(run_id, premise);
+        let repo_c = repo.clone();
+        self.db(move || repo_c.create_run(&run).map_err(AppError::from)).await?;
+        self.update_phase(repo, run_id, "concept").await?;
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
         // 1) 概念：标题与类型
@@ -207,11 +238,14 @@ impl AgencyCoordinator {
         }).await.map_err(|e| AppError::from(format!("create story join error: {}", e)))?
             .map_err(AppError::from)?;
         let story_id = story.id.clone();
-        repo.set_run_story(run_id, &story_id).map_err(AppError::from)?;
+        let repo_c = repo.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.clone();
+        self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from)).await?;
         self.check_cancel(cancel)?;
 
         // 3) 管理：资产生产
-        repo.update_run_phase(run_id, "running", "assets").map_err(AppError::from)?;
+        self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产创作资产");
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
@@ -225,7 +259,7 @@ impl AgencyCoordinator {
         self.check_cancel(cancel)?;
 
         // 4) 主创：首章写作
-        repo.update_run_phase(run_id, "running", "writing").map_err(AppError::from)?;
+        self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role(
             AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
@@ -234,14 +268,14 @@ impl AgencyCoordinator {
         if writer_out.aborted {
             return Err(AppError::from("主创 Agent 被熔断，首章未完成"));
         }
-        let mut draft = self.latest_draft(&board, run_id)?;
+        let mut draft = self.latest_draft(&board, run_id).await?;
         self.check_cancel(cancel)?;
 
         // 5) 编辑审计 + 至多 MAX_REVISION_PASSES 轮修订
         let mut revised = false;
         let mut revision_passes = 0usize;
         let verdict = loop {
-            repo.update_run_phase(run_id, "running", "review").map_err(AppError::from)?;
+            self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "编辑审计 Agent 正在审查草稿");
             let editor_out = self.run_role(
                 AgentRole::EditorAuditor, &board, &registry, run_id, &story_id, premise,
@@ -258,13 +292,17 @@ impl AgencyCoordinator {
             });
             // 裁决落审查区（编辑审计为审查区 owner，active）
             let summary = format!("{}：{}", verdict.verdict, verdict.comments.chars().take(60).collect::<String>());
-            board.write(run_id, &story_id, AgentRole::EditorAuditor, BoardZone::Review,
-                "verdict", &format!("{}-v{}", draft.key, draft.version),
-                &editor_out.output, &summary)?;
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let sid = story_id.clone();
+            let vkey = format!("{}-v{}", draft.key, draft.version);
+            let vraw = editor_out.output.clone();
+            self.db(move || board_c.write(&rid, &sid, AgentRole::EditorAuditor, BoardZone::Review,
+                "verdict", &vkey, &vraw, &summary)).await?;
             if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() && revision_passes < MAX_REVISION_PASSES {
                 revision_passes += 1;
                 revised = true;
-                repo.update_run_phase(run_id, "running", "revision").map_err(AppError::from)?;
+                self.update_phase(repo, run_id, "revision").await?;
                 self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
                 let issues = verdict.blocking_issues.join("；");
                 let revise_out = self.run_role(
@@ -274,15 +312,16 @@ impl AgencyCoordinator {
                 if revise_out.aborted {
                     return Err(AppError::from("主创 Agent 修订轮被熔断"));
                 }
-                draft = self.latest_draft(&board, run_id)?;
+                draft = self.latest_draft(&board, run_id).await?;
                 self.check_cancel(cancel)?;
                 continue; // 修订后再审一次（P1 第二轮无论结果都放行）
             }
             break verdict;
         };
+        self.check_cancel(cancel)?;
 
         // 6) 装配：草稿 → Scene 真源（统一输出装配器 P1 形态）
-        repo.update_run_phase(run_id, "running", "assembly").map_err(AppError::from)?;
+        self.update_phase(repo, run_id, "assembly").await?;
         self.emit_progress(run_id, "assembly", "running", "正在装配正式稿");
         let pool = self.pool.clone();
         let sid = story_id.clone();
@@ -296,6 +335,8 @@ impl AgencyCoordinator {
             }).map_err(AppError::from)?;
             Ok(scene)
         }).await.map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        // 装配完成后、交付结果前再查一次：确保 cancelled 不被 completed 覆盖
+        self.check_cancel(cancel)?;
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
@@ -318,7 +359,7 @@ impl AgencyCoordinator {
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
         let spec = spec_for(role);
-        let system_prompt = self.resolve_role_prompt(spec.prompt_id, premise);
+        let system_prompt = self.resolve_role_prompt(spec.prompt_id, premise).await;
         let ctx = ToolContext {
             run_id: run_id.to_string(),
             story_id: story_id.to_string(),
@@ -332,11 +373,17 @@ impl AgencyCoordinator {
             .await
     }
 
-    fn latest_draft(&self, board: &BlackboardService, run_id: &str) -> Result<BoardItem, AppError> {
-        let drafts = board.list_zone(run_id, BoardZone::Draft)?;
-        drafts.into_iter().last()
-            .filter(|d| !d.content.is_empty())
-            .ok_or_else(|| AppError::from("草稿区为空：主创未产出正文"))
+    /// 最新有效草稿：从尾部反向查找最后一条 content 非空的 active draft
+    ///（最新条为空不再报错；proposed 提案不参与，绕过仲裁的写入不得被消费）。
+    async fn latest_draft(&self, board: &BlackboardService, run_id: &str) -> Result<BoardItem, AppError> {
+        let board = board.clone();
+        let run_id = run_id.to_string();
+        self.db(move || {
+            let drafts = board.list_zone(&run_id, BoardZone::Draft)?;
+            drafts.into_iter().rev()
+                .find(|d| d.status == "active" && !d.content.is_empty())
+                .ok_or_else(|| AppError::from("草稿区为空：主创未产出正文"))
+        }).await
     }
 
     fn board(&self) -> BlackboardService {
@@ -347,10 +394,13 @@ impl AgencyCoordinator {
     }
 
     /// 角色系统提示词：优先 PromptRegistry（支持用户覆盖），注册表不可用时回退内置短提示。
-    fn resolve_role_prompt(&self, prompt_id: &str, premise: &str) -> String {
+    /// 注册表走 DB，同样经 db() 防阻塞。
+    async fn resolve_role_prompt(&self, prompt_id: &str, premise: &str) -> String {
         let mut vars = HashMap::new();
         vars.insert("premise".to_string(), premise.to_string());
-        let resolved = crate::prompts::registry::resolve_prompt_with_vars(&self.pool, prompt_id, &vars);
+        let pool = self.pool.clone();
+        let pid = prompt_id.to_string();
+        let resolved = self.db(move || crate::prompts::registry::resolve_prompt_with_vars(&pool, &pid, &vars)).await;
         resolved.unwrap_or_else(|_| format!("{}\n\n当前故事前提：{}", default_role_prompt(prompt_id), premise))
     }
 
@@ -386,7 +436,6 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::models::*;
     use crate::agency::repository::AgencyRepository;
     use crate::db::create_test_pool;
     use std::collections::VecDeque;
@@ -501,6 +550,44 @@ mod tests {
         let repo = AgencyRepository::new(pool.clone());
         let run = repo.get_run("r4").unwrap().unwrap();
         assert_eq!(run.status, "failed");
+    }
+
+    /// concept 响应后立即置取消 flag 的 mock（模拟用户在概念完成后取消）。
+    struct CancelAfterConceptLlm {
+        inner: Arc<MockLlm>,
+        run_id: String,
+        fired: AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for CancelAfterConceptLlm {
+        async fn complete(&self, s: &str, u: &str, t: crate::router::TaskType, m: i32) -> Result<String, AppError> {
+            let out = self.inner.complete(s, u, t, m).await?;
+            if !self.fired.swap(true, Ordering::SeqCst) {
+                assert!(cancel_agency_run(&self.run_id), "取消 flag 应已注册");
+            }
+            Ok(out)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_genesis_cancel_not_overwritten_by_completed() {
+        let pool = create_test_pool().unwrap();
+        let llm = Arc::new(CancelAfterConceptLlm {
+            inner: pass_script(),
+            run_id: "r5".to_string(),
+            fired: AtomicBool::new(false),
+        });
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let err = coordinator.run_genesis("r5", "星海拾荒者的故事").await.unwrap_err();
+        assert!(err.to_string().contains("取消"), "应返回取消错误: {}", err);
+        let repo = AgencyRepository::new(pool.clone());
+        let run = repo.get_run("r5").unwrap().unwrap();
+        assert_eq!(run.status, "cancelled");
+        // 终态守护：cancelled 不得被 completed 覆盖
+        repo.finish_run("r5", "completed", Some("{}"), None).unwrap();
+        let run = repo.get_run("r5").unwrap().unwrap();
+        assert_eq!(run.status, "cancelled");
     }
 
     #[test]

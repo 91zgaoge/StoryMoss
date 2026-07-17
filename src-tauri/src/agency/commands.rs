@@ -57,15 +57,23 @@ pub async fn agency_cancel_run(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
-    cancel_agency_run(&run_id);
+    if !cancel_agency_run(&run_id) {
+        log::warn!("agency_cancel_run: run {} 不在取消注册表中（不存在或已结束）", run_id);
+    }
     crate::llm::LlmService::new(app_handle).cancel_all_generations();
     let pool = pool.inner().clone();
     tokio::task::spawn_blocking(move || {
         let repo = AgencyRepository::new(pool);
-        if let Ok(Some(run)) = repo.get_run(&run_id) {
-            if run.status == "running" || run.status == "pending" {
-                let _ = repo.finish_run(&run_id, "cancelled", None, Some("用户取消"));
+        match repo.get_run(&run_id) {
+            Ok(Some(run)) => {
+                if run.status == "running" || run.status == "pending" {
+                    if let Err(e) = repo.finish_run(&run_id, "cancelled", None, Some("用户取消")) {
+                        log::warn!("agency_cancel_run: 标记 run {} 为 cancelled 失败: {}", run_id, e);
+                    }
+                }
             }
+            Ok(None) => log::warn!("agency_cancel_run: run {} 不存在", run_id),
+            Err(e) => log::warn!("agency_cancel_run: 读取 run {} 失败: {}", run_id, e),
         }
     })
     .await

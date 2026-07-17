@@ -1,6 +1,3 @@
-// 部分 API（如 all() / as_str()）在 Task 2-7 的消费方落地前暂无调用点。
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 /// 三角色：主创 / 管理 / 编辑审计
