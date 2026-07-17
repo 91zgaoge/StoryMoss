@@ -7,6 +7,7 @@ mod domain;
 mod ports;
 
 mod agents;
+pub mod agency;
 mod analytics;
 mod anti_ai;
 mod audit;

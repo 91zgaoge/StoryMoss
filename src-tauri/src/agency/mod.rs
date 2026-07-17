@@ -1,0 +1,9 @@
+//! Agency：多代理创作框架（创世 2.0）。
+//! 黑板模型 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）。
+//! 设计：docs/plans/2026-07-17-agency-multi-agent-framework-design.md
+
+pub mod models;
+pub mod repository;
+// 后续任务补回：board / bus / tools / tool_loop / roles / coordinator / commands
+
+pub use models::*;
