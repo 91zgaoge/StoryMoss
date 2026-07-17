@@ -26,6 +26,16 @@ pub trait AgentTool: Send + Sync {
     async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError>;
 }
 
+impl ToolContext {
+    pub fn task_type(&self) -> crate::router::TaskType {
+        crate::agency::roles::spec_for(self.role).task_type
+    }
+
+    pub fn max_output_tokens(&self) -> i32 {
+        crate::agency::roles::spec_for(self.role).max_output_tokens
+    }
+}
+
 /// 工具注册表 + 角色白名单（ECC agents frontmatter tools 隔离模式）。
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
