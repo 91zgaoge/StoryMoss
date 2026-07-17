@@ -14,6 +14,7 @@ pub async fn agency_start_genesis(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<String, AppError> {
+    crate::agency::coordinator::validate_premise(&premise)?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let coordinator = AgencyCoordinator::new(app_handle, pool.inner().clone());
     let rid = run_id.clone();
@@ -60,7 +61,9 @@ pub async fn agency_cancel_run(
     if !cancel_agency_run(&run_id) {
         log::warn!("agency_cancel_run: run {} 不在取消注册表中（不存在或已结束）", run_id);
     }
-    crate::llm::LlmService::new(app_handle).cancel_all_generations();
+    // 定点取消：仅取消该 run 的在途 LLM 调用，不再全局 cancel_all
+    let llm = crate::llm::LlmService::new(app_handle);
+    crate::agency::coordinator::cancel_requests_for_run(&llm, &run_id);
     let pool = pool.inner().clone();
     tokio::task::spawn_blocking(move || {
         let repo = AgencyRepository::new(pool);

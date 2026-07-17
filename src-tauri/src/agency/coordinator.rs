@@ -50,15 +50,63 @@ pub fn unregister_agency_cancel(run_id: &str) {
     flags.remove(run_id);
 }
 
+// ---- 在途 LLM request_id 注册表（定点取消用） ----
+
+/// 运行中 run 的在途 LLM request_id 注册表（定点取消用）。
+static AGENCY_REQUEST_REGISTRY: Lazy<Mutex<HashMap<String, std::collections::HashSet<String>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_request(run_id: &str, request_id: &str) {
+    let mut registry = AGENCY_REQUEST_REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
+    registry.entry(run_id.to_string()).or_default().insert(request_id.to_string());
+}
+
+pub fn unregister_request(run_id: &str, request_id: &str) {
+    let mut registry = AGENCY_REQUEST_REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(set) = registry.get_mut(run_id) {
+        set.remove(request_id);
+        if set.is_empty() {
+            registry.remove(run_id);
+        }
+    }
+}
+
+/// 取走并清空某 run 的全部在途 request_id。
+pub fn drain_requests(run_id: &str) -> Vec<String> {
+    let mut registry = AGENCY_REQUEST_REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
+    registry.remove(run_id).map(|s| s.into_iter().collect()).unwrap_or_default()
+}
+
+/// 定点取消：仅取消该 run 的在途 LLM 调用（对已完成 id 是 no-op）。
+pub fn cancel_requests_for_run(llm: &LlmService, run_id: &str) {
+    for request_id in drain_requests(run_id) {
+        llm.cancel_generation(&request_id);
+    }
+}
+
+/// 创世/续写前提校验：非空白且 ≤2000 字符。
+pub fn validate_premise(premise: &str) -> Result<(), AppError> {
+    let trimmed = premise.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::validation_failed("前提不能为空", None::<String>));
+    }
+    if trimmed.chars().count() > 2000 {
+        return Err(AppError::validation_failed("前提过长（≤2000 字符）", None::<String>));
+    }
+    Ok(())
+}
+
 // ---- LoopLlm 生产实现：全部 LLM 调用经 LlmService（路由/健康/成本落表保留） ----
+// 每次调用登记 request_id 到 run 注册表，支持按 run 定点取消。
 
 pub struct AgencyLlm {
     llm: LlmService,
+    run_id: String,
 }
 
 impl AgencyLlm {
-    pub fn new(app_handle: AppHandle) -> Self {
-        Self { llm: LlmService::new(app_handle) }
+    pub fn new(app_handle: AppHandle, run_id: impl Into<String>) -> Self {
+        Self { llm: LlmService::new(app_handle), run_id: run_id.into() }
     }
 }
 
@@ -71,17 +119,32 @@ impl LoopLlm for AgencyLlm {
         task: TaskType,
         max_tokens: i32,
     ) -> Result<String, AppError> {
-        let (_request_id, result) = self.llm
-            .generate_for_task_with_system_prompt(
-                task,
+        let request_id = uuid::Uuid::new_v4().to_string();
+        register_request(&self.run_id, &request_id);
+        let routing = crate::router::RoutingRequest {
+            task,
+            ..Default::default()
+        };
+        let (_rid, result) = self.llm
+            .generate_for_request_with_request_id(
+                routing,
                 user_prompt.to_string(),
                 Some(max_tokens),
                 None,
                 Some("agency"),
+                Some(request_id.clone()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 Some(system_prompt.to_string()),
                 None,
             )
             .await;
+        unregister_request(&self.run_id, &request_id);
         result.map(|r| r.content)
     }
 }
@@ -130,18 +193,28 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
 pub struct AgencyCoordinator {
     app_handle: Option<AppHandle>,
     pool: DbPool,
-    llm: Arc<dyn LoopLlm>,
+    llm: Option<Arc<dyn LoopLlm>>,
 }
 
 impl AgencyCoordinator {
     pub fn new(app_handle: AppHandle, pool: DbPool) -> Self {
-        let llm: Arc<dyn LoopLlm> = Arc::new(AgencyLlm::new(app_handle.clone()));
-        Self { app_handle: Some(app_handle), pool, llm }
+        Self { app_handle: Some(app_handle), pool, llm: None }
     }
 
-    /// 测试/无界面环境构造：不发 Tauri 事件。
+    /// 测试/无界面环境构造：不发 Tauri 事件，使用注入的 mock LLM。
     pub fn for_test(pool: DbPool, llm: Arc<dyn LoopLlm>) -> Self {
-        Self { app_handle: None, pool, llm }
+        Self { app_handle: None, pool, llm: Some(llm) }
+    }
+
+    /// 按 run 取得生产 LLM（带定点取消注册）；测试时返回注入的 mock。
+    fn llm_for_run(&self, run_id: &str) -> Arc<dyn LoopLlm> {
+        match &self.llm {
+            Some(llm) => llm.clone(),
+            None => Arc::new(AgencyLlm::new(
+                self.app_handle.as_ref().expect("生产 coordinator 必有 app_handle").clone(),
+                run_id,
+            )),
+        }
     }
 
     /// 同步 DB 调用一律经 spawn_blocking，避免阻塞 tokio 运行时线程。
@@ -202,6 +275,7 @@ impl AgencyCoordinator {
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyGenesisResult, AppError> {
+        let llm = self.llm_for_run(run_id);
         let run = AgencyRun::new(run_id, premise);
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from)).await?;
@@ -209,7 +283,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
         // 1) 概念：标题与类型
-        let concept_raw = self.llm.complete(
+        let concept_raw = llm.complete(
             "你是小说策划。只输出 JSON。",
             &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\"}}", premise),
             TaskType::Brainstorming,
@@ -250,7 +324,7 @@ impl AgencyCoordinator {
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role(
-            AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
+            &llm, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
@@ -262,7 +336,7 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role(
-            AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
+            &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
@@ -278,7 +352,7 @@ impl AgencyCoordinator {
             self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "编辑审计 Agent 正在审查草稿");
             let editor_out = self.run_role(
-                AgentRole::EditorAuditor, &board, &registry, run_id, &story_id, premise,
+                &llm, AgentRole::EditorAuditor, &board, &registry, run_id, &story_id, premise,
                 &format!("审查 draft 区的最新章节草稿（当前版本：{}）。按系统提示词出具裁决 JSON。", draft.key),
             ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
             if editor_out.aborted {
@@ -306,7 +380,7 @@ impl AgencyCoordinator {
                 self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
                 let issues = verdict.blocking_issues.join("；");
                 let revise_out = self.run_role(
-                    AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
+                    &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
                     &format!("修订「{}」。审查阻断问题：{}。先 board_read 读草稿与资产，再把修订后的完整正文用 board_write 写入 draft 区（同 key）。", draft.key, issues),
                 ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                 if revise_out.aborted {
@@ -350,6 +424,7 @@ impl AgencyCoordinator {
 
     async fn run_role(
         &self,
+        llm: &Arc<dyn LoopLlm>,
         role: AgentRole,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
@@ -367,7 +442,7 @@ impl AgencyCoordinator {
             board: board.clone(),
             pool: self.pool.clone(),
         };
-        ToolLoop::new(self.llm.clone(), registry.clone())
+        ToolLoop::new(llm.clone(), registry.clone())
             .with_max_turns(spec.max_turns)
             .run(role, &ctx, &system_prompt, task)
             .await
@@ -595,5 +670,40 @@ mod tests {
         let v: EditorVerdict = parse_lenient("前言{\"verdict\":\"revise\",\"blocking_issues\":[\"a\"]}后缀").unwrap();
         assert_eq!(v.verdict, "revise");
         assert!(parse_lenient::<EditorVerdict>("无 JSON").is_none());
+    }
+
+    #[test]
+    fn test_request_registry_lifecycle() {
+        let run = "run-registry-test";
+        register_request(run, "req-1");
+        register_request(run, "req-2");
+        register_request("other-run", "req-x");
+        // 收集并清空目标 run 的全部 request_id
+        let drained = drain_requests(run);
+        assert_eq!(drained.len(), 2);
+        assert!(drained.contains(&"req-1".to_string()));
+        assert!(drained.contains(&"req-2".to_string()));
+        // 已清空，再取为空
+        assert!(drain_requests(run).is_empty());
+        // 其他 run 不受影响
+        assert_eq!(drain_requests("other-run"), vec!["req-x".to_string()]);
+    }
+
+    #[test]
+    fn test_unregister_request() {
+        register_request("run-u", "req-a");
+        unregister_request("run-u", "req-a");
+        assert!(drain_requests("run-u").is_empty());
+    }
+
+    #[test]
+    fn test_validate_premise() {
+        assert!(validate_premise("一个关于星海拾荒者的故事").is_ok());
+        assert!(validate_premise("").is_err());
+        assert!(validate_premise("   ").is_err());
+        let too_long = "长".repeat(2001);
+        assert!(validate_premise(&too_long).is_err());
+        let at_limit = "长".repeat(2000);
+        assert!(validate_premise(&at_limit).is_ok());
     }
 }
