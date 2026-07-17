@@ -247,6 +247,9 @@ impl AgencyCoordinator {
                 AgentRole::EditorAuditor, &board, &registry, run_id, &story_id, premise,
                 &format!("审查 draft 区的最新章节草稿（当前版本：{}）。按系统提示词出具裁决 JSON。", draft.key),
             ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
+            if editor_out.aborted {
+                return Err(AppError::from("编辑审计 Agent 被熔断，审查未完成"));
+            }
             let verdict: EditorVerdict = parse_lenient(&editor_out.output).unwrap_or(EditorVerdict {
                 verdict: "pass".to_string(),
                 blocking_issues: vec![],
@@ -478,6 +481,25 @@ mod tests {
         assert!(err.to_string().contains("管理") || err.to_string().contains("producer") || err.to_string().contains("熔断"));
         let repo = AgencyRepository::new(pool.clone());
         let run = repo.get_run("r3").unwrap().unwrap();
+        assert_eq!(run.status, "failed");
+    }
+
+    #[tokio::test]
+    async fn test_genesis_aborts_when_editor_aborted() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#,
+            r#"{"type":"final","content":"资产就绪"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"初稿。","summary":"初稿"}}"#,
+            r#"{"type":"final","content":"初稿完成"}"#,
+            "不是 JSON", "还不是", "依然不是", // editor 连续解析失败 → aborted → run failed（不得默认放行）
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let err = coordinator.run_genesis("r4", "前提").await.unwrap_err();
+        assert!(err.to_string().contains("编辑审计") || err.to_string().contains("熔断"));
+        let repo = AgencyRepository::new(pool.clone());
+        let run = repo.get_run("r4").unwrap().unwrap();
         assert_eq!(run.status, "failed");
     }
 
