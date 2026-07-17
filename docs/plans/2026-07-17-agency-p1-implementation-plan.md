@@ -2554,7 +2554,7 @@ Expected: 通过；若守护脚本有模块白名单/依赖规则，按其报错
    const runId = await invoke('agency_start_genesis', { premise: '一个在双星废土上拾荒的少女，意外挖出一艘能说话的星舰' });
    ```
    （若 `window.__TAURI__` 不可用，改用 `src-frontend/src/` 里现有的 invoke 封装在任意页面临时调用，或加一个临时按钮，验收后移除。）
-4. 轮询 `await invoke('agency_get_run', { runId })` 直至 `status === 'completed'`。
+4. 轮询 `await invoke('agency_get_run', { run_id: runId })` 直至 `status === 'completed'`。
 5. 验收标准（P1 出口）：
    - `agency_get_run` 返回 `status=completed`、`story_id` 非空；
    - `agency_list_board` 返回资产区 ≥3 条（世界观/角色/大纲）、草稿区 ≥1 条、审查区 ≥1 条；
