@@ -36,3 +36,21 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_specs_complete() {
+        for role in AgentRole::all() {
+            let spec = spec_for(role);
+            assert!(spec.prompt_id.starts_with("agency_"));
+            assert!(spec.max_turns >= 4);
+            assert!(spec.max_output_tokens >= 1024);
+        }
+        assert_eq!(spec_for(AgentRole::LeadWriter).task_type, TaskType::CreativeWriting);
+        assert_eq!(spec_for(AgentRole::Producer).task_type, TaskType::WorldBuilding);
+        assert_eq!(spec_for(AgentRole::EditorAuditor).task_type, TaskType::Proofreading);
+    }
+}
