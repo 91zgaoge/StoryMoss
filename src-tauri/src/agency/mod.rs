@@ -3,6 +3,7 @@
 //! 设计：docs/plans/2026-07-17-agency-multi-agent-framework-design.md
 
 pub mod board;
+pub mod budget;
 pub mod bus;
 pub mod commands;
 pub mod coordinator;

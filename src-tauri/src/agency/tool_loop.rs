@@ -18,6 +18,19 @@ pub trait LoopLlm: Send + Sync {
         task: TaskType,
         max_tokens: i32,
     ) -> Result<String, AppError>;
+
+    /// 带计量的完成：返回 (content, tokens_used, cost)。默认实现不计费（mock/测试用）。
+    async fn complete_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<(String, i32, f64), AppError> {
+        self.complete(system_prompt, user_prompt, task, max_tokens)
+            .await
+            .map(|s| (s, 0, 0.0))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

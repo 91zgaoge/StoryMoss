@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agency::board::BlackboardService;
+use crate::agency::budget::{AgencyBudget, BudgetedLlm, DEFAULT_RUN_TOKEN_BUDGET};
 use crate::agency::models::*;
 use crate::agency::repository::AgencyRepository;
 use crate::agency::roles::spec_for;
@@ -117,6 +118,17 @@ impl LoopLlm for AgencyLlm {
         task: TaskType,
         max_tokens: i32,
     ) -> Result<String, AppError> {
+        let (content, _t, _c) = self.complete_metered(system_prompt, user_prompt, task, max_tokens).await?;
+        Ok(content)
+    }
+
+    async fn complete_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<(String, i32, f64), AppError> {
         let request_id = uuid::Uuid::new_v4().to_string();
         register_request(&self.run_id, &request_id);
         let routing = crate::router::RoutingRequest {
@@ -143,7 +155,7 @@ impl LoopLlm for AgencyLlm {
             )
             .await;
         unregister_request(&self.run_id, &request_id);
-        result.map(|r| r.content)
+        result.map(|r| (r.content, r.tokens_used, r.cost))
     }
 }
 
@@ -292,6 +304,8 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyGenesisResult, AppError> {
         let llm = self.llm_for_run(run_id);
+        // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let run = AgencyRun::new(run_id, premise);
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from)).await?;
@@ -340,7 +354,7 @@ impl AgencyCoordinator {
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm(
-            &llm, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
+            &llm, &budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
@@ -365,7 +379,7 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role_with_llm(
-            &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
+            &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
@@ -379,7 +393,7 @@ impl AgencyCoordinator {
         let final_verdict = loop {
             self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "质量门评估中");
-            let outcome = self.evaluate_gate(&llm, &board, &registry, run_id, &story_id, premise, &draft).await?;
+            let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
             match outcome {
                 GateOutcome::Passed { verdict } => break verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
@@ -388,7 +402,7 @@ impl AgencyCoordinator {
                     self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
                     let task = Self::build_revision_task(&draft, &issues);
                     let revise_out = self.run_role_with_llm(
-                        &llm, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
+                        &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
                     ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                     if revise_out.aborted {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
@@ -396,7 +410,7 @@ impl AgencyCoordinator {
                     draft = self.latest_draft(&board, run_id).await?;
                     self.check_cancel(cancel)?;
                     // 复审：无论结果都进入装配（Failed 除外）
-                    let second = self.evaluate_gate(&llm, &board, &registry, run_id, &story_id, premise, &draft).await?;
+                    let second = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
                     match second {
                         GateOutcome::Passed { verdict } => break verdict,
                         GateOutcome::RevisionRequired { verdict, .. } => break verdict, // 第二轮放行
@@ -481,6 +495,8 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyContinueResult, AppError> {
         let llm = self.llm_for_run(run_id);
+        // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章", title, chapter_number);
         let run = AgencyRun::new(run_id, &premise);
@@ -520,7 +536,7 @@ impl AgencyCoordinator {
                 let board = self.board();
                 let registry = Arc::new(ToolRegistry::agency_default());
                 let producer_out = self.run_role_with_llm(
-                    &llm, AgentRole::Producer, &board, &registry, run_id, story_id, &premise,
+                    &llm, &budget, AgentRole::Producer, &board, &registry, run_id, story_id, &premise,
                     "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。",
                 ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                 if producer_out.aborted {
@@ -545,7 +561,7 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let key = format!("第{}章", chapter_number);
         let writer_out = self.run_role_with_llm(
-            &llm, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise,
+            &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise,
             &format!(
                 "续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
                 key, key
@@ -562,7 +578,7 @@ impl AgencyCoordinator {
         let final_verdict = loop {
             self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "质量门评估中");
-            let outcome = self.evaluate_gate(&llm, &board, &registry, run_id, story_id, &premise, &draft).await?;
+            let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
             match outcome {
                 GateOutcome::Passed { verdict } => break verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
@@ -570,14 +586,14 @@ impl AgencyCoordinator {
                     self.update_phase(repo, run_id, "revision").await?;
                     let task = Self::build_revision_task(&draft, &issues);
                     let revise_out = self.run_role_with_llm(
-                        &llm, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise, &task,
+                        &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, story_id, &premise, &task,
                     ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                     if revise_out.aborted {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
                     }
                     draft = self.latest_draft(&board, run_id).await?;
                     self.check_cancel(cancel)?;
-                    let second = self.evaluate_gate(&llm, &board, &registry, run_id, story_id, &premise, &draft).await?;
+                    let second = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
                     match second {
                         GateOutcome::Passed { verdict } => break verdict,
                         GateOutcome::RevisionRequired { verdict, .. } => break verdict,
@@ -632,6 +648,7 @@ impl AgencyCoordinator {
     pub(crate) async fn evaluate_gate(
         &self,
         llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
         run_id: &str,
@@ -644,7 +661,7 @@ impl AgencyCoordinator {
         let mut last_raw = String::new();
         for attempt in 0..2 {
             let editor_out = self.run_role_with_llm(
-                llm, AgentRole::EditorAuditor, board, registry, run_id, story_id, premise,
+                llm, budget, AgentRole::EditorAuditor, board, registry, run_id, story_id, premise,
                 &format!("审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。", draft.key),
             ).await.map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
             if editor_out.aborted {
@@ -747,6 +764,7 @@ impl AgencyCoordinator {
     async fn run_role_with_llm(
         &self,
         llm: &Arc<dyn LoopLlm>,
+        budget: &Arc<AgencyBudget>,
         role: AgentRole,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
@@ -764,7 +782,9 @@ impl AgencyCoordinator {
             board: board.clone(),
             pool: self.pool.clone(),
         };
-        ToolLoop::new(llm.clone(), registry.clone())
+        // 预算包装：角色信号量限流 + token 记账，对 ToolLoop 透明
+        let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
+        ToolLoop::new(budgeted, registry.clone())
             .with_max_turns(spec.max_turns)
             .run(role, &ctx, &system_prompt, task)
             .await
@@ -1169,8 +1189,9 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
         let registry = Arc::new(ToolRegistry::agency_default());
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let outcome = coordinator
-            .evaluate_gate(&llm, &board, &registry, "rg-1", &story.id, "续写", &draft)
+            .evaluate_gate(&llm, &budget, &board, &registry, "rg-1", &story.id, "续写", &draft)
             .await
             .unwrap();
         match outcome {
