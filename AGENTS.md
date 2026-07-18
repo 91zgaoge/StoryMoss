@@ -87,7 +87,7 @@ type:
 - **IPC**：`agency_start_genesis` / `agency_get_run` / `agency_list_board` / `agency_cancel_run` / `agency_continue_chapter` / `agency_continue_batch`。
 - **提示词目录**：`resources/prompts/agency/`。
 - **依赖边界**：agency 允许依赖 db/llm/router/prompts，不允许被反向依赖。
-- 设计：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1/P2 已完成，除真机验收外）。
+- 设计：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1-P3 已完成，除真机验收外）。
 
 ### v0.26.59 — StoryForge → StoryMoss 品牌收尾，官网落地页上线
 
