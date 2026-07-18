@@ -119,6 +119,89 @@ pub async fn run_rule_grader(
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HumanSignal {
+    pub scene_id: String,
+    pub chapter_number: i32,
+    pub delivered_chars: usize,
+    pub current_chars: usize,
+    pub modification_ratio: f64,
+    pub evaluated_at: String,
+}
+
+/// 1 - Jaccard(字符二元组)。0=未改，1=全改。
+pub fn modification_ratio(delivered: &str, current: &str) -> f64 {
+    fn bigrams(s: &str) -> std::collections::HashSet<(char, char)> {
+        let chars: Vec<char> = s.chars().collect();
+        chars.windows(2).map(|w| (w[0], w[1])).collect()
+    }
+    let a = bigrams(delivered);
+    let b = bigrams(current);
+    if a.is_empty() && b.is_empty() {
+        return 0.0;
+    }
+    let inter = a.intersection(&b).count() as f64;
+    let union = a.union(&b).count() as f64;
+    if union == 0.0 { 0.0 } else { 1.0 - inter / union }
+}
+
+/// 按 story 采集修改率（同步；调用方 spawn_blocking）。
+/// delivered = 黑板 draft 区该章最新 active 条目 content；current = scenes.content 现值。
+/// Rust 侧配对：parse_chapter_number("第N章")=N 与 scene.sequence_number=N；
+/// 无 draft 条目的章跳过。
+pub fn human_signals(pool: &DbPool, story_id: &str) -> Vec<HumanSignal> {
+    let items = match crate::agency::repository::AgencyRepository::new(pool.clone())
+        .list_items_for_story(story_id, Some(crate::agency::models::BoardZone::Draft))
+    {
+        Ok(items) => items,
+        Err(e) => {
+            log::warn!("human_signals 读取 draft 条目失败: {}", e);
+            return Vec::new();
+        }
+    };
+    // 每章取最新 active chapter 条目（列表按 created_at ASC, rowid ASC，后写覆盖先得）
+    let mut delivered_by_chapter: std::collections::HashMap<i32, String> =
+        std::collections::HashMap::new();
+    for item in items
+        .iter()
+        .filter(|i| i.status == "active" && i.item_type == "chapter")
+    {
+        if let Some(n) = parse_chapter_number(&item.key) {
+            delivered_by_chapter.insert(n, item.content.clone());
+        }
+    }
+    if delivered_by_chapter.is_empty() {
+        return Vec::new();
+    }
+    let scenes = match crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+    {
+        Ok(scenes) => scenes,
+        Err(e) => {
+            log::warn!("human_signals 读取 scenes 失败: {}", e);
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::new();
+    for scene in &scenes {
+        let delivered = match delivered_by_chapter.get(&scene.sequence_number) {
+            Some(d) => d,
+            None => continue,
+        };
+        let current = scene.content.clone().unwrap_or_default();
+        out.push(HumanSignal {
+            scene_id: scene.id.clone(),
+            chapter_number: scene.sequence_number,
+            delivered_chars: delivered.chars().count(),
+            current_chars: current.chars().count(),
+            modification_ratio: modification_ratio(delivered, &current),
+            evaluated_at: chrono::Local::now().to_rfc3339(),
+        });
+    }
+    out.sort_by_key(|s| s.chapter_number);
+    out
+}
+
 fn reading_power_score_of(content: &str) -> f64 {
     let features = crate::reading_power::evaluator::ContentFeatureExtractor::extract(content);
     // hook 映射沿用 reading_power/mod.rs 既有约定（evaluator 只产出 hook_type 枚举串）：
@@ -184,5 +267,39 @@ mod tests {
         assert_eq!(parse_chapter_number("第12章"), Some(12));
         assert_eq!(parse_chapter_number("序章"), None);
         assert_eq!(parse_chapter_number("第一章"), None); // 中文数字不解析（生产 key 为阿拉伯）
+    }
+
+    #[test]
+    fn test_modification_ratio() {
+        assert_eq!(modification_ratio("完全一样", "完全一样"), 0.0);
+        assert_eq!(modification_ratio("abc", "xyz"), 1.0);
+        let r = modification_ratio("第一章的正文内容很长", "第一章的正文内容稍微有点长");
+        assert!(r > 0.0 && r < 1.0, "部分修改: {}", r);
+        assert_eq!(modification_ratio("", "非空"), 1.0);
+        assert_eq!(modification_ratio("", ""), 0.0);
+    }
+
+    #[test]
+    fn test_human_signals_from_board_and_scene() {
+        let pool = create_test_pool().unwrap();
+        // 种子：run + draft 条目（第1章，content="原文"）+ scene(seq=1, content="原文改了一字")
+        let repo = crate::agency::repository::AgencyRepository::new(pool.clone());
+        repo.create_run(&crate::agency::models::AgencyRun::new("hs-1", "前提")).unwrap();
+        repo.set_run_story("hs-1", "s1").unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        board.write("hs-1", "s1", crate::agency::models::AgentRole::LeadWriter,
+            crate::agency::models::BoardZone::Draft, "chapter", "第1章", "原文内容", "一").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute("INSERT INTO stories (id, title, created_at, updated_at) VALUES ('s1', '书', '2026-01-01', '2026-01-01')", []).unwrap();
+        }
+        let scene = crate::db::repositories::SceneRepository::new(pool.clone()).create("s1", 1, Some("第1章")).unwrap();
+        crate::db::repositories::SceneRepository::new(pool.clone()).update(&scene.id, &crate::db::repositories::SceneUpdate {
+            content: Some("原文内容改".to_string()), ..Default::default()
+        }).unwrap();
+        let signals = human_signals(&pool, "s1");
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0].scene_id, scene.id);
+        assert!(signals[0].modification_ratio > 0.0);
     }
 }

@@ -245,6 +245,18 @@ pub async fn agency_list_checkpoints(
     }).await.map_err(|e| AppError::from(format!("list_checkpoints join error: {}", e)))?
 }
 
+/// 采集该 story 的 human 修改率信号（后置评分，不进 gate）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_human_signals(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::agency::graders::HumanSignal>, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || crate::agency::graders::human_signals(&pool, &story_id))
+        .await
+        .map_err(|e| AppError::from(format!("human_signals join error: {}", e)))
+}
+
 /// 对比两个检查点的指标差值（b - a）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_compare_checkpoints(
