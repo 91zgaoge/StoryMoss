@@ -119,11 +119,7 @@ impl MigrationRunner {
             cargo_dir.join("src/db/migrations"),
         ];
 
-        let dir = candidates
-            .iter()
-            .find(|p| p.exists())
-            .cloned()
-            .unwrap_or_else(|| candidates.last().unwrap().clone());
+        let dir = pick_migrations_dir(&candidates);
 
         Self::new(dir)
     }
@@ -400,6 +396,62 @@ impl MigrationRunner {
 
         Ok((version, description))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Migrations directory selection
+// ---------------------------------------------------------------------------
+
+/// 在存在的候选目录中选 .sql 最高版本号最大者（修复"陈旧 target 副本遮蔽新迁移"）。
+/// 多候选存在且最高版本不一致时 warn 双方路径。
+pub(crate) fn pick_migrations_dir(candidates: &[PathBuf]) -> PathBuf {
+    let existing: Vec<&PathBuf> = candidates.iter().filter(|p| p.exists()).collect();
+    let fallback = existing
+        .first()
+        .map(|p| (*p).clone())
+        .unwrap_or_else(|| candidates.last().unwrap().clone());
+    let mut best: Option<(&PathBuf, i32)> = None;
+    for dir in &existing {
+        if let Some(v) = max_sql_version(dir) {
+            match &best {
+                Some((_, bv)) if *bv >= v => {}
+                _ => best = Some((dir, v)),
+            }
+        }
+    }
+    if let Some((best_dir, best_v)) = best {
+        for dir in &existing {
+            if *dir != best_dir {
+                if let Some(v) = max_sql_version(dir) {
+                    if v != best_v {
+                        log::warn!(
+                            "[migrations] 多个迁移目录存在且版本不一致：选用 {}（V{}），忽略 {}（V{}）。建议删除陈旧目录。",
+                            best_dir.display(), best_v, dir.display(), v
+                        );
+                    }
+                }
+            }
+        }
+        log::info!("[migrations] 选用迁移目录：{}（V{}）", best_dir.display(), best_v);
+        return best_dir.clone();
+    }
+    fallback
+}
+
+/// 目录中最高的 V{num}__ 迁移版本号（无 .sql 返回 None）。
+pub(crate) fn max_sql_version(dir: &Path) -> Option<i32> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if e.path().extension().map(|x| x == "sql").unwrap_or(false) {
+                MigrationRunner::parse_filename(&name).ok().map(|(v, _)| v)
+            } else {
+                None
+            }
+        })
+        .max()
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +773,51 @@ mod tests {
                 table
             );
         }
+    }
+
+    #[test]
+    fn test_pick_migrations_dir_prefers_highest_version() {
+        let base = std::env::temp_dir().join(format!("mig-pick-{}", uuid::Uuid::new_v4()));
+        let stale = base.join("target/debug/db/migrations");
+        let fresh = base.join("src-tauri/src/db/migrations");
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::create_dir_all(&fresh).unwrap();
+        // 陈旧副本：只到 V106；源码目录：到 V109
+        std::fs::write(stale.join("V106__a.sql"), "-- x").unwrap();
+        std::fs::write(fresh.join("V106__a.sql"), "-- x").unwrap();
+        std::fs::write(fresh.join("V109__b.sql"), "-- y").unwrap();
+        let candidates = vec![stale.clone(), fresh.clone()]; // stale 排前（复现旧 find(exists) 命中）
+        let picked = pick_migrations_dir(&candidates);
+        assert_eq!(picked, fresh);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_pick_migrations_dir_falls_back_to_first_existing_when_no_sql() {
+        let base = std::env::temp_dir().join(format!("mig-pick-empty-{}", uuid::Uuid::new_v4()));
+        let a = base.join("a");
+        let b = base.join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("V109__b.sql"), "-- y").unwrap();
+        // a 存在但无 .sql → 选 b；都无 .sql → 第一个存在
+        let picked = pick_migrations_dir(&[a.clone(), b.clone()]);
+        assert_eq!(picked, b);
+        let picked2 = pick_migrations_dir(&[a.clone()]);
+        assert_eq!(picked2, a);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_max_sql_version() {
+        let base = std::env::temp_dir().join(format!("mig-max-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        assert_eq!(max_sql_version(&base), None);
+        std::fs::write(base.join("V103__x.sql"), "--").unwrap();
+        std::fs::write(base.join("V109__y.sql"), "--").unwrap();
+        std::fs::write(base.join("notes.md"), "not a migration").unwrap();
+        assert_eq!(max_sql_version(&base), Some(109));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
 
