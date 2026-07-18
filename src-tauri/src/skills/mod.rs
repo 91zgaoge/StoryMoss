@@ -257,7 +257,7 @@ impl SkillManager {
             })
     }
 
-    fn get_default_skills_dir() -> PathBuf {
+    pub fn get_default_skills_dir() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("cinema-ai")
@@ -274,10 +274,14 @@ impl SkillManager {
     pub fn import_skill(&self, skill_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_directory(skill_path)?;
         let dest_dir = self.skills_dir.join(&skill.manifest.id);
-        if dest_dir.exists() {
-            fs::remove_dir_all(&dest_dir).map_err(AppError::from)?;
+        // 原地导入（源已在 skills_dir 同名目录，如 learning 晋升物化产物）时跳过拷贝：
+        // 否则 remove_dir_all(dest) 会先删掉源目录，copy 随即失败并丢失文件。
+        if skill_path != dest_dir {
+            if dest_dir.exists() {
+                fs::remove_dir_all(&dest_dir).map_err(AppError::from)?;
+            }
+            Self::copy_dir_all(skill_path, &dest_dir).map_err(AppError::from)?;
         }
-        Self::copy_dir_all(skill_path, &dest_dir).map_err(AppError::from)?;
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)
     }

@@ -451,6 +451,9 @@ pub fn apply_weekly_decay(logger: &ObservationLogger, story_id: &str) -> Result<
     let now = chrono::Local::now();
     let mut decayed = 0usize;
     for mut inst in instincts {
+        if inst.status == "promoted" {
+            continue; // T4：晋升产物不被衰减管道误伤
+        }
         let updated = chrono::DateTime::parse_from_rfc3339(&inst.updated_at)
             .map(|d| d.with_timezone(&chrono::Local))
             .unwrap_or(now);
@@ -471,6 +474,9 @@ pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usi
     let now = chrono::Local::now();
     let mut pruned = 0usize;
     for inst in instincts {
+        if inst.status == "promoted" {
+            continue; // T4：晋升产物不被清理管道误伤
+        }
         let updated = chrono::DateTime::parse_from_rfc3339(&inst.updated_at)
             .map(|d| d.with_timezone(&chrono::Local))
             .unwrap_or(now);
@@ -485,6 +491,118 @@ pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usi
         }
     }
     Ok(pruned)
+}
+
+// ---- T4 晋升管线：候选 → confirm/reject → 物化为目录技能（best-effort）----
+
+pub const PROMOTE_CONFIDENCE: f64 = 0.8;
+pub const PROMOTE_MIN_STORIES: usize = 2;
+
+pub fn promotion_candidates(logger: &ObservationLogger, story_id: &str) -> Result<Vec<Instinct>, crate::error::AppError> {
+    // 跨 story 统计 trigger 出现次数
+    let counts = trigger_story_counts(logger)?;
+    let instincts = list_instincts(logger, story_id)?;
+    Ok(instincts
+        .into_iter()
+        .filter(|i| {
+            (i.status == "pending" || i.status == "candidate")
+                && i.confidence >= PROMOTE_CONFIDENCE
+                && counts.get(&i.trigger).copied().unwrap_or(0) >= PROMOTE_MIN_STORIES
+        })
+        .collect())
+}
+
+/// 扫描全部 story 的 learning/instincts，统计每个 trigger 出现在多少个 story。
+fn trigger_story_counts(logger: &ObservationLogger) -> Result<std::collections::HashMap<String, usize>, crate::error::AppError> {
+    let stories_dir = logger.app_dir.join("stories");
+    let mut map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let entries = match std::fs::read_dir(&stories_dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(map),
+    };
+    for entry in entries.flatten() {
+        let story_dir = entry.path();
+        if !story_dir.is_dir() {
+            continue;
+        }
+        let story_id = entry.file_name().to_string_lossy().to_string();
+        let instincts = list_instincts(logger, &story_id).unwrap_or_default();
+        let mut seen = std::collections::HashSet::new();
+        for inst in instincts {
+            seen.insert(inst.trigger);
+        }
+        for trigger in seen {
+            *map.entry(trigger).or_insert(0) += 1;
+        }
+    }
+    Ok(map)
+}
+
+pub fn reject_promotion(logger: &ObservationLogger, story_id: &str, instinct_id: &str) -> Result<Instinct, crate::error::AppError> {
+    let (mut inst, path) = read_instinct_file(logger, story_id, instinct_id)?;
+    inst.confidence = (inst.confidence + FEEDBACK_REJECT).clamp(0.0, 1.0);
+    inst.status = "rejected".to_string();
+    inst.updated_at = chrono::Local::now().to_rfc3339();
+    write_instinct_file(&path, &inst)?;
+    Ok(inst)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PromoteOutcome {
+    pub instinct: Instinct,
+    pub skill_id: String,
+}
+
+pub fn confirm_promotion(
+    logger: &ObservationLogger,
+    story_id: &str,
+    instinct_id: &str,
+    skills_dir: &std::path::Path,
+) -> Result<PromoteOutcome, crate::error::AppError> {
+    // 校验候选资格
+    let candidates = promotion_candidates(logger, story_id)?;
+    if !candidates.iter().any(|i| i.id == instinct_id) {
+        return Err(crate::error::AppError::validation_failed(
+            format!("instinct {} 不满足晋升条件（需 confidence≥{} 且跨 {} 个 story 复现）", instinct_id, PROMOTE_CONFIDENCE, PROMOTE_MIN_STORIES),
+            None::<String>,
+        ));
+    }
+    let skill_dir = materialize_as_skill(logger, story_id, instinct_id, skills_dir)?;
+    // instinct 状态与作用域更新
+    let (mut inst, path) = read_instinct_file(logger, story_id, instinct_id)?;
+    inst.status = "promoted".to_string();
+    inst.scope = "global".to_string();
+    inst.updated_at = chrono::Local::now().to_rfc3339();
+    write_instinct_file(&path, &inst)?;
+    Ok(PromoteOutcome {
+        skill_id: skill_dir.file_name().unwrap().to_string_lossy().to_string(),
+        instinct: inst,
+    })
+}
+
+/// 物化为 skill.yaml 目录技能（纯文件操作；注册由 commands 层经 SkillManager::import_skill 完成）。
+pub fn materialize_as_skill(
+    logger: &ObservationLogger,
+    story_id: &str,
+    instinct_id: &str,
+    skills_dir: &std::path::Path,
+) -> Result<std::path::PathBuf, crate::error::AppError> {
+    let (inst, _) = read_instinct_file(logger, story_id, instinct_id)?;
+    let skill_id = format!("learned.{}", inst.id);
+    let skill_dir = skills_dir.join(&skill_id);
+    std::fs::create_dir_all(&skill_dir).map_err(crate::error::AppError::from)?;
+    let name: String = inst.trigger.chars().take(30).collect();
+    let manifest = format!(
+        "id: {}\nname: \"学到的模式：{}\"\nversion: \"0.1.0\"\ndescription: {:?}\nauthor: \"StoryMoss Learning\"\ncategory: custom\nentry_point: \"main.prompt\"\nparameters: []\ncapabilities: []\nhooks: []\nconfig:\n  evolved_from: {:?}\n  confidence: {}\n",
+        skill_id, name, inst.trigger, inst.id, inst.confidence
+    );
+    std::fs::write(skill_dir.join("skill.yaml"), manifest).map_err(crate::error::AppError::from)?;
+    let prompt = format!(
+        "你是小说创作助手。以下是从创作过程学到的模式，请在适用时遵循：\n\n触发条件：{}\n指导动作：{}\n---\n{{{{instruction}}}}\n",
+        inst.trigger, inst.action
+    );
+    std::fs::write(skill_dir.join("main.prompt"), prompt).map_err(crate::error::AppError::from)?;
+    Ok(skill_dir)
 }
 
 #[cfg(test)]
@@ -692,6 +810,14 @@ mod tests {
         std::fs::write(dir.join(format!("{}.md", id)), render_instinct(&inst, "body")).unwrap();
     }
 
+    /// 置为 promoted 状态（T4 豁免断言用：晋升产物不被衰减/清理管道误伤）。
+    fn seed_promoted(logger: &ObservationLogger, story_id: &str, id: &str, confidence: f64, updated_at: &str) {
+        seed_instinct(logger, story_id, id, confidence, updated_at);
+        let (mut inst, path) = read_instinct_file(logger, story_id, id).unwrap();
+        inst.status = "promoted".to_string();
+        write_instinct_file(&path, &inst).unwrap();
+    }
+
     #[test]
     fn test_feedback_accept_and_reject() {
         let (logger, _tmp) = logger();
@@ -713,6 +839,8 @@ mod tests {
         seed_instinct(&logger, "s1", "inst-old", 0.5, &old.to_rfc3339());
         let fresh = chrono::Local::now() - chrono::Duration::days(3);
         seed_instinct(&logger, "s1", "inst-fresh", 0.5, &fresh.to_rfc3339());
+        // T4：promoted 晋升产物豁免衰减
+        seed_promoted(&logger, "s1", "inst-promoted", 0.9, &old.to_rfc3339());
         let decayed = apply_weekly_decay(&logger, "s1").unwrap();
         assert_eq!(decayed, 1); // 只有 14 天前的那条衰减（每满 7 天 -0.02，14 天 -0.04）
         let instincts = list_instincts(&logger, "s1").unwrap();
@@ -720,6 +848,8 @@ mod tests {
         assert!((old_inst.confidence - 0.46).abs() < 0.001);
         let fresh_inst = instincts.iter().find(|i| i.id == "inst-fresh").unwrap();
         assert!((fresh_inst.confidence - 0.5).abs() < 0.001);
+        let promoted = instincts.iter().find(|i| i.id == "inst-promoted").unwrap();
+        assert!((promoted.confidence - 0.9).abs() < 0.001, "promoted instinct 不应被周衰减");
     }
 
     #[test]
@@ -729,10 +859,71 @@ mod tests {
         let old = chrono::Local::now() - chrono::Duration::days(100);
         seed_instinct(&logger, "s1", "inst-stale", 0.5, &old.to_rfc3339());
         seed_instinct(&logger, "s1", "inst-good", 0.5, &chrono::Local::now().to_rfc3339());
+        // T4：promoted 晋升产物豁免清理（即便 confidence 低于阈值也不删）
+        seed_promoted(&logger, "s1", "inst-promoted", 0.1, &chrono::Local::now().to_rfc3339());
         let pruned = prune_instincts(&logger, "s1").unwrap();
         assert_eq!(pruned, 2);
         let remaining = list_instincts(&logger, "s1").unwrap();
-        assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].id, "inst-good");
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|i| i.id == "inst-good"));
+        assert!(remaining.iter().any(|i| i.id == "inst-promoted"), "promoted instinct 不应被 prune");
+    }
+
+    #[test]
+    fn test_promotion_candidates_cross_story() {
+        let (logger, _tmp) = logger();
+        // 同 trigger 在 s1/s2 各一条（s1 confidence 0.85，s2 0.8）
+        seed_instinct(&logger, "s1", "inst-x", 0.85, &chrono::Local::now().to_rfc3339());
+        seed_instinct(&logger, "s2", "inst-y", 0.8, &chrono::Local::now().to_rfc3339());
+        // s3 只有一条同 trigger（不重复出现 → 不算跨 story）
+        seed_instinct(&logger, "s3", "inst-z", 0.3, &chrono::Local::now().to_rfc3339());
+        let candidates = promotion_candidates(&logger, "s1").unwrap();
+        assert!(candidates.iter().any(|i| i.id == "inst-x"), "s1 的高置信跨 story instinct 应为候选");
+        // s3 的 inst-z confidence 0.3 不达标
+        assert!(!candidates.iter().any(|i| i.id == "inst-z"));
+    }
+
+    #[test]
+    fn test_reject_promotion() {
+        let (logger, _tmp) = logger();
+        seed_instinct(&logger, "s1", "inst-r", 0.85, &chrono::Local::now().to_rfc3339());
+        let rejected = reject_promotion(&logger, "s1", "inst-r").unwrap();
+        assert_eq!(rejected.status, "rejected");
+        assert!((rejected.confidence - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_materialize_as_skill_files() {
+        let (logger, tmp) = logger();
+        seed_instinct(&logger, "s1", "inst-m", 0.85, &chrono::Local::now().to_rfc3339());
+        let skills_dir = tmp.path().join("skills");
+        let skill_dir = materialize_as_skill(&logger, "s1", "inst-m", &skills_dir).unwrap();
+        let manifest = std::fs::read_to_string(skill_dir.join("skill.yaml")).unwrap();
+        assert!(manifest.contains("id: learned.inst-m"));
+        assert!(manifest.contains("evolved_from: \"inst-m\"") || manifest.contains("evolved_from: 'inst-m'") || manifest.contains("evolved_from: inst-m"));
+        let prompt = std::fs::read_to_string(skill_dir.join("main.prompt")).unwrap();
+        assert!(prompt.contains("---"));
+        assert!(prompt.contains("{{instruction}}"));
+        // skill.yaml 可被 serde_yaml 解析为 SkillManifest（loader 兼容）
+        let parsed: crate::skills::SkillManifest = serde_yaml::from_str(&manifest).unwrap();
+        assert_eq!(parsed.id, "learned.inst-m");
+        assert_eq!(parsed.entry_point, "main.prompt");
+    }
+
+    #[test]
+    fn test_confirm_promotion_end_to_end() {
+        let (logger, tmp) = logger();
+        seed_instinct(&logger, "s1", "inst-c", 0.85, &chrono::Local::now().to_rfc3339());
+        seed_instinct(&logger, "s2", "inst-c2", 0.8, &chrono::Local::now().to_rfc3339()); // 同 trigger
+        let skills_dir = tmp.path().join("skills");
+        let outcome = confirm_promotion(&logger, "s1", "inst-c", &skills_dir).unwrap();
+        assert_eq!(outcome.skill_id, "learned.inst-c");
+        assert_eq!(outcome.instinct.status, "promoted");
+        assert_eq!(outcome.instinct.scope, "global");
+        // 技能目录已生成
+        assert!(skills_dir.join("learned.inst-c/skill.yaml").exists());
+        // 失败路径：confidence 不足
+        seed_instinct(&logger, "s1", "inst-low", 0.3, &chrono::Local::now().to_rfc3339());
+        assert!(confirm_promotion(&logger, "s1", "inst-low", &skills_dir).is_err());
     }
 }

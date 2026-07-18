@@ -232,6 +232,8 @@ tauri::generate_handler![
     agency::commands::agency_list_checkpoints, agency::commands::agency_compare_checkpoints,
     agency::commands::agency_human_signals, agency::commands::agency_eval_overview,
     agency::commands::agency_analyze_learning, agency::commands::agency_instinct_feedback,
+    agency::commands::agency_promotion_candidates, agency::commands::agency_confirm_promotion,
+    agency::commands::agency_reject_promotion,
     // Auth commands
     auth::commands::get_auth_config,
     auth::commands::oauth_start,

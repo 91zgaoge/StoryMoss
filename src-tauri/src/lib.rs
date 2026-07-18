@@ -737,10 +737,11 @@ pub fn run() {
             }
 
             // 初始化共享 SkillManager 并通过 Tauri State 注入。
-            let skill_manager = SkillManager::new(
+            let mut skill_manager = SkillManager::new(
                 Some(crate::llm::LlmService::new(app.handle().clone())),
                 pool.clone(),
             );
+            skill_manager.reload_skills(); // v0.30.0：恢复磁盘上的用户/学习技能（此前启动不加载）
             app.manage(skill_manager.clone());
 
             // 初始化共享 ChapterCommitDebouncer 并通过 Tauri State 注入。

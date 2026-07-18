@@ -429,6 +429,59 @@ pub async fn agency_instinct_feedback(
     .map_err(|e| AppError::from(format!("feedback join error: {}", e)))?
 }
 
+/// 晋升候选：confidence ≥0.8 且同 trigger 跨 ≥2 个 story 复现的 instinct。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_promotion_candidates(
+    story_id: String,
+    app_handle: AppHandle,
+) -> Result<Vec<crate::agency::learning::Instinct>, AppError> {
+    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    tokio::task::spawn_blocking(move || {
+        crate::agency::learning::promotion_candidates(&crate::agency::learning::ObservationLogger::new(dir), &story_id)
+    }).await.map_err(|e| AppError::from(format!("candidates join error: {}", e)))?
+}
+
+/// 确认晋升：物化为 learned.<id> 目录技能 + 注册进内存 registry + 记录晋升观察。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_confirm_promotion(
+    story_id: String,
+    instinct_id: String,
+    app_handle: AppHandle,
+    skills: State<'_, crate::skills::SkillManager>,
+) -> Result<crate::agency::learning::PromoteOutcome, AppError> {
+    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let skills_dir = crate::skills::SkillManager::get_default_skills_dir();
+    let story_id_log = story_id.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::agency::learning::confirm_promotion(
+            &crate::agency::learning::ObservationLogger::new(dir), &story_id, &instinct_id, &skills_dir)
+    }).await.map_err(|e| AppError::from(format!("confirm join error: {}", e)))??;
+    // 注册进内存 registry（物化已在 skills_dir 同名目录原位，import_skill 对原地导入跳过拷贝）
+    let skill_dir = crate::skills::SkillManager::get_default_skills_dir().join(&outcome.skill_id);
+    let skill = skills.import_skill(&skill_dir)?;
+    // 观察：晋升事件（记录到源 story，而非 scope="global"——避免凭空创建 stories/global 目录）
+    let logger = crate::agency::learning::ObservationLogger::new(
+        app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?);
+    logger.log(&story_id_log, "promotion", "user", serde_json::json!({
+        "instinct_id": outcome.instinct.id, "skill_id": skill.manifest.id,
+    }));
+    Ok(outcome)
+}
+
+/// 拒绝晋升：confidence −0.1、status=rejected。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_reject_promotion(
+    story_id: String,
+    instinct_id: String,
+    app_handle: AppHandle,
+) -> Result<crate::agency::learning::Instinct, AppError> {
+    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    tokio::task::spawn_blocking(move || {
+        crate::agency::learning::reject_promotion(
+            &crate::agency::learning::ObservationLogger::new(dir), &story_id, &instinct_id)
+    }).await.map_err(|e| AppError::from(format!("reject join error: {}", e)))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
