@@ -4,10 +4,6 @@ import { useAppStore } from '@/stores/appStore';
 import { getEvalOverview } from '@/services/api/agency';
 import type { GateHistoryItem } from '@/services/api/agency';
 
-function weightedOf(item: GateHistoryItem): number | null {
-  return item.weighted;
-}
-
 function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
   const points = data.filter(d => d.weighted != null);
   if (points.length === 0) return <p className="text-sm text-gray-500">暂无评分数据</p>;
@@ -103,7 +99,7 @@ export default function AgencyEval() {
       </section>
 
       <section>
-        <h2 className="mb-2 font-medium">Agency token 用量（按角色）</h2>
+        <h2 className="mb-2 font-medium">Agency token 用量（按角色，全局）</h2>
         <table className="w-full text-sm">
           <thead><tr className="text-left text-gray-500"><th>角色</th><th>调用</th><th>总 tokens</th><th>总耗时(ms)</th></tr></thead>
           <tbody>

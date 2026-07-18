@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     agency::{
@@ -139,7 +139,8 @@ pub async fn agency_resume_run(
     app_handle: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<crate::agency::coordinator::ResumeOutcome, AppError> {
-    let coordinator = AgencyCoordinator::new(app_handle, pool.inner().clone());
+    let pool = pool.inner().clone();
+    let coordinator = AgencyCoordinator::new(app_handle.clone(), pool.clone());
     let outcome = coordinator.resume_prepare(&old_run_id).await?;
     let (new_run_id, story_id) = (outcome.new_run_id.clone(), outcome.story_id.clone());
     let outcome_ret = outcome.clone();
@@ -149,6 +150,33 @@ pub async fn agency_resume_run(
                 Ok(n) => n,
                 Err(e) => {
                     log::error!("resume batch chapter number failed: {}", e);
+                    // 失败分支补落终态 + 进度事件：避免新 run 永久滞留 pending
+                    let pool_f = pool.clone();
+                    let rid_f = new_run_id.clone();
+                    let msg = e.to_string();
+                    match tokio::task::spawn_blocking(move || {
+                        AgencyRepository::new(pool_f)
+                            .finish_run(&rid_f, "failed", None, Some(msg.as_str()))
+                    })
+                    .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(fe)) => {
+                            log::warn!("resume 终态落库失败 run={}: {}", new_run_id, fe)
+                        }
+                        Err(je) => {
+                            log::warn!("resume 终态落库 join 失败 run={}: {}", new_run_id, je)
+                        }
+                    }
+                    let _ = app_handle.emit(
+                        crate::agency::coordinator::EVENT_RUN_PROGRESS,
+                        serde_json::json!({
+                            "run_id": new_run_id,
+                            "phase": "assembly",
+                            "status": "failed",
+                            "message": e.to_string(),
+                        }),
+                    );
                     return;
                 }
             };

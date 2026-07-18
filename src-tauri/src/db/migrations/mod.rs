@@ -403,7 +403,7 @@ impl MigrationRunner {
 // ---------------------------------------------------------------------------
 
 /// 在存在的候选目录中选 .sql 最高版本号最大者（修复"陈旧 target 副本遮蔽新迁移"）。
-/// 多候选存在且最高版本不一致时 warn 双方路径。
+/// 版本持平取候选序靠前者。多候选存在且最高版本不一致时 warn 双方路径。
 pub(crate) fn pick_migrations_dir(candidates: &[PathBuf]) -> PathBuf {
     let existing: Vec<&PathBuf> = candidates.iter().filter(|p| p.exists()).collect();
     let fallback = existing

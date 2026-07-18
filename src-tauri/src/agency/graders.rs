@@ -78,7 +78,7 @@ pub fn run_code_grader(content: &str, contract: Option<&RuntimeContract>) -> Cod
 }
 
 /// Rule grader（async：DB 读取合同/复检上下文 + 规则子代理复检；
-/// Gate v2 在 async 上下文调用，故不做 block_in_place）。
+/// 同步 DB 调用一律包 spawn_blocking 防阻塞运行时）。
 pub async fn run_rule_grader(
     pool: &DbPool,
     story_id: &str,
@@ -87,9 +87,21 @@ pub async fn run_rule_grader(
     foreshadowing_hints: &[String],
 ) -> RuleGraderReport {
     // 合同兑现（无合同则合同分回退为追读力分）
-    let contract = crate::story_system::contract_service::StorySystemEngine::new(pool.clone())
-        .get_runtime_contract(story_id, chapter_number)
-        .ok();
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let contract = match tokio::task::spawn_blocking(move || {
+        crate::story_system::contract_service::StorySystemEngine::new(pool_c)
+            .get_runtime_contract(&sid, chapter_number)
+            .ok()
+    })
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("rule grader 合同读取 join 失败: {}", e);
+            None
+        }
+    };
     // 追读力（纯规则特征：hook*0.4 + coolpoint*0.3 + micropayoff*0.3，无 debt 项）
     let reading_power_score = reading_power_score_of(content);
     let (contract_score, has_contract) = match &contract {
@@ -101,7 +113,20 @@ pub async fn run_rule_grader(
         None => (reading_power_score, false),
     };
     // 规则子代理复检（High+ 不扣分但全进 issues，拦截决策留给 Gate v2）
-    let ctx = crate::agency::gate::build_review_context(pool, story_id, foreshadowing_hints);
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let hints = foreshadowing_hints.to_vec();
+    let ctx = match tokio::task::spawn_blocking(move || {
+        crate::agency::gate::build_review_context(&pool_c, &sid, &hints)
+    })
+    .await
+    {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            log::warn!("rule grader 复检上下文 join 失败: {}", e);
+            crate::domain::agent_context::AgentContext::minimal(story_id.to_string(), String::new())
+        }
+    };
     let notes = crate::agents::subagents::run_subagent_review(&ctx, content).await;
     let subagent_issues = crate::agency::gate::merge_rule_issues(&notes);
     let score = contract_score * 0.5 + reading_power_score * 0.5;
@@ -131,15 +156,16 @@ pub struct HumanSignal {
 
 /// 1 - Jaccard(字符二元组)。0=未改，1=全改。
 pub fn modification_ratio(delivered: &str, current: &str) -> f64 {
+    // 短文本特判：任一侧不足 2 字时无 bigram 可比——相等视为未改，否则视为全改
+    if delivered.chars().count() < 2 || current.chars().count() < 2 {
+        return if delivered == current { 0.0 } else { 1.0 };
+    }
     fn bigrams(s: &str) -> std::collections::HashSet<(char, char)> {
         let chars: Vec<char> = s.chars().collect();
         chars.windows(2).map(|w| (w[0], w[1])).collect()
     }
     let a = bigrams(delivered);
     let b = bigrams(current);
-    if a.is_empty() && b.is_empty() {
-        return 0.0;
-    }
     let inter = a.intersection(&b).count() as f64;
     let union = a.union(&b).count() as f64;
     if union == 0.0 { 0.0 } else { 1.0 - inter / union }

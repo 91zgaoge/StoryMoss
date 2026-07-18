@@ -531,16 +531,21 @@ impl AgencyCoordinator {
             .await;
     }
 
-    /// 检查点落库（best-effort，不阻塞主流程）。
+    /// 检查点落库（best-effort，不阻塞主流程；失败仅 warn）。
     async fn checkpoint(&self, run_id: &str, story_id: &str, milestone: &str,
         chapter_number: Option<i32>, metrics: serde_json::Value) {
         let cp = AgencyCheckpoint::new(run_id, story_id, milestone, chapter_number, metrics);
         let pool = self.pool.clone();
-        let _ = self.db(move || {
+        if let Err(e) = self.db(move || {
             crate::agency::repository::AgencyRepository::new(pool)
                 .insert_checkpoint(&cp)
                 .map_err(AppError::from)
-        }).await;
+        }).await {
+            log::warn!(
+                "agency checkpoint: 落库失败 run={} milestone={}: {}",
+                run_id, milestone, e
+            );
+        }
     }
 
     /// 采集指标并落检查点（best-effort）。
@@ -697,8 +702,17 @@ impl AgencyCoordinator {
                     .map_err(AppError::from)
             })
             .await;
-        let Ok(Some(session)) = latest else {
-            return Ok(());
+        let session = match latest {
+            Ok(Some(session)) => session,
+            Ok(None) => return Ok(()),
+            Err(e) => {
+                log::warn!(
+                    "agency finalize: latest_session 读取失败，跳过摘要写回 run={}: {}",
+                    run_id,
+                    e
+                );
+                return Ok(());
+            }
         };
         let mechanical = crate::agency::session::SessionService::new(self.pool.clone())
             .mechanical_summary(&session);
@@ -985,7 +999,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role_with_llm_and_budget(
             budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
-            "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
+            "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
             return Err(AppError::from("主创 Agent 被熔断，首章未完成"));
@@ -2151,8 +2165,9 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
 
 /// 质量门实现（自由函数版，Gate v2）：editor 裁决（解析失败重试 1 次）→
 /// 三级评分合成（code/rule grader + rubric 化 model 分）→ 加权判定：
-/// revise+blocking 直接 RevisionRequired；否则 weighted < 0.75 修订；否则
-/// 放行。每次判定（含 Failed）落审查区 item_type="gate"，key =
+/// revise+blocking 直接 RevisionRequired；规则复检 High+ 硬拦截
+/// RevisionRequired；否则 weighted < 0.75 修订；否则放行。每次判定
+/// （含 Failed）落审查区 item_type="gate"，key =
 /// gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_gate_impl(
@@ -2192,7 +2207,7 @@ async fn evaluate_gate_impl(
             let outcome = GateOutcome::Failed {
                 reason: "编辑审计 Agent 被熔断".to_string(),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None, &[]).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
             return Ok(outcome);
         }
         last_raw = editor_out.output.clone();
@@ -2211,7 +2226,7 @@ async fn evaluate_gate_impl(
                     last_raw.chars().take(120).collect::<String>()
                 ),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None, &[]).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
             return Ok(outcome);
         }
     };
@@ -2307,29 +2322,16 @@ async fn evaluate_gate_impl(
     } else {
         GateOutcome::Passed { verdict }
     };
-    // 4) 判定落审查区（编辑审计为审查区 owner，active）；复检 High+ 清单
-    //    旁传给落盘（Passed 分支 observability，不改变 GateOutcome 形状）
-    record_gate_impl(
-        board,
-        run_id,
-        story_id,
-        draft,
-        &outcome,
-        round,
-        Some(&gate_score),
-        &rule_report.subagent_issues,
-    )
-    .await?;
+    // 4) 判定落审查区（编辑审计为审查区 owner，active）
+    record_gate_impl(board, run_id, story_id, draft, &outcome, round, Some(&gate_score)).await?;
     Ok(outcome)
 }
 
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
 /// 规则问题数 + gate_score（Failed 时为 null），status=active；
 /// key = gate-{draft.key}-r{round}（轮次后缀）。
-/// observability_issues：规则复检 High+ 清单旁传——Passed 分支附带进
-/// content.issues 供观测（不改变 GateOutcome 形状；其余分支忽略，问题
-/// 清单本就在 outcome.issues 内）。
-#[allow(clippy::too_many_arguments)]
+/// Passed 分支 issues 恒空——复检 High+ 非空已被 Gate v2 硬拦截为
+/// RevisionRequired（问题清单在 outcome.issues 内）。
 async fn record_gate_impl(
     board: &BlackboardService,
     run_id: &str,
@@ -2338,10 +2340,9 @@ async fn record_gate_impl(
     outcome: &GateOutcome,
     round: u32,
     gate_score: Option<&crate::agency::gate::GateScore>,
-    observability_issues: &[String],
 ) -> Result<(), AppError> {
     let (kind, detail, issues) = match outcome {
-        GateOutcome::Passed { .. } => ("pass", String::new(), observability_issues.to_vec()),
+        GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
         GateOutcome::RevisionRequired { issues, .. } => {
             ("revise", format!("{} 条问题", issues.len()), issues.clone())
         }
@@ -2506,7 +2507,7 @@ mod tests {
     fn pass_script() -> Arc<MockLlm> {
         let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
         let write = format!(
-            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第一章","content":"{}","summary":"拾荒者登场"}}}}"#,
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
             chapter
         );
         MockLlm::scripted(vec![
@@ -2541,7 +2542,7 @@ mod tests {
         assert_eq!(snap.drafts.len(), 1);
         assert_eq!(snap.reviews.len(), 1);
         // 门判定 key 带轮次后缀（首轮 r1）
-        assert_eq!(snap.reviews[0].key, "gate-第一章-r1");
+        assert_eq!(snap.reviews[0].key, "gate-第1章-r1");
         // Scene 已装配，正文来自草稿
         let scene = SceneRepository::new(pool.clone())
             .get_by_id(&result.scene_id)
@@ -3724,8 +3725,8 @@ mod tests {
         let list = repo.list_checkpoints(&result.story_id).unwrap();
         let milestones: Vec<&str> = list.iter().map(|c| c.milestone.as_str()).collect();
         assert_eq!(milestones, vec!["concept", "assets", "run_final"]);
-        // run_final 指标：一章已装配；gate_scores 含首章 weighted（中文数字
-        // 章号「第一章」解析失败归 0——chapter_from_gate_key 回退语义）
+        // run_final 指标：一章已装配；gate_scores 含首章 weighted（首章 key
+        // 「第1章」为阿拉伯数字，chapter_from_gate_key 解析为 1）
         let m: serde_json::Value = serde_json::from_str(&list[2].metrics_json).unwrap();
         assert_eq!(m["chapters_done"].as_i64(), Some(1));
         assert!(m["words_total"].as_i64().unwrap() > 0);
@@ -3733,7 +3734,7 @@ mod tests {
         assert!(m["elapsed_s"].as_i64().is_some());
         let gates = m["gate_scores"].as_array().unwrap();
         assert_eq!(gates.len(), 1);
-        assert_eq!(gates[0]["chapter"].as_i64(), Some(0));
+        assert_eq!(gates[0]["chapter"].as_i64(), Some(1));
         assert!(gates[0]["weighted"].as_f64().unwrap() > 0.75);
 
         // 单章续写：assets → chapter（章号 + weighted）→ run_final

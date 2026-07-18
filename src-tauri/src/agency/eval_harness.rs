@@ -73,7 +73,7 @@ pub struct MockQueues {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Expect {
-    pub flow: String, // continue | batch | genesis
+    pub flow: String, // continue | batch（genesis 暂不支持）
     #[serde(default)]
     pub chapter: i32, // continue 用（batch 作 start_chapter）
     #[serde(default)]
