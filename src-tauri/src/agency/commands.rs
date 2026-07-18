@@ -257,6 +257,94 @@ pub async fn agency_human_signals(
         .map_err(|e| AppError::from(format!("human_signals join error: {}", e)))
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GateHistoryItem {
+    pub key: String,
+    pub outcome: String,
+    pub weighted: Option<f64>,
+    pub code: Option<f64>,
+    pub rule: Option<f64>,
+    pub model: Option<f64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PurposeUsage {
+    pub purpose: String,
+    pub calls: i64,
+    pub total_tokens: i64,
+    pub total_duration_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EvalOverview {
+    pub gate_history: Vec<GateHistoryItem>,
+    pub pass_rate: f64,
+    pub checkpoints: Vec<crate::agency::coordinator::AgencyCheckpoint>,
+    pub human_signals: Vec<crate::agency::graders::HumanSignal>,
+    pub token_usage: Vec<PurposeUsage>,
+}
+
+/// 评估仪表盘五段聚合：gate 历史 + pass_rate + checkpoints + human_signals + token_usage。
+fn eval_overview(pool: &DbPool, story_id: &str) -> Result<EvalOverview, AppError> {
+    let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+    // gate 历史（review 区 item_type='gate'）
+    let mut stmt = conn.prepare(
+        "SELECT key, content, created_at FROM agency_board_items
+         WHERE story_id = ?1 AND item_type = 'gate' ORDER BY created_at ASC, rowid ASC")?;
+    let mut pass = 0usize;
+    let mut total = 0usize;
+    let gate_history: Vec<GateHistoryItem> = stmt.query_map(rusqlite::params![story_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    })?.filter_map(|r| r.ok()).map(|(key, content, created_at)| {
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+        let outcome = json.get("outcome").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let gs = json.get("gate_score");
+        let f = |k: &str| gs.and_then(|g| g.get(k)).and_then(|v| v.as_f64());
+        if outcome == "pass" { pass += 1; }
+        total += 1;
+        GateHistoryItem {
+            key,
+            outcome,
+            weighted: f("weighted"),
+            code: f("code"),
+            rule: f("rule"),
+            model: f("model"),
+            created_at,
+        }
+    }).collect();
+    let pass_rate = if total == 0 { 0.0 } else { pass as f64 / total as f64 };
+    // token 用量（llm_calls purpose 聚合）
+    let mut usage_stmt = conn.prepare(
+        "SELECT purpose, COUNT(*), SUM(total_tokens), SUM(duration_ms)
+         FROM llm_calls WHERE purpose IN ('agency_writer','agency_producer','agency_editor')
+         GROUP BY purpose")?;
+    let token_usage: Vec<PurposeUsage> = usage_stmt.query_map([], |r| {
+        Ok(PurposeUsage {
+            purpose: r.get(0)?,
+            calls: r.get(1)?,
+            total_tokens: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            total_duration_ms: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+        })
+    })?.filter_map(|r| r.ok()).collect();
+    let checkpoints = crate::agency::repository::AgencyRepository::new(pool.clone())
+        .list_checkpoints(story_id).map_err(AppError::from)?;
+    let human_signals = crate::agency::graders::human_signals(pool, story_id);
+    Ok(EvalOverview { gate_history, pass_rate, checkpoints, human_signals, token_usage })
+}
+
+/// 评估仪表盘聚合数据（五段）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_eval_overview(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<EvalOverview, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || eval_overview(&pool, &story_id))
+        .await
+        .map_err(|e| AppError::from(format!("eval_overview join error: {}", e)))?
+}
+
 /// 对比两个检查点的指标差值（b - a）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_compare_checkpoints(
@@ -273,4 +361,83 @@ pub async fn agency_compare_checkpoints(
             .ok_or_else(|| AppError::validation_failed("checkpoint_b 不存在", None::<String>))?;
         Ok(crate::agency::coordinator::compare_checkpoints(&a, &b))
     }).await.map_err(|e| AppError::from(format!("compare join error: {}", e)))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agency::models::{AgentRole, BoardItem, BoardZone};
+    use crate::db::create_test_pool;
+
+    fn seed_gate_item(pool: &DbPool, story_id: &str, key: &str, outcome: &str, weighted: f64) {
+        let content = serde_json::json!({
+            "outcome": outcome,
+            "gate_score": { "weighted": weighted, "code": 0.9, "rule": 0.8, "model": 0.8 }
+        })
+        .to_string();
+        let item = BoardItem::new(
+            "run-1",
+            story_id,
+            BoardZone::Review,
+            "gate",
+            key,
+            content,
+            "",
+            AgentRole::EditorAuditor,
+            "active",
+        );
+        AgencyRepository::new(pool.clone()).insert_item(&item).unwrap();
+    }
+
+    #[test]
+    fn eval_overview_gate_history_and_pass_rate() {
+        let pool = create_test_pool().unwrap();
+        seed_gate_item(&pool, "story-1", "gate-第1章-r1", "pass", 0.82);
+        seed_gate_item(&pool, "story-1", "gate-第2章-r1", "revise", 0.60);
+        // 其他 story 的 gate 条目不应混入
+        seed_gate_item(&pool, "story-2", "gate-第1章-r1", "pass", 0.90);
+
+        let overview = eval_overview(&pool, "story-1").unwrap();
+        assert_eq!(overview.gate_history.len(), 2);
+        assert!((overview.pass_rate - 0.5).abs() < 1e-9);
+        assert_eq!(overview.gate_history[0].key, "gate-第1章-r1");
+        assert_eq!(overview.gate_history[0].outcome, "pass");
+        assert_eq!(overview.gate_history[0].weighted, Some(0.82));
+        assert_eq!(overview.gate_history[1].outcome, "revise");
+        assert!(overview.checkpoints.is_empty());
+        assert!(overview.human_signals.is_empty());
+        // usage 聚合作空表容忍
+        assert!(overview.token_usage.is_empty());
+    }
+
+    #[test]
+    fn eval_overview_token_usage_groups_agency_purposes() {
+        let pool = create_test_pool().unwrap();
+        {
+            let conn = pool.get().unwrap();
+            for (id, purpose, tokens, ms) in [
+                ("c1", "agency_writer", 100i64, 10i64),
+                ("c2", "agency_writer", 300, 30),
+                ("c3", "other", 999, 99),
+            ] {
+                conn.execute(
+                    "INSERT INTO llm_calls (id, model_id, purpose, total_tokens, duration_ms, created_at)
+                     VALUES (?1, 'm1', ?2, ?3, ?4, '2026-07-17T10:00:00')",
+                    rusqlite::params![id, purpose, tokens, ms],
+                )
+                .unwrap();
+            }
+        }
+
+        let overview = eval_overview(&pool, "story-1").unwrap();
+        // 无 gate 条目时 pass_rate = 0
+        assert_eq!(overview.pass_rate, 0.0);
+        // 仅 agency_* 角色纳入聚合，按 purpose 分组
+        assert_eq!(overview.token_usage.len(), 1);
+        let w = &overview.token_usage[0];
+        assert_eq!(w.purpose, "agency_writer");
+        assert_eq!(w.calls, 2);
+        assert_eq!(w.total_tokens, 400);
+        assert_eq!(w.total_duration_ms, 40);
+    }
 }

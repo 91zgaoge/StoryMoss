@@ -17,3 +17,4 @@ export * from './storySystem';
 export * from './stream';
 export * from './subscription';
 export * from './tracing';
+export * from './agency';

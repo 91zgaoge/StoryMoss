@@ -230,7 +230,7 @@ tauri::generate_handler![
     agency::commands::agency_continue_chapter, agency::commands::agency_continue_batch,
     agency::commands::agency_resume_run,
     agency::commands::agency_list_checkpoints, agency::commands::agency_compare_checkpoints,
-    agency::commands::agency_human_signals,
+    agency::commands::agency_human_signals, agency::commands::agency_eval_overview,
     // Auth commands
     auth::commands::get_auth_config,
     auth::commands::oauth_start,

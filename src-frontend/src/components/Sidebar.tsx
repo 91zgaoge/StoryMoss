@@ -20,6 +20,7 @@ import {
   BrainCircuit,
   ScrollText,
   Activity,
+  Gauge,
   ChevronDown,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
@@ -99,6 +100,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
       { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
+      { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
       { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
       { id: 'tracing', label: '生成链路', icon: Activity, impact: 'cold' },
       { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },

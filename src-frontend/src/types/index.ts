@@ -299,6 +299,8 @@ export type ViewType =
   | 'story-system'
   /** 数据洞察壳（用量 | 写作 | 功能使用） */
   | 'usage-stats'
+  /** Agency 创作评估（质量门/检查点/human 信号） */
+  | 'agency-eval'
   /** @deprecated 已合并进 usage-stats / Insights，setCurrentView 会重定向 */
   | 'writing-stats'
   | 'intention-graph'

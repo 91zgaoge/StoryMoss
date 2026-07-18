@@ -19,6 +19,7 @@ import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
 import { Insights } from '@/pages/Insights';
 import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
+import AgencyEval from '@/pages/AgencyEval';
 import { Logs } from '@/pages/Logs';
 import { TracingPanel } from '@/pages/TracingPanel';
 import { DataLoader } from '@/components/DataLoader';
@@ -305,6 +306,8 @@ function App() {
         return <Insights />;
       case 'intention-graph':
         return <IntentionGraphDiagnostics />;
+      case 'agency-eval':
+        return <AgencyEval />;
       case 'logs':
         return <Logs />;
       case 'tracing':
