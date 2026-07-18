@@ -267,10 +267,15 @@ pub async fn update_scene(
                 let sid = story_id.clone();
                 let scid = scene_id.clone();
                 tokio::spawn(async move {
-                    logger.log(&sid, "user_edit", "human", serde_json::json!({
-                        "scene_id": scid,
-                        "word_count": word_count,
-                    }));
+                    logger.log(
+                        &sid,
+                        "user_edit",
+                        "human",
+                        serde_json::json!({
+                            "scene_id": scid,
+                            "word_count": word_count,
+                        }),
+                    );
                 });
             }
         }

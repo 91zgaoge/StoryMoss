@@ -1,8 +1,11 @@
-//! 持续学习·观察层（ECC observe 模式）：四类观察点 → .storymoss/learning/observations.jsonl。
-//! 双轨制的文件轨：JSONL 追加写、10MB 轮转、防自观察、payload 截断脱敏。
+//! 持续学习·观察层（ECC observe 模式）：四类观察点 →
+//! .storymoss/learning/observations.jsonl。 双轨制的文件轨：JSONL 追加写、10MB
+//! 轮转、防自观察、payload 截断脱敏。
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -72,7 +75,13 @@ impl ObservationLogger {
         }
     }
 
-    fn log_inner(&self, story_id: &str, kind: &str, actor: &str, payload: serde_json::Value) -> Result<(), String> {
+    fn log_inner(
+        &self,
+        story_id: &str,
+        kind: &str,
+        actor: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), String> {
         let path = self.observations_path(story_id);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -136,7 +145,8 @@ impl ObservationLogger {
     }
 
     pub fn count_unanalyzed(&self, story_id: &str) -> usize {
-        let total = self.observations_path(story_id)
+        let total = self
+            .observations_path(story_id)
             .exists()
             .then(|| {
                 std::fs::read_to_string(self.observations_path(story_id))
@@ -159,7 +169,8 @@ impl ObservationLogger {
     }
 
     pub fn mark_analyzed(&self, story_id: &str) -> Result<(), crate::error::AppError> {
-        let total = self.observations_path(story_id)
+        let total = self
+            .observations_path(story_id)
             .exists()
             .then(|| {
                 std::fs::read_to_string(self.observations_path(story_id))
@@ -188,7 +199,10 @@ fn truncate_payload(payload: serde_json::Value) -> serde_json::Value {
                 .map(|(k, v)| {
                     let v = match &v {
                         serde_json::Value::String(s) if s.chars().count() > PAYLOAD_MAX_CHARS => {
-                            serde_json::Value::String(format!("{}…(截断)", s.chars().take(PAYLOAD_MAX_CHARS).collect::<String>()))
+                            serde_json::Value::String(format!(
+                                "{}…(截断)",
+                                s.chars().take(PAYLOAD_MAX_CHARS).collect::<String>()
+                            ))
                         }
                         other => other.clone(),
                     };
@@ -207,9 +221,10 @@ fn truncate_payload(payload: serde_json::Value) -> serde_json::Value {
 pub const ANALYZE_THRESHOLD: usize = 20;
 /// 手动/自动分析的最小新观察数（低于则不调用 LLM、不推进游标）。
 const ANALYZE_MIN_NEW: usize = 2;
-/// analyzer 自身的路由/观察标签（双约束，test_analyzer_label_dual_constraint 锁死）：
-/// strip "agency_" → "editor_observer" → starts_with("editor") 命中 Background 档；
-/// contains("observer") → should_record 过滤其 llm_call 埋点（防自观察）。
+/// analyzer 自身的路由/观察标签（双约束，test_analyzer_label_dual_constraint
+/// 锁死）： strip "agency_" → "editor_observer" → starts_with("editor") 命中
+/// Background 档； contains("observer") → should_record 过滤其 llm_call
+/// 埋点（防自观察）。
 pub const ANALYZER_LABEL: &str = "agency_editor_observer";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -219,8 +234,8 @@ pub struct Instinct {
     pub action: String,
     pub confidence: f64,
     pub evidence_count: u32,
-    pub scope: String,   // story | global
-    pub status: String,  // pending | candidate | promoted | rejected
+    pub scope: String,  // story | global
+    pub status: String, // pending | candidate | promoted | rejected
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
@@ -243,7 +258,10 @@ pub fn confidence_for_evidence(count: u32) -> f64 {
     }
 }
 
-pub fn list_instincts(logger: &ObservationLogger, story_id: &str) -> Result<Vec<Instinct>, crate::error::AppError> {
+pub fn list_instincts(
+    logger: &ObservationLogger,
+    story_id: &str,
+) -> Result<Vec<Instinct>, crate::error::AppError> {
     let dir = logger.instincts_path(story_id);
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(&dir) {
@@ -282,10 +300,15 @@ pub fn parse_instinct(text: &str) -> Option<Instinct> {
     }
     let fm: Fm = serde_yaml::from_str(fm).ok()?;
     Some(Instinct {
-        id: fm.id, trigger: fm.trigger, action: fm.action,
-        confidence: fm.confidence, evidence_count: fm.evidence_count,
-        scope: fm.scope, status: fm.status,
-        created_at: fm.created_at, updated_at: fm.updated_at,
+        id: fm.id,
+        trigger: fm.trigger,
+        action: fm.action,
+        confidence: fm.confidence,
+        evidence_count: fm.evidence_count,
+        scope: fm.scope,
+        status: fm.status,
+        created_at: fm.created_at,
+        updated_at: fm.updated_at,
         evolved_from: fm.evolved_from,
     })
 }
@@ -310,13 +333,25 @@ pub async fn analyze_story(
 ) -> Result<AnalyzeOutcome, crate::error::AppError> {
     let new_count = logger.count_unanalyzed(story_id);
     if new_count < ANALYZE_MIN_NEW {
-        return Ok(AnalyzeOutcome { new_instincts: 0, updated_instincts: 0, analyzed: 0 });
+        return Ok(AnalyzeOutcome {
+            new_instincts: 0,
+            updated_instincts: 0,
+            analyzed: 0,
+        });
     }
     let observations = logger.recent(story_id, 50);
     let existing = list_instincts(logger, story_id).unwrap_or_default();
     let digest: String = observations
         .iter()
-        .map(|o| format!("- [{}] {} by {}: {}", o.ts.get(..10).unwrap_or(&o.ts), o.kind, o.actor, o.payload))
+        .map(|o| {
+            format!(
+                "- [{}] {} by {}: {}",
+                o.ts.get(..10).unwrap_or(&o.ts),
+                o.kind,
+                o.actor,
+                o.payload
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let existing_digest: String = existing
@@ -331,33 +366,44 @@ pub async fn analyze_story(
          最近观察：\n{}\n\n既有模式：\n{}",
         digest, if existing_digest.is_empty() { "（无）".into() } else { existing_digest }
     );
-    let raw = llm.complete(
-        "你是创作模式分析器，只输出 YAML。",
-        &prompt,
-        crate::router::TaskType::Analysis,
-        1500,
-    ).await?;
+    let raw = llm
+        .complete(
+            "你是创作模式分析器，只输出 YAML。",
+            &prompt,
+            crate::router::TaskType::Analysis,
+            1500,
+        )
+        .await?;
     let proposals = parse_analyzer_yaml(&raw);
     let mut new_instincts = 0usize;
     let mut updated_instincts = 0usize;
     for proposal in proposals {
         let dir = logger.instincts_path(story_id);
         std::fs::create_dir_all(&dir).map_err(crate::error::AppError::from)?;
-        if let Some(mut hit) = existing.iter().find(|e| e.trigger == proposal.trigger).cloned() {
+        if let Some(mut hit) = existing
+            .iter()
+            .find(|e| e.trigger == proposal.trigger)
+            .cloned()
+        {
             hit.evidence_count += new_count as u32;
             hit.confidence = confidence_for_evidence(hit.evidence_count);
             hit.updated_at = chrono::Local::now().to_rfc3339();
-            std::fs::write(dir.join(format!("{}.md", hit.id)), render_instinct(&hit, "（更新：证据累积）"))
-                .map_err(crate::error::AppError::from)?;
+            std::fs::write(
+                dir.join(format!("{}.md", hit.id)),
+                render_instinct(&hit, "（更新：证据累积）"),
+            )
+            .map_err(crate::error::AppError::from)?;
             updated_instincts += 1;
         } else {
             let now = chrono::Local::now().to_rfc3339();
             // 新建 instinct 从 1 条证据起（本轮归纳出的模式本身即第一条证据）；
             // 后续同 trigger 轮次按 new_count 累积。
             let inst = Instinct {
-                id: format!("inst-{}-{:06x}",
+                id: format!(
+                    "inst-{}-{:06x}",
                     now.get(..10).unwrap_or(&now).replace('-', ""),
-                    crc32_simple(&proposal.trigger)),
+                    crc32_simple(&proposal.trigger)
+                ),
                 trigger: proposal.trigger.clone(),
                 action: proposal.action.clone(),
                 confidence: confidence_for_evidence(1),
@@ -368,14 +414,24 @@ pub async fn analyze_story(
                 updated_at: now,
                 evolved_from: proposal.evolved_from.clone(),
             };
-            let body = format!("## 模式描述\n{}\n\n## 证据摘要\n（来自最近 {} 条观察）", proposal.action, new_count);
-            std::fs::write(dir.join(format!("{}.md", inst.id)), render_instinct(&inst, &body))
-                .map_err(crate::error::AppError::from)?;
+            let body = format!(
+                "## 模式描述\n{}\n\n## 证据摘要\n（来自最近 {} 条观察）",
+                proposal.action, new_count
+            );
+            std::fs::write(
+                dir.join(format!("{}.md", inst.id)),
+                render_instinct(&inst, &body),
+            )
+            .map_err(crate::error::AppError::from)?;
             new_instincts += 1;
         }
     }
     logger.mark_analyzed(story_id)?;
-    Ok(AnalyzeOutcome { new_instincts, updated_instincts, analyzed: new_count })
+    Ok(AnalyzeOutcome {
+        new_instincts,
+        updated_instincts,
+        analyzed: new_count,
+    })
 }
 
 #[derive(Debug)]
@@ -402,7 +458,11 @@ fn parse_analyzer_yaml(raw: &str) -> Vec<AnalyzerProposal> {
     let items: Vec<P> = serde_yaml::from_str(body).unwrap_or_default();
     items
         .into_iter()
-        .map(|p| AnalyzerProposal { trigger: p.trigger, action: p.action, evolved_from: p.evolved_from })
+        .map(|p| AnalyzerProposal {
+            trigger: p.trigger,
+            action: p.action,
+            evolved_from: p.evolved_from,
+        })
         .collect()
 }
 
@@ -424,29 +484,57 @@ pub const WEEKLY_DECAY: f64 = -0.02;
 pub const PRUNE_CONFIDENCE: f64 = 0.2;
 pub const PRUNE_TTL_DAYS: i64 = 90;
 
-fn read_instinct_file(logger: &ObservationLogger, story_id: &str, id: &str) -> Result<(Instinct, std::path::PathBuf), crate::error::AppError> {
+fn read_instinct_file(
+    logger: &ObservationLogger,
+    story_id: &str,
+    id: &str,
+) -> Result<(Instinct, std::path::PathBuf), crate::error::AppError> {
     let path = logger.instincts_path(story_id).join(format!("{}.md", id));
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| crate::error::AppError::validation_failed(format!("instinct 不存在: {} ({})", id, e), None::<String>))?;
-    let inst = parse_instinct(&text)
-        .ok_or_else(|| crate::error::AppError::validation_failed(format!("instinct 解析失败: {}", id), None::<String>))?;
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        crate::error::AppError::validation_failed(
+            format!("instinct 不存在: {} ({})", id, e),
+            None::<String>,
+        )
+    })?;
+    let inst = parse_instinct(&text).ok_or_else(|| {
+        crate::error::AppError::validation_failed(
+            format!("instinct 解析失败: {}", id),
+            None::<String>,
+        )
+    })?;
     Ok((inst, path))
 }
 
-fn write_instinct_file(path: &std::path::Path, inst: &Instinct) -> Result<(), crate::error::AppError> {
-    std::fs::write(path, render_instinct(inst, "（反馈/衰减更新）")).map_err(crate::error::AppError::from)
+fn write_instinct_file(
+    path: &std::path::Path,
+    inst: &Instinct,
+) -> Result<(), crate::error::AppError> {
+    std::fs::write(path, render_instinct(inst, "（反馈/衰减更新）"))
+        .map_err(crate::error::AppError::from)
 }
 
-pub fn apply_feedback(logger: &ObservationLogger, story_id: &str, instinct_id: &str, accepted: bool) -> Result<Instinct, crate::error::AppError> {
+pub fn apply_feedback(
+    logger: &ObservationLogger,
+    story_id: &str,
+    instinct_id: &str,
+    accepted: bool,
+) -> Result<Instinct, crate::error::AppError> {
     let (mut inst, path) = read_instinct_file(logger, story_id, instinct_id)?;
-    let delta = if accepted { FEEDBACK_ACCEPT } else { FEEDBACK_REJECT };
+    let delta = if accepted {
+        FEEDBACK_ACCEPT
+    } else {
+        FEEDBACK_REJECT
+    };
     inst.confidence = (inst.confidence + delta).clamp(0.0, 1.0);
     inst.updated_at = chrono::Local::now().to_rfc3339();
     write_instinct_file(&path, &inst)?;
     Ok(inst)
 }
 
-pub fn apply_weekly_decay(logger: &ObservationLogger, story_id: &str) -> Result<usize, crate::error::AppError> {
+pub fn apply_weekly_decay(
+    logger: &ObservationLogger,
+    story_id: &str,
+) -> Result<usize, crate::error::AppError> {
     let instincts = list_instincts(logger, story_id)?;
     let now = chrono::Local::now();
     let mut decayed = 0usize;
@@ -461,7 +549,9 @@ pub fn apply_weekly_decay(logger: &ObservationLogger, story_id: &str) -> Result<
         if weeks >= 1 {
             inst.confidence = (inst.confidence + weeks as f64 * WEEKLY_DECAY).clamp(0.0, 1.0);
             inst.updated_at = now.to_rfc3339();
-            let path = logger.instincts_path(story_id).join(format!("{}.md", inst.id));
+            let path = logger
+                .instincts_path(story_id)
+                .join(format!("{}.md", inst.id));
             write_instinct_file(&path, &inst)?;
             decayed += 1;
         }
@@ -469,7 +559,10 @@ pub fn apply_weekly_decay(logger: &ObservationLogger, story_id: &str) -> Result<
     Ok(decayed)
 }
 
-pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usize, crate::error::AppError> {
+pub fn prune_instincts(
+    logger: &ObservationLogger,
+    story_id: &str,
+) -> Result<usize, crate::error::AppError> {
     let instincts = list_instincts(logger, story_id)?;
     let now = chrono::Local::now();
     let mut pruned = 0usize;
@@ -484,7 +577,9 @@ pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usi
         let should_prune = inst.confidence < PRUNE_CONFIDENCE
             || (inst.status == "pending" && stale_days >= PRUNE_TTL_DAYS);
         if should_prune {
-            let path = logger.instincts_path(story_id).join(format!("{}.md", inst.id));
+            let path = logger
+                .instincts_path(story_id)
+                .join(format!("{}.md", inst.id));
             if std::fs::remove_file(&path).is_ok() {
                 pruned += 1;
             }
@@ -498,7 +593,10 @@ pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usi
 pub const PROMOTE_CONFIDENCE: f64 = 0.8;
 pub const PROMOTE_MIN_STORIES: usize = 2;
 
-pub fn promotion_candidates(logger: &ObservationLogger, story_id: &str) -> Result<Vec<Instinct>, crate::error::AppError> {
+pub fn promotion_candidates(
+    logger: &ObservationLogger,
+    story_id: &str,
+) -> Result<Vec<Instinct>, crate::error::AppError> {
     // 跨 story 统计 trigger 出现次数
     let counts = trigger_story_counts(logger)?;
     let instincts = list_instincts(logger, story_id)?;
@@ -513,7 +611,9 @@ pub fn promotion_candidates(logger: &ObservationLogger, story_id: &str) -> Resul
 }
 
 /// 扫描全部 story 的 learning/instincts，统计每个 trigger 出现在多少个 story。
-fn trigger_story_counts(logger: &ObservationLogger) -> Result<std::collections::HashMap<String, usize>, crate::error::AppError> {
+fn trigger_story_counts(
+    logger: &ObservationLogger,
+) -> Result<std::collections::HashMap<String, usize>, crate::error::AppError> {
     let stories_dir = logger.app_dir.join("stories");
     let mut map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let entries = match std::fs::read_dir(&stories_dir) {
@@ -538,7 +638,11 @@ fn trigger_story_counts(logger: &ObservationLogger) -> Result<std::collections::
     Ok(map)
 }
 
-pub fn reject_promotion(logger: &ObservationLogger, story_id: &str, instinct_id: &str) -> Result<Instinct, crate::error::AppError> {
+pub fn reject_promotion(
+    logger: &ObservationLogger,
+    story_id: &str,
+    instinct_id: &str,
+) -> Result<Instinct, crate::error::AppError> {
     let (mut inst, path) = read_instinct_file(logger, story_id, instinct_id)?;
     inst.confidence = (inst.confidence + FEEDBACK_REJECT).clamp(0.0, 1.0);
     inst.status = "rejected".to_string();
@@ -563,7 +667,10 @@ pub fn confirm_promotion(
     let candidates = promotion_candidates(logger, story_id)?;
     if !candidates.iter().any(|i| i.id == instinct_id) {
         return Err(crate::error::AppError::validation_failed(
-            format!("instinct {} 不满足晋升条件（需 confidence≥{} 且跨 {} 个 story 复现）", instinct_id, PROMOTE_CONFIDENCE, PROMOTE_MIN_STORIES),
+            format!(
+                "instinct {} 不满足晋升条件（需 confidence≥{} 且跨 {} 个 story 复现）",
+                instinct_id, PROMOTE_CONFIDENCE, PROMOTE_MIN_STORIES
+            ),
             None::<String>,
         ));
     }
@@ -580,7 +687,8 @@ pub fn confirm_promotion(
     })
 }
 
-/// 物化为 skill.yaml 目录技能（纯文件操作；注册由 commands 层经 SkillManager::import_skill 完成）。
+/// 物化为 skill.yaml 目录技能（纯文件操作；注册由 commands 层经
+/// SkillManager::import_skill 完成）。
 pub fn materialize_as_skill(
     logger: &ObservationLogger,
     story_id: &str,
@@ -617,9 +725,24 @@ mod tests {
     #[test]
     fn test_log_and_recent() {
         let (logger, _tmp) = logger();
-        logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "pass", "weighted": 0.82}));
-        logger.log("s1", "llm_call", "lead_writer", serde_json::json!({"tokens": 100}));
-        logger.log("s2", "gate", "editor_auditor", serde_json::json!({"outcome": "revise"}));
+        logger.log(
+            "s1",
+            "gate",
+            "editor_auditor",
+            serde_json::json!({"outcome": "pass", "weighted": 0.82}),
+        );
+        logger.log(
+            "s1",
+            "llm_call",
+            "lead_writer",
+            serde_json::json!({"tokens": 100}),
+        );
+        logger.log(
+            "s2",
+            "gate",
+            "editor_auditor",
+            serde_json::json!({"outcome": "revise"}),
+        );
         let recent = logger.recent("s1", 10);
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].kind, "gate");
@@ -648,7 +771,9 @@ mod tests {
         assert!(ObservationLogger::should_record("agency_producer"));
         assert!(ObservationLogger::should_record("agency_editor"));
         assert!(!ObservationLogger::should_record("agency_observer"));
-        assert!(!ObservationLogger::should_record("agency_observer_analyzer"));
+        assert!(!ObservationLogger::should_record(
+            "agency_observer_analyzer"
+        ));
         assert!(!ObservationLogger::should_record("agency_editor_observer"));
     }
 
@@ -677,7 +802,11 @@ mod tests {
         std::fs::write(&path, &content).unwrap();
         logger.rotate_if_needed(&path, 10_000).unwrap(); // 测试阈值 10KB
         let after = std::fs::read_to_string(&path).unwrap();
-        assert!(after.len() <= 10_000 + 1200, "轮转后应接近阈值: {}", after.len());
+        assert!(
+            after.len() <= 10_000 + 1200,
+            "轮转后应接近阈值: {}",
+            after.len()
+        );
         assert!(after.ends_with('\n'));
         // 保留的是尾部行
         let lines: Vec<&str> = after.lines().collect();
@@ -713,10 +842,19 @@ mod tests {
     fn test_payload_truncation() {
         let (logger, _tmp) = logger();
         let long = "长".repeat(2000);
-        logger.log("s1", "user_edit", "human", serde_json::json!({"note": long}));
+        logger.log(
+            "s1",
+            "user_edit",
+            "human",
+            serde_json::json!({"note": long}),
+        );
         let recent = logger.recent("s1", 1);
         let note = recent[0].payload["note"].as_str().unwrap();
-        assert!(note.chars().count() <= 520, "payload 应截断: {}", note.len());
+        assert!(
+            note.chars().count() <= 520,
+            "payload 应截断: {}",
+            note.len()
+        );
     }
 
     struct MockAnalyzerLlm {
@@ -725,7 +863,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::agency::tool_loop::LoopLlm for MockAnalyzerLlm {
-        async fn complete(&self, _s: &str, _u: &str, _t: crate::router::TaskType, _m: i32) -> Result<String, crate::error::AppError> {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: crate::router::TaskType,
+            _m: i32,
+        ) -> Result<String, crate::error::AppError> {
             Ok(self.response.clone())
         }
     }
@@ -736,7 +880,8 @@ mod tests {
 - trigger: "当编辑审计连续两轮判定 revise"
   action: "修订前先复读资产区角色卡与大纲"
   evolved_from: ["gate", "revision"]
-```"#.to_string(),
+```"#
+                .to_string(),
         })
     }
 
@@ -744,7 +889,12 @@ mod tests {
     async fn test_analyze_creates_instinct_files() {
         let (logger, _tmp) = logger();
         for i in 0..3 {
-            logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "revise", "i": i}));
+            logger.log(
+                "s1",
+                "gate",
+                "editor_auditor",
+                serde_json::json!({"outcome": "revise", "i": i}),
+            );
         }
         let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
         assert_eq!(outcome.new_instincts, 1);
@@ -765,12 +915,23 @@ mod tests {
         let (logger, _tmp) = logger();
         // 第一轮：≥ANALYZE_MIN_NEW 条观察触发分析，建立 instinct（evidence=1 → 0.3）
         for i in 0..3 {
-            logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "revise", "i": i}));
+            logger.log(
+                "s1",
+                "gate",
+                "editor_auditor",
+                serde_json::json!({"outcome": "revise", "i": i}),
+            );
         }
         analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
-        // 同 trigger 再来一轮观察 + 分析 → 同 trigger instinct 的 evidence_count 递增、confidence 升档
+        // 同 trigger 再来一轮观察 + 分析 → 同 trigger instinct 的 evidence_count
+        // 递增、confidence 升档
         for _ in 0..4 {
-            logger.log("s1", "revision", "editor_auditor", serde_json::json!({"chapter": 1}));
+            logger.log(
+                "s1",
+                "revision",
+                "editor_auditor",
+                serde_json::json!({"chapter": 1}),
+            );
         }
         let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
         assert_eq!(outcome.updated_instincts, 1);
@@ -784,7 +945,12 @@ mod tests {
     #[tokio::test]
     async fn test_analyze_skips_when_insufficient() {
         let (logger, _tmp) = logger();
-        logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "pass"}));
+        logger.log(
+            "s1",
+            "gate",
+            "editor_auditor",
+            serde_json::json!({"outcome": "pass"}),
+        );
         let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
         assert_eq!(outcome.analyzed, 0);
         assert_eq!(outcome.new_instincts, 0);
@@ -792,7 +958,13 @@ mod tests {
         assert_eq!(logger.count_unanalyzed("s1"), 1);
     }
 
-    fn seed_instinct(logger: &ObservationLogger, story_id: &str, id: &str, confidence: f64, updated_at: &str) {
+    fn seed_instinct(
+        logger: &ObservationLogger,
+        story_id: &str,
+        id: &str,
+        confidence: f64,
+        updated_at: &str,
+    ) {
         let inst = Instinct {
             id: id.to_string(),
             trigger: "测试触发".to_string(),
@@ -807,11 +979,21 @@ mod tests {
         };
         let dir = logger.instincts_path(story_id);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("{}.md", id)), render_instinct(&inst, "body")).unwrap();
+        std::fs::write(
+            dir.join(format!("{}.md", id)),
+            render_instinct(&inst, "body"),
+        )
+        .unwrap();
     }
 
     /// 置为 promoted 状态（T4 豁免断言用：晋升产物不被衰减/清理管道误伤）。
-    fn seed_promoted(logger: &ObservationLogger, story_id: &str, id: &str, confidence: f64, updated_at: &str) {
+    fn seed_promoted(
+        logger: &ObservationLogger,
+        story_id: &str,
+        id: &str,
+        confidence: f64,
+        updated_at: &str,
+    ) {
         seed_instinct(logger, story_id, id, confidence, updated_at);
         let (mut inst, path) = read_instinct_file(logger, story_id, id).unwrap();
         inst.status = "promoted".to_string();
@@ -849,36 +1031,81 @@ mod tests {
         let fresh_inst = instincts.iter().find(|i| i.id == "inst-fresh").unwrap();
         assert!((fresh_inst.confidence - 0.5).abs() < 0.001);
         let promoted = instincts.iter().find(|i| i.id == "inst-promoted").unwrap();
-        assert!((promoted.confidence - 0.9).abs() < 0.001, "promoted instinct 不应被周衰减");
+        assert!(
+            (promoted.confidence - 0.9).abs() < 0.001,
+            "promoted instinct 不应被周衰减"
+        );
     }
 
     #[test]
     fn test_prune() {
         let (logger, _tmp) = logger();
-        seed_instinct(&logger, "s1", "inst-weak", 0.1, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-weak",
+            0.1,
+            &chrono::Local::now().to_rfc3339(),
+        );
         let old = chrono::Local::now() - chrono::Duration::days(100);
         seed_instinct(&logger, "s1", "inst-stale", 0.5, &old.to_rfc3339());
-        seed_instinct(&logger, "s1", "inst-good", 0.5, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-good",
+            0.5,
+            &chrono::Local::now().to_rfc3339(),
+        );
         // T4：promoted 晋升产物豁免清理（即便 confidence 低于阈值也不删）
-        seed_promoted(&logger, "s1", "inst-promoted", 0.1, &chrono::Local::now().to_rfc3339());
+        seed_promoted(
+            &logger,
+            "s1",
+            "inst-promoted",
+            0.1,
+            &chrono::Local::now().to_rfc3339(),
+        );
         let pruned = prune_instincts(&logger, "s1").unwrap();
         assert_eq!(pruned, 2);
         let remaining = list_instincts(&logger, "s1").unwrap();
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().any(|i| i.id == "inst-good"));
-        assert!(remaining.iter().any(|i| i.id == "inst-promoted"), "promoted instinct 不应被 prune");
+        assert!(
+            remaining.iter().any(|i| i.id == "inst-promoted"),
+            "promoted instinct 不应被 prune"
+        );
     }
 
     #[test]
     fn test_promotion_candidates_cross_story() {
         let (logger, _tmp) = logger();
         // 同 trigger 在 s1/s2 各一条（s1 confidence 0.85，s2 0.8）
-        seed_instinct(&logger, "s1", "inst-x", 0.85, &chrono::Local::now().to_rfc3339());
-        seed_instinct(&logger, "s2", "inst-y", 0.8, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-x",
+            0.85,
+            &chrono::Local::now().to_rfc3339(),
+        );
+        seed_instinct(
+            &logger,
+            "s2",
+            "inst-y",
+            0.8,
+            &chrono::Local::now().to_rfc3339(),
+        );
         // s3 只有一条同 trigger（不重复出现 → 不算跨 story）
-        seed_instinct(&logger, "s3", "inst-z", 0.3, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s3",
+            "inst-z",
+            0.3,
+            &chrono::Local::now().to_rfc3339(),
+        );
         let candidates = promotion_candidates(&logger, "s1").unwrap();
-        assert!(candidates.iter().any(|i| i.id == "inst-x"), "s1 的高置信跨 story instinct 应为候选");
+        assert!(
+            candidates.iter().any(|i| i.id == "inst-x"),
+            "s1 的高置信跨 story instinct 应为候选"
+        );
         // s3 的 inst-z confidence 0.3 不达标
         assert!(!candidates.iter().any(|i| i.id == "inst-z"));
     }
@@ -886,7 +1113,13 @@ mod tests {
     #[test]
     fn test_reject_promotion() {
         let (logger, _tmp) = logger();
-        seed_instinct(&logger, "s1", "inst-r", 0.85, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-r",
+            0.85,
+            &chrono::Local::now().to_rfc3339(),
+        );
         let rejected = reject_promotion(&logger, "s1", "inst-r").unwrap();
         assert_eq!(rejected.status, "rejected");
         assert!((rejected.confidence - 0.75).abs() < 0.001);
@@ -895,12 +1128,22 @@ mod tests {
     #[test]
     fn test_materialize_as_skill_files() {
         let (logger, tmp) = logger();
-        seed_instinct(&logger, "s1", "inst-m", 0.85, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-m",
+            0.85,
+            &chrono::Local::now().to_rfc3339(),
+        );
         let skills_dir = tmp.path().join("skills");
         let skill_dir = materialize_as_skill(&logger, "s1", "inst-m", &skills_dir).unwrap();
         let manifest = std::fs::read_to_string(skill_dir.join("skill.yaml")).unwrap();
         assert!(manifest.contains("id: learned.inst-m"));
-        assert!(manifest.contains("evolved_from: \"inst-m\"") || manifest.contains("evolved_from: 'inst-m'") || manifest.contains("evolved_from: inst-m"));
+        assert!(
+            manifest.contains("evolved_from: \"inst-m\"")
+                || manifest.contains("evolved_from: 'inst-m'")
+                || manifest.contains("evolved_from: inst-m")
+        );
         let prompt = std::fs::read_to_string(skill_dir.join("main.prompt")).unwrap();
         assert!(prompt.contains("---"));
         assert!(prompt.contains("{{instruction}}"));
@@ -913,8 +1156,20 @@ mod tests {
     #[test]
     fn test_confirm_promotion_end_to_end() {
         let (logger, tmp) = logger();
-        seed_instinct(&logger, "s1", "inst-c", 0.85, &chrono::Local::now().to_rfc3339());
-        seed_instinct(&logger, "s2", "inst-c2", 0.8, &chrono::Local::now().to_rfc3339()); // 同 trigger
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-c",
+            0.85,
+            &chrono::Local::now().to_rfc3339(),
+        );
+        seed_instinct(
+            &logger,
+            "s2",
+            "inst-c2",
+            0.8,
+            &chrono::Local::now().to_rfc3339(),
+        ); // 同 trigger
         let skills_dir = tmp.path().join("skills");
         let outcome = confirm_promotion(&logger, "s1", "inst-c", &skills_dir).unwrap();
         assert_eq!(outcome.skill_id, "learned.inst-c");
@@ -923,7 +1178,13 @@ mod tests {
         // 技能目录已生成
         assert!(skills_dir.join("learned.inst-c/skill.yaml").exists());
         // 失败路径：confidence 不足
-        seed_instinct(&logger, "s1", "inst-low", 0.3, &chrono::Local::now().to_rfc3339());
+        seed_instinct(
+            &logger,
+            "s1",
+            "inst-low",
+            0.3,
+            &chrono::Local::now().to_rfc3339(),
+        );
         assert!(confirm_promotion(&logger, "s1", "inst-low", &skills_dir).is_err());
     }
 }

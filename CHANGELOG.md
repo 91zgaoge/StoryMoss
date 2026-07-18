@@ -10,8 +10,12 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
   - 迁移范围：文件树复制、`cinema_ai.db` SQLite 合并（按共有列合并，自动跳过目标库不存在的旧表）、`config.json` 递归对象合并；StoryMoss 已存在的文件、记录与配置键不会被覆盖。
   - 安全策略：迁移前对 StoryMoss 当前数据做复制式备份，旧 StoryForge 目录完整保留，迁移完成后写入 `.storyforge_migrated` 标记避免重复执行；迁移在 `init_db` 之前完成，无需重启即可使用导入数据。
   - 实现位置：后端 `src-tauri/src/migration/storyforge.rs`，由 `src-tauri/src/lib.rs` 的 `setup` 钩子调用。
+- **评估仪表盘 story 级 token 聚合**：`agency_eval_overview` 新增 `story_tokens` 段，每 run 取 `MAX(tokens_used)`（累计快照去重）再跨 run 求和，前端 `AgencyEval` 页同步展示；新增对应单测。
+- **rule grader 追读力对齐生产口径**：`reading_power_score_of` 的 coolpoint/micropayoff 归一化由 `min(count,3)/3.0` 改为每命中 +0.1（coolpoint cap 0.8、micropayoff cap 0.4），与 `reading_power/mod.rs` 生产实现一致。
 
 ### 修复
+
+- **CI 格式检查失败**：对 P4 resume 与 P5 学习/工作室代码做 `cargo +nightly fmt` / `prettier` 全量格式化，修复 `rust-check` 与 `frontend-check` 的 fmt 失败。
 
 - **StoryForge 迁移健壮性增强**：
   - 迁移失败时写入 `.storyforge_migration_failed` 标记，避免每次启动都重试并堆积备份。
@@ -25,6 +29,7 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **自动更新源迁移到官网**：应用内 updater 主端点改为 `https://storymoss.top/releases/latest.json`，GitHub Releases 保留为回退源；CI 构建完成后自动通过 FTP 将签名产物同步到 `storymoss.top/releases/`；落地页下载按钮同步指向官网源。
 - **CI FTP 主机解析兼容 URL 格式**：`.github/scripts/upload-releases-ftp.mjs` 现在支持 `FTP_HOST` 为 `ftp://host:port` 形式，优先使用 URL 中的端口，同时保留显式 `FTP_PORT` 的覆盖能力，避免 `ftp://` 前缀被错误地当作主机名解析。
 - **官网 latest.json 使用官网下载源**：上传脚本在把 `latest.json` 同步到 `storymoss.top` 前，会将其中的二进制下载 URL 从 GitHub Releases 重写为 `https://storymoss.top/releases/<filename>`；GitHub Releases 上的原始 `latest.json` 仍保留为回退端点。
+- **CI 新增 agency eval 场景测试**：`build.yml` 在非 Windows runner 上新增 `cargo test --lib agency::eval_harness` 步骤，固化 pass@k/pass^k 与 baseline 回归门。
 
 ## v0.29.0（2026-07-19）
 

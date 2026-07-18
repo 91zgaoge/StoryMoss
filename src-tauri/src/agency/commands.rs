@@ -132,7 +132,8 @@ pub async fn agency_continue_batch(
 }
 
 /// 跨会话恢复：立即返回 ResumeOutcome（含 new_run_id），续写 batch 在后台执行。
-/// 进度经 agency-run-progress / agency-agent-activity 事件推送；取消用 agency_cancel_run(new_run_id)。
+/// 进度经 agency-run-progress / agency-agent-activity 事件推送；取消用
+/// agency_cancel_run(new_run_id)。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_resume_run(
     old_run_id: String,
@@ -155,8 +156,12 @@ pub async fn agency_resume_run(
                     let rid_f = new_run_id.clone();
                     let msg = e.to_string();
                     match tokio::task::spawn_blocking(move || {
-                        AgencyRepository::new(pool_f)
-                            .finish_run(&rid_f, "failed", None, Some(msg.as_str()))
+                        AgencyRepository::new(pool_f).finish_run(
+                            &rid_f,
+                            "failed",
+                            None,
+                            Some(msg.as_str()),
+                        )
                     })
                     .await
                     {
@@ -269,8 +274,12 @@ pub async fn agency_list_checkpoints(
 ) -> Result<Vec<AgencyCheckpoint>, AppError> {
     let pool = pool.inner().clone();
     tokio::task::spawn_blocking(move || {
-        crate::agency::repository::AgencyRepository::new(pool).list_checkpoints(&story_id).map_err(AppError::from)
-    }).await.map_err(|e| AppError::from(format!("list_checkpoints join error: {}", e)))?
+        crate::agency::repository::AgencyRepository::new(pool)
+            .list_checkpoints(&story_id)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("list_checkpoints join error: {}", e)))?
 }
 
 /// 采集该 story 的 human 修改率信号（后置评分，不进 gate）。
@@ -305,63 +314,120 @@ pub struct PurposeUsage {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct StoryTokens {
+    pub total_tokens: i64,
+    pub run_count: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvalOverview {
     pub gate_history: Vec<GateHistoryItem>,
     pub pass_rate: f64,
     pub checkpoints: Vec<crate::agency::coordinator::AgencyCheckpoint>,
     pub human_signals: Vec<crate::agency::graders::HumanSignal>,
     pub token_usage: Vec<PurposeUsage>,
+    pub story_tokens: StoryTokens,
 }
 
-/// 评估仪表盘五段聚合：gate 历史 + pass_rate + checkpoints + human_signals + token_usage。
+/// 评估仪表盘六段聚合：gate 历史 + pass_rate + checkpoints + human_signals +
+/// token_usage（llm_calls 全局）+ story_tokens（检查点按故事聚合）。
 fn eval_overview(pool: &DbPool, story_id: &str) -> Result<EvalOverview, AppError> {
-    let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+    let conn = pool
+        .get()
+        .map_err(|e| AppError::from(format!("pool: {}", e)))?;
     // gate 历史（review 区 item_type='gate'）
     let mut stmt = conn.prepare(
         "SELECT key, content, created_at FROM agency_board_items
-         WHERE story_id = ?1 AND item_type = 'gate' ORDER BY created_at ASC, rowid ASC")?;
+         WHERE story_id = ?1 AND item_type = 'gate' ORDER BY created_at ASC, rowid ASC",
+    )?;
     let mut pass = 0usize;
     let mut total = 0usize;
-    let gate_history: Vec<GateHistoryItem> = stmt.query_map(rusqlite::params![story_id], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
-    })?.filter_map(|r| r.ok()).map(|(key, content, created_at)| {
-        let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
-        let outcome = json.get("outcome").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-        let gs = json.get("gate_score");
-        let f = |k: &str| gs.and_then(|g| g.get(k)).and_then(|v| v.as_f64());
-        if outcome == "pass" { pass += 1; }
-        total += 1;
-        GateHistoryItem {
-            key,
-            outcome,
-            weighted: f("weighted"),
-            code: f("code"),
-            rule: f("rule"),
-            model: f("model"),
-            created_at,
-        }
-    }).collect();
-    let pass_rate = if total == 0 { 0.0 } else { pass as f64 / total as f64 };
+    let gate_history: Vec<GateHistoryItem> = stmt
+        .query_map(rusqlite::params![story_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .map(|(key, content, created_at)| {
+            let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+            let outcome = json
+                .get("outcome")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let gs = json.get("gate_score");
+            let f = |k: &str| gs.and_then(|g| g.get(k)).and_then(|v| v.as_f64());
+            if outcome == "pass" {
+                pass += 1;
+            }
+            total += 1;
+            GateHistoryItem {
+                key,
+                outcome,
+                weighted: f("weighted"),
+                code: f("code"),
+                rule: f("rule"),
+                model: f("model"),
+                created_at,
+            }
+        })
+        .collect();
+    let pass_rate = if total == 0 {
+        0.0
+    } else {
+        pass as f64 / total as f64
+    };
     // token 用量（llm_calls purpose 聚合）
     let mut usage_stmt = conn.prepare(
         "SELECT purpose, COUNT(*), SUM(total_tokens), SUM(duration_ms)
          FROM llm_calls WHERE purpose IN ('agency_writer','agency_producer','agency_editor')
-         GROUP BY purpose")?;
-    let token_usage: Vec<PurposeUsage> = usage_stmt.query_map([], |r| {
-        Ok(PurposeUsage {
-            purpose: r.get(0)?,
-            calls: r.get(1)?,
-            total_tokens: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
-            total_duration_ms: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
-        })
-    })?.filter_map(|r| r.ok()).collect();
+         GROUP BY purpose",
+    )?;
+    let token_usage: Vec<PurposeUsage> = usage_stmt
+        .query_map([], |r| {
+            Ok(PurposeUsage {
+                purpose: r.get(0)?,
+                calls: r.get(1)?,
+                total_tokens: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                total_duration_ms: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
     let checkpoints = crate::agency::repository::AgencyRepository::new(pool.clone())
-        .list_checkpoints(story_id).map_err(AppError::from)?;
+        .list_checkpoints(story_id)
+        .map_err(AppError::from)?;
     let human_signals = crate::agency::graders::human_signals(pool, story_id);
-    Ok(EvalOverview { gate_history, pass_rate, checkpoints, human_signals, token_usage })
+    // story 级 token 聚合：每 run 取 MAX(tokens_used)（累计快照），跨 run 求和
+    let story_tokens = conn
+        .query_row(
+            "SELECT COALESCE(SUM(t), 0), COUNT(*) FROM (
+           SELECT run_id, MAX(CAST(json_extract(metrics_json, '$.tokens_used') AS INTEGER)) AS t
+           FROM agency_checkpoints WHERE story_id = ?1 GROUP BY run_id
+         )",
+            rusqlite::params![story_id],
+            |r| {
+                Ok(StoryTokens {
+                    total_tokens: r.get(0)?,
+                    run_count: r.get(1)?,
+                })
+            },
+        )
+        .map_err(AppError::from)?;
+    Ok(EvalOverview {
+        gate_history,
+        pass_rate,
+        checkpoints,
+        human_signals,
+        token_usage,
+        story_tokens,
+    })
 }
 
-/// 评估仪表盘聚合数据（五段）。
+/// 评估仪表盘聚合数据（六段）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_eval_overview(
     story_id: String,
@@ -383,22 +449,31 @@ pub async fn agency_compare_checkpoints(
     let pool = pool.inner().clone();
     tokio::task::spawn_blocking(move || -> Result<_, AppError> {
         let repo = crate::agency::repository::AgencyRepository::new(pool);
-        let a = repo.get_checkpoint(&checkpoint_a).map_err(AppError::from)?
+        let a = repo
+            .get_checkpoint(&checkpoint_a)
+            .map_err(AppError::from)?
             .ok_or_else(|| AppError::validation_failed("checkpoint_a 不存在", None::<String>))?;
-        let b = repo.get_checkpoint(&checkpoint_b).map_err(AppError::from)?
+        let b = repo
+            .get_checkpoint(&checkpoint_b)
+            .map_err(AppError::from)?
             .ok_or_else(|| AppError::validation_failed("checkpoint_b 不存在", None::<String>))?;
         Ok(crate::agency::coordinator::compare_checkpoints(&a, &b))
-    }).await.map_err(|e| AppError::from(format!("compare join error: {}", e)))?
+    })
+    .await
+    .map_err(|e| AppError::from(format!("compare join error: {}", e)))?
 }
 
 /// 手动触发学习分析（观察 → instinct）；累计 ≥20 条的自动触发见
-/// coordinator.log_observation。analyzer 用 learning::ANALYZER_LABEL（防自观察）。
+/// coordinator.log_observation。analyzer 用
+/// learning::ANALYZER_LABEL（防自观察）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_analyze_learning(
     story_id: String,
     app_handle: AppHandle,
 ) -> Result<crate::agency::learning::AnalyzeOutcome, AppError> {
-    let dir = app_handle.path().app_data_dir()
+    let dir = app_handle
+        .path()
+        .app_data_dir()
         .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     let logger = crate::agency::learning::ObservationLogger::new(dir);
     let llm = crate::agency::coordinator::AgencyLlm::new(
@@ -419,7 +494,9 @@ pub async fn agency_instinct_feedback(
     accepted: bool,
     app_handle: AppHandle,
 ) -> Result<crate::agency::learning::Instinct, AppError> {
-    let dir = app_handle.path().app_data_dir()
+    let dir = app_handle
+        .path()
+        .app_data_dir()
         .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     let logger = crate::agency::learning::ObservationLogger::new(dir);
     tokio::task::spawn_blocking(move || {
@@ -435,13 +512,22 @@ pub async fn agency_promotion_candidates(
     story_id: String,
     app_handle: AppHandle,
 ) -> Result<Vec<crate::agency::learning::Instinct>, AppError> {
-    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     tokio::task::spawn_blocking(move || {
-        crate::agency::learning::promotion_candidates(&crate::agency::learning::ObservationLogger::new(dir), &story_id)
-    }).await.map_err(|e| AppError::from(format!("candidates join error: {}", e)))?
+        crate::agency::learning::promotion_candidates(
+            &crate::agency::learning::ObservationLogger::new(dir),
+            &story_id,
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(format!("candidates join error: {}", e)))?
 }
 
-/// 确认晋升：物化为 learned.<id> 目录技能 + 注册进内存 registry + 记录晋升观察。
+/// 确认晋升：物化为 learned.<id> 目录技能 + 注册进内存 registry +
+/// 记录晋升观察。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_confirm_promotion(
     story_id: String,
@@ -449,22 +535,42 @@ pub async fn agency_confirm_promotion(
     app_handle: AppHandle,
     skills: State<'_, crate::skills::SkillManager>,
 ) -> Result<crate::agency::learning::PromoteOutcome, AppError> {
-    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     let skills_dir = crate::skills::SkillManager::get_default_skills_dir();
     let story_id_log = story_id.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         crate::agency::learning::confirm_promotion(
-            &crate::agency::learning::ObservationLogger::new(dir), &story_id, &instinct_id, &skills_dir)
-    }).await.map_err(|e| AppError::from(format!("confirm join error: {}", e)))??;
-    // 注册进内存 registry（物化已在 skills_dir 同名目录原位，import_skill 对原地导入跳过拷贝）
+            &crate::agency::learning::ObservationLogger::new(dir),
+            &story_id,
+            &instinct_id,
+            &skills_dir,
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(format!("confirm join error: {}", e)))??;
+    // 注册进内存 registry（物化已在 skills_dir 同名目录原位，import_skill
+    // 对原地导入跳过拷贝）
     let skill_dir = crate::skills::SkillManager::get_default_skills_dir().join(&outcome.skill_id);
     let skill = skills.import_skill(&skill_dir)?;
-    // 观察：晋升事件（记录到源 story，而非 scope="global"——避免凭空创建 stories/global 目录）
+    // 观察：晋升事件（记录到源 story，而非 scope="global"——避免凭空创建
+    // stories/global 目录）
     let logger = crate::agency::learning::ObservationLogger::new(
-        app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?);
-    logger.log(&story_id_log, "promotion", "user", serde_json::json!({
-        "instinct_id": outcome.instinct.id, "skill_id": skill.manifest.id,
-    }));
+        app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?,
+    );
+    logger.log(
+        &story_id_log,
+        "promotion",
+        "user",
+        serde_json::json!({
+            "instinct_id": outcome.instinct.id, "skill_id": skill.manifest.id,
+        }),
+    );
     Ok(outcome)
 }
 
@@ -475,11 +581,19 @@ pub async fn agency_reject_promotion(
     instinct_id: String,
     app_handle: AppHandle,
 ) -> Result<crate::agency::learning::Instinct, AppError> {
-    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     tokio::task::spawn_blocking(move || {
         crate::agency::learning::reject_promotion(
-            &crate::agency::learning::ObservationLogger::new(dir), &story_id, &instinct_id)
-    }).await.map_err(|e| AppError::from(format!("reject join error: {}", e)))?
+            &crate::agency::learning::ObservationLogger::new(dir),
+            &story_id,
+            &instinct_id,
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(format!("reject join error: {}", e)))?
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -490,7 +604,8 @@ pub struct LearningOverview {
     pub unanalyzed_count: usize,
 }
 
-/// 学习中心聚合：惰性周衰减后读取 instincts + candidates + 最近观察 + 未分析计数。
+/// 学习中心聚合：惰性周衰减后读取 instincts + candidates + 最近观察 +
+/// 未分析计数。
 fn learning_overview(
     logger: &crate::agency::learning::ObservationLogger,
     story_id: &str,
@@ -501,7 +616,12 @@ fn learning_overview(
     let candidates = crate::agency::learning::promotion_candidates(logger, story_id)?;
     let recent_observations = logger.recent(story_id, 20);
     let unanalyzed_count = logger.count_unanalyzed(story_id);
-    Ok(LearningOverview { instincts, candidates, recent_observations, unanalyzed_count })
+    Ok(LearningOverview {
+        instincts,
+        candidates,
+        recent_observations,
+        unanalyzed_count,
+    })
 }
 
 /// 学习中心一页数据（instinct 列表 + 晋升候选 + 观察流 + 未分析计数）。
@@ -510,18 +630,25 @@ pub async fn agency_learning_overview(
     story_id: String,
     app_handle: AppHandle,
 ) -> Result<LearningOverview, AppError> {
-    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
     tokio::task::spawn_blocking(move || -> Result<LearningOverview, AppError> {
         let logger = crate::agency::learning::ObservationLogger::new(dir);
         learning_overview(&logger, &story_id)
-    }).await.map_err(|e| AppError::from(format!("learning overview join error: {}", e)))?
+    })
+    .await
+    .map_err(|e| AppError::from(format!("learning overview join error: {}", e)))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::models::{AgentRole, BoardItem, BoardZone};
-    use crate::db::create_test_pool;
+    use crate::{
+        agency::models::{AgentRole, BoardItem, BoardZone},
+        db::create_test_pool,
+    };
 
     fn seed_gate_item(pool: &DbPool, story_id: &str, key: &str, outcome: &str, weighted: f64) {
         let content = serde_json::json!({
@@ -540,7 +667,9 @@ mod tests {
             AgentRole::EditorAuditor,
             "active",
         );
-        AgencyRepository::new(pool.clone()).insert_item(&item).unwrap();
+        AgencyRepository::new(pool.clone())
+            .insert_item(&item)
+            .unwrap();
     }
 
     #[test]
@@ -595,6 +724,50 @@ mod tests {
         assert_eq!(w.total_duration_ms, 40);
     }
 
+    #[test]
+    fn eval_overview_story_tokens_max_per_run_then_sum() {
+        let pool = create_test_pool().unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        for (run_id, story_id) in [
+            ("st-r1", "story-1"),
+            ("st-r2", "story-1"),
+            ("st-r3", "story-2"),
+        ] {
+            repo.create_run(&crate::agency::models::AgencyRun::new(run_id, "前提"))
+                .unwrap();
+            repo.set_run_story(run_id, story_id).unwrap();
+            // 同 story 仅允许一个活跃 run（V109 部分唯一索引）：置为终态再种下一个
+            repo.finish_run(run_id, "completed", None, None).unwrap();
+        }
+        let cp = |run_id, story_id, milestone, tokens| {
+            crate::agency::coordinator::AgencyCheckpoint::new(
+                run_id,
+                story_id,
+                milestone,
+                None,
+                serde_json::json!({"chapters_done": 0, "words_total": 0, "gate_scores": [], "tokens_used": tokens, "elapsed_s": 1}),
+            )
+        };
+        // r1 两个 checkpoint（累计快照）：取 MAX 300 而非 100+300
+        repo.insert_checkpoint(&cp("st-r1", "story-1", "assets", 100))
+            .unwrap();
+        repo.insert_checkpoint(&cp("st-r1", "story-1", "run_final", 300))
+            .unwrap();
+        repo.insert_checkpoint(&cp("st-r2", "story-1", "run_final", 500))
+            .unwrap();
+        // 其他 story 不混入
+        repo.insert_checkpoint(&cp("st-r3", "story-2", "run_final", 999))
+            .unwrap();
+
+        let overview = eval_overview(&pool, "story-1").unwrap();
+        assert_eq!(overview.story_tokens.total_tokens, 800);
+        assert_eq!(overview.story_tokens.run_count, 2);
+        // 无 checkpoint 的 story：0 / 0
+        let empty = eval_overview(&pool, "story-x").unwrap();
+        assert_eq!(empty.story_tokens.total_tokens, 0);
+        assert_eq!(empty.story_tokens.run_count, 0);
+    }
+
     /// 写一份 instinct md（frontmatter 契约同 learning::render_instinct）。
     fn seed_instinct_file(
         logger: &crate::agency::learning::ObservationLogger,
@@ -627,7 +800,12 @@ mod tests {
         seed_instinct_file(&logger, "s1", "inst-x", "触发X", 0.85, "candidate");
         seed_instinct_file(&logger, "s2", "inst-y", "触发X", 0.6, "pending");
         for i in 0..3 {
-            logger.log("s1", "gate", "editor_auditor", serde_json::json!({ "i": i }));
+            logger.log(
+                "s1",
+                "gate",
+                "editor_auditor",
+                serde_json::json!({ "i": i }),
+            );
         }
 
         let ov = learning_overview(&logger, "s1").unwrap();

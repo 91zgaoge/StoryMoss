@@ -1,7 +1,6 @@
 //! 确定性 grader 层（code/rule，ECC 四级 grader 的前两级——零 LLM 成本）。
 
-use crate::db::DbPool;
-use crate::domain::contracts::RuntimeContract;
+use crate::{db::DbPool, domain::contracts::RuntimeContract};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CodeGraderReport {
@@ -44,7 +43,10 @@ pub fn run_code_grader(content: &str, contract: Option<&RuntimeContract>) -> Cod
         // 每超 0.01 扣 0.05（ceil 取档），上限 0.4
         let penalty = ((repetition_ratio - 0.08) * 100.0).ceil() * 0.05;
         score -= penalty.min(0.4);
-        issues.push(format!("自重复率 {:.1}%（阈值 8%）", repetition_ratio * 100.0));
+        issues.push(format!(
+            "自重复率 {:.1}%（阈值 8%）",
+            repetition_ratio * 100.0
+        ));
     }
     // 字数（length_penalty 取大者）
     if word_count < 200 {
@@ -168,13 +170,17 @@ pub fn modification_ratio(delivered: &str, current: &str) -> f64 {
     let b = bigrams(current);
     let inter = a.intersection(&b).count() as f64;
     let union = a.union(&b).count() as f64;
-    if union == 0.0 { 0.0 } else { 1.0 - inter / union }
+    if union == 0.0 {
+        0.0
+    } else {
+        1.0 - inter / union
+    }
 }
 
 /// 按 story 采集修改率（同步；调用方 spawn_blocking）。
-/// delivered = 黑板 draft 区该章最新 active 条目 content；current = scenes.content 现值。
-/// Rust 侧配对：parse_chapter_number("第N章")=N 与 scene.sequence_number=N；
-/// 无 draft 条目的章跳过。
+/// delivered = 黑板 draft 区该章最新 active 条目 content；current =
+/// scenes.content 现值。 Rust 侧配对：parse_chapter_number("第N章")=N 与
+/// scene.sequence_number=N； 无 draft 条目的章跳过。
 pub fn human_signals(pool: &DbPool, story_id: &str) -> Vec<HumanSignal> {
     let items = match crate::agency::repository::AgencyRepository::new(pool.clone())
         .list_items_for_story(story_id, Some(crate::agency::models::BoardZone::Draft))
@@ -185,7 +191,8 @@ pub fn human_signals(pool: &DbPool, story_id: &str) -> Vec<HumanSignal> {
             return Vec::new();
         }
     };
-    // 每章取最新 active chapter 条目（列表按 created_at ASC, rowid ASC，后写覆盖先得）
+    // 每章取最新 active chapter 条目（列表按 created_at ASC, rowid
+    // ASC，后写覆盖先得）
     let mut delivered_by_chapter: std::collections::HashMap<i32, String> =
         std::collections::HashMap::new();
     for item in items
@@ -199,15 +206,14 @@ pub fn human_signals(pool: &DbPool, story_id: &str) -> Vec<HumanSignal> {
     if delivered_by_chapter.is_empty() {
         return Vec::new();
     }
-    let scenes = match crate::db::repositories::SceneRepository::new(pool.clone())
-        .get_by_story(story_id)
-    {
-        Ok(scenes) => scenes,
-        Err(e) => {
-            log::warn!("human_signals 读取 scenes 失败: {}", e);
-            return Vec::new();
-        }
-    };
+    let scenes =
+        match crate::db::repositories::SceneRepository::new(pool.clone()).get_by_story(story_id) {
+            Ok(scenes) => scenes,
+            Err(e) => {
+                log::warn!("human_signals 读取 scenes 失败: {}", e);
+                return Vec::new();
+            }
+        };
     let mut out = Vec::new();
     for scene in &scenes {
         let delivered = match delivered_by_chapter.get(&scene.sequence_number) {
@@ -230,8 +236,9 @@ pub fn human_signals(pool: &DbPool, story_id: &str) -> Vec<HumanSignal> {
 
 fn reading_power_score_of(content: &str) -> f64 {
     let features = crate::reading_power::evaluator::ContentFeatureExtractor::extract(content);
-    // hook 映射沿用 reading_power/mod.rs 既有约定（evaluator 只产出 hook_type 枚举串）：
-    // 过渡章 0；cliffhanger/mystery 0.9；emotional/action 0.6；其余（weak/None）0.3
+    // hook 映射沿用 reading_power/mod.rs 既有约定（evaluator 只产出 hook_type
+    // 枚举串）： 过渡章 0；cliffhanger/mystery 0.9；emotional/action
+    // 0.6；其余（weak/None）0.3
     let hook = if features.is_transition {
         0.0
     } else {
@@ -241,9 +248,10 @@ fn reading_power_score_of(content: &str) -> f64 {
             _ => 0.3,
         }
     };
-    // coolpoint/micropayoff 归一化：min(count,3)/3.0
-    let coolpoint = features.coolpoint_patterns.len().min(3) as f64 / 3.0;
-    let micropayoff = features.micropayoffs.len().min(3) as f64 / 3.0;
+    // coolpoint/micropayoff 归一化改生产口径（reading_power/mod.rs:112-115）：
+    // 每命中 +0.1，coolpoint 上限 0.8、micropayoff 上限 0.4
+    let coolpoint = (features.coolpoint_patterns.len() as f64 * 0.1).min(0.8);
+    let micropayoff = (features.micropayoffs.len() as f64 * 0.1).min(0.4);
     (hook * 0.4 + coolpoint * 0.3 + micropayoff * 0.3).clamp(0.0, 1.0)
 }
 
@@ -308,21 +316,41 @@ mod tests {
     #[test]
     fn test_human_signals_from_board_and_scene() {
         let pool = create_test_pool().unwrap();
-        // 种子：run + draft 条目（第1章，content="原文"）+ scene(seq=1, content="原文改了一字")
+        // 种子：run + draft 条目（第1章，content="原文"）+ scene(seq=1,
+        // content="原文改了一字")
         let repo = crate::agency::repository::AgencyRepository::new(pool.clone());
-        repo.create_run(&crate::agency::models::AgencyRun::new("hs-1", "前提")).unwrap();
+        repo.create_run(&crate::agency::models::AgencyRun::new("hs-1", "前提"))
+            .unwrap();
         repo.set_run_story("hs-1", "s1").unwrap();
         let board = crate::agency::board::BlackboardService::new(pool.clone());
-        board.write("hs-1", "s1", crate::agency::models::AgentRole::LeadWriter,
-            crate::agency::models::BoardZone::Draft, "chapter", "第1章", "原文内容", "一").unwrap();
+        board
+            .write(
+                "hs-1",
+                "s1",
+                crate::agency::models::AgentRole::LeadWriter,
+                crate::agency::models::BoardZone::Draft,
+                "chapter",
+                "第1章",
+                "原文内容",
+                "一",
+            )
+            .unwrap();
         {
             let conn = pool.get().unwrap();
             conn.execute("INSERT INTO stories (id, title, created_at, updated_at) VALUES ('s1', '书', '2026-01-01', '2026-01-01')", []).unwrap();
         }
-        let scene = crate::db::repositories::SceneRepository::new(pool.clone()).create("s1", 1, Some("第1章")).unwrap();
-        crate::db::repositories::SceneRepository::new(pool.clone()).update(&scene.id, &crate::db::repositories::SceneUpdate {
-            content: Some("原文内容改".to_string()), ..Default::default()
-        }).unwrap();
+        let scene = crate::db::repositories::SceneRepository::new(pool.clone())
+            .create("s1", 1, Some("第1章"))
+            .unwrap();
+        crate::db::repositories::SceneRepository::new(pool.clone())
+            .update(
+                &scene.id,
+                &crate::db::repositories::SceneUpdate {
+                    content: Some("原文内容改".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let signals = human_signals(&pool, "s1");
         assert_eq!(signals.len(), 1);
         assert_eq!(signals[0].scene_id, scene.id);

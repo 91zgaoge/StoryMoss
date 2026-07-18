@@ -19,7 +19,7 @@ describe('AgencyStudio', () => {
     render(
       <QueryClientProvider client={qc}>
         <AgencyStudio />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     );
     expect(await screen.findByText('主创')).toBeInTheDocument();
     expect(await screen.findByText('管理')).toBeInTheDocument();

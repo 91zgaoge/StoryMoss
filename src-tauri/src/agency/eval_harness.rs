@@ -1,5 +1,6 @@
-//! Eval harness：JSON 场景 → 种子 DB + 角色队列 mock → 驱动 coordinator → 断言期望。
-//! CI 跑确定性模式（随 cargo test --lib）；real-LLM 模式经 IPC（T9 agency_run_evals(live)）。
+//! Eval harness：JSON 场景 → 种子 DB + 角色队列 mock → 驱动 coordinator →
+//! 断言期望。 CI 跑确定性模式（随 cargo test --lib）；real-LLM 模式经 IPC（T9
+//! agency_run_evals(live)）。
 
 use std::{
     collections::VecDeque,
@@ -118,7 +119,11 @@ pub fn load_scenarios(dir: &std::path::Path) -> Result<Vec<EvalScenario>, crate:
     let scenarios_dir = dir.join("scenarios");
     let mut entries: Vec<_> = std::fs::read_dir(&scenarios_dir)
         .map_err(|e| {
-            crate::error::AppError::from(format!("读场景目录失败 {}: {}", scenarios_dir.display(), e))
+            crate::error::AppError::from(format!(
+                "读场景目录失败 {}: {}",
+                scenarios_dir.display(),
+                e
+            ))
         })?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
@@ -126,10 +131,9 @@ pub fn load_scenarios(dir: &std::path::Path) -> Result<Vec<EvalScenario>, crate:
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
         let text = std::fs::read_to_string(entry.path()).map_err(crate::error::AppError::from)?;
-        let scenario: EvalScenario = serde_json::from_str(&text)
-            .map_err(|e| {
-                crate::error::AppError::from(format!("场景解析失败 {}: {}", entry.path().display(), e))
-            })?;
+        let scenario: EvalScenario = serde_json::from_str(&text).map_err(|e| {
+            crate::error::AppError::from(format!("场景解析失败 {}: {}", entry.path().display(), e))
+        })?;
         out.push(scenario);
     }
     Ok(out)
@@ -158,7 +162,13 @@ pub fn pass_pow_k(results: &[bool]) -> f64 {
 pub fn check_against_baseline(outcomes: &[EvalOutcome], baseline: &Baseline) -> Vec<String> {
     outcomes
         .iter()
-        .filter(|o| baseline.get(&o.scenario_id).map(|b| b.passed).unwrap_or(false) && !o.passed)
+        .filter(|o| {
+            baseline
+                .get(&o.scenario_id)
+                .map(|b| b.passed)
+                .unwrap_or(false)
+                && !o.passed
+        })
         .map(|o| format!("回归: {} 曾通过现失败 ({})", o.scenario_id, o.details))
         .collect()
 }
@@ -242,7 +252,12 @@ async fn run_scenario_inner(pool: &DbPool, scenario: &EvalScenario) -> Result<()
         }
         "batch" => {
             let r = coordinator
-                .run_continue_batch(&run_id, &story_id, scenario.expect.chapter, scenario.expect.count)
+                .run_continue_batch(
+                    &run_id,
+                    &story_id,
+                    scenario.expect.chapter,
+                    scenario.expect.count,
+                )
                 .await
                 .map_err(|e| format!("run_continue_batch 失败: {}", e))?;
             Some(r.chapters.iter().any(|c| c.revised))
@@ -253,7 +268,10 @@ async fn run_scenario_inner(pool: &DbPool, scenario: &EvalScenario) -> Result<()
     // 2) 断言（失败信息进 details）
     if let Some(expected) = scenario.expect.revised {
         if revised_actual != Some(expected) {
-            return Err(format!("revised 期望 {} 实际 {:?}", expected, revised_actual));
+            return Err(format!(
+                "revised 期望 {} 实际 {:?}",
+                expected, revised_actual
+            ));
         }
     }
     if let Some(status) = &scenario.expect.run_status {
@@ -364,7 +382,11 @@ mod tests {
     fn test_load_scenarios_from_repo_dir() {
         let dir = evals_dir();
         let scenarios = load_scenarios(&dir).unwrap();
-        assert!(scenarios.len() >= 3, "仓库应内置 ≥3 个场景: {}", scenarios.len());
+        assert!(
+            scenarios.len() >= 3,
+            "仓库应内置 ≥3 个场景: {}",
+            scenarios.len()
+        );
         assert!(scenarios.iter().any(|s| s.id == "gate-pass-basic"));
     }
 
@@ -382,20 +404,39 @@ mod tests {
             .filter(|o| !o.passed)
             .map(|o| format!("{}: {}", o.scenario_id, o.details))
             .collect();
-        assert!(failures.is_empty(), "eval 场景失败:\n{}", failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "eval 场景失败:\n{}",
+            failures.join("\n")
+        );
         // baseline 回归门：曾通过的场景不得转失败
         let baseline_text = std::fs::read_to_string(evals_dir().join("baseline.json")).unwrap();
         let baseline: Baseline = serde_json::from_str(&baseline_text).unwrap();
         let regressions = check_against_baseline(&outcomes, &baseline);
-        assert!(regressions.is_empty(), "eval 回归:\n{}", regressions.join("\n"));
+        assert!(
+            regressions.is_empty(),
+            "eval 回归:\n{}",
+            regressions.join("\n")
+        );
     }
 
     #[test]
     fn test_baseline_regression_detection() {
-        let baseline: Baseline = serde_json::from_str(r#"{"gate-pass-basic": {"passed": true}}"#).unwrap();
+        let baseline: Baseline =
+            serde_json::from_str(r#"{"gate-pass-basic": {"passed": true}}"#).unwrap();
         let outcomes = vec![
-            EvalOutcome { scenario_id: "gate-pass-basic".into(), passed: false, details: "x".into(), duration_ms: 1 },
-            EvalOutcome { scenario_id: "new-scenario".into(), passed: true, details: "y".into(), duration_ms: 1 },
+            EvalOutcome {
+                scenario_id: "gate-pass-basic".into(),
+                passed: false,
+                details: "x".into(),
+                duration_ms: 1,
+            },
+            EvalOutcome {
+                scenario_id: "new-scenario".into(),
+                passed: true,
+                details: "y".into(),
+                duration_ms: 1,
+            },
         ];
         let regressions = check_against_baseline(&outcomes, &baseline);
         assert_eq!(regressions.len(), 1);

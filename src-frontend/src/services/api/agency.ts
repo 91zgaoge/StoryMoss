@@ -36,12 +36,18 @@ export interface HumanSignal {
   evaluated_at: string;
 }
 
+export interface StoryTokens {
+  total_tokens: number;
+  run_count: number;
+}
+
 export interface EvalOverview {
   gate_history: GateHistoryItem[];
   pass_rate: number;
   checkpoints: AgencyCheckpoint[];
   human_signals: HumanSignal[];
   token_usage: PurposeUsage[];
+  story_tokens: StoryTokens;
 }
 
 export interface CheckpointDiff {
@@ -118,15 +124,25 @@ export function analyzeLearning(storyId: string) {
 }
 
 export function confirmPromotion(storyId: string, instinctId: string) {
-  return loggedInvoke<PromoteOutcome>('agency_confirm_promotion', { story_id: storyId, instinct_id: instinctId });
+  return loggedInvoke<PromoteOutcome>('agency_confirm_promotion', {
+    story_id: storyId,
+    instinct_id: instinctId,
+  });
 }
 
 export function rejectPromotion(storyId: string, instinctId: string) {
-  return loggedInvoke<Instinct>('agency_reject_promotion', { story_id: storyId, instinct_id: instinctId });
+  return loggedInvoke<Instinct>('agency_reject_promotion', {
+    story_id: storyId,
+    instinct_id: instinctId,
+  });
 }
 
 export function instinctFeedback(storyId: string, instinctId: string, accepted: boolean) {
-  return loggedInvoke<Instinct>('agency_instinct_feedback', { story_id: storyId, instinct_id: instinctId, accepted });
+  return loggedInvoke<Instinct>('agency_instinct_feedback', {
+    story_id: storyId,
+    instinct_id: instinctId,
+    accepted,
+  });
 }
 
 export interface BoardItem {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
-import { getEvalOverview } from '@/services/api/agency';
+import { getEvalOverview, listCheckpoints, compareCheckpoints } from '@/services/api/agency';
 import type { GateHistoryItem } from '@/services/api/agency';
 
 function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
@@ -19,13 +19,103 @@ function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-w-2xl">
       <line x1={pad} y1={y(0.75)} x2={w - pad} y2={y(0.75)} stroke="#f59e0b" strokeDasharray="4" />
-      <text x={w - pad + 2} y={y(0.75)} fontSize="10" fill="#f59e0b">0.75</text>
+      <text x={w - pad + 2} y={y(0.75)} fontSize="10" fill="#f59e0b">
+        0.75
+      </text>
       <path d={pathD} fill="none" stroke="#6366f1" strokeWidth="2" />
       {points.map((p, i) => (
-        <circle key={i} cx={x(i)} cy={y(p.weighted!)} r="3"
-          fill={p.outcome === 'pass' ? '#22c55e' : p.outcome === 'revise' ? '#f59e0b' : '#ef4444'} />
+        <circle
+          key={i}
+          cx={x(i)}
+          cy={y(p.weighted!)}
+          r="3"
+          fill={p.outcome === 'pass' ? '#22c55e' : p.outcome === 'revise' ? '#f59e0b' : '#ef4444'}
+        />
       ))}
     </svg>
+  );
+}
+
+function CheckpointCompare({ storyId }: { storyId: string }) {
+  const { data: checkpoints } = useQuery({
+    queryKey: ['agency-checkpoints', storyId],
+    queryFn: () => listCheckpoints(storyId),
+    enabled: !!storyId,
+  });
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const { data: diff } = useQuery({
+    queryKey: ['agency-checkpoint-diff', a, b],
+    queryFn: () => compareCheckpoints(a, b),
+    enabled: !!a && !!b && a !== b,
+  });
+  if (!checkpoints || checkpoints.length < 2) return null;
+  return (
+    <section>
+      <h2 className="mb-2 font-medium">检查点对比</h2>
+      <div className="flex gap-2">
+        <select
+          value={a}
+          onChange={e => setA(e.target.value)}
+          className="rounded border px-2 py-1 text-sm"
+        >
+          <option value="">基准…</option>
+          {checkpoints.map(c => (
+            <option key={c.id} value={c.id}>
+              {c.milestone}
+              {c.chapter_number != null ? ` · 第${c.chapter_number}章` : ''} ·{' '}
+              {c.created_at.slice(0, 16)}
+            </option>
+          ))}
+        </select>
+        <select
+          value={b}
+          onChange={e => setB(e.target.value)}
+          className="rounded border px-2 py-1 text-sm"
+        >
+          <option value="">对比…</option>
+          {checkpoints.map(c => (
+            <option key={c.id} value={c.id}>
+              {c.milestone}
+              {c.chapter_number != null ? ` · 第${c.chapter_number}章` : ''} ·{' '}
+              {c.created_at.slice(0, 16)}
+            </option>
+          ))}
+        </select>
+      </div>
+      {diff && (
+        <div className="mt-2 grid grid-cols-4 gap-2 text-center text-sm">
+          <div className="rounded border p-2">
+            <div className="text-gray-500">字数</div>
+            <div>
+              {diff.words_delta >= 0 ? '+' : ''}
+              {diff.words_delta}
+            </div>
+          </div>
+          <div className="rounded border p-2">
+            <div className="text-gray-500">章节</div>
+            <div>
+              {diff.chapters_delta >= 0 ? '+' : ''}
+              {diff.chapters_delta}
+            </div>
+          </div>
+          <div className="rounded border p-2">
+            <div className="text-gray-500">tokens</div>
+            <div>
+              {diff.tokens_delta >= 0 ? '+' : ''}
+              {diff.tokens_delta}
+            </div>
+          </div>
+          <div className="rounded border p-2">
+            <div className="text-gray-500">加权分</div>
+            <div>
+              {diff.gate_weighted_delta >= 0 ? '+' : ''}
+              {diff.gate_weighted_delta.toFixed(2)}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -63,7 +153,7 @@ export default function AgencyEval() {
           <div className="text-2xl font-bold">
             {data.human_signals.length === 0
               ? '—'
-              : `${(data.human_signals.reduce((a, s) => a + s.modification_ratio, 0) / data.human_signals.length * 100).toFixed(0)}%`}
+              : `${((data.human_signals.reduce((a, s) => a + s.modification_ratio, 0) / data.human_signals.length) * 100).toFixed(0)}%`}
           </div>
           <div className="text-xs text-gray-400">平均修改率</div>
         </div>
@@ -79,7 +169,13 @@ export default function AgencyEval() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-gray-500">
-              <th>条目</th><th>结果</th><th>加权</th><th>code</th><th>rule</th><th>model</th><th>时间</th>
+              <th>条目</th>
+              <th>结果</th>
+              <th>加权</th>
+              <th>code</th>
+              <th>rule</th>
+              <th>model</th>
+              <th>时间</th>
             </tr>
           </thead>
           <tbody>
@@ -100,8 +196,19 @@ export default function AgencyEval() {
 
       <section>
         <h2 className="mb-2 font-medium">Agency token 用量（按角色，全局）</h2>
+        <p className="mb-1 text-sm text-gray-500">
+          本故事累计（检查点）：{data.story_tokens.total_tokens} tokens /{' '}
+          {data.story_tokens.run_count} runs
+        </p>
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-gray-500"><th>角色</th><th>调用</th><th>总 tokens</th><th>总耗时(ms)</th></tr></thead>
+          <thead>
+            <tr className="text-left text-gray-500">
+              <th>角色</th>
+              <th>调用</th>
+              <th>总 tokens</th>
+              <th>总耗时(ms)</th>
+            </tr>
+          </thead>
           <tbody>
             {data.token_usage.map(u => (
               <tr key={u.purpose} className="border-t">
@@ -114,6 +221,8 @@ export default function AgencyEval() {
           </tbody>
         </table>
       </section>
+
+      <CheckpointCompare storyId={storyId} />
     </div>
   );
 }

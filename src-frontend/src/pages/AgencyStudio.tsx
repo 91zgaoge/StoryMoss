@@ -66,7 +66,11 @@ export default function AgencyStudio() {
         qc.invalidateQueries({ queryKey: ['agency-board', e.payload.run_id] });
       });
     })();
-    return () => { un1?.(); un2?.(); un3?.(); };
+    return () => {
+      un1?.();
+      un2?.();
+      un3?.();
+    };
   }, [qc]);
 
   const { data: board } = useQuery({
@@ -140,7 +144,9 @@ export default function AgencyStudio() {
                     <div key={item.id} className="rounded bg-gray-50 p-2 text-sm">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">{item.key}</span>
-                        <span className="text-xs text-gray-400">v{item.version} · {item.status}</span>
+                        <span className="text-xs text-gray-400">
+                          v{item.version} · {item.status}
+                        </span>
                       </div>
                       <div className="truncate text-xs text-gray-500">{item.summary}</div>
                     </div>

@@ -715,11 +715,17 @@ mod tests {
         repo.create_run(&AgencyRun::new("cp-run", "前提")).unwrap();
         repo.set_run_story("cp-run", "s1").unwrap();
         let cp1 = crate::agency::coordinator::AgencyCheckpoint::new(
-            "cp-run", "s1", "assets", None,
+            "cp-run",
+            "s1",
+            "assets",
+            None,
             serde_json::json!({"chapters_done": 0, "words_total": 0, "gate_scores": [], "tokens_used": 5000, "elapsed_s": 30}),
         );
         let cp2 = crate::agency::coordinator::AgencyCheckpoint::new(
-            "cp-run", "s1", "chapter", Some(1),
+            "cp-run",
+            "s1",
+            "chapter",
+            Some(1),
             serde_json::json!({"chapters_done": 1, "words_total": 2100, "gate_scores": [{"chapter": 1, "weighted": 0.82}], "tokens_used": 42000, "elapsed_s": 180}),
         );
         repo.insert_checkpoint(&cp1).unwrap();

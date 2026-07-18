@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import {
-  getLearningOverview, analyzeLearning, confirmPromotion, rejectPromotion, instinctFeedback,
+  getLearningOverview,
+  analyzeLearning,
+  confirmPromotion,
+  rejectPromotion,
+  instinctFeedback,
 } from '@/services/api/agency';
 import type { Instinct } from '@/services/api/agency';
 
@@ -62,7 +66,10 @@ export default function AgencyLearning() {
           <h2 className="mb-2 font-medium">晋升提案（{data.candidates.length}）</h2>
           <div className="space-y-2">
             {data.candidates.map(c => (
-              <div key={c.id} className="flex items-center justify-between rounded border border-amber-300 bg-amber-50 p-3">
+              <div
+                key={c.id}
+                className="flex items-center justify-between rounded border border-amber-300 bg-amber-50 p-3"
+              >
                 <div>
                   <div className="font-medium">{c.trigger}</div>
                   <div className="text-sm text-gray-600">{c.action}</div>
@@ -74,13 +81,23 @@ export default function AgencyLearning() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={async () => { await confirmPromotion(storyId, c.id); await refresh(); }}
+                    onClick={async () => {
+                      await confirmPromotion(storyId, c.id);
+                      await refresh();
+                    }}
                     className="rounded bg-green-600 px-3 py-1 text-sm text-white"
-                  >确认为技能</button>
+                  >
+                    确认为技能
+                  </button>
                   <button
-                    onClick={async () => { await rejectPromotion(storyId, c.id); await refresh(); }}
+                    onClick={async () => {
+                      await rejectPromotion(storyId, c.id);
+                      await refresh();
+                    }}
                     className="rounded border px-3 py-1 text-sm"
-                  >拒绝</button>
+                  >
+                    拒绝
+                  </button>
                 </div>
               </div>
             ))}
@@ -90,21 +107,42 @@ export default function AgencyLearning() {
 
       <section>
         <h2 className="mb-2 font-medium">已学模式（{data.instincts.length}）</h2>
-        {data.instincts.length === 0 && <p className="text-sm text-gray-500">尚无模式——创作几章后点击"立即分析"。</p>}
+        {data.instincts.length === 0 && (
+          <p className="text-sm text-gray-500">尚无模式——创作几章后点击"立即分析"。</p>
+        )}
         <div className="space-y-2">
           {data.instincts.map((i: Instinct) => (
             <div key={i.id} className="rounded border p-3">
               <div className="flex items-center justify-between">
                 <div className="font-medium">{i.trigger}</div>
-                <span className="text-xs text-gray-400">{i.status}{i.scope === 'global' ? ' · global' : ''}</span>
+                <span className="text-xs text-gray-400">
+                  {i.status}
+                  {i.scope === 'global' ? ' · global' : ''}
+                </span>
               </div>
               <div className="text-sm text-gray-600">{i.action}</div>
               <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
                 <ConfidenceBar value={i.confidence} />
                 <span>{(i.confidence * 100).toFixed(0)}%</span>
                 <span>证据 {i.evidence_count}</span>
-                <button onClick={async () => { await instinctFeedback(storyId, i.id, true); await refresh(); }} className="ml-2 underline">有用</button>
-                <button onClick={async () => { await instinctFeedback(storyId, i.id, false); await refresh(); }} className="underline">不准</button>
+                <button
+                  onClick={async () => {
+                    await instinctFeedback(storyId, i.id, true);
+                    await refresh();
+                  }}
+                  className="ml-2 underline"
+                >
+                  有用
+                </button>
+                <button
+                  onClick={async () => {
+                    await instinctFeedback(storyId, i.id, false);
+                    await refresh();
+                  }}
+                  className="underline"
+                >
+                  不准
+                </button>
               </div>
             </div>
           ))}
@@ -114,16 +152,26 @@ export default function AgencyLearning() {
       <section>
         <h2 className="mb-2 font-medium">最近观察</h2>
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-gray-500"><th>时间</th><th>类型</th><th>角色</th><th>摘要</th></tr></thead>
+          <thead>
+            <tr className="text-left text-gray-500">
+              <th>时间</th>
+              <th>类型</th>
+              <th>角色</th>
+              <th>摘要</th>
+            </tr>
+          </thead>
           <tbody>
-            {data.recent_observations.slice().reverse().map((o, idx) => (
-              <tr key={idx} className="border-t">
-                <td className="text-gray-400">{o.ts.slice(5, 16)}</td>
-                <td>{o.kind}</td>
-                <td>{o.actor}</td>
-                <td className="max-w-md truncate">{JSON.stringify(o.payload)}</td>
-              </tr>
-            ))}
+            {data.recent_observations
+              .slice()
+              .reverse()
+              .map((o, idx) => (
+                <tr key={idx} className="border-t">
+                  <td className="text-gray-400">{o.ts.slice(5, 16)}</td>
+                  <td>{o.kind}</td>
+                  <td>{o.actor}</td>
+                  <td className="max-w-md truncate">{JSON.stringify(o.payload)}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </section>

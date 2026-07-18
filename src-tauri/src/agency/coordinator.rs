@@ -85,16 +85,12 @@ static ANALYZER_IN_FLIGHT: Lazy<Mutex<std::collections::HashSet<String>>> =
 
 /// 尝试标记 story 的 analyzer 在飞；已在飞返回 false（调用方应跳过本轮触发）。
 fn analyzer_try_mark(story_id: &str) -> bool {
-    let mut set = ANALYZER_IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut set = ANALYZER_IN_FLIGHT.lock().unwrap_or_else(|p| p.into_inner());
     set.insert(story_id.to_string())
 }
 
 fn analyzer_unmark(story_id: &str) {
-    let mut set = ANALYZER_IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut set = ANALYZER_IN_FLIGHT.lock().unwrap_or_else(|p| p.into_inner());
     set.remove(story_id);
 }
 
@@ -304,12 +300,7 @@ impl LoopLlm for AgencyLlm {
 impl AgencyLlm {
     /// llm_call 观察（fire-and-forget）：防自观察经 should_record（label 即
     /// context_label，observer/analyzer 前缀不记录）。
-    fn log_llm_call(
-        &self,
-        label: &str,
-        r: &crate::llm::adapter::GenerateResponse,
-        task: TaskType,
-    ) {
+    fn log_llm_call(&self, label: &str, r: &crate::llm::adapter::GenerateResponse, task: TaskType) {
         use crate::agency::learning::ObservationLogger;
         if self.story_id.is_empty() || !ObservationLogger::should_record(label) {
             return;
@@ -324,9 +315,14 @@ impl AgencyLlm {
         let tokens = r.tokens_used;
         let cost = r.cost;
         tokio::spawn(async move {
-            logger.log(&sid, "llm_call", &role, serde_json::json!({
-                "model": model, "tokens": tokens, "cost": cost, "task": format!("{:?}", task),
-            }));
+            logger.log(
+                &sid,
+                "llm_call",
+                &role,
+                serde_json::json!({
+                    "model": model, "tokens": tokens, "cost": cost, "task": format!("{:?}", task),
+                }),
+            );
         });
     }
 }
@@ -420,7 +416,13 @@ pub struct AgencyCheckpoint {
 }
 
 impl AgencyCheckpoint {
-    pub fn new(run_id: &str, story_id: &str, milestone: &str, chapter_number: Option<i32>, metrics: serde_json::Value) -> Self {
+    pub fn new(
+        run_id: &str,
+        story_id: &str,
+        milestone: &str,
+        chapter_number: Option<i32>,
+        metrics: serde_json::Value,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             run_id: run_id.to_string(),
@@ -445,12 +447,14 @@ pub fn compare_checkpoints(a: &AgencyCheckpoint, b: &AgencyCheckpoint) -> Checkp
     let ma: serde_json::Value = serde_json::from_str(&a.metrics_json).unwrap_or_default();
     let mb: serde_json::Value = serde_json::from_str(&b.metrics_json).unwrap_or_default();
     let num = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
-    let last_weighted = |v: &serde_json::Value| v.get("gate_scores")
-        .and_then(|g| g.as_array())
-        .and_then(|arr| arr.last())
-        .and_then(|s| s.get("weighted"))
-        .and_then(|w| w.as_f64())
-        .unwrap_or(0.0);
+    let last_weighted = |v: &serde_json::Value| {
+        v.get("gate_scores")
+            .and_then(|g| g.as_array())
+            .and_then(|arr| arr.last())
+            .and_then(|s| s.get("weighted"))
+            .and_then(|w| w.as_f64())
+            .unwrap_or(0.0)
+    };
     CheckpointDiff {
         words_delta: num(&mb, "words_total") - num(&ma, "words_total"),
         chapters_delta: num(&mb, "chapters_done") - num(&ma, "chapters_done"),
@@ -613,25 +617,42 @@ impl AgencyCoordinator {
     }
 
     /// 检查点落库（best-effort，不阻塞主流程；失败仅 warn）。
-    async fn checkpoint(&self, run_id: &str, story_id: &str, milestone: &str,
-        chapter_number: Option<i32>, metrics: serde_json::Value) {
+    async fn checkpoint(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        milestone: &str,
+        chapter_number: Option<i32>,
+        metrics: serde_json::Value,
+    ) {
         let cp = AgencyCheckpoint::new(run_id, story_id, milestone, chapter_number, metrics);
         let pool = self.pool.clone();
-        if let Err(e) = self.db(move || {
-            crate::agency::repository::AgencyRepository::new(pool)
-                .insert_checkpoint(&cp)
-                .map_err(AppError::from)
-        }).await {
+        if let Err(e) = self
+            .db(move || {
+                crate::agency::repository::AgencyRepository::new(pool)
+                    .insert_checkpoint(&cp)
+                    .map_err(AppError::from)
+            })
+            .await
+        {
             log::warn!(
                 "agency checkpoint: 落库失败 run={} milestone={}: {}",
-                run_id, milestone, e
+                run_id,
+                milestone,
+                e
             );
         }
     }
 
     /// 采集指标并落检查点（best-effort）。
-    async fn checkpoint_auto(&self, run_id: &str, story_id: &str, milestone: &str,
-        chapter_number: Option<i32>, budget: &Arc<AgencyBudget>) {
+    async fn checkpoint_auto(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        milestone: &str,
+        chapter_number: Option<i32>,
+        budget: &Arc<AgencyBudget>,
+    ) {
         let metrics = self.collect_metrics(run_id, story_id, budget).await;
         self.checkpoint(run_id, story_id, milestone, chapter_number, metrics)
             .await;
@@ -965,9 +986,11 @@ impl AgencyCoordinator {
         // 自动分析：未分析观察累计 ≥ANALYZE_THRESHOLD 触发后台 analyzer
         //（best-effort：失败只 warn；防自观察 label 见 learning::ANALYZER_LABEL）
         let Some(app) = &self.app_handle else { return };
-        let Ok(dir) = app.path().app_data_dir() else { return };
-        let count = crate::agency::learning::ObservationLogger::new(dir.clone())
-            .count_unanalyzed(story_id);
+        let Ok(dir) = app.path().app_data_dir() else {
+            return;
+        };
+        let count =
+            crate::agency::learning::ObservationLogger::new(dir.clone()).count_unanalyzed(story_id);
         if count < crate::agency::learning::ANALYZE_THRESHOLD {
             return;
         }
@@ -1025,7 +1048,8 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyGenesisResult, AppError> {
-        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6
+        // 并行循环共用同一 Arc）
         let run = AgencyRun::new(run_id, premise);
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from))
@@ -1338,7 +1362,8 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyContinueResult, AppError> {
-        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6
+        // 并行循环共用同一 Arc）
         let title = self
             .story_title(story_id)
             .await
@@ -1673,7 +1698,15 @@ impl AgencyCoordinator {
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let result = self
-            .run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel, &budget)
+            .run_batch_inner(
+                run_id,
+                story_id,
+                start_chapter,
+                count,
+                &repo,
+                &cancel,
+                &budget,
+            )
             .await;
         unregister_agency_cancel(run_id);
         match &result {
@@ -1752,7 +1785,8 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyBatchResult, AppError> {
-        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（与单章续写共用同一门径）
+        // run 级并发预算由外层创建传入：贯穿本 run
+        // 全部角色调用（与单章续写共用同一门径）
         let title = self
             .story_title(story_id)
             .await
@@ -2158,7 +2192,8 @@ impl AgencyCoordinator {
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted 元数据
-        //（Failed 无评分，weighted 为 null——与 record_gate_impl 的 gate_score 语义一致）
+        //（Failed 无评分，weighted 为 null——与 record_gate_impl 的 gate_score
+        //（Failed 语义一致）
         let (kind, issues_count) = gate_observation_meta(&outcome);
         self.log_observation(
             story_id,
@@ -2478,8 +2513,11 @@ async fn evaluate_gate_impl(
         &hints,
     )
     .await;
-    let gate_score =
-        crate::agency::gate::GateScore::new(code_report.score, rule_report.score, model.model_score);
+    let gate_score = crate::agency::gate::GateScore::new(
+        code_report.score,
+        rule_report.score,
+        model.model_score,
+    );
     // 3) 判定：revise+blocking 直接 RevisionRequired（issues 合并 blocking +
     //    复检问题 + code 问题，去重保留序）；规则复检 High+ 硬拦截（v1 语义
     //    保留）；否则 weighted < 阈值修订；否则放行
@@ -2530,7 +2568,16 @@ async fn evaluate_gate_impl(
         GateOutcome::Passed { verdict }
     };
     // 4) 判定落审查区（编辑审计为审查区 owner，active）
-    record_gate_impl(board, run_id, story_id, draft, &outcome, round, Some(&gate_score)).await?;
+    record_gate_impl(
+        board,
+        run_id,
+        story_id,
+        draft,
+        &outcome,
+        round,
+        Some(&gate_score),
+    )
+    .await?;
     Ok((outcome, Some(gate_score)))
 }
 
@@ -2650,7 +2697,7 @@ fn gate_observation_meta(outcome: &GateOutcome) -> (&'static str, usize) {
 }
 
 /// 观察层埋点（自由函数版，供 'static GateRunner 使用）：无 app_handle
-///（测试环境）或 app_data_dir 解析失败时跳过。
+/// （测试环境）或 app_data_dir 解析失败时跳过。
 fn spawn_observation(
     app_handle: &Option<AppHandle>,
     story_id: &str,
@@ -2659,7 +2706,9 @@ fn spawn_observation(
     payload: serde_json::Value,
 ) {
     let Some(app) = app_handle else { return };
-    let Ok(dir) = app.path().app_data_dir() else { return };
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
     let logger = crate::agency::learning::ObservationLogger::new(dir);
     let sid = story_id.to_string();
     let kind = kind.to_string();
@@ -2756,8 +2805,9 @@ mod tests {
 
     /// Gate v2 时代的高分正文：≥800 字、低重复（编号句互不相同，与
     /// graders 高分用例同一形态）、结尾悬念钩子 + 爽点（震惊）+ 微兑现
-    /// （果然/约定）信号——code/rule grader 双高分，旧格式 pass 裁决
-    /// （model 回退 0.85）加权后稳过 0.75 阈值。
+    /// （果然/约定）信号——code≈1.0；rule 侧追读力已对齐生产口径
+    /// （每命中 +0.1），rule≈0.45，旧格式 pass 裁决（model 回退 0.85）
+    /// 加权 ≈0.76 仍过 0.75 阈值。
     fn pass_grade_content(prefix: &str) -> String {
         let mut s = String::from(prefix);
         for i in 1..=120 {
@@ -2965,10 +3015,20 @@ mod tests {
         assert!(v.score.is_none());
         let report = ModelGraderReport::from_verdict(&v);
         assert!((report.model_score - 0.4).abs() < 0.001);
-        assert!((ModelGraderReport::from_verdict(&EditorVerdict {
-            verdict: "pass".into(), blocking_issues: vec![], suggestions: vec![], comments: String::new(),
-            score: None, dimension_scores: None,
-        }).model_score - 0.85).abs() < 0.001);
+        assert!(
+            (ModelGraderReport::from_verdict(&EditorVerdict {
+                verdict: "pass".into(),
+                blocking_issues: vec![],
+                suggestions: vec![],
+                comments: String::new(),
+                score: None,
+                dimension_scores: None,
+            })
+            .model_score
+                - 0.85)
+                .abs()
+                < 0.001
+        );
     }
 
     #[test]
@@ -2976,7 +3036,10 @@ mod tests {
         let raw = r#"{"verdict":"revise","score":2.0,"blocking_issues":[{"issue":"角色动机断裂","evidence":"「他突然放弃复仇」"}],"suggestions":[],"comments":"修"}"#;
         let v: EditorVerdict = parse_lenient(raw).unwrap();
         let report = ModelGraderReport::from_verdict(&v);
-        assert!(report.evidence_issues.iter().any(|i| i.contains("角色动机断裂")));
+        assert!(report
+            .evidence_issues
+            .iter()
+            .any(|i| i.contains("角色动机断裂")));
     }
 
     #[test]
@@ -3352,12 +3415,15 @@ mod tests {
             r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
             pass_grade_content("第二章正文。")
         );
-        mock.push("writer", vec![
-            write1.as_str(),
-            r#"{"type":"final","content":"第一章完成"}"#,
-            write2.as_str(),
-            r#"{"type":"final","content":"第二章完成"}"#,
-        ]);
+        mock.push(
+            "writer",
+            vec![
+                write1.as_str(),
+                r#"{"type":"final","content":"第一章完成"}"#,
+                write2.as_str(),
+                r#"{"type":"final","content":"第二章完成"}"#,
+            ],
+        );
         mock.push("editor", vec![
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
@@ -3642,7 +3708,8 @@ mod tests {
         assert_eq!(scenes.len(), 2);
     }
 
-    /// resume_prepare 只做校验/护栏/复制/简报：不启动 batch，新 run 保持 pending。
+    /// resume_prepare 只做校验/护栏/复制/简报：不启动 batch，新 run 保持
+    /// pending。
     #[tokio::test]
     async fn test_resume_prepare_does_not_start_batch() {
         let pool = create_test_pool().unwrap();
@@ -3855,7 +3922,8 @@ mod tests {
     async fn test_gate_v2_low_weighted_triggers_revision() {
         let pool = create_test_pool().unwrap();
         let story_id = seed_story_with_assets(&pool);
-        // editor 判 pass 但 score 极低（1.0/5 → model 0.2）→ weighted 必然 < 0.75 → 修订
+        // editor 判 pass 但 score 极低（1.0/5 → model 0.2）→ weighted 必然 < 0.75 →
+        // 修订
         let mock = RoutingMock::new(0);
         let write_line = format!(
             r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
@@ -3875,8 +3943,15 @@ mod tests {
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
-        let result = coordinator.run_continue("gv2-1", &story_id, 1).await.unwrap();
-        assert!(result.revised, "低 rubric 分应触发修订: {:?}", result.verdict);
+        let result = coordinator
+            .run_continue("gv2-1", &story_id, 1)
+            .await
+            .unwrap();
+        assert!(
+            result.revised,
+            "低 rubric 分应触发修订: {:?}",
+            result.verdict
+        );
         // gate 条目含 gate_score 字段
         let board = crate::agency::board::BlackboardService::new(pool.clone());
         let reviews = board.list_zone("gv2-1", BoardZone::Review).unwrap();
@@ -3921,7 +3996,8 @@ mod tests {
         let repo = AgencyRepository::new(pool.clone());
         repo.create_run(&AgencyRun::new("rg-5", "续写")).unwrap();
         let board = crate::agency::board::BlackboardService::new(pool.clone());
-        // 高分正文：编号句 + 悬念钩子/爽点/微兑现（code≈1.0、rule≈0.66）；
+        // 高分正文：编号句 + 悬念钩子/爽点/微兑现（code≈1.0、rule≈0.45——
+        // 追读力已对齐生产口径：每命中 +0.1，cap 0.8/0.4）；
         // 但开头与第一章前 20 字重复
         let draft = board
             .write(
@@ -3936,7 +4012,7 @@ mod tests {
             )
             .unwrap();
 
-        // editor 判 pass 且 score 4.5 → model 0.9 → weighted ≈ 0.85 > 0.75
+        // editor 判 pass 且 score 4.5 → model 0.9 → weighted ≈ 0.79 > 0.75
         let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
@@ -4014,7 +4090,10 @@ mod tests {
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-        coordinator.run_continue("cp-c", &story_id, 1).await.unwrap();
+        coordinator
+            .run_continue("cp-c", &story_id, 1)
+            .await
+            .unwrap();
         let list = repo.list_checkpoints(&story_id).unwrap();
         let milestones: Vec<&str> = list.iter().map(|c| c.milestone.as_str()).collect();
         assert_eq!(milestones, vec!["assets", "chapter", "run_final"]);
