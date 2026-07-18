@@ -303,6 +303,8 @@ export type ViewType =
   | 'agency-eval'
   /** Agency 学习中心（instinct 列表/晋升提案/观察流） */
   | 'agency-learning'
+  /** Agency 代理工作室（角色状态卡/黑板视图/活动时间线） */
+  | 'agency-studio'
   /** @deprecated 已合并进 usage-stats / Insights，setCurrentView 会重定向 */
   | 'writing-stats'
   | 'intention-graph'

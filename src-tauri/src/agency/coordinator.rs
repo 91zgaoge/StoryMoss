@@ -1052,6 +1052,7 @@ impl AgencyCoordinator {
             .and_then(|c| c.title.clone())
             .unwrap_or_else(|| premise.chars().take(12).collect::<String>());
         let genre = concept.as_ref().and_then(|c| c.genre.clone());
+        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "概念");
 
         // 2) 建故事
         let pool = self.pool.clone();
@@ -1096,6 +1097,7 @@ impl AgencyCoordinator {
             return Err(AppError::from("管理 Agent 被熔断，资产生产未完成"));
         }
         self.check_cancel(cancel)?;
+        self.emit_activity(run_id, AgentRole::Producer, "done", "资产");
 
         // producer 完成后落库（黑板资产区 → characters/world_buildings/story_outlines）
         {
@@ -1122,6 +1124,7 @@ impl AgencyCoordinator {
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
+        self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
         let writer_out = self.run_role_with_llm_and_budget(
             budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
@@ -1137,11 +1140,13 @@ impl AgencyCoordinator {
         let final_verdict = 'gate: {
             self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "质量门评估中");
+            self.emit_activity(run_id, AgentRole::EditorAuditor, "start", "审查");
             let outcome = self
                 .evaluate_gate(
                     budget, &board, &registry, run_id, &story_id, premise, &draft, 1,
                 )
                 .await?;
+            self.emit_activity(run_id, AgentRole::EditorAuditor, "done", "审查");
             match outcome {
                 GateOutcome::Passed { verdict } => break 'gate verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
@@ -1209,6 +1214,7 @@ impl AgencyCoordinator {
         // 6) 装配：草稿 → Scene 真源（统一输出装配器 P1 形态）
         self.update_phase(repo, run_id, "assembly").await?;
         self.emit_progress(run_id, "assembly", "running", "正在装配正式稿");
+        self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
         let pool = self.pool.clone();
         let sid = story_id.clone();
         let content = draft.content.clone();
@@ -1365,6 +1371,12 @@ impl AgencyCoordinator {
             "running",
             &format!("主创 Agent 正在写作第{}章", chapter_number),
         );
+        self.emit_activity(
+            run_id,
+            AgentRole::LeadWriter,
+            "start",
+            &format!("第{}章", chapter_number),
+        );
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let draft = self
@@ -1378,16 +1390,34 @@ impl AgencyCoordinator {
                 chapter_number,
             )
             .await?;
+        self.emit_activity(
+            run_id,
+            AgentRole::LeadWriter,
+            "done",
+            &format!("第{}章草稿", chapter_number),
+        );
         self.check_cancel(cancel)?;
 
         // 3) 质量门 + 至多 1 轮修订 + 装配（与 genesis 同门径）
         self.update_phase(repo, run_id, "review").await?;
         self.emit_progress(run_id, "review", "running", "质量门评估中");
+        self.emit_activity(
+            run_id,
+            AgentRole::EditorAuditor,
+            "start",
+            &format!("审查第{}章", chapter_number),
+        );
         let outcome = self
             .evaluate_gate(
                 budget, &board, &registry, run_id, story_id, &premise, &draft, 1,
             )
             .await?;
+        self.emit_activity(
+            run_id,
+            AgentRole::EditorAuditor,
+            "done",
+            &format!("审查第{}章", chapter_number),
+        );
         self.handle_gate(
             budget,
             &board,
@@ -1819,6 +1849,13 @@ impl AgencyCoordinator {
                         &format!("第{}章草稿", chapter_number),
                     );
                     let (prev_num, prev_draft, prev_revised) = pending_chapter.take().unwrap();
+                    // gate(n-1) 结果到手：与 spawn 前的 editor start 配对
+                    self.emit_activity(
+                        run_id,
+                        AgentRole::EditorAuditor,
+                        "done",
+                        &format!("审查第{}章", prev_num),
+                    );
                     let prev = self
                         .handle_gate(
                             budget,
@@ -1885,6 +1922,13 @@ impl AgencyCoordinator {
                     revised, outcome, cancel,
                 )
                 .await?;
+            // 末章 gate 处理完：与循环内 spawn 前的 editor start 配对
+            self.emit_activity(
+                run_id,
+                AgentRole::EditorAuditor,
+                "done",
+                &format!("审查第{}章", num),
+            );
             chapters.push(last);
             // 末章 gate 处理完：自动会话快照（best-effort）
             self.snapshot_phase(run_id, "assembly", "auto").await;

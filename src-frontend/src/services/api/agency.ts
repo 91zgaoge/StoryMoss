@@ -128,3 +128,39 @@ export function rejectPromotion(storyId: string, instinctId: string) {
 export function instinctFeedback(storyId: string, instinctId: string, accepted: boolean) {
   return loggedInvoke<Instinct>('agency_instinct_feedback', { story_id: storyId, instinct_id: instinctId, accepted });
 }
+
+export interface BoardItem {
+  id: string;
+  run_id: string;
+  story_id: string;
+  zone: 'asset' | 'draft' | 'review' | 'schedule';
+  item_type: string;
+  key: string;
+  content: string;
+  summary: string;
+  version: number;
+  producer: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgencyRun {
+  id: string;
+  story_id: string | null;
+  premise: string;
+  status: string;
+  phase: string;
+  result_json: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getRun(runId: string) {
+  return loggedInvoke<AgencyRun | null>('agency_get_run', { run_id: runId });
+}
+
+export function listBoard(runId: string) {
+  return loggedInvoke<BoardItem[]>('agency_list_board', { run_id: runId });
+}

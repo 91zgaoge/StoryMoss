@@ -23,6 +23,7 @@ import {
   Activity,
   Gauge,
   ChevronDown,
+  Bot,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -72,6 +73,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, impact: 'warm' },
       { id: 'stories', label: '故事', icon: BookOpen, impact: 'hot' },
+      { id: 'agency-studio', label: '代理工作室', icon: Bot, impact: 'hot' },
     ],
   },
   {

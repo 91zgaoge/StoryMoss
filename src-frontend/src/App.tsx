@@ -21,6 +21,7 @@ import { Insights } from '@/pages/Insights';
 import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
 import AgencyEval from '@/pages/AgencyEval';
 import AgencyLearning from '@/pages/AgencyLearning';
+import AgencyStudio from '@/pages/AgencyStudio';
 import { Logs } from '@/pages/Logs';
 import { TracingPanel } from '@/pages/TracingPanel';
 import { DataLoader } from '@/components/DataLoader';
@@ -311,6 +312,8 @@ function App() {
         return <AgencyEval />;
       case 'agency-learning':
         return <AgencyLearning />;
+      case 'agency-studio':
+        return <AgencyStudio />;
       case 'logs':
         return <Logs />;
       case 'tracing':
