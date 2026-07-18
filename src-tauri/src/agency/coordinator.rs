@@ -1722,12 +1722,14 @@ impl AgencyCoordinator {
         .flatten()
     }
 
-    /// 质量门：editor 裁决（解析失败重试 1 次）→ pass 后再经规则复检。
+    /// 质量门（Gate v2）：editor 裁决（解析失败重试 1 次）→ 三级加权评分。
     /// 行为规格：aborted → Failed；裁决解析重试后仍失败 → Failed；
-    /// revise+blocking → RevisionRequired；pass → 规则复检 High+ →
-    /// RevisionRequired，否则 Passed； 每次判定（含 Failed）落审查区
-    /// item_type="gate"，key = gate-{draft.key}-r{round}（首轮 1，修订后复审
-    /// 2）。
+    /// revise+blocking → RevisionRequired（issues 合并 blocking + 复检问题 +
+    /// code 问题，去重保留序）；否则 weighted（0.2*code + 0.3*rule +
+    /// 0.5*model）< 0.75 → RevisionRequired（issues 以 grader 低分项为主）；
+    /// 否则 Passed； 每次判定（含 Failed）落审查区 item_type="gate"，key =
+    /// gate-{draft.key}-r{round}（首轮 1，修订后复审 2），content JSON 含
+    /// gate_score（Failed 时为 null）。
     pub(crate) async fn evaluate_gate(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -1942,9 +1944,11 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
     })
 }
 
-/// 质量门实现（自由函数版）：editor 裁决（解析失败重试 1 次）→ pass
-/// 后再经规则复检； 每次判定（含 Failed）落审查区 item_type="gate"，
-/// key = gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
+/// 质量门实现（自由函数版，Gate v2）：editor 裁决（解析失败重试 1 次）→
+/// 三级评分合成（code/rule grader + rubric 化 model 分）→ 加权判定：
+/// revise+blocking 直接 RevisionRequired；否则 weighted < 0.75 修订；否则
+/// 放行。每次判定（含 Failed）落审查区 item_type="gate"，key =
+/// gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_gate_impl(
     llm: &Arc<dyn LoopLlm>,
@@ -1983,7 +1987,7 @@ async fn evaluate_gate_impl(
             let outcome = GateOutcome::Failed {
                 reason: "编辑审计 Agent 被熔断".to_string(),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
             return Ok(outcome);
         }
         last_raw = editor_out.output.clone();
@@ -2002,55 +2006,104 @@ async fn evaluate_gate_impl(
                     last_raw.chars().take(120).collect::<String>()
                 ),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
             return Ok(outcome);
         }
     };
-    // 2) 判定：revise+blocking 直接 RevisionRequired；否则确定性规则复检（LLM 说
-    //    pass 也要过规则）
+    // 2) Gate v2：确定性 grader（code/rule）+ rubric 化 model 分，合成加权评分
+    let model = ModelGraderReport::from_verdict(&verdict);
+    let chapter_number = crate::agency::graders::parse_chapter_number(&draft.key).unwrap_or(1);
+    // 伏笔 hints 收集（沿用 v1 复检的黑板资产区查询）
+    let board_c = board.clone();
+    let rid = run_id.to_string();
+    let hints = tokio::task::spawn_blocking(move || -> Result<Vec<String>, AppError> {
+        Ok(board_c
+            .list_zone(&rid, BoardZone::Asset)?
+            .into_iter()
+            .filter(|i| i.item_type == "foreshadowing")
+            .map(|i| i.summary)
+            .collect::<Vec<_>>())
+    })
+    .await
+    .map_err(|e| AppError::from(format!("gate hints join error: {}", e)))??;
+    // 运行时合同（code grader 禁则区用；无合同则跳过禁则检查）
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let contract = tokio::task::spawn_blocking(move || {
+        crate::story_system::contract_service::StorySystemEngine::new(pool_c)
+            .get_runtime_contract(&sid, chapter_number)
+            .ok()
+    })
+    .await
+    .map_err(|e| AppError::from(format!("gate contract join error: {}", e)))?;
+    let content_c = draft.content.clone();
+    let code_report = tokio::task::spawn_blocking(move || {
+        crate::agency::graders::run_code_grader(&content_c, contract.as_ref())
+    })
+    .await
+    .map_err(|e| AppError::from(format!("gate code grader join error: {}", e)))?;
+    // rule grader（async：内部含 DB 读取与规则子代理复检合并，取代 v1 独立复检）
+    let rule_report = crate::agency::graders::run_rule_grader(
+        pool,
+        story_id,
+        chapter_number,
+        &draft.content,
+        &hints,
+    )
+    .await;
+    let gate_score =
+        crate::agency::gate::GateScore::new(code_report.score, rule_report.score, model.model_score);
+    // 3) 判定：revise+blocking 直接 RevisionRequired（issues 合并 blocking +
+    //    复检问题 + code 问题，去重保留序）；否则 weighted < 阈值修订；否则放行
     let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
-        GateOutcome::RevisionRequired {
-            issues: ModelGraderReport::blocking_strings(&verdict),
-            verdict,
-        }
-    } else {
-        let board_c = board.clone();
-        let rid = run_id.to_string();
-        let hints = tokio::task::spawn_blocking(move || -> Result<Vec<String>, AppError> {
-            Ok(board_c
-                .list_zone(&rid, BoardZone::Asset)?
-                .into_iter()
-                .filter(|i| i.item_type == "foreshadowing")
-                .map(|i| i.summary)
-                .collect::<Vec<_>>())
-        })
-        .await
-        .map_err(|e| AppError::from(format!("gate hints join error: {}", e)))??;
-        let pool_c = pool.clone();
-        let sid = story_id.to_string();
-        let ctx = tokio::task::spawn_blocking(move || {
-            crate::agency::gate::build_review_context(&pool_c, &sid, &hints)
-        })
-        .await
-        .map_err(|e| AppError::from(format!("gate ctx join error: {}", e)))?;
-        let notes = crate::agents::subagents::run_subagent_review(&ctx, &draft.content).await;
-        let merged = crate::agency::gate::merge_rule_issues(&notes);
-        if merged.is_empty() {
-            GateOutcome::Passed { verdict }
-        } else {
-            GateOutcome::RevisionRequired {
-                issues: merged,
-                verdict,
+        let mut issues = ModelGraderReport::blocking_strings(&verdict);
+        for issue in rule_report
+            .subagent_issues
+            .iter()
+            .chain(code_report.issues.iter())
+        {
+            if !issues.contains(issue) {
+                issues.push(issue.clone());
             }
         }
+        GateOutcome::RevisionRequired { issues, verdict }
+    } else if gate_score.weighted < gate_score.threshold {
+        // 加权分不足：issues 以 grader 低分项为主，至少含一条加权说明
+        let mut issues: Vec<String> = Vec::new();
+        for issue in rule_report.issues.iter().chain(code_report.issues.iter()) {
+            if !issues.contains(issue) {
+                issues.push(issue.clone());
+            }
+        }
+        issues.push(format!(
+            "加权评分 {:.2} 低于通过阈值 {:.2}（code {:.2} / rule {:.2} / model {:.2}）",
+            gate_score.weighted,
+            gate_score.threshold,
+            gate_score.code,
+            gate_score.rule,
+            gate_score.model
+        ));
+        GateOutcome::RevisionRequired { issues, verdict }
+    } else {
+        GateOutcome::Passed { verdict }
     };
-    // 3) 判定落审查区（编辑审计为审查区 owner，active）
-    record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
+    // 4) 判定落审查区（编辑审计为审查区 owner，active）
+    record_gate_impl(
+        board,
+        run_id,
+        story_id,
+        draft,
+        &outcome,
+        round,
+        Some(&gate_score),
+    )
+    .await?;
     Ok(outcome)
 }
 
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
-/// 规则问题数，status=active；key = gate-{draft.key}-r{round}（轮次后缀）。
+/// 规则问题数 + gate_score（Failed 时为 null），status=active；
+/// key = gate-{draft.key}-r{round}（轮次后缀）。
 async fn record_gate_impl(
     board: &BlackboardService,
     run_id: &str,
@@ -2058,6 +2111,7 @@ async fn record_gate_impl(
     draft: &BoardItem,
     outcome: &GateOutcome,
     round: u32,
+    gate_score: Option<&crate::agency::gate::GateScore>,
 ) -> Result<(), AppError> {
     let (kind, detail, issues) = match outcome {
         GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
@@ -2072,6 +2126,7 @@ async fn record_gate_impl(
         "rule_issue_count": issues.len(),
         "issues": issues,
         "comments": verdict_comments(outcome),
+        "gate_score": gate_score,
     })
     .to_string();
     let summary = format!("gate:{} {}", kind, detail)
@@ -2153,7 +2208,7 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
     match prompt_id {
         "agency_lead_writer_system" => "你是「主创」：基于黑板资产创作小说正文，草稿写入 draft 区。",
         "agency_producer_system" => "你是「管理」：生产世界观/角色/大纲/伏笔资产，写入 asset 区。",
-        "agency_editor_auditor_system" => "你是「编辑审计」：审查草稿，输出裁决 JSON（verdict/blocking_issues/suggestions/comments）。",
+        "agency_editor_auditor_system" => "你是「编辑审计」：按 rubric 审查草稿，输出裁决 JSON：verdict（pass/revise）、score（1-5 总分）、dimension_scores（continuity/style/contract/ai_tone/hook 各 1-5）、blocking_issues（阻塞问题，字符串或 {\"issue\",\"evidence\"} 对象，evidence 须引用原文证据）、suggestions、comments。",
         _ => "你是创作团队的一员。",
     }
 }
@@ -2194,14 +2249,32 @@ mod tests {
         }
     }
 
+    /// Gate v2 时代的高分正文：≥800 字、低重复（编号句互不相同，与
+    /// graders 高分用例同一形态）、结尾悬念钩子 + 爽点（震惊）+ 微兑现
+    /// （果然/约定）信号——code/rule grader 双高分，旧格式 pass 裁决
+    /// （model 回退 0.85）加权后稳过 0.75 阈值。
+    fn pass_grade_content(prefix: &str) -> String {
+        let mut s = String::from(prefix);
+        for i in 1..=120 {
+            s.push_str(&format!("第{}句，场景与情绪各不相同。", i));
+        }
+        s.push_str("她果然没有忘记约定，全场震惊。下一秒，门外传来脚步声——真相究竟是谁留下的？");
+        s
+    }
+
     /// 一次通过（verdict=pass）的完整脚本：concept → producer(tool,final) →
     /// writer(tool,final) → editor(final)
     fn pass_script() -> Arc<MockLlm> {
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let write = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第一章","content":"{}","summary":"拾荒者登场"}}}}"#,
+            chapter
+        );
         MockLlm::scripted(vec![
             r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅"}"#,
             r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#,
             r#"{"type":"final","content":"资产就绪"}"#,
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"第一章正文：风沙中的拾荒者。","summary":"拾荒者登场"}}"#,
+            write.as_str(),
             r#"{"type":"final","content":"第一章完成"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[\"可加强嗅觉描写\"],\"comments\":\"合格的首章\"}"}"#,
         ])
@@ -2237,7 +2310,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             scene.content.as_deref(),
-            Some("第一章正文：风沙中的拾荒者。")
+            Some(pass_grade_content("第一章正文：风沙中的拾荒者。").as_str())
         );
         assert!(result.chapter_chars > 0);
     }
@@ -2527,9 +2600,14 @@ mod tests {
             )
             .unwrap();
 
+        let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+        let write2 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"星舰苏醒"}}}}"#,
+            chapter2
+        );
         let llm = MockLlm::scripted(vec![
             // writer: 查前文 + 写第 2 章（约定 key 为阿拉伯数字形式，与 write_chapter 一致）
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文：星舰苏醒。","summary":"星舰苏醒"}}"#,
+            write2.as_str(),
             r#"{"type":"final","content":"第二章完成"}"#,
             // editor: pass
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
@@ -2544,7 +2622,7 @@ mod tests {
             .get_by_id(&result.scene_id)
             .unwrap()
             .unwrap();
-        assert_eq!(scene.content.as_deref(), Some("第二章正文：星舰苏醒。"));
+        assert_eq!(scene.content.as_deref(), Some(chapter2.as_str()));
         let run = AgencyRepository::new(pool.clone())
             .get_run("rc-1")
             .unwrap()
@@ -2759,10 +2837,18 @@ mod tests {
         let pool = create_test_pool().unwrap();
         let story_id = seed_story_with_assets(&pool);
         let mock = RoutingMock::new(60);
+        let write1 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+            pass_grade_content("第一章正文。")
+        );
+        let write2 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
+            pass_grade_content("第二章正文。")
+        );
         mock.push("writer", vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"第一章正文。","summary":"一"}}"#,
+            write1.as_str(),
             r#"{"type":"final","content":"第一章完成"}"#,
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文。","summary":"二"}}"#,
+            write2.as_str(),
             r#"{"type":"final","content":"第二章完成"}"#,
         ]);
         mock.push("editor", vec![
@@ -2882,10 +2968,15 @@ mod tests {
         let pool = create_test_pool().unwrap();
         let story_id = seed_story_with_assets(&pool);
         let mock = RoutingMock::new(0);
+        let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+        let write2 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
+            chapter2
+        );
         mock.push("writer", vec![
             r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"第一章初稿。","summary":"一"}}"#,
             r#"{"type":"final","content":"第一章完成"}"#,
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文：星舰苏醒。","summary":"二"}}"#,
+            write2.as_str(),
             r#"{"type":"final","content":"第二章完成"}"#,
             // 修订轮第 2 步（board_revise 由 ReviseAwareMock 动态注入后的 final）
             r#"{"type":"final","content":"修订完成"}"#,
@@ -2920,7 +3011,7 @@ mod tests {
             Some("第一章修订稿：阿苔的动机已补足。"),
             "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿"
         );
-        assert_eq!(s2.content.as_deref(), Some("第二章正文：星舰苏醒。"));
+        assert_eq!(s2.content.as_deref(), Some(chapter2.as_str()));
         assert_ne!(s1.content, s2.content, "两章正文不得相同");
     }
 
@@ -3011,8 +3102,12 @@ mod tests {
             .unwrap();
 
         // resume（mock：writer 写第 2 章 + editor pass）
+        let write2 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
+            pass_grade_content("第二章：星舰苏醒。")
+        );
         let llm = MockLlm::scripted(vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章：星舰苏醒。","summary":"二"}}"#,
+            write2.as_str(),
             r#"{"type":"final","content":"完成"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
@@ -3247,5 +3342,41 @@ mod tests {
             "应命中 story 级护栏: {}",
             err
         );
+    }
+
+    #[tokio::test]
+    async fn test_gate_v2_low_weighted_triggers_revision() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        // editor 判 pass 但 score 极低（1.0/5 → model 0.2）→ weighted 必然 < 0.75 → 修订
+        let mock = RoutingMock::new(0);
+        let write_line = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+            "正文".repeat(500) // word_count ≥800 避免 code 档字数扣分干扰断言
+        );
+        mock.push(
+            "writer",
+            vec![
+                write_line.as_str(),
+                r#"{"type":"final","content":"完成"}"#,
+                // 修订轮
+                r#"{"type":"final","content":"已修订"}"#,
+            ],
+        );
+        mock.push("editor", vec![
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":1.0,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"勉强\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
+        let result = coordinator.run_continue("gv2-1", &story_id, 1).await.unwrap();
+        assert!(result.revised, "低 rubric 分应触发修订: {:?}", result.verdict);
+        // gate 条目含 gate_score 字段
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let reviews = board.list_zone("gv2-1", BoardZone::Review).unwrap();
+        let gate_item = reviews.iter().find(|i| i.item_type == "gate").unwrap();
+        let content: serde_json::Value = serde_json::from_str(&gate_item.content).unwrap();
+        assert!(content.get("gate_score").is_some());
+        let weighted = content["gate_score"]["weighted"].as_f64().unwrap();
+        assert!(weighted < 0.75, "首轮 weighted 应低于阈值: {}", weighted);
     }
 }

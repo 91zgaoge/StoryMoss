@@ -1,4 +1,4 @@
-//! 质量门 v1：规则问题归并与规则复检上下文构建。
+//! 质量门：规则问题归并、规则复检上下文构建与 Gate v2 加权评分。
 //! 门判定逻辑（evaluate_gate）在 coordinator.rs；Task 4/6 复用同一门径。
 
 use crate::{
@@ -6,6 +6,31 @@ use crate::{
     db::DbPool,
     domain::agent_context::{AgentContext, ChapterSummary, CharacterInfo},
 };
+
+/// Gate v2 统一加权评分：code/rule/model 三级 grader 合成（0.2/0.3/0.5）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GateScore {
+    pub code: f64,
+    pub rule: f64,
+    pub model: f64,
+    pub weighted: f64,
+    pub threshold: f64,
+}
+
+pub const GATE_PASS_THRESHOLD: f64 = 0.75;
+
+impl GateScore {
+    pub fn new(code: f64, rule: f64, model: f64) -> Self {
+        let weighted = 0.2 * code + 0.3 * rule + 0.5 * model;
+        Self {
+            code,
+            rule,
+            model,
+            weighted,
+            threshold: GATE_PASS_THRESHOLD,
+        }
+    }
+}
 
 /// 收集规则审查中 High 及以上问题，格式化为 "[agent] category: description"。
 pub fn merge_rule_issues(notes: &[ReviewNotes]) -> Vec<String> {
