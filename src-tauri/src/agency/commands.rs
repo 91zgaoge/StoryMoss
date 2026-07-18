@@ -482,6 +482,41 @@ pub async fn agency_reject_promotion(
     }).await.map_err(|e| AppError::from(format!("reject join error: {}", e)))?
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LearningOverview {
+    pub instincts: Vec<crate::agency::learning::Instinct>,
+    pub candidates: Vec<crate::agency::learning::Instinct>,
+    pub recent_observations: Vec<crate::agency::learning::Observation>,
+    pub unanalyzed_count: usize,
+}
+
+/// 学习中心聚合：惰性周衰减后读取 instincts + candidates + 最近观察 + 未分析计数。
+fn learning_overview(
+    logger: &crate::agency::learning::ObservationLogger,
+    story_id: &str,
+) -> Result<LearningOverview, AppError> {
+    // 惰性周衰减（读取时生效，ECC 同参数）
+    let _ = crate::agency::learning::apply_weekly_decay(logger, story_id);
+    let instincts = crate::agency::learning::list_instincts(logger, story_id)?;
+    let candidates = crate::agency::learning::promotion_candidates(logger, story_id)?;
+    let recent_observations = logger.recent(story_id, 20);
+    let unanalyzed_count = logger.count_unanalyzed(story_id);
+    Ok(LearningOverview { instincts, candidates, recent_observations, unanalyzed_count })
+}
+
+/// 学习中心一页数据（instinct 列表 + 晋升候选 + 观察流 + 未分析计数）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_learning_overview(
+    story_id: String,
+    app_handle: AppHandle,
+) -> Result<LearningOverview, AppError> {
+    let dir = app_handle.path().app_data_dir().map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    tokio::task::spawn_blocking(move || -> Result<LearningOverview, AppError> {
+        let logger = crate::agency::learning::ObservationLogger::new(dir);
+        learning_overview(&logger, &story_id)
+    }).await.map_err(|e| AppError::from(format!("learning overview join error: {}", e)))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,5 +593,48 @@ mod tests {
         assert_eq!(w.calls, 2);
         assert_eq!(w.total_tokens, 400);
         assert_eq!(w.total_duration_ms, 40);
+    }
+
+    /// 写一份 instinct md（frontmatter 契约同 learning::render_instinct）。
+    fn seed_instinct_file(
+        logger: &crate::agency::learning::ObservationLogger,
+        story_id: &str,
+        id: &str,
+        trigger: &str,
+        confidence: f64,
+        status: &str,
+    ) {
+        let now = chrono::Local::now().to_rfc3339();
+        let dir = logger
+            .observations_path(story_id)
+            .parent()
+            .unwrap()
+            .join(crate::agency::learning::INSTINCTS_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = format!(
+            "---\nid: {}\ntrigger: {:?}\naction: \"动作\"\nconfidence: {}\nevidence_count: 6\nscope: story\nstatus: {}\ncreated_at: {:?}\nupdated_at: {:?}\nevolved_from: []\n---\n\nbody\n",
+            id, trigger, confidence, status, now, now
+        );
+        std::fs::write(dir.join(format!("{}.md", id)), text).unwrap();
+    }
+
+    #[test]
+    fn learning_overview_aggregates_instincts_candidates_and_observations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let logger = crate::agency::learning::ObservationLogger::new(tmp.path().to_path_buf());
+        // 候选条件：confidence≥0.8 且同 trigger 跨 ≥2 个 story 复现
+        seed_instinct_file(&logger, "s1", "inst-a", "触发A", 0.5, "pending");
+        seed_instinct_file(&logger, "s1", "inst-x", "触发X", 0.85, "candidate");
+        seed_instinct_file(&logger, "s2", "inst-y", "触发X", 0.6, "pending");
+        for i in 0..3 {
+            logger.log("s1", "gate", "editor_auditor", serde_json::json!({ "i": i }));
+        }
+
+        let ov = learning_overview(&logger, "s1").unwrap();
+        assert_eq!(ov.instincts.len(), 2);
+        assert_eq!(ov.candidates.len(), 1);
+        assert_eq!(ov.candidates[0].id, "inst-x");
+        assert_eq!(ov.recent_observations.len(), 3);
+        assert_eq!(ov.unanalyzed_count, 3);
     }
 }

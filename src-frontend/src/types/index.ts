@@ -301,6 +301,8 @@ export type ViewType =
   | 'usage-stats'
   /** Agency 创作评估（质量门/检查点/human 信号） */
   | 'agency-eval'
+  /** Agency 学习中心（instinct 列表/晋升提案/观察流） */
+  | 'agency-learning'
   /** @deprecated 已合并进 usage-stats / Insights，setCurrentView 会重定向 */
   | 'writing-stats'
   | 'intention-graph'

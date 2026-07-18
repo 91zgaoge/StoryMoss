@@ -69,3 +69,62 @@ export function compareCheckpoints(checkpointA: string, checkpointB: string) {
 export function getHumanSignals(storyId: string) {
   return loggedInvoke<HumanSignal[]>('agency_human_signals', { story_id: storyId });
 }
+
+export interface Instinct {
+  id: string;
+  trigger: string;
+  action: string;
+  confidence: number;
+  evidence_count: number;
+  scope: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  evolved_from: string[];
+}
+
+export interface Observation {
+  ts: string;
+  story_id: string;
+  kind: string;
+  actor: string;
+  payload: Record<string, unknown>;
+}
+
+export interface LearningOverview {
+  instincts: Instinct[];
+  candidates: Instinct[];
+  recent_observations: Observation[];
+  unanalyzed_count: number;
+}
+
+export interface AnalyzeOutcome {
+  new_instincts: number;
+  updated_instincts: number;
+  analyzed: number;
+}
+
+export interface PromoteOutcome {
+  instinct: Instinct;
+  skill_id: string;
+}
+
+export function getLearningOverview(storyId: string) {
+  return loggedInvoke<LearningOverview>('agency_learning_overview', { story_id: storyId });
+}
+
+export function analyzeLearning(storyId: string) {
+  return loggedInvoke<AnalyzeOutcome>('agency_analyze_learning', { story_id: storyId });
+}
+
+export function confirmPromotion(storyId: string, instinctId: string) {
+  return loggedInvoke<PromoteOutcome>('agency_confirm_promotion', { story_id: storyId, instinct_id: instinctId });
+}
+
+export function rejectPromotion(storyId: string, instinctId: string) {
+  return loggedInvoke<Instinct>('agency_reject_promotion', { story_id: storyId, instinct_id: instinctId });
+}
+
+export function instinctFeedback(storyId: string, instinctId: string, accepted: boolean) {
+  return loggedInvoke<Instinct>('agency_instinct_feedback', { story_id: storyId, instinct_id: instinctId, accepted });
+}
