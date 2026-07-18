@@ -101,6 +101,18 @@ pub async fn agency_continue_batch(
     Ok(run_id)
 }
 
+/// 跨会话恢复：校验旧 run 非进行中 → 新 run 复制黑板 + stale-replay 历史简报 → 续写 1 章。
+/// 与 continue 系列不同：本命令同步等待恢复完成并返回 ResumeOutcome。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_resume_run(
+    old_run_id: String,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<crate::agency::coordinator::ResumeOutcome, AppError> {
+    let coordinator = AgencyCoordinator::new(app_handle, pool.inner().clone());
+    coordinator.resume_run(&old_run_id).await
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_get_run(
     run_id: String,

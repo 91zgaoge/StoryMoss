@@ -187,6 +187,33 @@ impl AgencyRepository {
         Ok(count > 0)
     }
 
+    /// 把 from_run 的 active 黑板条目复制到 to_run（恢复会话用；新 id、保留版本与分区）。
+    pub fn copy_active_items(&self, from_run: &str, to_run: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let now = now();
+        let mut stmt = conn.prepare(
+            "SELECT story_id, zone, item_type, key, content, summary, version, producer, status
+             FROM agency_board_items WHERE run_id = ?1 AND status = 'active' ORDER BY created_at, rowid")?;
+        let rows = stmt.query_map(params![from_run], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?,
+                r.get::<_, i32>(6)?, r.get::<_, String>(7)?, r.get::<_, String>(8)?))
+        })?;
+        let mut count = 0usize;
+        for row in rows {
+            let (story_id, zone, item_type, key, content, summary, version, producer, status) = row?;
+            conn.execute(
+                "INSERT INTO agency_board_items
+                 (id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![uuid::Uuid::new_v4().to_string(), to_run, story_id, zone, item_type,
+                        key, content, summary, version, producer, status, now, now],
+            )?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
     /// 跨 run 列出某 story 的全部黑板条目（续写时回收历史资产用）。
     pub fn list_items_for_story(&self, story_id: &str, zone: Option<BoardZone>) -> Result<Vec<BoardItem>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
