@@ -674,6 +674,16 @@ pub fn run() {
                 }
             };
 
+            // agency: 收割上次进程退出残留的僵尸 run（pending/running 不会复活，卡护栏）
+            if let Some(ref pool_c) = pool {
+                if let Ok(conn) = pool_c.get() {
+                    let _ = conn.execute(
+                        "UPDATE agency_runs SET status = 'failed', error_message = COALESCE(error_message, 'process exited'), updated_at = datetime('now') WHERE status IN ('pending', 'running')",
+                        [],
+                    );
+                }
+            }
+
             // P2-19 修复: 初始化 pending vector indexes 队列，加载上次未处理的项并注入 State
             let pending_queue = PendingVectorIndexQueue::new(app_dir.join("pending_vector_indexes.json"));
             if let Some(ref pool) = pool {

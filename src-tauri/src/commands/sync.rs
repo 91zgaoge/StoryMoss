@@ -181,6 +181,11 @@ pub fn show_backstage(
 #[tauri::command(rename_all = "snake_case")]
 pub fn cancel_genesis_pipeline(session_id: String) -> Result<bool, AppError> {
     let cancelled = crate::narrative::pipeline::cancel_pipeline(&session_id);
+    // 桥接 agency 创世：T7 起 smart_execute 创世分支的 session_id 即 agency run_id，
+    // 置取消 flag 后 run 在下一 check_cancel 停并落 cancelled（生成中前端尚未拿到 session_id 时为空串，跳过）。
+    if !session_id.is_empty() {
+        crate::agency::coordinator::cancel_agency_run(&session_id);
+    }
     if cancelled {
         log::info!(
             "[cancel_genesis_pipeline] Pipeline {} 已标记为取消",

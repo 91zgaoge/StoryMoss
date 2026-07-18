@@ -814,7 +814,13 @@ impl AgencyCoordinator {
                 }
                 return Err(e);
             }
-            self.update_phase(repo, run_id, "writing").await?;
+            if let Err(e) = self.update_phase(repo, run_id, "writing").await {
+                // 早退前终止在途 gate，避免 detach 的 gate 向已结束 run 的黑板写审查条目（与循环顶 cancel 处理对齐）
+                if let Some(jh) = pending_gate.take() {
+                    jh.abort();
+                }
+                return Err(e);
+            }
             self.emit_activity(run_id, AgentRole::LeadWriter, "start", &format!("第{}章", chapter_number));
 
             let write_fut = self.write_chapter(&llm, &budget, &board, &registry, run_id, story_id, &premise, chapter_number);
@@ -857,6 +863,8 @@ impl AgencyCoordinator {
             ).await?;
             chapters.push(last);
         }
+        // 收尾再查一次：最后一章 handle_gate 内修订/装配耗时长，确保 cancelled 不被 completed 覆盖
+        self.check_cancel(cancel)?;
 
         Ok(AgencyBatchResult { run_id: run_id.to_string(), story_id: story_id.to_string(), chapters })
     }

@@ -354,6 +354,15 @@ async fn smart_execute_inner(
                 // 超时：定点取消本 run 在途 LLM 调用，保留 LLM_TIMEOUT 语义（用法见 :86）
                 let llm = crate::llm::LlmService::new(app_handle.clone());
                 crate::agency::coordinator::cancel_requests_for_run(&llm, &run_id);
+                // 补落终态：超时臂直接 return，协调器的 finish_run 不一定执行，
+                // 不落 failed 会残留 running 僵尸 run 卡死该故事续写（finish_run 终态守护下幂等）。
+                let pool_t = pool.clone();
+                let rid_t = run_id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let _ = crate::agency::repository::AgencyRepository::new(pool_t)
+                        .finish_run(&rid_t, "failed", None, Some("timeout"));
+                })
+                .await;
                 emit_progress("timeout", "创世超时", 6, 6);
                 return Err(AppError::llm_timeout(total_timeout * 1000));
             }

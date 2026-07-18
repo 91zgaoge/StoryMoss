@@ -48,10 +48,12 @@ impl AgencyRepository {
         Ok(())
     }
 
+    /// 终态守护（与 finish_run 同谓词）：cancelled/completed/failed 后阶段推进静默无效（0 行），
+    /// 取消竞态下协调器迟到的 update_phase 不再覆盖终态。
     pub fn update_run_phase(&self, run_id: &str, status: &str, phase: &str) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
-            "UPDATE agency_runs SET status = ?2, phase = ?3, updated_at = ?4 WHERE id = ?1",
+            "UPDATE agency_runs SET status = ?2, phase = ?3, updated_at = ?4 WHERE id = ?1 AND status NOT IN ('cancelled', 'completed', 'failed')",
             params![run_id, status, phase, now()],
         )?;
         Ok(())
@@ -423,5 +425,54 @@ mod tests {
         assert_eq!(AgentRole::from_str("lead_writer"), Some(AgentRole::LeadWriter));
         assert_eq!(BoardZone::from_str("review"), Some(BoardZone::Review));
         assert_eq!(AgentRole::from_str("nope"), None);
+    }
+
+    /// 启动收割 SQL（lib.rs setup 同一条）：pending/running → failed，已完成行不受影响。
+    #[test]
+    fn test_reap_zombie_runs_sql() {
+        let (repo, pool) = repo();
+        repo.create_run(&sample_run()).unwrap(); // pending
+        repo.create_run(&AgencyRun::new("run-2", "前提2")).unwrap();
+        repo.update_run_phase("run-2", "running", "writing").unwrap();
+        repo.create_run(&AgencyRun::new("run-3", "前提3")).unwrap();
+        repo.finish_run("run-3", "completed", Some("{}"), None).unwrap();
+
+        let conn = pool.get().unwrap();
+        let n = conn.execute(
+            "UPDATE agency_runs SET status = 'failed', error_message = COALESCE(error_message, 'process exited'), updated_at = datetime('now') WHERE status IN ('pending', 'running')",
+            [],
+        ).unwrap();
+        assert_eq!(n, 2);
+
+        let r1 = repo.get_run("run-1").unwrap().unwrap();
+        assert_eq!(r1.status, "failed");
+        assert_eq!(r1.error_message.as_deref(), Some("process exited"));
+        let r2 = repo.get_run("run-2").unwrap().unwrap();
+        assert_eq!(r2.status, "failed");
+        let r3 = repo.get_run("run-3").unwrap().unwrap();
+        assert_eq!(r3.status, "completed");
+        assert!(r3.error_message.is_none());
+
+        // 幂等：再跑一次影响 0 行
+        let n = conn.execute(
+            "UPDATE agency_runs SET status = 'failed', error_message = COALESCE(error_message, 'process exited'), updated_at = datetime('now') WHERE status IN ('pending', 'running')",
+            [],
+        ).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    /// 终态守护：run 置 cancelled 后 update_run_phase 不再改变状态/阶段。
+    #[test]
+    fn test_update_run_phase_terminal_guard() {
+        let (repo, _) = repo();
+        repo.create_run(&sample_run()).unwrap();
+        repo.update_run_phase("run-1", "running", "assets").unwrap();
+        repo.finish_run("run-1", "cancelled", None, Some("创世已取消")).unwrap();
+        // 取消竞态下迟到的阶段推进应静默无效
+        repo.update_run_phase("run-1", "running", "writing").unwrap();
+        let r = repo.get_run("run-1").unwrap().unwrap();
+        assert_eq!(r.status, "cancelled");
+        assert_eq!(r.phase, "assets");
+        assert_eq!(r.error_message.as_deref(), Some("创世已取消"));
     }
 }
