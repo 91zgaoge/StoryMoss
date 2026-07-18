@@ -411,6 +411,24 @@ pub async fn agency_analyze_learning(
     crate::agency::learning::analyze_story(std::sync::Arc::new(llm), &logger, &story_id).await
 }
 
+/// instinct 用户反馈：采纳 +0.05 / 纠正 -0.1（clamp 0..1），更新 updated_at。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_instinct_feedback(
+    story_id: String,
+    instinct_id: String,
+    accepted: bool,
+    app_handle: AppHandle,
+) -> Result<crate::agency::learning::Instinct, AppError> {
+    let dir = app_handle.path().app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let logger = crate::agency::learning::ObservationLogger::new(dir);
+    tokio::task::spawn_blocking(move || {
+        crate::agency::learning::apply_feedback(&logger, &story_id, &instinct_id, accepted)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("feedback join error: {}", e)))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

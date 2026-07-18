@@ -416,6 +416,77 @@ fn crc32_simple(s: &str) -> u32 {
     hash & 0xFFFFFF
 }
 
+// ---- T3 置信度引擎：反馈 / 周衰减 / prune（best-effort）----
+
+pub const FEEDBACK_ACCEPT: f64 = 0.05;
+pub const FEEDBACK_REJECT: f64 = -0.1;
+pub const WEEKLY_DECAY: f64 = -0.02;
+pub const PRUNE_CONFIDENCE: f64 = 0.2;
+pub const PRUNE_TTL_DAYS: i64 = 90;
+
+fn read_instinct_file(logger: &ObservationLogger, story_id: &str, id: &str) -> Result<(Instinct, std::path::PathBuf), crate::error::AppError> {
+    let path = logger.instincts_path(story_id).join(format!("{}.md", id));
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| crate::error::AppError::validation_failed(format!("instinct 不存在: {} ({})", id, e), None::<String>))?;
+    let inst = parse_instinct(&text)
+        .ok_or_else(|| crate::error::AppError::validation_failed(format!("instinct 解析失败: {}", id), None::<String>))?;
+    Ok((inst, path))
+}
+
+fn write_instinct_file(path: &std::path::Path, inst: &Instinct) -> Result<(), crate::error::AppError> {
+    std::fs::write(path, render_instinct(inst, "（反馈/衰减更新）")).map_err(crate::error::AppError::from)
+}
+
+pub fn apply_feedback(logger: &ObservationLogger, story_id: &str, instinct_id: &str, accepted: bool) -> Result<Instinct, crate::error::AppError> {
+    let (mut inst, path) = read_instinct_file(logger, story_id, instinct_id)?;
+    let delta = if accepted { FEEDBACK_ACCEPT } else { FEEDBACK_REJECT };
+    inst.confidence = (inst.confidence + delta).clamp(0.0, 1.0);
+    inst.updated_at = chrono::Local::now().to_rfc3339();
+    write_instinct_file(&path, &inst)?;
+    Ok(inst)
+}
+
+pub fn apply_weekly_decay(logger: &ObservationLogger, story_id: &str) -> Result<usize, crate::error::AppError> {
+    let instincts = list_instincts(logger, story_id)?;
+    let now = chrono::Local::now();
+    let mut decayed = 0usize;
+    for mut inst in instincts {
+        let updated = chrono::DateTime::parse_from_rfc3339(&inst.updated_at)
+            .map(|d| d.with_timezone(&chrono::Local))
+            .unwrap_or(now);
+        let weeks = (now - updated).num_days() / 7;
+        if weeks >= 1 {
+            inst.confidence = (inst.confidence + weeks as f64 * WEEKLY_DECAY).clamp(0.0, 1.0);
+            inst.updated_at = now.to_rfc3339();
+            let path = logger.instincts_path(story_id).join(format!("{}.md", inst.id));
+            write_instinct_file(&path, &inst)?;
+            decayed += 1;
+        }
+    }
+    Ok(decayed)
+}
+
+pub fn prune_instincts(logger: &ObservationLogger, story_id: &str) -> Result<usize, crate::error::AppError> {
+    let instincts = list_instincts(logger, story_id)?;
+    let now = chrono::Local::now();
+    let mut pruned = 0usize;
+    for inst in instincts {
+        let updated = chrono::DateTime::parse_from_rfc3339(&inst.updated_at)
+            .map(|d| d.with_timezone(&chrono::Local))
+            .unwrap_or(now);
+        let stale_days = (now - updated).num_days();
+        let should_prune = inst.confidence < PRUNE_CONFIDENCE
+            || (inst.status == "pending" && stale_days >= PRUNE_TTL_DAYS);
+        if should_prune {
+            let path = logger.instincts_path(story_id).join(format!("{}.md", inst.id));
+            if std::fs::remove_file(&path).is_ok() {
+                pruned += 1;
+            }
+        }
+    }
+    Ok(pruned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,5 +672,67 @@ mod tests {
         assert_eq!(outcome.new_instincts, 0);
         // 未达到最小样本（<2 条新观察）不调用 LLM、不推进游标
         assert_eq!(logger.count_unanalyzed("s1"), 1);
+    }
+
+    fn seed_instinct(logger: &ObservationLogger, story_id: &str, id: &str, confidence: f64, updated_at: &str) {
+        let inst = Instinct {
+            id: id.to_string(),
+            trigger: "测试触发".to_string(),
+            action: "测试动作".to_string(),
+            confidence,
+            evidence_count: 3,
+            scope: "story".to_string(),
+            status: "pending".to_string(),
+            created_at: updated_at.to_string(),
+            updated_at: updated_at.to_string(),
+            evolved_from: vec![],
+        };
+        let dir = logger.instincts_path(story_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{}.md", id)), render_instinct(&inst, "body")).unwrap();
+    }
+
+    #[test]
+    fn test_feedback_accept_and_reject() {
+        let (logger, _tmp) = logger();
+        seed_instinct(&logger, "s1", "inst-a", 0.5, "2026-07-01T00:00:00+08:00");
+        let updated = apply_feedback(&logger, "s1", "inst-a", true).unwrap();
+        assert!((updated.confidence - 0.55).abs() < 0.001);
+        let updated2 = apply_feedback(&logger, "s1", "inst-a", false).unwrap();
+        assert!((updated2.confidence - 0.45).abs() < 0.001);
+        // 下限 clamp
+        seed_instinct(&logger, "s1", "inst-b", 0.05, "2026-07-01T00:00:00+08:00");
+        let clamped = apply_feedback(&logger, "s1", "inst-b", false).unwrap();
+        assert!(clamped.confidence >= 0.0);
+    }
+
+    #[test]
+    fn test_weekly_decay() {
+        let (logger, _tmp) = logger();
+        let old = chrono::Local::now() - chrono::Duration::days(14);
+        seed_instinct(&logger, "s1", "inst-old", 0.5, &old.to_rfc3339());
+        let fresh = chrono::Local::now() - chrono::Duration::days(3);
+        seed_instinct(&logger, "s1", "inst-fresh", 0.5, &fresh.to_rfc3339());
+        let decayed = apply_weekly_decay(&logger, "s1").unwrap();
+        assert_eq!(decayed, 1); // 只有 14 天前的那条衰减（每满 7 天 -0.02，14 天 -0.04）
+        let instincts = list_instincts(&logger, "s1").unwrap();
+        let old_inst = instincts.iter().find(|i| i.id == "inst-old").unwrap();
+        assert!((old_inst.confidence - 0.46).abs() < 0.001);
+        let fresh_inst = instincts.iter().find(|i| i.id == "inst-fresh").unwrap();
+        assert!((fresh_inst.confidence - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_prune() {
+        let (logger, _tmp) = logger();
+        seed_instinct(&logger, "s1", "inst-weak", 0.1, &chrono::Local::now().to_rfc3339());
+        let old = chrono::Local::now() - chrono::Duration::days(100);
+        seed_instinct(&logger, "s1", "inst-stale", 0.5, &old.to_rfc3339());
+        seed_instinct(&logger, "s1", "inst-good", 0.5, &chrono::Local::now().to_rfc3339());
+        let pruned = prune_instincts(&logger, "s1").unwrap();
+        assert_eq!(pruned, 2);
+        let remaining = list_instincts(&logger, "s1").unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "inst-good");
     }
 }
