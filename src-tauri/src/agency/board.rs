@@ -41,6 +41,30 @@ impl BoardSnapshot {
         }
         out
     }
+
+    /// 目录的 token 预算版：逐条累加并用 tokenizer 计量，超预算即截断并附取全文提示。
+    /// 对应 ECC agent-compress 的 catalog 档位（token 版优先于字符版）。
+    pub fn to_catalog_tokens(&self, max_tokens: usize, model_family: &str) -> String {
+        let mut out = String::new();
+        let groups: [(&str, &Vec<BoardItem>); 4] = [
+            ("asset", &self.assets), ("draft", &self.drafts),
+            ("review", &self.reviews), ("schedule", &self.schedules),
+        ];
+        let trailer = "... (更多条目按需用 board_read 取全文)\n";
+        for (zone, items) in groups {
+            for item in items {
+                let line = format!("- [{}/{}] {} (v{}, {})\n",
+                    zone, item.key, item.summary, item.version, item.status);
+                let candidate = format!("{}{}", out, line);
+                if crate::memory::tokenizer::count_tokens(&candidate, model_family) > max_tokens {
+                    out.push_str(trailer);
+                    return out;
+                }
+                out = candidate;
+            }
+        }
+        out
+    }
 }
 
 #[derive(Clone)]
@@ -208,6 +232,23 @@ mod tests {
         let catalog = snap.to_catalog(200);
         assert!(catalog.chars().count() <= 260, "目录应接近预算上限: {}", catalog.len());
         assert!(catalog.contains("asset/"));
+    }
+
+    #[test]
+    fn test_catalog_tokens_budget() {
+        let svc = board();
+        seed_run(&svc, "r1");
+        for i in 0..20 {
+            svc.write("r1", "s1", AgentRole::Producer, BoardZone::Asset,
+                "world", &format!("设定{}", i), "x", &format!("第{}条设定摘要，这是一段用于消耗 token 的较长文本", i)).unwrap();
+        }
+        let snap = svc.snapshot("r1").unwrap();
+        let catalog = snap.to_catalog_tokens(50, "cl100k");
+        assert!(crate::memory::tokenizer::count_tokens(&catalog, "cl100k") <= 80,
+            "目录应接近 token 预算（含截断标记）: {}", catalog.len());
+        assert!(catalog.contains("asset/"));
+        let full = snap.to_catalog_tokens(100_000, "cl100k");
+        assert!(full.contains("设定19"));
     }
 
     #[test]

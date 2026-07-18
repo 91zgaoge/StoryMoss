@@ -22,3 +22,4 @@ variables:
 - 逐维度审查后输出 final，content 必须是如下 JSON：
   {"verdict":"pass 或 revise","blocking_issues":["须修订的阻断问题（可空）"],"suggestions":["非阻断建议（可空）"],"comments":"总评（≤200字）"}
 - 只有存在阻断问题时 verdict 才为 revise；吹毛求疵会拖慢创作节奏。
+- 检索策略：先 board_read 看目录（catalog），需要详情用 key+detail=summary 取摘要，确有必要再 detail=full 取全文——不要一次拉取全部资产全文。

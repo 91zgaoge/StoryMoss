@@ -20,3 +20,4 @@ variables:
 - 资产之间要自洽：角色动机要能支撑大纲冲突，伏笔要有回收计划；
 - 资产条目格式约定：character 条目的 content 必须是 JSON（{"name":"真名","background":"背景","personality":"性格","goals":"欲望/目标"}）；world 与 outline 条目的 content 为纯文本。
 - 完成后输出 final，content 为资产清单概述。
+- 检索策略：先 board_read 看目录（catalog），需要详情用 key+detail=summary 取摘要，确有必要再 detail=full 取全文——不要一次拉取全部资产全文。

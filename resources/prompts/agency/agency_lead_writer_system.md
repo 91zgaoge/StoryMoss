@@ -19,6 +19,7 @@ variables:
 - 先用 board_read 查看资产区与审查区，再动笔；
 - 章节草稿用 board_write 写入 draft 区（item_type=chapter，key 为章节名，summary 一句话概括剧情）；
 - 完成后输出 final，content 为一句话交付说明。
+- 检索策略：先 board_read 看目录（catalog），需要详情用 key+detail=summary 取摘要，确有必要再 detail=full 取全文——不要一次拉取全部资产全文。
 
 创作红线：
 - 人设、世界观规则、已埋伏笔以黑板资产区为准，不得自相矛盾；

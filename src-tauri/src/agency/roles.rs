@@ -9,6 +9,8 @@ pub struct RoleSpec {
     pub task_type: TaskType,
     pub max_turns: usize,
     pub max_output_tokens: i32,
+    /// 上下文注入预算（字符）：ToolLoop 会话窗口超预算时保留头尾截断。
+    pub context_budget_chars: usize,
 }
 
 pub fn spec_for(role: AgentRole) -> RoleSpec {
@@ -19,6 +21,7 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             task_type: TaskType::CreativeWriting,
             max_turns: 10,
             max_output_tokens: 8192,
+            context_budget_chars: 24_000,
         },
         AgentRole::Producer => RoleSpec {
             role,
@@ -26,6 +29,7 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             task_type: TaskType::WorldBuilding,
             max_turns: 12,
             max_output_tokens: 4096,
+            context_budget_chars: 16_000,
         },
         AgentRole::EditorAuditor => RoleSpec {
             role,
@@ -33,6 +37,7 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             task_type: TaskType::Proofreading,
             max_turns: 6,
             max_output_tokens: 2048,
+            context_budget_chars: 10_000,
         },
     }
 }

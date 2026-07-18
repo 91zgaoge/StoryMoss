@@ -34,6 +34,11 @@ impl ToolContext {
     pub fn max_output_tokens(&self) -> i32 {
         crate::agency::roles::spec_for(self.role).max_output_tokens
     }
+
+    /// 当前角色的上下文注入预算（字符），ToolLoop 会话窗口截断用。
+    pub fn max_context_chars(&self) -> usize {
+        crate::agency::roles::spec_for(self.role).context_budget_chars
+    }
 }
 
 /// 工具注册表 + 角色白名单（ECC agents frontmatter tools 隔离模式）。
@@ -115,7 +120,7 @@ impl AgentTool for BoardReadTool {
     fn name(&self) -> &'static str { "board_read" }
     fn description(&self) -> &'static str { "读取黑板分区目录（key+摘要+版本）；需要全文时给出 key" }
     fn args_schema(&self) -> serde_json::Value {
-        serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目的全文"})
+        serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
     }
 
     async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
@@ -123,6 +128,7 @@ impl AgentTool for BoardReadTool {
         let run_id = ctx.run_id.clone();
         let zone = args.get("zone").and_then(|v| v.as_str()).map(String::from);
         let key = args.get("key").and_then(|v| v.as_str()).map(String::from);
+        let detail = args.get("detail").and_then(|v| v.as_str()).unwrap_or("").to_string();
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
             let board = BlackboardService::new(pool);
             // zone 非空但非法时回显错误让模型自愈（不再静默读全部）
@@ -136,7 +142,12 @@ impl AgentTool for BoardReadTool {
             if let Some(k) = key {
                 let items = board.list_zone_filtered(&run_id, zone)?;
                 if let Some(item) = items.into_iter().find(|i| i.key == k) {
-                    return Ok(format!("[{}/{}] v{}\n{}", item.zone.as_str(), item.key, item.version, item.content));
+                    // 三档 detail：summary 只取前 500 字符；full（含默认）取全文
+                    let body = match detail.as_str() {
+                        "summary" => format!("{}…(summary 档，detail=full 取全文)", item.content.chars().take(500).collect::<String>()),
+                        _ => item.content.clone(),
+                    };
+                    return Ok(format!("[{}/{}] v{}\n{}", item.zone.as_str(), item.key, item.version, body));
                 }
                 return Ok(format!("未找到 key={} 的条目", k));
             }
@@ -151,7 +162,7 @@ impl AgentTool for BoardReadTool {
                     if out.is_empty() { out = "（空）\n".into(); }
                     Ok(out)
                 }
-                None => Ok(board.snapshot(&run_id)?.to_catalog(2000)),
+                None => Ok(board.snapshot(&run_id)?.to_catalog_tokens(500, "cl100k")),
             }
         }).await.map_err(|e| AppError::from(format!("board_read join error: {}", e)))?
     }
@@ -385,6 +396,22 @@ mod tests {
         assert!(catalog.contains("story_info"));
         let editor_catalog = registry.catalog_for_role(AgentRole::EditorAuditor);
         assert!(!editor_catalog.contains("board_write"));
+    }
+
+    #[tokio::test]
+    async fn test_board_read_summary_detail() {
+        let pool = create_test_pool().unwrap();
+        seed_run(&pool);
+        let registry = ToolRegistry::agency_default();
+        let context = ctx(pool, AgentRole::Producer);
+        let long = "长".repeat(1000);
+        context.board.write("r1", "s1", AgentRole::Producer, BoardZone::Asset,
+            "world", "世界观", &long, "长文本").unwrap();
+        let read = registry.get_for_role(AgentRole::Producer, "board_read").unwrap();
+        let summary = read.execute(&context, serde_json::json!({"zone": "asset", "key": "世界观", "detail": "summary"})).await.unwrap();
+        assert!(summary.chars().count() < 700, "summary 档应截断: {}", summary.len());
+        let full = read.execute(&context, serde_json::json!({"zone": "asset", "key": "世界观", "detail": "full"})).await.unwrap();
+        assert!(full.chars().count() >= 1000);
     }
 
     #[tokio::test]

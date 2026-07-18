@@ -69,6 +69,31 @@ pub struct LoopResult {
 
 const MAX_CONSECUTIVE_PARSE_FAILURES: usize = 3;
 
+/// 会话窗口：超预算时保留头部（工具目录+任务）与尾部最近对话（ECC 注入预算模式）。
+pub fn truncate_conversation(head: &str, tail: &str, budget_chars: usize) -> String {
+    let marker = "\n…(早期对话已截断)…\n";
+    let total = head.chars().count() + tail.chars().count();
+    if total <= budget_chars {
+        return format!("{}{}", head, tail);
+    }
+    let tail_budget = budget_chars.saturating_sub(head.chars().count() + marker.chars().count());
+    let kept: String = {
+        let mut chars: Vec<char> = tail.chars().collect();
+        let start = chars.len().saturating_sub(tail_budget);
+        chars.drain(start..).collect()
+    };
+    format!("{}{}{}", head, marker, kept)
+}
+
+/// LoopTurn 记录的原始响应截断（P1 终审转 P3）。
+pub fn truncate_raw(raw: &str) -> String {
+    if raw.chars().count() > 4000 {
+        format!("{}…(已截断)", raw.chars().take(4000).collect::<String>())
+    } else {
+        raw.to_string()
+    }
+}
+
 pub struct ToolLoop {
     llm: Arc<dyn LoopLlm>,
     registry: Arc<ToolRegistry>,
@@ -94,23 +119,26 @@ impl ToolLoop {
         system_prompt: &str,
         task: &str,
     ) -> Result<LoopResult, AppError> {
-        let mut conversation = format!(
+        // head = 工具目录 + 任务（恒定），tail = 逐轮追加的对话；每轮调用前按角色预算截断
+        let head = format!(
             "{}\n\n你只能输出一个 JSON action，不要输出其他内容：\n\
              - 调用工具: {{\"type\":\"tool\",\"name\":\"<工具名>\",\"args\":{{...}}}}\n\
              - 完成任务: {{\"type\":\"final\",\"content\":\"<最终产出>\"}}\n\n任务：\n{}",
             self.registry.catalog_for_role(role),
             task
         );
+        let mut tail = String::new();
         let mut turns: Vec<LoopTurn> = Vec::new();
         let mut parse_failures = 0usize;
 
         for _ in 0..self.max_turns {
+            let conversation = truncate_conversation(&head, &tail, ctx.max_context_chars());
             let raw = self.llm
                 .complete(system_prompt, &conversation, ctx.task_type(), ctx.max_output_tokens())
                 .await?;
             match parse_action(&raw) {
                 Ok(LoopAction::Final { content }) => {
-                    turns.push(LoopTurn { raw_response: raw, action: Some(LoopAction::Final { content: content.clone() }), observation: None });
+                    turns.push(LoopTurn { raw_response: truncate_raw(&raw), action: Some(LoopAction::Final { content: content.clone() }), observation: None });
                     return Ok(LoopResult { output: content, turns, aborted: false });
                 }
                 Ok(LoopAction::Tool { name, args }) => {
@@ -129,15 +157,15 @@ impl ToolLoop {
                         },
                         None => format!("工具 {} 对你的角色不可用或不存在，请改用可用工具", name),
                     };
-                    conversation.push_str(&format!("\n\n你的上一步：{}\n观察结果：{}", raw, observation));
+                    tail.push_str(&format!("\n\n你的上一步：{}\n观察结果：{}", raw, observation));
                     // 保留真实 args（P4 trace 回放需要），不再置 Null
-                    turns.push(LoopTurn { raw_response: raw, action: Some(LoopAction::Tool { name, args }), observation: Some(observation) });
+                    turns.push(LoopTurn { raw_response: truncate_raw(&raw), action: Some(LoopAction::Tool { name, args }), observation: Some(observation) });
                 }
                 Err(e) => {
                     parse_failures += 1;
                     let observation = format!("格式错误（{}）。请只输出一个 JSON action。", e);
-                    conversation.push_str(&format!("\n\n你的上一步：{}\n观察结果：{}", raw, observation));
-                    turns.push(LoopTurn { raw_response: raw, action: None, observation: Some(observation) });
+                    tail.push_str(&format!("\n\n你的上一步：{}\n观察结果：{}", raw, observation));
+                    turns.push(LoopTurn { raw_response: truncate_raw(&raw), action: None, observation: Some(observation) });
                     if parse_failures >= MAX_CONSECUTIVE_PARSE_FAILURES {
                         return Ok(LoopResult {
                             output: "（代理连续输出非法格式，已熔断）".to_string(),
@@ -208,6 +236,34 @@ mod tests {
         let noisy = parse_action("好的，我来调用工具。\n{\"type\":\"final\",\"content\":\"提取成功\"}\n以上").unwrap();
         assert_eq!(noisy, LoopAction::Final { content: "提取成功".into() });
         assert!(parse_action("完全没有 JSON").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_conversation_window_truncation() {
+        let (ctx, registry) = setup();
+        let big_observation = "x".repeat(30_000); // 工具结果超长（observation 截断 4000 仍累计）
+        let llm = MockLlm::scripted(vec![
+            &format!(r#"{{"type":"tool","name":"story_info","args":{{}}}}"#),
+            r#"{"type":"final","content":"done"}"#,
+        ]);
+        let lp = ToolLoop::new(llm, registry).with_max_turns(4);
+        let result = lp.run(AgentRole::EditorAuditor, &ctx, "系统", "任务").await.unwrap();
+        assert!(!result.aborted);
+        // 会话窗口逻辑存在性验证：EditorAuditor 预算 10000 字符，截断函数行为单测
+        let windowed = truncate_conversation("头部任务\n", &"中".repeat(20000), 10000);
+        assert!(windowed.chars().count() <= 10050);
+        assert!(windowed.contains("头部任务"));
+        assert!(windowed.contains("…(早期对话已截断)…"));
+        let _ = big_observation;
+        let _ = result;
+    }
+
+    #[test]
+    fn test_raw_response_truncated_in_turns() {
+        // parse/记录层：LoopTurn.raw_response 超 4000 字符被截断
+        let raw = format!("{}...", "y".repeat(5000));
+        let truncated = truncate_raw(&raw);
+        assert_eq!(truncated.chars().count(), 4000 + "…(已截断)".chars().count());
     }
 
     #[tokio::test]
