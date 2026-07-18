@@ -1,7 +1,7 @@
 max_width = 100
 edition = "2021"
 use_small_heuristics = "Default"
-fn_args_layout = "Tall"
+fn_params_layout = "Tall"
 fn_call_width = 60
 struct_lit_width = 18
 struct_variant_width = 35

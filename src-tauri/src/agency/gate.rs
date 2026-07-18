@@ -45,33 +45,53 @@ pub fn build_review_context(
                 age: c.age,
             })
             .collect();
+    } else {
+        log::warn!(
+            "build_review_context: 读取角色失败，规则复检上下文降级（story_id={}）",
+            story_id
+        );
     }
     if let Ok(Some(world)) =
         crate::db::repositories::WorldBuildingRepository::new(pool.clone()).get_by_story(story_id)
     {
         let rules_text = serde_json::to_string(&world.rules).unwrap_or_default();
         ctx.world.world_rules = Some(format!("{}\n{}", world.concept, rules_text));
+    } else {
+        log::warn!(
+            "build_review_context: 读取世界观失败，规则复检上下文降级（story_id={}）",
+            story_id
+        );
     }
     // 最近场景开头 → previous_chapters（ContinuityAgent 重复开头 High
     // 检查依赖此字段； 与 asset_query scenes 同一查询，sequence_number
     // 可能为负需钳制到 u32）
-    if let Ok(conn) = pool.get() {
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
-             FROM scenes WHERE story_id = ?1 ORDER BY sequence_number DESC LIMIT 5",
-        ) {
-            if let Ok(rows) = stmt.query_map(rusqlite::params![story_id], |r| {
+    let chapters = (|| -> Option<Vec<ChapterSummary>> {
+        let conn = pool.get().ok()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
+                 FROM scenes WHERE story_id = ?1 ORDER BY sequence_number DESC LIMIT 5",
+            )
+            .ok()?;
+        let rows = stmt
+            .query_map(rusqlite::params![story_id], |r| {
                 Ok(ChapterSummary {
                     title: r.get::<_, String>(1)?,
                     number: r.get::<_, i32>(0)?.max(0) as u32,
                     summary: r.get::<_, String>(2)?,
                 })
-            }) {
-                let mut chapters: Vec<ChapterSummary> = rows.flatten().collect();
-                chapters.reverse(); // 恢复时间序
-                ctx.narrative.previous_chapters = chapters;
-            }
-        }
+            })
+            .ok()?;
+        let mut chapters: Vec<ChapterSummary> = rows.flatten().collect();
+        chapters.reverse(); // 恢复时间序
+        Some(chapters)
+    })();
+    match chapters {
+        Some(chapters) => ctx.narrative.previous_chapters = chapters,
+        None => log::warn!(
+            "build_review_context: 读取历史章节失败，规则复检上下文降级（story_id={}）",
+            story_id
+        ),
     }
     ctx.narrative.active_threads = foreshadowing_hints.to_vec();
     ctx

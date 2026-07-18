@@ -332,6 +332,16 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
     serde_json::from_str(&raw[start..=end]).ok()
 }
 
+/// V109 并发护栏冲突映射：部分唯一索引命中（UNIQUE constraint failed）→
+/// 用户可读文案。
+fn map_active_run_conflict(e: AppError) -> AppError {
+    if e.to_string().contains("UNIQUE constraint failed") {
+        AppError::validation_failed("该故事已有进行中的创作任务", None::<String>)
+    } else {
+        e
+    }
+}
+
 // ---- 协调器 ----
 
 pub struct AgencyCoordinator {
@@ -690,7 +700,7 @@ impl AgencyCoordinator {
             self.emit_progress(run_id, "review", "running", "质量门评估中");
             let outcome = self
                 .evaluate_gate(
-                    &budget, &board, &registry, run_id, &story_id, premise, &draft,
+                    &budget, &board, &registry, run_id, &story_id, premise, &draft, 1,
                 )
                 .await?;
             match outcome {
@@ -721,12 +731,14 @@ impl AgencyCoordinator {
                     if revise_out.aborted {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
                     }
-                    draft = self.latest_draft_by_key(&board, run_id, &draft.key).await?;
+                    draft = self
+                        .latest_draft_by_key(&board, run_id, &draft.key, "修订后未取回本章草稿")
+                        .await?;
                     self.check_cancel(cancel)?;
                     // 复审：无论结果都进入装配（Failed 除外）
                     let second = self
                         .evaluate_gate(
-                            &budget, &board, &registry, run_id, &story_id, premise, &draft,
+                            &budget, &board, &registry, run_id, &story_id, premise, &draft, 2,
                         )
                         .await?;
                     match second {
@@ -817,6 +829,17 @@ impl AgencyCoordinator {
                 } else {
                     "failed"
                 };
+                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis 一致，不再硬编码
+                // assembly）
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let phase = self
+                    .db(move || repo_c.get_run(&rid).map_err(AppError::from))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|r| r.phase)
+                    .unwrap_or_else(|| "unknown".to_string());
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let msg = e.to_string();
@@ -828,7 +851,7 @@ impl AgencyCoordinator {
                     })
                     .await;
                 self.finalize_session(run_id, &llm).await;
-                self.emit_progress(run_id, "assembly", status, &e.to_string());
+                self.emit_progress(run_id, &phase, status, &e.to_string());
             }
         }
         result
@@ -849,15 +872,14 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章", title, chapter_number);
-        let run = AgencyRun::new(run_id, &premise);
+        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
+        // run
+        let mut run = AgencyRun::new(run_id, &premise);
+        run.story_id = Some(story_id.to_string());
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from))
-            .await?;
-        let repo_c = repo.clone();
-        let rid = run_id.to_string();
-        let sid = story_id.to_string();
-        self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from))
-            .await?;
+            .await
+            .map_err(map_active_run_conflict)?;
         self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
@@ -894,7 +916,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "review", "running", "质量门评估中");
         let outcome = self
             .evaluate_gate(
-                &budget, &board, &registry, run_id, story_id, &premise, &draft,
+                &budget, &board, &registry, run_id, story_id, &premise, &draft, 1,
             )
             .await?;
         self.handle_gate(
@@ -1008,7 +1030,9 @@ impl AgencyCoordinator {
         if writer_out.aborted {
             return Err(AppError::from("主创 Agent 被熔断，本章未完成"));
         }
-        self.latest_draft(board, run_id).await
+        // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
+        self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
+            .await
     }
 
     /// 单章 gate 结果处理：修订（≤1 轮，总线记录 proposal）→ 装配 Scene。
@@ -1068,10 +1092,14 @@ impl AgencyCoordinator {
                     return Err(AppError::from("主创 Agent 修订轮被熔断"));
                 }
                 // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
-                draft = self.latest_draft_by_key(board, run_id, &draft.key).await?;
+                draft = self
+                    .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
+                    .await?;
                 self.check_cancel(cancel)?;
                 let second = self
-                    .evaluate_gate(budget, board, registry, run_id, story_id, premise, &draft)
+                    .evaluate_gate(
+                        budget, board, registry, run_id, story_id, premise, &draft, 2,
+                    )
                     .await?;
                 match second {
                     GateOutcome::Passed { verdict } => verdict,
@@ -1157,6 +1185,17 @@ impl AgencyCoordinator {
                 } else {
                     "failed"
                 };
+                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis 一致，不再硬编码
+                // assembly）
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let phase = self
+                    .db(move || repo_c.get_run(&rid).map_err(AppError::from))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|r| r.phase)
+                    .unwrap_or_else(|| "unknown".to_string());
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let msg = e.to_string();
@@ -1168,7 +1207,7 @@ impl AgencyCoordinator {
                     })
                     .await;
                 self.finalize_session(run_id, &llm).await;
-                self.emit_progress(run_id, "assembly", status, &e.to_string());
+                self.emit_progress(run_id, &phase, status, &e.to_string());
             }
         }
         result
@@ -1190,15 +1229,14 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章起", title, start_chapter);
-        let run = AgencyRun::new(run_id, &premise);
+        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
+        // run
+        let mut run = AgencyRun::new(run_id, &premise);
+        run.story_id = Some(story_id.to_string());
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from))
-            .await?;
-        let repo_c = repo.clone();
-        let rid = run_id.to_string();
-        let sid = story_id.to_string();
-        self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from))
-            .await?;
+            .await
+            .map_err(map_active_run_conflict)?;
         self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
@@ -1308,7 +1346,7 @@ impl AgencyCoordinator {
                 &format!("审查第{}章", chapter_number),
             );
             pending_gate = Some(tokio::spawn(async move {
-                runner.evaluate(rid, sid, prem, d).await
+                runner.evaluate(rid, sid, prem, d, 1).await
             }));
             pending_chapter = Some((chapter_number, draft, false));
         }
@@ -1367,6 +1405,26 @@ impl AgencyCoordinator {
             AppError::validation_failed("旧 run 无关联故事，无法恢复", None::<String>)
         })?;
 
+        // story 级护栏：同故事存在其他进行中 run 时拒绝恢复
+        //（旧 run 已非 pending/running，不会命中自身）
+        {
+            let pool = self.pool.clone();
+            let sid = story_id.clone();
+            let has_running = self
+                .db(move || {
+                    crate::agency::repository::AgencyRepository::new(pool)
+                        .has_running_run_for_story(&sid)
+                        .map_err(AppError::from)
+                })
+                .await?;
+            if has_running {
+                return Err(AppError::validation_failed(
+                    "该故事已有进行中的创作任务",
+                    None::<String>,
+                ));
+            }
+        }
+
         // 2) 新 run + 黑板复制
         let new_run_id = uuid::Uuid::new_v4().to_string();
         let pool = self.pool.clone();
@@ -1404,6 +1462,11 @@ impl AgencyCoordinator {
         let story_id_c = story_id.clone();
         let new_id_c = new_run_id.clone();
         let brief_c = brief.clone();
+        // 简报 summary 带旧 run id（≤80 字符），便于跨会话追溯来源
+        let brief_summary = format!("上一会话历史摘要（来自 {}）", old_run_id)
+            .chars()
+            .take(80)
+            .collect::<String>();
         self.db(move || {
             board.write(
                 &new_id_c,
@@ -1413,7 +1476,7 @@ impl AgencyCoordinator {
                 "resume",
                 "恢复简报",
                 &brief_c,
-                "上一会话历史摘要",
+                &brief_summary,
             )
         })
         .await?;
@@ -1474,7 +1537,8 @@ impl AgencyCoordinator {
     /// 行为规格：aborted → Failed；裁决解析重试后仍失败 → Failed；
     /// revise+blocking → RevisionRequired；pass → 规则复检 High+ →
     /// RevisionRequired，否则 Passed； 每次判定（含 Failed）落审查区
-    /// item_type="gate"。
+    /// item_type="gate"，key = gate-{draft.key}-r{round}（首轮 1，修订后复审
+    /// 2）。
     pub(crate) async fn evaluate_gate(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -1484,11 +1548,12 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
         draft: &BoardItem,
+        round: u32,
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         evaluate_gate_impl(
-            &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft,
+            &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft, round,
         )
         .await
     }
@@ -1543,29 +1608,29 @@ impl AgencyCoordinator {
         .await
     }
 
-    /// 按 key 取最新有效草稿（修订轮专用）：并行循环中 draft
+    /// 按 key 取最新有效草稿（修订轮/约定 key 取稿专用）：并行循环中 draft
     /// 区可能已有后续章节草稿， 修订后必须按本章 key
     /// 取回，避免跨章串稿。尾部反向查找最后一条 key 匹配、 content 非空的
     /// active draft（覆盖 board_revise 原地更新与 board_write
-    /// 新行两种模型行为）。
+    /// 新行两种模型行为）。on_missing 为取不到草稿时的错误文案后缀。
     async fn latest_draft_by_key(
         &self,
         board: &BlackboardService,
         run_id: &str,
         key: &str,
+        on_missing: &str,
     ) -> Result<BoardItem, AppError> {
         let board = board.clone();
         let run_id = run_id.to_string();
         let key = key.to_string();
+        let on_missing = on_missing.to_string();
         self.db(move || {
             let drafts = board.list_zone(&run_id, BoardZone::Draft)?;
             drafts
                 .into_iter()
                 .rev()
                 .find(|d| d.status == "active" && !d.content.is_empty() && d.key == key)
-                .ok_or_else(|| {
-                    AppError::from(format!("草稿区缺少「{}」：修订后未取回本章草稿", key))
-                })
+                .ok_or_else(|| AppError::from(format!("草稿区缺少「{}」：{}", key, on_missing)))
         })
         .await
     }
@@ -1689,8 +1754,8 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
 }
 
 /// 质量门实现（自由函数版）：editor 裁决（解析失败重试 1 次）→ pass
-/// 后再经规则复检； 每次判定（含 Failed）落审查区 item_type="gate"。行为规格见
-/// evaluate_gate 文档。
+/// 后再经规则复检； 每次判定（含 Failed）落审查区 item_type="gate"，
+/// key = gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_gate_impl(
     llm: &Arc<dyn LoopLlm>,
@@ -1702,6 +1767,7 @@ async fn evaluate_gate_impl(
     story_id: &str,
     premise: &str,
     draft: &BoardItem,
+    round: u32,
 ) -> Result<GateOutcome, AppError> {
     // 1) editor 裁决（解析失败重试一次）
     let mut verdict: Option<EditorVerdict> = None;
@@ -1728,7 +1794,7 @@ async fn evaluate_gate_impl(
             let outcome = GateOutcome::Failed {
                 reason: "编辑审计 Agent 被熔断".to_string(),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
             return Ok(outcome);
         }
         last_raw = editor_out.output.clone();
@@ -1747,7 +1813,7 @@ async fn evaluate_gate_impl(
                     last_raw.chars().take(120).collect::<String>()
                 ),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
             return Ok(outcome);
         }
     };
@@ -1790,18 +1856,19 @@ async fn evaluate_gate_impl(
         }
     };
     // 3) 判定落审查区（编辑审计为审查区 owner，active）
-    record_gate_impl(board, run_id, story_id, draft, &outcome).await?;
+    record_gate_impl(board, run_id, story_id, draft, &outcome, round).await?;
     Ok(outcome)
 }
 
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
-/// 规则问题数，status=active。
+/// 规则问题数，status=active；key = gate-{draft.key}-r{round}（轮次后缀）。
 async fn record_gate_impl(
     board: &BlackboardService,
     run_id: &str,
     story_id: &str,
     draft: &BoardItem,
     outcome: &GateOutcome,
+    round: u32,
 ) -> Result<(), AppError> {
     let (kind, detail, issues) = match outcome {
         GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
@@ -1825,7 +1892,7 @@ async fn record_gate_impl(
     let board_c = board.clone();
     let rid = run_id.to_string();
     let sid = story_id.to_string();
-    let key = format!("gate-{}", draft.key);
+    let key = format!("gate-{}-r{}", draft.key, round);
     tokio::task::spawn_blocking(move || {
         board_c.write(
             &rid,
@@ -1859,6 +1926,7 @@ impl GateRunner {
         story_id: String,
         premise: String,
         draft: BoardItem,
+        round: u32,
     ) -> Result<GateOutcome, AppError> {
         evaluate_gate_impl(
             &self.llm,
@@ -1870,6 +1938,7 @@ impl GateRunner {
             &story_id,
             &premise,
             &draft,
+            round,
         )
         .await
     }
@@ -1970,6 +2039,8 @@ mod tests {
         assert_eq!(snap.assets.len(), 1);
         assert_eq!(snap.drafts.len(), 1);
         assert_eq!(snap.reviews.len(), 1);
+        // 门判定 key 带轮次后缀（首轮 r1）
+        assert_eq!(snap.reviews[0].key, "gate-第一章-r1");
         // Scene 已装配，正文来自草稿
         let scene = SceneRepository::new(pool.clone())
             .get_by_id(&result.scene_id)
@@ -2236,8 +2307,8 @@ mod tests {
             .unwrap();
 
         let llm = MockLlm::scripted(vec![
-            // writer: 查前文 + 写第二章
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文：星舰苏醒。","summary":"星舰苏醒"}}"#,
+            // writer: 查前文 + 写第 2 章（约定 key 为阿拉伯数字形式，与 write_chapter 一致）
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文：星舰苏醒。","summary":"星舰苏醒"}}"#,
             r#"{"type":"final","content":"第二章完成"}"#,
             // editor: pass
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
@@ -2354,7 +2425,7 @@ mod tests {
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let outcome = coordinator
             .evaluate_gate(
-                &budget, &board, &registry, "rg-1", &story.id, "续写", &draft,
+                &budget, &board, &registry, "rg-1", &story.id, "续写", &draft, 1,
             )
             .await
             .unwrap();
@@ -2468,9 +2539,9 @@ mod tests {
         let story_id = seed_story_with_assets(&pool);
         let mock = RoutingMock::new(60);
         mock.push("writer", vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"第一章正文。","summary":"一"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"第一章正文。","summary":"一"}}"#,
             r#"{"type":"final","content":"第一章完成"}"#,
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文。","summary":"二"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文。","summary":"二"}}"#,
             r#"{"type":"final","content":"第二章完成"}"#,
         ]);
         mock.push("editor", vec![
@@ -2509,7 +2580,7 @@ mod tests {
         let story_id = seed_story_with_assets(&pool);
         let mock = RoutingMock::new(0);
         mock.push("writer", vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"初稿。","summary":"一"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"初稿。","summary":"一"}}"#,
             r#"{"type":"final","content":"完成"}"#,
             // 修订轮：mock 无法预知 board_revise 所需的动态 item_id，
             // 用 final 直接返回（draft 未变，第二轮 gate pass 放行）；
@@ -2535,9 +2606,9 @@ mod tests {
             .any(|m| m.msg_type == "proposal" && m.payload.contains("动机弱")));
     }
 
-    /// 修订回归用 mock：writer 修订轮（任务含「修订「第一章」」指引）动态读 DB
+    /// 修订回归用 mock：writer 修订轮（任务含「修订「第1章」」指引）动态读 DB
     /// 取草稿 item_id，回 board_revise 原地更新——覆盖 board_revise
-    /// 模型行为；并行循环中 此时第二章草稿已在 draft 区，验证修订取稿按 key
+    /// 模型行为；并行循环中 此时第 2 章草稿已在 draft 区，验证修订取稿按 key
     /// 匹配、不跨章串稿。
     struct ReviseAwareMock {
         inner: Arc<RoutingMock>,
@@ -2557,7 +2628,7 @@ mod tests {
         ) -> Result<String, AppError> {
             // 只拦截一次：对话上下文累计会保留任务文本，后续轮次须走队列取 final
             if system.contains("你是「主创」")
-                && u.contains("修订「第一章」")
+                && u.contains("修订「第1章」")
                 && !self.fired.swap(true, Ordering::SeqCst)
             {
                 let conn = self
@@ -2567,7 +2638,7 @@ mod tests {
                 let (id, version): (String, i32) = conn
                     .query_row(
                         "SELECT id, version FROM agency_board_items
-                     WHERE run_id = ?1 AND zone = 'draft' AND key = '第一章'
+                     WHERE run_id = ?1 AND zone = 'draft' AND key = '第1章'
                      ORDER BY rowid DESC LIMIT 1",
                         rusqlite::params![self.run_id],
                         |r| Ok((r.get(0)?, r.get(1)?)),
@@ -2591,9 +2662,9 @@ mod tests {
         let story_id = seed_story_with_assets(&pool);
         let mock = RoutingMock::new(0);
         mock.push("writer", vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"第一章初稿。","summary":"一"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"第一章初稿。","summary":"一"}}"#,
             r#"{"type":"final","content":"第一章完成"}"#,
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章正文：星舰苏醒。","summary":"二"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章正文：星舰苏醒。","summary":"二"}}"#,
             r#"{"type":"final","content":"第二章完成"}"#,
             // 修订轮第 2 步（board_revise 由 ReviseAwareMock 动态注入后的 final）
             r#"{"type":"final","content":"修订完成"}"#,
@@ -2716,9 +2787,9 @@ mod tests {
             )
             .unwrap();
 
-        // resume（mock：writer 写第二章 + editor pass）
+        // resume（mock：writer 写第 2 章 + editor pass）
         let llm = MockLlm::scripted(vec![
-            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第二章","content":"第二章：星舰苏醒。","summary":"二"}}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第2章","content":"第二章：星舰苏醒。","summary":"二"}}"#,
             r#"{"type":"final","content":"完成"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
@@ -2737,6 +2808,8 @@ mod tests {
             .expect("应有恢复简报");
         assert!(brief.content.contains("HISTORICAL REFERENCE ONLY"));
         assert!(brief.content.contains("阿苔刚登上星舰"));
+        // 简报 summary 带旧 run id
+        assert!(brief.summary.contains("old-run"));
         // 续写完成（mock 驱动 batch 一章）→ 新场景产生
         let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
             .get_by_story("s1")
@@ -2773,5 +2846,88 @@ mod tests {
         let drained = drain_requests(run);
         assert_eq!(drained, vec!["req-g2".to_string()]); // req-g3 已被 guard
                                                          // 摘除
+    }
+
+    /// write_chapter 按约定 key 取稿：模型写错 key（「序章」≠「第一章」）必须
+    /// 大声失败，错误文案含约定 key。
+    #[tokio::test]
+    async fn test_write_chapter_wrong_key_fails_loudly() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        let mock = RoutingMock::new(0);
+        mock.push("writer", vec![
+            // 模型违规：用错 key
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"序章","content":"写错了章号。","summary":"错"}}"#,
+            r#"{"type":"final","content":"完成"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
+        let err = coordinator
+            .run_continue("rw-1", &story_id, 1)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("第一章") || err.to_string().contains("缺少"),
+            "错误应含约定 key: {}",
+            err
+        );
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(repo.get_run("rw-1").unwrap().unwrap().status, "failed");
+    }
+
+    /// 门判定落审查区的 key 带轮次后缀：首轮 gate-{key}-r1，修订后复审 -r2。
+    #[tokio::test]
+    async fn test_gate_record_keys_have_round_suffix() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_assets(&pool);
+        let mock = RoutingMock::new(0);
+        mock.push("writer", vec![
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"初稿。","summary":"一"}}"#,
+            r#"{"type":"final","content":"完成"}"#,
+            // 修订轮：直接 final（draft 未变，第二轮 gate pass 放行）
+            r#"{"type":"final","content":"已知晓修订意见"}"#,
+        ]);
+        mock.push("editor", vec![
+            r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
+        let result = coordinator
+            .run_continue("rg-2", &story_id, 1)
+            .await
+            .unwrap();
+        assert!(result.revised);
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let snap = board.snapshot("rg-2").unwrap();
+        let keys: Vec<&str> = snap
+            .reviews
+            .iter()
+            .filter(|i| i.item_type == "gate")
+            .map(|i| i.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["gate-第1章-r1", "gate-第1章-r2"]);
+    }
+
+    /// resume_run story 级护栏：旧 run 的 story 存在其他 pending/running run
+    /// 时拒绝恢复。
+    #[tokio::test]
+    async fn test_resume_rejects_when_story_has_active_run() {
+        let pool = create_test_pool().unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        // 旧 run 已结束（failed）
+        let mut old = AgencyRun::new("old-run", "前提");
+        old.story_id = Some("s1".into());
+        repo.create_run(&old).unwrap();
+        repo.finish_run("old-run", "failed", None, None).unwrap();
+        // 同 story 另一个进行中 run（pending 即命中护栏）
+        let mut other = AgencyRun::new("other-run", "前提2");
+        other.story_id = Some("s1".into());
+        repo.create_run(&other).unwrap();
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(vec![]));
+        let err = coordinator.resume_run("old-run").await.unwrap_err();
+        assert!(
+            err.to_string().contains("该故事已有进行中的创作任务"),
+            "应命中 story 级护栏: {}",
+            err
+        );
     }
 }

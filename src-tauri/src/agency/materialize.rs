@@ -55,12 +55,14 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                 }
                 let id = uuid::Uuid::new_v4().to_string();
                 let ts = now();
+                // story_id+name 去重：已存在同名角色时跳过（execute 返回 0）
                 match conn.execute(
                     "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'agency', 1, ?7, ?8)",
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'agency', 1, ?7, ?8
+                     WHERE NOT EXISTS (SELECT 1 FROM characters WHERE story_id = ?2 AND name = ?3)",
                     params![id, story_id, name, background, personality, goals, ts, ts],
                 ) {
-                    Ok(_) => count += 1,
+                    Ok(n) => count += n,
                     Err(e) => log::warn!("materialize: 插入角色失败: {}", e),
                 }
             }
@@ -162,9 +164,11 @@ mod tests {
         // 重复插入（story_id+name 去重）：跳过不计数，仍一行
         assert_eq!(materialize_assets(&pool, "s1", &items), 0);
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM characters WHERE story_id='s1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM characters WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
     }
