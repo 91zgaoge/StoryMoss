@@ -431,11 +431,26 @@ impl AgencyCoordinator {
             .await;
     }
 
+    /// 后台 finalize 用的轻量克隆：app_handle/pool/llm 三字段克隆；
+    /// progress_sink 不带（finalize 不发进度事件）。
+    fn clone_for_finalize(&self) -> Self {
+        Self {
+            app_handle: self.app_handle.clone(),
+            pool: self.pool.clone(),
+            llm: self.llm.clone(),
+            progress_sink: Mutex::new(None),
+        }
+    }
+
     /// 完成时双层摘要：final 快照 → LLM 五段摘要增强（Background 档）→ 写回。
     /// 摘要写回成功后落工作区 sessions/ 文件（best-effort；无 app_handle
     /// 的测试环境跳过）。final 快照失败直接 return——否则 latest_session
     /// 会捞到旧 auto 行，摘要被写回错误的会话。
-    async fn finalize_session(&self, run_id: &str, llm: &Arc<dyn LoopLlm>) {
+    /// P4 起在三入口外层 match 中 spawn 后台执行（完成事件不被 LLM 摘要延迟）：
+    /// 内部失败一律 log::warn! 后 Ok(())，不再向上传播。
+    async fn finalize_session(&self, run_id: &str) -> Result<(), AppError> {
+        // 编辑审计档即 Background 模型档（原外层调用方传的就是它）
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         let pool = self.pool.clone();
         let rid = run_id.to_string();
         let snap = self
@@ -449,7 +464,7 @@ impl AgencyCoordinator {
                 run_id,
                 e
             );
-            return;
+            return Ok(());
         }
         let pool = self.pool.clone();
         let rid = run_id.to_string();
@@ -460,7 +475,9 @@ impl AgencyCoordinator {
                     .map_err(AppError::from)
             })
             .await;
-        let Ok(Some(session)) = latest else { return };
+        let Ok(Some(session)) = latest else {
+            return Ok(());
+        };
         let mechanical = crate::agency::session::SessionService::new(self.pool.clone())
             .mechanical_summary(&session);
         let prompt = format!(
@@ -509,6 +526,7 @@ impl AgencyCoordinator {
                 }
             }
         }
+        Ok(())
     }
 
     /// 创世 2.0 串行端到端：concept → assets(producer) → writing(writer)
@@ -524,8 +542,6 @@ impl AgencyCoordinator {
             .run_genesis_inner(run_id, premise, &repo, &cancel)
             .await;
         unregister_agency_cancel(run_id);
-        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
-        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -538,8 +554,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "创世完成");
+                // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
             Err(e) => {
                 let status = if cancel.load(Ordering::SeqCst) {
@@ -567,8 +590,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, &phase, status, &e.to_string());
+                // 摘要生成后台化（P4）：失败/取消事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
         }
         result
@@ -612,6 +642,14 @@ impl AgencyCoordinator {
             |r| r.get(0),
         )
         .map_err(AppError::from)
+    }
+
+    #[doc(hidden)]
+    pub async fn next_chapter_number_async(&self, story_id: &str) -> Result<i32, AppError> {
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        self.db(move || Self::next_chapter_number(&pool, &sid))
+            .await
     }
 
     async fn run_genesis_inner(
@@ -835,8 +873,6 @@ impl AgencyCoordinator {
             .run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel)
             .await;
         unregister_agency_cancel(run_id);
-        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
-        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -849,8 +885,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "续写完成");
+                // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
             Err(e) => {
                 let status = if cancel.load(Ordering::SeqCst) {
@@ -879,8 +922,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, &phase, status, &e.to_string());
+                // 摘要生成后台化（P4）：失败/取消事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
         }
         result
@@ -1191,8 +1241,6 @@ impl AgencyCoordinator {
             .run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel)
             .await;
         unregister_agency_cancel(run_id);
-        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
-        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -1205,8 +1253,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+                // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
             Err(e) => {
                 let status = if cancel.load(Ordering::SeqCst) {
@@ -1235,8 +1290,15 @@ impl AgencyCoordinator {
                             .map_err(AppError::from)
                     })
                     .await;
-                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, &phase, status, &e.to_string());
+                // 摘要生成后台化（P4）：失败/取消事件不被 LLM 摘要延迟
+                let fin = self.clone_for_finalize();
+                let rid = run_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = fin.finalize_session(&rid).await {
+                        log::warn!("finalize_session({}) 失败: {}", rid, e);
+                    }
+                });
             }
         }
         result
@@ -1259,13 +1321,32 @@ impl AgencyCoordinator {
             .unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章起", title, start_chapter);
         // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
-        // run
-        let mut run = AgencyRun::new(run_id, &premise);
-        run.story_id = Some(story_id.to_string());
+        // run。
+        // resume_prepare 已把同 id 同 story 的 pending 行落库（resume 路径）——跳过
+        // INSERT，否则主键冲突会被 map_active_run_conflict 误报为并发 run。
         let repo_c = repo.clone();
-        self.db(move || repo_c.create_run(&run).map_err(AppError::from))
-            .await
-            .map_err(map_active_run_conflict)?;
+        let rid = run_id.to_string();
+        let existing = self
+            .db(move || repo_c.get_run(&rid).map_err(AppError::from))
+            .await?;
+        match existing {
+            Some(r) if r.story_id.as_deref() == Some(story_id) => {
+                // prepare→batch 间隙到达的取消只落了 DB（内存 flag 此刻才注册）：
+                // 同步 flag 让外层按 cancelled 收尾，并提前退出
+                if r.status == "cancelled" {
+                    cancel.store(true, Ordering::SeqCst);
+                    return Err(AppError::from("创世已取消"));
+                }
+            }
+            _ => {
+                let mut run = AgencyRun::new(run_id, &premise);
+                run.story_id = Some(story_id.to_string());
+                let repo_c = repo.clone();
+                self.db(move || repo_c.create_run(&run).map_err(AppError::from))
+                    .await
+                    .map_err(map_active_run_conflict)?;
+            }
+        }
         self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
@@ -1408,9 +1489,10 @@ impl AgencyCoordinator {
         })
     }
 
-    /// 跨会话恢复：复制旧 run 黑板 → 新 run，注入 stale-replay 包装的历史简报，
-    /// 随后自动从下一章继续批量循环（1 章起步，调用方可再发 batch）。
-    pub async fn resume_run(&self, old_run_id: &str) -> Result<ResumeOutcome, AppError> {
+    /// 跨会话恢复的准备段：校验旧 run → story 级护栏 → 新 run 复制黑板 →
+    /// 注入 stale-replay 包装的历史简报 → 新 run 以 pending 落库。
+    /// 不启动 batch——调用方（IPC 层）可立即拿 new_run_id 返回，batch 后台另起。
+    pub async fn resume_prepare(&self, old_run_id: &str) -> Result<ResumeOutcome, AppError> {
         // 1) 校验旧 run 存在且非进行中
         let pool = self.pool.clone();
         let old_id = old_run_id.to_string();
@@ -1510,21 +1592,51 @@ impl AgencyCoordinator {
         })
         .await?;
 
-        // 4) 从下一章继续（1 章起步；黑板已含历史资产）
+        // 4) 新 run 以 pending 落库：IPC 立即返回 new_run_id 后即可查询/取消；
+        // story_id 随行落库，V109 部分唯一索引即刻拦截同故事并发 run。
+        // 放在复制/简报之后：前面步骤失败不留下阻塞 story 的 pending 行。
+        let title = self
+            .story_title(&story_id)
+            .await
+            .unwrap_or_else(|| "未命名".to_string());
         let start_chapter = {
             let pool = self.pool.clone();
             let sid = story_id.clone();
             self.db(move || Self::next_chapter_number(&pool, &sid))
                 .await?
         };
-        self.run_continue_batch(&new_run_id, &story_id, start_chapter, 1)
-            .await?;
+        let premise = format!("续写《{}》第{}章起", title, start_chapter);
+        let mut run = AgencyRun::new(new_run_id.clone(), &premise);
+        run.story_id = Some(story_id.clone());
+        let pool = self.pool.clone();
+        self.db(move || {
+            crate::agency::repository::AgencyRepository::new(pool)
+                .create_run(&run)
+                .map_err(AppError::from)
+        })
+        .await
+        .map_err(map_active_run_conflict)?;
 
         Ok(ResumeOutcome {
             new_run_id,
             story_id,
             resumed_from: old_run_id.to_string(),
         })
+    }
+
+    /// 跨会话恢复：prepare（复制黑板 + 历史简报 + pending 落库）→
+    /// 自动从下一章继续批量循环（1 章起步，调用方可再发 batch）。
+    pub async fn resume_run(&self, old_run_id: &str) -> Result<ResumeOutcome, AppError> {
+        let outcome = self.resume_prepare(old_run_id).await?;
+        let start_chapter = {
+            let pool = self.pool.clone();
+            let sid = outcome.story_id.clone();
+            self.db(move || Self::next_chapter_number(&pool, &sid))
+                .await?
+        };
+        self.run_continue_batch(&outcome.new_run_id, &outcome.story_id, start_chapter, 1)
+            .await?;
+        Ok(outcome)
     }
 
     /// 'static gate 执行器（spawn 用，全部依赖按值持有）。gate
@@ -2844,6 +2956,76 @@ mod tests {
             .get_by_story("s1")
             .unwrap();
         assert_eq!(scenes.len(), 2);
+    }
+
+    /// resume_prepare 只做校验/护栏/复制/简报：不启动 batch，新 run 保持 pending。
+    #[tokio::test]
+    async fn test_resume_prepare_does_not_start_batch() {
+        let pool = create_test_pool().unwrap();
+        // 与 test_resume_run_restores_board_and_wraps_history 相同的种子
+        //（旧 run completed + 资产 + 摘要 + 第一章场景 + 角色）
+        let repo = AgencyRepository::new(pool.clone());
+        repo.create_run(&AgencyRun::new("old-run", "前提")).unwrap();
+        repo.set_run_story("old-run", "s1").unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        board
+            .write(
+                "old-run",
+                "s1",
+                AgentRole::Producer,
+                BoardZone::Asset,
+                "world",
+                "世界观",
+                "双星",
+                "双星",
+            )
+            .unwrap();
+        repo.finish_run("old-run", "completed", None, None).unwrap();
+        let svc = crate::agency::session::SessionService::new(pool.clone());
+        let session = svc.snapshot("old-run", "final", "final").unwrap();
+        repo.write_session_summary(&session.id, "上次写到第二章，阿苔刚登上星舰")
+            .unwrap();
+        // 故事与第一章场景（resume 后从第二章继续）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO stories (id, title, description, genre, created_at, updated_at)
+                 VALUES ('s1', '测试书', '前提', '科幻', '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', 's1', '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')", [],
+            ).unwrap();
+        }
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create("s1", 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &ch1.id,
+                &crate::db::repositories::SceneUpdate {
+                    content: Some("第一章正文。".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(vec![]));
+        let outcome = coordinator.resume_prepare("old-run").await.unwrap();
+        assert_eq!(outcome.resumed_from, "old-run");
+        // prepare 不启动 batch：mock 无脚本也不会被调用；黑板已复制、简报已写
+        let snap = crate::agency::board::BlackboardService::new(pool.clone())
+            .snapshot(&outcome.new_run_id)
+            .unwrap();
+        assert!(snap.assets.iter().any(|i| i.key == "世界观"));
+        assert!(snap.schedules.iter().any(|i| i.key == "恢复简报"));
+        // 新 run 存在且未被 finalize（status 仍为 pending——batch 未跑）
+        let run = AgencyRepository::new(pool.clone())
+            .get_run(&outcome.new_run_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "pending");
     }
 
     #[tokio::test]

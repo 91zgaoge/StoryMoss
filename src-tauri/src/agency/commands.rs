@@ -131,9 +131,8 @@ pub async fn agency_continue_batch(
     Ok(run_id)
 }
 
-/// 跨会话恢复：校验旧 run 非进行中 → 新 run 复制黑板 + stale-replay 历史简报 →
-/// 续写 1 章。 与 continue 系列不同：本命令同步等待恢复完成并返回
-/// ResumeOutcome。
+/// 跨会话恢复：立即返回 ResumeOutcome（含 new_run_id），续写 batch 在后台执行。
+/// 进度经 agency-run-progress / agency-agent-activity 事件推送；取消用 agency_cancel_run(new_run_id)。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_resume_run(
     old_run_id: String,
@@ -141,7 +140,26 @@ pub async fn agency_resume_run(
     pool: State<'_, DbPool>,
 ) -> Result<crate::agency::coordinator::ResumeOutcome, AppError> {
     let coordinator = AgencyCoordinator::new(app_handle, pool.inner().clone());
-    coordinator.resume_run(&old_run_id).await
+    let outcome = coordinator.resume_prepare(&old_run_id).await?;
+    let (new_run_id, story_id) = (outcome.new_run_id.clone(), outcome.story_id.clone());
+    let outcome_ret = outcome.clone();
+    tauri::async_runtime::spawn(async move {
+        let start =
+            match AgencyCoordinator::next_chapter_number_async(&coordinator, &story_id).await {
+                Ok(n) => n,
+                Err(e) => {
+                    log::error!("resume batch chapter number failed: {}", e);
+                    return;
+                }
+            };
+        if let Err(e) = coordinator
+            .run_continue_batch(&new_run_id, &story_id, start, 1)
+            .await
+        {
+            log::error!("resume batch run {} failed: {}", new_run_id, e);
+        }
+    });
+    Ok(outcome_ret)
 }
 
 #[tauri::command(rename_all = "snake_case")]

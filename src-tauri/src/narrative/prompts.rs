@@ -781,9 +781,10 @@ mod concept_prompt_fidelity_tests {
 
     #[test]
     fn background_generate_templates_declare_strategy_section() {
+        // narrative_outline_generate 已随 P4 清理（T6 遗留孤儿种子模板，唯一
+        // Rust 消费方 outline_prompt 已删），不在校验之列
         let ids = [
             "narrative_world_building_generate",
-            "narrative_outline_generate",
             "narrative_character_generate",
             "narrative_scene_generate",
             "narrative_foreshadowing_generate",
