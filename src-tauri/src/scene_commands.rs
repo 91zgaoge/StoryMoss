@@ -259,6 +259,21 @@ pub async fn update_scene(
             .as_ref()
             .map(|c| c.split_whitespace().count())
             .unwrap_or(0);
+        // user_edit 观察埋点（best-effort）：人类编辑触发（content 变更且
+        // source 非 agency——agency 装配写入跳过，防自观察）。
+        if content_changed && updates.source.as_deref() != Some("agency") {
+            if let Ok(dir) = app_handle.path().app_data_dir() {
+                let logger = crate::agency::learning::ObservationLogger::new(dir);
+                let sid = story_id.clone();
+                let scid = scene_id.clone();
+                tokio::spawn(async move {
+                    logger.log(&sid, "user_edit", "human", serde_json::json!({
+                        "scene_id": scid,
+                        "word_count": word_count,
+                    }));
+                });
+            }
+        }
         let _ = automation_service
             .trigger_event(
                 crate::automation::triggers::TriggerEvent::SceneContentUpdated {

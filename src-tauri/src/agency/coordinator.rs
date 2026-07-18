@@ -8,7 +8,7 @@ use std::{
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     agency::{
@@ -164,16 +164,25 @@ pub fn validate_premise(premise: &str) -> Result<(), AppError> {
 
 pub struct AgencyLlm {
     llm: LlmService,
+    app_handle: AppHandle,
     run_id: String,
     role: AgentRole,
+    story_id: String,
 }
 
 impl AgencyLlm {
-    pub fn new(app_handle: AppHandle, run_id: impl Into<String>, role: AgentRole) -> Self {
+    pub fn new(
+        app_handle: AppHandle,
+        run_id: impl Into<String>,
+        role: AgentRole,
+        story_id: impl Into<String>,
+    ) -> Self {
         Self {
-            llm: LlmService::new(app_handle),
+            llm: LlmService::new(app_handle.clone()),
+            app_handle,
             run_id: run_id.into(),
             role,
+            story_id: story_id.into(),
         }
     }
 
@@ -248,7 +257,42 @@ impl LoopLlm for AgencyLlm {
                 None,
             )
             .await;
+        // llm_call 观察埋点（best-effort，仅成功路径；story_id 未知时跳过——
+        // 概念阶段故事尚未创建）。不记 prompt/content 正文，只记元数据。
+        if let Ok(r) = &result {
+            self.log_llm_call(&context_label, r, task);
+        }
         result.map(|r| (r.content, r.tokens_used, r.cost))
+    }
+}
+
+impl AgencyLlm {
+    /// llm_call 观察（fire-and-forget）：防自观察经 should_record（label 即
+    /// context_label，observer/analyzer 前缀不记录）。
+    fn log_llm_call(
+        &self,
+        label: &str,
+        r: &crate::llm::adapter::GenerateResponse,
+        task: TaskType,
+    ) {
+        use crate::agency::learning::ObservationLogger;
+        if self.story_id.is_empty() || !ObservationLogger::should_record(label) {
+            return;
+        }
+        let Ok(dir) = self.app_handle.path().app_data_dir() else {
+            return;
+        };
+        let logger = ObservationLogger::new(dir);
+        let sid = self.story_id.clone();
+        let role = self.role.as_str().to_string();
+        let model = r.model.clone();
+        let tokens = r.tokens_used;
+        let cost = r.cost;
+        tokio::spawn(async move {
+            logger.log(&sid, "llm_call", &role, serde_json::json!({
+                "model": model, "tokens": tokens, "cost": cost, "task": format!("{:?}", task),
+            }));
+        });
     }
 }
 
@@ -477,8 +521,9 @@ impl AgencyCoordinator {
     }
 
     /// 按 run+角色取得生产 LLM（角色模型路由 + 定点取消注册）；测试时返回注入的
-    /// mock（角色无关）。
-    fn llm_for_run(&self, run_id: &str, role: AgentRole) -> Arc<dyn LoopLlm> {
+    /// mock（角色无关）。story_id 供观察层埋点（llm_call）归属故事；概念阶段
+    /// 故事未建时传空串（埋点跳过）。
+    fn llm_for_run(&self, run_id: &str, role: AgentRole, story_id: &str) -> Arc<dyn LoopLlm> {
         match &self.llm {
             Some(llm) => llm.clone(),
             None => Arc::new(AgencyLlm::new(
@@ -488,6 +533,7 @@ impl AgencyCoordinator {
                     .clone(),
                 run_id,
                 role,
+                story_id,
             )),
         }
     }
@@ -676,8 +722,6 @@ impl AgencyCoordinator {
     /// P4 起在三入口外层 match 中 spawn 后台执行（完成事件不被 LLM 摘要延迟）：
     /// 内部失败一律 log::warn! 后 Ok(())，不再向上传播。
     async fn finalize_session(&self, run_id: &str) -> Result<(), AppError> {
-        // 编辑审计档即 Background 模型档（原外层调用方传的就是它）
-        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         let pool = self.pool.clone();
         let rid = run_id.to_string();
         let snap = self
@@ -716,6 +760,13 @@ impl AgencyCoordinator {
         };
         let mechanical = crate::agency::session::SessionService::new(self.pool.clone())
             .mechanical_summary(&session);
+        // 编辑审计档即 Background 模型档（原外层调用方传的就是它）；story_id
+        // 供观察层埋点归属（session 无 story_id 时传空串，埋点跳过）。
+        let llm = self.llm_for_run(
+            run_id,
+            AgentRole::EditorAuditor,
+            session.story_id.as_deref().unwrap_or(""),
+        );
         let prompt = format!(
             "以下是小说创作会话的机械提取快照，请压缩为五段式摘要（每段≤40字）：\n## 任务\n## 决策\n## 产出\n## 未决问题\n## 下次继续\n\n快照：\n{}",
             mechanical
@@ -872,6 +923,12 @@ impl AgencyCoordinator {
         }
     }
 
+    /// 观察层埋点（best-effort、fire-and-forget）：无 app_handle（测试环境）
+    /// 或 app_data_dir 解析失败时跳过。
+    fn log_observation(&self, story_id: &str, kind: &str, actor: &str, payload: serde_json::Value) {
+        spawn_observation(&self.app_handle, story_id, kind, actor, payload);
+    }
+
     /// 下一章号 = MAX(sequence_number)+1（同步 DB，调用方需 spawn_blocking）。
     pub fn next_chapter_number(pool: &DbPool, story_id: &str) -> Result<i32, AppError> {
         let conn = pool
@@ -910,8 +967,9 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
         // 1) 概念：标题与类型（经 BudgetedLlm 记账/限流，按 Producer 档）
+        // story_id 此时尚不存在（故事在下一步创建）——传空串，llm_call 埋点跳过。
         let concept_llm = BudgetedLlm::new(
-            self.llm_for_run(run_id, AgentRole::Producer),
+            self.llm_for_run(run_id, AgentRole::Producer, ""),
             budget.clone(),
             AgentRole::Producer,
         );
@@ -1407,6 +1465,16 @@ impl AgencyCoordinator {
                         )
                     })
                     .await;
+                // revision 观察埋点（best-effort，与 bus.send 同点）
+                self.log_observation(
+                    story_id,
+                    "revision",
+                    AgentRole::EditorAuditor.as_str(),
+                    serde_json::json!({
+                        "chapter": chapter_number,
+                        "issues_count": issues.len(),
+                    }),
+                );
                 self.update_phase(repo, run_id, "revision").await?;
                 let task = Self::build_revision_task(&draft, &issues);
                 let revise_out = self
@@ -1708,7 +1776,7 @@ impl AgencyCoordinator {
             };
 
             // spawn gate(n)（'static，与下一轮 writer 并发）
-            let runner = self.gate_runner(run_id, budget, &board, &registry);
+            let runner = self.gate_runner(run_id, story_id, budget, &board, &registry);
             let (rid, sid, prem, d) = (
                 run_id.to_string(),
                 story_id.to_string(),
@@ -1906,20 +1974,22 @@ impl AgencyCoordinator {
     }
 
     /// 'static gate 执行器（spawn 用，全部依赖按值持有）。gate
-    /// 恒为编辑审计角色档。
+    /// 恒为编辑审计角色档。story_id 供观察层埋点归属。
     fn gate_runner(
         &self,
         run_id: &str,
+        story_id: &str,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
     ) -> GateRunner {
         GateRunner {
-            llm: self.llm_for_run(run_id, AgentRole::EditorAuditor),
+            llm: self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id),
             budget: budget.clone(),
             board: board.clone(),
             registry: registry.clone(),
             pool: self.pool.clone(),
+            app_handle: self.app_handle.clone(),
         }
     }
 
@@ -1961,11 +2031,25 @@ impl AgencyCoordinator {
         round: u32,
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
-        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
-        evaluate_gate_impl(
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
+        let outcome = evaluate_gate_impl(
             &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft, round,
         )
-        .await
+        .await?;
+        // gate 观察埋点（best-effort）：outcome/round/key/issues_count 元数据
+        let (kind, issues_count) = gate_observation_meta(&outcome);
+        self.log_observation(
+            story_id,
+            "gate",
+            AgentRole::EditorAuditor.as_str(),
+            serde_json::json!({
+                "outcome": kind,
+                "round": round,
+                "key": format!("gate-{}-r{}", draft.key, round),
+                "issues_count": issues_count,
+            }),
+        );
+        Ok(outcome)
     }
 
     /// 供 Task 2 修订路径与测试使用的指令生成（纯函数）。
@@ -1991,7 +2075,7 @@ impl AgencyCoordinator {
         premise: &str,
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
-        let llm = self.llm_for_run(run_id, role);
+        let llm = self.llm_for_run(run_id, role, story_id);
         run_role_loop(
             &llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task,
         )
@@ -2389,6 +2473,7 @@ pub struct GateRunner {
     board: BlackboardService,
     registry: Arc<ToolRegistry>,
     pool: DbPool,
+    app_handle: Option<AppHandle>,
 }
 
 impl GateRunner {
@@ -2400,7 +2485,7 @@ impl GateRunner {
         draft: BoardItem,
         round: u32,
     ) -> Result<GateOutcome, AppError> {
-        evaluate_gate_impl(
+        let outcome = evaluate_gate_impl(
             &self.llm,
             &self.budget,
             &self.pool,
@@ -2412,8 +2497,52 @@ impl GateRunner {
             &draft,
             round,
         )
-        .await
+        .await?;
+        // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate 同语义）
+        let (kind, issues_count) = gate_observation_meta(&outcome);
+        spawn_observation(
+            &self.app_handle,
+            &story_id,
+            "gate",
+            AgentRole::EditorAuditor.as_str(),
+            serde_json::json!({
+                "outcome": kind,
+                "round": round,
+                "key": format!("gate-{}-r{}", draft.key, round),
+                "issues_count": issues_count,
+            }),
+        );
+        Ok(outcome)
     }
+}
+
+/// gate 观察元数据（coordinator.evaluate_gate 与 'static GateRunner 共用）。
+fn gate_observation_meta(outcome: &GateOutcome) -> (&'static str, usize) {
+    match outcome {
+        GateOutcome::Passed { .. } => ("pass", 0),
+        GateOutcome::RevisionRequired { issues, .. } => ("revise", issues.len()),
+        GateOutcome::Failed { .. } => ("failed", 0),
+    }
+}
+
+/// 观察层埋点（自由函数版，供 'static GateRunner 使用）：无 app_handle
+///（测试环境）或 app_data_dir 解析失败时跳过。
+fn spawn_observation(
+    app_handle: &Option<AppHandle>,
+    story_id: &str,
+    kind: &str,
+    actor: &str,
+    payload: serde_json::Value,
+) {
+    let Some(app) = app_handle else { return };
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    let logger = crate::agency::learning::ObservationLogger::new(dir);
+    let sid = story_id.to_string();
+    let kind = kind.to_string();
+    let actor = actor.to_string();
+    tokio::spawn(async move {
+        logger.log(&sid, &kind, &actor, payload);
+    });
 }
 
 fn verdict_comments(outcome: &GateOutcome) -> String {
