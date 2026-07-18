@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-17（v0.28.0 完成 Agency 多代理创作框架 P3：代币优化 + 记忆持久性）
+> 最后更新: 2026-07-19（v0.29.0 完成 Agency 多代理创作框架 P4：验证循环）
 
-## ✅ v0.27.x–v0.28.x 已实施完成
+## ✅ v0.27.x–v0.29.x 已实施完成
+
+### 🤝 v0.29.0 — Agency P4：验证循环 ✅ (2026-07-19)
+
+- [x] 四级 grader：code（确定性）→ rule（合同/追读力/规则复检）→ model（rubric 化编辑裁决）→ human（修改率后置信号）。
+- [x] Gate v2 加权评分（0.2/0.3/0.5，阈值 0.75）取代二元判定。
+- [x] V110 里程碑检查点 + 现在 vs 当时对比（IPC）。
+- [x] eval harness：JSON 场景 + pass@k/pass^k + baseline 回归门（随 `cargo test` 纳入 CI）。
+- [x] 评估仪表盘页（`agency_eval_overview` 聚合 IPC + 侧栏「创作评估」）。
+- [x] migration runner 按最高版本选目；resume 改 spawn 模式。
 
 ### 🤝 v0.28.0 — Agency P3：代币优化 + 记忆持久性 ✅ (2026-07-17)
 

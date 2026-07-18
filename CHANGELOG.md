@@ -26,6 +26,16 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **CI FTP 主机解析兼容 URL 格式**：`.github/scripts/upload-releases-ftp.mjs` 现在支持 `FTP_HOST` 为 `ftp://host:port` 形式，优先使用 URL 中的端口，同时保留显式 `FTP_PORT` 的覆盖能力，避免 `ftp://` 前缀被错误地当作主机名解析。
 - **官网 latest.json 使用官网下载源**：上传脚本在把 `latest.json` 同步到 `storymoss.top` 前，会将其中的二进制下载 URL 从 GitHub Releases 重写为 `https://storymoss.top/releases/<filename>`；GitHub Releases 上的原始 `latest.json` 仍保留为回退端点。
 
+## v0.29.0（2026-07-19）
+
+### Agency P4：验证循环
+- 四级 grader：code（字数/自重复/合同禁则）→ rule（合同兑现/追读力/规则复检）→ model（rubric 化编辑裁决 1-5 须引证据）→ human（用户修改率后置信号）
+- Gate v2 统一加权评分（0.2/0.3/0.5，阈值 0.75）取代二元判定
+- V110 检查点：里程碑指标快照 + 现在 vs 当时对比（IPC）
+- eval harness：JSON 场景 + pass@k/pass^k + baseline 回归门（随 cargo test 纳入 CI）
+- 评估仪表盘前端页（通过率/加权分趋势/判定历史/角色 token 用量）
+- migration runner 按最高版本选目（修复陈旧副本遮蔽）；resume 改 spawn 模式
+
 ## v0.28.0（2026-07-17）
 
 ### Agency P3：代币优化 + 记忆持久性

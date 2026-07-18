@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 const RELEASE_BASE = "https://storymoss.top/releases";
 
 const ASSETS = {
-  mac: `${RELEASE_BASE}/StoryMoss_0.28.0_aarch64.dmg`,
-  windows: `${RELEASE_BASE}/StoryMoss_0.28.0_x64_zh-CN.msi`,
-  linux: `${RELEASE_BASE}/StoryMoss_0.28.0_amd64.AppImage`,
+  mac: `${RELEASE_BASE}/StoryMoss_0.29.0_aarch64.dmg`,
+  windows: `${RELEASE_BASE}/StoryMoss_0.29.0_x64_zh-CN.msi`,
+  linux: `${RELEASE_BASE}/StoryMoss_0.29.0_amd64.AppImage`,
 };
 
 export type Platform = "mac" | "macIntel" | "windows" | "linux" | "unknown";
