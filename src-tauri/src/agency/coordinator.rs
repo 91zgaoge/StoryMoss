@@ -1079,6 +1079,16 @@ impl AgencyCoordinator {
                 GateOutcome::Passed { verdict } => break 'gate verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
                     revised = true;
+                    // revision 观察埋点（best-effort，与 batch handle_gate 修订分支同语义）
+                    self.log_observation(
+                        &story_id,
+                        "revision",
+                        AgentRole::EditorAuditor.as_str(),
+                        serde_json::json!({
+                            "chapter": 1,
+                            "issues_count": issues.len(),
+                        }),
+                    );
                     self.update_phase(repo, run_id, "revision").await?;
                     self.emit_progress(
                         run_id,
@@ -2032,11 +2042,12 @@ impl AgencyCoordinator {
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
-        let outcome = evaluate_gate_impl(
+        let (outcome, gate_score) = evaluate_gate_impl(
             &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft, round,
         )
         .await?;
-        // gate 观察埋点（best-effort）：outcome/round/key/issues_count 元数据
+        // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted 元数据
+        //（Failed 无评分，weighted 为 null——与 record_gate_impl 的 gate_score 语义一致）
         let (kind, issues_count) = gate_observation_meta(&outcome);
         self.log_observation(
             story_id,
@@ -2047,6 +2058,7 @@ impl AgencyCoordinator {
                 "round": round,
                 "key": format!("gate-{}-r{}", draft.key, round),
                 "issues_count": issues_count,
+                "weighted": gate_score.map(|s| s.weighted),
             }),
         );
         Ok(outcome)
@@ -2265,7 +2277,7 @@ async fn evaluate_gate_impl(
     premise: &str,
     draft: &BoardItem,
     round: u32,
-) -> Result<GateOutcome, AppError> {
+) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）
     let mut verdict: Option<EditorVerdict> = None;
     let mut last_raw = String::new();
@@ -2292,7 +2304,7 @@ async fn evaluate_gate_impl(
                 reason: "编辑审计 Agent 被熔断".to_string(),
             };
             record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
-            return Ok(outcome);
+            return Ok((outcome, None));
         }
         last_raw = editor_out.output.clone();
         if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
@@ -2311,7 +2323,7 @@ async fn evaluate_gate_impl(
                 ),
             };
             record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
-            return Ok(outcome);
+            return Ok((outcome, None));
         }
     };
     // 2) Gate v2：确定性 grader（code/rule）+ rubric 化 model 分，合成加权评分
@@ -2408,7 +2420,7 @@ async fn evaluate_gate_impl(
     };
     // 4) 判定落审查区（编辑审计为审查区 owner，active）
     record_gate_impl(board, run_id, story_id, draft, &outcome, round, Some(&gate_score)).await?;
-    Ok(outcome)
+    Ok((outcome, Some(gate_score)))
 }
 
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
@@ -2485,7 +2497,7 @@ impl GateRunner {
         draft: BoardItem,
         round: u32,
     ) -> Result<GateOutcome, AppError> {
-        let outcome = evaluate_gate_impl(
+        let (outcome, gate_score) = evaluate_gate_impl(
             &self.llm,
             &self.budget,
             &self.pool,
@@ -2510,6 +2522,7 @@ impl GateRunner {
                 "round": round,
                 "key": format!("gate-{}-r{}", draft.key, round),
                 "issues_count": issues_count,
+                "weighted": gate_score.map(|s| s.weighted),
             }),
         );
         Ok(outcome)

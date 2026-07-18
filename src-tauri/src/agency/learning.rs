@@ -103,7 +103,10 @@ impl ObservationLogger {
             return Ok(());
         }
         let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let keep_from = content.len().saturating_sub(max_bytes as usize);
+        let mut keep_from = content.len().saturating_sub(max_bytes as usize);
+        while keep_from < content.len() && !content.is_char_boundary(keep_from) {
+            keep_from += 1;
+        }
         // 对齐到行边界
         let aligned = content[keep_from..]
             .find('\n')
@@ -261,6 +264,29 @@ mod tests {
         assert!(!lines.is_empty());
         let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(first["kind"], "gate");
+    }
+
+    #[test]
+    fn test_rotation_multibyte_char_boundary() {
+        let (logger, _tmp) = logger();
+        let path = logger.observations_path("s1");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // 全多字节字符行（'汉' 3 字节）：keep_from=1 落在首字符内部，
+        // 修复前 content[keep_from..] 必 panic
+        let line = "汉".repeat(100);
+        let mut content = String::new();
+        for _ in 0..10 {
+            content.push_str(&line);
+            content.push('\n');
+        }
+        std::fs::write(&path, &content).unwrap();
+        let max = content.len() as u64 - 1; // 文件超阈值 1 字节 → keep_from=1（非 char 边界）
+        logger.rotate_if_needed(&path, max).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        // 尾部完整 UTF-8、按行对齐（丢弃首行，保留 9 行完整行）
+        assert!(after.ends_with('\n'));
+        assert_eq!(after.lines().count(), 9);
+        assert_eq!(after.lines().next().unwrap(), line);
     }
 
     #[test]
