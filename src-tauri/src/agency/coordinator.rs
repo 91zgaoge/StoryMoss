@@ -1725,11 +1725,12 @@ impl AgencyCoordinator {
     /// 质量门（Gate v2）：editor 裁决（解析失败重试 1 次）→ 三级加权评分。
     /// 行为规格：aborted → Failed；裁决解析重试后仍失败 → Failed；
     /// revise+blocking → RevisionRequired（issues 合并 blocking + 复检问题 +
-    /// code 问题，去重保留序）；否则 weighted（0.2*code + 0.3*rule +
-    /// 0.5*model）< 0.75 → RevisionRequired（issues 以 grader 低分项为主）；
-    /// 否则 Passed； 每次判定（含 Failed）落审查区 item_type="gate"，key =
-    /// gate-{draft.key}-r{round}（首轮 1，修订后复审 2），content JSON 含
-    /// gate_score（Failed 时为 null）。
+    /// code 问题，去重保留序）；规则复检 High+ 非空 → RevisionRequired（v1
+    /// 硬拦截语义保留，issues = 复检问题 + code 问题去重）；否则
+    /// weighted（0.2*code + 0.3*rule + 0.5*model）< 0.75 → RevisionRequired
+    /// （issues 以 grader 低分项为主）；否则 Passed； 每次判定（含 Failed）
+    /// 落审查区 item_type="gate"，key = gate-{draft.key}-r{round}（首轮 1，
+    /// 修订后复审 2），content JSON 含 gate_score（Failed 时为 null）。
     pub(crate) async fn evaluate_gate(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -1987,7 +1988,7 @@ async fn evaluate_gate_impl(
             let outcome = GateOutcome::Failed {
                 reason: "编辑审计 Agent 被熔断".to_string(),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None, &[]).await?;
             return Ok(outcome);
         }
         last_raw = editor_out.output.clone();
@@ -2006,7 +2007,7 @@ async fn evaluate_gate_impl(
                     last_raw.chars().take(120).collect::<String>()
                 ),
             };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
+            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None, &[]).await?;
             return Ok(outcome);
         }
     };
@@ -2054,9 +2055,24 @@ async fn evaluate_gate_impl(
     let gate_score =
         crate::agency::gate::GateScore::new(code_report.score, rule_report.score, model.model_score);
     // 3) 判定：revise+blocking 直接 RevisionRequired（issues 合并 blocking +
-    //    复检问题 + code 问题，去重保留序）；否则 weighted < 阈值修订；否则放行
+    //    复检问题 + code 问题，去重保留序）；规则复检 High+ 硬拦截（v1 语义
+    //    保留）；否则 weighted < 阈值修订；否则放行
     let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
         let mut issues = ModelGraderReport::blocking_strings(&verdict);
+        for issue in rule_report
+            .subagent_issues
+            .iter()
+            .chain(code_report.issues.iter())
+        {
+            if !issues.contains(issue) {
+                issues.push(issue.clone());
+            }
+        }
+        GateOutcome::RevisionRequired { issues, verdict }
+    } else if !rule_report.subagent_issues.is_empty() {
+        // spec 5.5：规则复检 High+ 硬拦截（v1 语义保留——连续性等确定性
+        // 红线不因加权分达标而放行；T3 注释"拦截决策留给 Gate v2"即此条款）
+        let mut issues: Vec<String> = Vec::new();
         for issue in rule_report
             .subagent_issues
             .iter()
@@ -2087,7 +2103,8 @@ async fn evaluate_gate_impl(
     } else {
         GateOutcome::Passed { verdict }
     };
-    // 4) 判定落审查区（编辑审计为审查区 owner，active）
+    // 4) 判定落审查区（编辑审计为审查区 owner，active）；复检 High+ 清单
+    //    旁传给落盘（Passed 分支 observability，不改变 GateOutcome 形状）
     record_gate_impl(
         board,
         run_id,
@@ -2096,6 +2113,7 @@ async fn evaluate_gate_impl(
         &outcome,
         round,
         Some(&gate_score),
+        &rule_report.subagent_issues,
     )
     .await?;
     Ok(outcome)
@@ -2104,6 +2122,10 @@ async fn evaluate_gate_impl(
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
 /// 规则问题数 + gate_score（Failed 时为 null），status=active；
 /// key = gate-{draft.key}-r{round}（轮次后缀）。
+/// observability_issues：规则复检 High+ 清单旁传——Passed 分支附带进
+/// content.issues 供观测（不改变 GateOutcome 形状；其余分支忽略，问题
+/// 清单本就在 outcome.issues 内）。
+#[allow(clippy::too_many_arguments)]
 async fn record_gate_impl(
     board: &BlackboardService,
     run_id: &str,
@@ -2112,9 +2134,10 @@ async fn record_gate_impl(
     outcome: &GateOutcome,
     round: u32,
     gate_score: Option<&crate::agency::gate::GateScore>,
+    observability_issues: &[String],
 ) -> Result<(), AppError> {
     let (kind, detail, issues) = match outcome {
-        GateOutcome::Passed { .. } => ("pass", String::new(), Vec::new()),
+        GateOutcome::Passed { .. } => ("pass", String::new(), observability_issues.to_vec()),
         GateOutcome::RevisionRequired { issues, .. } => {
             ("revise", format!("{} 条问题", issues.len()), issues.clone())
         }
@@ -2668,7 +2691,9 @@ mod tests {
 
     /// T3 遗留修复：build_review_context 填充 previous_chapters 后，
     /// 规则复检（ContinuityAgent 重复开头检查 → High）必须能拦截 editor
-    /// 放行的草稿。
+    /// 放行的草稿。Gate v2 下为双通道：spec 5.5 High+ 硬拦截（本案主命
+    /// 中——subagent_issues 非空即 RevisionRequired）+ 规则 6 低加权分
+    /// 兜底（本用例正文极短，weighted 同样低于阈值）。
     #[tokio::test]
     async fn test_gate_rule_recheck_blocks_repeated_opening() {
         let pool = create_test_pool().unwrap();
@@ -3378,5 +3403,92 @@ mod tests {
         assert!(content.get("gate_score").is_some());
         let weighted = content["gate_score"]["weighted"].as_f64().unwrap();
         assert!(weighted < 0.75, "首轮 weighted 应低于阈值: {}", weighted);
+    }
+
+    /// spec 5.5 回归：长、高追读力（code≈1.0、reading_power 高、editor 判
+    /// pass 且 score 4.5 → weighted > 0.75）但开头与上一章重复的章节，必须
+    /// 被规则复检 High+ 硬拦截（v1 语义保留），不得因加权达标而放行。
+    #[tokio::test]
+    async fn test_gate_v2_subagent_high_blocks_despite_high_weighted() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "硬拦截书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置第一章场景；草稿开头与其前 20 字完全一致 → ContinuityAgent High
+        let opening = "风沙掠过双星废土的清晨，阿苔在残骸中醒来";
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &ch1.id,
+                &crate::db::repositories::SceneUpdate {
+                    content: Some(format!("{}，耳边是磁力风暴的低鸣。", opening)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let repo = AgencyRepository::new(pool.clone());
+        repo.create_run(&AgencyRun::new("rg-5", "续写")).unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        // 高分正文：编号句 + 悬念钩子/爽点/微兑现（code≈1.0、rule≈0.66）；
+        // 但开头与第一章前 20 字重复
+        let draft = board
+            .write(
+                "rg-5",
+                &story.id,
+                AgentRole::LeadWriter,
+                BoardZone::Draft,
+                "chapter",
+                "第2章",
+                &pass_grade_content(opening),
+                "第二章草稿",
+            )
+            .unwrap();
+
+        // editor 判 pass 且 score 4.5 → model 0.9 → weighted ≈ 0.85 > 0.75
+        let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let outcome = coordinator
+            .evaluate_gate(
+                &budget, &board, &registry, "rg-5", &story.id, "续写", &draft, 1,
+            )
+            .await
+            .unwrap();
+        match outcome {
+            GateOutcome::RevisionRequired { issues, .. } => {
+                assert!(
+                    issues.iter().any(|i| i.contains("重复")),
+                    "High+ 硬拦截应报告重复开头问题: {:?}",
+                    issues
+                );
+            }
+            other => panic!(
+                "加权达标但存在 High+ 复检问题，应被 spec 5.5 硬拦截，实际: {:?}",
+                other
+            ),
+        }
+        // 落盘 gate 条目确认硬拦截记录（weighted > 0.75 但 outcome=revise）
+        let reviews = board.list_zone("rg-5", BoardZone::Review).unwrap();
+        let gate_item = reviews.iter().find(|i| i.item_type == "gate").unwrap();
+        let record: serde_json::Value = serde_json::from_str(&gate_item.content).unwrap();
+        assert_eq!(record["outcome"].as_str(), Some("revise"));
+        assert!(
+            record["gate_score"]["weighted"].as_f64().unwrap() > 0.75,
+            "本用例 weighted 必须高于阈值（否则走的是规则 6 而非 5.5）: {}",
+            record["gate_score"]["weighted"]
+        );
     }
 }
