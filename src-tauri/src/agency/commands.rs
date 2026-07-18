@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
     agency::{
@@ -389,6 +389,26 @@ pub async fn agency_compare_checkpoints(
             .ok_or_else(|| AppError::validation_failed("checkpoint_b 不存在", None::<String>))?;
         Ok(crate::agency::coordinator::compare_checkpoints(&a, &b))
     }).await.map_err(|e| AppError::from(format!("compare join error: {}", e)))?
+}
+
+/// 手动触发学习分析（观察 → instinct）；累计 ≥20 条的自动触发见
+/// coordinator.log_observation。analyzer 用 learning::ANALYZER_LABEL（防自观察）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_analyze_learning(
+    story_id: String,
+    app_handle: AppHandle,
+) -> Result<crate::agency::learning::AnalyzeOutcome, AppError> {
+    let dir = app_handle.path().app_data_dir()
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let logger = crate::agency::learning::ObservationLogger::new(dir);
+    let llm = crate::agency::coordinator::AgencyLlm::new(
+        app_handle.clone(),
+        uuid::Uuid::new_v4().to_string(),
+        crate::agency::models::AgentRole::EditorAuditor,
+        story_id.clone(),
+    )
+    .with_label(crate::agency::learning::ANALYZER_LABEL);
+    crate::agency::learning::analyze_story(std::sync::Arc::new(llm), &logger, &story_id).await
 }
 
 #[cfg(test)]

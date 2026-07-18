@@ -351,7 +351,7 @@ fn load_prompt_from_file(path: &Path) -> Option<PromptEntry> {
     })
 }
 
-fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
     if !text.starts_with("---") {
         return None;
     }

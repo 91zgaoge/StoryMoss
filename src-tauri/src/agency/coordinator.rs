@@ -168,6 +168,7 @@ pub struct AgencyLlm {
     run_id: String,
     role: AgentRole,
     story_id: String,
+    label_override: Option<String>,
 }
 
 impl AgencyLlm {
@@ -183,7 +184,16 @@ impl AgencyLlm {
             run_id: run_id.into(),
             role,
             story_id: story_id.into(),
+            label_override: None,
         }
+    }
+
+    /// 覆盖路由/观察标签（analyzer 用 learning::ANALYZER_LABEL：含
+    /// "agency_observer" 前缀使 should_record 过滤其自身 llm_call 埋点，
+    /// 防自观察）。
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label_override = Some(label.into());
+        self
     }
 
     /// 角色路由标签（agency_{writer|producer|editor}）：
@@ -192,6 +202,9 @@ impl AgencyLlm {
     /// 注意用短名而非 AgentRole::as_str（lead_writer/editor_auditor
     /// 不匹配前缀映射）。
     fn context_label(&self) -> String {
+        if let Some(label) = &self.label_override {
+            return label.clone();
+        }
         let short = match self.role {
             AgentRole::LeadWriter => "writer",
             AgentRole::Producer => "producer",
@@ -927,6 +940,31 @@ impl AgencyCoordinator {
     /// 或 app_data_dir 解析失败时跳过。
     fn log_observation(&self, story_id: &str, kind: &str, actor: &str, payload: serde_json::Value) {
         spawn_observation(&self.app_handle, story_id, kind, actor, payload);
+        // 自动分析：未分析观察累计 ≥ANALYZE_THRESHOLD 触发后台 analyzer
+        //（best-effort：失败只 warn；防自观察 label 见 learning::ANALYZER_LABEL）
+        let Some(app) = &self.app_handle else { return };
+        let Ok(dir) = app.path().app_data_dir() else { return };
+        let count = crate::agency::learning::ObservationLogger::new(dir.clone())
+            .count_unanalyzed(story_id);
+        if count < crate::agency::learning::ANALYZE_THRESHOLD {
+            return;
+        }
+        let sid = story_id.to_string();
+        let llm = Arc::new(
+            AgencyLlm::new(
+                app.clone(),
+                uuid::Uuid::new_v4().to_string(),
+                AgentRole::EditorAuditor,
+                sid.clone(),
+            )
+            .with_label(crate::agency::learning::ANALYZER_LABEL),
+        );
+        let logger = crate::agency::learning::ObservationLogger::new(dir);
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::agency::learning::analyze_story(llm, &logger, &sid).await {
+                log::warn!("learning analyzer 失败: {}", e);
+            }
+        });
     }
 
     /// 下一章号 = MAX(sequence_number)+1（同步 DB，调用方需 spawn_blocking）。

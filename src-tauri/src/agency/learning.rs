@@ -24,7 +24,8 @@ pub struct Observation {
 
 #[derive(Clone)]
 pub struct ObservationLogger {
-    app_dir: PathBuf,
+    /// T4 promotion 需要定位故事根目录（由 app_dir 推导）。
+    pub(crate) app_dir: PathBuf,
 }
 
 impl ObservationLogger {
@@ -46,7 +47,6 @@ impl ObservationLogger {
     }
 
     /// T2 analyzer/promotion 使用（直觉落盘目录）。
-    #[allow(dead_code)]
     fn instincts_path(&self, story_id: &str) -> PathBuf {
         self.app_dir
             .join("stories")
@@ -199,6 +199,220 @@ fn truncate_payload(payload: serde_json::Value) -> serde_json::Value {
     }
 }
 
+// ---- T2 analyzer：观察 → instinct（后台分析，best-effort）----
+
+/// 未分析观察累计阈值：达到后由 coordinator.log_observation 自动触发后台分析。
+pub const ANALYZE_THRESHOLD: usize = 20;
+/// 手动/自动分析的最小新观察数（低于则不调用 LLM、不推进游标）。
+const ANALYZE_MIN_NEW: usize = 2;
+/// analyzer 自身的路由/观察标签：含 "agency_observer" 使 should_record 过滤其
+/// llm_call 埋点（防自观察）；EditorAuditor 角色档。
+pub const ANALYZER_LABEL: &str = "agency_observer_editor";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Instinct {
+    pub id: String,
+    pub trigger: String,
+    pub action: String,
+    pub confidence: f64,
+    pub evidence_count: u32,
+    pub scope: String,   // story | global
+    pub status: String,  // pending | candidate | promoted | rejected
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(default)]
+    pub evolved_from: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AnalyzeOutcome {
+    pub new_instincts: usize,
+    pub updated_instincts: usize,
+    pub analyzed: usize,
+}
+
+pub fn confidence_for_evidence(count: u32) -> f64 {
+    match count {
+        0..=2 => 0.3,
+        3..=5 => 0.5,
+        6..=10 => 0.7,
+        _ => 0.85,
+    }
+}
+
+pub fn list_instincts(logger: &ObservationLogger, story_id: &str) -> Result<Vec<Instinct>, crate::error::AppError> {
+    let dir = logger.instincts_path(story_id);
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(out),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map(|x| x == "md").unwrap_or(false) {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Some(inst) = parse_instinct(&text) {
+                    out.push(inst);
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+pub fn parse_instinct(text: &str) -> Option<Instinct> {
+    let (fm, _body) = crate::prompts::registry::split_frontmatter(text)?;
+    #[derive(serde::Deserialize)]
+    struct Fm {
+        id: String,
+        trigger: String,
+        action: String,
+        confidence: f64,
+        evidence_count: u32,
+        scope: String,
+        status: String,
+        created_at: String,
+        updated_at: String,
+        #[serde(default)]
+        evolved_from: Vec<String>,
+    }
+    let fm: Fm = serde_yaml::from_str(fm).ok()?;
+    Some(Instinct {
+        id: fm.id, trigger: fm.trigger, action: fm.action,
+        confidence: fm.confidence, evidence_count: fm.evidence_count,
+        scope: fm.scope, status: fm.status,
+        created_at: fm.created_at, updated_at: fm.updated_at,
+        evolved_from: fm.evolved_from,
+    })
+}
+
+fn render_instinct(inst: &Instinct, body: &str) -> String {
+    // evolved_from 用 JSON 渲染（YAML flow 序列兼容 JSON）：块式 YAML 嵌进单行
+    // 会破坏 frontmatter 行结构导致 parse_instinct 失败。
+    let evolved = serde_json::to_string(&inst.evolved_from).unwrap_or_else(|_| "[]".into());
+    format!(
+        "---\nid: {}\ntrigger: {:?}\naction: {:?}\nconfidence: {}\nevidence_count: {}\nscope: {}\nstatus: {}\ncreated_at: {:?}\nupdated_at: {:?}\nevolved_from: {}\n---\n\n{}\n",
+        inst.id, inst.trigger, inst.action, inst.confidence, inst.evidence_count,
+        inst.scope, inst.status, inst.created_at, inst.updated_at,
+        evolved,
+        body
+    )
+}
+
+pub async fn analyze_story(
+    llm: std::sync::Arc<dyn crate::agency::tool_loop::LoopLlm>,
+    logger: &ObservationLogger,
+    story_id: &str,
+) -> Result<AnalyzeOutcome, crate::error::AppError> {
+    let new_count = logger.count_unanalyzed(story_id);
+    if new_count < ANALYZE_MIN_NEW {
+        return Ok(AnalyzeOutcome { new_instincts: 0, updated_instincts: 0, analyzed: 0 });
+    }
+    let observations = logger.recent(story_id, 50);
+    let existing = list_instincts(logger, story_id).unwrap_or_default();
+    let digest: String = observations
+        .iter()
+        .map(|o| format!("- [{}] {} by {}: {}", o.ts.get(..10).unwrap_or(&o.ts), o.kind, o.actor, o.payload))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let existing_digest: String = existing
+        .iter()
+        .map(|i| format!("- {}（evidence:{}）", i.trigger, i.evidence_count))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = format!(
+        "你是创作模式分析器。以下是小说创作过程的最近观察与既有模式（instinct）。\n\
+         任务：归纳出 0-3 条可复用的创作模式（trigger=何时适用，action=可操作的创作指导，evolved_from=相关观察 kind）。\n\
+         规则：只输出 YAML 列表（```yaml 包裹）；不要泛化无依据的模式；与既有模式重复的给出相同 trigger 以便归并。\n\n\
+         最近观察：\n{}\n\n既有模式：\n{}",
+        digest, if existing_digest.is_empty() { "（无）".into() } else { existing_digest }
+    );
+    let raw = llm.complete(
+        "你是创作模式分析器，只输出 YAML。",
+        &prompt,
+        crate::router::TaskType::Analysis,
+        1500,
+    ).await?;
+    let proposals = parse_analyzer_yaml(&raw);
+    let mut new_instincts = 0usize;
+    let mut updated_instincts = 0usize;
+    for proposal in proposals {
+        let dir = logger.instincts_path(story_id);
+        std::fs::create_dir_all(&dir).map_err(crate::error::AppError::from)?;
+        if let Some(mut hit) = existing.iter().find(|e| e.trigger == proposal.trigger).cloned() {
+            hit.evidence_count += new_count as u32;
+            hit.confidence = confidence_for_evidence(hit.evidence_count);
+            hit.updated_at = chrono::Local::now().to_rfc3339();
+            std::fs::write(dir.join(format!("{}.md", hit.id)), render_instinct(&hit, "（更新：证据累积）"))
+                .map_err(crate::error::AppError::from)?;
+            updated_instincts += 1;
+        } else {
+            let now = chrono::Local::now().to_rfc3339();
+            // 新建 instinct 从 1 条证据起（本轮归纳出的模式本身即第一条证据）；
+            // 后续同 trigger 轮次按 new_count 累积。
+            let inst = Instinct {
+                id: format!("inst-{}-{:06x}",
+                    now.get(..10).unwrap_or(&now).replace('-', ""),
+                    crc32_simple(&proposal.trigger)),
+                trigger: proposal.trigger.clone(),
+                action: proposal.action.clone(),
+                confidence: confidence_for_evidence(1),
+                evidence_count: 1,
+                scope: "story".to_string(),
+                status: "pending".to_string(),
+                created_at: now.clone(),
+                updated_at: now,
+                evolved_from: proposal.evolved_from.clone(),
+            };
+            let body = format!("## 模式描述\n{}\n\n## 证据摘要\n（来自最近 {} 条观察）", proposal.action, new_count);
+            std::fs::write(dir.join(format!("{}.md", inst.id)), render_instinct(&inst, &body))
+                .map_err(crate::error::AppError::from)?;
+            new_instincts += 1;
+        }
+    }
+    logger.mark_analyzed(story_id)?;
+    Ok(AnalyzeOutcome { new_instincts, updated_instincts, analyzed: new_count })
+}
+
+#[derive(Debug)]
+struct AnalyzerProposal {
+    trigger: String,
+    action: String,
+    evolved_from: Vec<String>,
+}
+
+fn parse_analyzer_yaml(raw: &str) -> Vec<AnalyzerProposal> {
+    // 截取 ```yaml ... ``` 或首个 '- trigger' 起的列表
+    let body = if let (Some(s), Some(e)) = (raw.find("```yaml"), raw.rfind("```")) {
+        raw.get(s + 7..e).unwrap_or(raw)
+    } else {
+        raw
+    };
+    #[derive(serde::Deserialize)]
+    struct P {
+        trigger: String,
+        action: String,
+        #[serde(default)]
+        evolved_from: Vec<String>,
+    }
+    let items: Vec<P> = serde_yaml::from_str(body).unwrap_or_default();
+    items
+        .into_iter()
+        .map(|p| AnalyzerProposal { trigger: p.trigger, action: p.action, evolved_from: p.evolved_from })
+        .collect()
+}
+
+fn crc32_simple(s: &str) -> u32 {
+    // 简单稳定散列（非加密）：FNV-1a
+    let mut hash: u32 = 2166136261;
+    for b in s.as_bytes() {
+        hash ^= *b as u32;
+        hash = hash.wrapping_mul(16777619);
+    }
+    hash & 0xFFFFFF
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +511,78 @@ mod tests {
         let recent = logger.recent("s1", 1);
         let note = recent[0].payload["note"].as_str().unwrap();
         assert!(note.chars().count() <= 520, "payload 应截断: {}", note.len());
+    }
+
+    struct MockAnalyzerLlm {
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::agency::tool_loop::LoopLlm for MockAnalyzerLlm {
+        async fn complete(&self, _s: &str, _u: &str, _t: crate::router::TaskType, _m: i32) -> Result<String, crate::error::AppError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    fn analyzer_mock() -> std::sync::Arc<MockAnalyzerLlm> {
+        std::sync::Arc::new(MockAnalyzerLlm {
+            response: r#"```yaml
+- trigger: "当编辑审计连续两轮判定 revise"
+  action: "修订前先复读资产区角色卡与大纲"
+  evolved_from: ["gate", "revision"]
+```"#.to_string(),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_analyze_creates_instinct_files() {
+        let (logger, _tmp) = logger();
+        for i in 0..3 {
+            logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "revise", "i": i}));
+        }
+        let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
+        assert_eq!(outcome.new_instincts, 1);
+        assert_eq!(outcome.analyzed, 3);
+        assert_eq!(logger.count_unanalyzed("s1"), 0);
+        let instincts = list_instincts(&logger, "s1").unwrap();
+        assert_eq!(instincts.len(), 1);
+        let inst = &instincts[0];
+        assert!(inst.trigger.contains("连续两轮"));
+        assert!(inst.action.contains("复读"));
+        assert!((inst.confidence - 0.3).abs() < 0.001); // evidence_count=1 → 0.3
+        assert_eq!(inst.status, "pending");
+        assert_eq!(inst.scope, "story");
+    }
+
+    #[tokio::test]
+    async fn test_analyze_updates_existing_instinct() {
+        let (logger, _tmp) = logger();
+        // 第一轮：≥ANALYZE_MIN_NEW 条观察触发分析，建立 instinct（evidence=1 → 0.3）
+        for i in 0..3 {
+            logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "revise", "i": i}));
+        }
+        analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
+        // 同 trigger 再来一轮观察 + 分析 → 同 trigger instinct 的 evidence_count 递增、confidence 升档
+        for _ in 0..4 {
+            logger.log("s1", "revision", "editor_auditor", serde_json::json!({"chapter": 1}));
+        }
+        let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
+        assert_eq!(outcome.updated_instincts, 1);
+        assert_eq!(outcome.new_instincts, 0);
+        let instincts = list_instincts(&logger, "s1").unwrap();
+        assert_eq!(instincts.len(), 1);
+        assert_eq!(instincts[0].evidence_count, 5);
+        assert!((instincts[0].confidence - 0.5).abs() < 0.001); // 3-5 → 0.5
+    }
+
+    #[tokio::test]
+    async fn test_analyze_skips_when_insufficient() {
+        let (logger, _tmp) = logger();
+        logger.log("s1", "gate", "editor_auditor", serde_json::json!({"outcome": "pass"}));
+        let outcome = analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
+        assert_eq!(outcome.analyzed, 0);
+        assert_eq!(outcome.new_instincts, 0);
+        // 未达到最小样本（<2 条新观察）不调用 LLM、不推进游标
+        assert_eq!(logger.count_unanalyzed("s1"), 1);
     }
 }
