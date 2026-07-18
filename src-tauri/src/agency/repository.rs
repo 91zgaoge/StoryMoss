@@ -361,6 +361,49 @@ impl AgencyRepository {
         };
         Ok(msgs)
     }
+
+    // ---- checkpoints ----
+
+    pub fn insert_checkpoint(
+        &self,
+        cp: &crate::agency::coordinator::AgencyCheckpoint,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO agency_checkpoints (id, run_id, story_id, milestone, chapter_number, metrics_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![cp.id, cp.run_id, cp.story_id, cp.milestone, cp.chapter_number,
+                    cp.metrics_json, cp.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_checkpoints(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<crate::agency::coordinator::AgencyCheckpoint>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, story_id, milestone, chapter_number, metrics_json, created_at
+             FROM agency_checkpoints WHERE story_id = ?1 ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(params![story_id], map_checkpoint)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn get_checkpoint(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::agency::coordinator::AgencyCheckpoint>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.query_row(
+            "SELECT id, run_id, story_id, milestone, chapter_number, metrics_json, created_at
+             FROM agency_checkpoints WHERE id = ?1",
+            params![id],
+            map_checkpoint,
+        )
+        .optional()
+    }
 }
 
 fn map_session(
@@ -406,6 +449,20 @@ fn map_board_item(row: &rusqlite::Row) -> Result<BoardItem, rusqlite::Error> {
         status: row.get(10)?,
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
+    })
+}
+
+fn map_checkpoint(
+    row: &rusqlite::Row,
+) -> Result<crate::agency::coordinator::AgencyCheckpoint, rusqlite::Error> {
+    Ok(crate::agency::coordinator::AgencyCheckpoint {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        story_id: row.get(2)?,
+        milestone: row.get(3)?,
+        chapter_number: row.get(4)?,
+        metrics_json: row.get(5)?,
+        created_at: row.get(6)?,
     })
 }
 
@@ -650,6 +707,32 @@ mod tests {
         assert_eq!(r.status, "cancelled");
         assert_eq!(r.phase, "assets");
         assert_eq!(r.error_message.as_deref(), Some("创世已取消"));
+    }
+
+    #[test]
+    fn test_checkpoints_insert_list_compare() {
+        let (repo, _) = repo();
+        repo.create_run(&AgencyRun::new("cp-run", "前提")).unwrap();
+        repo.set_run_story("cp-run", "s1").unwrap();
+        let cp1 = crate::agency::coordinator::AgencyCheckpoint::new(
+            "cp-run", "s1", "assets", None,
+            serde_json::json!({"chapters_done": 0, "words_total": 0, "gate_scores": [], "tokens_used": 5000, "elapsed_s": 30}),
+        );
+        let cp2 = crate::agency::coordinator::AgencyCheckpoint::new(
+            "cp-run", "s1", "chapter", Some(1),
+            serde_json::json!({"chapters_done": 1, "words_total": 2100, "gate_scores": [{"chapter": 1, "weighted": 0.82}], "tokens_used": 42000, "elapsed_s": 180}),
+        );
+        repo.insert_checkpoint(&cp1).unwrap();
+        repo.insert_checkpoint(&cp2).unwrap();
+        let list = repo.list_checkpoints("s1").unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].milestone, "assets");
+        assert_eq!(list[1].chapter_number, Some(1));
+        let diff = crate::agency::coordinator::compare_checkpoints(&cp1, &cp2);
+        assert_eq!(diff.words_delta, 2100);
+        assert_eq!(diff.chapters_delta, 1);
+        assert_eq!(diff.tokens_delta, 37000);
+        assert!((diff.gate_weighted_delta - 0.82).abs() < 0.001);
     }
 
     /// V109 部分唯一索引 idx_agency_runs_one_active_per_story：

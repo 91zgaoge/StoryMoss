@@ -328,6 +328,58 @@ pub enum GateOutcome {
     },
 }
 
+/// 里程碑检查点：run 关键节点的指标快照（V110 agency_checkpoints）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgencyCheckpoint {
+    pub id: String,
+    pub run_id: String,
+    pub story_id: String,
+    pub milestone: String,
+    pub chapter_number: Option<i32>,
+    pub metrics_json: String,
+    pub created_at: String,
+}
+
+impl AgencyCheckpoint {
+    pub fn new(run_id: &str, story_id: &str, milestone: &str, chapter_number: Option<i32>, metrics: serde_json::Value) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            run_id: run_id.to_string(),
+            story_id: story_id.to_string(),
+            milestone: milestone.to_string(),
+            chapter_number,
+            metrics_json: metrics.to_string(),
+            created_at: chrono::Local::now().to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CheckpointDiff {
+    pub words_delta: i64,
+    pub chapters_delta: i64,
+    pub tokens_delta: i64,
+    pub gate_weighted_delta: f64,
+}
+
+pub fn compare_checkpoints(a: &AgencyCheckpoint, b: &AgencyCheckpoint) -> CheckpointDiff {
+    let ma: serde_json::Value = serde_json::from_str(&a.metrics_json).unwrap_or_default();
+    let mb: serde_json::Value = serde_json::from_str(&b.metrics_json).unwrap_or_default();
+    let num = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
+    let last_weighted = |v: &serde_json::Value| v.get("gate_scores")
+        .and_then(|g| g.as_array())
+        .and_then(|arr| arr.last())
+        .and_then(|s| s.get("weighted"))
+        .and_then(|w| w.as_f64())
+        .unwrap_or(0.0);
+    CheckpointDiff {
+        words_delta: num(&mb, "words_total") - num(&ma, "words_total"),
+        chapters_delta: num(&mb, "chapters_done") - num(&ma, "chapters_done"),
+        tokens_delta: num(&mb, "tokens_used") - num(&ma, "tokens_used"),
+        gate_weighted_delta: last_weighted(&mb) - last_weighted(&ma),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AgencyGenesisResult {
     pub run_id: String,
@@ -479,6 +531,128 @@ impl AgencyCoordinator {
             .await;
     }
 
+    /// 检查点落库（best-effort，不阻塞主流程）。
+    async fn checkpoint(&self, run_id: &str, story_id: &str, milestone: &str,
+        chapter_number: Option<i32>, metrics: serde_json::Value) {
+        let cp = AgencyCheckpoint::new(run_id, story_id, milestone, chapter_number, metrics);
+        let pool = self.pool.clone();
+        let _ = self.db(move || {
+            crate::agency::repository::AgencyRepository::new(pool)
+                .insert_checkpoint(&cp)
+                .map_err(AppError::from)
+        }).await;
+    }
+
+    /// 采集指标并落检查点（best-effort）。
+    async fn checkpoint_auto(&self, run_id: &str, story_id: &str, milestone: &str,
+        chapter_number: Option<i32>, budget: &Arc<AgencyBudget>) {
+        let metrics = self.collect_metrics(run_id, story_id, budget).await;
+        self.checkpoint(run_id, story_id, milestone, chapter_number, metrics)
+            .await;
+    }
+
+    /// 里程碑指标采集：chapters_done/words_total 取 story 场景真源（COUNT/SUM
+    /// LENGTH(content)）；gate_scores 取本 run 审查区 gate 条目 content JSON 的
+    /// weighted（同章多轮保留末轮，按章升序；章号从 gate key 解析，解析失败归
+    /// 0——如中文数字章号「第一章」）；tokens_used 取 run 预算记账；elapsed_s
+    /// 自 run created_at 起算。整体 best-effort：DB 失败回退零值骨架。
+    async fn collect_metrics(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> serde_json::Value {
+        let tokens_used = budget.tokens_used();
+        let pool = self.pool.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let collected = self
+            .db(move || -> Result<serde_json::Value, AppError> {
+                let conn = pool
+                    .get()
+                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                let (chapters_done, words_total): (i64, i64) = conn
+                    .query_row(
+                        "SELECT COUNT(*), COALESCE(SUM(LENGTH(content)), 0) FROM scenes WHERE story_id = ?1",
+                        rusqlite::params![sid],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .unwrap_or((0, 0));
+                let run_created: Option<String> = conn
+                    .query_row(
+                        "SELECT created_at FROM agency_runs WHERE id = ?1",
+                        rusqlite::params![rid],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                let elapsed_s = run_created
+                    .and_then(|c| chrono::DateTime::parse_from_rfc3339(&c).ok())
+                    .map(|t| {
+                        (chrono::Local::now() - t.with_timezone(&chrono::Local))
+                            .num_seconds()
+                            .max(0)
+                    })
+                    .unwrap_or(0);
+                let mut stmt = conn.prepare(
+                    "SELECT key, content FROM agency_board_items
+                     WHERE run_id = ?1 AND zone = 'review' AND item_type = 'gate'
+                     ORDER BY created_at ASC, rowid ASC",
+                )?;
+                let rows = stmt.query_map(rusqlite::params![rid], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?;
+                let mut by_chapter: Vec<(i32, f64)> = Vec::new();
+                for row in rows {
+                    let (key, content) = row?;
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else {
+                        continue;
+                    };
+                    // Failed 判定 gate_score 为 null——无 weighted，跳过
+                    let Some(weighted) = v
+                        .get("gate_score")
+                        .and_then(|g| g.get("weighted"))
+                        .and_then(|w| w.as_f64())
+                    else {
+                        continue;
+                    };
+                    let chapter = chapter_from_gate_key(&key).unwrap_or(0);
+                    match by_chapter.iter_mut().find(|(c, _)| *c == chapter) {
+                        // 同章多轮（修订复审）：保留末轮 weighted
+                        Some(entry) => entry.1 = weighted,
+                        None => by_chapter.push((chapter, weighted)),
+                    }
+                }
+                by_chapter.sort_by_key(|(c, _)| *c);
+                let gate_scores: Vec<serde_json::Value> = by_chapter
+                    .into_iter()
+                    .map(|(chapter, weighted)| {
+                        serde_json::json!({"chapter": chapter, "weighted": weighted})
+                    })
+                    .collect();
+                Ok(serde_json::json!({
+                    "chapters_done": chapters_done,
+                    "words_total": words_total,
+                    "gate_scores": gate_scores,
+                    "tokens_used": tokens_used,
+                    "elapsed_s": elapsed_s,
+                }))
+            })
+            .await;
+        match collected {
+            Ok(metrics) => metrics,
+            Err(e) => {
+                log::warn!("agency checkpoint: 指标采集失败 run={}: {}", run_id, e);
+                serde_json::json!({
+                    "chapters_done": 0,
+                    "words_total": 0,
+                    "gate_scores": [],
+                    "tokens_used": tokens_used,
+                    "elapsed_s": 0,
+                })
+            }
+        }
+    }
+
     /// 后台 finalize 用的轻量克隆：app_handle/pool/llm 三字段克隆；
     /// progress_sink 不带（finalize 不发进度事件）。
     fn clone_for_finalize(&self) -> Self {
@@ -586,8 +760,10 @@ impl AgencyCoordinator {
     ) -> Result<AgencyGenesisResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
         let cancel = register_agency_cancel(run_id);
+        // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let result = self
-            .run_genesis_inner(run_id, premise, &repo, &cancel)
+            .run_genesis_inner(run_id, premise, &repo, &cancel, &budget)
             .await;
         unregister_agency_cancel(run_id);
         match &result {
@@ -603,6 +779,9 @@ impl AgencyCoordinator {
                     })
                     .await;
                 self.emit_progress(run_id, "assembly", "completed", "创世完成");
+                // run 收尾检查点（best-effort）
+                self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
+                    .await;
                 // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
                 let fin = self.clone_for_finalize();
                 let rid = run_id.to_string();
@@ -706,9 +885,9 @@ impl AgencyCoordinator {
         premise: &str,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
+        budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyGenesisResult, AppError> {
-        // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
-        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
         let run = AgencyRun::new(run_id, premise);
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from))
@@ -761,6 +940,9 @@ impl AgencyCoordinator {
         self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from))
             .await?;
         self.check_cancel(cancel)?;
+        // concept 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, &story_id, "concept", None, budget)
+            .await;
 
         // 3) 管理：资产生产
         self.update_phase(repo, run_id, "assets").await?;
@@ -768,7 +950,7 @@ impl AgencyCoordinator {
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
-            &budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
+            budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
@@ -794,12 +976,15 @@ impl AgencyCoordinator {
         }
         // 资产阶段完成：自动会话快照（best-effort）
         self.snapshot_phase(run_id, "assets", "auto").await;
+        // assets 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, &story_id, "assets", None, budget)
+            .await;
 
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role_with_llm_and_budget(
-            &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
+            budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
@@ -815,7 +1000,7 @@ impl AgencyCoordinator {
             self.emit_progress(run_id, "review", "running", "质量门评估中");
             let outcome = self
                 .evaluate_gate(
-                    &budget, &board, &registry, run_id, &story_id, premise, &draft, 1,
+                    budget, &board, &registry, run_id, &story_id, premise, &draft, 1,
                 )
                 .await?;
             match outcome {
@@ -832,7 +1017,7 @@ impl AgencyCoordinator {
                     let task = Self::build_revision_task(&draft, &issues);
                     let revise_out = self
                         .run_role_with_llm_and_budget(
-                            &budget,
+                            budget,
                             AgentRole::LeadWriter,
                             &board,
                             &registry,
@@ -853,7 +1038,7 @@ impl AgencyCoordinator {
                     // 复审：无论结果都进入装配（Failed 除外）
                     let second = self
                         .evaluate_gate(
-                            &budget, &board, &registry, run_id, &story_id, premise, &draft, 2,
+                            budget, &board, &registry, run_id, &story_id, premise, &draft, 2,
                         )
                         .await?;
                     match second {
@@ -917,8 +1102,10 @@ impl AgencyCoordinator {
     ) -> Result<AgencyContinueResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
         let cancel = register_agency_cancel(run_id);
+        // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let result = self
-            .run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel)
+            .run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel, &budget)
             .await;
         unregister_agency_cancel(run_id);
         match &result {
@@ -934,6 +1121,9 @@ impl AgencyCoordinator {
                     })
                     .await;
                 self.emit_progress(run_id, "assembly", "completed", "续写完成");
+                // run 收尾检查点（best-effort）
+                self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
+                    .await;
                 // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
                 let fin = self.clone_for_finalize();
                 let rid = run_id.to_string();
@@ -991,9 +1181,9 @@ impl AgencyCoordinator {
         chapter_number: i32,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
+        budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyContinueResult, AppError> {
-        // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
-        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
         let title = self
             .story_title(story_id)
             .await
@@ -1011,9 +1201,12 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 1) 资产确认/补齐
-        self.ensure_assets(&budget, repo, run_id, story_id, &premise)
+        self.ensure_assets(budget, repo, run_id, story_id, &premise)
             .await?;
         self.check_cancel(cancel)?;
+        // assets 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, story_id, "assets", None, budget)
+            .await;
 
         // 2) 写作
         self.update_phase(repo, run_id, "writing").await?;
@@ -1027,7 +1220,7 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let draft = self
             .write_chapter(
-                &budget,
+                budget,
                 &board,
                 &registry,
                 run_id,
@@ -1043,11 +1236,11 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "review", "running", "质量门评估中");
         let outcome = self
             .evaluate_gate(
-                &budget, &board, &registry, run_id, story_id, &premise, &draft, 1,
+                budget, &board, &registry, run_id, story_id, &premise, &draft, 1,
             )
             .await?;
         self.handle_gate(
-            &budget,
+            budget,
             &board,
             &registry,
             repo,
@@ -1264,6 +1457,9 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        // chapter 里程碑检查点（best-effort；gate_scores 含本章末轮 weighted）
+        self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
+            .await;
         Ok(AgencyContinueResult {
             run_id: run_id.to_string(),
             story_id: story_id.to_string(),
@@ -1285,8 +1481,10 @@ impl AgencyCoordinator {
     ) -> Result<AgencyBatchResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
         let cancel = register_agency_cancel(run_id);
+        // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let result = self
-            .run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel)
+            .run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel, &budget)
             .await;
         unregister_agency_cancel(run_id);
         match &result {
@@ -1302,6 +1500,9 @@ impl AgencyCoordinator {
                     })
                     .await;
                 self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+                // run 收尾检查点（best-effort）
+                self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
+                    .await;
                 // 摘要生成后台化（P4）：完成事件不被 LLM 摘要延迟
                 let fin = self.clone_for_finalize();
                 let rid = run_id.to_string();
@@ -1360,9 +1561,9 @@ impl AgencyCoordinator {
         count: usize,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
+        budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyBatchResult, AppError> {
-        // run 级并发预算：贯穿本 run 全部角色调用（与单章续写共用同一门径）
-        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（与单章续写共用同一门径）
         let title = self
             .story_title(story_id)
             .await
@@ -1399,9 +1600,12 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 资产确认/补齐（与单章续写同路径）
-        self.ensure_assets(&budget, repo, run_id, story_id, &premise)
+        self.ensure_assets(budget, repo, run_id, story_id, &premise)
             .await?;
         self.check_cancel(cancel)?;
+        // assets 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, story_id, "assets", None, budget)
+            .await;
 
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
@@ -1434,7 +1638,7 @@ impl AgencyCoordinator {
             );
 
             let write_fut = self.write_chapter(
-                &budget,
+                budget,
                 &board,
                 &registry,
                 run_id,
@@ -1458,7 +1662,7 @@ impl AgencyCoordinator {
                     let (prev_num, prev_draft, prev_revised) = pending_chapter.take().unwrap();
                     let prev = self
                         .handle_gate(
-                            &budget,
+                            budget,
                             &board,
                             &registry,
                             repo,
@@ -1490,7 +1694,7 @@ impl AgencyCoordinator {
             };
 
             // spawn gate(n)（'static，与下一轮 writer 并发）
-            let runner = self.gate_runner(run_id, &budget, &board, &registry);
+            let runner = self.gate_runner(run_id, budget, &board, &registry);
             let (rid, sid, prem, d) = (
                 run_id.to_string(),
                 story_id.to_string(),
@@ -1518,7 +1722,7 @@ impl AgencyCoordinator {
                 .map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
             let last = self
                 .handle_gate(
-                    &budget, &board, &registry, repo, run_id, story_id, &premise, num, draft,
+                    budget, &board, &registry, repo, run_id, story_id, &premise, num, draft,
                     revised, outcome, cancel,
                 )
                 .await?;
@@ -2225,6 +2429,18 @@ fn gate_verdict(outcome: &GateOutcome) -> Option<&EditorVerdict> {
         GateOutcome::RevisionRequired { verdict, .. } => Some(verdict),
         GateOutcome::Failed { .. } => None,
     }
+}
+
+/// gate 审查条目 key（gate-{draft.key}-r{round}）→ 章号：剥前缀与轮次后缀后
+/// 复用 parse_chapter_number（「第N章」阿拉伯数字形态）；解析失败返回 None
+/// （如中文数字章号「第一章」，调用方归 0 处理）。
+fn chapter_from_gate_key(key: &str) -> Option<i32> {
+    let inner = key.strip_prefix("gate-")?;
+    let inner = match inner.rfind("-r") {
+        Some(pos) => &inner[..pos],
+        None => inner,
+    };
+    crate::agency::graders::parse_chapter_number(inner)
 }
 
 fn default_role_prompt(prompt_id: &str) -> &'static str {
@@ -3490,5 +3706,60 @@ mod tests {
             "本用例 weighted 必须高于阈值（否则走的是规则 6 而非 5.5）: {}",
             record["gate_score"]["weighted"]
         );
+    }
+
+    /// P4 检查点钩子：genesis 落 concept/assets/run_final 检查点（按 brief
+    /// 钩子清单，genesis 首章不经 handle_gate，无 chapter 检查点，首章指标
+    /// 由 run_final 覆盖）；单章续写落 assets/chapter/run_final，chapter
+    /// 检查点带章号与本章 weighted。
+    #[tokio::test]
+    async fn test_checkpoints_written_at_milestones() {
+        let pool = create_test_pool().unwrap();
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), pass_script());
+        let result = coordinator
+            .run_genesis("cp-g", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        let list = repo.list_checkpoints(&result.story_id).unwrap();
+        let milestones: Vec<&str> = list.iter().map(|c| c.milestone.as_str()).collect();
+        assert_eq!(milestones, vec!["concept", "assets", "run_final"]);
+        // run_final 指标：一章已装配；gate_scores 含首章 weighted（中文数字
+        // 章号「第一章」解析失败归 0——chapter_from_gate_key 回退语义）
+        let m: serde_json::Value = serde_json::from_str(&list[2].metrics_json).unwrap();
+        assert_eq!(m["chapters_done"].as_i64(), Some(1));
+        assert!(m["words_total"].as_i64().unwrap() > 0);
+        assert!(m["tokens_used"].as_u64().is_some());
+        assert!(m["elapsed_s"].as_i64().is_some());
+        let gates = m["gate_scores"].as_array().unwrap();
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0]["chapter"].as_i64(), Some(0));
+        assert!(gates[0]["weighted"].as_f64().unwrap() > 0.75);
+
+        // 单章续写：assets → chapter（章号 + weighted）→ run_final
+        let story_id = seed_story_with_assets(&pool);
+        let write1 = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+            pass_grade_content("第1章正文。")
+        );
+        let llm = MockLlm::scripted(vec![
+            write1.as_str(),
+            r#"{"type":"final","content":"完成"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        coordinator.run_continue("cp-c", &story_id, 1).await.unwrap();
+        let list = repo.list_checkpoints(&story_id).unwrap();
+        let milestones: Vec<&str> = list.iter().map(|c| c.milestone.as_str()).collect();
+        assert_eq!(milestones, vec!["assets", "chapter", "run_final"]);
+        let ch = &list[1];
+        assert_eq!(ch.chapter_number, Some(1));
+        let m: serde_json::Value = serde_json::from_str(&ch.metrics_json).unwrap();
+        assert_eq!(m["chapters_done"].as_i64(), Some(1));
+        let gates = m["gate_scores"].as_array().unwrap();
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0]["chapter"].as_i64(), Some(1));
+        let weighted = gates[0]["weighted"].as_f64().unwrap();
+        assert!(weighted > 0.75, "本章 weighted 应过阈值: {}", weighted);
     }
 }

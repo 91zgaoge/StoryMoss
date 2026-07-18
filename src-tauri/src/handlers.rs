@@ -229,6 +229,7 @@ tauri::generate_handler![
     agency::commands::agency_list_board, agency::commands::agency_cancel_run,
     agency::commands::agency_continue_chapter, agency::commands::agency_continue_batch,
     agency::commands::agency_resume_run,
+    agency::commands::agency_list_checkpoints, agency::commands::agency_compare_checkpoints,
     // Auth commands
     auth::commands::get_auth_config,
     auth::commands::oauth_start,

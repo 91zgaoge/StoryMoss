@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 use crate::{
     agency::{
         board::BlackboardService,
-        coordinator::{cancel_agency_run, AgencyCoordinator},
+        coordinator::{cancel_agency_run, AgencyCheckpoint, AgencyCoordinator},
         models::{AgencyRun, BoardItem},
         repository::AgencyRepository,
     },
@@ -231,4 +231,34 @@ pub async fn agency_cancel_run(
     .await
     .map_err(|e| AppError::from(format!("agency_cancel_run join error: {}", e)))?;
     Ok(())
+}
+
+/// 按 story 列出里程碑检查点（created_at 升序）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_list_checkpoints(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<AgencyCheckpoint>, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        crate::agency::repository::AgencyRepository::new(pool).list_checkpoints(&story_id).map_err(AppError::from)
+    }).await.map_err(|e| AppError::from(format!("list_checkpoints join error: {}", e)))?
+}
+
+/// 对比两个检查点的指标差值（b - a）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_compare_checkpoints(
+    checkpoint_a: String,
+    checkpoint_b: String,
+    pool: State<'_, DbPool>,
+) -> Result<crate::agency::coordinator::CheckpointDiff, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || -> Result<_, AppError> {
+        let repo = crate::agency::repository::AgencyRepository::new(pool);
+        let a = repo.get_checkpoint(&checkpoint_a).map_err(AppError::from)?
+            .ok_or_else(|| AppError::validation_failed("checkpoint_a 不存在", None::<String>))?;
+        let b = repo.get_checkpoint(&checkpoint_b).map_err(AppError::from)?
+            .ok_or_else(|| AppError::validation_failed("checkpoint_b 不存在", None::<String>))?;
+        Ok(crate::agency::coordinator::compare_checkpoints(&a, &b))
+    }).await.map_err(|e| AppError::from(format!("compare join error: {}", e)))?
 }
