@@ -258,11 +258,59 @@ impl LoopLlm for AgencyLlm {
 pub struct EditorVerdict {
     pub verdict: String, // pass | revise
     #[serde(default)]
-    pub blocking_issues: Vec<String>,
+    pub blocking_issues: Vec<serde_json::Value>, // 字符串或 {"issue","evidence"} 对象均可
     #[serde(default)]
     pub suggestions: Vec<String>,
     #[serde(default)]
     pub comments: String,
+    #[serde(default)]
+    pub score: Option<f64>, // rubric 1-5（P4 rubric 化）
+    #[serde(default)]
+    pub dimension_scores: Option<std::collections::HashMap<String, f64>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelGraderReport {
+    pub model_score: f64, // 0-1
+    pub dimension_scores: std::collections::HashMap<String, f64>,
+    pub evidence_issues: Vec<String>,
+    pub comments: String,
+}
+
+impl ModelGraderReport {
+    pub fn from_verdict(verdict: &EditorVerdict) -> Self {
+        let model_score = match verdict.score {
+            Some(s) => (s / 5.0).clamp(0.0, 1.0),
+            None => match verdict.verdict.as_str() {
+                "pass" => 0.85,
+                "revise" => 0.4,
+                _ => 0.5,
+            },
+        };
+        let evidence_issues = verdict
+            .blocking_issues
+            .iter()
+            .map(|i| match i {
+                serde_json::Value::String(s) => s.clone(),
+                other => other
+                    .get("issue")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| other.to_string()),
+            })
+            .collect();
+        Self {
+            model_score,
+            dimension_scores: verdict.dimension_scores.clone().unwrap_or_default(),
+            evidence_issues,
+            comments: verdict.comments.clone(),
+        }
+    }
+
+    /// blocking_issues 的字符串视图（Gate v2 合并问题清单用）。
+    pub fn blocking_strings(verdict: &EditorVerdict) -> Vec<String> {
+        Self::from_verdict(verdict).evidence_issues
+    }
 }
 
 /// 质量门判定结果（取代 P1 的 fail-open 默认放行）。
@@ -1962,7 +2010,7 @@ async fn evaluate_gate_impl(
     //    pass 也要过规则）
     let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
         GateOutcome::RevisionRequired {
-            issues: verdict.blocking_issues.clone(),
+            issues: ModelGraderReport::blocking_strings(&verdict),
             verdict,
         }
     } else {
@@ -2319,6 +2367,38 @@ mod tests {
             parse_lenient("前言{\"verdict\":\"revise\",\"blocking_issues\":[\"a\"]}后缀").unwrap();
         assert_eq!(v.verdict, "revise");
         assert!(parse_lenient::<EditorVerdict>("无 JSON").is_none());
+    }
+
+    #[test]
+    fn test_verdict_with_rubric_scores() {
+        let raw = r#"{"verdict":"pass","score":4.2,"dimension_scores":{"continuity":4.5,"style":4.0,"contract":4.0,"ai_tone":4.5,"hook":3.8},"blocking_issues":[],"suggestions":[],"comments":"好"}"#;
+        let v: EditorVerdict = parse_lenient(raw).unwrap();
+        assert_eq!(v.verdict, "pass");
+        let report = ModelGraderReport::from_verdict(&v);
+        assert!((report.model_score - 0.84).abs() < 0.001); // 4.2/5
+        assert_eq!(report.dimension_scores.get("continuity"), Some(&4.5));
+    }
+
+    #[test]
+    fn test_verdict_legacy_format_fallback() {
+        // 旧格式（无 score 字段）向后兼容
+        let raw = r#"{"verdict":"revise","blocking_issues":["动机缺失"],"suggestions":[],"comments":"修"}"#;
+        let v: EditorVerdict = parse_lenient(raw).unwrap();
+        assert!(v.score.is_none());
+        let report = ModelGraderReport::from_verdict(&v);
+        assert!((report.model_score - 0.4).abs() < 0.001);
+        assert!((ModelGraderReport::from_verdict(&EditorVerdict {
+            verdict: "pass".into(), blocking_issues: vec![], suggestions: vec![], comments: String::new(),
+            score: None, dimension_scores: None,
+        }).model_score - 0.85).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_evidence_issues_collected() {
+        let raw = r#"{"verdict":"revise","score":2.0,"blocking_issues":[{"issue":"角色动机断裂","evidence":"「他突然放弃复仇」"}],"suggestions":[],"comments":"修"}"#;
+        let v: EditorVerdict = parse_lenient(raw).unwrap();
+        let report = ModelGraderReport::from_verdict(&v);
+        assert!(report.evidence_issues.iter().any(|i| i.contains("角色动机断裂")));
     }
 
     #[test]
@@ -2856,6 +2936,8 @@ mod tests {
                 blocking_issues: vec![],
                 suggestions: vec![],
                 comments: "好".into(),
+                score: None,
+                dimension_scores: None,
             },
             chapter_chars: 2000,
         };

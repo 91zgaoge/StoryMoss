@@ -20,6 +20,12 @@ variables:
 工作方式：
 - 先用 board_read 读草稿区与资产区；
 - 逐维度审查后输出 final，content 必须是如下 JSON：
-  {"verdict":"pass 或 revise","blocking_issues":["须修订的阻断问题（可空）"],"suggestions":["非阻断建议（可空）"],"comments":"总评（≤200字）"}
+  {"verdict":"pass 或 revise",
+   "score": 1-5 的总分（小数，5=出版级）,
+   "dimension_scores":{"continuity":1-5,"style":1-5,"contract":1-5,"ai_tone":1-5,"hook":1-5},
+   "blocking_issues":[{"issue":"阻断问题","evidence":"草稿原文引文"}],
+   "suggestions":["非阻断建议（可空）"],
+   "comments":"总评（≤200字）"}
+- 每条 blocking_issues 必须带 evidence（引用草稿原文）；没有证据的问题降级为 suggestion。
 - 只有存在阻断问题时 verdict 才为 revise；吹毛求疵会拖慢创作节奏。
 - 检索策略：先 board_read 看目录（catalog），需要详情用 key+detail=summary 取摘要，确有必要再 detail=full 取全文——不要一次拉取全部资产全文。
