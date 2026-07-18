@@ -1,9 +1,11 @@
 //! 质量门 v1：规则问题归并与规则复检上下文构建。
 //! 门判定逻辑（evaluate_gate）在 coordinator.rs；Task 4/6 复用同一门径。
 
-use crate::agents::subagents::{ReviewNotes, ReviewSeverity};
-use crate::db::DbPool;
-use crate::domain::agent_context::{AgentContext, ChapterSummary, CharacterInfo};
+use crate::{
+    agents::subagents::{ReviewNotes, ReviewSeverity},
+    db::DbPool,
+    domain::agent_context::{AgentContext, ChapterSummary, CharacterInfo},
+};
 
 /// 收集规则审查中 High 及以上问题，格式化为 "[agent] category: description"。
 pub fn merge_rule_issues(notes: &[ReviewNotes]) -> Vec<String> {
@@ -21,11 +23,17 @@ pub fn merge_rule_issues(notes: &[ReviewNotes]) -> Vec<String> {
         .collect()
 }
 
-/// 为规则复检构建最小 AgentContext：角色/世界规则取自 DB 资产（Task 4 落库后可用），
-/// 活跃线索取自黑板伏笔条目摘要。
-pub fn build_review_context(pool: &DbPool, story_id: &str, foreshadowing_hints: &[String]) -> AgentContext {
+/// 为规则复检构建最小 AgentContext：角色/世界规则取自 DB 资产（Task 4
+/// 落库后可用）， 活跃线索取自黑板伏笔条目摘要。
+pub fn build_review_context(
+    pool: &DbPool,
+    story_id: &str,
+    foreshadowing_hints: &[String],
+) -> AgentContext {
     let mut ctx = AgentContext::minimal(story_id.to_string(), String::new());
-    if let Ok(chars) = crate::db::repositories::CharacterRepository::new(pool.clone()).get_by_story(story_id) {
+    if let Ok(chars) =
+        crate::db::repositories::CharacterRepository::new(pool.clone()).get_by_story(story_id)
+    {
         ctx.narrative.characters = chars
             .iter()
             .map(|c| CharacterInfo {
@@ -38,12 +46,15 @@ pub fn build_review_context(pool: &DbPool, story_id: &str, foreshadowing_hints: 
             })
             .collect();
     }
-    if let Ok(Some(world)) = crate::db::repositories::WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+    if let Ok(Some(world)) =
+        crate::db::repositories::WorldBuildingRepository::new(pool.clone()).get_by_story(story_id)
+    {
         let rules_text = serde_json::to_string(&world.rules).unwrap_or_default();
         ctx.world.world_rules = Some(format!("{}\n{}", world.concept, rules_text));
     }
-    // 最近场景开头 → previous_chapters（ContinuityAgent 重复开头 High 检查依赖此字段；
-    // 与 asset_query scenes 同一查询，sequence_number 可能为负需钳制到 u32）
+    // 最近场景开头 → previous_chapters（ContinuityAgent 重复开头 High
+    // 检查依赖此字段； 与 asset_query scenes 同一查询，sequence_number
+    // 可能为负需钳制到 u32）
     if let Ok(conn) = pool.get() {
         if let Ok(mut stmt) = conn.prepare(
             "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
@@ -74,10 +85,25 @@ mod tests {
     #[test]
     fn test_merge_rule_issues_high_and_above_only() {
         let mut notes = ReviewNotes::new("style", "风格审查");
-        notes.add_issue(ReviewIssue::new(ReviewSeverity::High, "AI腔", "陈词滥调", "删掉"));
-        notes.add_issue(ReviewIssue::new(ReviewSeverity::Low, "句长", "偏长", "可拆"));
+        notes.add_issue(ReviewIssue::new(
+            ReviewSeverity::High,
+            "AI腔",
+            "陈词滥调",
+            "删掉",
+        ));
+        notes.add_issue(ReviewIssue::new(
+            ReviewSeverity::Low,
+            "句长",
+            "偏长",
+            "可拆",
+        ));
         let mut notes2 = ReviewNotes::new("continuity", "连续性");
-        notes2.add_issue(ReviewIssue::new(ReviewSeverity::Critical, "矛盾", "角色已死却出场", "改"));
+        notes2.add_issue(ReviewIssue::new(
+            ReviewSeverity::Critical,
+            "矛盾",
+            "角色已死却出场",
+            "改",
+        ));
         let merged = merge_rule_issues(&[notes, notes2]);
         assert_eq!(merged.len(), 2);
         assert!(merged[0].contains("AI腔"));

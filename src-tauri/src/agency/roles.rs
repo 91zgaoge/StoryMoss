@@ -1,5 +1,4 @@
-use crate::agency::models::AgentRole;
-use crate::router::TaskType;
+use crate::{agency::models::AgentRole, router::TaskType};
 
 /// 角色规格：三角色 = 运行时之上的配置（提示词 + 路由任务类型 + 熔断参数）。
 #[derive(Debug, Clone, Copy)]
@@ -54,9 +53,18 @@ mod tests {
             assert!(spec.max_turns >= 4);
             assert!(spec.max_output_tokens >= 1024);
         }
-        assert_eq!(spec_for(AgentRole::LeadWriter).task_type, TaskType::CreativeWriting);
-        assert_eq!(spec_for(AgentRole::Producer).task_type, TaskType::WorldBuilding);
-        assert_eq!(spec_for(AgentRole::EditorAuditor).task_type, TaskType::Proofreading);
+        assert_eq!(
+            spec_for(AgentRole::LeadWriter).task_type,
+            TaskType::CreativeWriting
+        );
+        assert_eq!(
+            spec_for(AgentRole::Producer).task_type,
+            TaskType::WorldBuilding
+        );
+        assert_eq!(
+            spec_for(AgentRole::EditorAuditor).task_type,
+            TaskType::Proofreading
+        );
     }
 
     #[test]

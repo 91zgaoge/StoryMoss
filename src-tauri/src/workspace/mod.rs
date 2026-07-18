@@ -143,15 +143,24 @@ impl WorkspaceService {
         })?
     }
 
-    /// 写 agency 会话快照到 sessions/ 子目录并 git 提交（镜像 write_loops 模式）。
-    pub async fn write_session(&self, story_id: &str, run_id: &str, content: &str) -> Result<(), AppError> {
+    /// 写 agency 会话快照到 sessions/ 子目录并 git 提交（镜像 write_loops
+    /// 模式）。
+    pub async fn write_session(
+        &self,
+        story_id: &str,
+        run_id: &str,
+        content: &str,
+    ) -> Result<(), AppError> {
         let svc = self.clone();
         let story_id = story_id.to_string();
         let run_id = run_id.to_string();
         let content = content.to_string();
         tokio::task::spawn_blocking(move || {
             svc.write_session_sync(&story_id, &run_id, &content)?;
-            svc.git_commit_sync(&story_id, &format!("docs: agency session snapshot {}", run_id))
+            svc.git_commit_sync(
+                &story_id,
+                &format!("docs: agency session snapshot {}", run_id),
+            )
         })
         .await
         .map_err(|e| AppError::Internal {
@@ -161,7 +170,12 @@ impl WorkspaceService {
 
     // ==================== 同步实现 ====================
 
-    fn write_session_sync(&self, story_id: &str, run_id: &str, content: &str) -> Result<(), AppError> {
+    fn write_session_sync(
+        &self,
+        story_id: &str,
+        run_id: &str,
+        content: &str,
+    ) -> Result<(), AppError> {
         let dir = self.workspace_dir(story_id).join(SESSIONS_DIR);
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join(format!("{}.md", run_id)), content)?;

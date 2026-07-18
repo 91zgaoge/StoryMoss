@@ -6,8 +6,8 @@ mod domain;
 // 基础设施 ports（trait 契约），必须在具体实现模块之前声明。
 mod ports;
 
-mod agents;
 pub mod agency;
+mod agents;
 mod analytics;
 mod anti_ai;
 mod audit;

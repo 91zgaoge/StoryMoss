@@ -28,7 +28,11 @@ impl AgentRole {
     }
 
     pub fn all() -> [AgentRole; 3] {
-        [AgentRole::LeadWriter, AgentRole::Producer, AgentRole::EditorAuditor]
+        [
+            AgentRole::LeadWriter,
+            AgentRole::Producer,
+            AgentRole::EditorAuditor,
+        ]
     }
 }
 
@@ -63,7 +67,12 @@ impl BoardZone {
     }
 
     pub fn all() -> [BoardZone; 4] {
-        [BoardZone::Asset, BoardZone::Draft, BoardZone::Review, BoardZone::Schedule]
+        [
+            BoardZone::Asset,
+            BoardZone::Draft,
+            BoardZone::Review,
+            BoardZone::Schedule,
+        ]
     }
 
     /// 单一写入者原则：每个分区只有 owner 角色能直写（active），

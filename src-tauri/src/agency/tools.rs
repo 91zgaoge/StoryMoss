@@ -1,12 +1,15 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use rusqlite::OptionalExtension;
 
-use crate::agency::board::BlackboardService;
-use crate::agency::models::*;
-use crate::db::DbPool;
-use crate::error::AppError;
+use crate::{
+    agency::{board::BlackboardService, models::*},
+    db::DbPool,
+    error::AppError,
+};
 
 /// 工具执行上下文：一次代理运行所需的全部句柄。
 #[derive(Clone)]
@@ -23,7 +26,8 @@ pub trait AgentTool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn args_schema(&self) -> serde_json::Value;
-    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError>;
+    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value)
+        -> Result<String, AppError>;
 }
 
 impl ToolContext {
@@ -58,7 +62,10 @@ impl ToolRegistry {
     }
 
     pub fn allow(&mut self, role: AgentRole, tool_name: &str) {
-        self.whitelists.entry(role).or_default().insert(tool_name.to_string());
+        self.whitelists
+            .entry(role)
+            .or_default()
+            .insert(tool_name.to_string());
     }
 
     /// 白名单校验后取工具；未注册或未授权都返回 None。
@@ -117,25 +124,42 @@ pub struct BoardReadTool;
 
 #[async_trait::async_trait]
 impl AgentTool for BoardReadTool {
-    fn name(&self) -> &'static str { "board_read" }
-    fn description(&self) -> &'static str { "读取黑板分区目录（key+摘要+版本）；需要全文时给出 key" }
+    fn name(&self) -> &'static str {
+        "board_read"
+    }
+    fn description(&self) -> &'static str {
+        "读取黑板分区目录（key+摘要+版本）；需要全文时给出 key"
+    }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
     }
 
-    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
         let pool = ctx.pool.clone();
         let run_id = ctx.run_id.clone();
         let zone = args.get("zone").and_then(|v| v.as_str()).map(String::from);
         let key = args.get("key").and_then(|v| v.as_str()).map(String::from);
-        let detail = args.get("detail").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let detail = args
+            .get("detail")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
             let board = BlackboardService::new(pool);
             // zone 非空但非法时回显错误让模型自愈（不再静默读全部）
             let zone = match zone.as_deref() {
                 Some(z) => match BoardZone::from_str(z) {
                     Some(parsed) => Some(parsed),
-                    None => return Ok(format!("非法 zone: {}，可选 asset|draft|review|schedule", z)),
+                    None => {
+                        return Ok(format!(
+                            "非法 zone: {}，可选 asset|draft|review|schedule",
+                            z
+                        ))
+                    }
                 },
                 None => None,
             };
@@ -144,10 +168,19 @@ impl AgentTool for BoardReadTool {
                 if let Some(item) = items.into_iter().find(|i| i.key == k) {
                     // 三档 detail：summary 只取前 500 字符；full（含默认）取全文
                     let body = match detail.as_str() {
-                        "summary" => format!("{}…(summary 档，detail=full 取全文)", item.content.chars().take(500).collect::<String>()),
+                        "summary" => format!(
+                            "{}…(summary 档，detail=full 取全文)",
+                            item.content.chars().take(500).collect::<String>()
+                        ),
                         _ => item.content.clone(),
                     };
-                    return Ok(format!("[{}/{}] v{}\n{}", item.zone.as_str(), item.key, item.version, body));
+                    return Ok(format!(
+                        "[{}/{}] v{}\n{}",
+                        item.zone.as_str(),
+                        item.key,
+                        item.version,
+                        body
+                    ));
                 }
                 return Ok(format!("未找到 key={} 的条目", k));
             }
@@ -156,15 +189,25 @@ impl AgentTool for BoardReadTool {
                     let items = board.list_zone(&run_id, z)?;
                     let mut out = String::new();
                     for item in items {
-                        out.push_str(&format!("- [{}/{}] {} (v{}, {})\n",
-                            item.zone.as_str(), item.key, item.summary, item.version, item.status));
+                        out.push_str(&format!(
+                            "- [{}/{}] {} (v{}, {})\n",
+                            item.zone.as_str(),
+                            item.key,
+                            item.summary,
+                            item.version,
+                            item.status
+                        ));
                     }
-                    if out.is_empty() { out = "（空）\n".into(); }
+                    if out.is_empty() {
+                        out = "（空）\n".into();
+                    }
                     Ok(out)
                 }
                 None => Ok(board.snapshot(&run_id)?.to_catalog_tokens(500, "cl100k")),
             }
-        }).await.map_err(|e| AppError::from(format!("board_read join error: {}", e)))?
+        })
+        .await
+        .map_err(|e| AppError::from(format!("board_read join error: {}", e)))?
     }
 }
 
@@ -172,29 +215,65 @@ pub struct BoardWriteTool;
 
 #[async_trait::async_trait]
 impl AgentTool for BoardWriteTool {
-    fn name(&self) -> &'static str { "board_write" }
-    fn description(&self) -> &'static str { "写入黑板条目（非本角色分区自动降级为提案）" }
+    fn name(&self) -> &'static str {
+        "board_write"
+    }
+    fn description(&self) -> &'static str {
+        "写入黑板条目（非本角色分区自动降级为提案）"
+    }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"zone": "asset|draft|review|schedule", "item_type": "条目类型", "key": "条目标识", "content": "全文", "summary": "一句话摘要（≤80字）"})
     }
 
-    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
         let zone_str = args.get("zone").and_then(|v| v.as_str()).unwrap_or("");
-        let zone = BoardZone::from_str(zone_str)
-            .ok_or_else(|| AppError::validation_failed(format!("非法 zone: {}", zone_str), None::<String>))?;
-        let item_type = args.get("item_type").and_then(|v| v.as_str()).unwrap_or("note").to_string();
-        let key = args.get("key").and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::validation_failed("board_write 缺少 key", None::<String>))?.to_string();
-        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let zone = BoardZone::from_str(zone_str).ok_or_else(|| {
+            AppError::validation_failed(format!("非法 zone: {}", zone_str), None::<String>)
+        })?;
+        let item_type = args
+            .get("item_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("note")
+            .to_string();
+        let key = args
+            .get("key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::validation_failed("board_write 缺少 key", None::<String>))?
+            .to_string();
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let summary = args
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let board = ctx.board.clone();
         let run_id = ctx.run_id.clone();
         let story_id = ctx.story_id.clone();
         let role = ctx.role;
         tokio::task::spawn_blocking(move || {
-            board.write(&run_id, &story_id, role, zone, &item_type, &key, &content, &summary)
-        }).await.map_err(|e| AppError::from(format!("board_write join error: {}", e)))?
-        .map(|item| format!("已写入 [{}/{}] status={} id={}", item.zone.as_str(), item.key, item.status, item.id))
+            board.write(
+                &run_id, &story_id, role, zone, &item_type, &key, &content, &summary,
+            )
+        })
+        .await
+        .map_err(|e| AppError::from(format!("board_write join error: {}", e)))?
+        .map(|item| {
+            format!(
+                "已写入 [{}/{}] status={} id={}",
+                item.zone.as_str(),
+                item.key,
+                item.status,
+                item.id
+            )
+        })
     }
 }
 
@@ -202,25 +281,59 @@ pub struct BoardReviseTool;
 
 #[async_trait::async_trait]
 impl AgentTool for BoardReviseTool {
-    fn name(&self) -> &'static str { "board_revise" }
-    fn description(&self) -> &'static str { "修订自己分区的既有条目（版本乐观锁；用于按审查意见修订草稿）" }
+    fn name(&self) -> &'static str {
+        "board_revise"
+    }
+    fn description(&self) -> &'static str {
+        "修订自己分区的既有条目（版本乐观锁；用于按审查意见修订草稿）"
+    }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"item_id": "条目 id", "expected_version": "当前版本号（整数）", "content": "修订后全文", "summary": "一句话摘要"})
     }
 
-    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
-        let item_id = args.get("item_id").and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::validation_failed("board_revise 缺少 item_id", None::<String>))?.to_string();
-        let expected_version = args.get("expected_version").and_then(|v| v.as_i64())
-            .ok_or_else(|| AppError::validation_failed("board_revise 缺少 expected_version", None::<String>))? as i32;
-        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let item_id = args
+            .get("item_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AppError::validation_failed("board_revise 缺少 item_id", None::<String>)
+            })?
+            .to_string();
+        let expected_version = args
+            .get("expected_version")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                AppError::validation_failed("board_revise 缺少 expected_version", None::<String>)
+            })? as i32;
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let summary = args
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let board = ctx.board.clone();
         let role = ctx.role;
         tokio::task::spawn_blocking(move || {
             board.revise(&item_id, role, &content, &summary, expected_version)
-        }).await.map_err(|e| AppError::from(format!("board_revise join error: {}", e)))?
-        .map(|item| format!("已修订 [{}/{}] 到 v{}", item.zone.as_str(), item.key, item.version))
+        })
+        .await
+        .map_err(|e| AppError::from(format!("board_revise join error: {}", e)))?
+        .map(|item| {
+            format!(
+                "已修订 [{}/{}] 到 v{}",
+                item.zone.as_str(),
+                item.key,
+                item.version
+            )
+        })
     }
 }
 
@@ -228,13 +341,21 @@ pub struct StoryInfoTool;
 
 #[async_trait::async_trait]
 impl AgentTool for StoryInfoTool {
-    fn name(&self) -> &'static str { "story_info" }
-    fn description(&self) -> &'static str { "读取当前故事的基本信息（标题/类型/简介）" }
+    fn name(&self) -> &'static str {
+        "story_info"
+    }
+    fn description(&self) -> &'static str {
+        "读取当前故事的基本信息（标题/类型/简介）"
+    }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
 
-    async fn execute(&self, ctx: &ToolContext, _args: serde_json::Value) -> Result<String, AppError> {
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        _args: serde_json::Value,
+    ) -> Result<String, AppError> {
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
@@ -256,14 +377,26 @@ pub struct AssetQueryTool;
 
 #[async_trait::async_trait]
 impl AgentTool for AssetQueryTool {
-    fn name(&self) -> &'static str { "asset_query" }
-    fn description(&self) -> &'static str { "查询故事资产库：characters 角色卡 / world 世界观 / outline 大纲 / scenes 最近场景摘要" }
+    fn name(&self) -> &'static str {
+        "asset_query"
+    }
+    fn description(&self) -> &'static str {
+        "查询故事资产库：characters 角色卡 / world 世界观 / outline 大纲 / scenes 最近场景摘要"
+    }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"kind": "characters|world|outline|scenes"})
     }
 
-    async fn execute(&self, ctx: &ToolContext, args: serde_json::Value) -> Result<String, AppError> {
-        let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let kind = args
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
@@ -313,9 +446,10 @@ impl AgentTool for AssetQueryTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::board::BlackboardService;
-    use crate::agency::repository::AgencyRepository;
-    use crate::db::{create_test_pool, repositories::StoryRepository, dto::CreateStoryRequest};
+    use crate::{
+        agency::{board::BlackboardService, repository::AgencyRepository},
+        db::{create_test_pool, dto::CreateStoryRequest, repositories::StoryRepository},
+    };
 
     fn ctx(pool: DbPool, role: AgentRole) -> ToolContext {
         ToolContext {
@@ -329,7 +463,8 @@ mod tests {
 
     fn seed_run(pool: &DbPool) {
         AgencyRepository::new(pool.clone())
-            .create_run(&AgencyRun::new("r1", "前提")).unwrap();
+            .create_run(&AgencyRun::new("r1", "前提"))
+            .unwrap();
     }
 
     #[tokio::test]
@@ -338,14 +473,27 @@ mod tests {
         seed_run(&pool);
         let registry = ToolRegistry::agency_default();
         let context = ctx(pool, AgentRole::Producer);
-        let write = registry.get_for_role(AgentRole::Producer, "board_write").unwrap();
-        let out = write.execute(&context, serde_json::json!({
-            "zone": "asset", "item_type": "world", "key": "世界观",
-            "content": "双星废土，磁力风暴", "summary": "双星废土"
-        })).await.unwrap();
+        let write = registry
+            .get_for_role(AgentRole::Producer, "board_write")
+            .unwrap();
+        let out = write
+            .execute(
+                &context,
+                serde_json::json!({
+                    "zone": "asset", "item_type": "world", "key": "世界观",
+                    "content": "双星废土，磁力风暴", "summary": "双星废土"
+                }),
+            )
+            .await
+            .unwrap();
         assert!(out.contains("active"));
-        let read = registry.get_for_role(AgentRole::Producer, "board_read").unwrap();
-        let catalog = read.execute(&context, serde_json::json!({"zone": "asset"})).await.unwrap();
+        let read = registry
+            .get_for_role(AgentRole::Producer, "board_read")
+            .unwrap();
+        let catalog = read
+            .execute(&context, serde_json::json!({"zone": "asset"}))
+            .await
+            .unwrap();
         assert!(catalog.contains("世界观") || catalog.contains("双星废土"));
     }
 
@@ -356,24 +504,32 @@ mod tests {
         let registry = ToolRegistry::agency_default();
         // 编辑审计角色不允许 board_write（其审查经 ToolLoop final + 协调器落审查区，
         // P1 白名单收紧到只读 + story_info）
-        assert!(registry.get_for_role(AgentRole::EditorAuditor, "board_write").is_none());
-        assert!(registry.get_for_role(AgentRole::EditorAuditor, "board_read").is_some());
+        assert!(registry
+            .get_for_role(AgentRole::EditorAuditor, "board_write")
+            .is_none());
+        assert!(registry
+            .get_for_role(AgentRole::EditorAuditor, "board_read")
+            .is_some());
         // 未注册工具名 → None
-        assert!(registry.get_for_role(AgentRole::Producer, "delete_story").is_none());
+        assert!(registry
+            .get_for_role(AgentRole::Producer, "delete_story")
+            .is_none());
     }
 
     #[tokio::test]
     async fn test_story_info() {
         let pool = create_test_pool().unwrap();
-        StoryRepository::new(pool.clone()).create(CreateStoryRequest {
-            title: "星海拾荒者".into(),
-            description: Some("废土与星环".into()),
-            genre: Some("科幻".into()),
-            style_dna_id: None,
-            genre_profile_id: None,
-            methodology_id: None,
-            reference_book_id: None,
-        }).unwrap();
+        StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "星海拾荒者".into(),
+                description: Some("废土与星环".into()),
+                genre: Some("科幻".into()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
         let registry = ToolRegistry::agency_default();
         let story = StoryRepository::new(pool.clone());
         // 找到刚创建的 story id
@@ -381,7 +537,9 @@ mod tests {
         let sid = created[0].id.clone();
         let mut context = ctx(pool, AgentRole::LeadWriter);
         context.story_id = sid;
-        let tool = registry.get_for_role(AgentRole::LeadWriter, "story_info").unwrap();
+        let tool = registry
+            .get_for_role(AgentRole::LeadWriter, "story_info")
+            .unwrap();
         let info = tool.execute(&context, serde_json::json!({})).await.unwrap();
         assert!(info.contains("星海拾荒者"));
         assert!(info.contains("科幻"));
@@ -405,12 +563,41 @@ mod tests {
         let registry = ToolRegistry::agency_default();
         let context = ctx(pool, AgentRole::Producer);
         let long = "长".repeat(1000);
-        context.board.write("r1", "s1", AgentRole::Producer, BoardZone::Asset,
-            "world", "世界观", &long, "长文本").unwrap();
-        let read = registry.get_for_role(AgentRole::Producer, "board_read").unwrap();
-        let summary = read.execute(&context, serde_json::json!({"zone": "asset", "key": "世界观", "detail": "summary"})).await.unwrap();
-        assert!(summary.chars().count() < 700, "summary 档应截断: {}", summary.len());
-        let full = read.execute(&context, serde_json::json!({"zone": "asset", "key": "世界观", "detail": "full"})).await.unwrap();
+        context
+            .board
+            .write(
+                "r1",
+                "s1",
+                AgentRole::Producer,
+                BoardZone::Asset,
+                "world",
+                "世界观",
+                &long,
+                "长文本",
+            )
+            .unwrap();
+        let read = registry
+            .get_for_role(AgentRole::Producer, "board_read")
+            .unwrap();
+        let summary = read
+            .execute(
+                &context,
+                serde_json::json!({"zone": "asset", "key": "世界观", "detail": "summary"}),
+            )
+            .await
+            .unwrap();
+        assert!(
+            summary.chars().count() < 700,
+            "summary 档应截断: {}",
+            summary.len()
+        );
+        let full = read
+            .execute(
+                &context,
+                serde_json::json!({"zone": "asset", "key": "世界观", "detail": "full"}),
+            )
+            .await
+            .unwrap();
         assert!(full.chars().count() >= 1000);
     }
 
@@ -421,40 +608,74 @@ mod tests {
         let registry = ToolRegistry::agency_default();
         let context = ctx(pool.clone(), AgentRole::LeadWriter);
         // 先由 owner 写入 draft
-        let draft = context.board.write("r1", "s1", AgentRole::LeadWriter, BoardZone::Draft,
-            "chapter", "第一章", "初稿", "初稿").unwrap();
-        let revise = registry.get_for_role(AgentRole::LeadWriter, "board_revise")
+        let draft = context
+            .board
+            .write(
+                "r1",
+                "s1",
+                AgentRole::LeadWriter,
+                BoardZone::Draft,
+                "chapter",
+                "第一章",
+                "初稿",
+                "初稿",
+            )
+            .unwrap();
+        let revise = registry
+            .get_for_role(AgentRole::LeadWriter, "board_revise")
             .expect("LeadWriter 应有 board_revise");
-        let out = revise.execute(&context, serde_json::json!({
-            "item_id": draft.id, "expected_version": 1,
-            "content": "修订稿", "summary": "修订稿"
-        })).await.unwrap();
+        let out = revise
+            .execute(
+                &context,
+                serde_json::json!({
+                    "item_id": draft.id, "expected_version": 1,
+                    "content": "修订稿", "summary": "修订稿"
+                }),
+            )
+            .await
+            .unwrap();
         assert!(out.contains("v2") || out.contains("version=2"));
         let item = context.board.repo().get_item(&draft.id).unwrap().unwrap();
         assert_eq!(item.content, "修订稿");
         assert_eq!(item.version, 2);
         // 版本冲突 → 错误回显（工具 Ok 但内容提示冲突，或 Err——以实现为准断言其一）
-        let conflict = revise.execute(&context, serde_json::json!({
-            "item_id": draft.id, "expected_version": 1,
-            "content": "并发", "summary": "x"
-        })).await;
+        let conflict = revise
+            .execute(
+                &context,
+                serde_json::json!({
+                    "item_id": draft.id, "expected_version": 1,
+                    "content": "并发", "summary": "x"
+                }),
+            )
+            .await;
         assert!(conflict.is_err() || conflict.unwrap().contains("冲突"));
     }
 
     #[tokio::test]
     async fn test_board_revise_whitelist() {
         let registry = ToolRegistry::agency_default();
-        assert!(registry.get_for_role(AgentRole::Producer, "board_revise").is_none());
-        assert!(registry.get_for_role(AgentRole::EditorAuditor, "board_revise").is_none());
+        assert!(registry
+            .get_for_role(AgentRole::Producer, "board_revise")
+            .is_none());
+        assert!(registry
+            .get_for_role(AgentRole::EditorAuditor, "board_revise")
+            .is_none());
     }
 
     #[tokio::test]
     async fn test_asset_query_tool() {
         let pool = create_test_pool().unwrap();
-        let story = StoryRepository::new(pool.clone()).create(CreateStoryRequest {
-            title: "资产书".into(), description: None, genre: None,
-            style_dna_id: None, genre_profile_id: None, methodology_id: None, reference_book_id: None,
-        }).unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "资产书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
         {
             let conn = pool.get().unwrap();
             conn.execute(
@@ -466,16 +687,31 @@ mod tests {
         let registry = ToolRegistry::agency_default();
         // 三角色白名单均可读
         for role in AgentRole::all() {
-            assert!(registry.get_for_role(role, "asset_query").is_some(), "{:?} 应可读 asset_query", role);
+            assert!(
+                registry.get_for_role(role, "asset_query").is_some(),
+                "{:?} 应可读 asset_query",
+                role
+            );
         }
         let mut context = ctx(pool, AgentRole::LeadWriter);
         context.story_id = story.id.clone();
-        let tool = registry.get_for_role(AgentRole::LeadWriter, "asset_query").unwrap();
-        let out = tool.execute(&context, serde_json::json!({"kind": "characters"})).await.unwrap();
+        let tool = registry
+            .get_for_role(AgentRole::LeadWriter, "asset_query")
+            .unwrap();
+        let out = tool
+            .execute(&context, serde_json::json!({"kind": "characters"}))
+            .await
+            .unwrap();
         assert!(out.contains("阿苔"));
-        let empty = tool.execute(&context, serde_json::json!({"kind": "outline"})).await.unwrap();
+        let empty = tool
+            .execute(&context, serde_json::json!({"kind": "outline"}))
+            .await
+            .unwrap();
         assert!(empty.contains("无大纲"));
-        let bad = tool.execute(&context, serde_json::json!({"kind": "nope"})).await.unwrap();
+        let bad = tool
+            .execute(&context, serde_json::json!({"kind": "nope"}))
+            .await
+            .unwrap();
         assert!(bad.contains("非法 kind"));
     }
 }

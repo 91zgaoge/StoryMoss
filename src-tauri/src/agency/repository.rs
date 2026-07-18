@@ -1,7 +1,6 @@
 use rusqlite::{params, OptionalExtension};
 
-use crate::agency::models::*;
-use crate::db::DbPool;
+use crate::{agency::models::*, db::DbPool};
 
 pub struct AgencyRepository {
     pool: DbPool,
@@ -9,7 +8,9 @@ pub struct AgencyRepository {
 
 impl Clone for AgencyRepository {
     fn clone(&self) -> Self {
-        Self { pool: self.pool.clone() }
+        Self {
+            pool: self.pool.clone(),
+        }
     }
 }
 
@@ -48,9 +49,15 @@ impl AgencyRepository {
         Ok(())
     }
 
-    /// 终态守护（与 finish_run 同谓词）：cancelled/completed/failed 后阶段推进静默无效（0 行），
-    /// 取消竞态下协调器迟到的 update_phase 不再覆盖终态。
-    pub fn update_run_phase(&self, run_id: &str, status: &str, phase: &str) -> Result<(), rusqlite::Error> {
+    /// 终态守护（与 finish_run 同谓词）：cancelled/completed/failed
+    /// 后阶段推进静默无效（0 行）， 取消竞态下协调器迟到的 update_phase
+    /// 不再覆盖终态。
+    pub fn update_run_phase(
+        &self,
+        run_id: &str,
+        status: &str,
+        phase: &str,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
             "UPDATE agency_runs SET status = ?2, phase = ?3, updated_at = ?4 WHERE id = ?1 AND status NOT IN ('cancelled', 'completed', 'failed')",
@@ -145,7 +152,11 @@ impl AgencyRepository {
         ).optional()
     }
 
-    pub fn list_items(&self, run_id: &str, zone: Option<BoardZone>) -> Result<Vec<BoardItem>, rusqlite::Error> {
+    pub fn list_items(
+        &self,
+        run_id: &str,
+        zone: Option<BoardZone>,
+    ) -> Result<Vec<BoardItem>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let items = match zone {
             Some(z) => {
@@ -187,21 +198,35 @@ impl AgencyRepository {
         Ok(count > 0)
     }
 
-    /// 把 from_run 的 active 黑板条目复制到 to_run（恢复会话用；新 id、保留版本与分区）。
-    pub fn copy_active_items(&self, from_run: &str, to_run: &str) -> Result<usize, rusqlite::Error> {
+    /// 把 from_run 的 active 黑板条目复制到 to_run（恢复会话用；新
+    /// id、保留版本与分区）。
+    pub fn copy_active_items(
+        &self,
+        from_run: &str,
+        to_run: &str,
+    ) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let now = now();
         let mut stmt = conn.prepare(
             "SELECT story_id, zone, item_type, key, content, summary, version, producer, status
              FROM agency_board_items WHERE run_id = ?1 AND status = 'active' ORDER BY created_at, rowid")?;
         let rows = stmt.query_map(params![from_run], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?,
-                r.get::<_, i32>(6)?, r.get::<_, String>(7)?, r.get::<_, String>(8)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, i32>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, String>(8)?,
+            ))
         })?;
         let mut count = 0usize;
         for row in rows {
-            let (story_id, zone, item_type, key, content, summary, version, producer, status) = row?;
+            let (story_id, zone, item_type, key, content, summary, version, producer, status) =
+                row?;
             conn.execute(
                 "INSERT INTO agency_board_items
                  (id, run_id, story_id, zone, item_type, key, content, summary, version, producer, status, created_at, updated_at)
@@ -215,7 +240,11 @@ impl AgencyRepository {
     }
 
     /// 跨 run 列出某 story 的全部黑板条目（续写时回收历史资产用）。
-    pub fn list_items_for_story(&self, story_id: &str, zone: Option<BoardZone>) -> Result<Vec<BoardItem>, rusqlite::Error> {
+    pub fn list_items_for_story(
+        &self,
+        story_id: &str,
+        zone: Option<BoardZone>,
+    ) -> Result<Vec<BoardItem>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let items = match zone {
             Some(z) => {
@@ -238,7 +267,10 @@ impl AgencyRepository {
 
     // ---- sessions ----
 
-    pub fn insert_session(&self, session: &crate::agency::session::AgencySession) -> Result<(), rusqlite::Error> {
+    pub fn insert_session(
+        &self,
+        session: &crate::agency::session::AgencySession,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
             "INSERT INTO agency_sessions (id, run_id, story_id, phase, snapshot_json, summary, kind, created_at)
@@ -249,27 +281,39 @@ impl AgencyRepository {
         Ok(())
     }
 
-    pub fn latest_session(&self, run_id: &str) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
+    pub fn latest_session(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.query_row(
             "SELECT id, run_id, story_id, phase, snapshot_json, summary, kind, created_at
              FROM agency_sessions WHERE run_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
             params![run_id],
             map_session,
-        ).optional()
+        )
+        .optional()
     }
 
-    pub fn latest_session_for_story(&self, story_id: &str) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
+    pub fn latest_session_for_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.query_row(
             "SELECT id, run_id, story_id, phase, snapshot_json, summary, kind, created_at
              FROM agency_sessions WHERE story_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
             params![story_id],
             map_session,
-        ).optional()
+        )
+        .optional()
     }
 
-    pub fn write_session_summary(&self, session_id: &str, summary: &str) -> Result<(), rusqlite::Error> {
+    pub fn write_session_summary(
+        &self,
+        session_id: &str,
+        summary: &str,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
             "UPDATE agency_sessions SET summary = ?2 WHERE id = ?1",
@@ -291,7 +335,11 @@ impl AgencyRepository {
         Ok(())
     }
 
-    pub fn list_messages(&self, run_id: &str, to_role: Option<AgentRole>) -> Result<Vec<AgencyMessage>, rusqlite::Error> {
+    pub fn list_messages(
+        &self,
+        run_id: &str,
+        to_role: Option<AgentRole>,
+    ) -> Result<Vec<AgencyMessage>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let msgs = match to_role {
             Some(role) => {
@@ -315,7 +363,9 @@ impl AgencyRepository {
     }
 }
 
-fn map_session(row: &rusqlite::Row) -> Result<crate::agency::session::AgencySession, rusqlite::Error> {
+fn map_session(
+    row: &rusqlite::Row,
+) -> Result<crate::agency::session::AgencySession, rusqlite::Error> {
     Ok(crate::agency::session::AgencySession {
         id: row.get(0)?,
         run_id: row.get(1)?,
@@ -336,7 +386,10 @@ fn map_board_item(row: &rusqlite::Row) -> Result<BoardItem, rusqlite::Error> {
         BoardZone::Asset
     });
     let producer = AgentRole::from_str(&producer_str).unwrap_or_else(|| {
-        log::warn!("agency_board_items 非法 producer 值 {:?}，回退 producer", producer_str);
+        log::warn!(
+            "agency_board_items 非法 producer 值 {:?}，回退 producer",
+            producer_str
+        );
         AgentRole::Producer
     });
     Ok(BoardItem {
@@ -360,11 +413,17 @@ fn map_message(row: &rusqlite::Row) -> Result<AgencyMessage, rusqlite::Error> {
     let from_str: String = row.get(2)?;
     let to_str: String = row.get(3)?;
     let from_role = AgentRole::from_str(&from_str).unwrap_or_else(|| {
-        log::warn!("agency_messages 非法 from_role 值 {:?}，回退 producer", from_str);
+        log::warn!(
+            "agency_messages 非法 from_role 值 {:?}，回退 producer",
+            from_str
+        );
         AgentRole::Producer
     });
     let to_role = AgentRole::from_str(&to_str).unwrap_or_else(|| {
-        log::warn!("agency_messages 非法 to_role 值 {:?}，回退 lead_writer", to_str);
+        log::warn!(
+            "agency_messages 非法 to_role 值 {:?}，回退 lead_writer",
+            to_str
+        );
         AgentRole::LeadWriter
     });
     Ok(AgencyMessage {
@@ -411,7 +470,8 @@ mod tests {
         let r = repo.get_run("run-1").unwrap().unwrap();
         assert_eq!(r.status, "running");
         assert_eq!(r.phase, "assets");
-        repo.finish_run("run-1", "completed", Some("{\"ok\":true}"), None).unwrap();
+        repo.finish_run("run-1", "completed", Some("{\"ok\":true}"), None)
+            .unwrap();
         let r = repo.get_run("run-1").unwrap().unwrap();
         assert_eq!(r.status, "completed");
         assert_eq!(r.result_json.as_deref(), Some("{\"ok\":true}"));
@@ -422,8 +482,15 @@ mod tests {
         let (repo, _) = repo();
         repo.create_run(&sample_run()).unwrap();
         let item = BoardItem::new(
-            "run-1", "story-1", BoardZone::Asset, "world", "世界观",
-            "内容：双星系统", "双星系统，废土文明", AgentRole::Producer, "active",
+            "run-1",
+            "story-1",
+            BoardZone::Asset,
+            "world",
+            "世界观",
+            "内容：双星系统",
+            "双星系统，废土文明",
+            AgentRole::Producer,
+            "active",
         );
         repo.insert_item(&item).unwrap();
         let items = repo.list_items("run-1", Some(BoardZone::Asset)).unwrap();
@@ -439,8 +506,15 @@ mod tests {
         let (repo, _) = repo();
         repo.create_run(&sample_run()).unwrap();
         let item = BoardItem::new(
-            "run-1", "story-1", BoardZone::Draft, "chapter", "第一章",
-            "旧稿", "旧摘要", AgentRole::LeadWriter, "active",
+            "run-1",
+            "story-1",
+            BoardZone::Draft,
+            "chapter",
+            "第一章",
+            "旧稿",
+            "旧摘要",
+            AgentRole::LeadWriter,
+            "active",
         );
         repo.insert_item(&item).unwrap();
         // 版本匹配 → 成功
@@ -459,8 +533,15 @@ mod tests {
         let (repo, _) = repo();
         repo.create_run(&sample_run()).unwrap();
         let item = BoardItem::new(
-            "run-1", "story-1", BoardZone::Draft, "chapter", "第一章",
-            "提案稿", "提案", AgentRole::Producer, "proposed",
+            "run-1",
+            "story-1",
+            BoardZone::Draft,
+            "chapter",
+            "第一章",
+            "提案稿",
+            "提案",
+            AgentRole::Producer,
+            "proposed",
         );
         repo.insert_item(&item).unwrap();
         repo.promote_item(&item.id).unwrap();
@@ -473,11 +554,16 @@ mod tests {
         let (repo, _) = repo();
         repo.create_run(&sample_run()).unwrap();
         let msg = AgencyMessage::new(
-            "run-1", AgentRole::EditorAuditor, AgentRole::LeadWriter,
-            "proposal", serde_json::json!({"text":"建议加强冲突"}),
+            "run-1",
+            AgentRole::EditorAuditor,
+            AgentRole::LeadWriter,
+            "proposal",
+            serde_json::json!({"text":"建议加强冲突"}),
         );
         repo.insert_message(&msg).unwrap();
-        let inbox = repo.list_messages("run-1", Some(AgentRole::LeadWriter)).unwrap();
+        let inbox = repo
+            .list_messages("run-1", Some(AgentRole::LeadWriter))
+            .unwrap();
         assert_eq!(inbox.len(), 1);
         assert_eq!(inbox[0].msg_type, "proposal");
         assert!(inbox[0].payload.contains("建议加强冲突"));
@@ -504,20 +590,26 @@ mod tests {
         assert_eq!(BoardZone::Draft.owner(), AgentRole::LeadWriter);
         assert_eq!(BoardZone::Review.owner(), AgentRole::EditorAuditor);
         assert_eq!(BoardZone::Schedule.owner(), AgentRole::Producer);
-        assert_eq!(AgentRole::from_str("lead_writer"), Some(AgentRole::LeadWriter));
+        assert_eq!(
+            AgentRole::from_str("lead_writer"),
+            Some(AgentRole::LeadWriter)
+        );
         assert_eq!(BoardZone::from_str("review"), Some(BoardZone::Review));
         assert_eq!(AgentRole::from_str("nope"), None);
     }
 
-    /// 启动收割 SQL（lib.rs setup 同一条）：pending/running → failed，已完成行不受影响。
+    /// 启动收割 SQL（lib.rs setup 同一条）：pending/running →
+    /// failed，已完成行不受影响。
     #[test]
     fn test_reap_zombie_runs_sql() {
         let (repo, pool) = repo();
         repo.create_run(&sample_run()).unwrap(); // pending
         repo.create_run(&AgencyRun::new("run-2", "前提2")).unwrap();
-        repo.update_run_phase("run-2", "running", "writing").unwrap();
+        repo.update_run_phase("run-2", "running", "writing")
+            .unwrap();
         repo.create_run(&AgencyRun::new("run-3", "前提3")).unwrap();
-        repo.finish_run("run-3", "completed", Some("{}"), None).unwrap();
+        repo.finish_run("run-3", "completed", Some("{}"), None)
+            .unwrap();
 
         let conn = pool.get().unwrap();
         let n = conn.execute(
@@ -549,12 +641,46 @@ mod tests {
         let (repo, _) = repo();
         repo.create_run(&sample_run()).unwrap();
         repo.update_run_phase("run-1", "running", "assets").unwrap();
-        repo.finish_run("run-1", "cancelled", None, Some("创世已取消")).unwrap();
+        repo.finish_run("run-1", "cancelled", None, Some("创世已取消"))
+            .unwrap();
         // 取消竞态下迟到的阶段推进应静默无效
-        repo.update_run_phase("run-1", "running", "writing").unwrap();
+        repo.update_run_phase("run-1", "running", "writing")
+            .unwrap();
         let r = repo.get_run("run-1").unwrap().unwrap();
         assert_eq!(r.status, "cancelled");
         assert_eq!(r.phase, "assets");
         assert_eq!(r.error_message.as_deref(), Some("创世已取消"));
+    }
+
+    /// V109 部分唯一索引 idx_agency_runs_one_active_per_story：
+    /// 同 story 仅一个 pending/running run；story_id 为 NULL 的行豁免。
+    #[test]
+    fn test_partial_unique_index_one_active_per_story() {
+        let (repo, _) = repo();
+        let mut r1 = AgencyRun::new("u1", "前提");
+        r1.story_id = Some("s1".into());
+        repo.create_run(&r1).unwrap();
+        repo.update_run_phase("u1", "running", "assets").unwrap();
+        // 同 story 第二个 run：story_id 先 NULL 写入（豁免），置 story 时触发冲突
+        // （AgencyRun::new 默认 status=pending，命中索引谓词）
+        let r2 = AgencyRun::new("u2", "前提2");
+        repo.create_run(&r2).unwrap();
+        let err = repo.set_run_story("u2", "s1");
+        assert!(err.is_err(), "pending + 同 story_id 应触发部分唯一索引冲突");
+        assert!(
+            err.unwrap_err()
+                .to_string()
+                .contains("UNIQUE constraint failed"),
+            "冲突应来自 UNIQUE 约束"
+        );
+        // 冲突后 u2 的 story_id 仍为 NULL
+        assert!(repo.get_run("u2").unwrap().unwrap().story_id.is_none());
+        // 旧 run 结束后可再开
+        repo.finish_run("u1", "failed", None, None).unwrap();
+        repo.set_run_story("u2", "s1").unwrap();
+        assert_eq!(
+            repo.get_run("u2").unwrap().unwrap().story_id.as_deref(),
+            Some("s1")
+        );
     }
 }

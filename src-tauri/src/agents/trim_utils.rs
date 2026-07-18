@@ -1,8 +1,8 @@
 //! 自重复裁剪工具函数 — 迁自旧 narrative/genesis 模块（v0.26.19 Phase 3.1）。
 //!
 //! 旧创世管线 已删除，但这 3 个纯函数仍被
-//! `agents::orchestrator` 的 execute_trishot 续写路径复用（8% 自重复重试闸门），
-//! 故原样迁至本模块，行为与可见性（`pub(crate)`）保持不变。
+//! `agents::orchestrator` 的 execute_trishot 续写路径复用（8%
+//! 自重复重试闸门）， 故原样迁至本模块，行为与可见性（`pub(crate)`）保持不变。
 
 /// v0.26.19 Phase 3.1: 计算自重复裁剪比例（纯函数，供测试编码 8% 闸门契约）。
 ///

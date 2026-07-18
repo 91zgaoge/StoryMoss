@@ -1,17 +1,21 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 use tokio::sync::{Semaphore, SemaphorePermit};
 
-use crate::agency::models::AgentRole;
-use crate::agency::tool_loop::LoopLlm;
-use crate::error::AppError;
-use crate::router::TaskType;
+use crate::{
+    agency::{models::AgentRole, tool_loop::LoopLlm},
+    error::AppError,
+    router::TaskType,
+};
 
 pub const DEFAULT_RUN_TOKEN_BUDGET: u64 = 300_000;
 
 /// agency 全局 LLM 并发闸门（跨 run 总量上限，P2 终审 I3）。
-/// 锁序：先 run 级角色预算（BudgetedLlm），后全局闸门（AgencyLlm）；所有路径同序获取，无循环等待。
+/// 锁序：先 run 级角色预算（BudgetedLlm），后全局闸门（AgencyLlm）；
+/// 所有路径同序获取，无循环等待。
 pub static AGENCY_GLOBAL_LLM_SEM: once_cell::sync::Lazy<tokio::sync::Semaphore> =
     once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(3));
 
@@ -30,7 +34,12 @@ impl AgencyBudget {
         Self::with_role_permits(1, 1, 1, token_budget)
     }
 
-    pub fn with_role_permits(writer: usize, producer: usize, editor: usize, token_budget: u64) -> Self {
+    pub fn with_role_permits(
+        writer: usize,
+        producer: usize,
+        editor: usize,
+        token_budget: u64,
+    ) -> Self {
         Self {
             writer_sem: Semaphore::new(writer),
             producer_sem: Semaphore::new(producer),
@@ -48,7 +57,8 @@ impl AgencyBudget {
         if self.tokens_used() >= self.token_budget {
             return Err(AppError::from(format!(
                 "运行 token 预算耗尽（{}/{}），已熔断",
-                self.tokens_used(), self.token_budget
+                self.tokens_used(),
+                self.token_budget
             )));
         }
         Ok(())
@@ -67,7 +77,9 @@ impl AgencyBudget {
             AgentRole::Producer => &self.producer_sem,
             AgentRole::EditorAuditor => &self.editor_sem,
         };
-        sem.acquire().await.map_err(|_| AppError::from("预算信号量已关闭"))
+        sem.acquire()
+            .await
+            .map_err(|_| AppError::from("预算信号量已关闭"))
     }
 }
 
@@ -80,7 +92,11 @@ pub struct BudgetedLlm {
 
 impl BudgetedLlm {
     pub fn new(inner: Arc<dyn LoopLlm>, budget: Arc<AgencyBudget>, role: AgentRole) -> Self {
-        Self { inner, budget, role }
+        Self {
+            inner,
+            budget,
+            role,
+        }
     }
 }
 
@@ -93,7 +109,9 @@ impl LoopLlm for BudgetedLlm {
         task: TaskType,
         max_tokens: i32,
     ) -> Result<String, AppError> {
-        let (content, _t, _c) = self.complete_metered(system_prompt, user_prompt, task, max_tokens).await?;
+        let (content, _t, _c) = self
+            .complete_metered(system_prompt, user_prompt, task, max_tokens)
+            .await?;
         Ok(content)
     }
 
@@ -105,7 +123,8 @@ impl LoopLlm for BudgetedLlm {
         max_tokens: i32,
     ) -> Result<(String, i32, f64), AppError> {
         let _permit = self.budget.acquire(self.role).await?;
-        let (content, tokens, cost) = self.inner
+        let (content, tokens, cost) = self
+            .inner
             .complete_metered(system_prompt, user_prompt, task, max_tokens)
             .await?;
         self.budget.record_usage(tokens);
@@ -115,13 +134,14 @@ impl LoopLlm for BudgetedLlm {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
-    use crate::agency::models::AgentRole;
-    use crate::agency::tool_loop::LoopLlm;
-    use crate::error::AppError;
-    use crate::router::TaskType;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use crate::{
+        agency::{models::AgentRole, tool_loop::LoopLlm},
+        error::AppError,
+        router::TaskType,
+    };
 
     struct MeteredMock {
         tokens: i32,
@@ -131,34 +151,61 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LoopLlm for MeteredMock {
-        async fn complete(&self, _s: &str, _u: &str, _t: TaskType, _m: i32) -> Result<String, AppError> {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
             tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
             self.calls.lock().unwrap().push(std::time::Instant::now());
             Ok("输出".to_string())
         }
-        async fn complete_metered(&self, s: &str, u: &str, t: TaskType, m: i32)
-            -> Result<(String, i32, f64), AppError> {
-            self.complete(s, u, t, m).await.map(|out| (out, self.tokens, 0.01))
+        async fn complete_metered(
+            &self,
+            s: &str,
+            u: &str,
+            t: TaskType,
+            m: i32,
+        ) -> Result<(String, i32, f64), AppError> {
+            self.complete(s, u, t, m)
+                .await
+                .map(|out| (out, self.tokens, 0.01))
         }
     }
 
     #[tokio::test]
     async fn test_budget_exhaustion_blocks_call() {
         let budget = Arc::new(AgencyBudget::new(100));
-        let llm = Arc::new(MeteredMock { tokens: 100, delay_ms: 0, calls: Mutex::new(vec![]) });
+        let llm = Arc::new(MeteredMock {
+            tokens: 100,
+            delay_ms: 0,
+            calls: Mutex::new(vec![]),
+        });
         let limited = BudgetedLlm::new(llm, budget.clone(), AgentRole::LeadWriter);
         // 第一次：100 tokens 入账成功
-        limited.complete("s", "u", TaskType::CreativeWriting, 100).await.unwrap();
+        limited
+            .complete("s", "u", TaskType::CreativeWriting, 100)
+            .await
+            .unwrap();
         assert_eq!(budget.tokens_used(), 100);
         // 第二次：已达预算上限 → Err
-        let err = limited.complete("s", "u", TaskType::CreativeWriting, 100).await.unwrap_err();
+        let err = limited
+            .complete("s", "u", TaskType::CreativeWriting, 100)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("预算"));
     }
 
     #[tokio::test]
     async fn test_role_permits_serialize_same_role() {
         let budget = Arc::new(AgencyBudget::with_role_permits(1, 1, 1, 1_000_000));
-        let mock = Arc::new(MeteredMock { tokens: 1, delay_ms: 80, calls: Mutex::new(vec![]) });
+        let mock = Arc::new(MeteredMock {
+            tokens: 1,
+            delay_ms: 80,
+            calls: Mutex::new(vec![]),
+        });
         let l1 = BudgetedLlm::new(mock.clone(), budget.clone(), AgentRole::LeadWriter);
         let l2 = BudgetedLlm::new(mock.clone(), budget.clone(), AgentRole::LeadWriter);
         let start = std::time::Instant::now();
@@ -168,14 +215,21 @@ mod tests {
         );
         let elapsed = start.elapsed();
         assert!(r1.is_ok() && r2.is_ok());
-        assert!(elapsed >= std::time::Duration::from_millis(150),
-            "同角色两次调用应串行（≥160ms），实际 {:?}", elapsed);
+        assert!(
+            elapsed >= std::time::Duration::from_millis(150),
+            "同角色两次调用应串行（≥160ms），实际 {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]
     async fn test_different_roles_run_parallel() {
         let budget = Arc::new(AgencyBudget::with_role_permits(1, 1, 1, 1_000_000));
-        let mock = Arc::new(MeteredMock { tokens: 1, delay_ms: 80, calls: Mutex::new(vec![]) });
+        let mock = Arc::new(MeteredMock {
+            tokens: 1,
+            delay_ms: 80,
+            calls: Mutex::new(vec![]),
+        });
         let writer = BudgetedLlm::new(mock.clone(), budget.clone(), AgentRole::LeadWriter);
         let editor = BudgetedLlm::new(mock, budget, AgentRole::EditorAuditor);
         let start = std::time::Instant::now();
@@ -185,7 +239,10 @@ mod tests {
         );
         let elapsed = start.elapsed();
         assert!(r1.is_ok() && r2.is_ok());
-        assert!(elapsed < std::time::Duration::from_millis(150),
-            "不同角色应并行（<150ms），实际 {:?}", elapsed);
+        assert!(
+            elapsed < std::time::Duration::from_millis(150),
+            "不同角色应并行（<150ms），实际 {:?}",
+            elapsed
+        );
     }
 }

@@ -13,7 +13,7 @@ pub enum PromptMode {
     // Task 8 保留：唯一消费者（旧创世管线）已删除，留待新创世路径复用
     #[allow(dead_code)]
     Generate, // 正向：从零生成
-    Extract,  // 逆向：从文本提取
+    Extract, // 逆向：从文本提取
 }
 
 impl PromptMode {

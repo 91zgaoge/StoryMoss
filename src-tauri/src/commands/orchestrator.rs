@@ -243,7 +243,9 @@ async fn smart_execute_inner(
     if is_bootstrap_intent {
         // 创世 2.0 走 agency 多代理框架：进度镜像到 smart-execute-progress，
         // 返回形状满足前端兼容契约（见 P2 计划 Global Constraints）。
-        // total_timeout 读取沿用函数顶部现有代码（config.smart_execute_total_timeout_secs，默认 600）。
+        // total_timeout
+        // 读取沿用函数顶部现有代码（config.smart_execute_total_timeout_secs，默认
+        // 600）。
         let app_dir = app_handle
             .path()
             .app_data_dir()
@@ -287,8 +289,11 @@ async fn smart_execute_inner(
             }
         });
         let genesis_future = coordinator.run_genesis_with_sink(&run_id, &user_input, Some(sink));
-        match tokio::time::timeout(std::time::Duration::from_secs(total_timeout), genesis_future)
-            .await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(total_timeout),
+            genesis_future,
+        )
+        .await
         {
             Ok(Ok(result)) => {
                 // 取装配场景正文（final_content 契约：完整第一章正文，非摘要文案）
@@ -341,9 +346,11 @@ async fn smart_execute_inner(
                 });
 
                 emit_progress("completed", "小说创世完成", 6, 6);
-                return Ok(crate::agency::coordinator::AgencyCoordinator::build_bootstrap_result(
-                    &result, content, &run_id,
-                ));
+                return Ok(
+                    crate::agency::coordinator::AgencyCoordinator::build_bootstrap_result(
+                        &result, content, &run_id,
+                    ),
+                );
             }
             Ok(Err(e)) => {
                 log::error!("[smart_execute] agency 创世失败: {}", e);
@@ -355,14 +362,16 @@ async fn smart_execute_inner(
                 let llm = crate::llm::LlmService::new(app_handle.clone());
                 crate::agency::coordinator::cancel_requests_for_run(&llm, &run_id);
                 // 补落终态：超时臂直接 return，协调器的 finish_run 不一定执行，
-                // 不落 failed 会残留 running 僵尸 run 卡死该故事续写（finish_run 终态守护下幂等）。
+                // 不落 failed 会残留 running 僵尸 run 卡死该故事续写（finish_run
+                // 终态守护下幂等）。
                 let pool_t = pool.clone();
                 let rid_t = run_id.clone();
-                let _ = tokio::task::spawn_blocking(move || {
-                    let _ = crate::agency::repository::AgencyRepository::new(pool_t)
-                        .finish_run(&rid_t, "failed", None, Some("timeout"));
-                })
-                .await;
+                let _ =
+                    tokio::task::spawn_blocking(move || {
+                        let _ = crate::agency::repository::AgencyRepository::new(pool_t)
+                            .finish_run(&rid_t, "failed", None, Some("timeout"));
+                    })
+                    .await;
                 emit_progress("timeout", "创世超时", 6, 6);
                 return Err(AppError::llm_timeout(total_timeout * 1000));
             }
