@@ -10,7 +10,8 @@ use crate::db::DbPool;
 /// Prompt 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptMode {
-    // Task 8 保留：唯一消费者（旧创世管线）已删除，留待新创世路径复用
+    // 生产代码中仅 Extract 有构造点（analysis 拆书管线）；Generate 仍被本文件
+    // 多个 prompt 函数的 match 臂及其保真测试引用，删除将牵动存活代码，故保留。
     #[allow(dead_code)]
     Generate, // 正向：从零生成
     Extract, // 逆向：从文本提取
@@ -461,104 +462,6 @@ pub fn scene_prompt(
     }
 }
 
-// ==================== 大纲 Prompt ====================
-
-// Task 8 保留：Generate 模式唯一消费者（旧创世管线）已删除
-#[allow(dead_code)]
-pub fn outline_prompt(
-    mode: PromptMode,
-    story_title: &str,
-    genre: &str,
-    context: &str,
-    strategy_context: Option<&str>,
-    narrative_quartet: Option<&str>,
-    pool: Option<&DbPool>,
-) -> String {
-    match mode {
-        PromptMode::Generate => {
-            let strategy_section = strategy_context
-                .filter(|s| !s.is_empty())
-                .map(|s| format!("\n【创作策略参考】\n{}\n", s))
-                .unwrap_or_default();
-            let quartet_section = narrative_quartet
-                .filter(|s| !s.is_empty())
-                .map(|s| format!("\n【中文叙事四件套】\n{}\n", s))
-                .unwrap_or_default();
-            resolve_and_render(
-                "narrative_outline_generate",
-                &format!(
-                    r#"你是一位资深故事架构师。请为以下故事生成一个完整的三幕式大纲。
-
-故事：《{{story_title}}》
-题材：{{genre}}
-简介：{{world_summary}}{{{{strategy_section}}}}{{{{quartet_section}}}}
-
-请用 JSON 格式回复：
-{{
-  "acts": [
-    {{
-      "act_number": 1,
-      "title": "第一幕标题",
-      "summary": "本幕核心内容摘要（100字）",
-      "key_plot_points": ["情节点1", "情节点2", "情节点3"],
-      "estimated_scenes": 4
-    }}
-  ],
-  "total_scenes_estimate": 12
-}}
-
-要求：
-1. 严格三幕结构（起-承-转-合）
-2. 每幕包含3-5个关键情节点
-3. 场景数量要合理
-4. 可参考【中文叙事四件套】中的剧情引擎、桥段卡、高压关系来设计情节点
-5. 必须遵循【创作策略参考】中的方法论、体裁画像等约束
-6. 只输出 JSON"#
-                ),
-                &[
-                    ("story_title", story_title),
-                    ("genre", genre),
-                    ("world_summary", context),
-                    ("strategy_section", &strategy_section),
-                    ("quartet_section", &quartet_section),
-                ],
-                pool,
-            )
-        }
-        PromptMode::Extract => resolve_and_render(
-            "narrative_outline_extract",
-            r#"你是一位故事结构分析专家。请从以下小说文本（或章节概要）中，提取故事的三幕式大纲结构。
-
-故事：《{{title}}》
-题材：{{genre}}
-
-文本/概要：
-{{text}}
-
-请用 JSON 格式回复：
-{
-  "acts": [
-    {
-      "act_number": 1,
-      "title": "第一幕标题（基于内容推断）",
-      "summary": "本幕核心内容摘要（100字）",
-      "key_plot_points": ["情节点1", "情节点2"],
-      "estimated_scenes": 4
-    }
-  ],
-  "total_scenes_estimate": 12
-}
-
-要求：
-1. 基于文本内容推断故事结构
-2. 如果文本不完整，只推断已读部分的结构
-3. 只输出 JSON"#,
-            &[("title", story_title), ("genre", genre), ("text", context)],
-            pool,
-        ),
-    }
-}
-
 // ==================== 伏笔 Prompt ====================
 
 pub fn foreshadowing_prompt(
@@ -655,56 +558,6 @@ pub fn foreshadowing_prompt(
             pool,
         ),
     }
-}
-
-// ==================== 题材画像生成 Prompt（目录无匹配时） ====================
-
-// Task 8 保留：唯一消费者（旧创世管线）已删除
-#[allow(dead_code)]
-pub fn genre_profile_generate_prompt(
-    user_input: &str,
-    genre_hint: &str,
-    pool: Option<&DbPool>,
-) -> String {
-    resolve_and_render(
-        "narrative_genre_profile_generate",
-        r#"你是一位网文题材编辑。现有题材画像目录中没有足够贴近的项，请根据用户指令生成一份**新的**题材画像，供后续创作策略使用。
-
-用户原始指令：
-「{{user_input}}」
-
-概念步给出的题材标签（可为空）：
-「{{genre_hint}}」
-
-请用 JSON 格式回复：
-{
-  "genre_name": "中文题材名（2-8字，保留用户题材关键词，如「军事谍战」）",
-  "canonical_name": "英文规范名（Title Case，如 Military Espionage）",
-  "aliases": ["同义词1", "同义词2", "用户原词"],
-  "core_tone": "核心基调（2-4句，必须落在用户题材世界，禁止换成无关题材）",
-  "pacing_strategy": "节奏策略（开篇/升级/爽点/转折，条目式短文）",
-  "anti_patterns": ["反套路1", "反套路2", "反套路3"],
-  "reference_tables": "| 元素 | 建议比例 | 说明 |\n|------|----------|------|\n| ... | ... | ... |",
-  "typical_structure": [
-    {"title": "阶段名", "description": "一句话"},
-    {"title": "阶段名", "description": "一句话"}
-  ],
-  "reader_promise": "读者主情绪承诺（如：燃,惊,虐；1-3个）"
-}
-
-## 硬约束
-
-1. **题材保真**：一切字段必须服务用户指令中的题材域。禁止改写成目录里更炫的其它题材（如把「军事谍战」写成「星际机甲」）。
-2. `genre_name` 优先用用户原词或同域近义规范化，不要换成宽泛上位类以外的异域标签。
-3. `aliases` 至少包含用户题材关键词，便于下次匹配命中。
-4. `typical_structure` 给 4–6 个阶段即可。
-5. 只输出 JSON，不要其他内容。"#,
-        &[
-            ("user_input", &user_input.replace('"', "'")),
-            ("genre_hint", &genre_hint.replace('"', "'")),
-        ],
-        pool,
-    )
 }
 
 // ==================== 故事线/弧光 Prompt ====================
@@ -807,134 +660,6 @@ pub fn first_chapter_prompt(
         "narrative_first_chapter_generate",
         "你是一名专业的小说作家。请根据故事设定撰写第一章开头，目标{{word_count}}字。",
         vars,
-        pool,
-    )
-}
-
-// ==================== 第一场景正文 Prompt (Phase 4) ====================
-
-/// Phase 4: 场景优先创世——以 Scene 为单位生成正文，
-/// 注入场景级戏剧结构变量（dramatic_goal, conflict_type, characters_present
-/// 等）。
-// Task 8 保留：唯一消费者（旧创世管线）已删除
-#[allow(dead_code)]
-pub fn first_scene_prompt(
-    title: &str,
-    genre: &str,
-    tone: &str,
-    pacing: &str,
-    description: &str,
-    themes: &str,
-    protagonist_card: &str,
-    dramatic_goal: &str,
-    conflict_type: &str,
-    external_pressure: &str,
-    setting_location: &str,
-    setting_time: &str,
-    setting_atmosphere: &str,
-    characters_present: &str,
-    scene_outline: &str,
-    strategy_notes: &str,
-    narrative_quartet: &str,
-    run_mode: &str,
-    conflict_level: i32,
-    pace: &str,
-    ai_freedom: &str,
-    user_premise: &str,
-    word_count: u32,
-    genre_tips: &str,
-    pool: Option<&DbPool>,
-) -> String {
-    let vars: &[(&str, &str)] = &[
-        ("story_title", title),
-        ("genre", genre),
-        ("tone", tone),
-        ("pacing", pacing),
-        ("description", description),
-        ("themes", themes),
-        ("protagonist_card", protagonist_card),
-        ("dramatic_goal", dramatic_goal),
-        ("conflict_type", conflict_type),
-        ("external_pressure", external_pressure),
-        ("setting_location", setting_location),
-        ("setting_time", setting_time),
-        ("setting_atmosphere", setting_atmosphere),
-        ("characters_present", characters_present),
-        ("scene_outline", scene_outline),
-        ("strategy_notes", strategy_notes),
-        ("narrative_quartet", narrative_quartet),
-        ("run_mode", run_mode),
-        ("conflict_level", &conflict_level.to_string()),
-        ("pace", pace),
-        ("ai_freedom", ai_freedom),
-        ("user_premise", user_premise),
-        ("word_count", &word_count.to_string()),
-        ("genre_tips", genre_tips),
-    ];
-    resolve_and_render(
-        "narrative_first_scene_generate",
-        "你是一名专业的小说作家。请根据场景戏剧结构撰写正文，目标{{word_count}}字。",
-        vars,
-        pool,
-    )
-}
-
-/// v0.26.44: 开篇骨架提示词——在写正文前产出主角卡 + 场景戏剧卡 + 世界一句话。
-// Task 8 保留：唯一消费者（旧创世管线）已删除
-#[allow(dead_code)]
-pub fn opening_skeleton_prompt(
-    user_premise: &str,
-    story_title: &str,
-    genre: &str,
-    description: &str,
-    core_conflict: &str,
-    protagonist_name: &str,
-    protagonist_desire: &str,
-    world_one_liner: &str,
-    survival_stakes: &str,
-    strategy_notes: &str,
-    pool: Option<&DbPool>,
-) -> String {
-    let truncated_notes: String = strategy_notes.chars().take(800).collect();
-    resolve_and_render(
-        "narrative_opening_skeleton",
-        r#"你是开篇结构师。请为即将撰写的第一章生成极简开篇骨架（不要写正文）。
-
-用户原始要求：{{user_premise}}
-故事标题：{{story_title}}
-题材：{{genre}}
-简介：{{description}}
-核心冲突：{{core_conflict}}
-概念主角：{{protagonist_name}}（欲望：{{protagonist_desire}}）
-世界一句话：{{world_one_liner}}
-生存/代价：{{survival_stakes}}
-
-【已选策略摘要】
-{{strategy_notes}}
-
-请用 JSON 回复：
-{
-  "protagonist": {"name":"","goal":"","obstacle":""},
-  "scene": {
-    "dramatic_goal":"","conflict_type":"","external_pressure":"",
-    "setting_location":"","setting_time":"","setting_atmosphere":"",
-    "characters_present":[],"scene_outline":""
-  },
-  "world_rules_one_liner":""
-}
-只输出 JSON。"#,
-        &[
-            ("user_premise", user_premise),
-            ("story_title", story_title),
-            ("genre", genre),
-            ("description", description),
-            ("core_conflict", core_conflict),
-            ("protagonist_name", protagonist_name),
-            ("protagonist_desire", protagonist_desire),
-            ("world_one_liner", world_one_liner),
-            ("survival_stakes", survival_stakes),
-            ("strategy_notes", &truncated_notes),
-        ],
         pool,
     )
 }
@@ -1052,16 +777,6 @@ mod concept_prompt_fidelity_tests {
             prompt.contains("匹配现有目录或按指令生成新画像"),
             "must describe match-or-create follow-up"
         );
-    }
-
-    #[test]
-    fn genre_profile_generate_prompt_locks_fidelity() {
-        let prompt = genre_profile_generate_prompt("写一部军事谍战的长篇小说", "军事谍战", None);
-        assert!(prompt.contains("军事谍战"));
-        assert!(prompt.contains("题材保真"));
-        assert!(prompt.contains("星际机甲"));
-        assert!(prompt.contains("genre_name"));
-        assert!(prompt.contains("typical_structure"));
     }
 
     #[test]
