@@ -76,6 +76,28 @@ pub fn unregister_agency_cancel(run_id: &str) {
     flags.remove(run_id);
 }
 
+// ---- analyzer in-flight 注册表（镜像 AGENCY_CANCEL_FLAGS 模式） ----
+// 同一 story 同一时刻至多一个后台 analyzer；缺失时分析在飞期间每条新观察
+// 都会再 spawn 一个 analyzer。
+
+static ANALYZER_IN_FLIGHT: Lazy<Mutex<std::collections::HashSet<String>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// 尝试标记 story 的 analyzer 在飞；已在飞返回 false（调用方应跳过本轮触发）。
+fn analyzer_try_mark(story_id: &str) -> bool {
+    let mut set = ANALYZER_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    set.insert(story_id.to_string())
+}
+
+fn analyzer_unmark(story_id: &str) {
+    let mut set = ANALYZER_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    set.remove(story_id);
+}
+
 // ---- 在途 LLM request_id 注册表（定点取消用） ----
 
 /// 运行中 run 的在途 LLM request_id 注册表（定点取消用）。
@@ -188,9 +210,9 @@ impl AgencyLlm {
         }
     }
 
-    /// 覆盖路由/观察标签（analyzer 用 learning::ANALYZER_LABEL：含
-    /// "agency_observer" 前缀使 should_record 过滤其自身 llm_call 埋点，
-    /// 防自观察）。
+    /// 覆盖路由/观察标签（analyzer 用 learning::ANALYZER_LABEL：Background 档
+    /// 路由 + contains("observer") 使 should_record 过滤其自身 llm_call 埋点，
+    /// 防自观察——双约束见 learning.rs test_analyzer_label_dual_constraint）。
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label_override = Some(label.into());
         self
@@ -949,6 +971,11 @@ impl AgencyCoordinator {
         if count < crate::agency::learning::ANALYZE_THRESHOLD {
             return;
         }
+        // in-flight 去重：分析在飞期间的新观察不再 spawn（本轮观察由在飞的
+        // analyzer 覆盖，或其 mark_analyzed 后下一轮再触发）
+        if !analyzer_try_mark(story_id) {
+            return;
+        }
         let sid = story_id.to_string();
         let llm = Arc::new(
             AgencyLlm::new(
@@ -964,6 +991,8 @@ impl AgencyCoordinator {
             if let Err(e) = crate::agency::learning::analyze_story(llm, &logger, &sid).await {
                 log::warn!("learning analyzer 失败: {}", e);
             }
+            // finally：Ok/Err 均摘除在飞标记，允许后续触发
+            analyzer_unmark(&sid);
         });
     }
 
@@ -2639,6 +2668,18 @@ mod tests {
 
     use super::*;
     use crate::{agency::repository::AgencyRepository, db::create_test_pool};
+
+    #[test]
+    fn test_analyzer_in_flight_try_mark_unmark() {
+        // 唯一 story_id 避免与并发用例互相污染
+        let sid = "test-analyzer-in-flight-dedup";
+        analyzer_unmark(sid); // 起始干净
+        assert!(analyzer_try_mark(sid), "首次标记应成功");
+        assert!(!analyzer_try_mark(sid), "在飞期间第二次标记应被拒绝");
+        analyzer_unmark(sid);
+        assert!(analyzer_try_mark(sid), "unmark 后应可再标记");
+        analyzer_unmark(sid);
+    }
 
     struct MockLlm {
         responses: Mutex<VecDeque<String>>,

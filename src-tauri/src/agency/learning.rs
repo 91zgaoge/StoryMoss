@@ -33,8 +33,10 @@ impl ObservationLogger {
         Self { app_dir }
     }
 
+    /// 契约：任何含 "observer" 的 label 不记录观察——用于 analyzer 自身调用
+    /// 防自观察（其余 agency_* 角色 label 不含 observer，正常记录）。
     pub fn should_record(context_label: &str) -> bool {
-        !context_label.contains("agency_observer")
+        !context_label.contains("observer")
     }
 
     pub fn observations_path(&self, story_id: &str) -> PathBuf {
@@ -205,9 +207,10 @@ fn truncate_payload(payload: serde_json::Value) -> serde_json::Value {
 pub const ANALYZE_THRESHOLD: usize = 20;
 /// 手动/自动分析的最小新观察数（低于则不调用 LLM、不推进游标）。
 const ANALYZE_MIN_NEW: usize = 2;
-/// analyzer 自身的路由/观察标签：含 "agency_observer" 使 should_record 过滤其
-/// llm_call 埋点（防自观察）；EditorAuditor 角色档。
-pub const ANALYZER_LABEL: &str = "agency_observer_editor";
+/// analyzer 自身的路由/观察标签（双约束，test_analyzer_label_dual_constraint 锁死）：
+/// strip "agency_" → "editor_observer" → starts_with("editor") 命中 Background 档；
+/// contains("observer") → should_record 过滤其 llm_call 埋点（防自观察）。
+pub const ANALYZER_LABEL: &str = "agency_editor_observer";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Instinct {
@@ -451,9 +454,23 @@ mod tests {
 
     #[test]
     fn test_should_record() {
+        // 契约：任何含 "observer" 的 label 不记录；其余 agency_* 角色正常记录
         assert!(ObservationLogger::should_record("agency_writer"));
+        assert!(ObservationLogger::should_record("agency_producer"));
+        assert!(ObservationLogger::should_record("agency_editor"));
         assert!(!ObservationLogger::should_record("agency_observer"));
         assert!(!ObservationLogger::should_record("agency_observer_analyzer"));
+        assert!(!ObservationLogger::should_record("agency_editor_observer"));
+    }
+
+    #[test]
+    fn test_analyzer_label_dual_constraint() {
+        // 双约束锁死：Background 档路由 + 防自观察过滤，缺一则回归
+        assert_eq!(
+            crate::llm::service::derive_model_role_from_label(Some(ANALYZER_LABEL)),
+            Some(crate::config::settings::ModelRole::Background)
+        );
+        assert!(!ObservationLogger::should_record(ANALYZER_LABEL));
     }
 
     #[test]
