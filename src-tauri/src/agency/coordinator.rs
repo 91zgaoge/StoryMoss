@@ -319,6 +319,50 @@ impl AgencyCoordinator {
         self.db(move || repo.update_run_phase(&run_id, "running", &phase).map_err(AppError::from)).await
     }
 
+    /// 阶段快照（best-effort，不阻塞主流程）。
+    async fn snapshot_phase(&self, run_id: &str, phase: &str, kind: &str) {
+        let pool = self.pool.clone();
+        let rid = run_id.to_string();
+        let ph = phase.to_string();
+        let kd = kind.to_string();
+        let _ = self.db(move || {
+            crate::agency::session::SessionService::new(pool).snapshot(&rid, &ph, &kd)
+        }).await;
+    }
+
+    /// 完成时双层摘要：final 快照 → LLM 五段摘要增强（Background 档）→ 写回。
+    /// TODO(Task 4): LLM 摘要成功后写工作区 sessions/ 文件（WorkspaceService::write_session）。
+    async fn finalize_session(&self, run_id: &str, llm: &Arc<dyn LoopLlm>) {
+        self.snapshot_phase(run_id, "final", "final").await;
+        let pool = self.pool.clone();
+        let rid = run_id.to_string();
+        let latest = self.db(move || {
+            crate::agency::repository::AgencyRepository::new(pool).latest_session(&rid).map_err(AppError::from)
+        }).await;
+        let Ok(Some(session)) = latest else { return };
+        let mechanical = crate::agency::session::SessionService::new(self.pool.clone())
+            .mechanical_summary(&session);
+        let prompt = format!(
+            "以下是小说创作会话的机械提取快照，请压缩为五段式摘要（每段≤40字）：\n## 任务\n## 决策\n## 产出\n## 未决问题\n## 下次继续\n\n快照：\n{}",
+            mechanical
+        );
+        // 摘要属 run 收尾，不过 AgencyBudget；全局闸门已在 AgencyLlm 内
+        if let Ok(summary) = llm.complete(
+            "你是创作会话摘要员。只输出五段式 Markdown 摘要。",
+            &prompt,
+            crate::router::TaskType::Summarization,
+            800,
+        ).await {
+            let pool = self.pool.clone();
+            let sid = session.id.clone();
+            let _ = self.db(move || {
+                crate::agency::repository::AgencyRepository::new(pool)
+                    .write_session_summary(&sid, &summary)
+                    .map_err(AppError::from)
+            }).await;
+        }
+    }
+
     /// 创世 2.0 串行端到端：concept → assets(producer) → writing(writer)
     /// → review(editor) → [revision ≤1] → assembly(Scene 装配)。
     pub async fn run_genesis(&self, run_id: &str, premise: &str) -> Result<AgencyGenesisResult, AppError> {
@@ -326,12 +370,15 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         let result = self.run_genesis_inner(run_id, premise, &repo, &cancel).await;
         unregister_agency_cancel(run_id);
+        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "创世完成");
             }
             Err(e) => {
@@ -345,6 +392,7 @@ impl AgencyCoordinator {
                 let rid = run_id.to_string();
                 let msg = e.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, &phase, status, &e.to_string());
             }
         }
@@ -462,6 +510,8 @@ impl AgencyCoordinator {
             }).await.map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             log::info!("agency: 资产落库 {} 条", inserted);
         }
+        // 资产阶段完成：自动会话快照（best-effort）
+        self.snapshot_phase(run_id, "assets", "auto").await;
 
         // 4) 主创：首章写作
         self.update_phase(repo, run_id, "writing").await?;
@@ -554,12 +604,15 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         let result = self.run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel).await;
         unregister_agency_cancel(run_id);
+        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "续写完成");
             }
             Err(e) => {
@@ -568,6 +621,7 @@ impl AgencyCoordinator {
                 let rid = run_id.to_string();
                 let msg = e.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", status, &e.to_string());
             }
         }
@@ -785,12 +839,15 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         let result = self.run_batch_inner(run_id, story_id, start_chapter, count, &repo, &cancel).await;
         unregister_agency_cancel(run_id);
+        // 会话收尾双层摘要（best-effort）：编辑审计档即 Background 模型档
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, "completed", Some(&json), None).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
             }
             Err(e) => {
@@ -799,6 +856,7 @@ impl AgencyCoordinator {
                 let rid = run_id.to_string();
                 let msg = e.to_string();
                 let _ = self.db(move || repo_c.finish_run(&rid, status, None, Some(&msg)).map_err(AppError::from)).await;
+                self.finalize_session(run_id, &llm).await;
                 self.emit_progress(run_id, "assembly", status, &e.to_string());
             }
         }
@@ -870,6 +928,8 @@ impl AgencyCoordinator {
                         prev_num, prev_draft, prev_revised, outcome, cancel,
                     ).await?;
                     chapters.push(prev);
+                    // 每章 gate 处理完：自动会话快照（best-effort）
+                    self.snapshot_phase(run_id, "assembly", "auto").await;
                     draft
                 }
                 None => {
@@ -895,6 +955,8 @@ impl AgencyCoordinator {
                 num, draft, revised, outcome, cancel,
             ).await?;
             chapters.push(last);
+            // 末章 gate 处理完：自动会话快照（best-effort）
+            self.snapshot_phase(run_id, "assembly", "auto").await;
         }
         // 收尾再查一次：最后一章 handle_gate 内修订/装配耗时长，确保 cancelled 不被 completed 覆盖
         self.check_cancel(cancel)?;

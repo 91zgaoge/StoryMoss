@@ -12,6 +12,7 @@ pub mod materialize;
 pub mod models;
 pub mod repository;
 pub mod roles;
+pub mod session;
 pub mod tool_loop;
 pub mod tools;
 

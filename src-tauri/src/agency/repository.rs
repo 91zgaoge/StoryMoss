@@ -209,6 +209,48 @@ impl AgencyRepository {
         Ok(items)
     }
 
+    // ---- sessions ----
+
+    pub fn insert_session(&self, session: &crate::agency::session::AgencySession) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO agency_sessions (id, run_id, story_id, phase, snapshot_json, summary, kind, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![session.id, session.run_id, session.story_id, session.phase,
+                    session.snapshot_json, session.summary, session.kind, session.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn latest_session(&self, run_id: &str) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.query_row(
+            "SELECT id, run_id, story_id, phase, snapshot_json, summary, kind, created_at
+             FROM agency_sessions WHERE run_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            params![run_id],
+            map_session,
+        ).optional()
+    }
+
+    pub fn latest_session_for_story(&self, story_id: &str) -> Result<Option<crate::agency::session::AgencySession>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.query_row(
+            "SELECT id, run_id, story_id, phase, snapshot_json, summary, kind, created_at
+             FROM agency_sessions WHERE story_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            params![story_id],
+            map_session,
+        ).optional()
+    }
+
+    pub fn write_session_summary(&self, session_id: &str, summary: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "UPDATE agency_sessions SET summary = ?2 WHERE id = ?1",
+            params![session_id, summary],
+        )?;
+        Ok(())
+    }
+
     // ---- messages ----
 
     pub fn insert_message(&self, msg: &AgencyMessage) -> Result<(), rusqlite::Error> {
@@ -244,6 +286,19 @@ impl AgencyRepository {
         };
         Ok(msgs)
     }
+}
+
+fn map_session(row: &rusqlite::Row) -> Result<crate::agency::session::AgencySession, rusqlite::Error> {
+    Ok(crate::agency::session::AgencySession {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        story_id: row.get(2)?,
+        phase: row.get(3)?,
+        snapshot_json: row.get(4)?,
+        summary: row.get(5)?,
+        kind: row.get(6)?,
+        created_at: row.get(7)?,
+    })
 }
 
 fn map_board_item(row: &rusqlite::Row) -> Result<BoardItem, rusqlite::Error> {
