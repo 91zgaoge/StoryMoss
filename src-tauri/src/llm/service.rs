@@ -264,6 +264,15 @@ fn derive_intent_from_label(label: Option<&str>) -> (Option<&str>, Option<&str>)
 /// 使用后台模型而非抢占创作/工具模型。
 fn derive_model_role_from_label(label: Option<&str>) -> Option<crate::config::settings::ModelRole> {
     let label = label.unwrap_or("");
+    // agency 多代理角色显式映射（创世 2.0）：主创质量优先 / 管理速度优先 / 编辑后台档
+    if let Some(rest) = label.strip_prefix("agency_") {
+        return match rest {
+            r if r.starts_with("writer") => Some(crate::config::settings::ModelRole::Creative),
+            r if r.starts_with("producer") => Some(crate::config::settings::ModelRole::Tool),
+            r if r.starts_with("editor") => Some(crate::config::settings::ModelRole::Background),
+            _ => None,
+        };
+    }
     let bg_keywords = [
         "世界观",
         "大纲",
@@ -3284,5 +3293,17 @@ mod tests {
                 "record_llm_call 并发测试线程在 15 秒内未完成，存在死锁风险"
             );
         }
+    }
+
+    #[test]
+    fn test_agency_role_label_mapping() {
+        use crate::config::settings::ModelRole;
+        assert_eq!(derive_model_role_from_label(Some("agency_writer")), Some(ModelRole::Creative));
+        assert_eq!(derive_model_role_from_label(Some("agency_producer")), Some(ModelRole::Tool));
+        assert_eq!(derive_model_role_from_label(Some("agency_editor")), Some(ModelRole::Background));
+        // 既有行为不回退
+        assert_eq!(derive_model_role_from_label(Some("世界观生成")), Some(ModelRole::Background));
+        assert_eq!(derive_model_role_from_label(Some("普通写作")), None);
+        assert_eq!(derive_model_role_from_label(None), None);
     }
 }

@@ -10,6 +10,11 @@ use crate::router::TaskType;
 
 pub const DEFAULT_RUN_TOKEN_BUDGET: u64 = 300_000;
 
+/// agency 全局 LLM 并发闸门（跨 run 总量上限，P2 终审 I3）。
+/// 锁序：先全局闸门，后 run 级角色预算（避免持角色许可等全局）。
+pub static AGENCY_GLOBAL_LLM_SEM: once_cell::sync::Lazy<tokio::sync::Semaphore> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(3));
+
 /// 运行级并发预算：按角色信号量限流 + token 预算硬上限。
 /// 取代对全局单一 BACKGROUND_LLM_SEMAPHORE 的依赖（agency 内部）。
 pub struct AgencyBudget {

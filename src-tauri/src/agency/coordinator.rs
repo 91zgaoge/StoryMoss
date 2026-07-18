@@ -88,6 +88,25 @@ pub fn cancel_requests_for_run(llm: &LlmService, run_id: &str) {
     }
 }
 
+/// request_id 注册 RAII：覆盖 abort/drop 路径（P2 终审转 P3）。
+pub struct RequestGuard {
+    run_id: String,
+    request_id: String,
+}
+
+impl RequestGuard {
+    pub fn new(run_id: &str, request_id: &str) -> Self {
+        register_request(run_id, request_id);
+        Self { run_id: run_id.to_string(), request_id: request_id.to_string() }
+    }
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        unregister_request(&self.run_id, &self.request_id);
+    }
+}
+
 /// 创世/续写前提校验：非空白且 ≤2000 字符。
 pub fn validate_premise(premise: &str) -> Result<(), AppError> {
     let trimmed = premise.trim();
@@ -106,11 +125,24 @@ pub fn validate_premise(premise: &str) -> Result<(), AppError> {
 pub struct AgencyLlm {
     llm: LlmService,
     run_id: String,
+    role: AgentRole,
 }
 
 impl AgencyLlm {
-    pub fn new(app_handle: AppHandle, run_id: impl Into<String>) -> Self {
-        Self { llm: LlmService::new(app_handle), run_id: run_id.into() }
+    pub fn new(app_handle: AppHandle, run_id: impl Into<String>, role: AgentRole) -> Self {
+        Self { llm: LlmService::new(app_handle), run_id: run_id.into(), role }
+    }
+
+    /// 角色路由标签（agency_{writer|producer|editor}）：
+    /// derive_model_role_from_label 按 agency_ 前缀映射模型档（主创 Creative / 管理 Tool / 编辑 Background）。
+    /// 注意用短名而非 AgentRole::as_str（lead_writer/editor_auditor 不匹配前缀映射）。
+    fn context_label(&self) -> String {
+        let short = match self.role {
+            AgentRole::LeadWriter => "writer",
+            AgentRole::Producer => "producer",
+            AgentRole::EditorAuditor => "editor",
+        };
+        format!("agency_{}", short)
     }
 }
 
@@ -135,7 +167,14 @@ impl LoopLlm for AgencyLlm {
         max_tokens: i32,
     ) -> Result<(String, i32, f64), AppError> {
         let request_id = uuid::Uuid::new_v4().to_string();
-        register_request(&self.run_id, &request_id);
+        // RAII 注册：abort/drop 路径也会摘除（取代手动 register/unregister）
+        let _guard = RequestGuard::new(&self.run_id, &request_id);
+        // 全局闸门：跨 run 的 agency LLM 总量上限（BudgetedLlm 角色许可之内再受全局约束）
+        let _global_permit = crate::agency::budget::AGENCY_GLOBAL_LLM_SEM
+            .acquire()
+            .await
+            .map_err(|_| AppError::from("agency 全局 LLM 闸门已关闭"))?;
+        let context_label = self.context_label();
         let routing = crate::router::RoutingRequest {
             task,
             ..Default::default()
@@ -146,8 +185,8 @@ impl LoopLlm for AgencyLlm {
                 user_prompt.to_string(),
                 Some(max_tokens),
                 None,
-                Some("agency"),
-                Some(request_id.clone()),
+                Some(context_label.as_str()),
+                Some(request_id),
                 None,
                 None,
                 None,
@@ -159,7 +198,6 @@ impl LoopLlm for AgencyLlm {
                 None,
             )
             .await;
-        unregister_request(&self.run_id, &request_id);
         result.map(|r| (r.content, r.tokens_used, r.cost))
     }
 }
@@ -250,13 +288,14 @@ impl AgencyCoordinator {
         Self { app_handle: None, pool, llm: Some(llm), progress_sink: Mutex::new(None) }
     }
 
-    /// 按 run 取得生产 LLM（带定点取消注册）；测试时返回注入的 mock。
-    fn llm_for_run(&self, run_id: &str) -> Arc<dyn LoopLlm> {
+    /// 按 run+角色取得生产 LLM（角色模型路由 + 定点取消注册）；测试时返回注入的 mock（角色无关）。
+    fn llm_for_run(&self, run_id: &str, role: AgentRole) -> Arc<dyn LoopLlm> {
         match &self.llm {
             Some(llm) => llm.clone(),
             None => Arc::new(AgencyLlm::new(
                 self.app_handle.as_ref().expect("生产 coordinator 必有 app_handle").clone(),
                 run_id,
+                role,
             )),
         }
     }
@@ -352,7 +391,6 @@ impl AgencyCoordinator {
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyGenesisResult, AppError> {
-        let llm = self.llm_for_run(run_id);
         // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let run = AgencyRun::new(run_id, premise);
@@ -362,7 +400,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
         // 1) 概念：标题与类型（经 BudgetedLlm 记账/限流，按 Producer 档）
-        let concept_llm = BudgetedLlm::new(llm.clone(), budget.clone(), AgentRole::Producer);
+        let concept_llm = BudgetedLlm::new(self.llm_for_run(run_id, AgentRole::Producer), budget.clone(), AgentRole::Producer);
         let concept_raw = concept_llm.complete(
             "你是小说策划。只输出 JSON。",
             &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\"}}", premise),
@@ -404,7 +442,7 @@ impl AgencyCoordinator {
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
-            &llm, &budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
+            &budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
             "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
@@ -429,7 +467,7 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         let writer_out = self.run_role_with_llm_and_budget(
-            &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
+            &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第一章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
@@ -443,7 +481,7 @@ impl AgencyCoordinator {
         let final_verdict = loop {
             self.update_phase(repo, run_id, "review").await?;
             self.emit_progress(run_id, "review", "running", "质量门评估中");
-            let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
+            let outcome = self.evaluate_gate(&budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
             match outcome {
                 GateOutcome::Passed { verdict } => break verdict,
                 GateOutcome::RevisionRequired { issues, .. } if !revised => {
@@ -452,7 +490,7 @@ impl AgencyCoordinator {
                     self.emit_progress(run_id, "revision", "running", "主创 Agent 正在按审查意见修订");
                     let task = Self::build_revision_task(&draft, &issues);
                     let revise_out = self.run_role_with_llm_and_budget(
-                        &llm, &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
+                        &budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise, &task,
                     ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                     if revise_out.aborted {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
@@ -460,7 +498,7 @@ impl AgencyCoordinator {
                     draft = self.latest_draft_by_key(&board, run_id, &draft.key).await?;
                     self.check_cancel(cancel)?;
                     // 复审：无论结果都进入装配（Failed 除外）
-                    let second = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
+                    let second = self.evaluate_gate(&budget, &board, &registry, run_id, &story_id, premise, &draft).await?;
                     match second {
                         GateOutcome::Passed { verdict } => break verdict,
                         GateOutcome::RevisionRequired { verdict, .. } => break verdict, // 第二轮放行
@@ -544,7 +582,6 @@ impl AgencyCoordinator {
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyContinueResult, AppError> {
-        let llm = self.llm_for_run(run_id);
         // run 级并发预算：贯穿本 run 全部角色调用（Task 6 并行循环共用同一 Arc）
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
@@ -560,7 +597,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 1) 资产确认/补齐
-        self.ensure_assets(&llm, &budget, repo, run_id, story_id, &premise).await?;
+        self.ensure_assets(&budget, repo, run_id, story_id, &premise).await?;
         self.check_cancel(cancel)?;
 
         // 2) 写作
@@ -568,15 +605,15 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "writing", "running", &format!("主创 Agent 正在写作第{}章", chapter_number));
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        let draft = self.write_chapter(&llm, &budget, &board, &registry, run_id, story_id, &premise, chapter_number).await?;
+        let draft = self.write_chapter(&budget, &board, &registry, run_id, story_id, &premise, chapter_number).await?;
         self.check_cancel(cancel)?;
 
         // 3) 质量门 + 至多 1 轮修订 + 装配（与 genesis 同门径）
         self.update_phase(repo, run_id, "review").await?;
         self.emit_progress(run_id, "review", "running", "质量门评估中");
-        let outcome = self.evaluate_gate(&llm, &budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
+        let outcome = self.evaluate_gate(&budget, &board, &registry, run_id, story_id, &premise, &draft).await?;
         self.handle_gate(
-            &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+            &budget, &board, &registry, repo, run_id, story_id, &premise,
             chapter_number, draft, false, outcome, cancel,
         ).await
     }
@@ -585,7 +622,6 @@ impl AgencyCoordinator {
     /// 先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让 producer 现场补齐。
     async fn ensure_assets(
         &self,
-        llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
         repo: &AgencyRepository,
         run_id: &str,
@@ -618,7 +654,7 @@ impl AgencyCoordinator {
                 let board = self.board();
                 let registry = Arc::new(ToolRegistry::agency_default());
                 let producer_out = self.run_role_with_llm_and_budget(
-                    llm, budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
+                    budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
                     "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。",
                 ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                 if producer_out.aborted {
@@ -640,7 +676,6 @@ impl AgencyCoordinator {
     /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft 条目。
     async fn write_chapter(
         &self,
-        llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
@@ -651,7 +686,7 @@ impl AgencyCoordinator {
     ) -> Result<BoardItem, AppError> {
         let key = format!("第{}章", chapter_number);
         let writer_out = self.run_role_with_llm_and_budget(
-            llm, budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise,
+            budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise,
             &format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key),
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
@@ -665,7 +700,6 @@ impl AgencyCoordinator {
     #[allow(clippy::too_many_arguments)]
     async fn handle_gate(
         &self,
-        llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
@@ -696,7 +730,7 @@ impl AgencyCoordinator {
                 self.update_phase(repo, run_id, "revision").await?;
                 let task = Self::build_revision_task(&draft, &issues);
                 let revise_out = self.run_role_with_llm_and_budget(
-                    llm, budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise, &task,
+                    budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise, &task,
                 ).await.map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                 if revise_out.aborted {
                     return Err(AppError::from("主创 Agent 修订轮被熔断"));
@@ -704,7 +738,7 @@ impl AgencyCoordinator {
                 // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
                 draft = self.latest_draft_by_key(board, run_id, &draft.key).await?;
                 self.check_cancel(cancel)?;
-                let second = self.evaluate_gate(llm, budget, board, registry, run_id, story_id, premise, &draft).await?;
+                let second = self.evaluate_gate(budget, board, registry, run_id, story_id, premise, &draft).await?;
                 match second {
                     GateOutcome::Passed { verdict } => verdict,
                     GateOutcome::RevisionRequired { verdict, .. } => verdict,
@@ -780,7 +814,6 @@ impl AgencyCoordinator {
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyBatchResult, AppError> {
-        let llm = self.llm_for_run(run_id);
         // run 级并发预算：贯穿本 run 全部角色调用（与单章续写共用同一门径）
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let title = self.story_title(story_id).await.unwrap_or_else(|| "未命名".to_string());
@@ -796,7 +829,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 资产确认/补齐（与单章续写同路径）
-        self.ensure_assets(&llm, &budget, repo, run_id, story_id, &premise).await?;
+        self.ensure_assets(&budget, repo, run_id, story_id, &premise).await?;
         self.check_cancel(cancel)?;
 
         let board = self.board();
@@ -823,7 +856,7 @@ impl AgencyCoordinator {
             }
             self.emit_activity(run_id, AgentRole::LeadWriter, "start", &format!("第{}章", chapter_number));
 
-            let write_fut = self.write_chapter(&llm, &budget, &board, &registry, run_id, story_id, &premise, chapter_number);
+            let write_fut = self.write_chapter(&budget, &board, &registry, run_id, story_id, &premise, chapter_number);
             let draft = match pending_gate.take() {
                 Some(jh) => {
                     // gate(n-1) 与 writer(n) 并发
@@ -833,7 +866,7 @@ impl AgencyCoordinator {
                     self.emit_activity(run_id, AgentRole::LeadWriter, "done", &format!("第{}章草稿", chapter_number));
                     let (prev_num, prev_draft, prev_revised) = pending_chapter.take().unwrap();
                     let prev = self.handle_gate(
-                        &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+                        &budget, &board, &registry, repo, run_id, story_id, &premise,
                         prev_num, prev_draft, prev_revised, outcome, cancel,
                     ).await?;
                     chapters.push(prev);
@@ -847,7 +880,7 @@ impl AgencyCoordinator {
             };
 
             // spawn gate(n)（'static，与下一轮 writer 并发）
-            let runner = self.gate_runner(&llm, &budget, &board, &registry);
+            let runner = self.gate_runner(run_id, &budget, &board, &registry);
             let (rid, sid, prem, d) = (run_id.to_string(), story_id.to_string(), premise.clone(), draft.clone());
             self.emit_activity(run_id, AgentRole::EditorAuditor, "start", &format!("审查第{}章", chapter_number));
             pending_gate = Some(tokio::spawn(async move { runner.evaluate(rid, sid, prem, d).await }));
@@ -858,7 +891,7 @@ impl AgencyCoordinator {
         if let (Some(jh), Some((num, draft, revised))) = (pending_gate.take(), pending_chapter.take()) {
             let outcome = jh.await.map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
             let last = self.handle_gate(
-                &llm, &budget, &board, &registry, repo, run_id, story_id, &premise,
+                &budget, &board, &registry, repo, run_id, story_id, &premise,
                 num, draft, revised, outcome, cancel,
             ).await?;
             chapters.push(last);
@@ -869,16 +902,16 @@ impl AgencyCoordinator {
         Ok(AgencyBatchResult { run_id: run_id.to_string(), story_id: story_id.to_string(), chapters })
     }
 
-    /// 'static gate 执行器（spawn 用，全部依赖按值持有）。
+    /// 'static gate 执行器（spawn 用，全部依赖按值持有）。gate 恒为编辑审计角色档。
     fn gate_runner(
         &self,
-        llm: &Arc<dyn LoopLlm>,
+        run_id: &str,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
     ) -> GateRunner {
         GateRunner {
-            llm: llm.clone(),
+            llm: self.llm_for_run(run_id, AgentRole::EditorAuditor),
             budget: budget.clone(),
             board: board.clone(),
             registry: registry.clone(),
@@ -902,7 +935,6 @@ impl AgencyCoordinator {
     /// 每次判定（含 Failed）落审查区 item_type="gate"。
     pub(crate) async fn evaluate_gate(
         &self,
-        llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
@@ -911,7 +943,9 @@ impl AgencyCoordinator {
         premise: &str,
         draft: &BoardItem,
     ) -> Result<GateOutcome, AppError> {
-        evaluate_gate_impl(llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft).await
+        // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor);
+        evaluate_gate_impl(&llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft).await
     }
 
     /// 供 Task 2 修订路径与测试使用的指令生成（纯函数）。
@@ -923,10 +957,10 @@ impl AgencyCoordinator {
     }
 
     /// 角色驱动（委托自由函数 run_role_loop，与 'static GateRunner 共用同一逻辑）。
+    /// 按角色创建生产 LLM（角色模型路由）；测试时 llm_for_run 返回注入 mock。
     #[allow(clippy::too_many_arguments)]
     async fn run_role_with_llm_and_budget(
         &self,
-        llm: &Arc<dyn LoopLlm>,
         budget: &Arc<AgencyBudget>,
         role: AgentRole,
         board: &BlackboardService,
@@ -936,7 +970,8 @@ impl AgencyCoordinator {
         premise: &str,
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
-        run_role_loop(llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task).await
+        let llm = self.llm_for_run(run_id, role);
+        run_role_loop(&llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task).await
     }
 
     /// 最新有效草稿：从尾部反向查找最后一条 content 非空的 active draft
@@ -1541,11 +1576,11 @@ mod tests {
         let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
         ]);
-        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let registry = Arc::new(ToolRegistry::agency_default());
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         let outcome = coordinator
-            .evaluate_gate(&llm, &budget, &board, &registry, "rg-1", &story.id, "续写", &draft)
+            .evaluate_gate(&budget, &board, &registry, "rg-1", &story.id, "续写", &draft)
             .await
             .unwrap();
         match outcome {
@@ -1778,5 +1813,22 @@ mod tests {
             "session_id:r1".to_string(),
             "novel_bootstrap_first_chapter_ready".to_string(),
         ]);
+    }
+
+    #[test]
+    fn test_request_guard_unregisters_on_drop() {
+        let run = "run-guard-test";
+        // guard 存活期间 request_id 在注册表内（drain 取走 req-g1，证明 new 已注册）
+        {
+            let _guard = RequestGuard::new(run, "req-g1");
+            assert_eq!(drain_requests(run), vec!["req-g1".to_string()]);
+        }
+        // guard drop 后注册表已清理（上面 drain 提前取走会破坏语义——用另一 id 验证）
+        register_request(run, "req-g2");
+        {
+            let _guard = RequestGuard::new(run, "req-g3");
+        }
+        let drained = drain_requests(run);
+        assert_eq!(drained, vec!["req-g2".to_string()]); // req-g3 已被 guard 摘除
     }
 }
