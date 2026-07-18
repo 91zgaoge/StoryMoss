@@ -7,6 +7,7 @@ pub mod budget;
 pub mod bus;
 pub mod commands;
 pub mod coordinator;
+pub mod eval_harness;
 pub mod gate;
 pub mod graders;
 pub mod materialize;

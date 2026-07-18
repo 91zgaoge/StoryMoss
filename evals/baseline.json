@@ -1,0 +1,11 @@
+{
+  "gate-pass-basic": {
+    "passed": true
+  },
+  "gate-revise-repetition": {
+    "passed": true
+  },
+  "continue-completes": {
+    "passed": true
+  }
+}
