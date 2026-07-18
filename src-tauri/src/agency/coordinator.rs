@@ -332,10 +332,13 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
     serde_json::from_str(&raw[start..=end]).ok()
 }
 
-/// V109 并发护栏冲突映射：部分唯一索引命中（UNIQUE constraint failed）→
-/// 用户可读文案。
+/// V109 并发护栏冲突映射：命中 agency_runs 唯一约束 → 用户可读文案。
+/// SQLite 两种报错形态均含 "agency_runs" 子串（部分唯一索引
+/// `UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_story'` /
+/// 列约束 `UNIQUE constraint failed: agency_runs.xxx`）；不匹配宽泛的
+/// "UNIQUE constraint failed"，避免误吞其他表的约束冲突。
 fn map_active_run_conflict(e: AppError) -> AppError {
-    if e.to_string().contains("UNIQUE constraint failed") {
+    if e.to_string().contains("agency_runs") {
         AppError::validation_failed("该故事已有进行中的创作任务", None::<String>)
     } else {
         e
@@ -430,9 +433,24 @@ impl AgencyCoordinator {
 
     /// 完成时双层摘要：final 快照 → LLM 五段摘要增强（Background 档）→ 写回。
     /// 摘要写回成功后落工作区 sessions/ 文件（best-effort；无 app_handle
-    /// 的测试环境跳过）。
+    /// 的测试环境跳过）。final 快照失败直接 return——否则 latest_session
+    /// 会捞到旧 auto 行，摘要被写回错误的会话。
     async fn finalize_session(&self, run_id: &str, llm: &Arc<dyn LoopLlm>) {
-        self.snapshot_phase(run_id, "final", "final").await;
+        let pool = self.pool.clone();
+        let rid = run_id.to_string();
+        let snap = self
+            .db(move || {
+                crate::agency::session::SessionService::new(pool).snapshot(&rid, "final", "final")
+            })
+            .await;
+        if let Err(e) = snap {
+            log::warn!(
+                "agency finalize: final 快照失败，跳过摘要写回 run={}: {}",
+                run_id,
+                e
+            );
+            return;
+        }
         let pool = self.pool.clone();
         let rid = run_id.to_string();
         let latest = self
@@ -471,12 +489,23 @@ impl AgencyCoordinator {
                 .await;
             // 工作区 sessions/ 快照（Task 4）：git 版本化的会话记忆
             if let (Some(app), Some(story_id)) = (&self.app_handle, session.story_id.clone()) {
-                if let Ok(ws) = crate::workspace::WorkspaceService::new(app, self.pool.clone()) {
-                    let content = format!(
-                        "# 创作会话摘要\n\n- run: {}\n- story: {}\n\n{}",
-                        run_id, story_id, summary
-                    );
-                    let _ = ws.write_session(&story_id, run_id, &content).await;
+                match crate::workspace::WorkspaceService::new(app, self.pool.clone()) {
+                    Ok(ws) => {
+                        let content = format!(
+                            "# 创作会话摘要\n\n- run: {}\n- story: {}\n\n{}",
+                            run_id, story_id, summary
+                        );
+                        if let Err(e) = ws.write_session(&story_id, run_id, &content).await {
+                            log::warn!("agency finalize: 会话快照落盘失败 run={}: {}", run_id, e);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "agency finalize: WorkspaceService 构造失败 run={}: {}",
+                            run_id,
+                            e
+                        );
+                    }
                 }
             }
         }
@@ -2848,7 +2877,32 @@ mod tests {
                                                          // 摘除
     }
 
-    /// write_chapter 按约定 key 取稿：模型写错 key（「序章」≠「第一章」）必须
+    /// map_active_run_conflict：命中 agency_runs 唯一约束（两种 SQLite 报错
+    /// 形态）映射为 VALIDATION_FAILED；其他错误（含他表 UNIQUE 冲突）原样透传。
+    #[test]
+    fn test_map_active_run_conflict_only_matches_agency_runs() {
+        // 形态一：部分唯一索引
+        let err = map_active_run_conflict(AppError::from(
+            "UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_story'",
+        ));
+        assert_eq!(err.code(), "VALIDATION_FAILED");
+        assert!(err.to_string().contains("进行中"));
+        // 形态二：列约束
+        let err = map_active_run_conflict(AppError::from(
+            "UNIQUE constraint failed: agency_runs.story_id",
+        ));
+        assert_eq!(err.code(), "VALIDATION_FAILED");
+        // 他表 UNIQUE 冲突不误吞
+        let err = map_active_run_conflict(AppError::from("UNIQUE constraint failed: scenes.id"));
+        assert_eq!(err.code(), "INTERNAL_ERROR");
+        assert!(err.to_string().contains("scenes.id"));
+        // 普通错误原样透传
+        let err = map_active_run_conflict(AppError::from("database is locked"));
+        assert_eq!(err.code(), "INTERNAL_ERROR");
+        assert!(err.to_string().contains("database is locked"));
+    }
+
+    /// write_chapter 按约定 key 取稿：模型写错 key（「序章」≠「第1章」）必须
     /// 大声失败，错误文案含约定 key。
     #[tokio::test]
     async fn test_write_chapter_wrong_key_fails_loudly() {
@@ -2866,7 +2920,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            err.to_string().contains("第一章") || err.to_string().contains("缺少"),
+            err.to_string().contains("第1章") || err.to_string().contains("缺少"),
             "错误应含约定 key: {}",
             err
         );

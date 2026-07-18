@@ -1,7 +1,7 @@
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::{db::DbPool, error::AppError};
+use crate::{agency::repository::AgencyRepository, db::DbPool, error::AppError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgencySession {
@@ -96,12 +96,10 @@ impl SessionService {
             kind: kind.to_string(),
             created_at: chrono::Local::now().to_rfc3339(),
         };
-        conn.execute(
-            "INSERT INTO agency_sessions (id, run_id, story_id, phase, snapshot_json, summary, kind, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![session.id, session.run_id, session.story_id, session.phase,
-                    session.snapshot_json, session.summary, session.kind, session.created_at],
-        ).map_err(AppError::from)?;
+        // 入库委托 AgencyRepository::insert_session（消除与此处重复的内联 INSERT）
+        AgencyRepository::new(self.pool.clone())
+            .insert_session(&session)
+            .map_err(AppError::from)?;
         Ok(session)
     }
 

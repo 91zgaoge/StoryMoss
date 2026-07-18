@@ -743,4 +743,26 @@ mod tests {
         let md = render_loops_md();
         assert!(md.contains("当前任务循环"));
     }
+
+    /// write_session 落盘逻辑（write_session_sync：write_session 去掉
+    /// git 提交的核心）：tempdir 构造 app_dir，断言 sessions/<run_id>.md
+    /// 内容与路径。WorkspaceService::new 依赖 AppHandle 无法直接单测，
+    /// 但测试模块可访问私有字段直接构造等价实例。
+    #[test]
+    fn test_write_session_sync_writes_file_under_sessions_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let svc = WorkspaceService {
+            app_dir: tmp.path().to_path_buf(),
+            pool: crate::db::create_test_pool().unwrap(),
+        };
+        svc.write_session_sync("story-1", "run-1", "# 创作会话摘要\n\n内容")
+            .unwrap();
+        let path = tmp
+            .path()
+            .join("stories/story-1/.storymoss/sessions/run-1.md");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "# 创作会话摘要\n\n内容"
+        );
+    }
 }

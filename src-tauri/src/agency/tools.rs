@@ -128,7 +128,7 @@ impl AgentTool for BoardReadTool {
         "board_read"
     }
     fn description(&self) -> &'static str {
-        "读取黑板分区目录（key+摘要+版本）；需要全文时给出 key"
+        "读取黑板分区目录（key+摘要+版本）；detail=catalog|summary|full，key 精确读时 summary 档取前 500 字"
     }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
@@ -187,21 +187,24 @@ impl AgentTool for BoardReadTool {
             match zone {
                 Some(z) => {
                     let items = board.list_zone(&run_id, z)?;
-                    let mut out = String::new();
-                    for item in items {
-                        out.push_str(&format!(
-                            "- [{}/{}] {} (v{}, {})\n",
-                            item.zone.as_str(),
-                            item.key,
-                            item.summary,
-                            item.version,
-                            item.status
-                        ));
+                    if items.is_empty() {
+                        return Ok("（空）\n".into());
                     }
-                    if out.is_empty() {
-                        out = "（空）\n".into();
+                    // 单分区目录同样受 token 预算约束：组装单分区快照走
+                    // to_catalog_tokens 逐行截断（与全量目录同一预算口径）
+                    let mut snap = crate::agency::board::BoardSnapshot {
+                        assets: vec![],
+                        drafts: vec![],
+                        reviews: vec![],
+                        schedules: vec![],
+                    };
+                    match z {
+                        BoardZone::Asset => snap.assets = items,
+                        BoardZone::Draft => snap.drafts = items,
+                        BoardZone::Review => snap.reviews = items,
+                        BoardZone::Schedule => snap.schedules = items,
                     }
-                    Ok(out)
+                    Ok(snap.to_catalog_tokens(500, "cl100k"))
                 }
                 None => Ok(board.snapshot(&run_id)?.to_catalog_tokens(500, "cl100k")),
             }
