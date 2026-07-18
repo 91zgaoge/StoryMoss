@@ -1,17 +1,26 @@
-# StoryMoss (草苔) v0.27.0 项目完成状态
+# StoryMoss (草苔) v0.28.0 项目完成状态
 
-> 最后更新: 2026-07-17（v0.27.0 发布 Agency 多代理创作框架（创世 2.0）P1+P2，smart_execute 创世路径切换到 agency）
+> 最后更新: 2026-07-17（v0.28.0 发布 Agency 多代理创作框架 P3：代币优化 + 记忆持久性，角色模型路由 / 全局并发闸门 / 注入预算三档目录 / agency_sessions 会话快照与跨会话恢复）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## 🚧 当前迭代
 
-- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）已完成，后端 834 tests 全绿。除真机验收外 P1/P2 已完成；P3–P5（代币优化+记忆/持续学习/前端可视化）按计划边界另行制定。
+- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）已完成。除真机验收外 P1–P3 已完成；P4–P5（持续学习/前端可视化）按计划边界另行制定。
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.28.0 — Agency P3：代币优化 + 记忆持久性（2026-07-17）
+
+- 角色×任务模型路由：主创 Creative / 管理 Tool / 编辑 Background（经 ModelRole 体系，用户可按角色指派模型）。
+- 全局 agency LLM 并发闸门（跨 run 上限 3）+ request_id RAII 注册。
+- 上下文注入 token 预算（tiktoken 计数截断）+ 黑板三档目录（catalog/summary/full）+ ToolLoop 会话窗口。
+- `agency_sessions` 会话快照（机械提取 + Background 档五段摘要双层）；跨会话恢复 `agency_resume_run`（黑板复制 + stale-replay 防护 + `.storymoss` sessions/ 归档）。
+- 同 story 并发 run 原子护栏（V109 部分唯一索引）；创作角色落库去重；质量门判定轮次可追溯；清理 T8 遗留创世专属死代码。
+- ✅ **验证**：`cargo test --lib` 830 passed；`npx vitest run` 292 passed；architecture_guard PASSED；landing `npx vitest run` 19 passed；src-frontend / landing 构建成功。
 
 ### v0.27.0 — Agency 多代理创作框架（创世 2.0）P1+P2（2026-07-17）
 

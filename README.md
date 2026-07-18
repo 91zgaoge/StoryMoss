@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.26.59-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.28.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.26.59 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
+**最新动态**：v0.28.0 完成 Agency 多代理创作框架（创世 2.0）P3——角色×任务模型路由（主创/管理/编辑分档）、全局 agency LLM 并发闸门、上下文注入 token 预算与黑板三档目录、`agency_sessions` 会话快照与跨会话恢复（`agency_resume_run`）；v0.27.0 发布 Agency 框架 P1+P2（黑板协作 + 质量门 + 并行稳态循环），`smart_execute` 创世路径切换到 agency。
+
+**上一版 v0.26.59** 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
 
 **上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并同步到 `https://storymoss.top/releases/`；应用内优先从官网检查更新，GitHub Releases 保留为回退源；Linux 补 AppImage。
 

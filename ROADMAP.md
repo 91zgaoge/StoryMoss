@@ -1,6 +1,25 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-11（v0.26.59 完成 StoryForge → StoryMoss 品牌收尾并上线官网落地页）
+> 最后更新: 2026-07-17（v0.28.0 完成 Agency 多代理创作框架 P3：代币优化 + 记忆持久性）
+
+## ✅ v0.27.x–v0.28.x 已实施完成
+
+### 🤝 v0.28.0 — Agency P3：代币优化 + 记忆持久性 ✅ (2026-07-17)
+
+- [x] 角色×任务模型路由：主创 Creative / 管理 Tool / 编辑 Background（经 ModelRole 体系，用户可按角色指派模型）。
+- [x] 全局 agency LLM 并发闸门（跨 run 上限 3）+ request_id RAII 注册。
+- [x] 上下文注入 token 预算（tiktoken 计数截断）+ 黑板三档目录（catalog/summary/full）+ ToolLoop 会话窗口。
+- [x] `agency_sessions` 会话快照（机械提取 + Background 档五段摘要双层）。
+- [x] 跨会话恢复 `agency_resume_run`（黑板复制 + stale-replay 防护 + `.storymoss` sessions/ 归档）。
+- [x] 同 story 并发 run 原子护栏（部分唯一索引）；创作角色落库去重；质量门判定轮次可追溯；清理 T8 遗留创世专属死代码。
+
+### 🤝 v0.27.0 — Agency 多代理创作框架（创世 2.0）P1+P2 ✅ (2026-07-17)
+
+- [x] 新增 `src-tauri/src/agency/` 模块：黑板协作 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）。
+- [x] 质量门（编辑裁决 + 规则复检 + 至多 1 轮修订）；并行稳态循环；按角色并发预算与 run 级 token 预算。
+- [x] request_id 定点取消；续写循环 `agency_continue_chapter` / `agency_continue_batch`；创作资产自动落库。
+- [x] `smart_execute` 创世路径切换到 agency；旧 GenesisPipeline 移除（TriShot 续写保留）。
+- [x] 验证：`cargo test --lib` 834 passed；`npx vitest run` 292 passed；architecture_guard PASSED。
 
 ## ✅ v0.26.x 已实施完成
 

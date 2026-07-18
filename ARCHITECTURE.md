@@ -1,4 +1,4 @@
-# StoryMoss (草苔) v0.27.0 架构文档
+# StoryMoss (草苔) v0.28.0 架构文档
 
 > **v0.26.58**：OpenAI 兼容适配器（含 Deepseek）在序列化请求前对 `top_p` 做 `(0, 1.0]` 范围过滤，解决配置中 `top_p=0.0` 导致健康探测/生成被服务端拒绝的问题；新增 `llm::openai` 单元测试覆盖过滤逻辑。**v0.26.57**：自动划分章节——`chapter_splitter` 在 `SceneService` 的 `auto_commit` 防抖窗口内按 `chapter_split_mode`（`word_count`/`plot`）与 `chapter_split_max_chars`（默认 3000 字）仅切分故事最新章；导出以 `scenes.content` 为真相源通过 `assemble_export_chapters` 聚合，并走系统保存对话框落盘；提示词注册表支持「打开目录」与原生 textarea 编辑。**v0.26.56**：executor 写 config 契约测试串行化（mock app_data_dir 锁）。**v0.26.55**：幕后模型列表开启/关闭——`update_model(enabled)` + 列表开关；禁用模型不进 `UnifiedModelRegistry`/`get_gateway_status`/probe；`is_promotable_user_model` 要求仍在注册表。**v0.26.54**：创作模型粘性降级绕过——显式 `creative`/`tool`/`background` 角色不受连续失败 demotion 拦截；粘性 Unhealthy 在 `resolve_role_model` 清一次→Unknown 再探；`set_active_model`/`save_settings` 调 `clear_model_demotion`；`generate()` 再提升用 `is_promotable_user_model`。**v0.26.53**：幕前故事名取消单击→回幕后；回幕后入口为 Header 设置按钮。**v0.26.52**：模型配置热同步——`gateway-status` 失效；`is_promotable_user_model`；`sync_creative_to_active_llm`。**v0.26.51**：幕前顶部故事名/章节名内联编辑——`displayStoryTitle`/`displayChapterTitle` 纯函数管展示；无故事有正文时 `ensureUntitledStory` 建「未命名」+ scene（不走 `selectStory`）；章节改名优先 `update_scene`（title 回写 chapter）。**v0.26.50**：幕前自动保存 → AutoIngest 改为 30s 防抖并受 `BACKGROUND_LLM_SEMAPHORE` 约束；`contract-auto-progress` 不再驱动 `isGenerating`；`isGenerating` 超时看门狗强制诊断。**v0.26.49**：续写连贯——`build_ending_anchor` 将正文末 2 句硬锚点追加到 Call3/TimeSliced prompt **最末尾**（在 `NOVEL_OUTPUT_DISCIPLINE` 之后），覆盖 WriteTimeBundle「开场建立处境」等开篇指令，抗 Lost-in-the-Middle。
 >
@@ -843,8 +843,9 @@ function assertUnreachable(x: never): never {
 - `roles.rs`：三角色 spec 与系统提示词
 - `coordinator.rs`：创世/续写协调器——质量门判定（`evaluate_gate`）、并行稳态循环（编辑审第 N 章与主创写第 N+1 章并发）、request_id 定点取消
 - `gate.rs`：质量门规则复检（规则问题归并 + 复检上下文构建）；门径为编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配
-- `budget.rs`：AgencyBudget——按角色并发信号量（writer/producer/editor）+ run 级 token 预算硬上限（默认 30 万 tokens）
+- `budget.rs`：AgencyBudget——按角色并发信号量（writer/producer/editor）+ run 级 token 预算硬上限（默认 30 万 tokens）+ agency 全局 LLM 并发闸门（跨 run 在途上限 3，request_id RAII 注册，锁序：先 run 级角色预算后全局闸门）
 - `materialize.rs`：创作资产自动落库（characters / world_buildings / story_outlines）
+- `session.rs`：SessionService——`agency_sessions` 会话快照（机械提取 + Background 档五段摘要双层）与跨会话恢复支撑
 - `repository.rs` / `models.rs`：`agency_runs` / `agency_board_items` 持久化
 - `bus.rs`：消息总线（P2 已接线，协调器回收代理消息）
 - `commands.rs`：IPC 命令
@@ -857,7 +858,14 @@ function assertUnreachable(x: never): never {
 
 **创世入口**：`smart_execute` 检测到小说创建意图即切换到 agency 创世流程，进度镜像到 `smart-execute-progress`；旧 GenesisPipeline 已移除（TriShot 续写路径保留）。
 
-**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1/P2 已完成，除真机验收外）。
+**P3（代币优化 + 记忆持久性）**：
+
+- **角色×任务模型路由**：主创走 Creative 档、管理走 Tool 档、编辑审计走 Background 档（经 ModelRole 体系解析，用户可按角色指派模型），`AgencyLlm::new(app_handle, run_id, role)` 按角色构造。
+- **注入预算与三档目录**：上下文注入按 token 预算截断（tiktoken 计数，超预算降级裁剪）；黑板读取分 catalog（key+summary+version）/ summary / full 三档，ToolLoop 内维护会话窗口。
+- **会话快照与恢复**：`agency_sessions` 表持久化会话快照；`agency_resume_run` 跨会话恢复——黑板复制到新 run + stale-replay 防护 + `.storymoss/sessions/` 文件归档。
+- **V109 并发护栏**：`idx_agency_runs_one_active_per_story` 部分唯一索引（story_id 非 NULL 且 status 进行中）在 INSERT 即原子拦截同 story 并发 run；创作角色落库去重；质量门判定轮次可追溯（`evaluate_gate(..., round)`）。
+
+**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1-P3 已完成，除真机验收外）。
 
 ---
 

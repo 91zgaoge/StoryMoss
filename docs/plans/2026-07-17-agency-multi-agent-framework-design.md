@@ -1,6 +1,6 @@
 # StoryMoss 多代理创作框架（创世 2.0 / Agency）设计
 
-> 实现状态：P1/P2 已完成（2026-07-17，除真机验收外）。
+> 实现状态：P1-P3 已完成（2026-07-17，除真机验收外）。
 > 灵感来源：[affaan-m/ECC](https://github.com/affaan-m/ECC)（Everything Claude Code）的五大机制——代币优化、记忆持久性、持续学习、验证循环、并行化与子代理协调。
 
 ## 背景
