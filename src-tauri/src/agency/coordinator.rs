@@ -2192,8 +2192,8 @@ impl AgencyCoordinator {
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted 元数据
-        //（Failed 无评分，weighted 为 null——与 record_gate_impl 的 gate_score
-        //（Failed 语义一致）
+        //（Failed 无评分，weighted 为 null——与 record_gate_impl 的
+        // gate_score 语义一致）
         let (kind, issues_count) = gate_observation_meta(&outcome);
         self.log_observation(
             story_id,

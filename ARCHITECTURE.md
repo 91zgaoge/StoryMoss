@@ -873,7 +873,16 @@ function assertUnreachable(x: never): never {
 - **eval harness**（`eval_harness.rs`）：JSON 场景 + pass@k/pass^k 指标 + baseline.json 回归门，确定性模式随 `cargo test` 纳入 CI。
 - **评估仪表盘**：`agency_eval_overview` IPC 五段聚合（gate 历史 + pass_rate + checkpoints + human_signals + 按角色 token 用量）；前端 `AgencyEval` 页（侧栏诊断组「创作评估」，手绘 SVG 加权分趋势，零图表依赖）。
 
-**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1-P4 已完成，除真机验收外）。
+**P5（持续学习 + 代理可视化）**：
+
+- **持续学习双轨**（`learning.rs`）：观察层——创作事件埋点写 `observations.jsonl`（app 数据目录，10MB 轮转，label 过滤防自观察）；后台 analyzer（`agency_analyze_learning`，Background 档模型）把观察提炼为 instinct（trigger/action/confidence 文件层存储）。
+- **置信度引擎**：按证据数初始化置信度；用户反馈 `agency_instinct_feedback`（采纳 +0.05 / 纠正 −0.1）、周衰减 −0.02、低置信度 prune。
+- **晋升管线**：instinct 置信度 ≥0.8 且跨 story 复现 → 晋升提案（`agency_promotion_candidates`）→ 学习中心人工确认（`agency_confirm_promotion`）→ 物化为 `skill.yaml` 技能；启动时自动 reload 已学技能。
+- **学习中心页**：前端 `AgencyLearning`——模式列表与置信度、晋升提案确认/拒绝、观察流、手动「立即分析」；`agency_learning_overview` 聚合 IPC。
+- **代理工作室页**：前端 `AgencyStudio`——三角色实时状态卡 + 黑板分区视图（事件驱动刷新）+ 活动时间线。
+- **eval 纳入 CI 专用门禁**：CI 新增 `cargo test --lib agency::eval_harness` step；检查点对比 UI（`agency_compare_checkpoints` 前端落地）；`agency_eval_overview` 新增 story 级 token 聚合（每 run `MAX(tokens_used)` 去重后跨 run 求和）；rule grader 追读力口径对齐生产实现。
+
+**设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1-P5 已完成，除真机验收外）。
 
 ---
 

@@ -1,17 +1,27 @@
-# StoryMoss (草苔) v0.29.0 项目完成状态
+# StoryMoss (草苔) v0.30.0 项目完成状态
 
-> 最后更新: 2026-07-19（v0.29.0 发布 Agency 多代理创作框架 P4：验证循环，四级 grader / Gate v2 加权评分 / V110 里程碑检查点 / eval harness / 评估仪表盘）
+> 最后更新: 2026-07-19（v0.30.0 发布 Agency 多代理创作框架 P5：持续学习 + 代理可视化，框架收官——learning 双轨 / instinct 置信度引擎 / 晋升管线 / 学习中心 / 代理工作室 / eval CI 门禁）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## 🚧 当前迭代
 
-- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）已完成。除真机验收外 P1–P4 已完成；P5（持续学习）按计划边界另行制定。
+- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）+ P5（持续学习双轨：observations.jsonl 观察层 + 后台 analyzer + instinct 文件层 / 置信度引擎 / ≥0.8 跨 story 晋升物化 skill.yaml / 学习中心页 / 代理工作室页 / eval CI 门禁）已完成。除真机验收外 P1–P5 已完成，框架收官。
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.0 — Agency P5：持续学习 + 代理可视化（2026-07-19）
+
+- 持续学习双轨：观察层（`observations.jsonl`，10MB 轮转，label 过滤防自观察）→ 后台 analyzer（Background 档模型，`agency_analyze_learning`）→ instinct（trigger/action/confidence 文件层）。
+- 置信度引擎：按证据初始化 + 采纳 +0.05 / 纠正 −0.1 / 周衰减 −0.02 / 低置信度 prune。
+- 晋升管线：置信度 ≥0.8 且跨 story 复现 → 学习中心确认 → 物化为 `skill.yaml` 技能（重启自动 reload）。
+- 学习中心页（`AgencyLearning`）：模式列表 + 置信度 + 晋升提案 + 观察流 + 手动分析；代理工作室页（`AgencyStudio`）：三角色实时状态卡 + 黑板视图（事件驱动刷新）+ 活动时间线。
+- eval 场景纳入 CI 专用门禁 step；检查点对比 UI；story 级 token 聚合；rule grader 追读力口径对齐生产实现。
+- 修复：rusqlite 启用 `unlock_notify` feature，根治 shared-cache 内存库跨连接 SQLITE_LOCKED 导致的两个测试 flake。
+- ✅ **验证**：`cargo test --lib` 875 passed（连跑 3 次全绿）；`npx vitest run` 295 passed；`npm run type-check` / `npm run build` 通过；architecture_guard PASSED。
 
 ### v0.29.0 — Agency P4：验证循环（2026-07-19）
 
