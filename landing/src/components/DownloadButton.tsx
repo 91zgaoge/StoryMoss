@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 const RELEASE_BASE = "https://storymoss.top/releases";
 
 const ASSETS = {
-  mac: `${RELEASE_BASE}/StoryMoss_0.29.0_aarch64.dmg`,
-  windows: `${RELEASE_BASE}/StoryMoss_0.29.0_x64_zh-CN.msi`,
-  linux: `${RELEASE_BASE}/StoryMoss_0.29.0_amd64.AppImage`,
+  mac: `${RELEASE_BASE}/StoryMoss_0.30.0_aarch64.dmg`,
+  windows: `${RELEASE_BASE}/StoryMoss_0.30.0_x64_zh-CN.msi`,
+  linux: `${RELEASE_BASE}/StoryMoss_0.30.0_amd64.AppImage`,
 };
 
 export type Platform = "mac" | "macIntel" | "windows" | "linux" | "unknown";
@@ -67,11 +67,11 @@ export function DownloadButton({
   }, []);
 
   const base =
-    "inline-flex items-center justify-center rounded-[2px] px-6 py-3 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar focus-visible:ring-offset-2 focus-visible:ring-offset-parchment";
+    "inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-medium transition-[transform,background-color,color] duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
   const styles =
     variant === "primary"
-      ? "bg-cinnabar text-white hover:bg-cinnabar-dark"
-      : "border border-ink-line bg-parchment text-ink hover:border-cinnabar hover:text-cinnabar";
+      ? "bg-moss text-canvas [@media(hover:hover)]:hover:bg-moss-soft"
+      : "surface-2 border border-subtle text-paper [@media(hover:hover)]:hover:surface-3";
 
   const url = downloadUrl(platform);
   const label = children ?? downloadLabel(platform, fallbackLabel);

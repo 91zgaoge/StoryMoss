@@ -4,24 +4,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        parchment: '#f8f6f1',
-        cream: '#fbf9f4',
-        ink: '#1a1816',
-        charcoal: '#6b6560',
-        stone: '#827c75',
-        cinnabar: '#a83f2e',
-        'cinnabar-dark': '#7d2e21',
-        'ink-line': '#e3ded4',
-        'ink-wash': 'rgba(26, 24, 22, 0.03)',
+        // 墨苔书斋（dark ink-green study）
+        canvas: 'oklch(0.175 0.022 158)',
+        'canvas-2': 'oklch(0.21 0.025 158)',
+        moss: 'oklch(0.76 0.13 148)',
+        'moss-deep': 'oklch(0.58 0.11 152)',
+        'moss-soft': 'oklch(0.86 0.08 148)',
+        paper: 'oklch(0.93 0.012 130)',
+        mist: 'oklch(0.75 0.025 150)',
+        dim: 'oklch(0.6 0.02 155)',
       },
       fontFamily: {
         display: ['"LXGW WenKai"', '"Source Han Serif CN"', '"Noto Serif SC"', 'serif'],
         body: ['system-ui', '-apple-system', '"PingFang SC"', '"Microsoft YaHei"', 'sans-serif'],
       },
-      boxShadow: {
-        cta: '0 8px 24px rgba(168, 63, 46, 0.18)',
-        card: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        nav: '0 1px 2px rgba(0, 0, 0, 0.04)',
+      borderRadius: {
+        sm: '6px',
+        md: '10px',
+        lg: '16px',
+      },
+      letterSpacing: {
+        display: '-0.022em',
+        mid: '-0.012em',
       },
     },
   },

@@ -8,7 +8,7 @@
   }
 
   body {
-    @apply bg-parchment text-ink font-body antialiased;
+    @apply bg-canvas font-body text-paper antialiased;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -20,7 +20,14 @@
   }
 
   ::selection {
-    background-color: rgba(168, 63, 46, 0.15);
+    background-color: oklch(0.76 0.13 148 / 0.25);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spore-drift,
+    .mist-drift {
+      animation: none;
+    }
   }
 }
 
@@ -29,10 +36,74 @@
     text-wrap: balance;
   }
 
-  .paper-texture {
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* 苔纸纹理（暗色细噪点） */
+  .moss-texture {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-repeat: repeat;
-    opacity: 0.04;
+    opacity: 0.05;
     pointer-events: none;
+  }
+
+  /* 暗面叠层深度（不用阴影） */
+  .surface-1 {
+    background-color: rgb(255 255 255 / 0.02);
+  }
+
+  .surface-2 {
+    background-color: rgb(255 255 255 / 0.04);
+  }
+
+  .surface-3 {
+    background-color: rgb(255 255 255 / 0.06);
+  }
+
+  .border-subtle {
+    border-color: rgb(255 255 255 / 0.05);
+  }
+
+  .border-standard {
+    border-color: rgb(255 255 255 / 0.08);
+  }
+
+  /* 雾光漂移（transform-only） */
+  .mist-drift {
+    animation: mist-x 26s ease-in-out infinite alternate;
+  }
+
+  .mist-drift-slow {
+    animation: mist-x 38s ease-in-out infinite alternate-reverse;
+  }
+
+  @keyframes mist-x {
+    from {
+      transform: translateX(-6%);
+    }
+    to {
+      transform: translateX(6%);
+    }
+  }
+
+  /* 孢子浮动（transform/opacity only） */
+  .spore-drift {
+    animation: spore-y var(--spore-duration, 9s) ease-in-out
+      var(--spore-delay, 0s) infinite alternate;
+  }
+
+  @keyframes spore-y {
+    from {
+      transform: translateY(0);
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 0.9;
+    }
+    to {
+      transform: translateY(-18px);
+      opacity: 0.35;
+    }
   }
 }

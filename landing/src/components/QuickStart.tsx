@@ -1,59 +1,48 @@
-import { motion } from 'framer-motion';
-import { useReducedMotion } from '../hooks/useReducedMotion';
-import { SectionTitle } from './SectionTitle';
-import { StepCard } from './StepCard';
+import { Reveal, SectionHeader } from "./Reveal";
 
-const steps = [
+const STEPS = [
   {
-    number: '01',
-    title: '下载安装桌面版',
-    description: 'Windows / macOS / Linux 均可运行，本地使用，数据归你。',
+    no: "01",
+    title: "装上你的模型",
+    desc: "OpenAI、Anthropic、DeepSeek、Qwen 或本地 Ollama——填地址和 Key，测试连接即可。",
   },
   {
-    number: '02',
-    title: '用 Genesis 创建故事',
-    description: '输入一句话创意，30–90 秒生成故事框架、角色与开篇场景。',
+    no: "02",
+    title: "一句话创世",
+    desc: "幕前输入「写一部……」，三个代理即刻开工：管理备料、主创作首章、编辑审计把关。",
   },
   {
-    number: '03',
-    title: '进入幕前，写下第一段',
-    description: '打开沉浸式写作界面，卡壳时随时呼叫 AI 续写或润色。',
+    no: "03",
+    title: "看着它长",
+    desc: "代理工作室里看三角色实时协作；写几章后，学习中心开始给你攒技能。",
   },
 ];
 
 export function QuickStart() {
-  const reduced = useReducedMotion();
-
-  const item = {
-    hidden: { opacity: 0, y: 20 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as const },
-    },
-  };
-
   return (
-    <section id="quickstart" className="mx-auto max-w-[980px] px-6 py-[100px] md:py-[160px]">
-      <SectionTitle
-        label="07"
-        title="三步开始写"
-        description="不需要复杂配置，安装后即可开始你的第一本书。"
-      />
+    <section id="quickstart" className="relative px-6 py-24 md:py-36">
+      <div className="mx-auto max-w-[1080px]">
+        <SectionHeader kicker="上手" title="三步，开一间工作室" />
 
-      <motion.div
-        initial={reduced ? undefined : 'hidden'}
-        whileInView={reduced ? undefined : 'visible'}
-        viewport={{ once: true, margin: '-100px' }}
-        variants={reduced ? undefined : { visible: { transition: { staggerChildren: 0.1 } } }}
-        className="grid gap-10 md:grid-cols-3"
-      >
-        {steps.map((s) => (
-          <motion.div key={s.number} variants={reduced ? undefined : item}>
-            <StepCard number={s.number} title={s.title} description={s.description} />
-          </motion.div>
-        ))}
-      </motion.div>
+        <div className="grid gap-5 md:grid-cols-3">
+          {STEPS.map((step) => (
+            <Reveal key={step.no}>
+              <article className="surface-1 h-full rounded-lg border border-subtle p-6">
+                <p
+                  className="mb-4 font-display text-3xl text-moss"
+                  aria-hidden="true"
+                >
+                  {step.no}
+                </p>
+                <h3 className="mb-3 text-xl text-paper">{step.title}</h3>
+                <p className="text-pretty text-sm leading-relaxed text-mist">
+                  {step.desc}
+                </p>
+              </article>
+            </Reveal>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

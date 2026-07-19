@@ -1,32 +1,46 @@
 export function Footer() {
   return (
-    <footer className="border-t border-ink-line bg-parchment py-10">
-      <div className="mx-auto flex max-w-[980px] flex-col items-center justify-between gap-6 px-6 md:flex-row">
+    <footer className="border-t border-subtle px-6 py-12">
+      <div className="mx-auto flex max-w-[1080px] flex-col gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2.5">
           <img
             src="/logo.png"
-            alt="StoryMoss 草苔"
-            className="h-7 w-7 object-contain"
+            alt=""
+            className="h-6 w-6 object-contain invert"
           />
-          <span className="font-display text-lg text-ink">草苔</span>
-          <span className="font-body text-xs tracking-wide text-charcoal">StoryMoss</span>
+          <span className="font-display text-paper">草苔 StoryMoss</span>
+          <span className="text-sm text-dim">越写越懂</span>
         </div>
-
-        <p className="text-sm text-charcoal">© 2026 StoryMoss · 草苔</p>
-
-        <div className="flex gap-6 text-sm text-charcoal">
+        <nav
+          className="flex flex-wrap gap-6 text-sm text-mist"
+          aria-label="页脚导航"
+        >
           <a
             href="https://github.com/91zgaoge/StoryMoss"
-            className="hover:text-ink"
             target="_blank"
             rel="noreferrer"
+            className="transition-colors hover:text-paper"
           >
             GitHub
           </a>
-          <a href="#" className="hover:text-ink">
-            用户指南
+          <a
+            href="https://storymoss.top/releases/"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-paper"
+          >
+            全部版本
           </a>
-        </div>
+          <a
+            href="https://github.com/91zgaoge/StoryMoss/blob/master/CHANGELOG.md"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-paper"
+          >
+            更新日志
+          </a>
+        </nav>
+        <p className="text-xs text-dim">Made with 🌿 by StoryMoss Team</p>
       </div>
     </footer>
   );

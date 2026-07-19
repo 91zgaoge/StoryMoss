@@ -1,16 +1,12 @@
-import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
-import { BrandSlogan } from './components/BrandSlogan';
-import { ValueProp } from './components/ValueProp';
-import { PainPoints } from './components/PainPoints';
-import { BackstageFrontstage } from './components/BackstageFrontstage';
-import { Genesis } from './components/Genesis';
-import { TimeSliced } from './components/TimeSliced';
-import { WhyStoryMoss } from './components/WhyStoryMoss';
-import { Features } from './components/Features';
-import { QuickStart } from './components/QuickStart';
-import { DownloadCTA } from './components/DownloadCTA';
-import { Footer } from './components/Footer';
+import { Navbar } from "./components/Navbar";
+import { Hero } from "./components/Hero";
+import { TrioSection } from "./components/TrioSection";
+import { LoopSection } from "./components/LoopSection";
+import { CraftSection } from "./components/CraftSection";
+import { ScreensSection } from "./components/ScreensSection";
+import { QuickStart } from "./components/QuickStart";
+import { DownloadCTA } from "./components/DownloadCTA";
+import { Footer } from "./components/Footer";
 
 export default function App() {
   return (
@@ -18,14 +14,10 @@ export default function App() {
       <Navbar />
       <main>
         <Hero />
-        <BrandSlogan />
-        <ValueProp />
-        <PainPoints />
-        <BackstageFrontstage />
-        <Genesis />
-        <TimeSliced />
-        <WhyStoryMoss />
-        <Features />
+        <TrioSection />
+        <LoopSection />
+        <CraftSection />
+        <ScreensSection />
         <QuickStart />
         <DownloadCTA />
       </main>

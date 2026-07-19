@@ -28,8 +28,8 @@ describe("DownloadButton", () => {
     const link = screen.getByRole("link", {
       name: /下载 macOS 版/i,
     }) as HTMLAnchorElement;
-    expect(link.href).toContain("storymoss.top/releases/StoryMoss_0.29.0");
-    expect(link.href).toContain("StoryMoss_0.29.0");
+    expect(link.href).toContain("storymoss.top/releases/StoryMoss_0.30.0");
+    expect(link.href).toContain("StoryMoss_0.30.0");
     expect(link.href).toMatch(/\.dmg$/);
   });
 
