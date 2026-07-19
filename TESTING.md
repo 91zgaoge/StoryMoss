@@ -4,6 +4,11 @@
 
 ## 测试统计
 
+### v0.30.0 变更说明
+
+- Agency 多代理创作框架（创世 2.0）P1–P5 全部完成，测试体系包括：`src-tauri/src/agency/` 26+ 单元测试（coordinator / gate / graders / board / budget / session / learning / eval_harness 等）；eval harness JSON 场景随 `cargo test` 运行；CI 另设 `cargo test --lib agency::eval_harness` 专用门禁 step。
+- 全量基线：`cargo test --lib` 877 passed；`npx vitest run` 295 passed。
+
 ### v0.26.59 变更说明
 
 - 新增官网落地页组件测试（landing）：`DownloadButton` 平台检测与链接断言 8 tests；全量 landing 19 passed。
@@ -472,4 +477,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-07 - v0.26.27 Phase 1–3 综合优化测试补全_
+_最后更新: 2026-07-19 - v0.30.0 Agency 多代理创作框架 P1–P5 完成，测试基线更新_

@@ -6,6 +6,8 @@
 > **代码基准**：v0.17.x（含 P0-P3 审计优化），2026-06-20
 > **维护规则**：创作流程或资产架构有变动时，同步更新本文
 
+> ⚠️ **历史参考说明**：GenesisPipeline 已于 v0.27.0 起被 Agency 多代理创作框架（`src-tauri/src/agency/`）完全取代并从代码库移除，本文档中创世分支相关内容（如 `narrative/genesis.rs`、快速/后台两阶段管线）均为历史参考。新流程见 `ARCHITECTURE.md` 的「Agency 多代理创作框架（创世 2.0）」章节与设计文档 `docs/plans/2026-07-17-agency-multi-agent-framework-design.md`。
+
 ---
 
 ## 目录
