@@ -1,17 +1,25 @@
-# StoryMoss (草苔) v0.30.0 项目完成状态
+# StoryMoss (草苔) v0.30.1 项目完成状态
 
-> 最后更新: 2026-07-19（v0.30.0 发布 Agency 多代理创作框架 P5：持续学习 + 代理可视化，框架收官——learning 双轨 / instinct 置信度引擎 / 晋升管线 / 学习中心 / 代理工作室 / eval CI 门禁）
+> 最后更新: 2026-07-19（v0.30.1 发布创世提速 Genesis Fastpath——三阶段 4 次 LLM 调用取代 12-18 次串行，首章 ≤3 分钟；主创模型优先；解析失败回退 legacy；smart_execute 超时回退统一 600s）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## 🚧 当前迭代
 
-- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）+ P5（持续学习双轨：observations.jsonl 观察层 + 后台 analyzer + instinct 文件层 / 置信度引擎 / ≥0.8 跨 story 晋升物化 skill.yaml / 学习中心页 / 代理工作室页 / eval CI 门禁）已完成。除真机验收外 P1–P5 已完成，框架收官。
+- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）+ P5（持续学习双轨：observations.jsonl 观察层 + 后台 analyzer + instinct 文件层 / 置信度引擎 / ≥0.8 跨 story 晋升物化 skill.yaml / 学习中心页 / 代理工作室页 / eval CI 门禁）已完成。除真机验收外 P1–P5 已完成，框架收官。**v0.30.1 创世提速（Genesis Fastpath）已发布**：创世压缩为三阶段 4 次 LLM 调用（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟；主创模型优先（多模型时 Tool 档排除 active/creative，单模型时主创先出首章）；单调用解析失败自动回退 legacy 串行流程，取消信号不误入回退；smart_execute 超时回退统一 600s。
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.1 — 创世提速（Genesis Fastpath）（2026-07-19）
+
+- 创世从 12-18 次串行 LLM 调用压缩为三阶段 4 次：Phase A 概念包单调用 → Phase B 主创首章 ∥ 管理深度资产（多模型 `tokio::join!` 并行）→ Phase C 编辑质量门/修订/装配（与 legacy 共用），典型远程模型首章 ≤3 分钟。
+- 主创模型优先：多模型时 Tool 档自动分配排除 active/creative 模型（TTFB 排序与健康回退两分支均生效，无候选时回退允许 active 不饿死 Tool 档），管理/编辑不再与主创同模型；单模型时主创先出首章，资产与审查随后串行。
+- 单调用解析失败自动回退原串行多轮流程（概念包结果复用）；取消信号直接传播收敛为 cancelled，不误入 legacy 回退、不产生 fallback 遥测。
+- smart_execute 超时回退统一为 600s（原配置加载失败时回退 180s）。
+- ✅ **验证**：`cargo test --lib` 883 passed；`npx vitest run` 295 passed；`npm run type-check` 通过；architecture_guard PASSED；`cargo +nightly fmt --check` 通过。
 
 ### v0.30.0 — Agency P5：持续学习 + 代理可视化（2026-07-19）
 

@@ -26,6 +26,14 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **CI FTP 主机解析兼容 URL 格式**：`.github/scripts/upload-releases-ftp.mjs` 现在支持 `FTP_HOST` 为 `ftp://host:port` 形式，优先使用 URL 中的端口，同时保留显式 `FTP_PORT` 的覆盖能力，避免 `ftp://` 前缀被错误地当作主机名解析。
 - **官网 latest.json 使用官网下载源**：上传脚本在把 `latest.json` 同步到 `storymoss.top` 前，会将其中的二进制下载 URL 从 GitHub Releases 重写为 `https://storymoss.top/releases/<filename>`；GitHub Releases 上的原始 `latest.json` 仍保留为回退端点。
 
+## v0.30.1（2026-07-19）
+
+### 创世提速（Genesis Fastpath）
+- 创世从 12-18 次串行 LLM 调用压缩为 4 次（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟
+- 主创模型优先：多模型时管理/编辑不再与主创同模型（Tool 档排除 active/creative）；单模型时主创先出首章，资产与审查随后
+- 单调用解析失败自动回退原串行多轮流程；取消信号不再误入回退路径
+- smart_execute 超时回退统一为 600s（原配置加载失败时回退 180s）
+
 ## v0.30.0（2026-07-19）
 
 ### Agency P5：持续学习 + 代理可视化（框架收官）

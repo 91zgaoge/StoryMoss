@@ -882,6 +882,8 @@ function assertUnreachable(x: never): never {
 - **代理工作室页**：前端 `AgencyStudio`——三角色实时状态卡 + 黑板分区视图（事件驱动刷新）+ 活动时间线。
 - **eval 纳入 CI 专用门禁**：CI 新增 `cargo test --lib agency::eval_harness` step；检查点对比 UI（`agency_compare_checkpoints` 前端落地）；`agency_eval_overview` 新增 story 级 token 聚合（每 run `MAX(tokens_used)` 去重后跨 run 求和）；rule grader 追读力口径对齐生产实现。
 
+**创世快速路径（v0.30.1）**：原六阶段串行流程（12-18 次 LLM 调用）压缩为三阶段 4 次调用——Phase A 概念包单调用（Producer 档，一次产出 title/genre/logline/角色卡）→ Phase B 双模式编排（可用生成模型 >1 时主创首章 ∥ 管理深度资产 `tokio::join!` 并行；≤1 即单模型时主创优先先出首章、深度资产随后串行）→ Phase C 编辑质量门/修订/装配（与 legacy 共用 `review_and_assemble`），典型远程模型首章 ≤3 分钟。回退规则：任一单调用解析失败即回退原串行多轮流程（`run_genesis_legacy_inner`，概念包结果复用）；取消信号不属于快速路径失败，直接传播收敛为 cancelled，不进入 legacy、不产生 fallback 遥测。主创模型优先（Tool 档互斥）：`pick_fastest_for_role` 在 TTFB 排序与健康回退两个分支都排除 active/creative 模型，管理/编辑不再与主创同模型；排除后无候选（单模型场景）回退允许 active，不饿死 Tool 档。smart_execute 超时回退统一为 600s（原配置加载失败时回退 180s）。
+
 **设计文档**：`docs/plans/2026-07-17-agency-multi-agent-framework-design.md`（P1-P5 已完成，除真机验收外）。
 
 ---
