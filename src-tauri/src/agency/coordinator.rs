@@ -1102,6 +1102,11 @@ impl AgencyCoordinator {
                 {
                     Ok(r) => Ok(r),
                     Err(e) => {
+                        // 取消不是快速路径失败：直接传播（外层 run_genesis 收敛为
+                        // cancelled），不产生 fallback 遥测、不进入 legacy
+                        if cancel.load(Ordering::SeqCst) {
+                            return Err(e);
+                        }
                         log::warn!(
                             "agency genesis: 快速路径失败，回退串行流程 run={}: {}",
                             run_id,
@@ -1124,6 +1129,10 @@ impl AgencyCoordinator {
                     .await
             }
             Err(e) => {
+                // 取消（概念调用在飞被取消）同理直接传播，不回退 legacy
+                if cancel.load(Ordering::SeqCst) {
+                    return Err(e);
+                }
                 log::warn!(
                     "agency genesis: concept pack 失败，回退串行流程 run={}: {}",
                     run_id,
@@ -3547,6 +3556,74 @@ mod tests {
             .unwrap();
         assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
         assert!(result.chapter_chars >= 200);
+    }
+
+    /// 第 N 次 LLM 调用后触发取消的 mock（fastpath 取消窗口测试用）。
+    struct CancelOnCallLlm {
+        inner: Arc<MockLlm>,
+        run_id: String,
+        fire_on: usize,
+        count: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for CancelOnCallLlm {
+        async fn complete(
+            &self,
+            s: &str,
+            u: &str,
+            t: crate::router::TaskType,
+            m: i32,
+        ) -> Result<String, AppError> {
+            let out = self.inner.complete(s, u, t, m).await?;
+            if self.count.fetch_add(1, Ordering::SeqCst) + 1 >= self.fire_on {
+                assert!(cancel_agency_run(&self.run_id), "取消 flag 应已注册");
+            }
+            Ok(out)
+        }
+    }
+
+    /// 取消信号不得被路由进 legacy 回退：fastpath Phase B 窗口取消 → 直接
+    /// 传播（无 fallback warn、无 legacy 接手），run 终态 cancelled。
+    #[tokio::test]
+    async fn test_fastpath_cancel_not_routed_to_legacy() {
+        let pool = create_test_pool().unwrap();
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let inner = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"}]}"#,
+            chapter.as_str(),
+            r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链"]}"#,
+            // legacy 若接手会消费此条（不应发生）
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        ]);
+        // writer 调用（第 2 次）后即触发取消（Phase B 窗口）
+        let llm = Arc::new(CancelOnCallLlm {
+            inner: inner.clone(),
+            run_id: "rf-cancel".to_string(),
+            fire_on: 2,
+            count: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
+        let err = coordinator
+            .run_genesis("rf-cancel", "星海拾荒者的故事")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("取消"), "应返回取消错误: {}", err);
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-cancel").unwrap().unwrap().status,
+            "cancelled"
+        );
+        // legacy 未接手：无 legacy producer ToolLoop 调用（其任务提示词未出现）
+        let calls = inner.calls.lock().unwrap();
+        assert!(
+            calls.iter().all(|c| !c.contains("请为本故事生产创世资产")),
+            "legacy producer 不应被调用: {:?}",
+            *calls
+        );
+        drop(calls);
+        // 第 4 条脚本未被消费（无 assets 快照 → finalize 无 LLM 调用，计数确定）
+        assert_eq!(inner.responses.lock().unwrap().len(), 1);
     }
 
     #[test]
