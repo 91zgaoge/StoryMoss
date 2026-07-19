@@ -490,6 +490,41 @@ struct ConceptOut {
     genre: Option<String>,
 }
 
+/// 创世快速路径：概念包角色卡（concept pack 单调用产出）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SeedCharacter {
+    pub name: String,
+    #[serde(default)]
+    pub background: String,
+    #[serde(default)]
+    pub personality: String,
+    #[serde(default)]
+    pub goals: String,
+}
+
+/// 创世快速路径：概念包（标题/类型/简介 + 2-3 张角色卡）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConceptPack {
+    pub title: String,
+    #[serde(default)]
+    pub genre: Option<String>,
+    #[serde(default)]
+    pub logline: String,
+    #[serde(default)]
+    pub characters: Vec<SeedCharacter>,
+}
+
+/// 创世快速路径：producer 深度资产单调用产出。
+#[derive(Debug, serde::Deserialize)]
+pub struct DepthAssets {
+    #[serde(default)]
+    pub world: String,
+    #[serde(default)]
+    pub outline: String,
+    #[serde(default)]
+    pub foreshadowing: Vec<String>,
+}
+
 /// 宽容 JSON 提取：截取首个 '{' 与末个 '}' 之间解析。
 pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
     let start = raw.find('{')?;
@@ -522,6 +557,9 @@ pub struct AgencyCoordinator {
     // 进度回调（Task 7 用）。必须用 std::sync::Mutex 而非 RefCell：
     // RefCell 会让 coordinator !Sync，commands spawn 中跨 await 持 &self 的 future 不再 Send。
     progress_sink: Mutex<Option<ProgressSink>>,
+    /// 生成模型数注入（测试用）：Some 时 generative_model_count 直接返回，
+    /// 不读 AppConfig。
+    model_count_override: Option<usize>,
 }
 
 impl AgencyCoordinator {
@@ -531,6 +569,7 @@ impl AgencyCoordinator {
             pool,
             llm: None,
             progress_sink: Mutex::new(None),
+            model_count_override: None,
         }
     }
 
@@ -541,7 +580,14 @@ impl AgencyCoordinator {
             pool,
             llm: Some(llm),
             progress_sink: Mutex::new(None),
+            model_count_override: None,
         }
+    }
+
+    /// 注入生成模型数（创世快速路径双模式编排判据测试用）。
+    pub fn with_model_count(mut self, n: usize) -> Self {
+        self.model_count_override = Some(n);
+        self
     }
 
     /// 按 run+角色取得生产 LLM（角色模型路由 + 定点取消注册）；测试时返回注入的
@@ -753,6 +799,7 @@ impl AgencyCoordinator {
             pool: self.pool.clone(),
             llm: self.llm.clone(),
             progress_sink: Mutex::new(None),
+            model_count_override: self.model_count_override,
         }
     }
 
@@ -1025,6 +1072,10 @@ impl AgencyCoordinator {
             .await
     }
 
+    /// 创世主流程：快速路径（三调用 + 双模式编排）优先；concept pack /
+    /// 首章 / 深度资产任一单调用失败 → 回退 legacy 六阶段（仅尝试一次）。
+    /// 概念 LLM 调用两路径共享同一次响应，回退不重复调用（legacy 流程与
+    /// 既有脚本时序均依赖此约定）。
     async fn run_genesis_inner(
         &self,
         run_id: &str,
@@ -1042,31 +1093,65 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "concept").await?;
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
-        // 1) 概念：标题与类型（经 BudgetedLlm 记账/限流，按 Producer 档）
-        // story_id 此时尚不存在（故事在下一步创建）——传空串，llm_call 埋点跳过。
-        let concept_llm = BudgetedLlm::new(
-            self.llm_for_run(run_id, AgentRole::Producer, ""),
-            budget.clone(),
-            AgentRole::Producer,
-        );
-        let concept_raw = concept_llm.complete(
-            "你是小说策划。只输出 JSON。",
-            &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\"}}", premise),
-            TaskType::Brainstorming,
-            1024,
-        ).await?;
-        let concept: Option<ConceptOut> = parse_lenient(&concept_raw);
-        let title = concept
-            .as_ref()
-            .and_then(|c| c.title.clone())
-            .unwrap_or_else(|| premise.chars().take(12).collect::<String>());
-        let genre = concept.as_ref().and_then(|c| c.genre.clone());
-        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "概念");
+        // Phase A：概念单调用（快速路径与 legacy 共用此响应）
+        match self.concept_pack(run_id, premise, budget).await {
+            Ok(pack) if !pack.characters.is_empty() => {
+                match self
+                    .genesis_fastpath(run_id, premise, repo, cancel, budget, &pack)
+                    .await
+                {
+                    Ok(r) => Ok(r),
+                    Err(e) => {
+                        log::warn!(
+                            "agency genesis: 快速路径失败，回退串行流程 run={}: {}",
+                            run_id,
+                            e
+                        );
+                        let raw = serde_json::to_string(&pack).unwrap_or_default();
+                        self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, &raw)
+                            .await
+                    }
+                }
+            }
+            Ok(pack) => {
+                // 无角色卡的概念包不足以驱动快速路径——legacy 六阶段（概念结果复用）
+                log::warn!(
+                    "agency genesis: concept pack 无角色卡，走串行流程 run={}",
+                    run_id
+                );
+                let raw = serde_json::to_string(&pack).unwrap_or_default();
+                self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, &raw)
+                    .await
+            }
+            Err(e) => {
+                log::warn!(
+                    "agency genesis: concept pack 失败，回退串行流程 run={}: {}",
+                    run_id,
+                    e
+                );
+                self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, "")
+                    .await
+            }
+        }
+    }
 
-        // 2) 建故事
+    /// 快速路径 Phase A 续 + B + C：建 story → 角色卡入资产区 → 双模式
+    /// 编排（多模型：首章 ∥ 深度资产并行；单模型：主创优先串行）→ 资产
+    /// 落库 → 质量门/修订/装配（与 legacy 共用）。任一单调用 Err 上抛，
+    /// 由外层回退 legacy（仅一次）。
+    async fn genesis_fastpath(
+        &self,
+        run_id: &str,
+        premise: &str,
+        repo: &AgencyRepository,
+        cancel: &Arc<AtomicBool>,
+        budget: &Arc<AgencyBudget>,
+        pack: &ConceptPack,
+    ) -> Result<AgencyGenesisResult, AppError> {
+        // 建故事
         let pool = self.pool.clone();
-        let title_c = title.clone();
-        let genre_c = genre.clone();
+        let title_c = pack.title.clone();
+        let genre_c = pack.genre.clone();
         let premise_c = premise.to_string();
         let story = tokio::task::spawn_blocking(move || {
             StoryRepository::new(pool).create(CreateStoryRequest {
@@ -1088,6 +1173,354 @@ impl AgencyCoordinator {
         let sid = story_id.clone();
         self.db(move || repo_c.set_run_story(&rid, &sid).map_err(AppError::from))
             .await?;
+        self.check_cancel(cancel)?;
+
+        // 角色卡写入资产区（coordinator 以 Producer 身份直写，zone owner 语义保持）
+        let board = self.board();
+        for c in &pack.characters {
+            let content = serde_json::to_string(c).unwrap_or_default();
+            let summary: String = c.background.chars().take(60).collect();
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let sid = story_id.clone();
+            let key = c.name.clone();
+            self.db(move || {
+                board_c.write(
+                    &rid,
+                    &sid,
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    "character",
+                    &key,
+                    &content,
+                    &summary,
+                )
+            })
+            .await?;
+        }
+        // concept 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, &story_id, "concept", None, budget)
+            .await;
+        self.emit_activity(run_id, AgentRole::Producer, "done", "概念");
+
+        let registry = Arc::new(ToolRegistry::agency_default());
+        // Phase B 双模式编排：>1 个可用生成模型 → 首章与深度资产并行；
+        // ≤1（单模型）→ 主创优先先出稿，资产随后
+        let draft = if self.generative_model_count().await > 1 {
+            self.update_phase(repo, run_id, "assets").await?;
+            self.emit_progress(run_id, "assets", "running", "首章与深度资产并行生成中");
+            self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
+            self.emit_activity(run_id, AgentRole::Producer, "start", "深度资产");
+            let (writer_res, producer_res) = tokio::join!(
+                self.writer_first_chapter(run_id, &story_id, premise, pack, budget),
+                self.producer_depth_assets(run_id, &story_id, premise, pack, budget),
+            );
+            // 两个都成功才继续；任一失败由外层回退 legacy
+            let draft = writer_res.map_err(|e| AppError::from(format!("首章单调用失败: {}", e)))?;
+            let n =
+                producer_res.map_err(|e| AppError::from(format!("深度资产单调用失败: {}", e)))?;
+            log::info!("agency: 深度资产写入 {} 条", n);
+            self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
+            self.emit_activity(run_id, AgentRole::Producer, "done", "深度资产");
+            draft
+        } else {
+            self.update_phase(repo, run_id, "writing").await?;
+            self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
+            self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
+            let draft = self
+                .writer_first_chapter(run_id, &story_id, premise, pack, budget)
+                .await?;
+            self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
+            self.update_phase(repo, run_id, "assets").await?;
+            self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产深度资产");
+            self.emit_activity(run_id, AgentRole::Producer, "start", "深度资产");
+            let n = self
+                .producer_depth_assets(run_id, &story_id, premise, pack, budget)
+                .await?;
+            log::info!("agency: 深度资产写入 {} 条", n);
+            self.emit_activity(run_id, AgentRole::Producer, "done", "深度资产");
+            draft
+        };
+        self.check_cancel(cancel)?;
+
+        // 资产落库（黑板资产区 → characters/world_buildings/story_outlines）
+        {
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let assets = self
+                .db(move || board_c.list_zone(&rid, BoardZone::Asset))
+                .await?;
+            let pool = self.pool.clone();
+            let sid = story_id.clone();
+            let inserted = tokio::task::spawn_blocking(move || {
+                crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
+            })
+            .await
+            .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+            log::info!("agency: 资产落库 {} 条", inserted);
+        }
+        // 资产阶段完成：自动会话快照（best-effort）
+        self.snapshot_phase(run_id, "assets", "auto").await;
+        // assets 里程碑检查点（best-effort）
+        self.checkpoint_auto(run_id, &story_id, "assets", None, budget)
+            .await;
+
+        // Phase C：质量门 + 修订 + 装配（与 legacy 共用）
+        let (draft, revised, final_verdict, scene_id) = self
+            .review_and_assemble(
+                repo, budget, &board, &registry, run_id, &story_id, premise, cancel, draft,
+            )
+            .await?;
+
+        Ok(AgencyGenesisResult {
+            run_id: run_id.to_string(),
+            story_id,
+            scene_id,
+            revised,
+            verdict: final_verdict,
+            chapter_chars: draft.content.chars().count(),
+        })
+    }
+
+    /// 概念包单调用（Phase A，Producer 档，经 BudgetedLlm 记账/限流）。
+    /// story_id 此时尚不存在——传空串，llm_call 埋点跳过。
+    async fn concept_pack(
+        &self,
+        run_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<ConceptPack, AppError> {
+        let concept_llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, ""),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let raw = concept_llm.complete(
+            "你是小说策划，只输出 JSON。",
+            &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\",\"characters\":[{{\"name\":\"真名\",\"background\":\"背景\",\"personality\":\"性格\",\"goals\":\"欲望/目标\"}}]}}（2-3 张角色卡）", premise),
+            TaskType::Brainstorming,
+            2048,
+        ).await?;
+        parse_lenient(&raw).ok_or_else(|| AppError::from("concept pack 解析失败"))
+    }
+
+    /// 深度资产单调用（Producer 档）：world/outline/foreshadowing 一次产出，
+    /// coordinator 以 Producer 身份逐条写入资产区；返回写入条数。
+    async fn producer_depth_assets(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        concept: &ConceptPack,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<usize, AppError> {
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let concept_json = serde_json::to_string(concept).unwrap_or_default();
+        let raw = llm.complete(
+            "你是小说策划，只输出 JSON。",
+            &format!("故事前提：{}\n\n概念设定：{}\n\n输出 JSON：{{\"world\":\"世界观设定\",\"outline\":\"第一卷大纲\",\"foreshadowing\":[\"伏笔1（含回收计划）\"]}}", premise, concept_json),
+            TaskType::WorldBuilding,
+            4096,
+        ).await?;
+        let assets: DepthAssets =
+            parse_lenient(&raw).ok_or_else(|| AppError::from("depth assets 解析失败"))?;
+        if assets.world.trim().is_empty()
+            && assets.outline.trim().is_empty()
+            && assets.foreshadowing.is_empty()
+        {
+            return Err(AppError::from("depth assets 内容为空"));
+        }
+        // (item_type, key, content)
+        let mut entries: Vec<(&str, String, String)> = Vec::new();
+        if !assets.world.trim().is_empty() {
+            entries.push(("world", "世界观".to_string(), assets.world));
+        }
+        if !assets.outline.trim().is_empty() {
+            entries.push(("outline", "第一卷大纲".to_string(), assets.outline));
+        }
+        for (i, f) in assets.foreshadowing.into_iter().enumerate() {
+            entries.push(("foreshadowing", format!("伏笔{}", i + 1), f));
+        }
+        let board = self.board();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        self.db(move || {
+            let mut n = 0;
+            for (item_type, key, content) in &entries {
+                let summary: String = content.chars().take(60).collect();
+                board.write(
+                    &rid,
+                    &sid,
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    item_type,
+                    key,
+                    content,
+                    &summary,
+                )?;
+                n += 1;
+            }
+            Ok(n)
+        })
+        .await
+    }
+
+    /// 首章单调用（LeadWriter 档）：只输出正文；文本为空或 <200 字符视为
+    /// 失败（触发外层回退 legacy）。成功则以 LeadWriter 身份写入 draft 区
+    /// （item_type=chapter, key=第1章）并返回该条目。
+    async fn writer_first_chapter(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        concept: &ConceptPack,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<BoardItem, AppError> {
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
+            budget.clone(),
+            AgentRole::LeadWriter,
+        );
+        let concept_json = serde_json::to_string(concept).unwrap_or_default();
+        let text = llm.complete(
+            "你是小说主创，只输出章节正文。",
+            &format!("故事前提：{}\n\n概念设定：{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。", premise, concept_json),
+            TaskType::CreativeWriting,
+            8192,
+        ).await?;
+        let text = text.trim().to_string();
+        let chars = text.chars().count();
+        if chars < 200 {
+            return Err(AppError::from(format!(
+                "首章正文过短（{} 字符），快速路径不可用",
+                chars
+            )));
+        }
+        let summary: String = text.chars().take(60).collect();
+        let board = self.board();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        self.db(move || {
+            board.write(
+                &rid,
+                &sid,
+                AgentRole::LeadWriter,
+                BoardZone::Draft,
+                "chapter",
+                "第1章",
+                &text,
+                &summary,
+            )
+        })
+        .await
+    }
+
+    /// 可用生成模型数（双模式编排判据）：测试注入优先；否则读 AppConfig
+    /// 经 UnifiedModelRegistry 统计；任何解析失败回退 2（多模型路径）。
+    /// 配置加载为同步文件/SQLite IO，走 spawn_blocking。
+    async fn generative_model_count(&self) -> usize {
+        if let Some(n) = self.model_count_override {
+            return n;
+        }
+        let Some(app) = self.app_handle.clone() else {
+            return 2; // 测试/无界面默认多模型路径
+        };
+        tokio::task::spawn_blocking(move || {
+            let Ok(dir) = app.path().app_data_dir() else {
+                return 2;
+            };
+            let Ok(config) = crate::config::AppConfig::load(&dir) else {
+                return 2;
+            };
+            crate::router::registry::UnifiedModelRegistry::from_app_config(&config)
+                .generative_models()
+                .len()
+        })
+        .await
+        .unwrap_or(2)
+    }
+
+    /// 创世串行六阶段（原 run_genesis_inner，现作为快速路径的回退）。
+    /// concept_raw 为外层统一完成的概念调用原始响应（回退不重复 LLM 调用；
+    /// 空串表示概念解析失败，标题按前提前缀宽容回退）。
+    async fn run_genesis_legacy_inner(
+        &self,
+        run_id: &str,
+        premise: &str,
+        repo: &AgencyRepository,
+        cancel: &Arc<AtomicBool>,
+        budget: &Arc<AgencyBudget>,
+        concept_raw: &str,
+    ) -> Result<AgencyGenesisResult, AppError> {
+        // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6
+        // 并行循环共用同一 Arc）。run 已由快速路径入口创建——存在则跳过。
+        let run_exists = {
+            let repo_c = repo.clone();
+            let rid = run_id.to_string();
+            self.db(move || repo_c.get_run(&rid).map_err(AppError::from))
+                .await?
+                .is_some()
+        };
+        if !run_exists {
+            let run = AgencyRun::new(run_id, premise);
+            let repo_c = repo.clone();
+            self.db(move || repo_c.create_run(&run).map_err(AppError::from))
+                .await?;
+        }
+        self.update_phase(repo, run_id, "concept").await?;
+        self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
+
+        // 1) 概念：标题与类型（LLM 调用由外层统一完成，此处复用其原始响应）
+        let concept: Option<ConceptOut> = parse_lenient(concept_raw);
+        let title = concept
+            .as_ref()
+            .and_then(|c| c.title.clone())
+            .unwrap_or_else(|| premise.chars().take(12).collect::<String>());
+        let genre = concept.as_ref().and_then(|c| c.genre.clone());
+        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "概念");
+
+        // 2) 建故事（快速路径回退时 story 可能已建——复用并跳过创建）
+        let existing_story = {
+            let repo_c = repo.clone();
+            let rid = run_id.to_string();
+            self.db(move || repo_c.get_run(&rid).map_err(AppError::from))
+                .await?
+                .and_then(|r| r.story_id)
+        };
+        let story_id = match existing_story {
+            Some(sid) => sid,
+            None => {
+                let pool = self.pool.clone();
+                let title_c = title.clone();
+                let genre_c = genre.clone();
+                let premise_c = premise.to_string();
+                let story = tokio::task::spawn_blocking(move || {
+                    StoryRepository::new(pool).create(CreateStoryRequest {
+                        title: title_c,
+                        description: Some(premise_c),
+                        genre: genre_c,
+                        style_dna_id: None,
+                        genre_profile_id: None,
+                        methodology_id: None,
+                        reference_book_id: None,
+                    })
+                })
+                .await
+                .map_err(|e| AppError::from(format!("create story join error: {}", e)))?
+                .map_err(AppError::from)?;
+                let sid = story.id.clone();
+                let repo_c = repo.clone();
+                let rid = run_id.to_string();
+                let sid_c = sid.clone();
+                self.db(move || repo_c.set_run_story(&rid, &sid_c).map_err(AppError::from))
+                    .await?;
+                sid
+            }
+        };
         self.check_cancel(cancel)?;
         // concept 里程碑检查点（best-effort）
         self.checkpoint_auto(run_id, &story_id, "concept", None, budget)
@@ -1141,9 +1574,42 @@ impl AgencyCoordinator {
         if writer_out.aborted {
             return Err(AppError::from("主创 Agent 被熔断，首章未完成"));
         }
-        let mut draft = self.latest_draft(&board, run_id).await?;
+        let draft = self.latest_draft(&board, run_id).await?;
         self.check_cancel(cancel)?;
 
+        // 5)+6) 质量门 + 修订 + 装配（与快速路径共用）
+        let (draft, revised, final_verdict, scene_id) = self
+            .review_and_assemble(
+                repo, budget, &board, &registry, run_id, &story_id, premise, cancel, draft,
+            )
+            .await?;
+
+        Ok(AgencyGenesisResult {
+            run_id: run_id.to_string(),
+            story_id,
+            scene_id,
+            revised,
+            verdict: final_verdict,
+            chapter_chars: draft.content.chars().count(),
+        })
+    }
+
+    /// 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）+
+    /// 装配（草稿 → Scene 真源，统一输出装配器 P1 形态）。快速路径与
+    /// legacy 六阶段共用。返回 (最终草稿, 是否修订, 最终裁决, scene_id)。
+    #[allow(clippy::too_many_arguments)]
+    async fn review_and_assemble(
+        &self,
+        repo: &AgencyRepository,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        cancel: &Arc<AtomicBool>,
+        mut draft: BoardItem,
+    ) -> Result<(BoardItem, bool, EditorVerdict, String), AppError> {
         // 5) 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）
         let mut revised = false;
         let final_verdict = 'gate: {
@@ -1152,7 +1618,7 @@ impl AgencyCoordinator {
             self.emit_activity(run_id, AgentRole::EditorAuditor, "start", "审查");
             let outcome = self
                 .evaluate_gate(
-                    budget, &board, &registry, run_id, &story_id, premise, &draft, 1,
+                    budget, board, registry, run_id, story_id, premise, &draft, 1,
                 )
                 .await?;
             self.emit_activity(run_id, AgentRole::EditorAuditor, "done", "审查");
@@ -1162,7 +1628,7 @@ impl AgencyCoordinator {
                     revised = true;
                     // revision 观察埋点（best-effort，与 batch handle_gate 修订分支同语义）
                     self.log_observation(
-                        &story_id,
+                        story_id,
                         "revision",
                         AgentRole::EditorAuditor.as_str(),
                         serde_json::json!({
@@ -1182,10 +1648,10 @@ impl AgencyCoordinator {
                         .run_role_with_llm_and_budget(
                             budget,
                             AgentRole::LeadWriter,
-                            &board,
-                            &registry,
+                            board,
+                            registry,
                             run_id,
-                            &story_id,
+                            story_id,
                             premise,
                             &task,
                         )
@@ -1195,13 +1661,13 @@ impl AgencyCoordinator {
                         return Err(AppError::from("主创 Agent 修订轮被熔断"));
                     }
                     draft = self
-                        .latest_draft_by_key(&board, run_id, &draft.key, "修订后未取回本章草稿")
+                        .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
                         .await?;
                     self.check_cancel(cancel)?;
                     // 复审：无论结果都进入装配（Failed 除外）
                     let second = self
                         .evaluate_gate(
-                            budget, &board, &registry, run_id, &story_id, premise, &draft, 2,
+                            budget, board, registry, run_id, story_id, premise, &draft, 2,
                         )
                         .await?;
                     match second {
@@ -1225,7 +1691,7 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assembly", "running", "正在装配正式稿");
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
         let pool = self.pool.clone();
-        let sid = story_id.clone();
+        let sid = story_id.to_string();
         let content = draft.content.clone();
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = SceneRepository::new(pool);
@@ -1247,14 +1713,7 @@ impl AgencyCoordinator {
         // 装配完成后、交付结果前再查一次：确保 cancelled 不被 completed 覆盖
         self.check_cancel(cancel)?;
 
-        Ok(AgencyGenesisResult {
-            run_id: run_id.to_string(),
-            story_id,
-            scene_id: scene.id,
-            revised,
-            verdict: final_verdict,
-            chapter_chars: draft.content.chars().count(),
-        })
+        Ok((draft, revised, final_verdict, scene.id))
     }
 
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
@@ -2749,12 +3208,15 @@ mod tests {
 
     struct MockLlm {
         responses: Mutex<VecDeque<String>>,
+        /// 已收调用记录（user_prompt 原文），供调用顺序断言。
+        calls: Mutex<Vec<String>>,
     }
 
     impl MockLlm {
         fn scripted(lines: Vec<&str>) -> Arc<Self> {
             Arc::new(Self {
                 responses: Mutex::new(lines.into_iter().map(String::from).collect()),
+                calls: Mutex::new(Vec::new()),
             })
         }
     }
@@ -2764,10 +3226,11 @@ mod tests {
         async fn complete(
             &self,
             _s: &str,
-            _u: &str,
+            u: &str,
             _t: crate::router::TaskType,
             _m: i32,
         ) -> Result<String, AppError> {
+            self.calls.lock().unwrap().push(u.to_string());
             self.responses
                 .lock()
                 .unwrap()
@@ -2960,6 +3423,130 @@ mod tests {
             .unwrap();
         let run = repo.get_run("r5").unwrap().unwrap();
         assert_eq!(run.status, "cancelled");
+    }
+
+    /// 快速路径脚本：concept pack（含 2 张角色卡）→ 首章正文 → 深度资产 →
+    /// 编辑裁决 pass。返回 (mock, 首章正文)。
+    fn fastpath_script() -> (Arc<MockLlm>, String) {
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
+            chapter.as_str(),
+            r#"{"world":"双星废土，星环环绕，资源配给制","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        ]);
+        (llm, chapter)
+    }
+
+    #[tokio::test]
+    async fn test_fastpath_multi_model() {
+        let pool = create_test_pool().unwrap();
+        let (llm, chapter) = fastpath_script();
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
+        let result = coordinator
+            .run_genesis("rf-multi", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        assert!(!result.revised);
+        assert_eq!(result.verdict.verdict, "pass");
+        assert!(result.chapter_chars >= 200);
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-multi").unwrap().unwrap().status,
+            "completed"
+        );
+        // Scene 已装配，正文即首章单调用产出
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
+        // 黑板资产区含 character + world + outline（join! 内 writer/producer
+        // 相对顺序不定，不断言条目顺序）
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let snap = board.snapshot("rf-multi").unwrap();
+        let types: Vec<&str> = snap.assets.iter().map(|i| i.item_type.as_str()).collect();
+        assert!(
+            types.contains(&"character"),
+            "资产区应含角色卡: {:?}",
+            types
+        );
+        assert!(types.contains(&"world"), "资产区应含世界观: {:?}", types);
+        assert!(types.contains(&"outline"), "资产区应含大纲: {:?}", types);
+        assert_eq!(snap.drafts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fastpath_single_model_writer_first() {
+        let pool = create_test_pool().unwrap();
+        let (llm, chapter) = fastpath_script();
+        let coordinator =
+            AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
+        let result = coordinator
+            .run_genesis("rf-single", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-single").unwrap().unwrap().status,
+            "completed"
+        );
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
+        // 单模型调用顺序严格为 concept → writer → producer → editor：脚本
+        // 队列按此序提供（顺序错则内容错配必然失败），此处再显式校验各次
+        // 调用的提示词标记（run 完成后 finalize 可能追加摘要调用，故只校验
+        // 前 4 次）。
+        let calls = llm.calls.lock().unwrap();
+        assert!(calls.len() >= 4, "至少 4 次 LLM 调用: {:?}", *calls);
+        assert!(calls[0].contains("characters"), "第 1 次应为概念调用");
+        assert!(
+            calls[1].contains("写作要求"),
+            "第 2 次应为首章写作（主创优先）"
+        );
+        assert!(
+            calls[2].contains("foreshadowing"),
+            "第 3 次应为深度资产调用"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fastpath_fallback_to_legacy() {
+        let pool = create_test_pool().unwrap();
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let write = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
+            chapter
+        );
+        // concept 返回非 JSON → 回退 legacy：producer(tool,final) →
+        // writer(tool,final) → editor(final pass)。概念调用不重复。
+        let llm = MockLlm::scripted(vec![
+            "不是 JSON",
+            r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#,
+            r#"{"type":"final","content":"资产就绪"}"#,
+            write.as_str(),
+            r#"{"type":"final","content":"第一章完成"}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
+        let result = coordinator
+            .run_genesis("rf-fallback", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-fallback").unwrap().unwrap().status,
+            "completed"
+        );
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
+        assert!(result.chapter_chars >= 200);
     }
 
     #[test]
