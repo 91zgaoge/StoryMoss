@@ -8,7 +8,8 @@ vi.mock('@/services/api/agency', () => ({
   getRun: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/stores/appStore', () => ({
-  useAppStore: (sel: any) => sel({ currentStory: { id: 's1', title: '工作室书' } }),
+  useAppStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({ currentStory: { id: 's1', title: '工作室书' } }),
 }));
 
 import AgencyStudio from '../AgencyStudio';

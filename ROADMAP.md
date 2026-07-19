@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-19（v0.29.0 完成 Agency 多代理创作框架 P4：验证循环）
+> 最后更新: 2026-07-19（v0.30.0 完成 Agency 多代理创作框架 P5：持续学习 + 代理可视化）
 
-## ✅ v0.27.x–v0.29.x 已实施完成
+## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🤝 v0.30.0 — Agency P5：持续学习 + 代理可视化 ✅ (2026-07-19)
+
+- [x] 持续学习双轨：观察层（observations.jsonl，10MB 轮转、防自观察）→ 后台 analyzer（Background 档）→ instinct（trigger/action/confidence 文件层）。
+- [x] 置信度引擎：按证据初始化 + 采纳 +0.05 / 纠正 −0.1 / 周衰减 −0.02 / prune（promoted 晋升产物豁免衰减与清理）。
+- [x] 晋升管线：confidence ≥0.8 且跨 story 复现 → 学习中心确认 → 物化为 skill.yaml 目录技能（重启自动 reload）。
+- [x] 学习中心页（模式列表/置信度/晋升提案/观察流/手动分析）+ 代理工作室页（三角色实时状态卡/黑板视图/活动时间线）。
+- [x] eval 场景纳入 CI 专用门禁 step；检查点对比 UI；story 级 token 聚合；rule grader 追读力对齐生产口径。
 
 ### 🤝 v0.29.0 — Agency P4：验证循环 ✅ (2026-07-19)
 

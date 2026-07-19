@@ -102,6 +102,7 @@ export interface LearningOverview {
   candidates: Instinct[];
   recent_observations: Observation[];
   unanalyzed_count: number;
+  analyze_min_new: number;
 }
 
 export interface AnalyzeOutcome {

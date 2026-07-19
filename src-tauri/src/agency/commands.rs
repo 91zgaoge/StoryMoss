@@ -465,16 +465,32 @@ pub async fn agency_compare_checkpoints(
 
 /// 手动触发学习分析（观察 → instinct）；累计 ≥20 条的自动触发见
 /// coordinator.log_observation。analyzer 用
-/// learning::ANALYZER_LABEL（防自观察）。
+/// learning::ANALYZER_LABEL（防自观察）。与自动 analyzer 互斥
+/// （learning::analyzer_try_mark）：已在飞时返回空结果而非报错。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_analyze_learning(
     story_id: String,
     app_handle: AppHandle,
 ) -> Result<crate::agency::learning::AnalyzeOutcome, AppError> {
+    // 手动与自动分析互斥：已在飞时返回空结果（前端按 no-op 处理）
+    if !crate::agency::learning::analyzer_try_mark(&story_id) {
+        return Ok(crate::agency::learning::AnalyzeOutcome {
+            new_instincts: 0,
+            updated_instincts: 0,
+            analyzed: 0,
+        });
+    }
     let dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+        .map_err(|e| AppError::from(format!("app_data_dir: {}", e)));
+    let dir = match dir {
+        Ok(d) => d,
+        Err(e) => {
+            crate::agency::learning::analyzer_unmark(&story_id);
+            return Err(e);
+        }
+    };
     let logger = crate::agency::learning::ObservationLogger::new(dir);
     let llm = crate::agency::coordinator::AgencyLlm::new(
         app_handle.clone(),
@@ -483,7 +499,11 @@ pub async fn agency_analyze_learning(
         story_id.clone(),
     )
     .with_label(crate::agency::learning::ANALYZER_LABEL);
-    crate::agency::learning::analyze_story(std::sync::Arc::new(llm), &logger, &story_id).await
+    let outcome =
+        crate::agency::learning::analyze_story(std::sync::Arc::new(llm), &logger, &story_id).await;
+    // finally：Ok/Err 均摘除在飞标记，允许后续触发
+    crate::agency::learning::analyzer_unmark(&story_id);
+    outcome
 }
 
 /// instinct 用户反馈：采纳 +0.05 / 纠正 -0.1（clamp 0..1），更新 updated_at。
@@ -554,7 +574,9 @@ pub async fn agency_confirm_promotion(
     // 注册进内存 registry（物化已在 skills_dir 同名目录原位，import_skill
     // 对原地导入跳过拷贝）
     let skill_dir = crate::skills::SkillManager::get_default_skills_dir().join(&outcome.skill_id);
-    let skill = skills.import_skill(&skill_dir)?;
+    let skill = skills
+        .import_skill(&skill_dir)
+        .map_err(|e| AppError::from(format!("{}（技能已物化到磁盘，重启应用后自动生效）", e)))?;
     // 观察：晋升事件（记录到源 story，而非 scope="global"——避免凭空创建
     // stories/global 目录）
     let logger = crate::agency::learning::ObservationLogger::new(
@@ -602,16 +624,21 @@ pub struct LearningOverview {
     pub candidates: Vec<crate::agency::learning::Instinct>,
     pub recent_observations: Vec<crate::agency::learning::Observation>,
     pub unanalyzed_count: usize,
+    /// 手动分析的最小新观察数（= learning::ANALYZE_MIN_NEW），前端按钮阈值用。
+    pub analyze_min_new: usize,
 }
 
-/// 学习中心聚合：惰性周衰减后读取 instincts + candidates + 最近观察 +
-/// 未分析计数。
+/// 学习中心聚合：惰性周衰减 + 惰性清理后读取 instincts + candidates + 最近观察
+/// + 未分析计数。
 fn learning_overview(
     logger: &crate::agency::learning::ObservationLogger,
     story_id: &str,
 ) -> Result<LearningOverview, AppError> {
     // 惰性周衰减（读取时生效，ECC 同参数）
     let _ = crate::agency::learning::apply_weekly_decay(logger, story_id);
+    // 惰性清理（先衰减后清理：衰减可能把 confidence 压到 PRUNE_CONFIDENCE 以下；
+    // promoted 晋升产物豁免清理）
+    let _ = crate::agency::learning::prune_instincts(logger, story_id);
     let instincts = crate::agency::learning::list_instincts(logger, story_id)?;
     let candidates = crate::agency::learning::promotion_candidates(logger, story_id)?;
     let recent_observations = logger.recent(story_id, 20);
@@ -621,6 +648,7 @@ fn learning_overview(
         candidates,
         recent_observations,
         unanalyzed_count,
+        analyze_min_new: crate::agency::learning::ANALYZE_MIN_NEW,
     })
 }
 
@@ -768,7 +796,8 @@ mod tests {
         assert_eq!(empty.story_tokens.run_count, 0);
     }
 
-    /// 写一份 instinct md（frontmatter 契约同 learning::render_instinct）。
+    /// 写一份 instinct md（frontmatter YAML 兼容 learning::render_instinct
+    /// 输出， parse_instinct 可解析）。
     fn seed_instinct_file(
         logger: &crate::agency::learning::ObservationLogger,
         story_id: &str,
@@ -799,6 +828,9 @@ mod tests {
         seed_instinct_file(&logger, "s1", "inst-a", "触发A", 0.5, "pending");
         seed_instinct_file(&logger, "s1", "inst-x", "触发X", 0.85, "candidate");
         seed_instinct_file(&logger, "s2", "inst-y", "触发X", 0.6, "pending");
+        // 惰性清理：低置信 pending 被 prune；promoted 晋升产物豁免
+        seed_instinct_file(&logger, "s1", "inst-weak", "触发W", 0.1, "pending");
+        seed_instinct_file(&logger, "s1", "inst-promoted", "触发P", 0.1, "promoted");
         for i in 0..3 {
             logger.log(
                 "s1",
@@ -809,10 +841,19 @@ mod tests {
         }
 
         let ov = learning_overview(&logger, "s1").unwrap();
-        assert_eq!(ov.instincts.len(), 2);
+        assert_eq!(ov.instincts.len(), 3);
+        assert!(
+            ov.instincts.iter().any(|i| i.id == "inst-promoted"),
+            "promoted instinct 不应被 prune"
+        );
+        assert!(
+            !ov.instincts.iter().any(|i| i.id == "inst-weak"),
+            "低置信 pending instinct 应被惰性清理"
+        );
         assert_eq!(ov.candidates.len(), 1);
         assert_eq!(ov.candidates[0].id, "inst-x");
         assert_eq!(ov.recent_observations.len(), 3);
         assert_eq!(ov.unanalyzed_count, 3);
+        assert_eq!(ov.analyze_min_new, crate::agency::learning::ANALYZE_MIN_NEW);
     }
 }

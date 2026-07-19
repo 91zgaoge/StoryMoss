@@ -44,6 +44,7 @@ vi.mock('@/services/api/agency', () => ({
       },
     ],
     unanalyzed_count: 3,
+    analyze_min_new: 2,
   }),
   analyzeLearning: vi
     .fn()
@@ -54,7 +55,8 @@ vi.mock('@/services/api/agency', () => ({
 }));
 
 vi.mock('@/stores/appStore', () => ({
-  useAppStore: (sel: any) => sel({ currentStory: { id: 's1', title: '学习书' } }),
+  useAppStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({ currentStory: { id: 's1', title: '学习书' } }),
 }));
 
 import AgencyLearning from '../AgencyLearning';

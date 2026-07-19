@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
 import {
   getLearningOverview,
@@ -33,6 +34,17 @@ export default function AgencyLearning() {
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['agency-learning', storyId] });
 
+  // 学习中心操作统一错误反馈：失败 toast.error，无论成败都刷新（finally）
+  const runAction = async (action: () => Promise<unknown>, errorMsg: string) => {
+    try {
+      await action();
+    } catch {
+      toast.error(errorMsg);
+    } finally {
+      await refresh();
+    }
+  };
+
   if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
   if (isLoading) return <p className="p-6">加载学习数据…</p>;
   if (error) return <p className="p-6 text-red-500">加载失败：{String(error)}</p>;
@@ -42,9 +54,11 @@ export default function AgencyLearning() {
     setAnalyzing(true);
     try {
       await analyzeLearning(storyId);
-      await refresh();
+    } catch {
+      toast.error('分析失败，请稍后重试');
     } finally {
       setAnalyzing(false);
+      await refresh();
     }
   };
 
@@ -54,7 +68,7 @@ export default function AgencyLearning() {
         <h1 className="text-xl font-semibold">学习中心 · {currentStory.title}</h1>
         <button
           onClick={onAnalyze}
-          disabled={analyzing || data.unanalyzed_count < 2}
+          disabled={analyzing || data.unanalyzed_count < data.analyze_min_new}
           className="rounded bg-indigo-600 px-3 py-1 text-sm text-white disabled:opacity-40"
         >
           {analyzing ? '分析中…' : `立即分析（${data.unanalyzed_count} 条未分析观察）`}
@@ -81,19 +95,17 @@ export default function AgencyLearning() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={async () => {
-                      await confirmPromotion(storyId, c.id);
-                      await refresh();
-                    }}
+                    onClick={() =>
+                      runAction(() => confirmPromotion(storyId, c.id), '确认晋升失败，请重试')
+                    }
                     className="rounded bg-green-600 px-3 py-1 text-sm text-white"
                   >
                     确认为技能
                   </button>
                   <button
-                    onClick={async () => {
-                      await rejectPromotion(storyId, c.id);
-                      await refresh();
-                    }}
+                    onClick={() =>
+                      runAction(() => rejectPromotion(storyId, c.id), '拒绝晋升失败，请重试')
+                    }
                     className="rounded border px-3 py-1 text-sm"
                   >
                     拒绝
@@ -126,19 +138,17 @@ export default function AgencyLearning() {
                 <span>{(i.confidence * 100).toFixed(0)}%</span>
                 <span>证据 {i.evidence_count}</span>
                 <button
-                  onClick={async () => {
-                    await instinctFeedback(storyId, i.id, true);
-                    await refresh();
-                  }}
+                  onClick={() =>
+                    runAction(() => instinctFeedback(storyId, i.id, true), '反馈提交失败，请重试')
+                  }
                   className="ml-2 underline"
                 >
                   有用
                 </button>
                 <button
-                  onClick={async () => {
-                    await instinctFeedback(storyId, i.id, false);
-                    await refresh();
-                  }}
+                  onClick={() =>
+                    runAction(() => instinctFeedback(storyId, i.id, false), '反馈提交失败，请重试')
+                  }
                   className="underline"
                 >
                   不准

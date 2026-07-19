@@ -5,9 +5,29 @@
 use std::{
     io::Write,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+
+// ---- analyzer in-flight 注册表（镜像 coordinator AGENCY_CANCEL_FLAGS 模式）
+// ---- 同一 story 同一时刻至多一个 analyzer（手动 IPC 与 coordinator
+// 自动触发互斥）； 缺失时分析在飞期间每条新观察都会再 spawn 一个 analyzer。
+
+static ANALYZER_IN_FLIGHT: Lazy<Mutex<std::collections::HashSet<String>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// 尝试标记 story 的 analyzer 在飞；已在飞返回 false（调用方应跳过本轮触发）。
+pub(crate) fn analyzer_try_mark(story_id: &str) -> bool {
+    let mut set = ANALYZER_IN_FLIGHT.lock().unwrap_or_else(|p| p.into_inner());
+    set.insert(story_id.to_string())
+}
+
+pub(crate) fn analyzer_unmark(story_id: &str) {
+    let mut set = ANALYZER_IN_FLIGHT.lock().unwrap_or_else(|p| p.into_inner());
+    set.remove(story_id);
+}
 
 pub const LEARNING_DIR: &str = "learning";
 pub const OBSERVATIONS_FILE: &str = "observations.jsonl";
@@ -145,17 +165,20 @@ impl ObservationLogger {
     }
 
     pub fn count_unanalyzed(&self, story_id: &str) -> usize {
-        let total = self
-            .observations_path(story_id)
+        self.total_lines(story_id)
+            .saturating_sub(self.analyzed_through(story_id))
+    }
+
+    /// 观察文件当前总行数（游标语义：已分析观察 = 前 analyzed_through 行）。
+    fn total_lines(&self, story_id: &str) -> usize {
+        self.observations_path(story_id)
             .exists()
             .then(|| {
                 std::fs::read_to_string(self.observations_path(story_id))
                     .map(|c| c.lines().count())
                     .unwrap_or(0)
             })
-            .unwrap_or(0);
-        let analyzed = self.analyzed_through(story_id);
-        total.saturating_sub(analyzed)
+            .unwrap_or(0)
     }
 
     fn analyzed_through(&self, story_id: &str) -> usize {
@@ -168,22 +191,19 @@ impl ObservationLogger {
             .unwrap_or(0)
     }
 
-    pub fn mark_analyzed(&self, story_id: &str) -> Result<(), crate::error::AppError> {
-        let total = self
-            .observations_path(story_id)
-            .exists()
-            .then(|| {
-                std::fs::read_to_string(self.observations_path(story_id))
-                    .map(|c| c.lines().count())
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
+    /// 推进分析游标到 `through`（调用方在分析开始时快照的总行数；分析期间
+    /// 新增的观察不计入本轮，避免被误标为已分析）。
+    pub fn mark_analyzed(
+        &self,
+        story_id: &str,
+        through: usize,
+    ) -> Result<(), crate::error::AppError> {
         let path = self.state_path(story_id);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(crate::error::AppError::from)?;
         }
         let state = serde_json::json!({
-            "analyzed_through": total,
+            "analyzed_through": through,
             "last_analysis_ts": chrono::Local::now().to_rfc3339(),
         });
         std::fs::write(&path, state.to_string()).map_err(crate::error::AppError::from)?;
@@ -220,7 +240,8 @@ fn truncate_payload(payload: serde_json::Value) -> serde_json::Value {
 /// 未分析观察累计阈值：达到后由 coordinator.log_observation 自动触发后台分析。
 pub const ANALYZE_THRESHOLD: usize = 20;
 /// 手动/自动分析的最小新观察数（低于则不调用 LLM、不推进游标）。
-const ANALYZE_MIN_NEW: usize = 2;
+/// 前端经 LearningOverview.analyze_min_new 透出（学习中心按钮阈值）。
+pub const ANALYZE_MIN_NEW: usize = 2;
 /// analyzer 自身的路由/观察标签（双约束，test_analyzer_label_dual_constraint
 /// 锁死）： strip "agency_" → "editor_observer" → starts_with("editor") 命中
 /// Background 档； contains("observer") → should_record 过滤其 llm_call
@@ -317,9 +338,16 @@ fn render_instinct(inst: &Instinct, body: &str) -> String {
     // evolved_from 用 JSON 渲染（YAML flow 序列兼容 JSON）：块式 YAML 嵌进单行
     // 会破坏 frontmatter 行结构导致 parse_instinct 失败。
     let evolved = serde_json::to_string(&inst.evolved_from).unwrap_or_else(|_| "[]".into());
+    // 字符串字段经 serde_yaml 序列化（自动加引号/转义），替代 {:?} 的 Rust 调试
+    // 转义——后者遇控制字符可能产生非法 YAML。serde_yaml 输出带尾部换行，去掉。
+    let yaml_scalar = |s: &str| -> String {
+        serde_yaml::to_string(s)
+            .map(|y| y.trim_end_matches('\n').to_string())
+            .unwrap_or_else(|_| format!("{:?}", s))
+    };
     format!(
-        "---\nid: {}\ntrigger: {:?}\naction: {:?}\nconfidence: {}\nevidence_count: {}\nscope: {}\nstatus: {}\ncreated_at: {:?}\nupdated_at: {:?}\nevolved_from: {}\n---\n\n{}\n",
-        inst.id, inst.trigger, inst.action, inst.confidence, inst.evidence_count,
+        "---\nid: {}\ntrigger: {}\naction: {}\nconfidence: {}\nevidence_count: {}\nscope: {}\nstatus: {}\ncreated_at: {:?}\nupdated_at: {:?}\nevolved_from: {}\n---\n\n{}\n",
+        inst.id, yaml_scalar(&inst.trigger), yaml_scalar(&inst.action), inst.confidence, inst.evidence_count,
         inst.scope, inst.status, inst.created_at, inst.updated_at,
         evolved,
         body
@@ -331,7 +359,10 @@ pub async fn analyze_story(
     logger: &ObservationLogger,
     story_id: &str,
 ) -> Result<AnalyzeOutcome, crate::error::AppError> {
-    let new_count = logger.count_unanalyzed(story_id);
+    // 游标快照：本轮只覆盖此刻之前的观察；分析进行中新增的观察留给下一轮
+    //（结束后 mark_analyzed(through) 不把它们误标为已分析）。
+    let through = logger.total_lines(story_id);
+    let new_count = through.saturating_sub(logger.analyzed_through(story_id));
     if new_count < ANALYZE_MIN_NEW {
         return Ok(AnalyzeOutcome {
             new_instincts: 0,
@@ -426,7 +457,7 @@ pub async fn analyze_story(
             new_instincts += 1;
         }
     }
-    logger.mark_analyzed(story_id)?;
+    logger.mark_analyzed(story_id, through)?;
     Ok(AnalyzeOutcome {
         new_instincts,
         updated_instincts,
@@ -758,7 +789,7 @@ mod tests {
             logger.log("s1", "gate", "editor_auditor", serde_json::json!({"i": i}));
         }
         assert_eq!(logger.count_unanalyzed("s1"), 5);
-        logger.mark_analyzed("s1").unwrap();
+        logger.mark_analyzed("s1", 5).unwrap();
         assert_eq!(logger.count_unanalyzed("s1"), 0);
         logger.log("s1", "gate", "editor_auditor", serde_json::json!({"i": 9}));
         assert_eq!(logger.count_unanalyzed("s1"), 1);
@@ -956,6 +987,84 @@ mod tests {
         assert_eq!(outcome.new_instincts, 0);
         // 未达到最小样本（<2 条新观察）不调用 LLM、不推进游标
         assert_eq!(logger.count_unanalyzed("s1"), 1);
+    }
+
+    /// 模拟 cursor race：LLM 调用（分析进行）期间有新观察到账。
+    struct MidFlightLoggingLlm {
+        logger: ObservationLogger,
+        story_id: String,
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::agency::tool_loop::LoopLlm for MidFlightLoggingLlm {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: crate::router::TaskType,
+            _m: i32,
+        ) -> Result<String, crate::error::AppError> {
+            self.logger.log(
+                &self.story_id,
+                "gate",
+                "editor_auditor",
+                serde_json::json!({"mid_flight": true}),
+            );
+            Ok(self.response.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_analyze_cursor_excludes_mid_flight_observations() {
+        let (logger, _tmp) = logger();
+        for i in 0..3 {
+            logger.log("s1", "gate", "editor_auditor", serde_json::json!({"i": i}));
+        }
+        let llm = std::sync::Arc::new(MidFlightLoggingLlm {
+            logger: logger.clone(),
+            story_id: "s1".to_string(),
+            response: "```yaml\n[]\n```".to_string(),
+        });
+        let outcome = analyze_story(llm, &logger, "s1").await.unwrap();
+        assert_eq!(outcome.analyzed, 3);
+        // 分析期间新增的观察不被误标为已分析（count_unanalyzed 仍计它）
+        assert_eq!(logger.count_unanalyzed("s1"), 1);
+    }
+
+    #[test]
+    fn test_render_instinct_roundtrip_special_chars() {
+        // trigger/action 含引号/换行/制表符等：serde_yaml 序列化保证 round-trip，
+        // 不产生非法 YAML（修复前 {:?} 调试转义遇控制字符可能断裂 frontmatter）
+        let inst = Instinct {
+            id: "inst-special".to_string(),
+            trigger: "含\"引号\"与\n换行、制表\t符".to_string(),
+            action: "动作：带冒号 #井号".to_string(),
+            confidence: 0.5,
+            evidence_count: 3,
+            scope: "story".to_string(),
+            status: "pending".to_string(),
+            created_at: "2026-07-19T00:00:00+08:00".to_string(),
+            updated_at: "2026-07-19T00:00:00+08:00".to_string(),
+            evolved_from: vec!["gate".to_string()],
+        };
+        let text = render_instinct(&inst, "body");
+        let parsed = parse_instinct(&text).expect("含特殊字符的 instinct 渲染后应可解析");
+        assert_eq!(parsed.trigger, inst.trigger);
+        assert_eq!(parsed.action, inst.action);
+        assert_eq!(parsed.evolved_from, inst.evolved_from);
+    }
+
+    #[test]
+    fn test_analyzer_in_flight_try_mark_unmark() {
+        // 唯一 story_id 避免与并发用例互相污染
+        let sid = "test-analyzer-in-flight-dedup";
+        analyzer_unmark(sid); // 起始干净
+        assert!(analyzer_try_mark(sid), "首次标记应成功");
+        assert!(!analyzer_try_mark(sid), "在飞期间第二次标记应被拒绝");
+        analyzer_unmark(sid);
+        assert!(analyzer_try_mark(sid), "unmark 后应可再标记");
+        analyzer_unmark(sid);
     }
 
     fn seed_instinct(

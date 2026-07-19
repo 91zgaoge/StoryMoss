@@ -1,4 +1,4 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.29.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 

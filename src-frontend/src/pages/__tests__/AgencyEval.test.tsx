@@ -37,7 +37,8 @@ vi.mock('@/services/api/agency', () => ({
 }));
 
 vi.mock('@/stores/appStore', () => ({
-  useAppStore: (sel: any) => sel({ currentStory: { id: 's1', title: '评估书' } }),
+  useAppStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({ currentStory: { id: 's1', title: '评估书' } }),
 }));
 
 import AgencyEval from '../AgencyEval';
