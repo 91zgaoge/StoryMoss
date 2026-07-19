@@ -27,7 +27,7 @@ pub async fn check_preflight(
 
 /// 智能执行命令 - 新一代意图理解与执行入口
 ///
-/// v0.14.0: 外层包裹 180 秒整体超时，确保任何环节卡死都能快速失败。
+/// v0.14.0: 外层包裹 600 秒整体超时，确保任何环节卡死都能快速失败。
 /// 超时时主动取消所有进行中的 LLM 生成，避免孤儿任务继续占用模型资源。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn smart_execute(
@@ -37,7 +37,7 @@ pub async fn smart_execute(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
-    // v0.15.5: 从 AppConfig 读取硬超时，默认 180s
+    // v0.15.5: 从 AppConfig 读取硬超时，默认 600s（与 serde 默认一致）
     // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()，确保读取到用户实际配置
     let app_dir = app_handle
         .path()
@@ -45,7 +45,7 @@ pub async fn smart_execute(
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
     let smart_execute_timeout = crate::config::AppConfig::load(&app_dir)
         .map(|c| c.smart_execute_total_timeout_secs)
-        .unwrap_or(180u64);
+        .unwrap_or(600u64);
     let pool_inner = pool.inner().clone();
 
     match tokio::time::timeout(
@@ -252,7 +252,7 @@ async fn smart_execute_inner(
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         let total_timeout = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.smart_execute_total_timeout_secs)
-            .unwrap_or(180u64);
+            .unwrap_or(600u64);
         log::warn!(
             "[smart_execute] 检测到小说创建意图，启动 agency 创世流程，total_timeout={}s",
             total_timeout

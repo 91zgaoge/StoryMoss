@@ -147,8 +147,8 @@ impl<R: Runtime> GatewayExecutor<R> {
         // 2. 自动分配
         match role {
             crate::config::settings::ModelRole::Tool => {
-                // 工具模型：选 TTFB 最快的可用模型
-                self.pick_fastest_for_role()
+                // 工具模型：选 TTFB 最快的可用模型（≥2 可用时避让 active/creative）
+                self.pick_fastest_for_role(&config)
             }
             crate::config::settings::ModelRole::Background => {
                 // 后台模型：避免抢占创作/当前活跃模型
@@ -162,8 +162,21 @@ impl<R: Runtime> GatewayExecutor<R> {
     }
 
     /// 自动分配工具模型：选 TTFB 最快的健康模型
-    fn pick_fastest_for_role(&self) -> Option<crate::config::settings::LlmProfile> {
-        // 从 capability profiles 按 TTFB 排序选最快
+    ///
+    /// v0.30.1: 与 `pick_idle_for_background` 的避让逻辑对齐——排除当前活跃
+    /// 模型与用户指定的创作模型（主创模型优先，其它角色不抢主创模型），
+    /// 排除在 TTFB 排序分支与健康回退分支都生效。排除后无候选时（如单模型
+    /// 场景）回退允许 active，不把 Tool 档饿死。
+    fn pick_fastest_for_role(
+        &self,
+        config: &crate::config::AppConfig,
+    ) -> Option<crate::config::settings::LlmProfile> {
+        let active_id = config.active_llm_profile.as_deref();
+        let creative_id = config.creative_model_id.as_deref();
+        let is_active_or_creative =
+            |model_id: &str| Some(model_id) == active_id || Some(model_id) == creative_id;
+
+        // 从 capability profiles 按 TTFB 排序选最快（排除 active/creative）
         if let Some(pool_state) = self.app_handle.try_state::<crate::db::DbPool>() {
             if let Ok(profiles) =
                 super::capability_store::CapabilityStore::new(pool_state.inner().clone()).load_all()
@@ -172,7 +185,9 @@ impl<R: Runtime> GatewayExecutor<R> {
                 let mut candidates: Vec<_> = profiles
                     .iter()
                     .filter(|p| {
-                        self.is_model_available(&p.model_id) && registry.get(&p.model_id).is_some()
+                        self.is_model_available(&p.model_id)
+                            && registry.get(&p.model_id).is_some()
+                            && !is_active_or_creative(&p.model_id)
                     })
                     .collect();
                 candidates.sort_by_key(|p| p.short_ttfb_ms_p50.unwrap_or(u64::MAX));
@@ -181,13 +196,25 @@ impl<R: Runtime> GatewayExecutor<R> {
                 }
             }
         }
-        // 回退：从注册表选第一个健康的
-        let registry = self.registry_guard();
-        registry
-            .enabled_generative_models()
-            .into_iter()
-            .find(|p| self.is_model_available(&p.id))
-            .cloned()
+        // 回退：从注册表选第一个健康的（同样排除 active/creative）
+        let idle = {
+            let registry = self.registry_guard();
+            registry
+                .enabled_generative_models()
+                .into_iter()
+                .find(|p| self.is_model_available(&p.id) && !is_active_or_creative(&p.id))
+                .cloned()
+        };
+        // 最终回退：排除后无候选（如单模型场景）时允许 active，不饿死 Tool 档
+        idle.or_else(|| {
+            active_id.and_then(|id| {
+                if self.is_model_available(id) {
+                    self.registry_guard().get(id).cloned()
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     /// 自动分配后台模型：避免使用当前活跃模型和创作模型
@@ -1764,6 +1791,76 @@ mod tests {
             decision.candidates.iter().all(|c| c.model_id != "drop"),
             "disabled model must not appear in generation candidates: {:?}",
             decision.candidates
+        );
+    }
+
+    /// v0.30.1 契约：≥2 个可用生成模型时，Tool 档自动分配必须排除
+    /// active/creative 模型（主创模型优先，其它角色不抢主创模型），
+    /// 与 pick_idle_for_background 既有避让逻辑对齐。
+    #[test]
+    fn test_tool_role_excludes_active_when_multiple_models() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("lead-model", "Lead")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("aux-model", "Aux")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        // active = creative = lead-model；aux-model 未指派任何角色
+        save_two_model_creative_config(&app, "lead-model", "aux-model");
+        executor.record_success_public("lead-model", "Lead");
+        executor.record_success_public("aux-model", "Aux");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "提取章节 JSON".to_string(),
+            "genesis-producer",
+        );
+        req.model_role = Some(crate::config::settings::ModelRole::Tool);
+
+        let resolved = executor.resolve_role_model(&req);
+        assert_eq!(
+            resolved.as_ref().map(|p| p.id.as_str()),
+            Some("aux-model"),
+            "≥2 可用生成模型时 Tool 档不得解析到 active/creative 模型 lead-model"
+        );
+    }
+
+    /// v0.30.1 契约：单模型场景下 Tool 档必须回退到唯一可用模型，
+    /// 不得因避让逻辑把 Tool 档饿死。
+    #[test]
+    fn test_tool_role_falls_back_to_active_when_single_model() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("solo-model", "Solo")));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+
+        let app_dir = app.handle().path().app_data_dir().expect("app_data_dir");
+        std::fs::create_dir_all(&app_dir).ok();
+        let mut config = crate::config::AppConfig::default();
+        config.llm_profiles.clear();
+        config
+            .add_llm_profile(test_profile("solo-model", "Solo"))
+            .unwrap();
+        config.set_active_llm_profile("solo-model").unwrap();
+        config
+            .set_model_for_role(crate::config::settings::ModelRole::Creative, "solo-model")
+            .unwrap();
+        config.save(&app_dir).unwrap();
+        executor.record_success_public("solo-model", "Solo");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "提取章节 JSON".to_string(),
+            "genesis-producer",
+        );
+        req.model_role = Some(crate::config::settings::ModelRole::Tool);
+
+        let resolved = executor.resolve_role_model(&req);
+        assert_eq!(
+            resolved.as_ref().map(|p| p.id.as_str()),
+            Some("solo-model"),
+            "单模型时 Tool 档必须回退到唯一可用的 active 模型"
         );
     }
 }
