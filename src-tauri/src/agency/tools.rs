@@ -234,9 +234,29 @@ impl AgentTool for BoardWriteTool {
         args: serde_json::Value,
     ) -> Result<String, AppError> {
         let zone_str = args.get("zone").and_then(|v| v.as_str()).unwrap_or("");
-        let zone = BoardZone::from_str(zone_str).ok_or_else(|| {
-            AppError::validation_failed(format!("非法 zone: {}", zone_str), None::<String>)
-        })?;
+        // 非法 zone 收编：本地模型常把 item_type 误填进 zone（如
+        // "character"）。若该字符串是已知 item_type（大小写不敏感），收编为
+        // asset 区并在返回文本注明；否则维持 validation_failed 让模型自愈。
+        const KNOWN_ITEM_TYPES: [&str; 5] =
+            ["character", "world", "outline", "foreshadowing", "worldbuilding"];
+        let (zone, coerced_note) = match BoardZone::from_str(zone_str) {
+            Some(z) => (z, None),
+            None if KNOWN_ITEM_TYPES
+                .iter()
+                .any(|t| t.eq_ignore_ascii_case(zone_str)) =>
+            {
+                (
+                    BoardZone::Asset,
+                    Some(format!("（zone '{}' 已收编为 asset）", zone_str)),
+                )
+            }
+            None => {
+                return Err(AppError::validation_failed(
+                    format!("非法 zone: {}", zone_str),
+                    None::<String>,
+                ))
+            }
+        };
         let item_type = args
             .get("item_type")
             .and_then(|v| v.as_str())
@@ -270,11 +290,12 @@ impl AgentTool for BoardWriteTool {
         .map_err(|e| AppError::from(format!("board_write join error: {}", e)))?
         .map(|item| {
             format!(
-                "已写入 [{}/{}] status={} id={}",
+                "已写入 [{}/{}] status={} id={}{}",
                 item.zone.as_str(),
                 item.key,
                 item.status,
-                item.id
+                item.id,
+                coerced_note.as_deref().unwrap_or("")
             )
         })
     }
@@ -557,6 +578,70 @@ mod tests {
         assert!(catalog.contains("story_info"));
         let editor_catalog = registry.catalog_for_role(AgentRole::EditorAuditor);
         assert!(!editor_catalog.contains("board_write"));
+    }
+
+    #[tokio::test]
+    async fn test_board_write_item_type_zone_coerced_to_asset() {
+        let pool = create_test_pool().unwrap();
+        seed_run(&pool);
+        let registry = ToolRegistry::agency_default();
+        let context = ctx(pool, AgentRole::Producer);
+        let write = registry
+            .get_for_role(AgentRole::Producer, "board_write")
+            .unwrap();
+        // 模型把 item_type 误填进 zone：收编为 asset 并注明
+        let out = write
+            .execute(
+                &context,
+                serde_json::json!({
+                    "zone": "character", "item_type": "character", "key": "阿苔",
+                    "content": "星环拾荒者", "summary": "阿苔"
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(
+            out.contains("（zone 'character' 已收编为 asset）"),
+            "结果应含收编提示: {}",
+            out
+        );
+        let items = context.board.list_zone("r1", BoardZone::Asset).unwrap();
+        assert!(
+            items.iter().any(|i| i.key == "阿苔" && i.item_type == "character"),
+            "角色卡应写入 asset 区: {:?}",
+            items.iter().map(|i| &i.key).collect::<Vec<_>>()
+        );
+        // 大小写不敏感
+        let out2 = write
+            .execute(
+                &context,
+                serde_json::json!({
+                    "zone": "World", "item_type": "world", "key": "世界观",
+                    "content": "双星废土", "summary": "双星"
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(out2.contains("（zone 'World' 已收编为 asset）"));
+    }
+
+    #[tokio::test]
+    async fn test_board_write_nonsense_zone_still_rejected() {
+        let pool = create_test_pool().unwrap();
+        seed_run(&pool);
+        let registry = ToolRegistry::agency_default();
+        let context = ctx(pool, AgentRole::Producer);
+        let write = registry
+            .get_for_role(AgentRole::Producer, "board_write")
+            .unwrap();
+        let err = write
+            .execute(
+                &context,
+                serde_json::json!({"zone": "nonsense", "item_type": "note", "key": "x", "content": "y"}),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("非法 zone"), "应为非法 zone: {}", err);
     }
 
     #[tokio::test]

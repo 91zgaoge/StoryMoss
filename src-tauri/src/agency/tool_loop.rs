@@ -36,6 +36,20 @@ pub trait LoopLlm: Send + Sync {
             .await
             .map(|s| (s, 0, 0.0))
     }
+
+    /// JSON mode 完成：请求结构化输出（OpenAI `{"type":"json_object"}` /
+    /// Ollama `format:"json"`）。默认回退 complete（mock/不支持 JSON
+    /// mode 的实现无需感知）。
+    async fn complete_json(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<String, AppError> {
+        self.complete(system_prompt, user_prompt, task, max_tokens)
+            .await
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -51,18 +65,92 @@ pub enum LoopAction {
     },
 }
 
+/// 多 action 数组截断提示：模型一次输出多个 action 时只执行第一个，
+/// 该提示追加进 observation 引导其后续单 action 输出。
+const MULTI_ACTION_HINT: &str =
+    "（检测到多个 action，只执行了第一个。一次只输出一个 JSON action，不要数组。）";
+
 /// 解析模型输出为 action。容错策略：截取首个 '{' 与末个 '}' 之间的子串解析。
 pub fn parse_action(raw: &str) -> Result<LoopAction, AppError> {
+    parse_action_full(raw).map(|(action, _)| action)
+}
+
+/// Value → LoopAction：先试标准反序列化，失败则启发式归类——
+/// object 含 `name` 字段视为 Tool（args 缺省 {}）；无 `name` 仅 `content` 视为
+/// Final。覆盖本地模型的 `{"type":"board_write","name":..,"args":..}` 变体。
+fn action_from_value(v: serde_json::Value) -> Result<LoopAction, AppError> {
+    if let Ok(action) = serde_json::from_value::<LoopAction>(v.clone()) {
+        return Ok(action);
+    }
+    if let Some(obj) = v.as_object() {
+        if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
+            let args = obj.get("args").cloned().unwrap_or_else(|| serde_json::json!({}));
+            return Ok(LoopAction::Tool {
+                name: name.to_string(),
+                args,
+            });
+        }
+        if let Some(content) = obj.get("content").and_then(|c| c.as_str()) {
+            return Ok(LoopAction::Final {
+                content: content.to_string(),
+            });
+        }
+    }
+    Err(AppError::validation_failed(
+        "action 形态无法识别",
+        None::<String>,
+    ))
+}
+
+/// parse_action 完整版：返回 (action, 附加提示)。三层容错：
+/// 1) 标准解析（截取首个 '{' 至末个 '}'）；2) 数组解包（'[' 在首个 '{'
+/// 之前时按 Vec<Value> 解析，单元素解包、多元素取首个并附提示）；
+/// 3) 启发式判定（见 action_from_value）。
+fn parse_action_full(raw: &str) -> Result<(LoopAction, Option<&'static str>), AppError> {
     let start = raw.find('{');
     let end = raw.rfind('}');
     match (start, end) {
         (Some(s), Some(e)) if e > s => {
-            serde_json::from_str::<LoopAction>(&raw[s..=e]).map_err(|err| {
-                AppError::validation_failed(
-                    format!("action JSON 解析失败: {}", err),
-                    None::<String>,
-                )
-            })
+            let slice = &raw[s..=e];
+            // 1) 标准解析
+            let std_err = match serde_json::from_str::<LoopAction>(slice) {
+                Ok(action) => return Ok((action, None)),
+                Err(err) => err,
+            };
+            // 2) 数组解包：'[' 位于首个 '{' 之前 → 多动作数组形态
+            if let Some(b) = raw.find('[') {
+                if b < s {
+                    if let Some(ae) = raw.rfind(']') {
+                        if ae > b {
+                            if let Ok(items) =
+                                serde_json::from_str::<Vec<serde_json::Value>>(&raw[b..=ae])
+                            {
+                                let mut iter = items.into_iter();
+                                if let Some(first) = iter.next() {
+                                    let hint = if iter.next().is_some() {
+                                        Some(MULTI_ACTION_HINT)
+                                    } else {
+                                        None
+                                    };
+                                    if let Ok(action) = action_from_value(first) {
+                                        return Ok((action, hint));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // 3) 启发式判定：截取子串按 Value 解析后归类
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(slice) {
+                if let Ok(action) = action_from_value(v) {
+                    return Ok((action, None));
+                }
+            }
+            Err(AppError::validation_failed(
+                format!("action JSON 解析失败: {}", std_err),
+                None::<String>,
+            ))
         }
         _ => Err(AppError::validation_failed(
             "输出中未找到 JSON action",
@@ -166,8 +254,8 @@ impl ToolLoop {
                     ctx.max_output_tokens(),
                 )
                 .await?;
-            match parse_action(&raw) {
-                Ok(LoopAction::Final { content }) => {
+            match parse_action_full(&raw) {
+                Ok((LoopAction::Final { content }, _)) => {
                     turns.push(LoopTurn {
                         raw_response: truncate_raw(&raw),
                         action: Some(LoopAction::Final {
@@ -181,9 +269,9 @@ impl ToolLoop {
                         aborted: false,
                     });
                 }
-                Ok(LoopAction::Tool { name, args }) => {
+                Ok((LoopAction::Tool { name, args }, hint)) => {
                     parse_failures = 0;
-                    let observation = match self.registry.get_for_role(role, &name) {
+                    let mut observation = match self.registry.get_for_role(role, &name) {
                         Some(tool) => match tool.execute(ctx, args.clone()).await {
                             Ok(out) => {
                                 // observation 摘要化：防止超长工具结果爆上下文
@@ -197,6 +285,10 @@ impl ToolLoop {
                         },
                         None => format!("工具 {} 对你的角色不可用或不存在，请改用可用工具", name),
                     };
+                    // 多 action 数组截断提示：引导模型后续单 action 输出
+                    if let Some(hint) = hint {
+                        observation.push_str(hint);
+                    }
                     tail.push_str(&format!(
                         "\n\n你的上一步：{}\n观察结果：{}",
                         raw, observation
@@ -324,6 +416,112 @@ mod tests {
             }
         );
         assert!(parse_action("完全没有 JSON").is_err());
+    }
+
+    #[test]
+    fn test_parse_action_single_element_array_unwrapped() {
+        // 本地模型常把单个 action 包成数组
+        let tool = parse_action(r#"[{"type":"tool","name":"board_read","args":{"zone":"asset"}}]"#)
+            .unwrap();
+        assert_eq!(
+            tool,
+            LoopAction::Tool {
+                name: "board_read".into(),
+                args: serde_json::json!({"zone":"asset"})
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_action_multi_element_array_takes_first_with_hint() {
+        let (action, hint) = parse_action_full(
+            r#"[{"type":"tool","name":"board_read","args":{"zone":"asset"}},{"type":"final","content":"完成"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            action,
+            LoopAction::Tool {
+                name: "board_read".into(),
+                args: serde_json::json!({"zone":"asset"})
+            }
+        );
+        assert_eq!(hint, Some(MULTI_ACTION_HINT));
+    }
+
+    #[test]
+    fn test_parse_action_tool_name_as_type_variant() {
+        // 变体形态：{"type":"board_write","name":"board_write","args":{...}}
+        let tool = parse_action(
+            r#"{"type":"board_write","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            tool,
+            LoopAction::Tool {
+                name: "board_write".into(),
+                args: serde_json::json!({"zone":"asset","item_type":"world","key":"世界观","content":"双星"})
+            }
+        );
+        // 无 type 标签、仅 name → Tool（args 缺省 {}）
+        let no_args = parse_action(r#"{"name":"board_read"}"#).unwrap();
+        assert_eq!(
+            no_args,
+            LoopAction::Tool {
+                name: "board_read".into(),
+                args: serde_json::json!({})
+            }
+        );
+        // 无 name、仅 content → Final
+        let final_ = parse_action(r#"{"content":"收工"}"#).unwrap();
+        assert_eq!(
+            final_,
+            LoopAction::Final {
+                content: "收工".into()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_action_prose_wrapped_array() {
+        let (action, hint) = parse_action_full(
+            "我先给出两个动作：\n[{\"type\":\"tool\",\"name\":\"story_info\",\"args\":{}},{\"type\":\"final\",\"content\":\"完\"}]\n以上。",
+        )
+        .unwrap();
+        assert_eq!(
+            action,
+            LoopAction::Tool {
+                name: "story_info".into(),
+                args: serde_json::json!({})
+            }
+        );
+        assert_eq!(hint, Some(MULTI_ACTION_HINT));
+    }
+
+    #[test]
+    fn test_parse_action_non_json_still_errors() {
+        assert!(parse_action("完全没有 JSON").is_err());
+        assert!(parse_action("{不是合法 json}").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_loop_multi_action_array_hint_in_observation() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec![
+            r#"[{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}},{"type":"tool","name":"board_read","args":{}}]"#,
+            r#"{"type":"final","content":"done"}"#,
+        ]);
+        let lp = ToolLoop::new(llm, registry);
+        let result = lp
+            .run(AgentRole::Producer, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(!result.aborted);
+        // 多 action 数组：只执行第一个，observation 带截断提示
+        let obs = result.turns[0].observation.as_ref().unwrap();
+        assert!(obs.contains("只执行了第一个"), "observation 应含提示: {}", obs);
+        // 数组首元素的 board_write 确实生效
+        let snap = ctx.board.snapshot("r1").unwrap();
+        assert_eq!(snap.assets.len(), 1);
     }
 
     #[tokio::test]

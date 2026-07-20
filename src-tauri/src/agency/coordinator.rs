@@ -232,12 +232,47 @@ impl LoopLlm for AgencyLlm {
         Ok(content)
     }
 
+    /// JSON mode：与 complete_metered 同链路（request_id 注册/全局闸门/
+    /// 角色路由/观察埋点），仅 response_format 传 JsonObject。
+    async fn complete_json(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<String, AppError> {
+        let (content, _t, _c) = self
+            .complete_metered_with_format(
+                system_prompt,
+                user_prompt,
+                task,
+                max_tokens,
+                Some(crate::llm::adapter::ResponseFormat::JsonObject),
+            )
+            .await?;
+        Ok(content)
+    }
+
     async fn complete_metered(
         &self,
         system_prompt: &str,
         user_prompt: &str,
         task: TaskType,
         max_tokens: i32,
+    ) -> Result<(String, i32, f64), AppError> {
+        self.complete_metered_with_format(system_prompt, user_prompt, task, max_tokens, None)
+            .await
+    }
+}
+
+impl AgencyLlm {
+    async fn complete_metered_with_format(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+        response_format: Option<crate::llm::adapter::ResponseFormat>,
     ) -> Result<(String, i32, f64), AppError> {
         let request_id = uuid::Uuid::new_v4().to_string();
         // RAII 注册：abort/drop 路径也会摘除（取代手动 register/unregister）
@@ -268,7 +303,7 @@ impl LoopLlm for AgencyLlm {
                 None,
                 None,
                 None,
-                None,
+                response_format,
                 Some(system_prompt.to_string()),
                 None,
             )
@@ -491,14 +526,16 @@ struct ConceptOut {
 }
 
 /// 创世快速路径：概念包角色卡（concept pack 单调用产出）。
+/// 字段带别名：本地模型常用 backstory/character/motivation 等变体键。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SeedCharacter {
+    #[serde(alias = "character_name")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, alias = "background_story", alias = "backstory")]
     pub background: String,
-    #[serde(default)]
+    #[serde(default, alias = "character")]
     pub personality: String,
-    #[serde(default)]
+    #[serde(default, alias = "goal", alias = "motivation")]
     pub goals: String,
 }
 
@@ -515,14 +552,34 @@ pub struct ConceptPack {
 }
 
 /// 创世快速路径：producer 深度资产单调用产出。
+/// world 带别名（本地模型常用 world_view 等变体键）；foreshadowing 宽松为
+/// Value 数组，消费时经 normalize_foreshadowing 归一为字符串。
 #[derive(Debug, serde::Deserialize)]
 pub struct DepthAssets {
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "world_view",
+        alias = "worldview",
+        alias = "world_setting"
+    )]
     pub world: String,
     #[serde(default)]
     pub outline: String,
     #[serde(default)]
-    pub foreshadowing: Vec<String>,
+    pub foreshadowing: Vec<serde_json::Value>,
+}
+
+/// 伏笔条目归一化：字符串直取；对象取 description/text/content 字段；
+/// 其他形态序列化为 JSON 文本。
+fn normalize_foreshadowing(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => ["description", "text", "content"]
+            .iter()
+            .find_map(|k| other.get(k).and_then(|x| x.as_str()))
+            .map(String::from)
+            .unwrap_or_else(|| other.to_string()),
+    }
 }
 
 /// 宽容 JSON 提取：截取首个 '{' 与末个 '}' 之间解析。
@@ -533,6 +590,31 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
         return None;
     }
     serde_json::from_str(&raw[start..=end]).ok()
+}
+
+/// 熔断主因判定：末三轮均解析失败（action=None）→ "连续解析失败"；
+/// 否则 "达到最大轮数"。（解析失败连续 3 次即熔断，故末三轮全败 ⇔ 解析熔断。）
+fn circuit_break_reason(turns: &[crate::agency::tool_loop::LoopTurn]) -> &'static str {
+    let last3_all_failed = turns.len() >= 3
+        && turns[turns.len() - 3..].iter().all(|t| t.action.is_none());
+    if last3_all_failed {
+        "连续解析失败"
+    } else {
+        "达到最大轮数"
+    }
+}
+
+/// 熔断错误消息：带主因与排查指引。
+fn circuit_break_message(role: &str, what: &str, reason: &str) -> String {
+    let detail = if reason == "连续解析失败" {
+        "模型未按 JSON action 格式输出"
+    } else {
+        "模型未在限定轮数内完成任务"
+    };
+    format!(
+        "{} 被熔断（{}），{}。{}，详见 run 日志。",
+        role, reason, what, detail
+    )
 }
 
 /// V109 并发护栏冲突映射：命中 agency_runs 唯一约束 → 用户可读文案。
@@ -1304,7 +1386,7 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::Producer,
         );
-        let raw = concept_llm.complete(
+        let raw = concept_llm.complete_json(
             "你是小说策划，只输出 JSON。",
             &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\",\"characters\":[{{\"name\":\"真名\",\"background\":\"背景\",\"personality\":\"性格\",\"goals\":\"欲望/目标\"}}]}}（2-3 张角色卡）", premise),
             TaskType::Brainstorming,
@@ -1329,7 +1411,7 @@ impl AgencyCoordinator {
             AgentRole::Producer,
         );
         let concept_json = serde_json::to_string(concept).unwrap_or_default();
-        let raw = llm.complete(
+        let raw = llm.complete_json(
             "你是小说策划，只输出 JSON。",
             &format!("故事前提：{}\n\n概念设定：{}\n\n输出 JSON：{{\"world\":\"世界观设定\",\"outline\":\"第一卷大纲\",\"foreshadowing\":[\"伏笔1（含回收计划）\"]}}", premise, concept_json),
             TaskType::WorldBuilding,
@@ -1351,8 +1433,12 @@ impl AgencyCoordinator {
         if !assets.outline.trim().is_empty() {
             entries.push(("outline", "第一卷大纲".to_string(), assets.outline));
         }
-        for (i, f) in assets.foreshadowing.into_iter().enumerate() {
-            entries.push(("foreshadowing", format!("伏笔{}", i + 1), f));
+        for (i, f) in assets.foreshadowing.iter().enumerate() {
+            let text = normalize_foreshadowing(f);
+            if text.trim().is_empty() {
+                continue;
+            }
+            entries.push(("foreshadowing", format!("伏笔{}", i + 1), text));
         }
         let board = self.board();
         let rid = run_id.to_string();
@@ -1542,10 +1628,14 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
             budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。",
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
-            return Err(AppError::from("管理 Agent 被熔断，资产生产未完成"));
+            return Err(AppError::from(circuit_break_message(
+                "管理 Agent",
+                "资产生产未完成",
+                circuit_break_reason(&producer_out.turns),
+            )));
         }
         self.check_cancel(cancel)?;
         self.emit_activity(run_id, AgentRole::Producer, "done", "资产");
@@ -3219,6 +3309,8 @@ mod tests {
         responses: Mutex<VecDeque<String>>,
         /// 已收调用记录（user_prompt 原文），供调用顺序断言。
         calls: Mutex<Vec<String>>,
+        /// complete_json 调用记录（F3 JSON mode 断言用；同时计入 calls）。
+        json_calls: Mutex<Vec<String>>,
     }
 
     impl MockLlm {
@@ -3226,7 +3318,17 @@ mod tests {
             Arc::new(Self {
                 responses: Mutex::new(lines.into_iter().map(String::from).collect()),
                 calls: Mutex::new(Vec::new()),
+                json_calls: Mutex::new(Vec::new()),
             })
+        }
+
+        fn next(&self, u: &str) -> Result<String, AppError> {
+            self.calls.lock().unwrap().push(u.to_string());
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| AppError::validation_failed("mock exhausted", None::<String>))
         }
     }
 
@@ -3239,12 +3341,18 @@ mod tests {
             _t: crate::router::TaskType,
             _m: i32,
         ) -> Result<String, AppError> {
-            self.calls.lock().unwrap().push(u.to_string());
-            self.responses
-                .lock()
-                .unwrap()
-                .pop_front()
-                .ok_or_else(|| AppError::validation_failed("mock exhausted", None::<String>))
+            self.next(u)
+        }
+
+        async fn complete_json(
+            &self,
+            _s: &str,
+            u: &str,
+            _t: crate::router::TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
+            self.json_calls.lock().unwrap().push(u.to_string());
+            self.next(u)
         }
     }
 
@@ -3363,6 +3471,26 @@ mod tests {
         let repo = AgencyRepository::new(pool.clone());
         let run = repo.get_run("r3").unwrap().unwrap();
         assert_eq!(run.status, "failed");
+    }
+
+    /// 熔断错误消息必须带主因：连续 3 次解析失败 → "连续解析失败"。
+    #[tokio::test]
+    async fn test_circuit_break_message_includes_parse_failure_reason() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
+            "不是 JSON",
+            "还不是",
+            "依然不是", // producer 连续解析失败 → aborted
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let err = coordinator.run_genesis("r-cb", "前提").await.unwrap_err();
+        assert!(
+            err.to_string().contains("连续解析失败"),
+            "熔断消息应含主因: {}",
+            err
+        );
+        assert!(err.to_string().contains("被熔断"), "保留熔断措辞: {}", err);
     }
 
     #[tokio::test]
@@ -3556,6 +3684,67 @@ mod tests {
             .unwrap();
         assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
         assert!(result.chapter_chars >= 200);
+    }
+
+    /// 结构化单调用（concept pack / depth assets）必须走 complete_json
+    /// （JSON mode），散文首章不走。单模型模式调用序确定：concept →
+    /// writer（散文） → depth assets → editor。
+    #[tokio::test]
+    async fn test_fastpath_structured_calls_use_json_mode() {
+        let pool = create_test_pool().unwrap();
+        let (llm, _chapter) = fastpath_script();
+        let coordinator =
+            AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
+        coordinator
+            .run_genesis("rf-json", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let json_calls = llm.json_calls.lock().unwrap();
+        assert_eq!(
+            json_calls.len(),
+            2,
+            "concept + depth assets 两次 JSON 调用: {:?}",
+            *json_calls
+        );
+        assert!(
+            json_calls[0].contains("characters"),
+            "第 1 次 JSON 调用应为概念包"
+        );
+        assert!(
+            json_calls[1].contains("foreshadowing"),
+            "第 2 次 JSON 调用应为深度资产"
+        );
+    }
+
+    #[test]
+    fn test_depth_assets_lenient_keys_and_foreshadowing() {
+        // world 别名 + 伏笔对象形态均可解析并归一为字符串
+        let raw = r#"{"world_view":"双星废土","outline":"第一卷大纲","foreshadowing":["妹妹的项链",{"description":"身世之谜"},{"text":"星环秘密"}]}"#;
+        let assets: DepthAssets = parse_lenient(raw).unwrap();
+        assert_eq!(assets.world, "双星废土");
+        let normalized: Vec<String> = assets
+            .foreshadowing
+            .iter()
+            .map(normalize_foreshadowing)
+            .collect();
+        assert_eq!(normalized, vec!["妹妹的项链", "身世之谜", "星环秘密"]);
+        let raw2 = r#"{"worldview":"x"}"#;
+        let a2: DepthAssets = parse_lenient(raw2).unwrap();
+        assert_eq!(a2.world, "x");
+        let raw3 = r#"{"world_setting":"y"}"#;
+        let a3: DepthAssets = parse_lenient(raw3).unwrap();
+        assert_eq!(a3.world, "y");
+    }
+
+    #[test]
+    fn test_seed_character_field_aliases() {
+        let raw = r#"{"title":"测试","characters":[{"character_name":"阿苔","backstory":"拾荒者","character":"坚韧","motivation":"找到妹妹"}]}"#;
+        let pack: ConceptPack = parse_lenient(raw).unwrap();
+        let c = &pack.characters[0];
+        assert_eq!(c.name, "阿苔");
+        assert_eq!(c.background, "拾荒者");
+        assert_eq!(c.personality, "坚韧");
+        assert_eq!(c.goals, "找到妹妹");
     }
 
     /// 第 N 次 LLM 调用后触发取消的 mock（fastpath 取消窗口测试用）。

@@ -130,6 +130,22 @@ impl LoopLlm for BudgetedLlm {
         self.budget.record_usage(tokens);
         Ok((content, tokens, cost))
     }
+
+    /// JSON mode 透传：角色限流内层实现 JSON mode（String 签名无 tokens
+    /// 回传，这两次结构化单调用不记 run 预算——上限 2048+4096 tokens，
+    /// 占默认预算 2%，可接受）。
+    async fn complete_json(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<String, AppError> {
+        let _permit = self.budget.acquire(self.role).await?;
+        self.inner
+            .complete_json(system_prompt, user_prompt, task, max_tokens)
+            .await
+    }
 }
 
 #[cfg(test)]
