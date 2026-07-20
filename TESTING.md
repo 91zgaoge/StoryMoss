@@ -4,6 +4,11 @@
 
 ## 测试统计
 
+### v0.30.4 变更说明
+
+- 幕前输入历史持久化（按故事隔离）：新增 2 个 vitest（持久化写入 + 重载后 ↑ 召回），覆盖 localStorage 读写与故事隔离。
+- 全量基线：`npx vitest run` 297 passed（+2）；`npx tsc --noEmit` 通过；`prettier --check` 通过。无 Rust 变更。
+
 ### v0.30.0 变更说明
 
 - Agency 多代理创作框架（创世 2.0）P1–P5 全部完成，测试体系包括：`src-tauri/src/agency/` 26+ 单元测试（coordinator / gate / graders / board / budget / session / learning / eval_harness 等）；eval harness JSON 场景随 `cargo test` 运行；CI 另设 `cargo test --lib agency::eval_harness` 专用门禁 step。

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.2
+- **版本**: v0.30.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -82,13 +82,20 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 899 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 292 passed
+- `npx vitest run` ✅ 297 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.4 - 幕前输入历史持久化（按故事隔离）
+
+- **功能**：幕前底部输入框已输入内容现长久保留，关闭窗口/重启后不丢失，与编码工具一致。每条提交按故事 ID 隔离存入 `localStorage`（`frontstage:inputHistory:<storyId>`，最近 20 条），切换故事自动加载该故事的历史。
+- **UX**：保留既有 ghost-hint 交互（↑/↓ 切换 LLM 建议 <-> 历史记录，-> 确认填充），持久化对导航无侵入。localStorage 不可用时静默降级为内存态。
+- **实现**：`src-frontend/src/frontstage/FrontstageApp.tsx`（模块级 `loadInputHistory`/`saveInputHistory` + `useEffect` 加载 + `handleInputSubmit` 同步持久化）。
+- **验证**：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）；tsc / prettier 通过。纯前端，无 Rust 变更。
 
 ### v0.30.3 - 创世主创 Agent 熔断修复（本地模型 JSON 不遵从）
 

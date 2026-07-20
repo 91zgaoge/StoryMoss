@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.1 项目完成状态
+# StoryMoss (草苔) v0.30.4 项目完成状态
 
-> 最后更新: 2026-07-19（v0.30.1 发布创世提速 Genesis Fastpath——三阶段 4 次 LLM 调用取代 12-18 次串行，首章 ≤3 分钟；主创模型优先；解析失败回退 legacy；smart_execute 超时回退统一 600s）
+> 最后更新: 2026-07-20（v0.30.4 幕前输入历史持久化--按故事隔离存入 localStorage，关闭窗口/重启后不丢失，↑ 键召回）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.4 - 幕前输入历史持久化（按故事隔离）（2026-07-20）
+
+- 幕前底部输入框已输入内容现长久保留，关闭窗口/重启后不丢失，与编码工具一致。每条提交按故事 ID 隔离存入 `localStorage`（`frontstage:inputHistory:<storyId>`，最近 20 条），切换故事自动加载该故事的历史。
+- 保留既有 ghost-hint 交互（↑/↓ 切换 LLM 建议 <-> 历史记录，-> 确认填充），持久化对导航无侵入。localStorage 不可用时静默降级为内存态。
+- ✅ **验证**：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）；tsc / prettier 通过。纯前端，无 Rust 变更。
 
 ### v0.30.1 — 创世提速（Genesis Fastpath）（2026-07-19）
 

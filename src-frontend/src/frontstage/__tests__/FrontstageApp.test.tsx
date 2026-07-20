@@ -43,6 +43,7 @@ vi.mock('@/services/tauri', () => ({
 }));
 
 import { loggedInvoke, smartExecute } from '@/services/tauri';
+import { useGenerationStore } from '@/stores/generationStore';
 
 // Mock RichTextEditor (TipTap 在 jsdom 中无法运行)
 vi.mock('../components/RichTextEditor', () => ({
@@ -239,5 +240,121 @@ describe('FrontstageApp', () => {
       expect(input).not.toBeDisabled();
     });
     expect(screen.getByTitle('发送')).toBeInTheDocument();
+  });
+
+  it('输入历史按故事隔离持久化到 localStorage', async () => {
+    const storyId = 'story-persist-1';
+    localStorage.removeItem(`frontstage:inputHistory:${storyId}`);
+    localStorage.removeItem(`frontstage:inputHistory:other-story`);
+    useGenerationStore.setState({ isGenerating: false });
+
+    vi.mocked(loggedInvoke).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_gateway_status') {
+        return {
+          last_probe_at: undefined,
+          primary_model_id: undefined,
+          models: [],
+          is_probing: false,
+        };
+      }
+      if (cmd === 'list_stories') {
+        return [{ id: storyId, title: '持久化测试故事' }];
+      }
+      if (cmd === 'get_story_chapters_paged') {
+        return [
+          {
+            id: 'chapter-1',
+            story_id: storyId,
+            title: '第一章',
+            chapter_number: 1,
+            content: '<p>正文内容</p>',
+          },
+        ];
+      }
+      if (cmd === 'get_story_scenes_paged') {
+        return [];
+      }
+      if (cmd === 'get_story_word_count') {
+        return { total_chars: 50 };
+      }
+      return undefined;
+    });
+
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => {
+      expect(screen.getByText('持久化测试故事')).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '续写一段夜晚场景');
+    await userEvent.keyboard('{Enter}');
+
+    // handleInputSubmit 在调用 handleSmartGeneration 之前同步写入 localStorage
+    await waitFor(() => {
+      const raw = localStorage.getItem(`frontstage:inputHistory:${storyId}`);
+      expect(raw).toBeTruthy();
+      expect(JSON.parse(raw!)).toContain('续写一段夜晚场景');
+    });
+
+    // 按故事隔离：其他故事的 key 不应被写入
+    expect(localStorage.getItem(`frontstage:inputHistory:other-story`)).toBeNull();
+
+    localStorage.removeItem(`frontstage:inputHistory:${storyId}`);
+  });
+
+  it('重载后从 localStorage 恢复历史，可用 ↑ 召回', async () => {
+    const storyId = 'story-persist-2';
+    const historyKey = `frontstage:inputHistory:${storyId}`;
+    // 预置历史（模拟上次会话已保存、窗口关闭后重开）
+    localStorage.setItem(historyKey, JSON.stringify(['续写一段夜晚场景', '加入新角色']));
+    useGenerationStore.setState({ isGenerating: false });
+
+    vi.mocked(loggedInvoke).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_gateway_status') {
+        return {
+          last_probe_at: undefined,
+          primary_model_id: undefined,
+          models: [],
+          is_probing: false,
+        };
+      }
+      if (cmd === 'list_stories') {
+        return [{ id: storyId, title: '召回测试故事' }];
+      }
+      if (cmd === 'get_story_chapters_paged') {
+        return [
+          {
+            id: 'chapter-2',
+            story_id: storyId,
+            title: '第一章',
+            chapter_number: 1,
+            content: '<p>正文内容</p>',
+          },
+        ];
+      }
+      if (cmd === 'get_story_scenes_paged') {
+        return [];
+      }
+      if (cmd === 'get_story_word_count') {
+        return { total_chars: 50 };
+      }
+      return undefined;
+    });
+
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => {
+      expect(screen.getByText('召回测试故事')).toBeInTheDocument();
+    });
+
+    // 按 ↑ 召回历史，ghost hint 应显示持久化的内容
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    input.focus();
+    await userEvent.keyboard('{ArrowUp}');
+
+    await waitFor(() => {
+      expect(screen.getByText(/续写一段夜晚场景/)).toBeInTheDocument();
+    });
+
+    localStorage.removeItem(historyKey);
   });
 });

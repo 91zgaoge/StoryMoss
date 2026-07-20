@@ -194,6 +194,33 @@ const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
   { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
 ];
 
+// 底部输入栏历史持久化（按故事隔离）：localStorage 存最近 20 条，
+// 切换故事时加载该故事的历史，窗口关闭/重启后保留，与编码工具一致。
+const INPUT_HISTORY_MAX = 20;
+const inputHistoryKey = (storyId: string) => `frontstage:inputHistory:${storyId}`;
+const loadInputHistory = (storyId: string): string[] => {
+  try {
+    const raw = localStorage.getItem(inputHistoryKey(storyId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((s): s is string => typeof s === 'string').slice(0, INPUT_HISTORY_MAX)
+      : [];
+  } catch {
+    return [];
+  }
+};
+const saveInputHistory = (storyId: string, history: string[]): void => {
+  try {
+    localStorage.setItem(
+      inputHistoryKey(storyId),
+      JSON.stringify(history.slice(0, INPUT_HISTORY_MAX))
+    );
+  } catch {
+    // localStorage 不可用（隐私模式/配额超限）时静默降级为内存态
+  }
+};
+
 const FrontstageApp: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
@@ -912,6 +939,14 @@ const FrontstageApp: React.FC = () => {
   const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1); // -1=LLM建议, 0+=历史
+  // 按故事隔离：切换故事时加载该故事的输入历史（localStorage 持久化），
+  // 窗口关闭/重启后历史不丢失。
+  useEffect(() => {
+    const sid = currentStory?.id;
+    setInputHistory(sid ? loadInputHistory(sid) : []);
+    setHistoryIndex(-1);
+    setGhostHint('');
+  }, [currentStory?.id]);
   // v0.7.8: 使用新版模型管理系统丰富底部栏 tooltip
   const { data: settings } = useSettings();
   const { data: allModels = [] } = useModels();
@@ -4209,16 +4244,17 @@ const FrontstageApp: React.FC = () => {
   const handleInputSubmit = useCallback(() => {
     const text = inputValue.trim();
     if (!text) return;
-    // 保存到历史
-    setInputHistory(prev => {
-      const filtered = prev.filter(h => h !== text);
-      return [text, ...filtered].slice(0, 20);
-    });
+    // 保存到历史（按故事隔离，同步持久化到 localStorage）
+    const sid = currentStory?.id;
+    const filtered = inputHistory.filter(h => h !== text);
+    const next = [text, ...filtered].slice(0, INPUT_HISTORY_MAX);
+    setInputHistory(next);
+    if (sid) saveInputHistory(sid, next);
     setGhostHint('');
     setHistoryIndex(-1);
     handleSmartGeneration(text);
     setInputValue('');
-  }, [inputValue, handleSmartGeneration]);
+  }, [inputValue, inputHistory, currentStory?.id, handleSmartGeneration]);
 
   // 获取LLM智能输入建议
   const fetchSmartHint = useCallback(async () => {

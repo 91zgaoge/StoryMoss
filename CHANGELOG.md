@@ -11,7 +11,18 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - 创世三个单调用启用 `response_format: JsonObject`（本地 vLLM/Ollama 均支持），概念/深度资产解析带键名别名
 - 熔断错误信息带原因（连续解析失败/达到最大轮数）；producer 任务提示统一格式约束；JSON 调用 token 计量入账
 
-## [Unreleased]
+## v0.30.4（2026-07-20）
+
+### 功能
+
+- **幕前输入历史持久化（按故事隔离）**：幕前底部输入框已输入内容现长久保留，关闭窗口/重启后不丢失，与编码工具一致。
+  - 每条提交按故事 ID 隔离存入 `localStorage`（`frontstage:inputHistory:<storyId>`），最近 20 条，切换故事自动加载该故事的历史。
+  - 保留既有 ghost-hint UX：↑/↓ 切换 LLM 建议 <-> 历史记录，-> 确认填充；持久化对导航交互无侵入。
+  - localStorage 不可用（隐私模式/配额超限）时静默降级为内存态，不影响写作。
+  - 实现位置：`src-frontend/src/frontstage/FrontstageApp.tsx`（模块级 `loadInputHistory`/`saveInputHistory` + `useEffect` 加载 + `handleInputSubmit` 同步持久化）。
+  - 验证：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）。
+
+## v0.30.3（2026-07-20）
 
 ### 功能
 
