@@ -22,6 +22,12 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ### 修复
 
+- **创世主创 Agent 熔断（本地模型 JSON 不遵从）**：本地模型（Qwen/Gemma）对 `producer_depth_assets` 的 `complete_json` 返回散文而非 JSON -> 快速路径失败回退 legacy -> legacy writer tool_loop 要求 JSON action 而模型写散文 -> 连续 3 轮解析失败熔断，首章未完成。三级修复：
+  - **Fix A（主修复）**：`producer_depth_assets` 在 `parse_lenient` 失败时兜底 salvage 散文（>50 字符）为 world 资产，快速路径继续，避免回退 legacy。
+  - **Fix B（可诊断性）**：`tool_loop.rs` 此前零条日志，解析失败的原始响应只存在内存里 run 结束即丢弃，"详见 run 日志"为误导。现每轮解析失败 + 熔断点 + max-turns 均 `log::warn!`（含 role、轮次、截断 raw 500 字）。
+  - **Fix C（纵深防御）**：legacy writer "连续解析失败"熔断时回退一次自由体散文单调用（新 `writer_prose_fallback`：读黑板资产 -> `complete()` -> 写 draft），"达到最大轮数"仍直接 Err。
+  - 验证：`cargo test --lib` 899 passed（+2 新测试：`test_depth_assets_prose_salvaged` / `test_legacy_writer_prose_fallback`）。
+
 - **StoryForge 迁移健壮性增强**：
   - 迁移失败时写入 `.storyforge_migration_failed` 标记，避免每次启动都重试并堆积备份。
   - 数据库合并期间临时关闭外键检查，避免子表先于父表插入导致失败。
