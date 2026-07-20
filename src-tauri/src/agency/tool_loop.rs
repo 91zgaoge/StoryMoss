@@ -260,7 +260,7 @@ impl ToolLoop {
         let mut turns: Vec<LoopTurn> = Vec::new();
         let mut parse_failures = 0usize;
 
-        for _ in 0..self.max_turns {
+        for turn_idx in 0..self.max_turns {
             let conversation = truncate_conversation(&head, &tail, ctx.max_context_chars());
             let raw = self
                 .llm
@@ -319,6 +319,16 @@ impl ToolLoop {
                 }
                 Err(e) => {
                     parse_failures += 1;
+                    // 可诊断性：记录每轮解析失败（含截断 raw），否则原始
+                    // 响应只存在内存 LoopTurn 里、run 结束即丢弃，无法定位。
+                    log::warn!(
+                        "agency tool_loop: {:?} 第 {} 轮解析失败（连续第 {} 次）: err={}; raw(500)={}",
+                        role,
+                        turn_idx + 1,
+                        parse_failures,
+                        e,
+                        raw.chars().take(500).collect::<String>()
+                    );
                     let observation = format!("格式错误（{}）。请只输出一个 JSON action。", e);
                     tail.push_str(&format!(
                         "\n\n你的上一步：{}\n观察结果：{}",
@@ -330,6 +340,12 @@ impl ToolLoop {
                         observation: Some(observation),
                     });
                     if parse_failures >= MAX_CONSECUTIVE_PARSE_FAILURES {
+                        log::warn!(
+                            "agency tool_loop: {:?} 熔断（连续解析失败），总轮次 {}，末轮 raw(500)={}",
+                            role,
+                            turns.len(),
+                            raw.chars().take(500).collect::<String>()
+                        );
                         return Ok(LoopResult {
                             output: "（代理连续输出非法格式，已熔断）".to_string(),
                             turns,
@@ -339,6 +355,11 @@ impl ToolLoop {
                 }
             }
         }
+        log::warn!(
+            "agency tool_loop: {:?} 熔断（达到最大轮数 {}）",
+            role,
+            self.max_turns
+        );
         Ok(LoopResult {
             output: "（达到最大轮数，已熔断）".to_string(),
             turns,

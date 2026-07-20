@@ -1430,8 +1430,27 @@ impl AgencyCoordinator {
             TaskType::WorldBuilding,
             4096,
         ).await?;
-        let assets: DepthAssets =
-            parse_lenient(&raw).ok_or_else(|| AppError::from("depth assets 解析失败"))?;
+        let assets: DepthAssets = match parse_lenient(&raw) {
+            Some(a) => a,
+            None => {
+                // 本地模型常返回散文而非严格 JSON。兜底：将整段文本作为
+                // world 资产，避免快速路径失败回退到 legacy（legacy writer
+                // tool_loop 要求 JSON action，对散文模型几乎必然熔断）。
+                let trimmed = raw.trim();
+                if trimmed.chars().count() < 50 {
+                    return Err(AppError::from("depth assets 解析失败且文本过短"));
+                }
+                log::warn!(
+                    "agency: depth assets JSON 解析失败，散文兜底（{} 字符）",
+                    trimmed.chars().count()
+                );
+                DepthAssets {
+                    world: trimmed.to_string(),
+                    outline: String::new(),
+                    foreshadowing: Vec::new(),
+                }
+            }
+        };
         if assets.world.trim().is_empty()
             && assets.outline.trim().is_empty()
             && assets.foreshadowing.is_empty()
@@ -1514,6 +1533,77 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         self.db(move || {
             board.write(
+                &rid,
+                &sid,
+                AgentRole::LeadWriter,
+                BoardZone::Draft,
+                "chapter",
+                "第1章",
+                &text,
+                &summary,
+            )
+        })
+        .await
+    }
+
+    /// Legacy writer 熔断回退：本地模型无法输出 JSON action（连续解析失败）
+    /// 时，改走自由体散文单调用（与快速路径 writer_first_chapter 同模式）。
+    /// 读黑板资产区构建上下文，产出 >200 字符即写入 draft 区并返回该条目；
+    /// 仍过短则 Err（熔断成立）。仅在"连续解析失败"触发，"达到最大轮数"
+    /// 不触发（模型可能在合理工具循环）。
+    async fn writer_prose_fallback(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<BoardItem, AppError> {
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
+            budget.clone(),
+            AgentRole::LeadWriter,
+        );
+        let board = self.board();
+        // 读资产区构建上下文（截断防爆上下文）
+        let rid = run_id.to_string();
+        let board_c = board.clone();
+        let assets = self
+            .db(move || board_c.list_zone(&rid, BoardZone::Asset))
+            .await?;
+        let mut assets_ctx = String::new();
+        for a in &assets {
+            let line = format!("【{}·{}】{}\n", a.item_type, a.key, a.content);
+            if assets_ctx.chars().count() + line.chars().count() > 3000 {
+                assets_ctx.push_str("…（更多资产已省略）");
+                break;
+            }
+            assets_ctx.push_str(&line);
+        }
+        let text = llm
+            .complete(
+                "你是小说主创，只输出章节正文。",
+                &format!(
+                    "故事前提：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。",
+                    premise, assets_ctx
+                ),
+                TaskType::CreativeWriting,
+                8192,
+            )
+            .await?;
+        let text = text.trim().to_string();
+        let chars = text.chars().count();
+        if chars < 200 {
+            return Err(AppError::from(format!(
+                "首章散文回退仍过短（{} 字符），快速路径与回退均不可用",
+                chars
+            )));
+        }
+        let summary: String = text.chars().take(60).collect();
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        self.db(move || {
+            board_c.write(
                 &rid,
                 &sid,
                 AgentRole::LeadWriter,
@@ -1684,11 +1774,23 @@ impl AgencyCoordinator {
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
-            return Err(AppError::from(circuit_break_message(
-                "主创 Agent",
-                "首章未完成",
-                circuit_break_reason(&writer_out.turns),
-            )));
+            let reason = circuit_break_reason(&writer_out.turns);
+            // 连续解析失败：本地模型写散文而非 JSON action -> 回退自由体散文
+            // 单调用（与快速路径同模式），避免整 run 失败。
+            if reason == "连续解析失败" {
+                log::warn!(
+                    "agency: 主创 tool_loop 连续解析失败，回退自由体散文 run={}",
+                    run_id
+                );
+                self.writer_prose_fallback(run_id, &story_id, premise, budget)
+                    .await?;
+            } else {
+                return Err(AppError::from(circuit_break_message(
+                    "主创 Agent",
+                    "首章未完成",
+                    reason,
+                )));
+            }
         }
         let draft = self.latest_draft(&board, run_id).await?;
         self.check_cancel(cancel)?;
@@ -3738,6 +3840,96 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
+        assert!(result.chapter_chars >= 200);
+    }
+
+    /// Fix A：本地模型对 depth assets 返回散文而非 JSON 时，快速路径应兜底
+    /// salvage 散文为 world 资产，而非失败回退 legacy（legacy writer tool_loop
+    /// 要求 JSON action，对散文模型几乎必然熔断）。单模型序：concept ->
+    /// writer -> depth -> editor。
+    #[tokio::test]
+    async fn test_depth_assets_prose_salvaged() {
+        let pool = create_test_pool().unwrap();
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        // depth assets 返回散文（无 JSON 花括号）-> parse_lenient 失败 -> 兜底
+        let depth_prose = "双星废土，星环环绕，地表资源枯竭。人类聚居于轨道空间站，\
+                           拾荒者穿梭废墟搜寻旧时代遗物。星环之上疫苗配方的争夺暗流涌动，\
+                           失散妹妹的项链是唯一的线索。";
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
+            chapter.as_str(),
+            depth_prose,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
+        let result = coordinator
+            .run_genesis("rf-prose-assets", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-prose-assets").unwrap().unwrap().status,
+            "completed",
+            "散文 depth assets 应兜底成功，不回退 legacy"
+        );
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
+        // 散文应落为 world 资产（兜底 salvage）
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let snap = board.snapshot("rf-prose-assets").unwrap();
+        let world = snap.assets.iter().find(|a| a.item_type == "world");
+        assert!(
+            world.is_some(),
+            "资产区应含 world: {:?}",
+            snap.assets.iter().map(|a| &a.item_type).collect::<Vec<_>>()
+        );
+        assert!(
+            world.unwrap().content.contains("双星废土"),
+            "world 资产应含散文内容"
+        );
+    }
+
+    /// Fix C：legacy writer tool_loop 连续解析失败（本地模型写散文而非
+    /// JSON action）时，回退自由体散文单调用，避免整 run 失败。concept
+    /// 返回非 JSON -> legacy；producer(tool,final)；writer 散文 x3 -> 熔断
+    /// -> 散文回退；editor(final pass)。
+    #[tokio::test]
+    async fn test_legacy_writer_prose_fallback() {
+        let pool = create_test_pool().unwrap();
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let llm = MockLlm::scripted(vec![
+            "不是 JSON", // concept -> Err -> legacy
+            r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#, /* producer tool */
+            r#"{"type":"final","content":"资产就绪"}"#, // producer final
+            "风沙漫天，拾荒者阿岩在废墟中穿行。这不是 JSON。", // writer prose #1 (parse fail)
+            "他紧了紧面罩，目光扫过残骸。仍不是 JSON。", // writer prose #2 (parse fail)
+            "远处传来机械的轰鸣。第三次散文输出。",     // writer prose #3 (parse fail -> 熔断)
+            chapter.as_str(),                           // writer_prose_fallback 自由体散文
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor final pass */
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
+        let result = coordinator
+            .run_genesis("rf-prose-fallback", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-prose-fallback").unwrap().unwrap().status,
+            "completed",
+            "writer 散文熔断后应回退自由体散文，run 不应失败"
+        );
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            scene.content.as_deref(),
+            Some(chapter.as_str()),
+            "scene 内容应为散文回退产出的正文"
+        );
         assert!(result.chapter_chars >= 200);
     }
 
