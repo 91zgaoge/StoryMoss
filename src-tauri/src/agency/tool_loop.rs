@@ -50,6 +50,20 @@ pub trait LoopLlm: Send + Sync {
         self.complete(system_prompt, user_prompt, task, max_tokens)
             .await
     }
+
+    /// 带计量的 JSON mode 完成：返回 (content, tokens_used, cost)。
+    /// 默认回退 complete_json 不计费（mock/测试用零改动）。
+    async fn complete_json_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<(String, i32, f64), AppError> {
+        self.complete_json(system_prompt, user_prompt, task, max_tokens)
+            .await
+            .map(|s| (s, 0, 0.0))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

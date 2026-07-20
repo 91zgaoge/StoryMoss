@@ -242,15 +242,28 @@ impl LoopLlm for AgencyLlm {
         max_tokens: i32,
     ) -> Result<String, AppError> {
         let (content, _t, _c) = self
-            .complete_metered_with_format(
-                system_prompt,
-                user_prompt,
-                task,
-                max_tokens,
-                Some(crate::llm::adapter::ResponseFormat::JsonObject),
-            )
+            .complete_json_metered(system_prompt, user_prompt, task, max_tokens)
             .await?;
         Ok(content)
+    }
+
+    /// JSON mode 计量版：concept/depth 结构化调用的真实 tokens 经
+    /// BudgetedLlm 入 run 预算（不再丢弃）。
+    async fn complete_json_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+    ) -> Result<(String, i32, f64), AppError> {
+        self.complete_metered_with_format(
+            system_prompt,
+            user_prompt,
+            task,
+            max_tokens,
+            Some(crate::llm::adapter::ResponseFormat::JsonObject),
+        )
+        .await
     }
 
     async fn complete_metered(
@@ -1671,7 +1684,11 @@ impl AgencyCoordinator {
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
-            return Err(AppError::from("主创 Agent 被熔断，首章未完成"));
+            return Err(AppError::from(circuit_break_message(
+                "主创 Agent",
+                "首章未完成",
+                circuit_break_reason(&writer_out.turns),
+            )));
         }
         let draft = self.latest_draft(&board, run_id).await?;
         self.check_cancel(cancel)?;
@@ -1757,7 +1774,11 @@ impl AgencyCoordinator {
                         .await
                         .map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                     if revise_out.aborted {
-                        return Err(AppError::from("主创 Agent 修订轮被熔断"));
+                        return Err(AppError::from(circuit_break_message(
+                            "主创 Agent",
+                            "修订轮未完成",
+                            circuit_break_reason(&revise_out.turns),
+                        )));
                     }
                     draft = self
                         .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
@@ -2055,10 +2076,14 @@ impl AgencyCoordinator {
                 let registry = Arc::new(ToolRegistry::agency_default());
                 let producer_out = self.run_role_with_llm_and_budget(
                     budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
-                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。",
+                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
                 ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                 if producer_out.aborted {
-                    return Err(AppError::from("管理 Agent 被熔断，资产补齐未完成"));
+                    return Err(AppError::from(circuit_break_message(
+                        "管理 Agent",
+                        "资产补齐未完成",
+                        circuit_break_reason(&producer_out.turns),
+                    )));
                 }
                 let board_c = board.clone();
                 let rid = run_id.to_string();
@@ -2095,7 +2120,11 @@ impl AgencyCoordinator {
             &format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key),
         ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
-            return Err(AppError::from("主创 Agent 被熔断，本章未完成"));
+            return Err(AppError::from(circuit_break_message(
+                "主创 Agent",
+                "本章未完成",
+                circuit_break_reason(&writer_out.turns),
+            )));
         }
         // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
         self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
@@ -2166,7 +2195,11 @@ impl AgencyCoordinator {
                     .await
                     .map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
                 if revise_out.aborted {
-                    return Err(AppError::from("主创 Agent 修订轮被熔断"));
+                    return Err(AppError::from(circuit_break_message(
+                        "主创 Agent",
+                        "修订轮未完成",
+                        circuit_break_reason(&revise_out.turns),
+                    )));
                 }
                 // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
                 draft = self
@@ -2990,7 +3023,11 @@ async fn evaluate_gate_impl(
         .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
         if editor_out.aborted {
             let outcome = GateOutcome::Failed {
-                reason: "编辑审计 Agent 被熔断".to_string(),
+                reason: circuit_break_message(
+                    "编辑审计 Agent",
+                    "审查未完成",
+                    circuit_break_reason(&editor_out.turns),
+                ),
             };
             record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
             return Ok((outcome, None));
@@ -3487,6 +3524,24 @@ mod tests {
         let err = coordinator.run_genesis("r-cb", "前提").await.unwrap_err();
         assert!(
             err.to_string().contains("连续解析失败"),
+            "熔断消息应含主因: {}",
+            err
+        );
+        assert!(err.to_string().contains("被熔断"), "保留熔断措辞: {}", err);
+    }
+
+    /// 熔断错误消息必须带主因：producer 反复调用工具不出 final、耗尽
+    /// max_turns（12）→ "达到最大轮数"。
+    #[tokio::test]
+    async fn test_circuit_break_message_includes_max_turns_reason() {
+        let pool = create_test_pool().unwrap();
+        let tool_call = r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#;
+        let mut lines = vec![r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#];
+        lines.extend(std::iter::repeat(tool_call).take(12));
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(lines));
+        let err = coordinator.run_genesis("r-mt", "前提").await.unwrap_err();
+        assert!(
+            err.to_string().contains("达到最大轮数"),
             "熔断消息应含主因: {}",
             err
         );

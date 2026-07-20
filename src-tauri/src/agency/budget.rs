@@ -131,9 +131,9 @@ impl LoopLlm for BudgetedLlm {
         Ok((content, tokens, cost))
     }
 
-    /// JSON mode 透传：角色限流内层实现 JSON mode（String 签名无 tokens
-    /// 回传，这两次结构化单调用不记 run 预算——上限 2048+4096 tokens，
-    /// 占默认预算 2%，可接受）。
+    /// JSON mode 透传：角色限流 + 经 complete_json_metered 计量入账——
+    /// concept/depth 两次结构化单调用含 prompt 的真实上限约 ~8k tokens
+    /// （≈3% 默认预算），不再免费。
     async fn complete_json(
         &self,
         system_prompt: &str,
@@ -142,9 +142,12 @@ impl LoopLlm for BudgetedLlm {
         max_tokens: i32,
     ) -> Result<String, AppError> {
         let _permit = self.budget.acquire(self.role).await?;
-        self.inner
-            .complete_json(system_prompt, user_prompt, task, max_tokens)
-            .await
+        let (content, tokens, _cost) = self
+            .inner
+            .complete_json_metered(system_prompt, user_prompt, task, max_tokens)
+            .await?;
+        self.budget.record_usage(tokens);
+        Ok(content)
     }
 }
 
@@ -189,6 +192,38 @@ mod tests {
                 .await
                 .map(|out| (out, self.tokens, 0.01))
         }
+        async fn complete_json_metered(
+            &self,
+            s: &str,
+            u: &str,
+            t: TaskType,
+            m: i32,
+        ) -> Result<(String, i32, f64), AppError> {
+            self.complete(s, u, t, m)
+                .await
+                .map(|out| (out, self.tokens, 0.01))
+        }
+    }
+
+    /// F-A：complete_json 经 complete_json_metered 计量入 run 预算。
+    #[tokio::test]
+    async fn test_complete_json_records_token_usage() {
+        let budget = Arc::new(AgencyBudget::new(1_000_000));
+        let llm = Arc::new(MeteredMock {
+            tokens: 100,
+            delay_ms: 0,
+            calls: Mutex::new(vec![]),
+        });
+        let limited = BudgetedLlm::new(llm, budget.clone(), AgentRole::Producer);
+        limited
+            .complete_json("s", "u", TaskType::WorldBuilding, 4096)
+            .await
+            .unwrap();
+        limited
+            .complete_json("s", "u", TaskType::WorldBuilding, 4096)
+            .await
+            .unwrap();
+        assert_eq!(budget.tokens_used(), 200);
     }
 
     #[tokio::test]
