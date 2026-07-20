@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.2（2026-07-20）
+
+### 创世稳定性修复：本地模型输出风格兼容
+- 修复「管理 Agent 被熔断，资产生产未完成」：本地模型（如 Gemma）输出多动作数组、`type=board_write` 变体、非法 zone（character）导致 ToolLoop 连续解析失败或达轮数上限
+- `parse_action` 三层容错：数组解包（单元素解包/多元素取首个并提示）+ name/args 启发式判定
+- `board_write` 非法 zone 按 item_type 收编（character/world/outline → asset 并注明）
+- 创世三个单调用启用 `response_format: JsonObject`（本地 vLLM/Ollama 均支持），概念/深度资产解析带键名别名
+- 熔断错误信息带原因（连续解析失败/达到最大轮数）；producer 任务提示统一格式约束；JSON 调用 token 计量入账
+
 ## [Unreleased]
 
 ### 功能
