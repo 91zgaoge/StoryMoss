@@ -28,6 +28,7 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
   - 旧数据检测改为只要 `com.storyforge.app` 目录非空即触发迁移，不再硬依赖 `cinema_ai.db` / `config.json`。
 
 - **Windows 启动闪退（BEX64 / 0xc0000409）**：移除 `init_windows` 中 setup 阶段对 `CoreWebView2` 的 unsafe COM 调用，该调用在部分 Windows/WebView2 环境下会在启动时触发缓冲区溢出异常；Windows 右键菜单禁用功能迁移到前端全局 `contextmenu` 事件处理，保留输入框/文本域的原生菜单。
+- **CI Rust 格式检查失败（v0.30.2 熔断修复代码未格式化）**：对 `agency/coordinator.rs`（`circuit_break_reason`）、`tool_loop.rs`、`tools.rs` 的熔断修复代码补做 `cargo +nightly fmt`，修复 `rust-check` 三平台 fmt 失败。
 
 ### 基础设施
 

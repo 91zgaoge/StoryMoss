@@ -98,7 +98,10 @@ fn action_from_value(v: serde_json::Value) -> Result<LoopAction, AppError> {
     }
     if let Some(obj) = v.as_object() {
         if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
-            let args = obj.get("args").cloned().unwrap_or_else(|| serde_json::json!({}));
+            let args = obj
+                .get("args")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
             return Ok(LoopAction::Tool {
                 name: name.to_string(),
                 args,
@@ -532,7 +535,11 @@ mod tests {
         assert!(!result.aborted);
         // 多 action 数组：只执行第一个，observation 带截断提示
         let obs = result.turns[0].observation.as_ref().unwrap();
-        assert!(obs.contains("只执行了第一个"), "observation 应含提示: {}", obs);
+        assert!(
+            obs.contains("只执行了第一个"),
+            "observation 应含提示: {}",
+            obs
+        );
         // 数组首元素的 board_write 确实生效
         let snap = ctx.board.snapshot("r1").unwrap();
         assert_eq!(snap.assets.len(), 1);

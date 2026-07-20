@@ -608,8 +608,8 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
 /// 熔断主因判定：末三轮均解析失败（action=None）→ "连续解析失败"；
 /// 否则 "达到最大轮数"。（解析失败连续 3 次即熔断，故末三轮全败 ⇔ 解析熔断。）
 fn circuit_break_reason(turns: &[crate::agency::tool_loop::LoopTurn]) -> &'static str {
-    let last3_all_failed = turns.len() >= 3
-        && turns[turns.len() - 3..].iter().all(|t| t.action.is_none());
+    let last3_all_failed =
+        turns.len() >= 3 && turns[turns.len() - 3..].iter().all(|t| t.action.is_none());
     if last3_all_failed {
         "连续解析失败"
     } else {

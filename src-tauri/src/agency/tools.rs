@@ -237,8 +237,13 @@ impl AgentTool for BoardWriteTool {
         // 非法 zone 收编：本地模型常把 item_type 误填进 zone（如
         // "character"）。若该字符串是已知 item_type（大小写不敏感），收编为
         // asset 区并在返回文本注明；否则维持 validation_failed 让模型自愈。
-        const KNOWN_ITEM_TYPES: [&str; 5] =
-            ["character", "world", "outline", "foreshadowing", "worldbuilding"];
+        const KNOWN_ITEM_TYPES: [&str; 5] = [
+            "character",
+            "world",
+            "outline",
+            "foreshadowing",
+            "worldbuilding",
+        ];
         let (zone, coerced_note) = match BoardZone::from_str(zone_str) {
             Some(z) => (z, None),
             None if KNOWN_ITEM_TYPES
@@ -607,7 +612,9 @@ mod tests {
         );
         let items = context.board.list_zone("r1", BoardZone::Asset).unwrap();
         assert!(
-            items.iter().any(|i| i.key == "阿苔" && i.item_type == "character"),
+            items
+                .iter()
+                .any(|i| i.key == "阿苔" && i.item_type == "character"),
             "角色卡应写入 asset 区: {:?}",
             items.iter().map(|i| &i.key).collect::<Vec<_>>()
         );
@@ -641,7 +648,11 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("非法 zone"), "应为非法 zone: {}", err);
+        assert!(
+            err.to_string().contains("非法 zone"),
+            "应为非法 zone: {}",
+            err
+        );
     }
 
     #[tokio::test]
