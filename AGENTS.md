@@ -37,6 +37,15 @@ npm test                              # Playwright E2E
 node scripts/cdp-inspect.js           # CDP 截图
 ```
 
+## Pre-commit 格式守卫
+
+仓库内置 `.githooks/pre-commit`：提交前自动检查本次 staged 的 Rust（`cargo +nightly fmt -- --check`）与前端（`prettier --check`）代码是否已格式化，未格式化则拒绝提交，对齐 CI 的 fmt 检查。
+
+- **首次克隆后启用**：`git config core.hooksPath .githooks`
+- **行为**：仅检查本次 `git add` 进来的 `.rs` / `.ts` / `.tsx` / `.css` / `.json` 代码文件，纯文档/配置提交不受影响；失败时打印 diff 并给出修复命令。
+- **修复**：按提示执行 `(cd src-tauri && cargo +nightly fmt)` 或 `(cd src-frontend && npm run format)`，再 `git add -u && git commit`。
+- **紧急绕过**：`git commit --no-verify`（仅限紧急情况，CI 仍会兜底检查）。
+
 ## 强制构建规则（用户级）
 
 1. **每次修改代码后**：先推送到 GitHub，触发 GitHub Actions 全平台构建。

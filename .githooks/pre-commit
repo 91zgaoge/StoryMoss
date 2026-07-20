@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Pre-commit 格式守卫：仅检查本次 staged 的 Rust / 前端代码是否已格式化。
+# 对齐 CI 的 `cargo +nightly fmt -- --check` 与 `prettier --check`。
+# 紧急绕过：git commit --no-verify
+# 注意：不用 `set -u`——macOS bash 3.2 下空数组 "${arr[@]}" 会触发 unbound variable。
+set -eo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 1
+
+fail_msg() {
+    echo "" >&2
+    echo "❌ Pre-commit 格式检查失败：$1" >&2
+    echo "   修复：$2" >&2
+    echo "   然后：git add -u && git commit 重新提交" >&2
+    echo "   紧急绕过：git commit --no-verify" >&2
+}
+
+# 收集本次 staged 的 Added/Copied/Modified 文件（bash 3.2 兼容，不用 mapfile）
+staged=()
+while IFS= read -r line; do
+    [ -n "$line" ] && staged+=("$line")
+done < <(git diff --cached --name-only --diff-filter=ACM)
+
+# ---- Rust fmt：仅 src-tauri 下的 .rs ----
+rs=()
+for f in "${staged[@]}"; do
+    case "$f" in src-tauri/*.rs) rs+=("${f#src-tauri/}");; esac
+done
+if [ ${#rs[@]} -gt 0 ]; then
+    if rust_out=$(cd src-tauri && cargo +nightly fmt -- --check "${rs[@]}" 2>&1); then
+        :
+    else
+        printf '%s\n' "$rust_out" >&2
+        fail_msg "Rust 代码未格式化（cargo +nightly fmt）" \
+                 "(cd src-tauri && cargo +nightly fmt)"
+        exit 1
+    fi
+fi
+
+# ---- 前端 Prettier：src-frontend 下的 ts/tsx/css/json ----
+fe=()
+for f in "${staged[@]}"; do
+    case "$f" in
+        src-frontend/*.ts|src-frontend/*.tsx|src-frontend/*.css|src-frontend/*.json)
+            fe+=("${f#src-frontend/}");;
+    esac
+done
+if [ ${#fe[@]} -gt 0 ]; then
+    if fe_out=$(cd src-frontend && npx --no-install prettier --check "${fe[@]}" 2>&1); then
+        :
+    else
+        printf '%s\n' "$fe_out" >&2
+        fail_msg "前端代码未格式化（Prettier）" \
+                 "(cd src-frontend && npm run format)"
+        exit 1
+    fi
+fi
+
+echo "✓ pre-commit: 格式检查通过"
