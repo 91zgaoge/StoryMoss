@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 816 passed
+- `cargo test --lib` ✅ 899 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 292 passed
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -89,6 +89,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.3 - 创世主创 Agent 熔断修复（本地模型 JSON 不遵从）
+
+- **根因**：本地模型（Qwen/Gemma）对 `producer_depth_assets` 的 `complete_json` 返回散文而非 JSON -> 快速路径失败回退 legacy -> legacy writer tool_loop 要求 JSON action 而模型写散文 -> 连续 3 轮解析失败熔断，首章未完成。
+- **Fix A（主修复）**：`producer_depth_assets` 在 `parse_lenient` 失败时兜底 salvage 散文为 world 资产，快速路径继续，避免回退 legacy。
+- **Fix B（可诊断性）**：`tool_loop.rs` 此前零条日志，解析失败 raw 响应只存在内存 run 结束即丢弃。现每轮解析失败 + 熔断点 + max-turns 均 `log::warn!`（含 role、轮次、截断 raw 500 字）。
+- **Fix C（纵深防御）**：legacy writer "连续解析失败"熔断时回退自由体散文单调用（新 `writer_prose_fallback`），"达到最大轮数"仍直接 Err。
+- **验证**：`cargo test --lib` 899 passed（+2 新测试）；fmt/clippy 通过。
 
 ### Agency 多代理创作框架 P1 — 创世 2.0 骨架（串行端到端）
 
