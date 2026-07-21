@@ -414,7 +414,7 @@ Respond with JSON:
 Rules:
 1. Do NOT use classification labels or keyword matching in your reasoning.
 2. Choose capabilities based on what the user actually needs.
-3. Use depends_on to order steps when one step needs another's output.
+3. Use depends_on to order steps when one step needs another's output. depends_on MUST ONLY contain step_id values of OTHER steps in this same plan (e.g. "step_1"). NEVER put context names, capability names, or free text (e.g. "Story Context", "writer") in depends_on -- such values are not step outputs and will be ignored.
 4. step_id must be unique within the plan.
 5. fallback_message should be helpful if execution fails.
 6. For parameters, you can reference output from a previous step using {{step_id}} syntax in string values.

@@ -193,4 +193,37 @@ mod tests {
         assert_eq!(start, "inspect");
         assert_eq!(end, "rewrite");
     }
+
+    /// v0.30.7 回归：LLM 偶发在 depends_on 中写入上下文名（如 "Story Context"）
+    /// 而非 step_id。topological_sort 应将其视为已满足（跳过），不阻断排序。
+    /// executor 的依赖校验已对齐此行为。
+    #[test]
+    fn test_topological_sort_non_step_id_dep_skipped() {
+        let steps = vec![
+            make_step("step_1", "writer", &["Story Context"]),
+            make_step("step_2", "inspector", &["step_1"]),
+            make_step("step_3", "writer", &["step_2"]),
+        ];
+        let batches = topological_sort(&steps);
+        // "Story Context" 不是 plan 内 step_id -> step_1 无有效依赖 -> batch 0
+        assert_eq!(batches.batches.len(), 3);
+        assert!(batches.batches[0].contains(&"step_1".to_string()));
+        assert!(batches.batches[1].contains(&"step_2".to_string()));
+        assert!(batches.batches[2].contains(&"step_3".to_string()));
+    }
+
+    /// v0.30.7 回归：混入多个非 step_id 依赖（"Story Context" + "writer"），
+    /// 真实 step_id 依赖仍正常排序。
+    #[test]
+    fn test_topological_sort_mixed_non_step_id_and_real_deps() {
+        let steps = vec![
+            make_step("step_1", "writer", &["Story Context", "writer"]),
+            make_step("step_2", "inspector", &["step_1", "Story Context"]),
+        ];
+        let batches = topological_sort(&steps);
+        // 非法依赖跳过，step_1 -> batch 0, step_2 -> batch 1
+        assert_eq!(batches.batches.len(), 2);
+        assert!(batches.batches[0].contains(&"step_1".to_string()));
+        assert!(batches.batches[1].contains(&"step_2".to_string()));
+    }
 }

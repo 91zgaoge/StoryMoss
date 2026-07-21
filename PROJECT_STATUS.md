@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.4 项目完成状态
+# StoryMoss (草苔) v0.30.7 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.4 幕前输入历史持久化--按故事隔离存入 localStorage，关闭窗口/重启后不丢失，↑ 键召回）
+> 最后更新: 2026-07-20（v0.30.7 修复续写计划执行失败--LLM 在 depends_on 混入上下文名 "Story Context" 导致整 plan 链式 not found）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.7 - 计划执行失败修复（LLM 在 depends_on 写入上下文名）（2026-07-20）
+
+- **根因**：LLM 生成的 ExecutionPlan 在 `depends_on` 中混入上下文名（如 `"Story Context"`、`"writer"`）而非 plan 内 step_id。`topological_sort`（swarm.rs）已正确跳过非 step_id 依赖，但 `PlanExecutor::execute` 的依赖校验未对齐--遇到非 step_id 依赖直接判 `not found`，导致 step_1 被跳过 -> step_2 依赖 step_1 也 not found -> step_3 链式失败，整 plan 崩溃。
+- **Fix（executor.rs）**：依赖校验前收集 `plan_step_ids` 集合，对不在集合中的依赖（非 step_id）跳过校验并 `log::warn`，与 `topological_sort` 行为一致。
+- **Fix（mod.rs）**：Rule 3 强化--明确 `depends_on` MUST ONLY contain step_id values of OTHER steps in this same plan，NEVER put context names / capability names / free text。
+- ✅ **验证**：`cargo test --lib` 917 passed（+2：topological_sort 非 step_id 依赖跳过 + 混合依赖排序）；fmt / tsc / architecture_guard 全绿。
 
 ### v0.30.4 - 幕前输入历史持久化（按故事隔离）（2026-07-20）
 

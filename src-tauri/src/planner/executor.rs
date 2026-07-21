@@ -359,6 +359,12 @@ impl PlanExecutor {
 
         let total_steps = plan.steps.len();
 
+        // plan 内所有 step_id 集合：依赖校验时区分真实 step_id 依赖与 LLM
+        // 偶发写入的上下文名（如 "Story Context"），后者跳过校验（与
+        // topological_sort 的处理一致），避免误杀整 plan。
+        let plan_step_ids: std::collections::HashSet<&str> =
+            plan.steps.iter().map(|s| s.step_id.as_str()).collect();
+
         // 按批次执行（同批次内无依赖的步骤并行执行）
         for (batch_idx, batch) in batches.batches.iter().enumerate() {
             log::info!(
@@ -382,6 +388,18 @@ impl PlanExecutor {
                 let outputs = step_outputs.lock().await;
                 let mut deps_ok = true;
                 for dep in &step.depends_on {
+                    // 与 topological_sort 一致：非 plan 内 step_id 的依赖
+                    // （LLM 偶发写入的上下文名，如 "Story Context"）跳过校验，
+                    // 避免误杀整 plan；仅校验真实 step_id 依赖是否已产出。
+                    // 参数引用 {{step_id}} 由 resolve_parameters 兜底处理缺失键。
+                    if !plan_step_ids.contains(dep.as_str()) {
+                        log::warn!(
+                            "[PlanExecutor] Step {} depends_on '{}' 不是 plan 内 step_id，跳过依赖校验",
+                            step.step_id,
+                            dep
+                        );
+                        continue;
+                    }
                     if !outputs.contains_key(dep) {
                         let msg = format!("Step {} dependency {} not found", step.step_id, dep);
                         log::warn!("[PlanExecutor] {}", msg);

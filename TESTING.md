@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.7)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.7 变更说明
+
+- 计划执行失败修复（LLM 在 depends_on 写入上下文名）：新增 2 个 Rust 单测（`topological_sort` 非 step_id 依赖跳过 + 混合依赖排序），验证 executor 依赖校验与 `topological_sort` 行为一致。
+- 全量基线：`cargo test --lib` 917 passed（+2）；fmt / tsc / architecture_guard 全绿。无前端变更。
 
 ### v0.30.4 变更说明
 

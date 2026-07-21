@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.7（2026-07-20）
+
+### 修复
+
+- **计划执行失败：Step dependency not found（LLM 在 depends_on 写入上下文名）**：续写小说时弹出 Fatal 诊断卡片（`code: INTERNAL_ERROR`，消息含 `Step step_1 dependency Story Context not found; Step step_2 dependency step_1 not found; ...`），整 plan 链式失败。
+  - **根因**：LLM 生成的 ExecutionPlan 在 `depends_on` 中混入了上下文名（如 `"Story Context"`、`"writer"`）而非 plan 内 step_id。`topological_sort`（swarm.rs）已正确跳过非 step_id 依赖，但 `PlanExecutor::execute` 的依赖校验未对齐--遇到非 step_id 依赖直接判 `not found`，导致 step_1 被跳过 -> step_2 依赖 step_1 也 not found -> step_3 链式失败。
+  - **Fix（executor.rs）**：依赖校验前收集 `plan_step_ids` 集合，对不在集合中的依赖（非 step_id）跳过校验并 `log::warn`，与 `topological_sort` 行为一致；仅校验真实 step_id 依赖是否已产出。参数引用 `{{step_id}}` 由 `resolve_parameters` 兜底处理缺失键。
+  - **Fix（mod.rs）**：Rule 3 强化--明确 `depends_on` MUST ONLY contain step_id values of OTHER steps in this same plan，NEVER put context names / capability names / free text，并举例 `"Story Context"` / `"writer"` 为错误值。
+  - 验证：`cargo test --lib` 917 passed（+2：topological_sort 非 step_id 依赖跳过 + 混合依赖排序）；fmt / tsc / architecture_guard 全绿。
+
 ## v0.30.6（2026-07-21）
 
 ### 修复
