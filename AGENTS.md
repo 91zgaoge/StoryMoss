@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.4
+- **版本**: v0.30.5
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -98,7 +98,7 @@ type:
 - **实现**：`src-frontend/src/frontstage/FrontstageApp.tsx`（模块级 `loadInputHistory`/`saveInputHistory` + `useEffect` 加载 + `handleInputSubmit` 同步持久化）。
 - **验证**：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）；tsc / prettier 通过。纯前端，无 Rust 变更。
 
-### v0.30.4 - 创世流程严重超时修复（600s 顶满 + 前端先杀后端）
+### v0.30.5 - 创世流程严重超时修复（600s 顶满 + 前端先杀后端）
 
 - **根因（对照 `creative_workflow.log` 2026-07-20 08:37–08:47）**：Agency 创世 5 阶段慢，producer tool_loop 5.5min + writer tool_loop 4.5min（含本地模型连接超时 60s×4 候选=240s）顶满 600s；前端 `Promise.race` 600s 到了先 `llm_cancel_all_generations` 杀掉后端，创世被 CANCELLATION 砍掉无产出 + 僵尸 run 卡死故事续写；writer 在 tool_loop 中盲目 board_read 轮询 7-10 轮。
 - **Fix 1**：`config/commands.rs` 放开 `smart_execute_total_timeout_secs` / `frontend_timeout_secs` clamp 上限 600->1800（默认仍 600s）；`GeneralSettings.tsx` 输入框 max 同步到 1800。
@@ -409,7 +409,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.4_
+_最后更新: 2026-07-21 - v0.30.5_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

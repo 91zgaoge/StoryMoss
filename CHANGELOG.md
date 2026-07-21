@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.5（2026-07-21）
+
+### 修复
+
+- **创世流程严重超时（600s 顶满弹出诊断卡片）**：对照 `creative_workflow.log` 2026-07-20 08:37–08:47 定位 4 个根因并分层修复。
+  - **根因**：Agency 创世 5 阶段慢，producer tool_loop 5.5min + writer tool_loop 4.5min（含本地模型连接超时 60s×4 候选=240s）顶满 600s；前端 `Promise.race` 600s 到了先 `llm_cancel_all_generations` 杀掉后端，创世被 CANCELLATION 砍掉无产出 + 僵尸 run 卡死故事续写；writer 在 tool_loop 中盲目 board_read 轮询 7-10 轮，每轮一次 LLM 调用。
+  - **Fix 1**：`config/commands.rs` 放开 `smart_execute_total_timeout_secs` / `frontend_timeout_secs` 的 clamp 上限 600->1800（默认仍 600s，本地慢模型可调高）；`GeneralSettings.tsx` 输入框 max 同步到 1800。
+  - **Fix 2**：`FrontstageApp.tsx` 创世路径前端超时 = 后端 + 30s 缓冲（主超时 `handleSmartGeneration` + `isGenerating` 看门狗 + 诊断卡片三处统一），保证后端先返回错误并落终态；提取纯函数 `utils/genesisTimeout.ts`（`genesisMainTimeoutSeconds` / `watchdogTimeoutSeconds`）便于单测。
+  - **Fix 3（核心）**：`coordinator.rs` 新增 `asset_retrieval_plan`--writer tool_loop 前置单次 LLM 调用，从资产区 catalog 选出本章写作必需的 key（30s 超时包裹，失败兜底全量，`parse_lenient` + `RetrievalPlan` 别名兼容本地模型），消除 writer 多轮 board_read 轮询。
+  - **Fix 4**：`coordinator.rs` 新增 `build_writer_assets_context`--检索规划后按 key 过滤资产全文预注入 writer task（8000 字符预算截断），writer 倾向第一轮直接 board_write + final，tool_loop 轮次从 7-10 降到 1-2。
+  - **Fix 5**：`tool_loop.rs` 新增 run 级 deadline 感知（`with_deadline` + 每轮检查，剩余 <30s 熔断保产出）；新增 `LoopAbortReason` 枚举（Deadline/ParseFailures/MaxTurns），`circuit_break_reason` 识别 deadline 熔断返回"剩余时间不足"，coordinator writer 路径据此快速失败而非回退 legacy `writer_prose_fallback`（后者单调用也会顶满超时无产出）。
+  - **预期效果**：创世总耗时从 600s 顶满降到 ~8-10min 留有余量；超时上限可调；前端不再先杀后端；deadline 保险即使其他修复失效也在硬超时前 30s 熔断保产出。
+  - 验证：`cargo test --lib` 913 passed（+14：asset_retrieval_plan 4 + build_writer_assets_context 3 + tool_loop deadline 5 + circuit_break_reason 2）；`npx vitest run` 305 passed（+8：genesisTimeout 纯函数）；tsc / fmt / clippy / format:check / architecture_guard 全绿。
+
 ## v0.30.2（2026-07-20）
 
 ### 创世稳定性修复：本地模型输出风格兼容
@@ -21,18 +35,6 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
   - localStorage 不可用（隐私模式/配额超限）时静默降级为内存态，不影响写作。
   - 实现位置：`src-frontend/src/frontstage/FrontstageApp.tsx`（模块级 `loadInputHistory`/`saveInputHistory` + `useEffect` 加载 + `handleInputSubmit` 同步持久化）。
   - 验证：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）。
-
-### 修复
-
-- **创世流程严重超时（600s 顶满弹出诊断卡片）**：对照 `creative_workflow.log` 2026-07-20 08:37–08:47 定位 4 个根因并分层修复。
-  - **根因**：Agency 创世 5 阶段慢，producer tool_loop 5.5min + writer tool_loop 4.5min（含本地模型连接超时 60s×4 候选=240s）顶满 600s；前端 `Promise.race` 600s 到了先 `llm_cancel_all_generations` 杀掉后端，创世被 CANCELLATION 砍掉无产出 + 僵尸 run 卡死故事续写；writer 在 tool_loop 中盲目 board_read 轮询 7-10 轮，每轮一次 LLM 调用。
-  - **Fix 1**：`config/commands.rs` 放开 `smart_execute_total_timeout_secs` / `frontend_timeout_secs` 的 clamp 上限 600→1800（默认仍 600s，本地慢模型可调高）；`GeneralSettings.tsx` 输入框 max 同步到 1800。
-  - **Fix 2**：`FrontstageApp.tsx` 创世路径前端超时 = 后端 + 30s 缓冲（主超时 `handleSmartGeneration` + `isGenerating` 看门狗 + 诊断卡片三处统一），保证后端先返回错误并落终态；提取纯函数 `utils/genesisTimeout.ts`（`genesisMainTimeoutSeconds` / `watchdogTimeoutSeconds`）便于单测。
-  - **Fix 3（核心）**：`coordinator.rs` 新增 `asset_retrieval_plan`--writer tool_loop 前置单次 LLM 调用，从资产区 catalog 选出本章写作必需的 key（30s 超时包裹，失败兜底全量，`parse_lenient` + `RetrievalPlan` 别名兼容本地模型），消除 writer 多轮 board_read 轮询。
-  - **Fix 4**：`coordinator.rs` 新增 `build_writer_assets_context`--检索规划后按 key 过滤资产全文预注入 writer task（8000 字符预算截断），writer 倾向第一轮直接 board_write + final，tool_loop 轮次从 7-10 降到 1-2。
-  - **Fix 5**：`tool_loop.rs` 新增 run 级 deadline 感知（`with_deadline` + 每轮检查，剩余 <30s 熔断保产出）；新增 `LoopAbortReason` 枚举（Deadline/ParseFailures/MaxTurns），`circuit_break_reason` 识别 deadline 熔断返回"剩余时间不足"，coordinator writer 路径据此快速失败而非回退 legacy `writer_prose_fallback`（后者单调用也会顶满超时无产出）。
-  - **预期效果**：创世总耗时从 600s 顶满降到 ~8-10min 留有余量；超时上限可调；前端不再先杀后端；deadline 保险即使其他修复失效也在硬超时前 30s 熔断保产出。
-  - 验证：`cargo test --lib` 913 passed（+14：asset_retrieval_plan 4 + build_writer_assets_context 3 + tool_loop deadline 5 + circuit_break_reason 2）；`npx vitest run` 305 passed（+8：genesisTimeout 纯函数）；tsc / fmt / clippy / format:check / architecture_guard 全绿。
 
 ## v0.30.3（2026-07-20）
 
