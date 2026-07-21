@@ -443,7 +443,7 @@ Rules:
 18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments.
 19. CRITICAL — HIGHEST PRIORITY: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', '写一部', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. This rule OVERRIDES Rule 10 — even if story progress is 'just_started', a direct writing request means the user wants to see story text immediately, not planning advice.
 20. If a style blend configuration is active (multiple style DNAs with weights), the writer must follow the blend rules: dominant style sets the overall tone, secondary styles permeate specific scenes (dialogue/rhythm/psychological depth/atmosphere). Do NOT ignore the blend weights.
-21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner' for these inputs."#,
+21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' / '继续' / '续写' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文/这部/当前), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner', 'style_mimic', 'plot_analyzer', or 'builtin.style_enhancer' for these inputs -- they return empty-content templates instead of prose."#,
                 context.has_story,
                 context.current_story_id.as_deref().unwrap_or("none"),
                 context.has_chapters,
@@ -523,40 +523,56 @@ Rules:
 
         // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了
         // outline_planner，强制替换为 writer
-        if !plan.steps.is_empty() && plan.steps[0].capability_id == "outline_planner" {
-            let input_lower = context.user_input.to_lowercase();
-            let prose_keywords = [
-                "写",
-                "write",
-                "创作",
-                "开始写",
-                "写小说",
-                "写故事",
-                "写一章",
-                "写开篇",
-                "写正文",
-                "start writing",
-                "write a novel",
-                "write a story",
-                "write chapter",
-                "begin writing",
-            ];
-            let is_prose_request = prose_keywords.iter().any(|&kw| input_lower.contains(kw));
-            if is_prose_request {
-                log::warn!(
-                    "[PlanGenerator] Force-correcting outline_planner → writer for prose request: \
-                     {}",
-                    context.user_input
-                );
-                plan.steps[0].capability_id = "writer".to_string();
-                plan.steps[0].purpose = "Auto-corrected: user wants prose generation, not \
-                                         structural planning"
-                    .to_string();
-                plan.understanding = format!(
-                    "{} [auto-corrected: prose-generation keywords detected in user input, \
-                     forcing writer instead of outline_planner]",
-                    plan.understanding
-                );
+        if !plan.steps.is_empty() {
+            let first_cap = plan.steps[0].capability_id.clone();
+            let needs_correction = first_cap == "outline_planner"
+                || first_cap == "style_mimic"
+                || first_cap == "plot_analyzer"
+                || first_cap.starts_with("builtin.style_enhancer")
+                || first_cap.starts_with("builtin.text_formatter")
+                || first_cap.starts_with("builtin.character_voice")
+                || first_cap.starts_with("builtin.emotion_pacing");
+            if needs_correction {
+                let input_lower = context.user_input.to_lowercase();
+                let prose_keywords = [
+                    "写",
+                    "write",
+                    "创作",
+                    "开始写",
+                    "写小说",
+                    "写故事",
+                    "写一章",
+                    "写开篇",
+                    "写正文",
+                    "继续",
+                    "续写",
+                    "接着写",
+                    "往下写",
+                    "接下来",
+                    "后续",
+                    "接着",
+                    "start writing",
+                    "write a novel",
+                    "write a story",
+                    "write chapter",
+                    "begin writing",
+                    "continue writing",
+                ];
+                let is_prose_request = prose_keywords.iter().any(|&kw| input_lower.contains(kw));
+                if is_prose_request {
+                    log::warn!(
+                        "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
+                        first_cap,
+                        context.user_input
+                    );
+                    plan.steps[0].capability_id = "writer".to_string();
+                    plan.steps[0].purpose = "Auto-corrected: user wants prose generation/continuation, not style enhancement or analysis"
+                        .to_string();
+                    plan.understanding = format!(
+                        "{} [auto-corrected: prose/continuation keywords detected, forcing writer instead of {}]",
+                        plan.understanding, first_cap
+                    );
+                }
             }
         }
 

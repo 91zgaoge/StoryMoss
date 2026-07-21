@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.9
+- **版本**: v0.30.10
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 924 passed
+- `cargo test --lib` ✅ 929 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,15 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.10 - 续写返回风格增强模板修复（模板匹配误路由 + content 空兜底）
+
+- **根因**：`PlanTemplateLibrary::find_match` 用朴素 substring 匹配（`user_input.contains(pattern)`），之前记录的 style_enhancer 计划的触发词（如"这部小说"）会匹配"继续写当前这部小说"，导致续写请求**跳过 planner LLM 和所有安全规则**，直接重放 style_enhancer 计划。style_enhancer 收到空 content 后返回"在您提供文本后，我将从以下几个方面进行增强"模板而非续写正文。
+- **Fix A（executor.rs 主修复）**：`execute_with_context` 在 `find_template` 前检测续写意图词（继续/续写/接着写/往下写/接下来/后续/接着），命中则跳过模板匹配，强制走 planner LLM 路径，确保续写请求由 Rules 8/19/21 正确路由到 writer。
+- **Fix B（mod.rs 防线 2 扩展）**：force-correction 从仅捕获 `outline_planner` 扩展到 `style_mimic` / `plot_analyzer` / `builtin.style_enhancer` / `builtin.text_formatter` / `builtin.character_voice` / `builtin.emotion_pacing`，当首步为这些 capability 且输入含写作/续写关键词时强制改为 `writer`。
+- **Fix C（executor.rs content 兜底）**：新增 `inject_content_fallback` 静态方法，为 `style_mimic` / `plot_analyzer` / `builtin.*` 技能在 content 为空时按 depends_on -> step_outputs -> plan_context.current_content_preview 顺序注入文本，与 v0.30.9 inspector draft 兜底同理。
+- **Fix D（mod.rs Rule 21 强化）**：Rule 21 新增"继续"/"续写"关键词和"这部"/"当前"故事相关主语，并明确禁止 `style_mimic` / `plot_analyzer` / `builtin.style_enhancer` 用于 prose 请求。
+- **验证**：`cargo test --lib` 929 passed（+5：content 兜底注入 5 场景）；fmt / clippy 无新增告警。
 
 ### v0.30.9 - 续写返回 Inspector 审查模板修复（draft 空内容兜底注入）
 
@@ -436,7 +445,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.9_
+_最后更新: 2026-07-20 - v0.30.10_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

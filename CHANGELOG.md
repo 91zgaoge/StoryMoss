@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.10（2026-07-20）
+
+### 修复
+
+- **续写返回风格增强模板而非正文（"在您提供文本后，我将从以下几个方面进行增强"）**：输入"继续写当前这部小说"后，得到 style_enhancer 的描述性回复（列出意象/节奏/感官/心理/语气 5 个增强方向）而非实际续写正文。
+  - **根因**：`PlanTemplateLibrary::find_match`（template_learning.rs:83）用朴素 substring 匹配 `user_input.contains(pattern)`，之前记录的 style_enhancer 计划的触发词（如"这部小说"）会匹配"继续写当前这部小说"，导致续写请求**跳过 planner LLM 和所有安全规则**，直接重放 style_enhancer 计划。style_enhancer 收到空 content 后 LLM 自然回复"请提供文本"模板。
+  - **Fix A（executor.rs 主修复）**：`execute_with_context` 在 `find_template` 前检测续写意图词（继续/续写/接着写/往下写/接下来/后续/接着），命中则跳过模板匹配，强制走 planner LLM 路径。
+  - **Fix B（mod.rs 防线 2 扩展）**：force-correction 从仅捕获 `outline_planner` 扩展到 `style_mimic` / `plot_analyzer` / `builtin.style_enhancer` 等，当首步为这些 capability 且输入含写作/续写关键词时强制改为 `writer`。
+  - **Fix C（executor.rs content 兜底）**：新增 `inject_content_fallback` 静态方法，为 `style_mimic` / `plot_analyzer` / `builtin.*` 技能在 content 为空时按 depends_on -> step_outputs -> plan_context.current_content_preview 顺序注入文本。
+  - **Fix D（mod.rs Rule 21 强化）**：Rule 21 新增"继续"/"续写"关键词和"这部"/"当前"故事相关主语，明确禁止 `style_mimic` / `plot_analyzer` / `builtin.style_enhancer` 用于 prose 请求。
+  - 验证：`cargo test --lib` 929 passed（+5：content 兜底注入 5 场景）；fmt / clippy 无新增告警。
+
 ## v0.30.9（2026-07-20）
 
 ### 修复
