@@ -80,11 +80,12 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 899 passed
+- `cargo test --lib` ✅ 913 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 297 passed
+- `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
+- `cargo clippy --lib` ✅ 无新增告警
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
@@ -96,6 +97,16 @@ type:
 - **UX**：保留既有 ghost-hint 交互（↑/↓ 切换 LLM 建议 <-> 历史记录，-> 确认填充），持久化对导航无侵入。localStorage 不可用时静默降级为内存态。
 - **实现**：`src-frontend/src/frontstage/FrontstageApp.tsx`（模块级 `loadInputHistory`/`saveInputHistory` + `useEffect` 加载 + `handleInputSubmit` 同步持久化）。
 - **验证**：`npx vitest run` 297 passed（+2：持久化写入 + 重载召回）；tsc / prettier 通过。纯前端，无 Rust 变更。
+
+### v0.30.4 - 创世流程严重超时修复（600s 顶满 + 前端先杀后端）
+
+- **根因（对照 `creative_workflow.log` 2026-07-20 08:37–08:47）**：Agency 创世 5 阶段慢，producer tool_loop 5.5min + writer tool_loop 4.5min（含本地模型连接超时 60s×4 候选=240s）顶满 600s；前端 `Promise.race` 600s 到了先 `llm_cancel_all_generations` 杀掉后端，创世被 CANCELLATION 砍掉无产出 + 僵尸 run 卡死故事续写；writer 在 tool_loop 中盲目 board_read 轮询 7-10 轮。
+- **Fix 1**：`config/commands.rs` 放开 `smart_execute_total_timeout_secs` / `frontend_timeout_secs` clamp 上限 600->1800（默认仍 600s）；`GeneralSettings.tsx` 输入框 max 同步到 1800。
+- **Fix 2**：`FrontstageApp.tsx` 创世路径前端超时 = 后端 + 30s 缓冲（主超时 + 看门狗 + 诊断卡片三处统一）；提取纯函数 `utils/genesisTimeout.ts`。
+- **Fix 3（核心）**：`coordinator.rs` 新增 `asset_retrieval_plan`--writer 前置单次 LLM 调用从资产 catalog 选出必需 key（30s 超时 + 失败兜底全量 + `RetrievalPlan` 别名兼容），消除 writer 多轮 board_read 轮询。
+- **Fix 4**：`coordinator.rs` 新增 `build_writer_assets_context`--检索规划后按 key 过滤资产全文预注入 writer task（8000 字符预算截断），tool_loop 轮次从 7-10 降到 1-2。
+- **Fix 5**：`tool_loop.rs` 新增 run 级 deadline 感知（`with_deadline` + 每轮检查，剩余 <30s 熔断保产出）；新增 `LoopAbortReason` 枚举，`circuit_break_reason` 识别 deadline 熔断返回"剩余时间不足"，coordinator writer 路径据此快速失败而非回退 legacy（避免 legacy 又跑一遍超时）。
+- **验证**：`cargo test --lib` 913 passed（+14）；`npx vitest run` 305 passed（+8：genesisTimeout 纯函数）；tsc / fmt / clippy / format:check / architecture_guard 全绿。
 
 ### v0.30.3 - 创世主创 Agent 熔断修复（本地模型 JSON 不遵从）
 
@@ -398,7 +409,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-09 - v0.26.56_
+_最后更新: 2026-07-20 - v0.30.4_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

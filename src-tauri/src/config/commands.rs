@@ -616,13 +616,17 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         config.llm_connect_timeout_secs = v.clamp(5, 300);
     }
     if let Some(v) = settings.smart_execute_total_timeout_secs {
-        config.smart_execute_total_timeout_secs = v.clamp(30, 600);
+        // v0.30.4: 放开上限到 1800s（创世 5 阶段多轮 tool_loop
+        // 在本地慢模型下需更长时间）。 默认值仍 600s（settings.rs:
+        // default_smart_execute_timeout），仅放开可调上限。
+        config.smart_execute_total_timeout_secs = v.clamp(30, 1800);
     }
     if let Some(v) = settings.executor_step_timeout_secs {
         config.executor_step_timeout_secs = v.clamp(10, 300);
     }
     if let Some(v) = settings.frontend_timeout_secs {
-        config.frontend_timeout_secs = v.clamp(30, 600);
+        // v0.30.4: 同步放开前端超时上限到 1800s，与后端保持一致。
+        config.frontend_timeout_secs = v.clamp(30, 1800);
     }
     if let Some(v) = settings.llm_first_chunk_timeout_secs {
         config.llm_first_chunk_timeout_secs = v.clamp(5, 300);

@@ -49,6 +49,7 @@ import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { displayStoryTitle } from './utils/displayStoryTitle';
 import { displayChapterTitle } from './utils/displayChapterTitle';
+import { genesisMainTimeoutSeconds, watchdogTimeoutSeconds } from './utils/genesisTimeout';
 import EditableChapterTitle from './components/EditableChapterTitle';
 
 import { createLogger } from '@/utils/logger';
@@ -1099,8 +1100,13 @@ const FrontstageApp: React.FC = () => {
       const lastEvt = lastProgressEventRef.current;
       const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
 
-      const feTimeout = settings?.frontend_timeout_secs ?? 600;
-      const beTimeout = settings?.smart_execute_total_timeout_secs ?? 600;
+      // v0.30.4: 创世路径前端实际用 beTimeout+30s，诊断卡片如实反映。
+      const isBootstrapDiag = genesisDeliveryRef.current !== 'idle';
+      const beTimeoutDiag = settings?.smart_execute_total_timeout_secs ?? 600;
+      const feTimeout = isBootstrapDiag
+        ? beTimeoutDiag + 30
+        : (settings?.frontend_timeout_secs ?? 600);
+      const beTimeout = beTimeoutDiag;
       const firstChunkTimeout = settings?.llm_first_chunk_timeout_secs ?? 180;
       const connectTimeout = settings?.llm_connect_timeout_secs ?? 60;
       const promptText = lastLlmPromptRef.current;
@@ -1318,15 +1324,26 @@ const FrontstageApp: React.FC = () => {
   // 覆盖：smart_execute 挂死、activity 残留、前端超时未触发等路径。
   useEffect(() => {
     if (!isGenerating) return;
-    const timeoutSecs = settings?.frontend_timeout_secs ?? 600;
+    // v0.30.4: 创世路径前端 = 后端 + 30s 缓冲，与 handleSmartGeneration 主超时一致。
+    // genesisDeliveryRef 三态（idle/generating/delivered）在创世窗口内 !== 'idle' 为 true。
+    const isBootstrapInProgress = genesisDeliveryRef.current !== 'idle';
+    const timeoutSecs = watchdogTimeoutSeconds(
+      settings?.smart_execute_total_timeout_secs,
+      settings?.frontend_timeout_secs,
+      isBootstrapInProgress
+    );
     const timeoutMs = Math.max(timeoutSecs, 60) * 1000;
     const startedAt = diagnosticStartTimeRef.current || Date.now();
     const remaining = Math.max(1000, timeoutMs - (Date.now() - startedAt));
     const timer = setTimeout(() => {
       if (!useGenerationStore.getState().isGenerating) return;
       const msg = `前端看门狗超时：生成状态已持续超过 ${timeoutSecs} 秒仍未结束。请检查模型服务是否正常，或取消后重试。`;
-      frontstageLogger.error('[isGenerating-watchdog]', { timeoutSecs, msg });
-      logToBackend('frontstage:isGenerating_watchdog', msg, { timeoutSecs });
+      frontstageLogger.error('[isGenerating-watchdog]', {
+        timeoutSecs,
+        msg,
+        isBootstrapInProgress,
+      });
+      logToBackend('frontstage:isGenerating_watchdog', msg, { timeoutSecs, isBootstrapInProgress });
       useBackendActivityStore.getState().failAllRunning(msg);
       smartExecuteInFlightRef.current = false;
       smartExecuteNeedDiagnosticRef.current = false;
@@ -1342,7 +1359,13 @@ const FrontstageApp: React.FC = () => {
       });
     }, remaining);
     return () => clearTimeout(timer);
-  }, [isGenerating, settings?.frontend_timeout_secs, captureDiagnosticInfo, stopElapsedTimer]);
+  }, [
+    isGenerating,
+    settings?.frontend_timeout_secs,
+    settings?.smart_execute_total_timeout_secs,
+    captureDiagnosticInfo,
+    stopElapsedTimer,
+  ]);
 
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {
@@ -3792,8 +3815,14 @@ const FrontstageApp: React.FC = () => {
 
       // v0.24.8: 默认超时上调，本地大模型首次加载/慢生成场景更稳健。
       // 数值从 settings 读取，未设置时使用新默认值。
-      const timeoutSeconds = settings?.frontend_timeout_secs ?? 600;
+      // v0.30.4: 创世路径前端 = 后端 + 30s 缓冲，保证后端先返回错误并落终态
+      // （避免前端先杀后端导致创世被 CANCELLATION 砍掉无产出 + 僵尸 run 卡死故事）。
       const beTimeoutSeconds = settings?.smart_execute_total_timeout_secs ?? 600;
+      const timeoutSeconds = genesisMainTimeoutSeconds(
+        settings?.smart_execute_total_timeout_secs,
+        settings?.frontend_timeout_secs,
+        isBootstrap
+      );
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
