@@ -1,17 +1,24 @@
-# StoryMoss (草苔) v0.30.8 项目完成状态
+# StoryMoss (草苔) v0.30.9 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.8 全面修复 nullable 列读取--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）
+> 最后更新: 2026-07-20（v0.30.9 修复续写返回 Inspector 审查模板而非正文--inspector draft 空内容兜底注入）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
 
 ## 🚧 当前迭代
 
-- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）+ P5（持续学习双轨：observations.jsonl 观察层 + 后台 analyzer + instinct 文件层 / 置信度引擎 / ≥0.8 跨 story 晋升物化 skill.yaml / 学习中心页 / 代理工作室页 / eval CI 门禁）已完成。除真机验收外 P1–P5 已完成，框架收官。**v0.30.1 创世提速（Genesis Fastpath）已发布**：创世压缩为三阶段 4 次 LLM 调用（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟；主创模型优先（多模型时 Tool 档排除 active/creative，单模型时主创先出首章）；单调用解析失败自动回退 legacy 串行流程，取消信号不误入回退；smart_execute 超时回退统一 600s。
+- **Agency 多代理创作框架**：P1（多代理框架骨架）+ P2（质量门 / 并发与 token 预算 / 并行稳态循环 / request_id 定点取消 / 续写循环 / 资产落库 / smart_execute 切换与旧 GenesisPipeline 移除）+ P3（角色×任务模型路由 / 全局 LLM 并发闸门 / 注入 token 预算与黑板三档目录 / agency_sessions 会话快照 / agency_resume_run 跨会话恢复 / V109 并发护栏）+ P4（code/rule/model/human 四级 grader / Gate v2 加权评分阈值 0.75 / V110 里程碑检查点与对比 / eval harness 与 baseline 回归门 / 评估仪表盘页）+ P5（持续学习双轨：observations.jsonl 观察层 + 后台 analyzer + instinct 文件层 / 置信度引擎 / ≥0.8 跨 story 晋升物化 skill.yaml / 学习中心页 / 代理工作室页 / eval CI 门禁）已完成。除真机验收外 P1–P5 已完成，框架收官。**v0.30.1 创世提速（Genesis Fastpath）已发布**：创世压缩为三阶段 4 次 LLM 调用（概念包 -> 主创首章 ∥ 管理深度资产 -> 编辑质量门），典型远程模型首章 ≤3 分钟；主创模型优先（多模型时 Tool 档排除 active/creative，单模型时主创先出首章）；单调用解析失败自动回退 legacy 串行流程，取消信号不误入回退；smart_execute 超时回退统一 600s。
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.9 - 续写返回 Inspector 审查模板修复（draft 空内容兜底注入）（2026-07-20）
+
+- **根因**：legacy planner 的 LLM 生成的 ExecutionPlan 中 inspector 步骤常遗漏 `"draft": "{{step_N}}"` 参数。`execute_inspector` 仅从 `params["draft"]` 读取待检查正文，缺失时 `task.input` 为空串，`build_inspector_prompt` 渲染出"【待检查内容】部分为空"的模板文本，Inspector 直接将该模板作为"审查结果"返回，用户看到审查模板而非续写正文。
+- **Fix A（主修复·executor.rs）**：`resolved_params` 块新增 inspector draft 兜底注入--当 `capability_id == "inspector"` 且 `draft` 为空时，按 `depends_on` 顺序查找 writer 步骤的 `step_outputs["content"]`，找不到则扫描全部 `step_outputs`，自动注入非空 content 作为 `draft`。提取为可测静态方法 `inject_inspector_draft_fallback`。
+- **Fix B（提示词·mod.rs）**：planner 提示词 Rule 9 强化--明确要求 inspector 必须使用 `"draft": "{{step_id}}"` 传参；JSON 示例增加 inspector 步骤示范 `"draft": "{{step_1}}"` + `depends_on: ["step_1"]`。
+- ✅ **验证**：`cargo test --lib` 924 passed（+5：inspector draft 兜底注入 5 场景）；fmt / clippy 无新增告警。
 
 ### v0.30.8 - 全面修复 nullable 列读取（Invalid column type Null 系列）（2026-07-20）
 

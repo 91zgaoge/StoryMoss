@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-20（v0.30.8 全面修复 nullable 列读取--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）
+> 最后更新: 2026-07-20（v0.30.9 修复续写返回 Inspector 审查模板而非正文--inspector draft 空内容兜底注入）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.9 - 续写返回 Inspector 审查模板修复 ✅ (2026-07-20)
+
+- [x] **Fix A（executor.rs）**：inspector draft 兜底注入--当 `capability_id == "inspector"` 且 `draft` 为空时，按 `depends_on` 顺序查找 writer 步骤的 `step_outputs["content"]`，找不到则扫描全部 `step_outputs`，自动注入非空 content 作为 `draft`。
+- [x] **Fix B（mod.rs）**：planner 提示词 Rule 9 强化--inspector 必须使用 `"draft": "{{step_id}}"` 传参；JSON 示例增加 inspector 步骤示范。
+- [x] 验证：`cargo test --lib` 924 passed（+5：inspector draft 兜底注入 5 场景）；fmt / clippy 无新增告警。
 
 ### 🤝 v0.30.4 - 幕前输入历史持久化 ✅ (2026-07-20)
 

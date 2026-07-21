@@ -472,6 +472,37 @@ impl PlanExecutor {
                                 }
                             }
                         }
+
+                        // v0.30.9: Inspector 兜底注入 draft -- LLM 生成的 plan 常遗漏
+                        // "draft": "{{step_N}}" 参数，导致 inspector 收到空内容并返回
+                        // 审查模板而非正文。当 draft 为空时，按 depends_on 顺序查找
+                        // writer 步骤的 content，找不到则扫描全部 step_outputs。
+                        if step.capability_id == "inspector" {
+                            let injected = Self::inject_inspector_draft_fallback(
+                                &mut rp,
+                                &step.depends_on,
+                                &outputs,
+                            );
+                            if injected {
+                                log::info!(
+                                    "[PlanExecutor] Inspector step {} draft 为空，自动注入依赖步骤的 writer 输出",
+                                    step.step_id
+                                );
+                            } else {
+                                let draft_empty = rp
+                                    .get("draft")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.is_empty())
+                                    .unwrap_or(true);
+                                if draft_empty {
+                                    log::warn!(
+                                        "[PlanExecutor] Inspector step {} draft 为空且未找到任何 writer 步骤输出，inspector 将收到空内容",
+                                        step.step_id
+                                    );
+                                }
+                            }
+                        }
+
                         rp
                     };
 
@@ -784,6 +815,56 @@ impl PlanExecutor {
         }
 
         resolved
+    }
+
+    /// v0.30.9: Inspector draft 兜底注入 -- LLM 生成的 plan 常遗漏
+    /// `"draft": "{{step_N}}"` 参数，导致 inspector 收到空内容并返回审查模板
+    /// 而非正文。当 inspector 的 draft 为空时，按 depends_on 顺序查找 writer
+    /// 步骤的 content，找不到则扫描全部 step_outputs。返回 true 表示已注入。
+    fn inject_inspector_draft_fallback(
+        rp: &mut HashMap<String, serde_json::Value>,
+        depends_on: &[String],
+        outputs: &HashMap<String, serde_json::Value>,
+    ) -> bool {
+        let draft_empty = rp
+            .get("draft")
+            .and_then(|v| v.as_str())
+            .map(|s| s.is_empty())
+            .unwrap_or(true);
+        if !draft_empty {
+            return false;
+        }
+
+        let mut found_content: Option<String> = None;
+        // 优先从 depends_on 指定的 step_id 查找
+        for dep in depends_on {
+            if let Some(out) = outputs.get(dep) {
+                if let Some(c) = out.get("content").and_then(|v| v.as_str()) {
+                    if !c.is_empty() {
+                        found_content = Some(c.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        // 兜底：扫描全部 step_outputs 找非空 content
+        if found_content.is_none() {
+            for (_sid, out) in outputs.iter() {
+                if let Some(c) = out.get("content").and_then(|v| v.as_str()) {
+                    if !c.is_empty() {
+                        found_content = Some(c.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(content) = found_content {
+            rp.insert("draft".to_string(), serde_json::Value::String(content));
+            true
+        } else {
+            false
+        }
     }
 
     async fn execute_create_story(
@@ -2012,5 +2093,88 @@ mod tests {
             resolved.get("text").unwrap().as_str().unwrap(),
             "{{missing}}"
         );
+    }
+
+    // v0.30.9: Inspector draft 兜底注入测试
+
+    fn make_step_output(content: &str) -> serde_json::Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "content".to_string(),
+            serde_json::Value::String(content.to_string()),
+        );
+        serde_json::Value::Object(obj)
+    }
+
+    #[test]
+    fn test_inspector_draft_fallback_injects_from_depends_on() {
+        let mut rp = HashMap::new();
+        // inspector 没有 draft 参数
+        let mut outputs = HashMap::new();
+        outputs.insert("step_1".to_string(), make_step_output("第一章正文内容"));
+
+        let depends_on = vec!["step_1".to_string()];
+        let injected =
+            PlanExecutor::inject_inspector_draft_fallback(&mut rp, &depends_on, &outputs);
+
+        assert!(injected);
+        assert_eq!(rp.get("draft").unwrap().as_str().unwrap(), "第一章正文内容");
+    }
+
+    #[test]
+    fn test_inspector_draft_fallback_skips_when_draft_present() {
+        let mut rp = HashMap::new();
+        rp.insert(
+            "draft".to_string(),
+            serde_json::Value::String("已有草稿".to_string()),
+        );
+        let outputs = HashMap::new();
+
+        let injected = PlanExecutor::inject_inspector_draft_fallback(&mut rp, &[], &outputs);
+
+        assert!(!injected);
+        assert_eq!(rp.get("draft").unwrap().as_str().unwrap(), "已有草稿");
+    }
+
+    #[test]
+    fn test_inspector_draft_fallback_scans_all_outputs_when_dep_not_found() {
+        let mut rp = HashMap::new();
+        let mut outputs = HashMap::new();
+        // depends_on 指向不存在的 step_99，但 step_1 有内容
+        outputs.insert("step_1".to_string(), make_step_output("扫描兜底内容"));
+
+        let depends_on = vec!["step_99".to_string()];
+        let injected =
+            PlanExecutor::inject_inspector_draft_fallback(&mut rp, &depends_on, &outputs);
+
+        assert!(injected);
+        assert_eq!(rp.get("draft").unwrap().as_str().unwrap(), "扫描兜底内容");
+    }
+
+    #[test]
+    fn test_inspector_draft_fallback_no_content_returns_false() {
+        let mut rp = HashMap::new();
+        let outputs = HashMap::new();
+
+        let injected = PlanExecutor::inject_inspector_draft_fallback(&mut rp, &[], &outputs);
+
+        assert!(!injected);
+        assert!(rp.get("draft").is_none());
+    }
+
+    #[test]
+    fn test_inspector_draft_fallback_skips_empty_content() {
+        let mut rp = HashMap::new();
+        let mut outputs = HashMap::new();
+        outputs.insert("step_1".to_string(), make_step_output(""));
+
+        let injected = PlanExecutor::inject_inspector_draft_fallback(
+            &mut rp,
+            &["step_1".to_string()],
+            &outputs,
+        );
+
+        assert!(!injected);
+        assert!(rp.get("draft").is_none());
     }
 }
