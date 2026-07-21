@@ -188,6 +188,20 @@ pub struct LoopResult {
     pub output: String,
     pub turns: Vec<LoopTurn>,
     pub aborted: bool,
+    /// v0.30.4: 熔断主因。让 coordinator 识别 deadline 熔断后快速失败，
+    /// 而非回退 legacy writer_prose_fallback（后者单调用也会顶满超时无产出）。
+    pub abort_reason: Option<LoopAbortReason>,
+}
+
+/// tool_loop 熔断主因（v0.30.4）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopAbortReason {
+    /// run 级 deadline 剩余 <30s 或已过，熔断保产出
+    Deadline,
+    /// 连续解析失败（模型未按 JSON action 格式输出）
+    ParseFailures,
+    /// 达到最大轮数
+    MaxTurns,
 }
 
 const MAX_CONSECUTIVE_PARSE_FAILURES: usize = 3;
@@ -222,6 +236,9 @@ pub struct ToolLoop {
     llm: Arc<dyn LoopLlm>,
     registry: Arc<ToolRegistry>,
     max_turns: usize,
+    /// v0.30.4: run 级 deadline（smart_execute 整体超时）。每轮开始检查，
+    /// 剩余 <30s 时熔断保产出，避免硬超时砍掉无结果。None 表示不限制。
+    deadline: Option<std::time::Instant>,
 }
 
 impl ToolLoop {
@@ -230,11 +247,18 @@ impl ToolLoop {
             llm,
             registry,
             max_turns: 8,
+            deadline: None,
         }
     }
 
     pub fn with_max_turns(mut self, max_turns: usize) -> Self {
         self.max_turns = max_turns;
+        self
+    }
+
+    /// v0.30.4: 设置 run 级 deadline，每轮检查剩余时间。
+    pub fn with_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
+        self.deadline = deadline;
         self
     }
 
@@ -261,6 +285,41 @@ impl ToolLoop {
         let mut parse_failures = 0usize;
 
         for turn_idx in 0..self.max_turns {
+            // v0.30.4: deadline 检查--剩余 <30s 时熔断保产出，避免硬超时
+            // （smart_execute tokio::time::timeout）砍掉无结果。此前 writer
+            // tool_loop 在第 7 轮 LLM 连接超时 60s×4 候选=240s，刚好顶满
+            // 600s 整体超时，前端 CANCELLATION 杀掉后端无产出。
+            if let Some(d) = self.deadline {
+                let now = std::time::Instant::now();
+                if now >= d {
+                    log::warn!(
+                        "agency tool_loop: {:?} deadline 已过，熔断保产出，总轮次 {}",
+                        role,
+                        turns.len()
+                    );
+                    return Ok(LoopResult {
+                        output: "（剩余时间不足，已熔断保产出）".to_string(),
+                        turns,
+                        aborted: true,
+                        abort_reason: Some(LoopAbortReason::Deadline),
+                    });
+                }
+                let remaining = d.duration_since(now);
+                if remaining.as_secs() < 30 {
+                    log::warn!(
+                        "agency tool_loop: {:?} deadline 熔断（剩余 {}s < 30s），总轮次 {}",
+                        role,
+                        remaining.as_secs(),
+                        turns.len()
+                    );
+                    return Ok(LoopResult {
+                        output: "（剩余时间不足，已熔断保产出）".to_string(),
+                        turns,
+                        aborted: true,
+                        abort_reason: Some(LoopAbortReason::Deadline),
+                    });
+                }
+            }
             let conversation = truncate_conversation(&head, &tail, ctx.max_context_chars());
             let raw = self
                 .llm
@@ -284,6 +343,7 @@ impl ToolLoop {
                         output: content,
                         turns,
                         aborted: false,
+                        abort_reason: None,
                     });
                 }
                 Ok((LoopAction::Tool { name, args }, hint)) => {
@@ -350,6 +410,7 @@ impl ToolLoop {
                             output: "（代理连续输出非法格式，已熔断）".to_string(),
                             turns,
                             aborted: true,
+                            abort_reason: Some(LoopAbortReason::ParseFailures),
                         });
                     }
                 }
@@ -364,13 +425,18 @@ impl ToolLoop {
             output: "（达到最大轮数，已熔断）".to_string(),
             turns,
             aborted: true,
+            abort_reason: Some(LoopAbortReason::MaxTurns),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        sync::Mutex,
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use crate::{
@@ -668,5 +734,95 @@ mod tests {
             .unwrap();
         assert!(result.aborted);
         assert_eq!(result.turns.len(), 2);
+        // v0.30.4: 达到最大轮数 -> MaxTurns 主因
+        assert_eq!(result.abort_reason, Some(LoopAbortReason::MaxTurns));
+    }
+
+    /// v0.30.4: deadline 已过 -> 第 1 轮即熔断保产出，aborted + Deadline 主因，
+    /// 未消耗任何 LLM 响应（turns 空）。
+    #[tokio::test]
+    async fn test_loop_deadline_already_past_aborts_immediately() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec![r#"{"type":"final","content":"不应到达"}"#]);
+        let lp = ToolLoop::new(llm, registry)
+            .with_max_turns(4)
+            .with_deadline(Some(Instant::now() - Duration::from_secs(1)));
+        let result = lp
+            .run(AgentRole::LeadWriter, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(result.aborted);
+        assert_eq!(result.abort_reason, Some(LoopAbortReason::Deadline));
+        assert!(result.turns.is_empty(), "deadline 已过应在调用 LLM 前熔断");
+        assert!(result.output.contains("剩余时间不足"));
+    }
+
+    /// v0.30.4: deadline 剩余 <30s -> 第 1 轮即熔断（<30s 阈值，不调用 LLM）。
+    #[tokio::test]
+    async fn test_loop_deadline_under_30s_aborts() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec![r#"{"type":"final","content":"不应到达"}"#]);
+        let lp = ToolLoop::new(llm, registry)
+            .with_max_turns(4)
+            .with_deadline(Some(Instant::now() + Duration::from_secs(10)));
+        let result = lp
+            .run(AgentRole::LeadWriter, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(result.aborted);
+        assert_eq!(result.abort_reason, Some(LoopAbortReason::Deadline));
+        assert!(result.turns.is_empty());
+    }
+
+    /// v0.30.4: deadline 剩余充裕（60s）-> 不触发 deadline 熔断，正常跑到
+    /// max_turns（MaxTurns 主因）。证明 deadline 检查未误杀正常路径。
+    #[tokio::test]
+    async fn test_loop_deadline_ample_does_not_abort() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec![
+            r#"{"type":"tool","name":"story_info","args":{}}"#,
+            r#"{"type":"tool","name":"story_info","args":{}}"#,
+            r#"{"type":"tool","name":"story_info","args":{}}"#,
+        ]);
+        let lp = ToolLoop::new(llm, registry)
+            .with_max_turns(2)
+            .with_deadline(Some(Instant::now() + Duration::from_secs(60)));
+        let result = lp
+            .run(AgentRole::Producer, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(result.aborted);
+        // 跑满 2 轮 -> MaxTurns，而非 Deadline
+        assert_eq!(result.abort_reason, Some(LoopAbortReason::MaxTurns));
+        assert_eq!(result.turns.len(), 2);
+    }
+
+    /// v0.30.4: 连续解析失败 -> ParseFailures 主因（供 circuit_break_reason
+    /// 识别）。
+    #[tokio::test]
+    async fn test_loop_parse_failures_sets_abort_reason() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec!["不是 JSON", "还不是", "依然不是"]);
+        let lp = ToolLoop::new(llm, registry);
+        let result = lp
+            .run(AgentRole::Producer, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(result.aborted);
+        assert_eq!(result.abort_reason, Some(LoopAbortReason::ParseFailures));
+    }
+
+    /// v0.30.4: 正常 final 完成 -> aborted=false + abort_reason=None。
+    #[tokio::test]
+    async fn test_loop_final_success_has_no_abort_reason() {
+        let (ctx, registry) = setup();
+        let llm = MockLlm::scripted(vec![r#"{"type":"final","content":"完成"}"#]);
+        let lp = ToolLoop::new(llm, registry);
+        let result = lp
+            .run(AgentRole::Producer, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert!(!result.aborted);
+        assert_eq!(result.abort_reason, None);
     }
 }

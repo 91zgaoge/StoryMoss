@@ -582,6 +582,21 @@ pub struct DepthAssets {
     pub foreshadowing: Vec<serde_json::Value>,
 }
 
+/// 资产检索规划（v0.30.4）：writer tool_loop 前置单调用，让 LLM 从资产区
+/// catalog 中选出本章写作必需的 key，消除 writer 多轮 board_read 轮询。
+/// keys 带别名兼容本地模型变体键（selected/needed/assets/required）。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RetrievalPlan {
+    #[serde(
+        default,
+        alias = "selected",
+        alias = "needed",
+        alias = "assets",
+        alias = "required"
+    )]
+    pub keys: Vec<String>,
+}
+
 /// 伏笔条目归一化：字符串直取；对象取 description/text/content 字段；
 /// 其他形态序列化为 JSON 文本。
 fn normalize_foreshadowing(v: &serde_json::Value) -> String {
@@ -607,22 +622,38 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
 
 /// 熔断主因判定：末三轮均解析失败（action=None）→ "连续解析失败"；
 /// 否则 "达到最大轮数"。（解析失败连续 3 次即熔断，故末三轮全败 ⇔ 解析熔断。）
-fn circuit_break_reason(turns: &[crate::agency::tool_loop::LoopTurn]) -> &'static str {
-    let last3_all_failed =
-        turns.len() >= 3 && turns[turns.len() - 3..].iter().all(|t| t.action.is_none());
-    if last3_all_failed {
-        "连续解析失败"
-    } else {
-        "达到最大轮数"
+/// 熔断主因判定（v0.30.4）：优先看 `abort_reason`（tool_loop 显式设置），
+/// 识别 deadline 熔断让 coordinator 快速失败而非回退 legacy；兜底用末三轮
+/// 解析失败启发式（向后兼容未设置 abort_reason 的路径）。
+fn circuit_break_reason(result: &crate::agency::tool_loop::LoopResult) -> &'static str {
+    use crate::agency::tool_loop::LoopAbortReason;
+    match result.abort_reason {
+        Some(LoopAbortReason::Deadline) => "剩余时间不足",
+        Some(LoopAbortReason::ParseFailures) => "连续解析失败",
+        Some(LoopAbortReason::MaxTurns) => "达到最大轮数",
+        None => {
+            // 兜底启发式：末三轮均解析失败（action=None）-> "连续解析失败"；
+            // 否则 "达到最大轮数"。
+            let turns = &result.turns;
+            let last3_all_failed =
+                turns.len() >= 3 && turns[turns.len() - 3..].iter().all(|t| t.action.is_none());
+            if last3_all_failed {
+                "连续解析失败"
+            } else {
+                "达到最大轮数"
+            }
+        }
     }
 }
 
 /// 熔断错误消息：带主因与排查指引。
 fn circuit_break_message(role: &str, what: &str, reason: &str) -> String {
-    let detail = if reason == "连续解析失败" {
-        "模型未按 JSON action 格式输出"
-    } else {
-        "模型未在限定轮数内完成任务"
+    let detail = match reason {
+        "连续解析失败" => "模型未按 JSON action 格式输出",
+        "剩余时间不足" => {
+            "run 级 deadline 触发，已熔断保产出（请调高超时上限或换更快的模型）"
+        }
+        _ => "模型未在限定轮数内完成任务",
     };
     format!(
         "{} 被熔断（{}），{}。{}，详见 run 日志。",
@@ -655,6 +686,10 @@ pub struct AgencyCoordinator {
     /// 生成模型数注入（测试用）：Some 时 generative_model_count 直接返回，
     /// 不读 AppConfig。
     model_count_override: Option<usize>,
+    /// v0.30.4: 当前 run 的整体 deadline（smart_execute 整体超时）。
+    /// tool_loop 每轮检查，剩余 <30s 时熔断保产出，避免硬超时砍掉无结果。
+    /// None 表示不限制（测试/无超时场景）。run_genesis_with_sink 入口设置。
+    run_deadline: Mutex<Option<std::time::Instant>>,
 }
 
 impl AgencyCoordinator {
@@ -665,6 +700,7 @@ impl AgencyCoordinator {
             llm: None,
             progress_sink: Mutex::new(None),
             model_count_override: None,
+            run_deadline: Mutex::new(None),
         }
     }
 
@@ -676,6 +712,7 @@ impl AgencyCoordinator {
             llm: Some(llm),
             progress_sink: Mutex::new(None),
             model_count_override: None,
+            run_deadline: Mutex::new(None),
         }
     }
 
@@ -895,6 +932,7 @@ impl AgencyCoordinator {
             llm: self.llm.clone(),
             progress_sink: Mutex::new(None),
             model_count_override: self.model_count_override,
+            run_deadline: Mutex::new(None),
         }
     }
 
@@ -1088,7 +1126,33 @@ impl AgencyCoordinator {
         sink: Option<ProgressSink>,
     ) -> Result<AgencyGenesisResult, AppError> {
         *self.progress_sink.lock().unwrap_or_else(|p| p.into_inner()) = sink;
+        // v0.30.4: 设置 run 级 deadline（smart_execute 整体超时），tool_loop
+        // 每轮检查，剩余 <30s 时熔断保产出。测试环境（无 app_handle）跳过。
+        self.setup_run_deadline();
         self.run_genesis(run_id, premise).await
+    }
+
+    /// 从 AppConfig 读取 smart_execute_total_timeout_secs 设置 run deadline。
+    /// 无 app_handle（测试环境）或读取失败时 deadline 保持 None（不限制）。
+    fn setup_run_deadline(&self) {
+        let Some(app) = &self.app_handle else {
+            return;
+        };
+        let app_dir = match app.path().app_data_dir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let total_timeout = crate::config::AppConfig::load(&app_dir)
+            .map(|c| c.smart_execute_total_timeout_secs)
+            .unwrap_or(600u64);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(total_timeout);
+        *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner()) = Some(deadline);
+        log::warn!("agency: run deadline 设置为 {}s 后", total_timeout);
+    }
+
+    /// 读取当前 run deadline（tool_loop 每轮检查用）。None 表示不限制。
+    fn current_deadline(&self) -> Option<std::time::Instant> {
+        *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// 代理活动事件（agency-agent-activity）：角色开始/完成某动作。
@@ -1496,6 +1560,122 @@ impl AgencyCoordinator {
         .await
     }
 
+    /// 资产检索规划（v0.30.4）：单次 LLM 调用，输入 premise + 资产区 catalog
+    /// （key+summary），输出本章写作需要的资产 key 清单。失败兜底返回全部 key
+    /// （不阻断主流程）。30s 超时包裹，避免显著加重整体超时。
+    ///
+    /// 设计动机：writer tool_loop 此前在循环中盲目 board_read
+    /// 多轮试探（story_info -> asset catalog -> 各角色 full -> 世界观 full
+    /// -> outline...），每轮一次 LLM 调用 5-30s，本地模型连接超时时单轮可达
+    /// 60s×3 候选=180s，多轮叠加 易破 600s 整体超时。前置检索规划让 writer
+    /// 第一轮就拿到核心资产全文， 消除轮询式 board_read，tool_loop 轮次从
+    /// 7-10 降到 1-2。
+    async fn asset_retrieval_plan(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+        asset_catalog: &[(String, String)],
+    ) -> Result<Vec<String>, AppError> {
+        // 资产少于等于 3 条时无需检索规划--全量注入即可，省一次 LLM 调用。
+        if asset_catalog.len() <= 3 {
+            return Ok(asset_catalog.iter().map(|(k, _)| k.clone()).collect());
+        }
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let catalog_str = asset_catalog
+            .iter()
+            .map(|(k, _s)| format!("- {}", k))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let user_prompt = format!(
+            "故事前提：{}\n\n可用资产 key 清单：\n{}\n\n\
+             任务：选出创作第一章正文必需的资产 key（通常包括主要角色卡、世界观、大纲；\
+             伏笔可选）。输出 JSON：{{\"keys\":[\"key1\",\"key2\"]}}",
+            premise, catalog_str
+        );
+        // 30s 超时包裹：检索规划失败不阻断主流程，兜底返回全部 key。
+        let raw_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            llm.complete_json(
+                "你是小说策划，只输出 JSON。",
+                &user_prompt,
+                TaskType::Analysis,
+                1024,
+            ),
+        )
+        .await;
+        match raw_result {
+            Ok(Ok(raw)) => {
+                if let Some(plan) = parse_lenient::<RetrievalPlan>(&raw) {
+                    if !plan.keys.is_empty() {
+                        return Ok(plan.keys);
+                    }
+                }
+                log::warn!("agency: retrieval plan 解析失败或为空，兜底全量资产");
+            }
+            Ok(Err(e)) => log::warn!("agency: retrieval plan LLM 失败，兜底全量资产: {}", e),
+            Err(_) => log::warn!("agency: retrieval plan 30s 超时，兜底全量资产"),
+        }
+        // 兜底：返回全部 key（保守读取，与"不增加 LLM 调用直接全量注入"等价）。
+        Ok(asset_catalog.iter().map(|(k, _)| k.clone()).collect())
+    }
+
+    /// 构造 writer 上下文（v0.30.4）：检索规划 -> 按 key 过滤资产 -> 拼接
+    /// assets_ctx（截断防爆上下文）。资产少于等于 3 条时跳过检索规划直接全量
+    /// 注入。返回空串表示资产区为空（writer 走原 tool_loop 路径）。
+    async fn build_writer_assets_context(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> String {
+        let board = self.board();
+        let rid = run_id.to_string();
+        let assets = match self
+            .db(move || board.list_zone(&rid, BoardZone::Asset))
+            .await
+        {
+            Ok(a) => a,
+            Err(e) => {
+                log::warn!("agency: 读取资产区失败，writer 走原 tool_loop 路径: {}", e);
+                return String::new();
+            }
+        };
+        if assets.is_empty() {
+            return String::new();
+        }
+        // 构造 catalog 给检索规划（key + summary）
+        let catalog: Vec<(String, String)> = assets
+            .iter()
+            .map(|a| (a.key.clone(), a.summary.clone()))
+            .collect();
+        // 调用检索规划（30s 超时，失败兜底全量）
+        let selected_keys = self
+            .asset_retrieval_plan(run_id, story_id, premise, budget, &catalog)
+            .await
+            .unwrap_or_else(|_| catalog.iter().map(|(k, _)| k.clone()).collect());
+        // 按 keys 过滤 + 拼接（截断防爆上下文，预算 8000 字符，留给正文生成）
+        let mut ctx = String::new();
+        for a in &assets {
+            if !selected_keys.iter().any(|k| k == &a.key) {
+                continue;
+            }
+            let line = format!("【{}·{}】{}\n", a.item_type, a.key, a.content);
+            if ctx.chars().count() + line.chars().count() > 8000 {
+                ctx.push_str("…（更多资产已省略，可用 board_read 补读）");
+                break;
+            }
+            ctx.push_str(&line);
+        }
+        ctx
+    }
+
     /// 首章单调用（LeadWriter 档）：只输出正文；文本为空或 <200 字符视为
     /// 失败（触发外层回退 legacy）。成功则以 LeadWriter 身份写入 draft 区
     /// （item_type=chapter, key=第1章）并返回该条目。
@@ -1737,7 +1917,7 @@ impl AgencyCoordinator {
             return Err(AppError::from(circuit_break_message(
                 "管理 Agent",
                 "资产生产未完成",
-                circuit_break_reason(&producer_out.turns),
+                circuit_break_reason(&producer_out),
             )));
         }
         self.check_cancel(cancel)?;
@@ -1769,12 +1949,38 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "writing").await?;
         self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
         self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
-        let writer_out = self.run_role_with_llm_and_budget(
-            budget, AgentRole::LeadWriter, &board, &registry, run_id, &story_id, premise,
-            "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
-        ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
+        // v0.30.4: 前置资产检索规划 + 预注入核心资产全文，消除 writer 多轮
+        // board_read 轮询（此前 7-10 轮，本地模型连接超时时单轮 180s，易破
+        // 600s 整体超时）。资产已注入后 writer 倾向第一轮直接 board_write + final。
+        let assets_ctx = self
+            .build_writer_assets_context(run_id, &story_id, premise, budget)
+            .await;
+        let writer_task = if assets_ctx.is_empty() {
+            // 资产区为空或读取失败：退回原 task（让 writer 自行 board_read 探索）
+            "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。".to_string()
+        } else {
+            format!(
+                "基于已注入资产创作第一章正文（1500-2500 字）。\n\
+                 资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n\
+                 完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
+                assets_ctx
+            )
+        };
+        let writer_out = self
+            .run_role_with_llm_and_budget(
+                budget,
+                AgentRole::LeadWriter,
+                &board,
+                &registry,
+                run_id,
+                &story_id,
+                premise,
+                &writer_task,
+            )
+            .await
+            .map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
-            let reason = circuit_break_reason(&writer_out.turns);
+            let reason = circuit_break_reason(&writer_out);
             // 连续解析失败：本地模型写散文而非 JSON action -> 回退自由体散文
             // 单调用（与快速路径同模式），避免整 run 失败。
             if reason == "连续解析失败" {
@@ -1879,7 +2085,7 @@ impl AgencyCoordinator {
                         return Err(AppError::from(circuit_break_message(
                             "主创 Agent",
                             "修订轮未完成",
-                            circuit_break_reason(&revise_out.turns),
+                            circuit_break_reason(&revise_out),
                         )));
                     }
                     draft = self
@@ -2184,7 +2390,7 @@ impl AgencyCoordinator {
                     return Err(AppError::from(circuit_break_message(
                         "管理 Agent",
                         "资产补齐未完成",
-                        circuit_break_reason(&producer_out.turns),
+                        circuit_break_reason(&producer_out),
                     )));
                 }
                 let board_c = board.clone();
@@ -2225,7 +2431,7 @@ impl AgencyCoordinator {
             return Err(AppError::from(circuit_break_message(
                 "主创 Agent",
                 "本章未完成",
-                circuit_break_reason(&writer_out.turns),
+                circuit_break_reason(&writer_out),
             )));
         }
         // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
@@ -2300,7 +2506,7 @@ impl AgencyCoordinator {
                     return Err(AppError::from(circuit_break_message(
                         "主创 Agent",
                         "修订轮未完成",
-                        circuit_break_reason(&revise_out.turns),
+                        circuit_break_reason(&revise_out),
                     )));
                 }
                 // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
@@ -2899,6 +3105,7 @@ impl AgencyCoordinator {
     /// 角色驱动（委托自由函数 run_role_loop，与 'static GateRunner
     /// 共用同一逻辑）。 按角色创建生产 LLM（角色模型路由）；测试时
     /// llm_for_run 返回注入 mock。
+    /// v0.30.4: 读取 run_deadline 传给 run_role_loop，tool_loop 每轮检查。
     #[allow(clippy::too_many_arguments)]
     async fn run_role_with_llm_and_budget(
         &self,
@@ -2912,8 +3119,10 @@ impl AgencyCoordinator {
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
         let llm = self.llm_for_run(run_id, role, story_id);
+        let deadline = self.current_deadline();
         run_role_loop(
             &llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task,
+            deadline,
         )
         .await
     }
@@ -3030,6 +3239,7 @@ impl AgencyCoordinator {
 /// 纯依赖版角色驱动（从 run_role_with_llm_and_budget 提取）：
 /// spec/提示词解析/ToolContext/BudgetedLlm/ToolLoop，pool 显式传入，不依赖
 /// &self。
+/// v0.30.4: deadline 透传给 ToolLoop，每轮检查剩余时间，<30s 熔断保产出。
 #[allow(clippy::too_many_arguments)]
 async fn run_role_loop(
     llm: &Arc<dyn LoopLlm>,
@@ -3042,6 +3252,7 @@ async fn run_role_loop(
     story_id: &str,
     premise: &str,
     task: &str,
+    deadline: Option<std::time::Instant>,
 ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
     let spec = spec_for(role);
     let system_prompt = resolve_role_prompt_with_pool(pool, spec.prompt_id, premise).await;
@@ -3056,6 +3267,7 @@ async fn run_role_loop(
     let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
     ToolLoop::new(budgeted, registry.clone())
         .with_max_turns(spec.max_turns)
+        .with_deadline(deadline)
         .run(role, &ctx, &system_prompt, task)
         .await
 }
@@ -3120,6 +3332,10 @@ async fn evaluate_gate_impl(
                 "审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。",
                 draft.key
             ),
+            // v0.30.4: editor 轮次少（6 轮）且在 writer 之后，deadline 已接近时
+            // editor 熔断会让整 run 失败；此处传 None 让 editor 跑完。
+            // 整体超时由 smart_execute 外层 tokio::time::timeout 兜底。
+            None,
         )
         .await
         .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
@@ -3128,7 +3344,7 @@ async fn evaluate_gate_impl(
                 reason: circuit_break_message(
                     "编辑审计 Agent",
                     "审查未完成",
-                    circuit_break_reason(&editor_out.turns),
+                    circuit_break_reason(&editor_out),
                 ),
             };
             record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
@@ -3933,9 +4149,248 @@ mod tests {
         assert!(result.chapter_chars >= 200);
     }
 
+    /// v0.30.4: asset_retrieval_plan 资产 ≤3 条时走短路，返回全部 key，
+    /// 不调用 LLM（省一次调用）。
+    #[tokio::test]
+    async fn test_asset_retrieval_plan_short_circuit_le3() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec![]); // 不应被调用
+        let coordinator = AgencyCoordinator::for_test(pool, llm.clone());
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let catalog = vec![
+            ("世界观".to_string(), "双星废土".to_string()),
+            ("阿岩".to_string(), "拾荒者".to_string()),
+            ("大纲".to_string(), "第一卷".to_string()),
+        ];
+        let keys = coordinator
+            .asset_retrieval_plan("r-sc", "s1", "前提", &budget, &catalog)
+            .await
+            .unwrap();
+        assert_eq!(keys, vec!["世界观", "阿岩", "大纲"]);
+        // 未消耗任何 LLM 响应
+        assert!(
+            llm.calls.lock().unwrap().is_empty(),
+            "≤3 条应短路，不调 LLM"
+        );
+    }
+
+    /// v0.30.4: asset_retrieval_plan 正常 JSON 路径--返回选中的 key。
+    #[tokio::test]
+    async fn test_asset_retrieval_plan_json_path() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec![r#"{"keys":["世界观","阿岩"]}"#]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let catalog: Vec<(String, String)> = (1..=5)
+            .map(|i| (format!("资产{}", i), format!("摘要{}", i)))
+            .collect();
+        let keys = coordinator
+            .asset_retrieval_plan("r-json", "s1", "前提", &budget, &catalog)
+            .await
+            .unwrap();
+        assert_eq!(keys, vec!["世界观", "阿岩"]);
+    }
+
+    /// v0.30.4: asset_retrieval_plan 散文兜底--模型返回非 JSON 时返回全部 key。
+    #[tokio::test]
+    async fn test_asset_retrieval_plan_prose_fallback() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec!["我觉得应该选世界观和主角，因为..."]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let catalog: Vec<(String, String)> = (1..=5)
+            .map(|i| (format!("资产{}", i), format!("摘要{}", i)))
+            .collect();
+        let keys = coordinator
+            .asset_retrieval_plan("r-prose", "s1", "前提", &budget, &catalog)
+            .await
+            .unwrap();
+        assert_eq!(keys.len(), 5, "散文兜底应返回全部 key");
+    }
+
+    /// v0.30.4: asset_retrieval_plan 别名兼容--本地模型用 "selected" 键名。
+    #[tokio::test]
+    async fn test_asset_retrieval_plan_alias_compat() {
+        let pool = create_test_pool().unwrap();
+        let llm = MockLlm::scripted(vec![r#"{"selected":["资产1","资产3"]}"#]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let catalog: Vec<(String, String)> = (1..=5)
+            .map(|i| (format!("资产{}", i), format!("摘要{}", i)))
+            .collect();
+        let keys = coordinator
+            .asset_retrieval_plan("r-alias", "s1", "前提", &budget, &catalog)
+            .await
+            .unwrap();
+        assert_eq!(keys, vec!["资产1", "资产3"]);
+    }
+
+    /// v0.30.4: build_writer_assets_context 资产区为空 -> 返回空串（writer
+    /// 走原 tool_loop 路径）。
+    #[tokio::test]
+    async fn test_build_writer_assets_context_empty() {
+        let pool = create_test_pool().unwrap();
+        AgencyRepository::new(pool.clone())
+            .create_run(&AgencyRun::new("r-empty", "前提"))
+            .unwrap();
+        let llm = MockLlm::scripted(vec![]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let ctx = coordinator
+            .build_writer_assets_context("r-empty", "s1", "前提", &budget)
+            .await;
+        assert!(ctx.is_empty(), "空资产区应返回空串");
+    }
+
+    /// v0.30.4: build_writer_assets_context ≤3 条短路全量注入，按检索规划
+    /// 过滤拼接。
+    #[tokio::test]
+    async fn test_build_writer_assets_context_filters_by_plan() {
+        let pool = create_test_pool().unwrap();
+        AgencyRepository::new(pool.clone())
+            .create_run(&AgencyRun::new("r-filt", "前提"))
+            .unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        // 写入 5 条资产（>3 触发检索规划）
+        for i in 1..=5 {
+            board
+                .write(
+                    "r-filt",
+                    "s1",
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    "character",
+                    &format!("资产{}", i),
+                    &format!("内容{}", i),
+                    &format!("摘要{}", i),
+                )
+                .unwrap();
+        }
+        // 检索规划只选资产1 和资产3
+        let llm = MockLlm::scripted(vec![r#"{"keys":["资产1","资产3"]}"#]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let ctx = coordinator
+            .build_writer_assets_context("r-filt", "s1", "前提", &budget)
+            .await;
+        assert!(ctx.contains("资产1"), "应含选中的资产1: {}", ctx);
+        assert!(ctx.contains("资产3"), "应含选中的资产3: {}", ctx);
+        assert!(!ctx.contains("资产2"), "不应含未选中的资产2: {}", ctx);
+        assert!(!ctx.contains("资产5"), "不应含未选中的资产5: {}", ctx);
+    }
+
+    /// v0.30.4: build_writer_assets_context 截断--资产总长超 8000 字符时
+    /// 截断并提示"更多资产已省略"。
+    #[tokio::test]
+    async fn test_build_writer_assets_context_truncates() {
+        let pool = create_test_pool().unwrap();
+        AgencyRepository::new(pool.clone())
+            .create_run(&AgencyRun::new("r-trunc", "前提"))
+            .unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        // 4 条资产，每条 3000 字符（>3 触发检索规划），总长 12000 > 8000
+        let long_content: String = "长".repeat(3000);
+        for i in 1..=4 {
+            board
+                .write(
+                    "r-trunc",
+                    "s1",
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    "character",
+                    &format!("资产{}", i),
+                    &long_content,
+                    &format!("摘要{}", i),
+                )
+                .unwrap();
+        }
+        // 检索规划全选（兜底全量也行，这里显式全选触发截断）
+        let llm = MockLlm::scripted(vec![r#"{"keys":["资产1","资产2","资产3","资产4"]}"#]);
+        let coordinator = AgencyCoordinator::for_test(pool, llm);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let ctx = coordinator
+            .build_writer_assets_context("r-trunc", "s1", "前提", &budget)
+            .await;
+        assert!(
+            ctx.contains("更多资产已省略"),
+            "超 8000 字符应截断并提示: ctx 长度 {}",
+            ctx.chars().count()
+        );
+        assert!(
+            ctx.chars().count() <= 8100,
+            "截断后 ctx 不应远超 8000: {}",
+            ctx.chars().count()
+        );
+    }
+
+    /// v0.30.4: circuit_break_reason 识别 deadline 熔断主因。deadline 熔断
+    /// 时返回"剩余时间不足"，coordinator writer 路径据此快速失败而非回退
+    /// legacy writer_prose_fallback（后者单调用也会顶满超时无产出）。
+    #[test]
+    fn test_circuit_break_reason_identifies_deadline() {
+        use crate::agency::tool_loop::{LoopAbortReason, LoopResult};
+        // deadline 熔断
+        let deadline_result = LoopResult {
+            output: "（剩余时间不足，已熔断保产出）".to_string(),
+            turns: vec![],
+            aborted: true,
+            abort_reason: Some(LoopAbortReason::Deadline),
+        };
+        assert_eq!(circuit_break_reason(&deadline_result), "剩余时间不足");
+        // 连续解析失败
+        let parse_result = LoopResult {
+            output: "（代理连续输出非法格式，已熔断）".to_string(),
+            turns: vec![],
+            aborted: true,
+            abort_reason: Some(LoopAbortReason::ParseFailures),
+        };
+        assert_eq!(circuit_break_reason(&parse_result), "连续解析失败");
+        // 达到最大轮数
+        let max_result = LoopResult {
+            output: "（达到最大轮数，已熔断）".to_string(),
+            turns: vec![],
+            aborted: true,
+            abort_reason: Some(LoopAbortReason::MaxTurns),
+        };
+        assert_eq!(circuit_break_reason(&max_result), "达到最大轮数");
+        // 兜底：None + 末三轮解析失败 -> "连续解析失败"（向后兼容）
+        let mut turns = vec![];
+        for _ in 0..3 {
+            turns.push(crate::agency::tool_loop::LoopTurn {
+                raw_response: String::new(),
+                action: None,
+                observation: None,
+            });
+        }
+        let legacy_result = LoopResult {
+            output: String::new(),
+            turns,
+            aborted: true,
+            abort_reason: None,
+        };
+        assert_eq!(
+            circuit_break_reason(&legacy_result),
+            "连续解析失败",
+            "None 兜底应走末三轮启发式"
+        );
+    }
+
+    /// v0.30.4: circuit_break_message 对 deadline 主因给出可读排查指引。
+    #[test]
+    fn test_circuit_break_message_deadline_detail() {
+        let msg = circuit_break_message("主创 Agent", "首章未完成", "剩余时间不足");
+        assert!(msg.contains("剩余时间不足"));
+        assert!(msg.contains("被熔断"));
+        assert!(
+            msg.contains("调高超时上限"),
+            "deadline 消息应含调高超时的指引: {}",
+            msg
+        );
+    }
+
     /// 结构化单调用（concept pack / depth assets）必须走 complete_json
-    /// （JSON mode），散文首章不走。单模型模式调用序确定：concept →
-    /// writer（散文） → depth assets → editor。
+    /// （JSON mode），散文首章不走。单模型模式调用序确定：concept ->
+    /// writer（散文） -> depth assets -> editor。
     #[tokio::test]
     async fn test_fastpath_structured_calls_use_json_mode() {
         let pool = create_test_pool().unwrap();

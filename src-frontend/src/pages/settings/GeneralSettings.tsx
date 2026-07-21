@@ -935,7 +935,7 @@ export function GeneralSettings({
                   <input
                     type="number"
                     min={30}
-                    max={600}
+                    max={1800}
                     value={timeoutValues.smart_execute_total_timeout_secs}
                     onChange={e =>
                       handleTimeoutChange(
@@ -961,7 +961,7 @@ export function GeneralSettings({
                   <input
                     type="number"
                     min={30}
-                    max={900}
+                    max={1800}
                     value={timeoutValues.frontend_timeout_secs}
                     onChange={e =>
                       handleTimeoutChange('frontend_timeout_secs', Number(e.target.value))
