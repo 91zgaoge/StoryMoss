@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.7 项目完成状态
+# StoryMoss (草苔) v0.30.8 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.7 修复续写计划执行失败--LLM 在 depends_on 混入上下文名 "Story Context" 导致整 plan 链式 not found）
+> 最后更新: 2026-07-20（v0.30.8 全面修复 nullable 列读取--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.8 - 全面修复 nullable 列读取（Invalid column type Null 系列）（2026-07-20）
+
+- **根因**：`world_buildings.cultures`（index 5）/ `rules`（index 3）在基础 schema 为 nullable TEXT，旧数据该列为 NULL，repository 用 `row.get(N)?` 读非空 `String` 即报 `Invalid column type Null`。与 v0.30.6 `dynamic_traits` NULL 同类。
+- **全面排查**：系统性审查全部 27 个 repository 文件，发现并修复所有 nullable 列被当作非空 `String` 读取的问题（共 8 个文件、31 处）：`world_building_repository` / `scene_repository`（× 4 方法）/ `scene_version_repository`（× 2 方法）/ `studio_config_repository` / `writing_style_repository` / `knowledge_graph_repository`（attributes × 4 / evidence × 2）/ `user_preference_repository`（6 列 × 2 方法）。全部改为 `Option<String>` + 兜底。
+- **迁移**：V112 回填 `world_buildings.cultures/rules`；V113 全面回填 scenes/scene_versions/studio_configs/writing_styles/kg_entities/kg_relations/user_preferences 所有 nullable JSON/TEXT 列。
+- ✅ **验证**：`cargo test --lib` 919 passed（+2）；fmt / architecture_guard 全绿。
 
 ### v0.30.7 - 计划执行失败修复（LLM 在 depends_on 写入上下文名）（2026-07-20）
 

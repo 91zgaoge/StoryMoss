@@ -135,11 +135,15 @@ impl SceneVersionRepository {
                 let conflict_type_str: Option<String> = row.get(7)?;
                 let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
 
-                let chars_json: String = row.get(8)?;
+                let chars_json: String = row
+                    .get::<_, Option<String>>(8)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let characters_present: Vec<String> =
                     serde_json::from_str(&chars_json).unwrap_or_default();
 
-                let conflicts_json: String = row.get(9)?;
+                let conflicts_json: String = row
+                    .get::<_, Option<String>>(9)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let character_conflicts: Vec<CharacterConflict> =
                     serde_json::from_str(&conflicts_json).unwrap_or_default();
 
@@ -199,11 +203,15 @@ impl SceneVersionRepository {
                 let conflict_type_str: Option<String> = row.get(7)?;
                 let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
 
-                let chars_json: String = row.get(8)?;
+                let chars_json: String = row
+                    .get::<_, Option<String>>(8)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let characters_present: Vec<String> =
                     serde_json::from_str(&chars_json).unwrap_or_default();
 
-                let conflicts_json: String = row.get(9)?;
+                let conflicts_json: String = row
+                    .get::<_, Option<String>>(9)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let character_conflicts: Vec<CharacterConflict> =
                     serde_json::from_str(&conflicts_json).unwrap_or_default();
 

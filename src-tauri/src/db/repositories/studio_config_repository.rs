@@ -91,14 +91,20 @@ impl StudioConfigRepository {
 
         let config = stmt
             .query_row([story_id], |row| {
-                let llm_json: String = row.get(3)?;
+                let llm_json: String = row
+                    .get::<_, Option<String>>(3)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let llm_config: LlmStudioConfig =
                     serde_json::from_str(&llm_json).unwrap_or_default();
 
-                let ui_json: String = row.get(4)?;
+                let ui_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let ui_config: UiStudioConfig = serde_json::from_str(&ui_json).unwrap_or_default();
 
-                let bots_json: String = row.get(5)?;
+                let bots_json: String = row
+                    .get::<_, Option<String>>(5)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let agent_bots: Vec<AgentBotConfig> =
                     serde_json::from_str(&bots_json).unwrap_or_default();
 

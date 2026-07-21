@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.8（2026-07-20）
+
+### 修复
+
+- **获取世界观失败：Invalid column type Null at index: 5, name: cultures**：续写小说时弹出 Fatal 诊断卡片，`world_buildings.cultures` 列为 NULL 导致读取失败。
+  - **根因**：与 v0.30.6 `dynamic_traits` NULL 同类问题。`world_buildings.cultures`（index 5）和 `rules`（index 3）在基础 schema 为 nullable TEXT（无 `NOT NULL`/`DEFAULT`），旧数据该列为 NULL，repository 用 `row.get(N)?` 读非空 `String` 即报 `Invalid column type Null`。
+  - **全面排查修复**：系统性审查全部 27 个 repository 文件，发现并修复所有 nullable 列被当作非空 `String` 读取的问题（共 8 个文件、31 处）：
+    - `world_building_repository.rs`：cultures（5）/ rules（3）-> `Option<String>` 兜底 `"[]"`
+    - `scene_repository.rs`：characters_present（7）/ character_conflicts（8）× 4 方法 -> `Option<String>` 兜底 `"[]"`
+    - `scene_version_repository.rs`：characters_present（8）/ character_conflicts（9）× 2 方法 -> 同上
+    - `studio_config_repository.rs`：llm_config（3）/ ui_config（4）/ agent_bots（5）-> 兜底 `"{}"` / `"[]"`
+    - `writing_style_repository.rs`：custom_rules（8）-> 兜底 `"[]"`
+    - `knowledge_graph_repository.rs`：attributes（4）× 4 方法 / evidence（6）× 2 方法 -> 兜底 `"{}"` / `"[]"`
+    - `user_preference_repository.rs`：preference_type / preference_key / preference_value / confidence / evidence_count / updated_at × 2 方法 -> `Option<>` 兜底默认值
+  - **迁移**：V112 回填 `world_buildings.cultures/rules NULL -> '[]'`；V113 全面回填 `scenes` / `scene_versions` / `studio_configs` / `writing_styles` / `kg_entities` / `kg_relations` / `user_preferences` 的所有 nullable JSON/TEXT 列。
+  - 验证：`cargo test --lib` 919 passed（+2：world_buildings NULL 兜底 + 合法 JSON 解析）；fmt / architecture_guard 全绿。
+
 ## v0.30.7（2026-07-20）
 
 ### 修复

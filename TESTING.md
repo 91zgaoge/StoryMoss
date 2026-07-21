@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.7)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.8)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.8 变更说明
+
+- 全面修复 nullable 列读取（`Invalid column type Null` 系列）：新增 2 个 Rust 单测（world_buildings cultures/rules NULL 兜底 + 合法 JSON 解析）；系统性修复 8 个 repository 文件 31 处 nullable 列读取（scene/version/studio/writing_style/kg/user_pref），全部改为 `Option<String>` + 兜底；V112/V113 迁移回填所有 nullable JSON/TEXT 列。
+- 全量基线：`cargo test --lib` 919 passed（+2）；fmt / architecture_guard 全绿。无前端变更。
 
 ### v0.30.7 变更说明
 

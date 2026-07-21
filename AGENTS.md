@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.7
+- **版本**: v0.30.8
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 917 passed
+- `cargo test --lib` ✅ 919 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.8 - 全面修复 nullable 列读取（Invalid column type Null 系列）
+
+- **根因**：`world_buildings.cultures`（index 5）和 `rules`（index 3）在基础 schema 为 nullable TEXT，旧数据该列为 NULL，repository 用 `row.get(N)?` 读非空 `String` 即报 `Invalid column type Null`。与 v0.30.6 `dynamic_traits` NULL 同类。
+- **全面排查**：系统性审查全部 27 个 repository 文件，发现并修复所有 nullable 列被当作非空 `String` 读取的问题（共 8 个文件、31 处）：`world_building_repository`（cultures/rules）、`scene_repository`（characters_present/character_conflicts × 4 方法）、`scene_version_repository`（同上 × 2 方法）、`studio_config_repository`（llm_config/ui_config/agent_bots）、`writing_style_repository`（custom_rules）、`knowledge_graph_repository`（attributes × 4 / evidence × 2）、`user_preference_repository`（6 列 × 2 方法）。全部改为 `Option<String>` + `unwrap_or_default`/`unwrap_or_else` 兜底。
+- **迁移**：V112 回填 `world_buildings.cultures/rules`；V113 全面回填 scenes/scene_versions/studio_configs/writing_styles/kg_entities/kg_relations/user_preferences 的所有 nullable JSON/TEXT 列。
+- **验证**：`cargo test --lib` 919 passed（+2：world_buildings NULL 兜底 + 合法 JSON 解析）；fmt / architecture_guard 全绿。
 
 ### v0.30.7 - 计划执行失败修复（LLM 在 depends_on 写入上下文名）
 
@@ -422,7 +429,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.7_
+_最后更新: 2026-07-20 - v0.30.8_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

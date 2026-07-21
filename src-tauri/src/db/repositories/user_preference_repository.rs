@@ -100,18 +100,19 @@ impl UserPreferenceRepository {
 
         let prefs = stmt
             .query_map([story_id], |row| {
-                let updated_str: String = row.get(7)?;
+                let updated_str: String = row.get::<_, Option<String>>(7)?.unwrap_or_default();
                 Ok(UserPreference {
                     id: row.get(0)?,
                     story_id: row.get(1)?,
                     preference_type: row
-                        .get::<_, String>(2)?
+                        .get::<_, Option<String>>(2)?
+                        .unwrap_or_default()
                         .parse()
                         .unwrap_or(PreferenceType::Content),
-                    preference_key: row.get(3)?,
-                    preference_value: row.get(4)?,
-                    confidence: row.get(5)?,
-                    evidence_count: row.get(6)?,
+                    preference_key: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    preference_value: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    confidence: row.get::<_, Option<f32>>(5)?.unwrap_or_default(),
+                    evidence_count: row.get::<_, Option<i32>>(6)?.unwrap_or_default(),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })?
@@ -138,18 +139,19 @@ impl UserPreferenceRepository {
 
         let prefs = stmt
             .query_map(params![story_id, pref_type], |row| {
-                let updated_str: String = row.get(7)?;
+                let updated_str: String = row.get::<_, Option<String>>(7)?.unwrap_or_default();
                 Ok(UserPreference {
                     id: row.get(0)?,
                     story_id: row.get(1)?,
                     preference_type: row
-                        .get::<_, String>(2)?
+                        .get::<_, Option<String>>(2)?
+                        .unwrap_or_default()
                         .parse()
                         .unwrap_or(PreferenceType::Content),
-                    preference_key: row.get(3)?,
-                    preference_value: row.get(4)?,
-                    confidence: row.get(5)?,
-                    evidence_count: row.get(6)?,
+                    preference_key: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    preference_value: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    confidence: row.get::<_, Option<f32>>(5)?.unwrap_or_default(),
+                    evidence_count: row.get::<_, Option<i32>>(6)?.unwrap_or_default(),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })?

@@ -1,6 +1,6 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-20（v0.30.7 修复续写计划执行失败--LLM 在 depends_on 混入上下文名导致整 plan 链式 not found）
+> 最后更新: 2026-07-20（v0.30.8 全面修复 nullable 列读取--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
 

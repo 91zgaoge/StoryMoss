@@ -160,7 +160,9 @@ impl KnowledgeGraphRepository {
                     rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
                 })?;
 
-                let attrs_json: String = row.get(4)?;
+                let attrs_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let attributes: serde_json::Value =
                     serde_json::from_str(&attrs_json).unwrap_or_default();
 
@@ -223,7 +225,9 @@ impl KnowledgeGraphRepository {
                     rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
                 })?;
 
-                let attrs_json: String = row.get(4)?;
+                let attrs_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let attributes: serde_json::Value =
                     serde_json::from_str(&attrs_json).unwrap_or_default();
 
@@ -482,7 +486,9 @@ impl KnowledgeGraphRepository {
                     rusqlite::Error::InvalidParameterName("Invalid relation type".to_string())
                 })?;
 
-                let evidence_json: String = row.get(6)?;
+                let evidence_json: String = row
+                    .get::<_, Option<String>>(6)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let evidence: Vec<String> =
                     serde_json::from_str(&evidence_json).unwrap_or_default();
 
@@ -523,7 +529,9 @@ impl KnowledgeGraphRepository {
                     rusqlite::Error::InvalidParameterName("Invalid relation type".to_string())
                 })?;
 
-                let evidence_json: String = row.get(6)?;
+                let evidence_json: String = row
+                    .get::<_, Option<String>>(6)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let evidence: Vec<String> =
                     serde_json::from_str(&evidence_json).unwrap_or_default();
 
@@ -565,7 +573,9 @@ impl KnowledgeGraphRepository {
                 let entity_type = type_str.parse().map_err(|_| {
                     rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
                 })?;
-                let attrs_json: String = row.get(4)?;
+                let attrs_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let attributes: serde_json::Value =
                     serde_json::from_str(&attrs_json).unwrap_or_default();
                 let embedding_blob: Option<Vec<u8>> = row.get(5)?;
@@ -683,7 +693,9 @@ impl KnowledgeGraphRepository {
                 let entity_type = type_str.parse().map_err(|_| {
                     rusqlite::Error::InvalidParameterName("Invalid entity type".to_string())
                 })?;
-                let attrs_json: String = row.get(4)?;
+                let attrs_json: String = row
+                    .get::<_, Option<String>>(4)?
+                    .unwrap_or_else(|| "{}".to_string());
                 let attributes: serde_json::Value =
                     serde_json::from_str(&attrs_json).unwrap_or_default();
                 let embedding_blob: Option<Vec<u8>> = row.get(5)?;

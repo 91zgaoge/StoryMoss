@@ -82,7 +82,9 @@ impl WritingStyleRepository {
 
         let style = stmt
             .query_row([story_id], |row| {
-                let rules_json: String = row.get(8)?;
+                let rules_json: String = row
+                    .get::<_, Option<String>>(8)?
+                    .unwrap_or_else(|| "[]".to_string());
                 let custom_rules: Vec<String> =
                     serde_json::from_str(&rules_json).unwrap_or_default();
 
