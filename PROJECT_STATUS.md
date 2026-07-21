@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.9 项目完成状态
+# StoryMoss (草苔) v0.30.10 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.9 修复续写返回 Inspector 审查模板而非正文--inspector draft 空内容兜底注入）
+> 最后更新: 2026-07-20（v0.30.10 修复续写返回风格增强模板--模板匹配误路由 + content 空兜底注入）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.10 - 续写返回风格增强模板修复（模板匹配误路由 + content 空兜底）（2026-07-20）
+
+- **根因**：`PlanTemplateLibrary::find_match` 用朴素 substring 匹配，之前记录的 style_enhancer 计划的触发词（如"这部小说"）会匹配"继续写当前这部小说"，导致续写请求跳过 planner LLM 和所有安全规则，直接重放 style_enhancer 计划。style_enhancer 收到空 content 后返回"在您提供文本后，我将从以下几个方面进行增强"模板而非续写正文。
+- **Fix A（executor.rs 主修复）**：`execute_with_context` 在 `find_template` 前检测续写意图词，命中则跳过模板匹配，强制走 planner LLM 路径。
+- **Fix B（mod.rs 防线 2 扩展）**：force-correction 扩展到 `style_mimic` / `plot_analyzer` / `builtin.style_enhancer` 等，prose/续写关键词触发时强制改为 `writer`。
+- **Fix C（executor.rs content 兜底）**：新增 `inject_content_fallback`，为 `style_mimic` / `plot_analyzer` / `builtin.*` 在 content 为空时按 depends_on -> step_outputs -> current_content_preview 注入文本。
+- **Fix D（mod.rs Rule 21 强化）**：Rule 21 新增"继续"/"续写"关键词，禁止 `style_mimic` / `builtin.style_enhancer` 用于 prose 请求。
+- ✅ **验证**：`cargo test --lib` 929 passed（+5）；fmt / clippy 无新增告警。
 
 ### v0.30.9 - 续写返回 Inspector 审查模板修复（draft 空内容兜底注入）（2026-07-20）
 

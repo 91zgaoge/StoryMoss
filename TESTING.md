@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.9)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.10)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.10 变更说明
+
+- 续写返回风格增强模板修复（模板匹配误路由 + content 空兜底注入）：新增 5 个 Rust 单测（`inject_content_fallback` 5 场景：depends_on 注入 / content 已存在跳过 / 无 outputs 时用 current_content / 无 content 返回 false / 优先 outputs 胜过 current_content）；executor.rs 续写意图跳过模板匹配；mod.rs force-correction 扩展到 style_mimic/plot_analyzer/builtin；Rule 21 强化。
+- 全量基线：`cargo test --lib` 929 passed（+5）；fmt / clippy 无新增告警。无前端变更。
 
 ### v0.30.9 变更说明
 

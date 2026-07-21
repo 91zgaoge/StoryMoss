@@ -110,8 +110,33 @@ impl PlanExecutor {
         }
 
         // Before generating a new plan, check PlanTemplateLibrary for matching
-        // templates
-        let mut plan = if let Some(template_plan) = self.find_template(&context.user_input) {
+        // templates.
+        // v0.30.10: 续写/写作意图跳过模板匹配 -- 模板库的 substring 匹配过于宽松
+        // （如 "这部小说" 会匹配 "继续写当前这部小说"），导致续写请求错误重放
+        // 之前记录的 style_enhancer / style_mimic 计划，返回"请提供文本"而非正文。
+        let continuation_signals = [
+            "继续",
+            "续写",
+            "接着写",
+            "往下写",
+            "接下来",
+            "后续",
+            "接着",
+            "继续写",
+        ];
+        let is_continuation = continuation_signals
+            .iter()
+            .any(|&kw| context.user_input.contains(kw));
+        let template_plan = if is_continuation {
+            log::info!(
+                "[PlanExecutor] 续写意图检测到，跳过模板匹配，走 planner LLM: {}",
+                context.user_input
+            );
+            None
+        } else {
+            self.find_template(&context.user_input)
+        };
+        let mut plan = if let Some(template_plan) = template_plan {
             log::info!(
                 "[PlanExecutor] Using template plan for input: {}",
                 context.user_input
@@ -503,6 +528,37 @@ impl PlanExecutor {
                             }
                         }
 
+                        // v0.30.10: style_mimic / plot_analyzer / builtin 技能 content 兜底注入。
+                        // 与 inspector draft 兜底同理：LLM 常遗漏 "content": "{{step_N}}" 参数，
+                        // 导致这些 capability 收到空内容并返回"请提供文本"模板而非实际处理结果。
+                        let needs_content_fallback = step.capability_id == "style_mimic"
+                            || step.capability_id == "plot_analyzer"
+                            || step.capability_id.starts_with("builtin.");
+                        if needs_content_fallback {
+                            let current_content = plan_context
+                                .current_content_preview
+                                .as_deref();
+                            let injected = Self::inject_content_fallback(
+                                &mut rp,
+                                &step.depends_on,
+                                &outputs,
+                                current_content,
+                            );
+                            if injected {
+                                log::info!(
+                                    "[PlanExecutor] {} step {} content 为空，自动注入 writer 输出或当前正文",
+                                    step.capability_id,
+                                    step.step_id
+                                );
+                            } else {
+                                log::warn!(
+                                    "[PlanExecutor] {} step {} content 为空且未找到任何可用文本",
+                                    step.capability_id,
+                                    step.step_id
+                                );
+                            }
+                        }
+
                         rp
                     };
 
@@ -861,6 +917,64 @@ impl PlanExecutor {
 
         if let Some(content) = found_content {
             rp.insert("draft".to_string(), serde_json::Value::String(content));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// v0.30.10: style_mimic / plot_analyzer / builtin 技能的 content
+    /// 兜底注入。 与 inspector draft 兜底同理：LLM 常遗漏 `"content":
+    /// "{{step_N}}"` 参数， 导致这些 capability
+    /// 收到空内容并返回"请提供文本"模板。当 content 为空时， 按 depends_on
+    /// 顺序查找 writer 步骤的 content，找不到则扫描全部 step_outputs，
+    /// 最后兜底用 plan_context.current_content_preview（当前编辑器正文）。
+    fn inject_content_fallback(
+        rp: &mut HashMap<String, serde_json::Value>,
+        depends_on: &[String],
+        outputs: &HashMap<String, serde_json::Value>,
+        current_content: Option<&str>,
+    ) -> bool {
+        let content_empty = rp
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.is_empty())
+            .unwrap_or(true);
+        if !content_empty {
+            return false;
+        }
+
+        let mut found: Option<String> = None;
+        for dep in depends_on {
+            if let Some(out) = outputs.get(dep) {
+                if let Some(c) = out.get("content").and_then(|v| v.as_str()) {
+                    if !c.is_empty() {
+                        found = Some(c.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        if found.is_none() {
+            for (_sid, out) in outputs.iter() {
+                if let Some(c) = out.get("content").and_then(|v| v.as_str()) {
+                    if !c.is_empty() {
+                        found = Some(c.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        if found.is_none() {
+            if let Some(cc) = current_content {
+                if !cc.is_empty() {
+                    found = Some(cc.to_string());
+                }
+            }
+        }
+
+        if let Some(content) = found {
+            rp.insert("content".to_string(), serde_json::Value::String(content));
             true
         } else {
             false
@@ -2176,5 +2290,82 @@ mod tests {
 
         assert!(!injected);
         assert!(rp.get("draft").is_none());
+    }
+
+    // v0.30.10: content 兜底注入测试（style_mimic / plot_analyzer / builtin 技能）
+
+    #[test]
+    fn test_content_fallback_injects_from_depends_on() {
+        let mut rp = HashMap::new();
+        let mut outputs = HashMap::new();
+        outputs.insert("step_1".to_string(), make_step_output("第一章正文内容"));
+
+        let injected =
+            PlanExecutor::inject_content_fallback(&mut rp, &["step_1".to_string()], &outputs, None);
+
+        assert!(injected);
+        assert_eq!(
+            rp.get("content").unwrap().as_str().unwrap(),
+            "第一章正文内容"
+        );
+    }
+
+    #[test]
+    fn test_content_fallback_skips_when_content_present() {
+        let mut rp = HashMap::new();
+        rp.insert(
+            "content".to_string(),
+            serde_json::Value::String("已有内容".to_string()),
+        );
+        let outputs = HashMap::new();
+
+        let injected = PlanExecutor::inject_content_fallback(&mut rp, &[], &outputs, None);
+
+        assert!(!injected);
+        assert_eq!(rp.get("content").unwrap().as_str().unwrap(), "已有内容");
+    }
+
+    #[test]
+    fn test_content_fallback_uses_current_content_when_no_outputs() {
+        let mut rp = HashMap::new();
+        let outputs = HashMap::new();
+
+        let injected =
+            PlanExecutor::inject_content_fallback(&mut rp, &[], &outputs, Some("编辑器当前正文"));
+
+        assert!(injected);
+        assert_eq!(
+            rp.get("content").unwrap().as_str().unwrap(),
+            "编辑器当前正文"
+        );
+    }
+
+    #[test]
+    fn test_content_fallback_no_content_returns_false() {
+        let mut rp = HashMap::new();
+        let outputs = HashMap::new();
+
+        let injected = PlanExecutor::inject_content_fallback(&mut rp, &[], &outputs, None);
+
+        assert!(!injected);
+        assert!(rp.get("content").is_none());
+    }
+
+    #[test]
+    fn test_content_fallback_prefers_outputs_over_current_content() {
+        let mut rp = HashMap::new();
+        let mut outputs = HashMap::new();
+        outputs.insert("step_1".to_string(), make_step_output("writer输出"));
+
+        let injected = PlanExecutor::inject_content_fallback(
+            &mut rp,
+            &["step_1".to_string()],
+            &outputs,
+            Some("编辑器当前正文"),
+        );
+
+        assert!(injected);
+        // 优先用 step_outputs 的 content，不用 current_content
+        assert_eq!(rp.get("content").unwrap().as_str().unwrap(), "writer输出");
     }
 }

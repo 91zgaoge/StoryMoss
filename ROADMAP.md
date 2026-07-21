@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-20（v0.30.9 修复续写返回 Inspector 审查模板而非正文--inspector draft 空内容兜底注入）
+> 最后更新: 2026-07-20（v0.30.10 修复续写返回风格增强模板--模板匹配误路由 + content 空兜底注入）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.10 - 续写返回风格增强模板修复 ✅ (2026-07-20)
+
+- [x] **Fix A（executor.rs）**：续写意图词检测跳过模板匹配，强制走 planner LLM 路径。
+- [x] **Fix B（mod.rs）**：force-correction 扩展到 style_mimic/plot_analyzer/builtin.style_enhancer，prose 关键词触发强制改 writer。
+- [x] **Fix C（executor.rs）**：`inject_content_fallback` 为 style_mimic/plot_analyzer/builtin 在 content 空时注入文本。
+- [x] **Fix D（mod.rs）**：Rule 21 新增续写关键词，禁止 style_enhancer 用于 prose 请求。
+- [x] 验证：`cargo test --lib` 929 passed（+5）；fmt / clippy 无新增告警。
 
 ### 🐛 v0.30.9 - 续写返回 Inspector 审查模板修复 ✅ (2026-07-20)
 
