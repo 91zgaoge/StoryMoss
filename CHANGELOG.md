@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.6（2026-07-21）
+
+### 修复
+
+- **获取角色失败 dynamic_traits 列 NULL 致 Invalid column type Null**：续写/创世获取角色时弹出 Fatal 诊断卡片（`code: INTERNAL_ERROR`）。
+  - **根因**：`characters.dynamic_traits` 列在基础 schema 为 nullable TEXT（无 `NOT NULL`/`DEFAULT`），StoryForge 数据迁移导入的旧角色行该列为 NULL。`get_by_story`/`get_by_id` 用 `row.get::<_, String>(9)` 读非空类型，遇 NULL 即报 `Invalid column type Null at index: 9, name: dynamic_traits`。
+  - **修复（双层）**：读取层改读 `Option<String>` 兜底 `"[]"`（NULL 行返回空 `dynamic_traits`）；数据层 V111 迁移回填 `characters.dynamic_traits NULL -> '[]'` 保证一致。
+  - 验证：`cargo test --lib` 915 passed（+2：NULL 兜底 + 合法 JSON 解析回归）；fmt/clippy 无新增告警。
+
 ## v0.30.5（2026-07-21）
 
 ### 修复
