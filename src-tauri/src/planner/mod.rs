@@ -406,6 +406,13 @@ Respond with JSON:
       "purpose": "Why this capability is chosen",
       "parameters": {{"story_id": "...", "instruction": "..."}},
       "depends_on": []
+    }},
+    {{
+      "step_id": "step_2",
+      "capability_id": "inspector",
+      "purpose": "Quality check the writer output",
+      "parameters": {{"story_id": "...", "draft": "{{step_1}}"}},
+      "depends_on": ["step_1"]
     }}
   ],
   "fallback_message": "If the plan fails, tell the user this..."
@@ -424,7 +431,7 @@ Rules:
    - Skills: builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing
    - MCP: mcp.{{server_id}}.{{tool_name}} (use only when external data is needed)
 8. CRITICAL: If the user wants to continue writing and the current scene has no content or is in 'planning'/'outline' stage, use 'writer' to generate draft content.
-9. If the user wants to improve/refine text and there IS content, use 'inspector' first then 'writer'.
+9. If the user wants to improve/refine text and there IS content, use 'inspector' first then 'writer'. CRITICAL: When using 'inspector', you MUST pass the text to check as the "draft" parameter using {{{{step_id}}}} syntax (e.g. "draft": "{{{{step_1}}}}" to check the output of step_1). The inspector CANNOT function without a draft -- if you omit it, the inspector receives empty content and returns a request for input instead of an actual review.
 10. If story progress is 'just_started' and user asks for next chapter/scene, use 'create_chapter' or 'outline_planner' first.
 11. If scenes are stuck in 'planning' or 'outline' stage, prioritize 'writer' to move them to 'drafting'.
 12. If user asks to modify a character, use 'update_character' with character_id and changes parameters.

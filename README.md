@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.30.8-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.30.9-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.30.8 全面修复 nullable 列读取（`Invalid column type Null` 系列--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）；v0.30.7 修复续写计划执行失败（LLM 在 `depends_on` 混入上下文名 "Story Context" 导致整 plan 链式 not found）；v0.30.6 修复获取角色失败（`dynamic_traits` 列 NULL 致 `Invalid column type Null`）；v0.30.5 修复创世流程严重超时（600s 顶满）；v0.30.4 幕前输入历史持久化--底部输入框已输入内容按故事隔离存入 localStorage，关闭窗口/重启后不丢失，↑ 键召回历史指令；**最新动态**：v0.30.1 创世提速——创世从 12-18 次串行 LLM 调用压缩为三阶段 4 次（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟，主创模型优先，解析失败自动回退串行流程；v0.30.0 完成 Agency 多代理创作框架（创世 2.0）P5——持续学习 + 代理可视化（观察层 observations.jsonl 轮转防自观察 → 后台 analyzer → instinct 置信度引擎与惰性清理 → 跨 story 晋升物化为目录技能、学习中心页、代理工作室页、eval 场景 CI 门禁）；v0.29.0 完成 P4——验证循环（code/rule/model/human 四级 grader、Gate v2 加权评分阈值 0.75、V110 里程碑检查点与对比、JSON 场景 eval harness 与 baseline 回归门、侧栏「创作评估」仪表盘页）；v0.28.0 发布 P3（角色×任务模型路由、全局 agency LLM 并发闸门、注入 token 预算与黑板三档目录、`agency_sessions` 会话快照与跨会话恢复）。
+**最新动态**：v0.30.9 修复续写返回 Inspector 审查模板而非正文（inspector draft 空内容兜底注入--LLM 遗漏 `"draft": "{{step_N}}"` 时自动从 writer step_outputs 注入）；v0.30.8 全面修复 nullable 列读取（`Invalid column type Null` 系列--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）；v0.30.7 修复续写计划执行失败（LLM 在 `depends_on` 混入上下文名 "Story Context" 导致整 plan 链式 not found）；v0.30.6 修复获取角色失败（`dynamic_traits` 列 NULL 致 `Invalid column type Null`）；v0.30.5 修复创世流程严重超时（600s 顶满）；v0.30.4 幕前输入历史持久化--底部输入框已输入内容按故事隔离存入 localStorage，关闭窗口/重启后不丢失，↑ 键召回历史指令；v0.30.1 创世提速——创世从 12-18 次串行 LLM 调用压缩为三阶段 4 次（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟，主创模型优先，解析失败自动回退串行流程；v0.30.0 完成 Agency 多代理创作框架（创世 2.0）P5——持续学习 + 代理可视化（观察层 observations.jsonl 轮转防自观察 → 后台 analyzer → instinct 置信度引擎与惰性清理 → 跨 story 晋升物化为目录技能、学习中心页、代理工作室页、eval 场景 CI 门禁）；v0.29.0 完成 P4——验证循环（code/rule/model/human 四级 grader、Gate v2 加权评分阈值 0.75、V110 里程碑检查点与对比、JSON 场景 eval harness 与 baseline 回归门、侧栏「创作评估」仪表盘页）；v0.28.0 发布 P3（角色×任务模型路由、全局 agency LLM 并发闸门、注入 token 预算与黑板三档目录、`agency_sessions` 会话快照与跨会话恢复）。
 
 **上一版 v0.26.59** 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
 

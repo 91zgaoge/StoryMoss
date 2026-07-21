@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.8)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.9)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.9 变更说明
+
+- 续写返回 Inspector 审查模板修复（inspector draft 空内容兜底注入）：新增 5 个 Rust 单测（`inject_inspector_draft_fallback` 5 场景：depends_on 注入 / draft 已存在跳过 / dep 不存在扫描兜底 / 无 content 返回 false / 空 content 跳过）；planner 提示词增加 inspector `draft={{step_N}}` JSON 示例与 Rule 9 强化。
+- 全量基线：`cargo test --lib` 924 passed（+5）；fmt / clippy 无新增告警。无前端变更。
 
 ### v0.30.8 变更说明
 
