@@ -15,7 +15,7 @@
 
 ### v0.30.19 - 修复质量门编辑审计 Agent 熔断（2026-07-23）
 
-- **问题**：Agency 创世/续写质量门 editor_auditor 的 ReAct tool_loop 在本地模型（Qwen3.5-27B-Uncensored）不遵从 JSON action 格式时连续解析失败/达最大轮数（6 轮）熔断，原实现直接返回 `GateOutcome::Failed` 导致整 run 失败。
+- **问题**：Agency 创世/续写质量门 editor_auditor 的 ReAct tool_loop 在本地模型（Qwen 3.6）不遵从 JSON action 格式时连续解析失败/达最大轮数（6 轮）熔断，原实现直接返回 `GateOutcome::Failed` 导致整 run 失败。
 - **Fix（两层兜底，`coordinator.rs`）**：①salvage--熔断时仍先 `parse_lenient` 尝试从末轮输出提取裁决 JSON；②散文回退--新增 `editor_verdict_prose_fallback`，单次 `llm.complete()` 直接请求裁决 JSON（不经 tool_loop/工具），与 `writer_prose_fallback`（v0.30.3）同理。回退失败才降级 Failed。
 - **验证**：`cargo test --lib` 965 passed（+1 正向回归）；fmt / clippy / architecture_guard 全绿。
 

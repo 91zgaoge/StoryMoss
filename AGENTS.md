@@ -93,7 +93,7 @@ type:
 
 ### v0.30.19 - 质量门编辑审计 Agent 熔断修复（本地模型 JSON 不遵从，散文回退）
 
-- **根因**：`evaluate_gate_impl`（`coordinator.rs`）中 editor_auditor 的 ReAct tool_loop 在本地模型（Qwen3.5-27B-Uncensored）不遵从 JSON action 格式时连续解析失败/达到最大轮数（6 轮）熔断。原实现 `if editor_out.aborted` 直接返回 `GateOutcome::Failed`，既不 salvage 末轮输出也不尝试替代路径，导致整 run 失败。与 v0.30.3 writer 熔断同类（本地模型 JSON 不遵从），但 editor 路径此前无散文回退。
+- **根因**：`evaluate_gate_impl`（`coordinator.rs`）中 editor_auditor 的 ReAct tool_loop 在本地模型（Qwen 3.6）不遵从 JSON action 格式时连续解析失败/达到最大轮数（6 轮）熔断。原实现 `if editor_out.aborted` 直接返回 `GateOutcome::Failed`，既不 salvage 末轮输出也不尝试替代路径，导致整 run 失败。与 v0.30.3 writer 熔断同类（本地模型 JSON 不遵从），但 editor 路径此前无散文回退。
 - **Fix（两层兜底，`coordinator.rs`）**：①salvage--移除 `editor_out.aborted` 早返回，熔断时仍先 `parse_lenient::<EditorVerdict>` 尝试从末轮输出提取裁决 JSON；salvage 成功则用之，熔断则 break 进散文回退（同模型重试必同败，不重试）。②散文回退--新增 `editor_verdict_prose_fallback` 自由函数，单次 `llm.complete()` 直接请求裁决 JSON（不经 tool_loop/工具），复用 editor 系统提示词审查标准 + 追加「直接输出 JSON、不走工具循环」强约束。与 `writer_prose_fallback`（v0.30.3）同理。回退失败才降级 `Failed`。
 - **验证**：`cargo test --lib` 965 passed（+1 `test_editor_verdict_prose_fallback` 正向回归；2 个现有熔断测试更新为显式验证回退也失败时 run 仍 failed）；fmt / clippy（baseline 550 零新增）/ architecture_guard 全绿。
 
