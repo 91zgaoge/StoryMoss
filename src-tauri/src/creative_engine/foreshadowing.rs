@@ -98,6 +98,51 @@ impl ForeshadowingTracker {
         Ok(())
     }
 
+    /// v0.30.16: 编辑伏笔内容/重要性/设置场景（保留 status/payoff/resolved_at
+    /// 不变）
+    pub fn update_foreshadowing(
+        &self,
+        foreshadowing_id: &str,
+        content: &str,
+        importance: i32,
+        setup_scene_id: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        conn.execute(
+            "UPDATE foreshadowing_tracker SET content = ?2, importance = ?3, setup_scene_id = ?4 \
+             WHERE id = ?1",
+            params![
+                foreshadowing_id,
+                content,
+                importance.clamp(1, 10),
+                setup_scene_id
+            ],
+        )
+        .map_err(|e| format!("更新伏笔失败: {}", e))?;
+
+        Ok(())
+    }
+
+    /// v0.30.16: 删除伏笔
+    pub fn delete_foreshadowing(&self, foreshadowing_id: &str) -> Result<(), String> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        conn.execute(
+            "DELETE FROM foreshadowing_tracker WHERE id = ?1",
+            params![foreshadowing_id],
+        )
+        .map_err(|e| format!("删除伏笔失败: {}", e))?;
+
+        Ok(())
+    }
+
     /// 获取故事中未回收的伏笔
     pub fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, String> {
         let conn = self

@@ -110,6 +110,50 @@ export function useUpdateForeshadowingStatus() {
   });
 }
 
+// v0.30.16: 伏笔内容编辑 / 删除
+export interface UpdateForeshadowingInput {
+  id: string;
+  story_id: string;
+  content: string;
+  importance: number;
+  setup_scene_id?: string;
+}
+
+export function useUpdateForeshadowing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateForeshadowingInput) => {
+      return loggedInvoke<void>('update_foreshadowing', {
+        id: input.id,
+        content: input.content,
+        importance: input.importance,
+        setup_scene_id: input.setup_scene_id,
+      });
+    },
+    onSuccess: (_, input) => {
+      queryClient.invalidateQueries({ queryKey: [FORESHADOWINGS_KEY, input.story_id] });
+      queryClient.invalidateQueries({ queryKey: [PAYOFF_LEDGER_KEY, input.story_id] });
+      queryClient.invalidateQueries({ queryKey: [OVERDUE_KEY, input.story_id] });
+      queryClient.invalidateQueries({ queryKey: [RECOMMENDATIONS_KEY, input.story_id] });
+    },
+  });
+}
+
+export function useDeleteForeshadowing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { id: string; story_id: string }) => {
+      return loggedInvoke<void>('delete_foreshadowing', { id: params.id });
+    },
+    onSuccess: (_, params) => {
+      queryClient.invalidateQueries({ queryKey: [FORESHADOWINGS_KEY, params.story_id] });
+      queryClient.invalidateQueries({ queryKey: [PAYOFF_LEDGER_KEY, params.story_id] });
+      queryClient.invalidateQueries({ queryKey: [OVERDUE_KEY, params.story_id] });
+      queryClient.invalidateQueries({ queryKey: [RECOMMENDATIONS_KEY, params.story_id] });
+    },
+  });
+}
+
 // ==================== Payoff Ledger Hooks ====================
 
 export function usePayoffLedger(storyId: string | null) {

@@ -29,7 +29,7 @@ import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/ho
 import { useCharacters } from '@/hooks/useCharacters';
 import { useScenes } from '@/hooks/useScenes';
 import { useForeshadowings } from '@/hooks/useForeshadowings';
-import { useStoryOutline } from '@/hooks/useStoryOutline';
+import { useStoryOutline, useUpdateStoryOutline } from '@/hooks/useStoryOutline';
 import { useAppStore } from '@/stores/appStore';
 import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
@@ -58,6 +58,9 @@ const storiesLogger = createLogger('ui:Stories');
 
 function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }) {
   const { data: outline } = useStoryOutline(storyId);
+  const updateOutline = useUpdateStoryOutline();
+  const [editingOutline, setEditingOutline] = useState(false);
+  const [outlineDraft, setOutlineDraft] = useState('');
   const { data: characters = [] } = useCharacters(storyId);
   const { data: scenes = [] } = useScenes(storyId);
   const { data: foreshadowings = [] } = useForeshadowings(storyId);
@@ -69,21 +72,78 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
   return (
     <div className="mt-4 pt-4 border-t border-cinema-700 space-y-4 animate-fade-in">
       {/* Outline */}
-      {outline?.content && (
+      {outline && (
         <div>
           <h4 className="text-sm font-medium text-cinema-gold mb-2 flex items-center gap-1.5">
             <FileText className="w-3.5 h-3.5" />
             故事大纲
+            {!editingOutline && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOutlineDraft(outline.content || '');
+                  setEditingOutline(true);
+                }}
+                className="ml-auto text-xs text-gray-400 hover:text-cinema-gold flex items-center gap-1"
+              >
+                <Edit3 className="w-3 h-3" />
+                编辑
+              </button>
+            )}
           </h4>
           <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">{outline.content}</p>
-            {outline.act_count > 0 && (
-              <p className="mt-2 text-xs text-gray-500">
-                {outline.act_count} 幕
-                {outline.total_scenes_estimate
-                  ? ` · 预计 ${outline.total_scenes_estimate} 个场景`
-                  : ''}
-              </p>
+            {editingOutline ? (
+              <div className="space-y-2">
+                <textarea
+                  value={outlineDraft}
+                  onChange={e => setOutlineDraft(e.target.value)}
+                  rows={10}
+                  className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+                  placeholder="故事大纲（场景大纲生成与续写将围绕此大纲展开，请确保角色与情节走向一致）"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditingOutline(false)}
+                    disabled={updateOutline.isPending}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    isLoading={updateOutline.isPending}
+                    onClick={() =>
+                      updateOutline.mutate(
+                        { storyId, content: outlineDraft },
+                        {
+                          onSuccess: () => {
+                            toast.success('故事大纲已保存');
+                            setEditingOutline(false);
+                          },
+                          onError: e => toast.error(`保存失败: ${e}`),
+                        }
+                      )
+                    }
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    保存
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-gray-300 whitespace-pre-wrap">{outline.content}</p>
+                {outline.act_count > 0 && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    {outline.act_count} 幕
+                    {outline.total_scenes_estimate
+                      ? ` · 预计 ${outline.total_scenes_estimate} 个场景`
+                      : ''}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>

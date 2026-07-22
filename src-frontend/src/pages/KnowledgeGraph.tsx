@@ -23,6 +23,8 @@ import {
   PackageOpen,
   Sparkles,
   Trash2,
+  Edit3,
+  Check,
 } from 'lucide-react';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -33,6 +35,7 @@ import {
   useStorySummaries,
   useDistillStoryKnowledge,
   useDeleteStorySummary,
+  useUpdateStorySummary,
 } from '@/hooks/useKnowledgeDistillation';
 
 type TabType = 'graph' | 'memory' | 'archived' | 'distillation';
@@ -60,6 +63,97 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   Organization: '组织',
   Concept: '概念',
   Event: '事件',
+};
+
+// v0.30.16: 故事摘要手动编辑卡片（查看/编辑切换 + 保存/删除）
+const SummaryCard: React.FC<{
+  summary: StorySummary;
+  onDelete: (s: StorySummary) => void;
+}> = ({ summary, onDelete }) => {
+  const updateMutation = useUpdateStorySummary();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(summary.content);
+
+  return (
+    <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-medium px-2 py-1 rounded-md bg-cinema-800 text-gray-400 uppercase tracking-wider">
+          {summary.summary_type}
+        </span>
+        <div className="flex items-center gap-2">
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(summary.content);
+                setEditing(true);
+              }}
+              className="p-1.5 rounded-md text-gray-500 hover:text-cinema-gold hover:bg-cinema-gold/10 transition-colors"
+              title="编辑"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onDelete(summary)}
+            disabled={updateMutation.isPending}
+            className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            title="删除"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={6}
+            className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              disabled={updateMutation.isPending}
+              className="px-3 py-1.5 text-sm rounded-xl bg-transparent text-gray-400 hover:text-white hover:bg-cinema-800/50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                updateMutation.mutate(
+                  { summaryId: summary.id, content: draft, storyId: summary.story_id },
+                  {
+                    onSuccess: () => {
+                      toast.success('摘要已保存');
+                      setEditing(false);
+                    },
+                    onError: e => toast.error(`保存失败: ${e}`),
+                  }
+                )
+              }
+              disabled={updateMutation.isPending}
+              className="px-3 py-1.5 text-sm rounded-xl bg-gradient-to-r from-cinema-gold to-cinema-gold-dark text-cinema-900 font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+            >
+              <Check className="w-3.5 h-3.5" />
+              保存
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed whitespace-pre-wrap">
+          {summary.content}
+        </div>
+      )}
+      <p className="text-xs text-gray-600 mt-4">
+        更新于 {new Date(summary.updated_at).toLocaleString()}
+      </p>
+    </div>
+  );
 };
 
 export const KnowledgeGraph: React.FC = () => {
@@ -402,32 +496,7 @@ export const KnowledgeGraph: React.FC = () => {
           ) : (
             <div className="space-y-4">
               {summaries.map(summary => (
-                <div
-                  key={summary.id}
-                  className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-5"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-medium px-2 py-1 rounded-md bg-cinema-800 text-gray-400 uppercase tracking-wider">
-                      {summary.summary_type}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleDeleteSummary(summary)}
-                        disabled={deleteMutation.isPending}
-                        className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed whitespace-pre-wrap">
-                    {summary.content}
-                  </div>
-                  <p className="text-xs text-gray-600 mt-4">
-                    更新于 {new Date(summary.updated_at).toLocaleString()}
-                  </p>
-                </div>
+                <SummaryCard key={summary.id} summary={summary} onDelete={handleDeleteSummary} />
               ))}
             </div>
           )}

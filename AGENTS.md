@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.15
+- **版本**: v0.30.16
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -90,6 +90,15 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.16 - 故事资产手动编辑（补齐编辑缺口）
+
+- **背景**：审计后台发现 故事大纲/故事摘要 只读展示（`useUpdateStoryOutline`/`useUpdateStorySummary` hook 零调用），伏笔无内容编辑+删除，角色关系无编辑。角色/世界构建/场景已有完整编辑，无需改动。
+- **Gap 1 故事大纲编辑（`pages/Stories.tsx`）**：只读 `<p>` 改为 查看/编辑 切换（textarea + 保存/取消），保存调 `useUpdateStoryOutline`（后端命令已就绪）。
+- **Gap 2 故事摘要编辑（`pages/KnowledgeGraph.tsx`）**：抽取 `SummaryCard` 组件，查看/编辑 切换 + 保存，调 `useUpdateStorySummary`。
+- **Gap 3 伏笔内容编辑+删除（后端+前端）**：`ForeshadowingTracker` 新增 `update_foreshadowing`/`delete_foreshadowing` 方法；新增 `update_foreshadowing`/`delete_foreshadowing` Tauri 命令并注册（`handlers.rs`）；前端新增 `useUpdateForeshadowing`/`useDeleteForeshadowing` hook，`Foreshadowing.tsx` 卡片加 编辑表单（内容/重要性/设置场景）+ 删除按钮。
+- **Gap 4 角色关系编辑（前端）**：新增 `useUpdateCharacterRelationship` hook（后端 `update_character_relationship` 已存在），`Characters.tsx` 的 `RelationshipCard` 加 编辑表单（关系类型/描述）。
+- **验证**：`cargo test --lib` 964 passed；`npx vitest run` 305 passed；tsc / `cargo +nightly fmt` / clippy（零新增，baseline 550）/ architecture_guard 全绿。
 
 ### v0.30.15 - 场景围绕故事大纲生成（创作原则加固）
 
@@ -490,7 +499,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.15_
+_最后更新: 2026-07-22 - v0.30.16_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

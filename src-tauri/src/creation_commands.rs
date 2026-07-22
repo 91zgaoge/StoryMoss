@@ -1163,6 +1163,66 @@ pub async fn update_foreshadowing_status(
     result
 }
 
+#[command(rename_all = "snake_case")]
+pub async fn update_foreshadowing(
+    id: String,
+    content: String,
+    importance: i32,
+    setup_scene_id: Option<String>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<(), AppError> {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+    let tracker = ForeshadowingTracker::new(pool.inner().clone());
+    tracker
+        .update_foreshadowing(&id, &content, importance, setup_scene_id.as_deref())
+        .map_err(AppError::from)?;
+    // 查询 story_id 以发射同步事件
+    let conn = pool.inner().get().map_err(AppError::from)?;
+    let story_id: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT story_id FROM foreshadowing_tracker WHERE id = ?1",
+        [&id],
+        |row| row.get(0),
+    );
+    if let Ok(story_id) = story_id {
+        crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "foreshadowings",
+        );
+    }
+    Ok(())
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn delete_foreshadowing(
+    id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<(), AppError> {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+    // 删除前先查 story_id 用于同步事件
+    let story_id: Option<String> = {
+        let conn = pool.inner().get().map_err(AppError::from)?;
+        conn.query_row(
+            "SELECT story_id FROM foreshadowing_tracker WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .ok()
+    };
+    let tracker = ForeshadowingTracker::new(pool.inner().clone());
+    tracker.delete_foreshadowing(&id).map_err(AppError::from)?;
+    if let Some(story_id) = story_id {
+        crate::state_sync::StateSync::emit_data_refresh(
+            &app_handle,
+            Some(&story_id),
+            "foreshadowings",
+        );
+    }
+    Ok(())
+}
+
 // ==================== Payoff Ledger 命令 ====================
 
 #[command(rename_all = "snake_case")]
