@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.11)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.12)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.12 变更说明
+
+- planner force-correction 覆盖 inspector（修复续写误路由到 inspector 返回质检报告）：提取纯函数 `PlanGenerator::should_force_correct_to_writer`（可单测），将 inspector 纳入 swap-to-writer 列表，按 LLM 分类分流（续写/创世/无分类/审查+prose 强制 writer；纯 Audit(非prose)/Rewrite 保留 inspector）；提示词 Rule 9 澄清续写≠refine、Rule 21 加入 inspector 禁用。
+- 新增 8 个 force-correction 回归测试（`should_force_correct_to_writer`：inspector 续写/审查/改写/创世/无分类分流）。
+- 全量基线：`cargo test --lib` 944 passed（+8）；`npx vitest run` 305 passed；tsc / fmt / clippy / format 全绿。
 
 ### v0.30.11 变更说明
 
@@ -508,4 +514,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.11 意图识别 LLM 化重构，测试基线更新_
+_最后更新: 2026-07-22 - v0.30.12 force-correction 覆盖 inspector，测试基线更新_

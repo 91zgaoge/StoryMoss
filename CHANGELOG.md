@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.12（2026-07-22）
+
+### 修复
+
+- **续写返回质检审查报告而非正文（"总体评分：0.85/1.0（良好）/具体问题清单/逻辑合理性（警告）"）**：输入"继续写当前这部小说"后，得到 inspector 质检员的审查报告（评分 + 问题清单）而非续写正文。是 v0.30.10/v0.30.11 同类误路由的又一复发。
+  - **根因**：planner force-correction（防线 2，`planner/mod.rs`）的"强制改 writer"capability 列表含 `outline_planner`/`style_mimic`/`plot_analyzer`/`builtin.*`，**漏掉 `inspector`**。planner 提示词 Rule 9 允许"有内容时用 inspector 先审后写"，Rule 21 的 prose 请求 never-use 列表也漏 inspector。本地模型（Gemma-4-31B）把"继续写当前这部小说"误判为"审查/改进已有文本"，路由到 `inspector` -> force-correction 不拦 -> inspector 运行 `inspector_system` 提示词 -> 产出审查报告作为生成结果返回前端。
+  - **Fix A（force-correction 主修复，`planner/mod.rs`）**：提取纯函数 `PlanGenerator::should_force_correct_to_writer`（可单测），将 `inspector` 纳入 swap-to-writer 列表，并按 LLM 分类分流感：续写（`is_continuation`）/ 创世 / 无分类 / 审查且 `is_prose_request=true`（分类矛盾兜底）一律强制 `writer`；仅纯审查（`Audit` 且非 prose）与改写润色（`Rewrite`，Rule 9 inspector->writer 流，最终输出仍是 writer 正文）保留 `inspector`。
+  - **Fix B（提示词，`planner/mod.rs`）**：Rule 9 澄清"继续写/续写/往下写"是续写而非 refine，必须直接用 `writer`、绝不用 `inspector`（inspector 返回审查报告而非正文）；Rule 21 将 `inspector` 加入 prose 请求的 never-use 列表。
+  - 验证：`cargo test --lib` 944 passed（+8 force-correction 回归）；`npx vitest run` 305 passed；tsc / `cargo +nightly fmt` / clippy / format:check 全绿。
+
 ## v0.30.11（2026-07-20）
 
 ### 重构

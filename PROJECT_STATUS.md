@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.11 项目完成状态
+# StoryMoss (草苔) v0.30.12 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.11 用 LLM 意图分类器替换朴素子串意图匹配，修复 6 处高危路由点）
+> 最后更新: 2026-07-22（v0.30.12 修复续写返回审查报告：force-correction 漏拦 inspector）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.12 - 续写返回审查报告修复（force-correction 漏拦 inspector）（2026-07-22）
+
+- **根因**：planner force-correction（planner/mod.rs 防线2）的"强制改 writer"capability 列表漏掉 `inspector`；planner 提示词 Rule 9/21 也允许 inspector 用于有内容的请求。本地模型(Gemma)把续写误路由到 inspector，输入"继续写当前这部小说"后得到 inspector 质检员的审查报告而非续写正文。
+- **Fix A（planner/mod.rs）**：提取纯函数 `PlanGenerator::should_force_correct_to_writer`（可单测），将 inspector 纳入 swap-to-writer 列表，按 LLM 分类分流：续写/创世/无分类/审查+prose 强制 writer；纯 Audit(非prose)/Rewrite 保留 inspector。
+- **Fix B（提示词·mod.rs）**：Rule 9 澄清续写≠refine、Rule 21 加入 inspector 禁用。
+- ✅ **验证**：`cargo test --lib` 944 passed（+8）；`npx vitest run` 305 passed；tsc / fmt / clippy / format 全绿。
 
 ### v0.30.11 - LLM 意图分类器替换朴素子串匹配（6 处高危路由点修复）（2026-07-20）
 

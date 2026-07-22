@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.11
+- **版本**: v0.30.12
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 936 passed
+- `cargo test --lib` ✅ 944 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.12 - 续写返回审查报告修复（force-correction 漏拦 inspector）
+
+- **根因**：planner force-correction（`planner/mod.rs` 防线 2）的"强制改 writer"capability 列表含 `outline_planner`/`style_mimic`/`plot_analyzer`/`builtin.*`，**漏掉 `inspector`**；提示词 Rule 9 允许"有内容时用 inspector 先审后写"、Rule 21 never-use 列表也漏 inspector。本地模型（Gemma-4-31B）把"继续写当前这部小说"误判为"审查/改进已有文本"路由到 `inspector` -> force-correction 不拦 -> inspector 运行 `inspector_system` 提示词 -> 产出"总体评分 0.85 / 具体问题清单"审查报告作为生成结果。
+- **Fix A（force-correction 主修复）**：提取纯函数 `PlanGenerator::should_force_correct_to_writer`（可单测），将 `inspector` 纳入 swap-to-writer 列表，按 LLM 分类分流：续写（`is_continuation`）/ 创世 / 无分类 / 审查且 `is_prose_request=true`（分类矛盾兜底）强制 `writer`；仅纯审查（`Audit` 且非 prose）与改写润色（`Rewrite`，Rule 9 流，最终输出仍是 writer 正文）保留 `inspector`。
+- **Fix B（提示词）**：Rule 9 澄清"继续写/续写/往下写"是续写而非 refine，必须直接 `writer`、绝不用 `inspector`；Rule 21 将 `inspector` 加入 prose 请求 never-use 列表。
+- **验证**：`cargo test --lib` 944 passed（+8 force-correction 回归）；`npx vitest run` 305 passed；tsc / fmt / clippy / format:check 全绿。
 
 ### v0.30.11 - 全面整改：用 LLM 解析器替换朴素子串意图匹配
 
@@ -461,7 +468,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.11_
+_最后更新: 2026-07-22 - v0.30.12_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
