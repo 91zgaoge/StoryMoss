@@ -17,6 +17,10 @@ pub struct WriteTimeBundle {
     pub core_characters: Vec<CoreCharacter>,
     /// 当前 scene 大纲（dramatic_goal + conflict_type + setting）
     pub scene_outline: Option<SceneOutline>,
+    /// v0.30.15: 完整故事大纲（story_outlines.content）--writer
+    /// 必须围绕它展开， 防止续写偏离大纲自创情节/角色。TimeSliced/TriShot
+    /// 路径此前根本看不到故事大纲。
+    pub story_outline: Option<String>,
     /// GenreProfile 反模式清单
     pub genre_antipatterns: Vec<String>,
     /// 风格 DNA 片段（题材自适应，部分题材为 None）

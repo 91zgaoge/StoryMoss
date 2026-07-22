@@ -836,4 +836,15 @@ mod tests {
             dir.display()
         );
     }
+
+    #[test]
+    fn test_v03015_scene_outline_prompt_registered() {
+        let content = resolve_prompt_default("scene_outline");
+        assert!(content.is_some(), "scene_outline 提示词应已注册");
+        let content = content.unwrap();
+        // 必须强制复用已有角色、禁止发明新角色、围绕故事大纲
+        assert!(content.contains("禁止发明新角色"));
+        assert!(content.contains("{{story_outline}}"));
+        assert!(content.contains("围绕"));
+    }
 }

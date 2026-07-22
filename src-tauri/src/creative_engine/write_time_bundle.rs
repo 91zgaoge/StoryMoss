@@ -22,7 +22,8 @@ use crate::{
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
     db::{
         repositories_narrative::NarrativeSceneRepository, Character, CharacterRepository, DbPool,
-        GenreProfileRepository, SceneRepository, StoryContractRepository, StyleDnaRepository,
+        GenreProfileRepository, SceneRepository, StoryContractRepository, StoryOutlineRepository,
+        StyleDnaRepository,
     },
     domain::narrative_elements::SceneElement,
     story_system::StorySystemEngine,
@@ -328,10 +329,27 @@ impl WriteTimeBundle {
             crate::memory::DEFAULT_RELATED_ENTITY_LIMIT,
         );
 
+        // v0.30.15: 加载完整故事大纲，让 writer 围绕大纲展开（TimeSliced/TriShot 此前
+        // 看不到故事大纲，导致续写偏离大纲自创情节/角色）。
+        let story_outline = StoryOutlineRepository::new(pool.clone())
+            .get_by_story(story_id)
+            .ok()
+            .flatten()
+            .map(|o| {
+                let c = o.content;
+                if c.chars().count() > 4000 {
+                    let truncated: String = c.chars().take(4000).collect();
+                    truncated + "\n…（已截断）"
+                } else {
+                    c
+                }
+            });
+
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
             scene_outline,
+            story_outline,
             genre_antipatterns,
             style_slice,
             story_meta,
@@ -485,6 +503,16 @@ impl WriteTimeBundle {
             sections.push(format!(
                 "【⚠️ 世界观红线（绝不可违背，违反即判定为严重错误）】\n{}",
                 redline_text
+            ));
+        }
+
+        // ①b 故事大纲--writer 必须围绕展开（v0.30.15：TimeSliced/TriShot 此前看不到
+        // 故事大纲，导致续写偏离大纲自创情节/角色）。置于红线之后、角色之前，
+        // 醒目且不破坏 红线第一的不变量。
+        if let Some(ref outline) = self.story_outline {
+            sections.push(format!(
+                "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}\n（若下方「本场景任务」与此大纲冲突，以本故事大纲为准，并使用已登场角色，禁止自创新角色。）",
+                outline
             ));
         }
 
@@ -934,6 +962,7 @@ mod tests {
             contract_redlines: None,
             core_characters: vec![],
             scene_outline: None,
+            story_outline: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {
@@ -972,6 +1001,7 @@ mod tests {
             contract_redlines: None,
             core_characters: vec![],
             scene_outline: None,
+            story_outline: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {
@@ -1018,6 +1048,7 @@ mod tests {
                 personality: None,
             }],
             scene_outline: None,
+            story_outline: None,
             genre_antipatterns: vec!["某反模式".to_string()],
             style_slice: None,
             story_meta: StoryMeta {
@@ -1077,5 +1108,79 @@ mod tests {
         assert!(tokens.contains("决战"));
         assert!(tokens.contains("山谷"));
         assert!(!tokens.contains("主"));
+    }
+
+    // ---- v0.30.15: story_outline 权威段渲染 ----
+
+    fn bundle_with_outline(
+        story_outline: Option<String>,
+        redlines: Option<String>,
+    ) -> WriteTimeBundle {
+        WriteTimeBundle {
+            contract_redlines: redlines,
+            core_characters: vec![],
+            scene_outline: None,
+            story_outline,
+            genre_antipatterns: vec![],
+            style_slice: None,
+            story_meta: StoryMeta {
+                title: "t".to_string(),
+                genre: None,
+                tone: None,
+                pacing: None,
+                description: None,
+            },
+            genre_category: GenreCategory::Unknown,
+            narrative_phase_guidance: None,
+            pending_foreshadowings: vec![],
+            overdue_foreshadowings: vec![],
+            style_dna_summary: None,
+            narrative_quartet: None,
+            style_dna_extension: None,
+            methodology_extension: None,
+            genre_profile_strategy: None,
+            secondary_genre_profile_strategy: None,
+            writing_strategy_constraints: None,
+            runtime_contract: None,
+            reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
+        }
+    }
+
+    #[test]
+    fn to_prompt_includes_story_outline_when_present() {
+        let bundle = bundle_with_outline(
+            Some("1. 首尔暗战：韩雪遭伏击\n2. 东京阴影：佐藤健拦截元件".to_string()),
+            None,
+        );
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("故事大纲（本场景必须围绕此大纲展开"));
+        assert!(prompt.contains("韩雪遭伏击"));
+        assert!(prompt.contains("以本故事大纲为准"));
+    }
+
+    #[test]
+    fn to_prompt_story_outline_after_redlines_invariant() {
+        // 红线必须仍在故事大纲之前（红线第一不变量不被破坏）。
+        let bundle = bundle_with_outline(
+            Some("1. 首尔暗战".to_string()),
+            Some("核心世界观不可违背".to_string()),
+        );
+        let prompt = bundle.to_prompt();
+        let redlines_pos = prompt.find("世界观红线").expect("redlines section present");
+        let outline_pos = prompt
+            .find("故事大纲（本场景必须围绕")
+            .expect("story outline section present");
+        assert!(
+            redlines_pos < outline_pos,
+            "redlines must precede story outline"
+        );
+    }
+
+    #[test]
+    fn to_prompt_no_story_outline_section_when_absent() {
+        let bundle = bundle_with_outline(None, None);
+        let prompt = bundle.to_prompt();
+        assert!(!prompt.contains("本场景必须围绕此大纲展开"));
     }
 }

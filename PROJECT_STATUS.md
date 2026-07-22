@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.14 项目完成状态
+# StoryMoss (草苔) v0.30.15 项目完成状态
 
-> 最后更新: 2026-07-22（v0.30.14 修复续写返回风格增强模板：多步 plan 尾部非 writer 覆盖正文）
+> 最后更新: 2026-07-22（v0.30.15 场景围绕故事大纲生成：创作原则加固）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.15 - 场景围绕故事大纲生成（创作原则加固）（2026-07-22）
+
+- **根因 A**：`generate_scene_outline` 复用故事级 `outline_planner.md` 提示词且不注入 story_outlines.content，模型幻觉新角色"金敏秀"（不在角色卡），场景大纲与故事大纲冲突。
+- **根因 B**：续写走 TimeSliced/TriShot，prompt 从不包含故事大纲（只在 Full/Fast 路径计算），导致内容偏离大纲。
+- **Fix A（场景大纲生成锚定故事大纲）**：新增场景级提示词 `scene_outline.md`（强制复用已登场角色、禁止发明新角色、围绕故事大纲对应节点展开）；`generate_scene_outline` 加载 story_outlines.content + 场景序号注入 task.parameters；`build_outline_prompt` 分流（场景模式用 scene_outline，workflow 故事级仍用 outline_planner）。
+- **Fix B（writer 锚定故事大纲）**：WriteTimeBundle 新增 story_outline 字段，load_sync 加载 story_outlines.content，to_prompt 在红线之后插入权威段【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】；冲突时以故事大纲为准并使用已登场角色。一处覆盖 TimeSliced+TriShot。
+- **验证**：`cargo test --lib` 964 passed（+4）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
 
 ### v0.30.14 - 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）（2026-07-22）
 

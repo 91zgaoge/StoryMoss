@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.14
+- **版本**: v0.30.15
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 960 passed
+- `cargo test --lib` ✅ 964 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.15 - 场景围绕故事大纲生成（创作原则加固）
+
+- **创作原则**：有故事大纲时，场景必须围绕故事大纲展开。用户报告续写内容与故事大纲"两张皮"（场景大纲写"金敏秀"，续写跑偏到核电站，与故事大纲"韩雪/李明在首尔"脱节）。
+- **根因 A（场景大纲生成用错提示词）**：`generate_scene_outline` 复用故事级 `outline_planner.md`（要求三幕式/章节划分/角色弧线），`task.input` 几乎为空且**不注入 story_outlines.content** -> 模型幻觉新角色"金敏秀"（不在角色卡），场景大纲与故事大纲冲突。
+- **根因 B（writer 看不到故事大纲）**：续写走 TimeSliced/TriShot，prompt 只用 `WriteTimeBundle.to_prompt()`；故事大纲只在 Full/Fast 路径计算，**从未到达 writer** -> 内容偏离大纲。
+- **Fix A（场景大纲生成锚定故事大纲，`creation_commands.rs` + `agents/service.rs` + 新提示词）**：新增场景级提示词 `resources/prompts/planner/scene_outline.md`（强制复用已登场角色、禁止发明新角色、围绕故事大纲对应节点展开）；`generate_scene_outline` 加载 `story_outlines.content` + 场景序号注入 `task.parameters`；`build_outline_prompt` 分流（场景模式用 `scene_outline`，workflow 故事级仍用 `outline_planner`）。
+- **Fix B（writer 锚定故事大纲，`domain/write_time_bundle.rs` + `creative_engine/write_time_bundle.rs`）**：WriteTimeBundle 新增 `story_outline` 字段，`load_sync` 加载 `story_outlines.content`，`to_prompt()` 在世界观红线**之后**插入权威段【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】（保持红线第一不变量）；冲突时以故事大纲为准并使用已登场角色。一处覆盖 TimeSliced+TriShot。
+- **验证**：`cargo test --lib` 964 passed（+4）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
+- **注意**：现有"金敏秀"场景大纲需用户重新点"生成大纲"覆盖（Fix A 修生成器）；Fix B 让 writer 即使面对旧毒大纲也锚定故事大纲。
 
 ### v0.30.14 - 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）
 
@@ -480,7 +490,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.14_
+_最后更新: 2026-07-22 - v0.30.15_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

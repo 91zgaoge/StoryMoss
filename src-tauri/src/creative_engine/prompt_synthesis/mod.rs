@@ -49,6 +49,7 @@ mod integration_tests {
             contract_redlines: None,
             core_characters: vec![],
             scene_outline: None,
+            story_outline: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {

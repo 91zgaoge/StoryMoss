@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.15（2026-07-22）
+
+### 修复
+
+- **场景围绕故事大纲生成（创作原则加固：有故事大纲时场景必须围绕大纲展开）**：用户报告续写内容与故事大纲"两张皮"（场景大纲写"金敏秀"，续写内容却跑偏到核电站，与故事大纲的"韩雪/李明在首尔"完全脱节）。
+  - **根因 A（场景大纲生成用错提示词）**：`generate_scene_outline` 复用**故事级** `outline_planner.md`（要求三幕式/章节划分/角色弧线），且 `task.input` 几乎为空、**不注入 story_outlines.content** -> 模型幻觉新角色"金敏秀"（不在角色卡中），场景大纲与故事大纲冲突。
+  - **根因 B（writer 看不到故事大纲）**：续写走 TimeSliced/TriShot，prompt 只用 `WriteTimeBundle.to_prompt()`；故事大纲（"故事大纲定位"）只在 Full/Fast 路径计算，**从未到达 writer** -> 内容偏离大纲。
+  - **Fix A（场景大纲生成锚定故事大纲，`creation_commands.rs` + `agents/service.rs` + 新提示词）**：新增场景级提示词 `resources/prompts/planner/scene_outline.md`（强制复用已登场角色、禁止发明新角色、围绕故事大纲对应节点展开）；`generate_scene_outline` 加载 `story_outlines.content` + 场景序号注入 `task.parameters`；`build_outline_prompt` 分流（场景模式用 `scene_outline`，workflow 故事级仍用 `outline_planner`，行为不变）。
+  - **Fix B（writer 锚定故事大纲，`domain/write_time_bundle.rs` + `creative_engine/write_time_bundle.rs`）**：WriteTimeBundle 新增 `story_outline` 字段，`load_sync` 加载 `story_outlines.content`，`to_prompt()` 在世界观红线**之后**插入权威段【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】（保持红线第一不变量）；冲突时以故事大纲为准并使用已登场角色。一处改动同时覆盖 TimeSliced 与 TriShot 两条 writer 路径。
+  - 验证：`cargo test --lib` 964 passed（+4）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
+
 ## v0.30.14（2026-07-22）
 
 ### 修复

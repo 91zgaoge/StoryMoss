@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-22（v0.30.14 修复续写返回风格增强模板：多步 plan 尾部非 writer 覆盖正文）
+> 最后更新: 2026-07-22（v0.30.15 场景围绕故事大纲生成：创作原则加固）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.15 - 场景围绕故事大纲生成（创作原则加固）✅ (2026-07-22)
+
+- [x] 创作原则加固：有故事大纲时场景必须围绕大纲展开。根因 A：场景大纲生成 `generate_scene_outline` 复用故事级 outline_planner 提示词且不注入 story_outlines.content，幻觉新角色"金敏秀"；根因 B：writer（TimeSliced/TriShot）prompt 从不包含故事大纲。Fix A：新增场景级提示词 scene_outline.md（强制复用已登场角色、禁止发明新角色、围绕故事大纲节点）+ generate_scene_outline 注入故事大纲 + build_outline_prompt 分流；Fix B：WriteTimeBundle 加 story_outline 字段 + to_prompt 红线后插入权威段，一处覆盖两条 writer 路径。
 
 ### 🐛 v0.30.14 - 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）✅ (2026-07-22)
 
