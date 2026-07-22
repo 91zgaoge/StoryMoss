@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-23（v0.30.17 幕前顶部创世状态显示三 Agent 动作/进度）
+> 最后更新: 2026-07-23（v0.30.18 修复幕前意图分类 null 崩溃）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.18 - 修复幕前意图分类 null 崩溃 ✅ (2026-07-23)
+
+- [x] 修复 `handleSmartGeneration` 中 `classifyIntent` resolve 为 null 时不抛异常导致 `null.is_new_novel` 崩溃（v0.30.16 CI E2E PAGEERROR 根因，连带 6 个 E2E 失败）。E2E mock 对未注册命令返回 null 触发。Fix：catch 后新增 post-catch null 兜底（续写语义）+ 不缓存 null。附带：v0.30.16 tag macOS 构建 Info.plist Io(code 5) 为 runner 瞬时 I/O flake，已 rerun 重建。
 
 ### ✨ v0.30.17 - 幕前顶部创世状态显示三 Agent 动作/进度 ✅ (2026-07-23)
 

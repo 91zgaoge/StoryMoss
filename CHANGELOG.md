@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.18（2026-07-23）
+
+### 修复
+
+- **幕前意图分类 null 崩溃（v0.30.16 CI E2E PAGEERROR 根因）**：`handleSmartGeneration` 调 `classifyIntent` 后直接读 `classification.is_new_novel`，但 `classifyIntent` resolve 为 null 时不抛异常（catch 只拦抛出异常），导致 `null.is_new_novel` 崩溃。
+  - **根因**：E2E 环境 `e2e/mock-tauri.ts` 对未注册命令默认 `return null`（`classify_intent` 未 mock）-> `classifyIntent` resolve null -> PAGEERROR -> 幕前崩溃，连带 6 个 E2E（设置页/自动保存/创世重复）失败。v0.30.16 master 与 tag 两次 CI 均 hit。真实用户后端序列化异常返回 null 也会崩。
+  - **Fix（`FrontstageApp.tsx`）**：catch 块后新增 post-catch null 兜底（`if (!classification)` 填续写兜底，与 catch 同语义，避免误判续写为创世覆盖工作）；不再缓存 null 结果。
+  - **附带说明**：v0.30.16 tag 的 macOS 构建 `Failed to create Info.plist: Io(code 5)` 是 GitHub runner 瞬时 I/O flake（同代码 master 构建成功），已 `gh run rerun --failed` 重建，非代码问题。E2E 为 `continue-on-error` 非门禁。
+  - 验证：`npx tsc --noEmit` ✅；`npx vitest run` 307 passed / 3 skipped；`npm run format:check` ✅。纯前端，cargo 基线 964 不变。
+
 ## v0.30.17（2026-07-23）
 
 ### 改进
