@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-22（v0.30.12 修复续写返回审查报告：force-correction 漏拦 inspector）
+> 最后更新: 2026-07-22（v0.30.13 修复续写返回风格增强模板：SING 路径绕过 force-correction）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.13 - 续写返回风格增强模板修复（SING 路径绕过 force-correction）✅ (2026-07-22)
+
+- [x] 修复续写返回风格增强模板：SING（IntentionGraphPlanner）路径直接返回 plan 绕过 `PlanGenerator::generate_plan` 内的 force-correction，续写被 SING 路由到 `builtin.style_enhancer` 返回空内容模板；提取 `force_correct_first_step_to_writer` 在 plan 执行咽喉点（`execute_with_context`）统一施加，覆盖 SING/PlanGenerator/fallback 所有来源。
 
 ### 🐛 v0.30.12 - 续写返回审查报告修复（force-correction 漏拦 inspector）✅ (2026-07-22)
 
