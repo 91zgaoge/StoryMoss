@@ -184,6 +184,43 @@ impl PlanGenerator {
         classification.map(|c| c.is_prose_request).unwrap_or(true)
     }
 
+    /// 防线 2 的强制修正动作：当 `should_force_correct_to_writer`
+    /// 判定需要修正时， 把 plan 首步的 capability_id 改为 writer 并标注
+    /// understanding/purpose。
+    ///
+    /// v0.30.13: 提取为可复用方法，使其可在 **plan 执行咽喉点**
+    /// （`PlanExecutor::execute_with_context`--所有 plan 来源 SING /
+    /// PlanGenerator / fallback 的必经之路）统一施加，修补 SING 路径直接返回
+    /// plan 绕过 `generate_plan` 内 force-correction 的漏洞（续写被 SING 路由到
+    /// `builtin.style_enhancer`
+    /// 等返回"请提供需要增强的原始文本"模板而非正文）。 幂等：已为 writer
+    /// 的首步不会被改动，故 generate_plan 与咽喉点重复调用安全。
+    pub(crate) fn force_correct_first_step_to_writer(
+        plan: &mut ExecutionPlan,
+        classification: Option<&WritingIntentClassification>,
+        user_input: &str,
+    ) {
+        if plan.steps.is_empty() {
+            return;
+        }
+        let first_cap = plan.steps[0].capability_id.clone();
+        if !Self::should_force_correct_to_writer(&first_cap, classification) {
+            return;
+        }
+        log::warn!(
+            "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
+            first_cap,
+            user_input
+        );
+        plan.steps[0].capability_id = "writer".to_string();
+        plan.steps[0].purpose = "Auto-corrected: user wants prose generation/continuation, not style enhancement, analysis, or review"
+            .to_string();
+        plan.understanding = format!(
+            "{} [auto-corrected: prose/continuation keywords detected, forcing writer instead of {}]",
+            plan.understanding, first_cap
+        );
+    }
+
     /// 根据用户输入和系统状态生成执行计划
     ///
     /// 外层套 60 秒整体超时：计划生成只应消耗几百 tokens，若卡住可快速失败，
@@ -578,27 +615,14 @@ Rules:
         }
 
         // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了
-        // outline_planner，强制替换为 writer
-        if !plan.steps.is_empty() {
-            let first_cap = plan.steps[0].capability_id.clone();
-            if Self::should_force_correct_to_writer(
-                &first_cap,
-                context.intent_classification.as_ref(),
-            ) {
-                log::warn!(
-                    "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
-                    first_cap,
-                    context.user_input
-                );
-                plan.steps[0].capability_id = "writer".to_string();
-                plan.steps[0].purpose = "Auto-corrected: user wants prose generation/continuation, not style enhancement, analysis, or review"
-                    .to_string();
-                plan.understanding = format!(
-                    "{} [auto-corrected: prose/continuation keywords detected, forcing writer instead of {}]",
-                    plan.understanding, first_cap
-                );
-            }
-        }
+        // outline_planner/style_enhancer/inspector 等，强制替换为 writer。
+        // v0.30.13: 提取为 force_correct_first_step_to_writer；咽喉点
+        // （execute_with_context）也调用同一方法，修补 SING 路径绕过。
+        Self::force_correct_first_step_to_writer(
+            &mut plan,
+            context.intent_classification.as_ref(),
+            &context.user_input,
+        );
 
         Ok(plan)
     }
@@ -793,5 +817,88 @@ mod tests {
             "writer",
             Some(&cls)
         ));
+    }
+
+    #[test]
+    fn test_force_correct_method_sing_style_enhancer_corrected() {
+        // v0.30.13 回归：SING 路径产生的 builtin.style_enhancer 首步经咽喉点
+        // force_correct_first_step_to_writer 修正为 writer（用户报告"继续写"得到
+        // "请提供需要增强的原始文本"模板，根因是 SING 绕过 generate_plan 内防线）。
+        let mut plan = ExecutionPlan {
+            understanding: "sing plan: enhance style".to_string(),
+            steps: vec![PlanStep {
+                step_id: "ig_step_1".to_string(),
+                capability_id: "builtin.style_enhancer".to_string(),
+                purpose: "enhance style".to_string(),
+                parameters: HashMap::new(),
+                depends_on: vec![],
+                long_running: false,
+            }],
+            fallback_message: String::new(),
+        };
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        PlanGenerator::force_correct_first_step_to_writer(&mut plan, Some(&cls), "继续写");
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert!(plan.understanding.contains("auto-corrected"));
+        assert!(plan.understanding.contains("builtin.style_enhancer"));
+    }
+
+    #[test]
+    fn test_force_correct_method_writer_plan_untouched() {
+        // v0.30.13：已为 writer 的首步幂等不改动（understanding 不变）。
+        let mut plan = ExecutionPlan {
+            understanding: "writer plan".to_string(),
+            steps: vec![PlanStep {
+                step_id: "s1".to_string(),
+                capability_id: "writer".to_string(),
+                purpose: "write prose".to_string(),
+                parameters: HashMap::new(),
+                depends_on: vec![],
+                long_running: false,
+            }],
+            fallback_message: String::new(),
+        };
+        PlanGenerator::force_correct_first_step_to_writer(&mut plan, None, "继续写");
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert_eq!(plan.understanding, "writer plan");
+    }
+
+    #[test]
+    fn test_force_correct_method_empty_plan_noop() {
+        // v0.30.13：空 plan 不 panic。
+        let mut plan = ExecutionPlan {
+            understanding: "empty".to_string(),
+            steps: vec![],
+            fallback_message: String::new(),
+        };
+        PlanGenerator::force_correct_first_step_to_writer(&mut plan, None, "继续写");
+        assert!(plan.steps.is_empty());
+    }
+
+    #[test]
+    fn test_force_correct_method_inspector_continuation_corrected() {
+        // v0.30.13：咽喉点也覆盖 inspector 误路由（v0.30.12 场景在 SING 路径复现）。
+        let mut plan = ExecutionPlan {
+            understanding: "sing plan: inspect".to_string(),
+            steps: vec![PlanStep {
+                step_id: "ig_step_1".to_string(),
+                capability_id: "inspector".to_string(),
+                purpose: "review".to_string(),
+                parameters: HashMap::new(),
+                depends_on: vec![],
+                long_running: false,
+            }],
+            fallback_message: String::new(),
+        };
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        PlanGenerator::force_correct_first_step_to_writer(&mut plan, Some(&cls), "继续写");
+        assert_eq!(plan.steps[0].capability_id, "writer");
     }
 }

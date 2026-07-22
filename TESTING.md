@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.12)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.13)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.13 变更说明
+
+- 续写返回风格增强模板修复（SING 路径绕过 force-correction）：SING（IntentionGraphPlanner）路径直接返回 plan、绕过 `PlanGenerator::generate_plan` 内的防线 2，续写被 SING 路由到 `builtin.style_enhancer` 返回"请提供需要增强的原始文本"模板；提取 `PlanGenerator::force_correct_first_step_to_writer`（`pub(crate)`，封装 swap + understanding/purpose 标注）在 plan 执行咽喉点 `execute_with_context`（`execute_plan` 之前，所有 plan 来源 SING/PlanGenerator/fallback 必经）统一施加，幂等。
+- 新增 4 个咽喉点 force-correction 回归测试（`force_correct_first_step_to_writer`：SING style_enhancer 修正、writer 幂等不改动、空 plan 不 panic、inspector 续写修正）。
+- 全量基线：`cargo test --lib` 948 passed（+4）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550 -> 549）。
 
 ### v0.30.12 变更说明
 
@@ -514,4 +520,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.12 force-correction 覆盖 inspector，测试基线更新_
+_最后更新: 2026-07-22 - v0.30.13 force-correction 咽喉点覆盖 SING 路径，测试基线 948_

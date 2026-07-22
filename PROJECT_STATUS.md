@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.12 项目完成状态
+# StoryMoss (草苔) v0.30.13 项目完成状态
 
-> 最后更新: 2026-07-22（v0.30.12 修复续写返回审查报告：force-correction 漏拦 inspector）
+> 最后更新: 2026-07-22（v0.30.13 修复续写返回风格增强模板：SING 路径绕过 force-correction）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.13 - 续写返回风格增强模板修复（SING 路径绕过 force-correction）（2026-07-22）
+
+- **根因**：planner force-correction（防线 2）只在 `PlanGenerator::generate_plan` 内施加，而 `PlanExecutor::execute_with_context` 的 SING（IntentionGraphPlanner）路径直接返回 plan、完全绕过 `generate_plan`。当 SING 把续写路由到 `builtin.style_enhancer`（Skill 资产）作为首步时，force-correction 从不执行，style_enhancer 收到空 content 返回"请提供需要增强的原始文本"模板。v0.30.11 禁用模板重放消除了模板路径，但 SING 路径的绕过漏洞仍在。
+- **Fix（结构修复，`planner/mod.rs` + `planner/executor.rs`）**：提取 `PlanGenerator::force_correct_first_step_to_writer` 为 `pub(crate)` 方法，在 `generate_plan` 与 **plan 执行咽喉点** `execute_with_context`（所有 plan 来源 SING/PlanGenerator/fallback 必经，`execute_plan` 之前）统一施加。SING 路径产生的 `builtin.style_enhancer`/`inspector`/`outline_planner` 等首步经咽喉点修正为 `writer`。幂等：已为 writer 的首步不受影响，两处重复调用安全。
+- **验证**：`cargo test --lib` 948 passed（+4 咽喉点回归）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550 -> 549）。
 
 ### v0.30.12 - 续写返回审查报告修复（force-correction 漏拦 inspector）（2026-07-22）
 

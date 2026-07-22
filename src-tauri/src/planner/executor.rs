@@ -293,6 +293,17 @@ impl PlanExecutor {
             }
         };
 
+        // v0.30.13 防线 2 咽喉点：所有 plan 来源（SING / PlanGenerator / fallback）
+        // 在执行前统一施加 force-correction。修补 SING 路径直接返回 plan、绕过
+        // PlanGenerator::generate_plan 内 force-correction 的漏洞--续写被 SING
+        // 路由到 builtin.style_enhancer 等会返回"请提供需要增强的原始文本"模板而非
+        // 正文。幂等：已为 writer 的首步不受影响，故与 generate_plan 内调用重复安全。
+        PlanGenerator::force_correct_first_step_to_writer(
+            &mut plan,
+            context.intent_classification.as_ref(),
+            &context.user_input,
+        );
+
         // Inject PlanContext information into every step so agents get full context
         for step in &mut plan.steps {
             if let Some(ref preview) = context.current_content_preview {
