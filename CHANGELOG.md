@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.17（2026-07-23）
+
+### 改进
+
+- **幕前顶部创世状态显示三 Agent 动作/进度**：用户反馈幕前顶部创世流程状态提示信息不足，看不出「主创在干嘛、做完了什么工作」。底部 LLM 连接状态未改动。
+  - **新增 `useAgencyAgentActivity` hook（`src-frontend/src/frontstage/useAgencyAgentActivity.ts`）**：幕前订阅后端已有的 `agency-agent-activity` 事件（`coordinator.rs` emit_activity，role=lead_writer(主创)/producer(管理)/editor_auditor(编辑审计)，action=start/done，detail=概念/首章/深度资产/审查/装配），此前仅幕后 `AgencyStudio` 消费。按 主创/管理/编辑审计 顺序聚合各角色最新活动，产出 `{ text, done }[]` 文案（进行中「主创正在写第一章」，已完成「管理已完成深度资产」）；订阅 `agency-run-progress`，run 结束（completed/failed/cancelled/error）时清空，避免创世结束后残留陈旧进度。
+  - **接线 `FrontstageHeader.tsx`**：顶部状态栏在 `orchestratorStatus` 之后渲染各 Agent 进度条目（进行中琥珀 `saving` 态、已完成绿色 `saved` 态），无活动时不占位。
+  - **附带（用户级永久指令）**：`AGENTS.md` 强制构建规则 #2 改为「本地构建仅在用户明确要求时执行」--推送后由 GitHub Actions 负责全平台构建，本地仅跑验证命令，省略耗时 `cargo tauri build` 打包。
+  - 验证：`npx tsc --noEmit` ✅；`npx vitest run` 307 passed / 3 skipped（+2）；`npm run format:check` ✅。纯前端，无 Rust 变更。
+
 ## v0.30.16（2026-07-22）
 
 ### 功能

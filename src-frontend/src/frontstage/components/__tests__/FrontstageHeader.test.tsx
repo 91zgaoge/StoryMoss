@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FrontstageHeader from '../FrontstageHeader';
 
@@ -9,6 +9,18 @@ vi.mock('../IngestHealthIndicator', () => ({
 
 vi.mock('../DebtIndicator', () => ({
   default: () => null,
+}));
+
+// v0.30.17: useAgencyAgentActivity 通过动态 import('@tauri-apps/api/event') 订阅事件。
+// 捕获 listen 回调以便在测试中模拟 Agency agent 活动 / run 结束事件。
+const { listeners } = vi.hoisted(() => ({
+  listeners: {} as Record<string, (e: { payload: unknown }) => void>,
+}));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn((event: string, cb: (e: { payload: unknown }) => void) => {
+    listeners[event] = cb;
+    return Promise.resolve(() => {});
+  }),
 }));
 
 describe('FrontstageHeader', () => {
@@ -175,5 +187,44 @@ describe('FrontstageHeader', () => {
   it('文思关闭模式应该显示正确的提示', () => {
     render(<FrontstageHeader {...defaultProps} wensiMode="off" />);
     expect(screen.getByTitle('文思已关闭')).toBeInTheDocument();
+  });
+
+  it('创世进行中应显示三 Agent（主创/管理/编辑审计）的动作与进度', async () => {
+    render(<FrontstageHeader {...defaultProps} />);
+    await waitFor(() => {
+      expect(listeners['agency-agent-activity']).toBeTruthy();
+    });
+    act(() => {
+      listeners['agency-agent-activity']({
+        payload: { run_id: 'r1', role: 'lead_writer', action: 'start', detail: '首章' },
+      });
+      listeners['agency-agent-activity']({
+        payload: { run_id: 'r1', role: 'producer', action: 'done', detail: '深度资产' },
+      });
+      listeners['agency-agent-activity']({
+        payload: { run_id: 'r1', role: 'editor_auditor', action: 'start', detail: '审查' },
+      });
+    });
+    expect(screen.getByText('主创正在写第一章')).toBeInTheDocument();
+    expect(screen.getByText('管理已完成深度资产')).toBeInTheDocument();
+    expect(screen.getByText('编辑审计正在质检')).toBeInTheDocument();
+  });
+
+  it('创世 run 结束后应清空三 Agent 进度', async () => {
+    render(<FrontstageHeader {...defaultProps} />);
+    await waitFor(() => {
+      expect(listeners['agency-agent-activity']).toBeTruthy();
+      expect(listeners['agency-run-progress']).toBeTruthy();
+    });
+    act(() => {
+      listeners['agency-agent-activity']({
+        payload: { run_id: 'r1', role: 'lead_writer', action: 'start', detail: '首章' },
+      });
+    });
+    expect(screen.getByText('主创正在写第一章')).toBeInTheDocument();
+    act(() => {
+      listeners['agency-run-progress']({ payload: { run_id: 'r1', status: 'completed' } });
+    });
+    expect(screen.queryByText('主创正在写第一章')).not.toBeInTheDocument();
   });
 });
