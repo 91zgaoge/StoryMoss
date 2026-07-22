@@ -730,6 +730,7 @@ mod tests {
             style_weight: 50,
             chapter_number: 1,
             selected_strategy: None,
+            intent_classification: None,
         }
     }
 

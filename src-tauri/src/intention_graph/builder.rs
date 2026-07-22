@@ -97,39 +97,16 @@ impl IntentSynthesisPipeline {
             .generate(user_prompt, Some(100), Some(0.1))
             .await?;
 
-        // v0.20.1: 剥离 markdown 代码块包裹（LLM 常返回 ```json ... ```）
+        // v0.30.11: 硬化 LLM 主路径--严格解析失败时宽松 salvage，verb/object
+        // 缺失时从 raw_input 推断（写作应用默认 generate prose），避免本地模型
+        // 散文前后缀或字段缺失直接回退到无效的 "analyze intent" 规则路径。
         let raw = response.content.trim();
-        let json_str = if raw.starts_with("```") {
-            let inner = raw
-                .trim_start_matches("```json")
-                .trim_start_matches("```")
-                .trim_end_matches("```")
-                .trim();
-            inner
-        } else {
-            raw
-        };
+        let (verb_raw, object_raw, confidence) = Self::extract_intent_fields(raw, user_input)?;
 
-        let parsed: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| AppError::internal(format!("LLM JSON parse failed: {}", e)))?;
-
-        let verb_raw = parsed
-            .get("verb")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::internal("Missing verb in LLM response"))?;
-        let object_raw = parsed
-            .get("object")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::internal("Missing object in LLM response"))?;
-        let confidence = parsed
-            .get("confidence")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.7);
-
-        // v0.20.1: 意图归一化——将 LLM 返回的动词映射到 AssetSync 注册的标准动词，
+        // v0.20.1: 意图归一化--将 LLM 返回的动词映射到 AssetSync 注册的标准动词，
         // 确保不同表达方式归一化到同一意图节点（修复审计报告 P2-3）
-        let verb = Self::normalize_verb(verb_raw);
-        let object = Self::normalize_object(object_raw);
+        let verb = Self::normalize_verb(&verb_raw);
+        let object = Self::normalize_object(&object_raw);
 
         Ok(SynthesizedQuery {
             raw_input: user_input.to_string(),
@@ -138,6 +115,86 @@ impl IntentSynthesisPipeline {
             detected_keywords: vec![verb.to_string(), object.to_string()],
             context_hints: vec![],
         })
+    }
+
+    /// v0.30.11: 宽松提取 verb/object/confidence。
+    ///
+    /// 1. 剥离 markdown 代码块；
+    /// 2. 截取首个 `{` 到末个 `}` 的 JSON 对象子串（容忍本地模型散文前后缀）；
+    /// 3. 严格 JSON 解析；失败则字段级 salvage；
+    /// 4. verb/object 缺失时从 `raw_input` 推断（写作应用默认
+    ///    `generate`/`prose`）。
+    fn extract_intent_fields(
+        raw: &str,
+        raw_input: &str,
+    ) -> Result<(String, String, f64), AppError> {
+        // 剥离 markdown 代码块
+        let stripped = if raw.starts_with("```") {
+            raw.trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim()
+        } else {
+            raw
+        };
+        // 截取 JSON 对象子串
+        let json_str = match (stripped.find('{'), stripped.rfind('}')) {
+            (Some(start), Some(end)) if end > start => &stripped[start..=end],
+            _ => stripped,
+        };
+        let parsed: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| AppError::internal(format!("LLM JSON parse failed: {}", e)))?;
+
+        let verb_raw = parsed
+            .get("verb")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let object_raw = parsed
+            .get("object")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let confidence = parsed
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7);
+
+        // verb/object 缺失时从 raw_input 推断（写作应用默认 generate prose）
+        let verb = verb_raw.unwrap_or_else(|| {
+            if Self::looks_like_prose_request(raw_input) {
+                "generate".to_string()
+            } else {
+                "analyze".to_string()
+            }
+        });
+        let object = object_raw.unwrap_or_else(|| {
+            if Self::looks_like_prose_request(raw_input) {
+                "prose".to_string()
+            } else {
+                "intent".to_string()
+            }
+        });
+
+        Ok((verb, object, confidence))
+    }
+
+    /// v0.30.11: raw_input 是否像散文生成请求（多字 pattern，无单字噪声）。
+    fn looks_like_prose_request(input: &str) -> bool {
+        let lower = input.to_lowercase();
+        [
+            "创作",
+            "续写",
+            "继续",
+            "写小说",
+            "写故事",
+            "写一章",
+            "写正文",
+            "开篇",
+        ]
+        .iter()
+        .any(|kw| lower.contains(kw))
+            || ["write", "continue", "begin writing"]
+                .iter()
+                .any(|kw| lower.contains(kw))
     }
 
     /// v0.20.1: 将 LLM 返回的动词归一化到 AssetSync 注册的标准动词
@@ -184,9 +241,10 @@ impl IntentSynthesisPipeline {
     ) -> SynthesizedQuery {
         let normalized = user_input.to_lowercase();
 
+        // v0.30.11: 移除单字 "写"（命中"修改/改写"等噪声）；仅多字 pattern。
+        // 此为 LLM 不可用时的降级路径，主路径仍是 synthesize_query_with_llm。
         // 检测明确的创作意图
         let is_prose_request = [
-            "写",
             "write",
             "创作",
             "开始写",
@@ -267,7 +325,10 @@ impl IntentSynthesisPipeline {
         } else if is_outline_request {
             "plan structure"
         } else {
-            "analyze intent"
+            // v0.30.11: 兜底默认 generate prose（原 "analyze intent" 产出空链无效）。
+            // 写作应用中未识别的输入默认按散文生成处理，expand_chain 映射到
+            // inspect+revise 安全链；误判代价远低于空链。
+            "generate prose"
         };
 
         SynthesizedQuery {

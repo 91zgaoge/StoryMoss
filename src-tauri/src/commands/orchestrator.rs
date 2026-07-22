@@ -7,7 +7,7 @@ use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
     error::AppError,
     error_recovery::retry_with_backoff,
-    is_novel_creation_intent, record_ai_operation,
+    record_ai_operation,
 };
 
 /// smart_execute 初始上下文加载结果类型别名，降低闭包类型复杂度
@@ -34,6 +34,7 @@ pub async fn smart_execute(
     user_input: String,
     current_content: Option<String>,
     style_weight: Option<i32>,
+    intent_classification: Option<crate::intent::WritingIntentClassification>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
@@ -54,6 +55,7 @@ pub async fn smart_execute(
             user_input,
             current_content,
             style_weight,
+            intent_classification,
             pool_inner,
             app_handle.clone(),
         ),
@@ -93,6 +95,7 @@ async fn smart_execute_inner(
     user_input: String,
     current_content: Option<String>,
     style_weight: Option<i32>,
+    intent_classification: Option<crate::intent::WritingIntentClassification>,
     pool: crate::db::DbPool,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
@@ -227,8 +230,23 @@ async fn smart_execute_inner(
             }
         });
 
-    // 检测是否需要启动小说初始化工作流
-    let is_bootstrap_intent = is_novel_creation_intent(&user_input);
+    // v0.30.11: 用 LLM 写作意图分类替代 is_novel_creation_intent 朴素子串匹配
+    // （"讲一个 bookstore 的故事"会命中 "story" 误触发创世）。前端在 smart_execute
+    // 前调 classify_intent 取得分类并传入（避免重复 LLM）；未提供时后端兜底自调
+    // classify_writing_intent（8s 超时 + 保守兜底 is_new_novel=false）。
+    let has_existing_story = !stories.is_empty();
+    let has_current_content = current_content_preview.is_some();
+    let classification = match intent_classification.clone() {
+        Some(c) => c,
+        None => {
+            log::info!("[smart_execute] 前端未传意图分类，后端兜底 LLM 分类");
+            let parser = crate::intent::IntentParser::new(app_handle.clone());
+            parser
+                .classify_writing_intent(&user_input, has_existing_story, has_current_content)
+                .await
+        }
+    };
+    let is_bootstrap_intent = classification.is_new_novel;
 
     wf(
         "smart_execute.start",
@@ -699,10 +717,12 @@ async fn smart_execute_inner(
 
     // v0.10.0: 构建当前故事的创作策略上下文
     // v0.14.0: spawn_blocking 包裹同步 DB 查询
-    // v0.17.1: 输入清晰度检测 → 后端透明补全中文叙事四元组
+    // v0.17.1: 输入清晰度检测 -> 后端透明补全中文叙事四元组
+    // v0.30.11: 优先用 LLM 分类的 input_clarity（smart_execute 入口已分类），
+    // detect_input_clarity 仅作无分类时的字面兜底。
     let strategy_story = current_story.clone();
     let strategy_pool = pool.clone();
-    let input_clarity = crate::intent::detect_input_clarity(&user_input);
+    let input_clarity = classification.input_clarity;
     let selected_strategy = tokio::task::spawn_blocking(move || {
         build_selected_strategy(&strategy_story, &strategy_pool, input_clarity)
     })
@@ -733,6 +753,7 @@ async fn smart_execute_inner(
         style_weight,
         chapter_number,
         selected_strategy,
+        intent_classification: Some(classification.clone()),
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）

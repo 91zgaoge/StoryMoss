@@ -66,10 +66,16 @@ impl PlanExecutor {
         }
     }
 
-    /// Check if a matching template exists for the given user input
-    pub fn find_template(&self, user_input: &str) -> Option<ExecutionPlan> {
-        let library = self.template_library.lock().ok()?;
-        library.find_match(user_input).map(|t| t.plan.clone())
+    /// v0.30.11: 模板重放已禁用。`PlanTemplateLibrary::find_match`
+    /// 用朴素子串匹配 `user_input.contains(p)`，且 trigger_patterns 来自
+    /// LLM understanding 文本经 `split_whitespace` 切词（中文整句变一个
+    /// pattern），本质噪声匹配，任何匹配器 都无法可靠工作（曾导致"
+    /// 继续写当前这部小说"命中"这部小说"重放错误的 style_enhancer
+    /// 计划，返回"请提供文本"而非正文）。意图路由已改由 LLM 分类器
+    /// （`classify_writing_intent`）负责。缺失时直接走 planner LLM，最坏 +一次
+    /// LLM 往返。DB 表与 `record_success` 保留供未来严格匹配观测。
+    pub fn find_template(&self, _user_input: &str) -> Option<ExecutionPlan> {
+        None
     }
 
     /// Adapt a template plan to the current context by replacing placeholders
@@ -103,7 +109,13 @@ impl PlanExecutor {
             .unwrap_or_else(|_| "auto".to_string());
         let is_trishot = generation_mode == "tri_shot" || generation_mode == "trishot";
 
-        if is_trishot && !crate::is_novel_creation_intent(&context.user_input) {
+        // v0.30.11: 用 LLM 分类的 is_new_novel 替代 is_novel_creation_intent 子串匹配。
+        let is_new_novel = context
+            .intent_classification
+            .as_ref()
+            .map(|c| c.is_new_novel)
+            .unwrap_or(false);
+        if is_trishot && !is_new_novel {
             log::info!("[PlanExecutor] TriShot 快速路径：跳过计划生成，直接 writer step");
             let plan = Self::make_trishot_plan(context);
             return Ok(self.execute_plan(plan, context).await);
@@ -111,22 +123,13 @@ impl PlanExecutor {
 
         // Before generating a new plan, check PlanTemplateLibrary for matching
         // templates.
-        // v0.30.10: 续写/写作意图跳过模板匹配 -- 模板库的 substring 匹配过于宽松
-        // （如 "这部小说" 会匹配 "继续写当前这部小说"），导致续写请求错误重放
-        // 之前记录的 style_enhancer / style_mimic 计划，返回"请提供文本"而非正文。
-        let continuation_signals = [
-            "继续",
-            "续写",
-            "接着写",
-            "往下写",
-            "接下来",
-            "后续",
-            "接着",
-            "继续写",
-        ];
-        let is_continuation = continuation_signals
-            .iter()
-            .any(|&kw| context.user_input.contains(kw));
+        // v0.30.11: 模板重放已禁用（find_template 恒返回 None，见其注释）。
+        // 续写意图仍记录日志便于诊断；分类经 PlanContext 贯穿。
+        let is_continuation = context
+            .intent_classification
+            .as_ref()
+            .map(|c| c.is_continuation)
+            .unwrap_or(false);
         let template_plan = if is_continuation {
             log::info!(
                 "[PlanExecutor] 续写意图检测到，跳过模板匹配，走 planner LLM: {}",
@@ -1336,6 +1339,24 @@ impl PlanExecutor {
         } else {
             format!("{}{}", instruction, gate.render_constraints())
         };
+
+        // v0.30.11: 透传 LLM 分类的 detected_genre / task_type_hint 到
+        // task.parameters， 供 build_writer_prompt（题材覆盖，替代
+        // extract_genre 子串匹配）与 from_instruction_and_context（task_type
+        // hint，替代指令子串启发式）使用。 分类来源：smart_execute 入口的
+        // classify_writing_intent，经 PlanContext 贯穿。
+        if let Some(classification) = &plan_context.intent_classification {
+            if let Some(ref genre) = classification.detected_genre {
+                enriched_params.insert(
+                    "detected_genre".to_string(),
+                    serde_json::Value::String(genre.clone()),
+                );
+            }
+            enriched_params.insert(
+                "task_type_hint".to_string(),
+                serde_json::to_value(&classification.task_type).unwrap_or(serde_json::Value::Null),
+            );
+        }
 
         let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),

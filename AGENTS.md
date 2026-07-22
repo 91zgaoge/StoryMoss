@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.10
+- **版本**: v0.30.11
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 929 passed
+- `cargo test --lib` ✅ 936 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,22 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.11 - 全面整改：用 LLM 解析器替换朴素子串意图匹配
+
+- **背景**：审计全项目发现 ~30 处 `.contains()`/`.includes()` 朴素子串匹配，其中 6 处高危直接在用户自然语言输入上做意图路由（`find_match`、`is_novel_creation_intent` 前后端、`from_instruction_and_context`、force-correction、`synthesize_query_rule_based`），是 v0.30.10 `PlanTemplateLibrary` bug 的同类。用户指示用 LLM 解析器替代。
+- **核心：`IntentParser::classify_writing_intent`（intent.rs）**：一次 LLM 调用产出 `WritingIntentClassification`（is_new_novel / is_continuation / task_type / is_prose_request / input_clarity / detected_genre / confidence）。最快模型 + 8s 超时 + 保守兜底（is_new_novel=false=续写）+ 会话 LRU 缓存。误判代价不对称：误判续写为创世会启动 Agency 全流程覆盖工作（灾难），故默认偏向续写。
+- **Site 4**：`smart_execute` 用 `classification.is_new_novel` 替代 `is_novel_creation_intent`；前端 `classify_intent` IPC 先行，payload 透传分类，后端信任不重复调用。
+- **Site 1**：`find_template` 禁用（恒返回 None，patterns 来自 LLM understanding 切词噪声）；`find_match` 标 `#[allow(dead_code)]`。
+- **Site 4b/5**：TriShot 守卫 + 续写绕过 + force-correction 读 `PlanContext.intent_classification`（无新 LLM 调用）。
+- **Site 3**：`from_instruction_and_context` 修运算符优先级 bug + 移除单字 pattern + `hint` 参数经 `task.parameters["task_type_hint"]` 透传。
+- **Site 8**：`build_writer_prompt` 题材优先 LLM `detected_genre` > `extract_genre`（加否定窗口 + 长度降序）> 故事 genre。
+- **Site 7**：`detect_input_clarity` 移除单字信号；调用方读 `classification.input_clarity`。
+- **Site 2**：`intention_graph::builder` LLM 主路径硬化（JSON 子串截取 + raw_input 推断）+ 规则兜底默认 `generate prose`。
+- **前端**：新增 `classifyIntent` API；`handleSmartGeneration` 入口调分类（缓存 + 兜底）；删除 `isNovelCreationIntent`/`isContinuationIntent`。
+- **字段名 bug**：prompt 指示返回 `"is_prose"` 但 struct 字段 `is_prose_request` 无 alias 致恒 false；加 `#[serde(alias = "is_prose")]` 修复（单测捕获）。
+- **不适用 LLM（诚实标注）**：Site 9 `derive_model_role_from_label`（内部 label）、Site 10 `discover_from_outputs`（LLM 输出，需结构化 findings 改造）保留为后续。
+- **验证**：`cargo test --lib` 936 passed（+1）；`npx vitest run` 305 passed；tsc / fmt / format:check / clippy / architecture_guard 全绿。
 
 ### v0.30.10 - 续写返回风格增强模板修复（模板匹配误路由 + content 空兜底）
 
@@ -445,7 +461,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-20 - v0.30.10_
+_最后更新: 2026-07-20 - v0.30.11_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

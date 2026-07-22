@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.10 项目完成状态
+# StoryMoss (草苔) v0.30.11 项目完成状态
 
-> 最后更新: 2026-07-20（v0.30.10 修复续写返回风格增强模板--模板匹配误路由 + content 空兜底注入）
+> 最后更新: 2026-07-20（v0.30.11 用 LLM 意图分类器替换朴素子串意图匹配，修复 6 处高危路由点）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.11 - LLM 意图分类器替换朴素子串匹配（6 处高危路由点修复）（2026-07-20）
+
+- **背景**：全代码库用朴素子串匹配（`user_input.contains(pattern)`）做意图路由，误路由频发（如"这部小说"误匹配"继续写当前这部小说"、否定句"不要新建"仍判为新建等）。
+- **新增 IntentParser::classify_writing_intent**：单次 LLM 调用产出全部路由决策（is_new_novel / is_continuation / task_type / is_prose_request / input_clarity / detected_genre / confidence）；8s 超时 + 保守回退（is_new_novel=false=续写）+ 会话 LRU 缓存。
+- **修复 6 处高危路由点**：is_novel_creation_intent 子串误判 / find_template 被 disabled 误禁 / from_instruction_and_context 优先级 bug / force-correction 扩展 / extract_genre 否定句漏判 / intention_graph builder。
+- **前端**：新增 classifyIntent API，删除 isNovelCreationIntent / isContinuationIntent；修复字段名别名 bug（提示词 is_prose 与结构体 is_prose_request 不一致）。
+- ✅ **验证**：`cargo test --lib` 936 passed；`npx vitest run` 305 passed；tsc / fmt / clippy / architecture_guard 全绿。
 
 ### v0.30.10 - 续写返回风格增强模板修复（模板匹配误路由 + content 空兜底）（2026-07-20）
 
@@ -769,7 +777,7 @@
 | 检查项                                    | 状态                                                |
 | ----------------------------------------- | --------------------------------------------------- |
 | `cargo check`                             | ✅ 零错误                                           |
-| `cargo test --lib`                        | ✅ 538 passed / 0 failed / 2 ignored                |
+| `cargo test --lib`                        | ✅ 936 passed / 0 failed / 2 ignored                |
 | `cargo test --lib intention_graph`        | ✅ 21/21                                            |
 | `cargo test --lib adaptive::asset_params` | ✅ 3/3                                              |
 | `cargo test --lib genre_resolver`         | ✅ 5/5                                              |
@@ -778,7 +786,7 @@
 | `cargo test --lib dispatcher`             | ✅ 5/5                                              |
 | 真实模型测试（Gemma4-e2b）                | ✅ 6/6                                              |
 | `npx tsc --noEmit`                        | ✅ 零错误                                           |
-| `npx vitest run`                          | ✅ 126 passed / 3 skipped                           |
+| `npx vitest run`                          | ✅ 305 passed                           |
 | `cargo +nightly fmt -- --check`           | ✅ 零差异                                           |
 | `npm run format:check`                    | ✅ 零差异                                           |
 | `python3 scripts/architecture_guard.py`   | ✅ 通过                                             |

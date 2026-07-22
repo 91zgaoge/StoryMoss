@@ -21,6 +21,25 @@ pub async fn parse_intent(
     parser.parse(&user_input).await.map_err(AppError::from)
 }
 
+// v0.30.11: 写作意图路由分类--前端在 smart_execute 之前调用，
+// 一次 LLM 调用产出全部路由决策（is_new_novel/task_type/is_prose/clarity/
+// genre）， 替代前后端各自的朴素子串关键词匹配。结果回传
+// smart_execute，避免重复 LLM。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn classify_intent(
+    pool: State<'_, DbPool>,
+    user_input: String,
+    has_existing_story: bool,
+    has_current_content: bool,
+    app_handle: AppHandle,
+) -> Result<crate::intent::WritingIntentClassification, AppError> {
+    let _pool = pool;
+    let parser = crate::intent::IntentParser::new(app_handle);
+    Ok(parser
+        .classify_writing_intent(&user_input, has_existing_story, has_current_content)
+        .await)
+}
+
 // Intent Executor Command
 #[tauri::command(rename_all = "snake_case")]
 pub async fn execute_intent(

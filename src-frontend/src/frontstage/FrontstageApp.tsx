@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import {
   recordFeedback,
   smartExecute,
+  classifyIntent,
   checkPreflight,
   autoCreateMissingContracts,
   getInputHint,
@@ -14,6 +15,7 @@ import {
   runFinalize,
   getPipelineActiveDraft,
 } from '@/services/tauri';
+import type { WritingIntentClassification } from '@/services/tauri';
 import { parseStructuredError } from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
@@ -3657,57 +3659,9 @@ const FrontstageApp: React.FC = () => {
     }
   }, [stopElapsedTimer]);
 
-  // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
-  // v5.4.0: 增强检测，区分"创建新小说"和"续写当前故事"
-  const isNovelCreationIntent = (input: string): boolean => {
-    const txt = input.toLowerCase();
-    // 明确的创建新小说意图词（必须包含至少一个）
-    const creationSignals = [
-      '写一部',
-      '写一本',
-      '写一篇',
-      '写个',
-      '创作一部',
-      '创作一本',
-      '创作一篇',
-      '创作个',
-      '生成一部',
-      '生成一本',
-      '生成一篇',
-      '新建',
-      '创建',
-      '新开',
-      'novel',
-      'story',
-      'book',
-    ];
-    const hasCreationSignal = creationSignals.some(kw => txt.includes(kw));
-    if (!hasCreationSignal) return false;
-    // 排除明确的续写意图词
-    const continuationSignals = ['续写', '接着写', '往下写', '后面', '接下来', '继续', '后续'];
-    const hasContinuationSignal = continuationSignals.some(kw => txt.includes(kw));
-    // 如果同时包含创建信号和续写信号，优先判断为续写（用户说"续写一部小说"）
-    if (hasContinuationSignal) return false;
-    return true;
-  };
-
-  // v0.9.4: 检测用户输入是否明确为"续写/继续写"意图，用于显示更准确的初始提示
-  const isContinuationIntent = (input: string): boolean => {
-    const txt = input.toLowerCase();
-    const continuationSignals = [
-      '续写',
-      '接着写',
-      '往下写',
-      '继续写',
-      '继续',
-      '后续',
-      '后面',
-      '接下来',
-      '写下去',
-      '往下续',
-    ];
-    return continuationSignals.some(kw => txt.includes(kw));
-  };
+  // v0.30.11: 意图分类会话缓存（按 userInput 哈希），避免重复"继续写"等输入
+  // 二次触发 LLM 分类。与后端 CLASSIFICATION_CACHE 对齐。
+  const intentClassificationCacheRef = useRef<Map<string, WritingIntentClassification>>(new Map());
 
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
   const handleSmartGeneration = useCallback(
@@ -3734,7 +3688,39 @@ const FrontstageApp: React.FC = () => {
 
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
-      const isBootstrap = isNovelCreationIntent(userInput);
+      // v0.30.11: 用 LLM 意图分类替代 isNovelCreationIntent 朴素子串匹配。
+      // 一次调用产出 is_new_novel/is_continuation/task_type/...，后端 8s 超时 +
+      // 保守兜底（is_new_novel=false=续写；planner 仍能处理创世，安全降级）。
+      // 误判代价：创世误判为续写->planner 仍产出首章（安全）；续写误判为创世->
+      // 启动 Agency 全流程、新建故事、覆盖工作（灾难）。故默认偏向续写。
+      setOrchestratorStatus({ stepType: 'busy', message: '🧠 正在理解创作意图...' });
+      let classification = intentClassificationCacheRef.current.get(userInput);
+      if (!classification) {
+        try {
+          classification = await classifyIntent(
+            userInput,
+            !!currentStory?.id,
+            !!currentChapter?.content
+          );
+          intentClassificationCacheRef.current.set(userInput, classification);
+          // LRU 上限 64，避免长期会话内存膨胀
+          if (intentClassificationCacheRef.current.size > 64) {
+            const firstKey = intentClassificationCacheRef.current.keys().next().value;
+            if (firstKey) intentClassificationCacheRef.current.delete(firstKey);
+          }
+        } catch (e) {
+          frontstageLogger.warn('[SmartGeneration] 意图分类失败，兜底为续写', { error: e });
+          classification = {
+            is_new_novel: false,
+            is_continuation: true,
+            task_type: 'continuation',
+            is_prose_request: true,
+            input_clarity: 'vague',
+            confidence: 0,
+          };
+        }
+      }
+      const isBootstrap = classification.is_new_novel;
 
       // v0.26.22 Bug D: 重入守卫——存在未接受的幽灵文本时，先丢弃再开新生成。
       // 根因（creative_workflow.log 2026-07-07）：第 2 次续写结果生成后幽灵已设，
@@ -3901,7 +3887,7 @@ const FrontstageApp: React.FC = () => {
       }
 
       setIsGenerating(true);
-      const isContinuation = isContinuationIntent(userInput);
+      const isContinuation = classification.is_continuation;
       const initialStatusMsg = isBootstrap
         ? '🎨 正在构思故事概念...'
         : isContinuation
@@ -3950,6 +3936,8 @@ const FrontstageApp: React.FC = () => {
             user_input: userInput,
             current_content: editorRef.current?.getText(),
             style_weight: 50,
+            // v0.30.11: 透传前端 LLM 分类结果，后端信任不重复调用
+            intent_classification: classification,
           }),
           timeoutPromise,
         ]);
