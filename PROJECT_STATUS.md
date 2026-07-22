@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.15 项目完成状态
+# StoryMoss (草苔) v0.30.16 项目完成状态
 
-> 最后更新: 2026-07-22（v0.30.15 场景围绕故事大纲生成：创作原则加固）
+> 最后更新: 2026-07-22（v0.30.16 故事资产手动编辑：补齐大纲/摘要/伏笔/角色关系编辑缺口）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.16 - 故事资产手动编辑（补齐编辑缺口）（2026-07-22）
+
+- **背景**：审计后台发现 故事大纲/故事摘要 只读展示（update hook 零调用），伏笔无内容编辑+删除，角色关系无编辑。角色/世界构建/场景已有完整编辑。
+- **Gap 1 故事大纲编辑**：Stories.tsx 只读 `<p>` 改为 查看/编辑 切换，调 useUpdateStoryOutline。
+- **Gap 2 故事摘要编辑**：KnowledgeGraph.tsx 抽取 SummaryCard 组件，查看/编辑 切换，调 useUpdateStorySummary。
+- **Gap 3 伏笔内容编辑+删除**：后端 ForeshadowingTracker 新增 update/delete 方法 + 命令 + 注册；前端 useUpdate/DeleteForeshadowing hook + Foreshadowing.tsx 编辑表单/删除按钮。
+- **Gap 4 角色关系编辑**：前端 useUpdateCharacterRelationship hook（后端已存在）+ RelationshipCard 编辑表单。
+- **验证**：cargo test --lib 964 passed；vitest 305 passed；tsc/fmt/clippy(零新增,baseline 550)/arch_guard 全绿。
 
 ### v0.30.15 - 场景围绕故事大纲生成（创作原则加固）（2026-07-22）
 

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.15)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.16)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.16 变更说明
+
+- 故事资产手动编辑：故事大纲（Stories.tsx 查看/编辑 UI，调 useUpdateStoryOutline）、故事摘要（KnowledgeGraph.tsx SummaryCard 编辑，调 useUpdateStorySummary）、伏笔内容编辑+删除（后端 ForeshadowingTracker update/delete 方法 + 命令 + 注册；前端 useUpdate/DeleteForeshadowing hook + Foreshadowing.tsx 编辑表单/删除）、角色关系编辑（useUpdateCharacterRelationship hook + RelationshipCard 编辑表单）。
+- 测试：更新 Characters.test.tsx mock 补 useUpdateCharacterRelationship 导出。
+- 全量基线：`cargo test --lib` 964 passed；`npx vitest run` 305 passed / 3 skipped；tsc / fmt / clippy（零新增，baseline 550）/ architecture_guard 全绿。
 
 ### v0.30.15 变更说明
 
@@ -532,4 +538,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.15 场景围绕故事大纲生成，测试基线 964_
+_最后更新: 2026-07-22 - v0.30.16 故事资产手动编辑，测试基线 964/305_

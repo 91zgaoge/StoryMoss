@@ -213,6 +213,8 @@ tauri::generate_handler! {
     creation_commands::get_story_foreshadowings,
     creation_commands::create_foreshadowing,
     creation_commands::update_foreshadowing_status,
+    creation_commands::update_foreshadowing,
+    creation_commands::delete_foreshadowing,
     // Payoff Ledger commands
     creation_commands::get_payoff_ledger,
     creation_commands::detect_overdue_payoffs,

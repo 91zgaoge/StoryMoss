@@ -18,6 +18,10 @@ import {
   Calendar,
   Zap,
   Star,
+  Edit3,
+  Trash2,
+  Check,
+  X,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -25,6 +29,8 @@ import {
   useForeshadowings,
   useCreateForeshadowing,
   useUpdateForeshadowingStatus,
+  useUpdateForeshadowing,
+  useDeleteForeshadowing,
   useUpdatePayoffLedgerFields,
   usePayoffLedger,
   useDetectOverduePayoffs,
@@ -168,10 +174,19 @@ function ForeshadowingRow({
 }) {
   const updateMutation = useUpdateForeshadowingStatus();
   const ledgerUpdateMutation = useUpdatePayoffLedgerFields();
+  const editMutation = useUpdateForeshadowing();
+  const deleteMutation = useDeleteForeshadowing();
   const [showLedgerEdit, setShowLedgerEdit] = useState(false);
   const [ledgerEdit, setLedgerEdit] = useState({
     target_start_scene: ledgerItem?.target_start_scene ?? '',
     target_end_scene: ledgerItem?.target_end_scene ?? '',
+  });
+  // v0.30.16: 伏笔内容编辑
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    content: item.content,
+    importance: item.importance,
+    setup_scene_id: item.setup_scene_id ?? '',
   });
 
   useEffect(() => {
@@ -191,6 +206,32 @@ function ForeshadowingRow({
       toast.success(newStatus === 'payoff' ? '已标记为已回收' : '已标记为已放弃');
     } catch (e) {
       toast.error(`更新失败: ${e}`);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      await editMutation.mutateAsync({
+        id: item.id,
+        story_id: item.story_id,
+        content: draft.content,
+        importance: Number(draft.importance) || 1,
+        setup_scene_id: draft.setup_scene_id || undefined,
+      });
+      toast.success('伏笔已保存');
+      setEditing(false);
+    } catch (e) {
+      toast.error(`保存失败: ${e}`);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('确定删除该伏笔？此操作不可撤销。')) return;
+    try {
+      await deleteMutation.mutateAsync({ id: item.id, story_id: item.story_id });
+      toast.success('伏笔已删除');
+    } catch (e) {
+      toast.error(`删除失败: ${e}`);
     }
   };
 
@@ -252,24 +293,50 @@ function ForeshadowingRow({
           </div>
         </div>
 
-        {item.status === 'setup' && (
-          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+          {item.status === 'setup' && (
+            <>
+              <button
+                onClick={() => handleStatusChange('payoff')}
+                disabled={updateMutation.isPending}
+                className="px-2 py-1 rounded text-xs bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+              >
+                回收
+              </button>
+              <button
+                onClick={() => handleStatusChange('abandoned')}
+                disabled={updateMutation.isPending}
+                className="px-2 py-1 rounded text-xs bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 transition-colors disabled:opacity-50"
+              >
+                放弃
+              </button>
+            </>
+          )}
+          {!editing && (
             <button
-              onClick={() => handleStatusChange('payoff')}
-              disabled={updateMutation.isPending}
-              className="px-2 py-1 rounded text-xs bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+              onClick={() => {
+                setDraft({
+                  content: item.content,
+                  importance: item.importance,
+                  setup_scene_id: item.setup_scene_id ?? '',
+                });
+                setEditing(true);
+              }}
+              className="p-1 rounded text-gray-500 hover:text-cinema-gold hover:bg-cinema-gold/10 transition-colors"
+              title="编辑"
             >
-              回收
+              <Edit3 className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => handleStatusChange('abandoned')}
-              disabled={updateMutation.isPending}
-              className="px-2 py-1 rounded text-xs bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 transition-colors disabled:opacity-50"
-            >
-              放弃
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+            className="p-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            title="删除"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {isExpanded ? (
           <ChevronUp className="w-4 h-4 text-gray-500" />
@@ -277,6 +344,67 @@ function ForeshadowingRow({
           <ChevronDown className="w-4 h-4 text-gray-500" />
         )}
       </div>
+
+      {editing && (
+        <div
+          className="px-4 py-3 bg-cinema-900/70 border-t border-cinema-800 space-y-2"
+          onClick={e => e.stopPropagation()}
+        >
+          <textarea
+            value={draft.content}
+            onChange={e => setDraft({ ...draft, content: e.target.value })}
+            rows={3}
+            className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+            placeholder="伏笔内容"
+          />
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs text-gray-400 flex items-center gap-1">
+              重要性
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={draft.importance}
+                onChange={e => setDraft({ ...draft, importance: Number(e.target.value) })}
+                className="w-16 px-2 py-1 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+              />
+            </label>
+            <label className="text-xs text-gray-400 flex items-center gap-1">
+              设置场景
+              <select
+                value={draft.setup_scene_id}
+                onChange={e => setDraft({ ...draft, setup_scene_id: e.target.value })}
+                className="px-2 py-1 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+              >
+                <option value="">无</option>
+                {Array.from(sceneMap.entries()).map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex gap-2 ml-auto">
+              <button
+                onClick={() => setEditing(false)}
+                disabled={editMutation.isPending}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-xl bg-transparent text-gray-400 hover:text-white hover:bg-cinema-800/50"
+              >
+                <X className="w-3.5 h-3.5" />
+                取消
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={editMutation.isPending}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-xl bg-gradient-to-r from-cinema-gold to-cinema-gold-dark text-cinema-900 font-semibold disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isExpanded && (
         <div className="px-4 pb-3 bg-cinema-900/50">

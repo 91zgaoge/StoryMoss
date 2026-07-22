@@ -5,6 +5,7 @@ import { useScenes } from '@/hooks/useScenes';
 import {
   useCharacterRelationships,
   useDeleteCharacterRelationship,
+  useUpdateCharacterRelationship,
 } from '@/hooks/useCharacterRelationships';
 import { useWorldBuilding } from '@/hooks/useWorldBuilding';
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,6 +27,7 @@ import {
   Wand2,
   RefreshCw,
   X,
+  Check,
   Sparkles,
   Clapperboard,
 } from 'lucide-react';
@@ -49,7 +51,13 @@ function RelationshipCard({
   storyId: string;
 }) {
   const deleteRelationship = useDeleteCharacterRelationship();
+  const updateRelationship = useUpdateCharacterRelationship();
   const isOutgoing = rel.source_character_id === characterId;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    relationship_type: rel.relationship_type,
+    description: rel.description || '',
+  });
 
   const handleDelete = () => {
     if (confirm('确定要删除这个关系吗？')) {
@@ -57,12 +65,24 @@ function RelationshipCard({
     }
   };
 
+  const handleSave = () => {
+    updateRelationship.mutate(
+      {
+        relationshipId: rel.id,
+        storyId,
+        relationship_type: draft.relationship_type,
+        description: draft.description,
+      },
+      { onSuccess: () => setEditing(false) }
+    );
+  };
+
   return (
     <div className="p-3 bg-cinema-800/50 rounded-lg border border-cinema-700">
       <div className="flex items-center justify-between gap-2 text-sm">
         <div className="flex items-center gap-2">
           <Link2 className="w-3.5 h-3.5 text-cinema-gold" />
-          <span className="text-white font-medium">{isOutgoing ? '→' : '←'}</span>
+          <span className="text-white font-medium">{isOutgoing ? '->' : '←'}</span>
           <span className="text-cinema-gold">{rel.relationship_type}</span>
           {rel.target_character_name && (
             <span className="text-gray-400">
@@ -70,20 +90,77 @@ function RelationshipCard({
             </span>
           )}
         </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleteRelationship.isPending}
-          className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
-          title="删除关系"
-          data-testid={`delete-relationship-${rel.id}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!editing && (
+            <button
+              onClick={() => {
+                setDraft({
+                  relationship_type: rel.relationship_type,
+                  description: rel.description || '',
+                });
+                setEditing(true);
+              }}
+              className="p-1.5 rounded-lg hover:bg-cinema-gold/20 text-gray-400 hover:text-cinema-gold transition-colors"
+              title="编辑关系"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={handleDelete}
+            disabled={deleteRelationship.isPending}
+            className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
+            title="删除关系"
+            data-testid={`delete-relationship-${rel.id}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
-      {rel.description && (
-        <p className="mt-1 text-xs text-gray-500 line-clamp-2">{rel.description}</p>
+      {editing ? (
+        <div className="mt-2 space-y-2">
+          <input
+            value={draft.relationship_type}
+            onChange={e => setDraft({ ...draft, relationship_type: e.target.value })}
+            placeholder="关系类型（如：师徒/仇敌/恋人）"
+            className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+          />
+          <textarea
+            value={draft.description}
+            onChange={e => setDraft({ ...draft, description: e.target.value })}
+            rows={2}
+            placeholder="关系描述"
+            className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+          />
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setEditing(false)}
+              disabled={updateRelationship.isPending}
+            >
+              <X className="w-3.5 h-3.5" />
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSave}
+              isLoading={updateRelationship.isPending}
+            >
+              <Check className="w-3.5 h-3.5" />
+              保存
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {rel.description && (
+            <p className="mt-1 text-xs text-gray-500 line-clamp-2">{rel.description}</p>
+          )}
+          {rel.dynamic && <p className="mt-1 text-xs text-gray-600 italic">动态: {rel.dynamic}</p>}
+        </>
       )}
-      {rel.dynamic && <p className="mt-1 text-xs text-gray-600 italic">动态: {rel.dynamic}</p>}
     </div>
   );
 }

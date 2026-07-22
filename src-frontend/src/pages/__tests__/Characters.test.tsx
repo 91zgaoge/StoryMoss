@@ -58,6 +58,7 @@ vi.mock('@/hooks/useCharacterRelationships', () => ({
   }),
   useCreateCharacterRelationship: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteCharacterRelationship: () => ({ mutate: deleteMutate, isPending: false }),
+  useUpdateCharacterRelationship: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/hooks/useWorldBuilding', () => ({
