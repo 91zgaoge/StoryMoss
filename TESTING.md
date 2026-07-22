@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.16)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.17)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.17 变更说明
+
+- 幕前顶部创世状态显示三 Agent 动作/进度：新增 `useAgencyAgentActivity` hook 订阅 `agency-agent-activity`/`agency-run-progress` 事件；FrontstageHeader 顶部状态栏渲染 主创/管理/编辑审计 进度（进行中琥珀 saving、已完成绿色 saved），run 结束清空。
+- 测试：FrontstageHeader.test.tsx 新增 `@tauri-apps/api/event` 回调捕获 mock + 2 用例（三 Agent 进度渲染 / run 结束清空）。
+- 全量基线：`npx vitest run` 307 passed / 3 skipped（+2）；`npx tsc --noEmit` ✅；`npm run format:check` ✅。纯前端无 Rust 变更，cargo 基线 964 passed 不变。
 
 ### v0.30.16 变更说明
 
@@ -538,4 +544,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.16 故事资产手动编辑，测试基线 964/305_
+_最后更新: 2026-07-23 - v0.30.17 幕前创世三 Agent 状态，测试基线 964/307_

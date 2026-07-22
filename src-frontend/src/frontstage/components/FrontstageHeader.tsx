@@ -6,6 +6,7 @@ import { IngestHealthIndicator } from './IngestHealthIndicator';
 import DebtIndicator from './DebtIndicator';
 import EditableChapterTitle from './EditableChapterTitle';
 import { displayChapterTitle } from '../utils/displayChapterTitle';
+import { useAgencyAgentActivity } from '../useAgencyAgentActivity';
 
 interface Chapter {
   id: string;
@@ -84,6 +85,9 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleBeforeEditRef = useRef('');
+
+  // v0.30.17: 幕前顶部显示创世三 Agent（主创/管理/编辑审计）的动作与进度。
+  const { lines: agentLines, hasActivity: hasAgentActivity } = useAgencyAgentActivity();
 
   const wensiTooltip =
     wensiMode === 'active'
@@ -242,6 +246,18 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
               </span>
             </>
           )}
+          {hasAgentActivity &&
+            agentLines.map((line, idx) => (
+              <React.Fragment key={idx}>
+                <span className="status-separator">·</span>
+                <span
+                  className={cn('status-item', line.done ? 'saved' : 'saving')}
+                  title="创世多 Agent 进度（主创 / 管理 / 编辑审计）"
+                >
+                  {line.text}
+                </span>
+              </React.Fragment>
+            ))}
           {bootstrapProgress && (
             <>
               <span className="status-separator">·</span>

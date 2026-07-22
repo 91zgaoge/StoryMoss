@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.16
+- **版本**: v0.30.17
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -49,7 +49,7 @@ node scripts/cdp-inspect.js           # CDP 截图
 ## 强制构建规则（用户级）
 
 1. **每次修改代码后**：先推送到 GitHub，触发 GitHub Actions 全平台构建。
-2. **推送后**：在本地执行 `cargo tauri build`，生成本平台安装包（macOS `.dmg` / Windows `.exe`+`.msi` / Linux `.AppImage`+`.deb`）。
+2. **本地构建仅在用户明确要求时执行**：推送后由 GitHub Actions 负责全平台构建（macOS `.dmg` / Windows `.exe`+`.msi` / Linux `.AppImage`+`.deb`）。**除非用户明确要求「构建」/「打包」/「生成本地安装包」，否则不要在本地执行 `cargo tauri build`**——本地 `cargo test --lib` / `cargo check` / `tsc` / `vitest` 等验证命令照常运行，仅省略耗时的打包构建。此规则为用户级永久指令，优先级高于本节其它条目。
 3. **版本号统一**：`Git tag`、`Cargo.toml`、`src-tauri/tauri.conf.json`、`src-frontend/package.json` 必须一致。
 4. **每次推送必须更新** `README.md` 与以下文档：`CHANGELOG.md`、`AGENTS.md`、`PROJECT_STATUS.md`、`ROADMAP.md`、`ARCHITECTURE.md`、`TESTING.md`、`docs/USER_GUIDE.md`。
 5. **版本标签**：每次推送使用新 tag，禁止 force push 覆盖已有 tag。
@@ -82,7 +82,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test --lib` ✅ 964 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 305 passed / 3 skipped
+- `npx vitest run` ✅ 307 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 无新增告警
@@ -90,6 +90,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.17 - 幕前顶部创世状态显示三 Agent 动作/进度
+
+- **背景**：用户反馈幕前顶部创世流程状态提示信息不足，看不出「主创在干嘛、做完了什么工作」。Agency 创世的后端 `agency-agent-activity` 事件（`coordinator.rs` emit_activity，role=lead_writer/producer/editor_auditor，action=start/done，detail=概念/首章/深度资产/审查/装配）早已存在，但此前仅幕后 `AgencyStudio` 消费，幕前未订阅。底部 LLM 连接状态本次不动。
+- **新增 `useAgencyAgentActivity` hook（`src-frontend/src/frontstage/useAgencyAgentActivity.ts`）**：幕前订阅 `agency-agent-activity`，按 主创/管理/编辑审计 顺序聚合各角色最新一条活动，产出 `{ text, done }[]` 文案（进行中「主创正在写第一章」，已完成「管理已完成深度资产」）；订阅 `agency-run-progress`，run 结束（completed/failed/cancelled/error）时清空，避免创世结束后残留陈旧进度。
+- **接线 `FrontstageHeader.tsx`**：顶部状态栏在 `orchestratorStatus` 之后渲染各 Agent 进度条目（进行中琥珀 `saving` 态、已完成绿色 `saved` 态，title 标注「创世多 Agent 进度（主创 / 管理 / 编辑审计）」），无活动时不占位。
+- **附带（用户级永久指令）**：`AGENTS.md` 强制构建规则 #2 改为「本地构建仅在用户明确要求时执行」--推送后由 GitHub Actions 负责全平台构建，本地仅跑 `cargo test` / `tsc` / `vitest` 等验证命令，省略耗时 `cargo tauri build` 打包。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 307 passed / 3 skipped（+2：三 Agent 进度渲染 + run 结束清空）；`npm run format:check` ✅。纯前端，无 Rust 变更（cargo 基线 964 不变）。
 
 ### v0.30.16 - 故事资产手动编辑（补齐编辑缺口）
 
@@ -499,7 +507,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.16_
+_最后更新: 2026-07-23 - v0.30.17_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
