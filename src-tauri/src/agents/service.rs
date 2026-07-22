@@ -167,9 +167,13 @@ impl AgentService {
     }
 
     /// 从用户指令中提取明确的题材要求
+    ///
+    /// v0.30.11: 此为 LLM 分类器 `detected_genre` 不可用时的字面兜底。LLM 天然
+    /// 处理否定与语境（"不想写重生文"），优于任何子串匹配；此处加否定窗口检查
+    /// + 按关键词长度降序匹配（避免"都市"抢先于"都市玄幻"）作为安全降级。
     fn extract_genre_from_instruction(instruction: &str) -> Option<String> {
         let lower = instruction.to_lowercase();
-        // 常见题材关键词映射（按匹配长度降序，避免"玄幻"匹配"都市玄幻"时丢失前缀）
+        // 常见题材关键词映射
         let genre_keywords: &[(&str, &str)] = &[
             ("都市玄幻", "都市玄幻"),
             ("都市修仙", "都市修仙"),
@@ -205,8 +209,24 @@ impl AgentService {
             ("诸天", "诸天"),
             ("无限流", "无限流"),
         ];
-        for (keyword, genre) in genre_keywords {
-            if lower.contains(&keyword.to_lowercase()) {
+        // v0.30.11: 按关键词长度降序匹配，避免短词抢先于其多字变体。
+        let mut sorted: Vec<&(&str, &str)> = genre_keywords.iter().collect();
+        sorted.sort_by_key(|k| std::cmp::Reverse(k.0.chars().count()));
+
+        // v0.30.11: 否定窗口--关键词前 4 字内含否定词则跳过（"不想写重生文"）。
+        const NEGATION_CUES: &[char] = &['不', '别', '非', '没', '勿'];
+        for (keyword, genre) in &sorted {
+            let kw = keyword.to_lowercase();
+            if let Some(idx) = lower.find(&kw) {
+                let before = &lower[..idx];
+                let negated = before
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .any(|c| NEGATION_CUES.contains(&c));
+                if negated {
+                    continue;
+                }
                 return Some(genre.to_string());
             }
         }
@@ -1748,7 +1768,14 @@ impl AgentService {
         emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story.story_title.clone());
-        let effective_genre = Self::extract_genre_from_instruction(&task.input)
+        // v0.30.11: 题材优先级：LLM 分类 detected_genre > 指令字面 extract_genre
+        // （否定+长度排序兜底）> 故事 genre。LLM 天然处理否定与语境，优于子串。
+        let effective_genre = task
+            .parameters
+            .get("detected_genre")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| Self::extract_genre_from_instruction(&task.input))
             .unwrap_or_else(|| ctx.story.genre.clone());
         if effective_genre != ctx.story.genre {
             log::info!(

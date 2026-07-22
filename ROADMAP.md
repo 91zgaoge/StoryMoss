@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-20（v0.30.10 修复续写返回风格增强模板--模板匹配误路由 + content 空兜底注入）
+> 最后更新: 2026-07-20（v0.30.11 用 LLM 意图分类器替换朴素子串意图匹配，修复 6 处高危路由点）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🧠 v0.30.11 - LLM 意图分类器替换朴素子串匹配 ✅ (2026-07-20)
+
+- [x] **IntentParser::classify_writing_intent**：单次 LLM 调用产出全部路由决策（is_new_novel / is_continuation / task_type / is_prose_request / input_clarity / detected_genre / confidence），8s 超时 + 保守回退（is_new_novel=false=续写）+ 会话 LRU 缓存。
+- [x] **修复 6 处高危路由点**：is_novel_creation_intent 子串误判 / find_template 被 disabled 误禁 / from_instruction_and_context 优先级 bug / force-correction 扩展 / extract_genre 否定句漏判 / intention_graph builder。
+- [x] **前端**：新增 classifyIntent API，删除 isNovelCreationIntent / isContinuationIntent；修复字段名别名 bug（提示词 is_prose 与结构体 is_prose_request 不一致）。
+- [x] 验证：`cargo test --lib` 936 passed；`npx vitest run` 305 passed；tsc / fmt / clippy / architecture_guard 全绿。
 
 ### 🐛 v0.30.10 - 续写返回风格增强模板修复 ✅ (2026-07-20)
 

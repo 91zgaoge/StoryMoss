@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.10)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.11)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.11 变更说明
+
+- 意图识别 LLM 化重构：用 `IntentParser::classify_writing_intent`（`src-tauri/src/intent.rs`）单次 LLM 调用产出 `WritingIntentClassification`，替换 6 处高风险朴素子串匹配点（`is_novel_creation_intent`、`find_template` 禁用、`from_instruction_and_context` 优先级 bug 修复 + hint 参数、force-correction 读 `is_prose_request`、`extract_genre` 否定+排序、intention_graph builder LLM 加固）；新增 `classify_intent` Tauri 命令与前端 `classifyIntent` IPC。
+- 新增测试：`parse_classification_json` 解析单测覆盖合法/容错路径；`is_prose` 别名回归测试锁定 force-correction 路径读取 `is_prose_request`。
+- 全量基线：`cargo test --lib` 936 passed（+7）；`npx vitest run` 305 passed（+8）；tsc / fmt / clippy / architecture_guard 全绿。
 
 ### v0.30.10 变更说明
 
@@ -502,4 +508,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-19 - v0.30.0 Agency 多代理创作框架 P1–P5 完成，测试基线更新_
+_最后更新: 2026-07-20 - v0.30.11 意图识别 LLM 化重构，测试基线更新_

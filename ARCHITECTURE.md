@@ -1,4 +1,4 @@
-# StoryMoss (草苔) v0.30.10 架构文档
+# StoryMoss (草苔) v0.30.11 架构文档
 
 > **v0.26.58**：OpenAI 兼容适配器（含 Deepseek）在序列化请求前对 `top_p` 做 `(0, 1.0]` 范围过滤，解决配置中 `top_p=0.0` 导致健康探测/生成被服务端拒绝的问题；新增 `llm::openai` 单元测试覆盖过滤逻辑。**v0.26.57**：自动划分章节——`chapter_splitter` 在 `SceneService` 的 `auto_commit` 防抖窗口内按 `chapter_split_mode`（`word_count`/`plot`）与 `chapter_split_max_chars`（默认 3000 字）仅切分故事最新章；导出以 `scenes.content` 为真相源通过 `assemble_export_chapters` 聚合，并走系统保存对话框落盘；提示词注册表支持「打开目录」与原生 textarea 编辑。**v0.26.56**：executor 写 config 契约测试串行化（mock app_data_dir 锁）。**v0.26.55**：幕后模型列表开启/关闭——`update_model(enabled)` + 列表开关；禁用模型不进 `UnifiedModelRegistry`/`get_gateway_status`/probe；`is_promotable_user_model` 要求仍在注册表。**v0.26.54**：创作模型粘性降级绕过——显式 `creative`/`tool`/`background` 角色不受连续失败 demotion 拦截；粘性 Unhealthy 在 `resolve_role_model` 清一次→Unknown 再探；`set_active_model`/`save_settings` 调 `clear_model_demotion`；`generate()` 再提升用 `is_promotable_user_model`。**v0.26.53**：幕前故事名取消单击→回幕后；回幕后入口为 Header 设置按钮。**v0.26.52**：模型配置热同步——`gateway-status` 失效；`is_promotable_user_model`；`sync_creative_to_active_llm`。**v0.26.51**：幕前顶部故事名/章节名内联编辑——`displayStoryTitle`/`displayChapterTitle` 纯函数管展示；无故事有正文时 `ensureUntitledStory` 建「未命名」+ scene（不走 `selectStory`）；章节改名优先 `update_scene`（title 回写 chapter）。**v0.26.50**：幕前自动保存 → AutoIngest 改为 30s 防抖并受 `BACKGROUND_LLM_SEMAPHORE` 约束；`contract-auto-progress` 不再驱动 `isGenerating`；`isGenerating` 超时看门狗强制诊断。**v0.26.49**：续写连贯——`build_ending_anchor` 将正文末 2 句硬锚点追加到 Call3/TimeSliced prompt **最末尾**（在 `NOVEL_OUTPUT_DISCIPLINE` 之后），覆盖 WriteTimeBundle「开场建立处境」等开篇指令，抗 Lost-in-the-Middle。
 >
@@ -857,6 +857,8 @@ function assertUnreachable(x: never): never {
 **提示词**：`resources/prompts/agency/`。
 
 **创世入口**：`smart_execute` 检测到小说创建意图即切换到 agency 创世流程，进度镜像到 `smart-execute-progress`；旧 GenesisPipeline 已移除（TriShot 续写路径保留）。
+
+**意图识别 LLM 化（v0.30.11）**：`smart_execute` 的小说创建意图检测由朴素子串匹配（`user_input.contains(pattern)`）改为 LLM 意图分类器--`IntentParser::classify_writing_intent`（`src-tauri/src/intent.rs`）单次 LLM 调用产出 `WritingIntentClassification`（`is_new_novel`/`is_continuation`/`task_type`/`is_prose_request`/`input_clarity`/`detected_genre`/`confidence`），8s 超时 + 保守降级回退 + 会话级 LRU 缓存（64）。分类结果经前端 `classifyIntent` IPC -> `smart_execute` payload -> `PlanContext.intent_classification` -> planner/executor -> `task.parameters`（`detected_genre` + `task_type_hint`）下发到 agents；新增 `classify_intent` Tauri 命令。共替换 6 处高风险子串匹配点（`is_novel_creation_intent`、`find_template` 禁用、`from_instruction_and_context` 优先级 bug 修复 + hint 参数、force-correction 读 `is_prose_request`、`extract_genre` 否定+排序、intention_graph builder LLM 加固）。
 
 **P3（代币优化 + 记忆持久性）**：
 

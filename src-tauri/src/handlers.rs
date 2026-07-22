@@ -1,4 +1,4 @@
-tauri::generate_handler![
+tauri::generate_handler! {
     commands::core::health_check, commands::core::check_model_status, commands::core::chat_completion, commands::story::list_stories, commands::story::create_story, commands::story::update_story, commands::story::delete_story,
     commands::character::get_story_characters, commands::character::create_character, commands::character::update_character, commands::character::delete_character,
     commands::chapter::get_story_chapters, commands::chapter::get_story_chapters_paged, commands::chapter::get_chapter, commands::chapter::create_chapter, commands::chapter::update_chapter, commands::chapter::delete_chapter,
@@ -70,6 +70,7 @@ tauri::generate_handler![
     logging::write_frontend_log,
     // Intent commands
     commands::intent::parse_intent,
+    commands::intent::classify_intent,
     commands::intent::execute_intent,
     commands::intent::record_feedback,
     // Smart orchestrator
@@ -325,4 +326,4 @@ tauri::generate_handler![
     // Tracing commands
     commands::tracing::get_generation_trace,
     commands::tracing::list_recent_generation_traces,
-]
+}

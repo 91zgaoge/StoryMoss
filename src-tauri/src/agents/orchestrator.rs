@@ -1463,12 +1463,22 @@ impl AgentOrchestrator {
 
         // v0.23.9: 读取运行时创作资产能力清单，让 Call 1 知道系统有哪些可选资产
         // v0.26.0: 按任务类型渲染动态范围摘要，减少非当前内容 token
+        // v0.30.11: task_type 优先用 LLM 分类器 hint，None 时回退多字 pattern 启发式。
+        // hint 由 execute_writer 从 PlanContext.intent_classification.task_type 注入
+        // task.parameters，避免此处在用户指令上做子串匹配。
         let capability_manifest = self.app_handle.try_state::<Arc<AssetCapabilityManifest>>();
+        let task_type_hint = task.parameters.get("task_type_hint").and_then(|v| {
+            serde_json::from_value::<
+                crate::creative_engine::asset_capability_manifest::AssetTaskType,
+            >(v.clone())
+            .ok()
+        });
         let capability_summary = capability_manifest
             .as_ref()
             .map(|m| m.summary_for_task(crate::creative_engine::asset_capability_manifest::AssetTaskType::from_instruction_and_context(
                 &user_instruction,
                 task.context.narrative.chapter_number,
+                task_type_hint,
             )));
 
         // v0.23.15: Call 1 预算守卫——用 total_start（含预检/auto-fill/bundle 加载）

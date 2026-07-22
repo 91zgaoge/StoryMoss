@@ -80,6 +80,12 @@ impl PlanTemplateLibrary {
         Ok(())
     }
 
+    /// v0.30.11: 模板重放已禁用（`PlanExecutor::find_template` 恒返回
+    /// `None`）。 `trigger_patterns` 来自 LLM understanding 文本经
+    /// `split_whitespace` 切词， 中文整句会变成单个噪声
+    /// pattern，任何匹配器都无法可靠工作。此函数保留供
+    /// 未来严格匹配/观测使用，当前无调用方。
+    #[allow(dead_code)]
     pub fn find_match(&self, user_input: &str) -> Option<&PlanTemplate> {
         self.templates
             .iter()

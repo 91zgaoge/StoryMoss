@@ -2,6 +2,26 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.11（2026-07-20）
+
+### 重构
+
+- **全面整改：用 LLM 解析器替换朴素子串意图匹配**。审计全项目发现 ~30 处 `.contains()`/`.includes()` 朴素子串匹配，其中 6 处高危直接在用户自然语言输入上做意图路由，是 v0.30.10 `PlanTemplateLibrary` bug 的同类。用户指示用 LLM 解析器替代，不构建更聪明的子串匹配器--AI 应用应用 AI 做语义理解。
+
+  - **核心：轻量 LLM 路由分类器 `IntentParser::classify_writing_intent`（intent.rs）**。一次 LLM 调用产出全部路由决策 `WritingIntentClassification`（is_new_novel / is_continuation / task_type / is_prose_request / input_clarity / detected_genre / confidence）。最快模型层 + max_tokens=256 + temp=0 + 8s 超时 + 保守兜底（is_new_novel=false=续写，planner 仍能处理创世，安全降级）+ 会话 LRU 缓存（64 条）。误判代价不对称：误判续写为创世会启动 Agency 全流程并新建故事、覆盖工作（灾难），故默认偏向续写。
+  - **Site 4（核心路由）**：`smart_execute`（orchestrator.rs）用 `classification.is_new_novel` 替代 `is_novel_creation_intent` 朴素子串匹配；前端先行调用 `classify_intent` IPC 并在 payload 透传分类结果，后端信任不重复调用。
+  - **Site 1**：`PlanExecutor::find_template` 禁用（恒返回 None）。`trigger_patterns` 来自 LLM understanding 文本经 `split_whitespace` 切词，中文整句变单个噪声 pattern，任何匹配器都无法可靠工作；`find_match` 标 `#[allow(dead_code)]`，`record_success` 保留观测。
+  - **Site 4b**：TriShot 快速路径守卫 + 续写绕过读 `PlanContext.intent_classification`（经 PlanContext 贯穿，无新 LLM 调用）。
+  - **Site 5**：planner force-correction 读 `classification.is_prose_request` 替代单字 `contains('写'/'创')`。
+  - **Site 3**：`AssetTaskType::from_instruction_and_context` 修运算符优先级 bug（`a && b || c` -> `(a && b) || c`，原"开始"匹配任何章号判 Genesis）+ 移除单字"改"/"创" pattern + 新增 `hint` 参数，由 `task.parameters["task_type_hint"]` 透传 LLM 分类 task_type（executor.rs 注入 -> agents/orchestrator.rs 读取）。
+  - **Site 8**：`build_writer_prompt` 题材优先级改为 LLM `detected_genre` > `extract_genre_from_instruction`（加否定窗口检查"不想写重生文"不设重生 + 长度降序匹配）> 故事 genre。`detected_genre` 经 `task.parameters` 透传。
+  - **Site 7**：`detect_input_clarity` 移除单字信号（"他/她/我/杀/比" 命中任意中文文本）；调用方读 `classification.input_clarity`。
+  - **Site 2**：`intention_graph::builder` LLM 主路径硬化（markdown 剥离 + JSON 对象子串截取 + verb/object 缺失从 raw_input 推断）；规则兜底默认 `generate prose`（原 `analyze intent` 产出空链无效）+ 移除单字"写"。
+  - **前端**：新增 `classifyIntent` API + `WritingIntentClassification` 类型；`handleSmartGeneration` 入口先调 `classifyIntent`（含会话缓存 + 兜底）；删除 `isNovelCreationIntent`/`isContinuationIntent` 本地关键词函数；`smart_execute` payload 携带分类；`genesisTimeout.ts` 注释更新。
+  - **字段名 bug 修复**：分类 prompt 指示 LLM 返回 `"is_prose"`，但 struct 字段为 `is_prose_request` 无 alias，导致 `is_prose_request` 恒为 false（静默破坏 Site 5）。加 `#[serde(alias = "is_prose")]` 修复（单测捕获）。
+  - **不适用 LLM（诚实标注）**：Site 9 `derive_model_role_from_label`（匹配内部 label 非用户输入）、Site 10 `discover_from_outputs`（匹配 LLM 输出，理想方案是结构化 findings，属较大改造）保留为后续；前端展示型匹配（状态串）cosmetic 不纳入。
+  - 验证：`cargo test --lib` 936 passed（+1 分类解析）；`npx vitest run` 305 passed；tsc / fmt / format:check / clippy / architecture_guard 全绿。
+
 ## v0.30.10（2026-07-20）
 
 ### 修复

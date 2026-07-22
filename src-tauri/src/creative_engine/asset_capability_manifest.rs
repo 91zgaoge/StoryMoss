@@ -7,6 +7,8 @@
 
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     db::{DbPool, GenreProfileRepository},
     skills::Skill,
@@ -14,7 +16,8 @@ use crate::{
 };
 
 /// 任务类型，用于动态选择资产范围。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AssetTaskType {
     /// 续写：只需风格、近章摘要、少量相关角色/伏笔
     Continuation,
@@ -28,18 +31,47 @@ pub enum AssetTaskType {
     Other,
 }
 
+/// 默认任务类型为续写（最常见且资产集最贴合正文生成）。
+/// 误判代价不对称：误把创世当续写仅少注入部分资产（可补读），
+/// 误把续写当创世会注入冗余创世资产浪费 token。
+impl Default for AssetTaskType {
+    fn default() -> Self {
+        Self::Continuation
+    }
+}
+
 impl AssetTaskType {
-    pub fn from_instruction_and_context(instruction: &str, chapter_number: u32) -> Self {
+    /// 根据指令与章节上下文推断任务类型。
+    ///
+    /// v0.30.11: 优先使用 LLM 分类器（`classify_writing_intent`）产出的
+    /// `task_type` 作为 `hint`，避免单字 `.contains()`
+    /// 朴素匹配的误判（如"不改主角名字"命中 "改"->Rewrite）。`hint` 为 None
+    /// 时回退到多字 pattern 启发式。 同时修复 v0.30.10 前的运算符优先级
+    /// bug：原 `chapter_number <= 1 && s.contains("创") ||
+    /// s.contains("开始") || s.contains("新开")` 因 `&&` 优先于
+    /// `||`，任何含"开始"的指令无论章号都判 Genesis，"开始改写"会
+    /// 跳过 Rewrite 分支。现加括号且改用多字 pattern。
+    pub fn from_instruction_and_context(
+        instruction: &str,
+        chapter_number: u32,
+        hint: Option<AssetTaskType>,
+    ) -> Self {
+        if let Some(h) = hint {
+            return h;
+        }
         let s = instruction.to_lowercase();
-        if s.contains("改") || s.contains("重写") || s.contains("润色") || s.contains("改写")
-        {
+        if s.contains("改写") || s.contains("重写") || s.contains("润色") {
             return Self::Rewrite;
         }
         if s.contains("大纲") || s.contains("规划") || s.contains("计划") || s.contains("设计")
         {
             return Self::Genesis;
         }
-        if chapter_number <= 1 && s.contains("创") || s.contains("开始") || s.contains("新开")
+        if chapter_number <= 1
+            && (s.contains("创作")
+                || s.contains("创建")
+                || s.contains("新开")
+                || s.contains("开始写"))
         {
             return Self::Genesis;
         }

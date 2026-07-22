@@ -1121,6 +1121,12 @@ impl PendingVectorIndexQueue {
 }
 
 /// 检测用户输入是否包含"创建新小说"的意图
+///
+/// v0.30.11: 已被 `IntentParser::classify_writing_intent`（LLM 分类）取代。
+/// 保留仅供历史测试与潜在紧急回退；新代码应使用 LLM 分类器经 PlanContext
+/// 贯穿的 `intent_classification.is_new_novel`。朴素子串匹配（`"story"` 命中
+/// `"bookstore"`、`"创建"` 命中 `"修改创建记录"`）在 AI 应用中不可接受。
+#[deprecated(note = "v0.30.11: 改用 IntentParser::classify_writing_intent (LLM 分类)")]
 pub(crate) fn is_novel_creation_intent(user_input: &str) -> bool {
     let input = user_input.to_lowercase();
     let creation_signals = [

@@ -12,8 +12,8 @@ const CREATION_BUFFER_SECS = 30;
 
 /**
  * 主超时（handleSmartGeneration）：创世用 beTimeout + 30s 缓冲，续写用 feTimeout。
- * isBootstrap 表示本次请求是「创建新小说」创世路径（与后端 is_novel_creation_intent
- * 关键词列表对齐）。
+ * v0.30.11: isBootstrap 现来自 LLM 意图分类（classifyIntent -> is_new_novel），
+ * 不再依赖前端关键词列表（isNovelCreationIntent 已删除）。分类失败兜底为续写。
  */
 export function genesisMainTimeoutSeconds(
   beTimeout: number | undefined,

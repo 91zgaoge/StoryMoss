@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
-    capabilities::get_capability_registry, error::AppError, llm::LlmService, router::TaskType,
+    capabilities::get_capability_registry, error::AppError, intent::WritingIntentClassification,
+    llm::LlmService, router::TaskType,
 };
 
 pub mod bootstrap;
@@ -95,6 +96,10 @@ pub struct PlanContext {
     pub chapter_number: i32,
     // v0.10.0: 当前故事的创作策略（模型选择或用户锁定）
     pub selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
+    /// v0.30.11: LLM 写作意图路由分类（由
+    /// `IntentParser::classify_writing_intent` 产出）。
+    /// 贯穿管线替代各处朴素子串匹配。None 表示未分类，各站点走兜底启发式。
+    pub intent_classification: Option<WritingIntentClassification>,
 }
 
 /// 计划生成器
@@ -533,32 +538,15 @@ Rules:
                 || first_cap.starts_with("builtin.character_voice")
                 || first_cap.starts_with("builtin.emotion_pacing");
             if needs_correction {
-                let input_lower = context.user_input.to_lowercase();
-                let prose_keywords = [
-                    "写",
-                    "write",
-                    "创作",
-                    "开始写",
-                    "写小说",
-                    "写故事",
-                    "写一章",
-                    "写开篇",
-                    "写正文",
-                    "继续",
-                    "续写",
-                    "接着写",
-                    "往下写",
-                    "接下来",
-                    "后续",
-                    "接着",
-                    "start writing",
-                    "write a novel",
-                    "write a story",
-                    "write chapter",
-                    "begin writing",
-                    "continue writing",
-                ];
-                let is_prose_request = prose_keywords.iter().any(|&kw| input_lower.contains(kw));
+                // v0.30.11: 用 LLM 分类的 is_prose_request 替代单字 contains('写'/'创')
+                // 朴素匹配（"大纲里写明主角动机"会命中"写"误改 outline->writer）。
+                // 分类经 PlanContext 贯穿；缺失时兜底 true（force-to-writer 安全默认：
+                // 误改 outline->writer 可恢复，反之返回空模板灾难）。
+                let is_prose_request = context
+                    .intent_classification
+                    .as_ref()
+                    .map(|c| c.is_prose_request)
+                    .unwrap_or(true);
                 if is_prose_request {
                     log::warn!(
                         "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
@@ -666,6 +654,7 @@ mod tests {
             style_weight: 50,
             chapter_number: 1,
             selected_strategy: None,
+            intent_classification: None,
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");
