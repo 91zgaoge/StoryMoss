@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.14（2026-07-22）
+
+### 修复
+
+- **续写返回风格增强模板而非正文（第 5 次复发根因：多步 plan 尾部非 writer 覆盖正文）**：v0.30.13 修补 SING 路径绕过后，用户报告"增强第二章"仍得到 `builtin.style_enhancer` 的"请提供需要增强的原始文本…"模板。此次是**多步 plan** `[inspector, style_enhancer]`：inspector 产出审查报告，style_enhancer 收到报告作为 content 抱怨"这是一份质量检查报告而非章节原文"。
+  - **根因（结构性）**：`execute_plan`（executor.rs:685-687）用**最后产出 `content` 的步骤**作为 `final_content` 返回用户。force-correction（防线 2）只修正**首步**，无法拦截**尾部**的 `style_enhancer`/`inspector`--尾部非 writer 步骤的模板/报告会覆盖 writer 已产出的正文。v0.30.10/11/12/13 各堵一条路径（模板重放/朴素子串/inspector 漏拦/SING 绕过），但多步尾部漏网。
+  - **Fix（防线 3，`planner/mod.rs` + `planner/executor.rs`）**：新增 `PlanGenerator::sanitize_plan_for_prose_request`，在 plan 执行咽喉点 `execute_with_context`（force-correction 之后）对所有 `is_prose_request` plan 统一净化：①移除 `builtin.style_enhancer`/`text_formatter`/`character_voice`/`emotion_pacing` 等绝不产出正文的技能步骤；②续写（`is_continuation`）塌缩为单 writer 步；③其余 prose 请求弹出尾部非 writer 步骤，**保证末步为 writer**（`final_content` = 正文），保留 `[inspector, writer]` 等 Rule 9 合法流；④净化后空则补 writer 步。非 prose 请求（显式审查 `Audit`/`is_prose_request=false`）不净化。
+  - 验证：`cargo test --lib` 960 passed（+12 sanitize 回归）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
+
 ## v0.30.13（2026-07-22）
 
 ### 修复

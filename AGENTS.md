@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.13
+- **版本**: v0.30.14
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 948 passed
+- `cargo test --lib` ✅ 960 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 305 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.14 - 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）
+
+- **根因（结构性）**：`execute_plan`（`planner/executor.rs:685-687`）用**最后产出 `content` 的步骤**作为 `final_content` 返回用户。force-correction（防线 2）只修正**首步**，无法拦截多步 plan **尾部**的 `style_enhancer`/`inspector`--尾部非 writer 的模板/报告会覆盖 writer 已产出的正文。用户报告"增强第二章"得到 `[inspector, style_enhancer]` 多步 plan，style_enhancer 收到 inspector 报告后抱怨"这是一份质量检查报告而非章节原文"。这是该误路由 bug **第 5 次复发**（v0.30.10/11/12/13 各堵一条路径：模板重放/朴素子串/inspector 漏拦/SING 绕过，但多步尾部漏网）。
+- **Fix（防线 3，`planner/mod.rs` + `planner/executor.rs`）**：新增 `PlanGenerator::sanitize_plan_for_prose_request`，在 plan 执行咽喉点 `execute_with_context`（force-correction 之后）对所有 `is_prose_request` plan 统一净化：①移除 `builtin.style_enhancer`/`text_formatter`/`character_voice`/`emotion_pacing` 等绝不产出正文的技能步骤；②续写（`is_continuation`）塌缩为单 writer 步；③其余 prose 请求弹出尾部非 writer 步骤，**保证末步为 writer**（`final_content` = 正文），保留 `[inspector, writer]` 等 Rule 9 合法流；④净化后空则补 writer 步。非 prose 请求（显式审查 `Audit`/`is_prose_request=false`）不净化。
+- **验证**：`cargo test --lib` 960 passed（+12 sanitize 回归）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
 
 ### v0.30.13 - 续写返回风格增强模板修复（SING 路径绕过 force-correction）
 
@@ -474,7 +480,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.13_
+_最后更新: 2026-07-22 - v0.30.14_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
