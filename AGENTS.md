@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.17
+- **版本**: v0.30.18
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -90,6 +90,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.18 - 修复幕前意图分类 null 崩溃（v0.30.16 CI E2E PAGEERROR 根因）
+
+- **根因**：`handleSmartGeneration`（`FrontstageApp.tsx`）调用 `classifyIntent` 后直接读 `classification.is_new_novel`。`classifyIntent` 走 `loggedInvoke`（出错即 throw），但 **resolve 为 null 时不抛异常**--catch 块只拦抛出异常，无法拦截 null。E2E 环境 `e2e/mock-tauri.ts` 对未注册命令默认 `return null`（`classify_intent` 未 mock），导致 `classifyIntent` resolve 为 null -> `null.is_new_novel` -> `TypeError: Cannot read properties of null (reading 'is_new_novel')` PAGEERROR，幕前崩溃，连带 6 个 E2E（设置页/自动保存/创世重复）失败。v0.30.16 master 与 tag 两次 CI 均 hit；v0.30.15 未触发（非确定性）。真实用户若后端序列化异常返回 null 也会崩。
+- **Fix（`FrontstageApp.tsx`）**：① catch 块之后新增 post-catch null 兜底--`if (!classification)` 时填充续写兜底对象（与 catch 同语义：`is_new_novel=false`，因误判续写为创世会启动 Agency 全流程覆盖工作，故默认偏向续写），避免 `null.is_new_novel` 崩溃；② 不再缓存 null 结果（`if (classification)` 守卫 cache.set），避免缓存 null 导致每次重入重调。
+- **macOS 构建失败（v0.30.16 tag）**：`Failed to create Info.plist: Io(code 5, "Input/output error")`--GitHub macOS runner 瞬时磁盘 I/O 错误，同代码 master 构建成功（39m18s）。属 flake，已 `gh run rerun --failed` 重建，非代码问题。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 307 passed / 3 skipped（含 genesis-duplicate 14 项）；`npm run format:check` ✅。纯前端，cargo 基线 964 不变。
 
 ### v0.30.17 - 幕前顶部创世状态显示三 Agent 动作/进度
 
@@ -507,7 +514,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.17_
+_最后更新: 2026-07-23 - v0.30.18_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

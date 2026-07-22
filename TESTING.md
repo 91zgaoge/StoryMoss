@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.17)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.18)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.18 变更说明
+
+- 修复幕前意图分类 null 崩溃：`handleSmartGeneration` 调 `classifyIntent` 后 `classification.is_new_novel` 读 null 崩溃（v0.30.16 CI E2E 根因）。E2E mock（`e2e/mock-tauri.ts`）对未注册命令返回 null 触发。Fix：post-catch null 兜底 + 不缓存 null。无新增单测（null 兜底由现有 genesis-duplicate 14 项 vitest 覆盖回归）。
+- macOS 构建失败（v0.30.16 tag）：`Info.plist Io(code 5)` 为 GitHub runner 瞬时 I/O flake，已 `gh run rerun --failed` 重建；E2E 为 `continue-on-error` 非门禁。
+- 全量基线：`npx vitest run` 307 passed / 3 skipped；`npx tsc --noEmit` ✅；`npm run format:check` ✅。纯前端无 Rust 变更，cargo 基线 964 passed 不变。
 
 ### v0.30.17 变更说明
 
@@ -544,4 +550,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.17 幕前创世三 Agent 状态，测试基线 964/307_
+_最后更新: 2026-07-23 - v0.30.18 修复意图分类 null 崩溃，测试基线 964/307_
