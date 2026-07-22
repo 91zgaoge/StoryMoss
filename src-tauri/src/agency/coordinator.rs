@@ -3301,6 +3301,41 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
 /// RevisionRequired；否则 weighted < 0.75 修订；否则放行。每次判定
 /// （含 Failed）落审查区 item_type="gate"，key =
 /// gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
+async fn editor_verdict_prose_fallback(
+    llm: &Arc<dyn LoopLlm>,
+    budget: &Arc<AgencyBudget>,
+    pool: &DbPool,
+    draft: &BoardItem,
+    premise: &str,
+) -> Result<EditorVerdict, AppError> {
+    // v0.30.19: 本地模型在 tool_loop 内不遵从 JSON action（连续解析失败/
+    // 达到最大轮数熔断）或重试后裁决仍不可解析时，单次直接请求裁决 JSON
+    // （不经 tool_loop/工具）。与 writer_prose_fallback 同理：本地模型对
+    // 「直接输出 JSON」的遵从度远高于 ReAct action 格式。复用 editor 系统
+    // 提示词的审查标准（rubric/维度），追加「直接输出 JSON、不走工具循环」
+    // 强约束。失败返回 Err，由调用方降级为 GateOutcome::Failed。
+    let budgeted = BudgetedLlm::new(llm.clone(), budget.clone(), AgentRole::EditorAuditor);
+    let base = resolve_role_prompt_with_pool(pool, "agency_editor_auditor_system", premise).await;
+    let system = format!(
+        "{base}\n\n【重要】本次为散文回退模式：不要使用任何工具，不要输出 markdown 代码块或解释，只直接输出一个 JSON 裁决对象。"
+    );
+    let content_preview: String = draft.content.chars().take(8000).collect();
+    let user = format!(
+        "以下是待审查的章节草稿（{key}）：\n\n{content}\n\n请出具裁决。只输出一个 JSON 对象（不要 markdown、不要解释）：\n{{\"verdict\":\"pass\"或\"revise\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"简评\",\"score\":1到5的整数}}",
+        key = draft.key,
+        content = content_preview,
+    );
+    let raw = budgeted
+        .complete(&system, &user, TaskType::Proofreading, 2048)
+        .await?;
+    parse_lenient::<EditorVerdict>(&raw).ok_or_else(|| {
+        AppError::from(format!(
+            "editor 散文回退裁决解析失败: {}",
+            raw.chars().take(120).collect::<String>()
+        ))
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_gate_impl(
     llm: &Arc<dyn LoopLlm>,
@@ -3314,9 +3349,16 @@ async fn evaluate_gate_impl(
     draft: &BoardItem,
     round: u32,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
-    // 1) editor 裁决（解析失败重试一次）
+    // 1) editor 裁决（解析失败重试一次）。
+    // v0.30.19: 本地模型（Qwen/Gemma）在 ReAct tool_loop 内常不遵从 JSON
+    // action 格式 -> 连续解析失败/达到最大轮数熔断。原实现熔断即直接 Failed
+    // 导致整 run 失败；现增两层兜底：①salvage--即使熔断，末轮原始输出可能
+    // 含可解析裁决 JSON，先 parse_lenient；②散文回退--熔断或重试后仍无裁决
+    // 时单次直接请求裁决 JSON（不经 tool_loop/工具），与 writer_prose_fallback
+    // 同理（本地模型对裸 JSON 遵从度远高于 action）。
     let mut verdict: Option<EditorVerdict> = None;
     let mut last_raw = String::new();
+    let mut aborted_reason: Option<&'static str> = None;
     for attempt in 0..2 {
         let editor_out = run_role_loop(
             llm,
@@ -3339,20 +3381,21 @@ async fn evaluate_gate_impl(
         )
         .await
         .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
-        if editor_out.aborted {
-            let outcome = GateOutcome::Failed {
-                reason: circuit_break_message(
-                    "编辑审计 Agent",
-                    "审查未完成",
-                    circuit_break_reason(&editor_out),
-                ),
-            };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
-            return Ok((outcome, None));
-        }
         last_raw = editor_out.output.clone();
+        // v0.30.19 salvage: 即使熔断，末轮原始输出可能已含可解析裁决 JSON
+        // （本地模型常在最后一轮吐出 JSON 但已超 max_turns/连续解析计数）。
         if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
             verdict = Some(v);
+            break;
+        }
+        if editor_out.aborted {
+            // 同模型重试 tool_loop 必同败（JSON 不遵从是系统性的），不重试，
+            // 直接进散文回退（见下方 verdict match 的 None 分支）。
+            aborted_reason = Some(circuit_break_reason(&editor_out));
+            log::warn!(
+                "agency gate: editor tool_loop 熔断（{}），salvage 未提取裁决，进入散文回退",
+                aborted_reason.unwrap()
+            );
             break;
         }
         log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
@@ -3360,14 +3403,23 @@ async fn evaluate_gate_impl(
     let verdict = match verdict {
         Some(v) => v,
         None => {
-            let outcome = GateOutcome::Failed {
-                reason: format!(
-                    "裁决解析失败（重试 1 次后仍失败）: {}",
-                    last_raw.chars().take(120).collect::<String>()
-                ),
-            };
-            record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
-            return Ok((outcome, None));
+            // v0.30.19: editor 散文回退--单次直接请求裁决 JSON。
+            match editor_verdict_prose_fallback(llm, budget, pool, draft, premise).await {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("agency gate: editor 散文回退也失败: {}", e);
+                    let reason = match aborted_reason {
+                        Some(r) => circuit_break_message("编辑审计 Agent", "审查未完成", r),
+                        None => format!(
+                            "裁决解析失败（重试 1 次后仍失败）: {}",
+                            last_raw.chars().take(120).collect::<String>()
+                        ),
+                    };
+                    let outcome = GateOutcome::Failed { reason };
+                    record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
+                    return Ok((outcome, None));
+                }
+            }
         }
     };
     // 2) Gate v2：确定性 grader（code/rule）+ rubric 化 model 分，合成加权评分
@@ -3878,6 +3930,7 @@ mod tests {
             "不是 JSON",
             "还不是",
             "依然不是", // editor 连续解析失败 → aborted → run failed（不得默认放行）
+            "仍然不是JSON裁决", // v0.30.19: editor 散文回退也失败 -> run failed
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let err = coordinator.run_genesis("r4", "前提").await.unwrap_err();
@@ -4057,6 +4110,46 @@ mod tests {
             .unwrap();
         assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
         assert!(result.chapter_chars >= 200);
+    }
+
+    /// v0.30.19: editor tool_loop 熔断（本地模型不遵从 JSON action）后，
+    /// 散文回退单次直接请求裁决 JSON 成功，run 不应失败。
+    #[tokio::test]
+    async fn test_editor_verdict_prose_fallback() {
+        let pool = create_test_pool().unwrap();
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let write = format!(
+            r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
+            chapter
+        );
+        let llm = MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅"}"#,
+            r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#,
+            r#"{"type":"final","content":"资产就绪"}"#,
+            write.as_str(),
+            r#"{"type":"final","content":"第一章完成"}"#,
+            // editor tool_loop: 连续 3 次散文（非 JSON action）-> ParseFailures 熔断
+            "这不是JSON工具动作，只是审查意见散文。",
+            "依然不是JSON action，本地模型不遵从。",
+            "第三次散文，触发连续解析失败熔断。",
+            // editor 散文回退（单次 complete 调用）：直接产出裁决 JSON -> 成功
+            r#"{"verdict":"pass","blocking_issues":[],"suggestions":["可加强嗅觉描写"],"comments":"合格的首章"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let result = coordinator
+            .run_genesis("rf-editor-fb", "星海拾荒者的故事")
+            .await
+            .unwrap();
+        assert_eq!(
+            result.verdict.verdict, "pass",
+            "editor 熔断后散文回退应产出 pass 裁决，run 不应失败"
+        );
+        let repo = AgencyRepository::new(pool.clone());
+        assert_eq!(
+            repo.get_run("rf-editor-fb").unwrap().unwrap().status,
+            "completed",
+            "editor 熔断经散文回退后 run 应完成"
+        );
     }
 
     /// Fix A：本地模型对 depth assets 返回散文而非 JSON 时，快速路径应兜底
@@ -4617,6 +4710,8 @@ mod tests {
             r#"{"type":"final","content":"完成"}"#,
             r#"{"type":"final","content":"这根本不是JSON裁决"}"#,
             r#"{"type":"final","content":"依然不是JSON"}"#,
+            // v0.30.19: editor 散文回退也失败 -> run failed
+            "仍然不是JSON裁决",
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let err = coordinator

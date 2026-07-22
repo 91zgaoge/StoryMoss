@@ -1,8 +1,12 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.18)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.19)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.19 变更说明
+
+- 修复质量门编辑审计 Agent 熔断（本地模型 JSON 不遵从）：`evaluate_gate_impl` 中 editor tool_loop 连续解析失败/达最大轮数熔断时原直接 Failed。Fix：salvage（熔断时 `parse_lenient` 提取末轮裁决）+ `editor_verdict_prose_fallback`（单次 `llm.complete()` 直接请求裁决 JSON，与 `writer_prose_fallback` 同理）。新增 `test_editor_verdict_prose_fallback` 正向回归（editor 熔断 -> 散文回退产出 pass 裁决 -> run completed）；2 个现有熔断测试更新为显式验证回退也失败时 run 仍 failed。`cargo test --lib` 965 passed。
 
 ### v0.30.18 变更说明
 
