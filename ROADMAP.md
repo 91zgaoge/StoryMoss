@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-20（v0.30.11 用 LLM 意图分类器替换朴素子串意图匹配，修复 6 处高危路由点）
+> 最后更新: 2026-07-22（v0.30.12 修复续写返回审查报告：force-correction 漏拦 inspector）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.12 - 续写返回审查报告修复（force-correction 漏拦 inspector）✅ (2026-07-22)
+
+- [x] 修复续写返回审查报告：force-correction 漏拦 inspector（planner 强制改 writer 列表漏 inspector，本地模型 Gemma 把续写误路由到 inspector；提取 `PlanGenerator::should_force_correct_to_writer` 纯函数按 LLM 分类分流，Rule 9/21 澄清续写≠refine 并禁用 inspector）。
 
 ### 🧠 v0.30.11 - LLM 意图分类器替换朴素子串匹配 ✅ (2026-07-20)
 

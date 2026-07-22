@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
-    capabilities::get_capability_registry, error::AppError, intent::WritingIntentClassification,
-    llm::LlmService, router::TaskType,
+    capabilities::get_capability_registry,
+    creative_engine::asset_capability_manifest::AssetTaskType, error::AppError,
+    intent::WritingIntentClassification, llm::LlmService, router::TaskType,
 };
 
 pub mod bootstrap;
@@ -131,6 +132,56 @@ impl PlanGenerator {
                 }),
             );
         }
+    }
+
+    /// 防线 2 决策：首步 capability 是否应被强制改为 writer。
+    ///
+    /// v0.30.11: 用 LLM 分类的 `is_prose_request` 替代单字
+    /// `contains('写'/'创')` 朴素匹配（"大纲里写明主角动机"会命中"写"误改
+    /// outline->writer）。分类经 `PlanContext` 贯穿；缺失时兜底
+    /// `true`（force-to-writer 安全默认：误改 outline->writer
+    /// 可恢复，反之返回空模板灾难）。
+    ///
+    /// v0.30.12: 新增 `inspector` 处理。续写请求被误路由到质检员会返回**审查
+    /// 报告**而非正文（用户报告"继续写当前这部小说"得到"总体评分 0.85 / 具体
+    /// 问题清单"）。`inspector`
+    /// 仅保留给显式审查（`Audit`）或改写润色（`Rewrite`，
+    /// Rule 9 的 inspector->writer 流）；续写（`is_continuation`）/ 创世 /
+    /// 无分类 一律强制 writer。
+    fn should_force_correct_to_writer(
+        first_cap: &str,
+        classification: Option<&WritingIntentClassification>,
+    ) -> bool {
+        let needs_correction = first_cap == "outline_planner"
+            || first_cap == "style_mimic"
+            || first_cap == "plot_analyzer"
+            || first_cap == "inspector"
+            || first_cap.starts_with("builtin.style_enhancer")
+            || first_cap.starts_with("builtin.text_formatter")
+            || first_cap.starts_with("builtin.character_voice")
+            || first_cap.starts_with("builtin.emotion_pacing");
+        if !needs_correction {
+            return false;
+        }
+        if first_cap == "inspector" {
+            return match classification {
+                // 续写绝不该返回审查报告。
+                Some(c) if c.is_continuation => true,
+                Some(c) => match c.task_type {
+                    // 显式审查（非 prose）保留 inspector；若同时判为 prose 请求，
+                    // 说明分类矛盾（如"继续写"被误判 Audit），强制 writer。
+                    AssetTaskType::Audit => c.is_prose_request,
+                    // 改写润色保留 inspector（Rule 9 inspector->writer 流，最终输出是 writer
+                    // 正文）。
+                    AssetTaskType::Rewrite => false,
+                    // Continuation/Genesis/Other 强制 writer。
+                    _ => true,
+                },
+                // 无分类安全默认 writer（续写误路由代价 >> 审查被改 writer 的代价）。
+                None => true,
+            };
+        }
+        classification.map(|c| c.is_prose_request).unwrap_or(true)
     }
 
     /// 根据用户输入和系统状态生成执行计划
@@ -436,7 +487,7 @@ Rules:
    - Skills: builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing
    - MCP: mcp.{{server_id}}.{{tool_name}} (use only when external data is needed)
 8. CRITICAL: If the user wants to continue writing and the current scene has no content or is in 'planning'/'outline' stage, use 'writer' to generate draft content.
-9. If the user wants to improve/refine text and there IS content, use 'inspector' first then 'writer'. CRITICAL: When using 'inspector', you MUST pass the text to check as the "draft" parameter using {{{{step_id}}}} syntax (e.g. "draft": "{{{{step_1}}}}" to check the output of step_1). The inspector CANNOT function without a draft -- if you omit it, the inspector receives empty content and returns a request for input instead of an actual review.
+9. If the user EXPLICITLY wants to review/audit/critique/refine EXISTING text (e.g. 检查/审查/评估/润色/改进 this text), use 'inspector' first then 'writer'. CRITICAL: 'continue writing' / '继续写' / '续写' / '往下写' is a CONTINUATION, NOT a refine request -- it MUST use 'writer' directly (see Rule 21), never 'inspector' (inspector returns a review report, not prose). When using 'inspector', you MUST pass the text to check as the "draft" parameter using {{{{step_id}}}} syntax (e.g. "draft": "{{{{step_1}}}}" to check the output of step_1). The inspector CANNOT function without a draft -- if you omit it, the inspector receives empty content and returns a request for input instead of an actual review.
 10. If story progress is 'just_started' and user asks for next chapter/scene, use 'create_chapter' or 'outline_planner' first.
 11. If scenes are stuck in 'planning' or 'outline' stage, prioritize 'writer' to move them to 'drafting'.
 12. If user asks to modify a character, use 'update_character' with character_id and changes parameters.
@@ -448,7 +499,7 @@ Rules:
 18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments.
 19. CRITICAL — HIGHEST PRIORITY: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', '写一部', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. This rule OVERRIDES Rule 10 — even if story progress is 'just_started', a direct writing request means the user wants to see story text immediately, not planning advice.
 20. If a style blend configuration is active (multiple style DNAs with weights), the writer must follow the blend rules: dominant style sets the overall tone, secondary styles permeate specific scenes (dialogue/rhythm/psychological depth/atmosphere). Do NOT ignore the blend weights.
-21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' / '继续' / '续写' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文/这部/当前), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner', 'style_mimic', 'plot_analyzer', or 'builtin.style_enhancer' for these inputs -- they return empty-content templates instead of prose."#,
+21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' / '继续' / '续写' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文/这部/当前), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner', 'style_mimic', 'plot_analyzer', 'inspector', or 'builtin.style_enhancer' for these inputs -- 'inspector' returns a review report instead of prose, and the others return empty-content templates."#,
                 context.has_story,
                 context.current_story_id.as_deref().unwrap_or("none"),
                 context.has_chapters,
@@ -530,37 +581,22 @@ Rules:
         // outline_planner，强制替换为 writer
         if !plan.steps.is_empty() {
             let first_cap = plan.steps[0].capability_id.clone();
-            let needs_correction = first_cap == "outline_planner"
-                || first_cap == "style_mimic"
-                || first_cap == "plot_analyzer"
-                || first_cap.starts_with("builtin.style_enhancer")
-                || first_cap.starts_with("builtin.text_formatter")
-                || first_cap.starts_with("builtin.character_voice")
-                || first_cap.starts_with("builtin.emotion_pacing");
-            if needs_correction {
-                // v0.30.11: 用 LLM 分类的 is_prose_request 替代单字 contains('写'/'创')
-                // 朴素匹配（"大纲里写明主角动机"会命中"写"误改 outline->writer）。
-                // 分类经 PlanContext 贯穿；缺失时兜底 true（force-to-writer 安全默认：
-                // 误改 outline->writer 可恢复，反之返回空模板灾难）。
-                let is_prose_request = context
-                    .intent_classification
-                    .as_ref()
-                    .map(|c| c.is_prose_request)
-                    .unwrap_or(true);
-                if is_prose_request {
-                    log::warn!(
-                        "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
-                        first_cap,
-                        context.user_input
-                    );
-                    plan.steps[0].capability_id = "writer".to_string();
-                    plan.steps[0].purpose = "Auto-corrected: user wants prose generation/continuation, not style enhancement or analysis"
-                        .to_string();
-                    plan.understanding = format!(
-                        "{} [auto-corrected: prose/continuation keywords detected, forcing writer instead of {}]",
-                        plan.understanding, first_cap
-                    );
-                }
+            if Self::should_force_correct_to_writer(
+                &first_cap,
+                context.intent_classification.as_ref(),
+            ) {
+                log::warn!(
+                    "[PlanGenerator] Force-correcting {} -> writer for prose/continuation request: {}",
+                    first_cap,
+                    context.user_input
+                );
+                plan.steps[0].capability_id = "writer".to_string();
+                plan.steps[0].purpose = "Auto-corrected: user wants prose generation/continuation, not style enhancement, analysis, or review"
+                    .to_string();
+                plan.understanding = format!(
+                    "{} [auto-corrected: prose/continuation keywords detected, forcing writer instead of {}]",
+                    plan.understanding, first_cap
+                );
             }
         }
 
@@ -658,5 +694,104 @@ mod tests {
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");
+    }
+
+    #[test]
+    fn test_force_correct_inspector_continuation_forced_to_writer() {
+        // v0.30.12 回归：续写被误路由到 inspector 必须强制改 writer
+        // （用户报告"继续写当前这部小说"得到审查报告）。
+        let cls = WritingIntentClassification::conservative_fallback();
+        assert!(PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_inspector_audit_kept() {
+        // 显式审查请求（非 prose）保留 inspector（Rule 9 合法用途）。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            task_type: AssetTaskType::Audit,
+            is_prose_request: false,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_inspector_audit_with_prose_forced_to_writer() {
+        // v0.30.12 防误判：分类矛盾时（task_type=Audit 但 is_prose_request=true，
+        // 如本地模型把"继续写"误判为 Audit），强制 writer--续写绝不该返回审查报告。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            task_type: AssetTaskType::Audit,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_inspector_rewrite_kept() {
+        // 改写润色（Rule 9 inspector->writer 流）保留 inspector。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            task_type: AssetTaskType::Rewrite,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_inspector_genesis_forced_to_writer() {
+        // 创世不该走 inspector。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            task_type: AssetTaskType::Genesis,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_inspector_no_classification_forced_to_writer() {
+        // 无分类安全默认 writer（续写误路由代价 >> 审查被改 writer 的代价）。
+        assert!(PlanGenerator::should_force_correct_to_writer(
+            "inspector",
+            None
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_outline_prose_request_forced_to_writer() {
+        // 回归 v0.30.11：is_prose_request=true 时 outline_planner -> writer。
+        let cls = WritingIntentClassification::conservative_fallback();
+        assert!(PlanGenerator::should_force_correct_to_writer(
+            "outline_planner",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_writer_not_corrected() {
+        // writer 不该被修正。
+        let cls = WritingIntentClassification::conservative_fallback();
+        assert!(!PlanGenerator::should_force_correct_to_writer(
+            "writer",
+            Some(&cls)
+        ));
     }
 }
