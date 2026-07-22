@@ -221,6 +221,133 @@ impl PlanGenerator {
         );
     }
 
+    /// v0.30.14 防线 3：prose 请求计划净化。
+    ///
+    /// force-correction（防线 2）只修正**首步**，无法拦截多步 plan 中**尾部**的
+    /// `style_enhancer`/`inspector` 等非 writer 步骤。`execute_plan`
+    /// 用**最后产出 `content` 的步骤**作为
+    /// `final_content`（executor.rs:685-687），故尾部的 `style_enhancer`
+    /// 会用"请提供需要增强的原始文本"模板覆盖 writer 已产出的正文，
+    /// `inspector` 会用审查报告覆盖--用户看到模板/报告而非正文。这是该误路由
+    /// bug 第 5 次复发的根因（v0.30.10/11/12/13
+    /// 各堵一条路径，但多步尾部漏网）。
+    ///
+    /// 本方法在咽喉点对所有 `is_prose_request` plan 统一净化：
+    /// 1. 移除 `builtin.style_enhancer`/`text_formatter`/`character_voice`/
+    ///    `emotion_pacing` 等绝不产出可用正文的技能步骤（产出模板/元文本）。
+    /// 2. 续写（`is_continuation`）塌缩为单 writer
+    ///    步（续写本质单步，多步必为误路由）。
+    /// 3. 其余 prose 请求（改写/增强等）：弹出尾部非 writer 步骤，保证末步为
+    ///    writer （`final_content` = 正文）。保留 `[inspector, writer]` 等 Rule
+    ///    9 合法流。
+    /// 4. 净化后若为空，补一个 writer 步。
+    ///
+    /// 非 prose 请求（显式审查 `Audit`/`is_prose_request=false`）不净化，保留
+    /// inspector 等合法用途。
+    pub(crate) fn sanitize_plan_for_prose_request(
+        plan: &mut ExecutionPlan,
+        classification: Option<&WritingIntentClassification>,
+        context: &PlanContext,
+    ) {
+        let cls = match classification {
+            Some(c) if c.is_prose_request => c,
+            _ => return,
+        };
+
+        // 1. 移除非 prose 技能步骤
+        let before = plan.steps.len();
+        plan.steps
+            .retain(|s| !Self::is_non_prose_skill(&s.capability_id));
+        if plan.steps.len() != before {
+            log::warn!(
+                "[PlanGenerator] Sanitize: removed {} non-prose skill step(s) from prose request: {}",
+                before - plan.steps.len(),
+                context.user_input
+            );
+        }
+
+        // 2. 续写塌缩为单 writer
+        if cls.is_continuation {
+            if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
+                log::warn!(
+                    "[PlanGenerator] Sanitize: collapsing continuation plan ({} steps) to single writer: {}",
+                    plan.steps.len(),
+                    context.user_input
+                );
+                plan.steps = vec![Self::make_sanitized_writer_step(context)];
+                plan.understanding = format!(
+                    "{} [sanitized: continuation collapsed to single writer]",
+                    plan.understanding
+                );
+            }
+            return;
+        }
+
+        // 3. 弹出尾部非 writer 步骤，保证末步为 writer（final_content = 正文）
+        while let Some(last) = plan.steps.last() {
+            if last.capability_id == "writer" {
+                break;
+            }
+            let removed = plan.steps.pop().expect("last() confirmed non-empty");
+            log::warn!(
+                "[PlanGenerator] Sanitize: popping trailing non-writer step '{}' ({}) from prose plan",
+                removed.step_id,
+                removed.capability_id
+            );
+        }
+
+        // 4. 空则补 writer
+        if plan.steps.is_empty() {
+            log::warn!(
+                "[PlanGenerator] Sanitize: prose plan empty after sanitize, adding writer step: {}",
+                context.user_input
+            );
+            plan.steps.push(Self::make_sanitized_writer_step(context));
+        }
+    }
+
+    /// 判定 capability 是否为"绝不产出可用正文"的技能（模板/元文本）。
+    /// 这些步骤在 prose 请求中无论作为首步、中间步还是尾步都无益--产出会被
+    /// `execute_plan` 当作 content
+    /// 覆盖正文。inspector/outline_planner/style_mimic/ plot_analyzer
+    /// 不在此列：它们可作为中间步（其 content 若为末步才需由 `sanitize`
+    /// 的尾部弹出处理）。
+    fn is_non_prose_skill(cap_id: &str) -> bool {
+        cap_id.starts_with("builtin.style_enhancer")
+            || cap_id.starts_with("builtin.text_formatter")
+            || cap_id.starts_with("builtin.character_voice")
+            || cap_id.starts_with("builtin.emotion_pacing")
+    }
+
+    /// 构造一个净化用的 writer 步（带 story_id/instruction/current_content）。
+    fn make_sanitized_writer_step(context: &PlanContext) -> PlanStep {
+        let mut params = HashMap::new();
+        if let Some(ref story_id) = context.current_story_id {
+            params.insert(
+                "story_id".to_string(),
+                serde_json::Value::String(story_id.clone()),
+            );
+        }
+        params.insert(
+            "instruction".to_string(),
+            serde_json::Value::String(context.user_input.clone()),
+        );
+        if let Some(ref preview) = context.current_content_preview {
+            params.insert(
+                "current_content".to_string(),
+                serde_json::Value::String(preview.clone()),
+            );
+        }
+        PlanStep {
+            step_id: "sanitized_writer".to_string(),
+            capability_id: "writer".to_string(),
+            purpose: "Sanitized writer step: prose request must yield prose".to_string(),
+            parameters: params,
+            depends_on: vec![],
+            long_running: true,
+        }
+    }
+
     /// 根据用户输入和系统状态生成执行计划
     ///
     /// 外层套 60 秒整体超时：计划生成只应消耗几百 tokens，若卡住可快速失败，
@@ -900,5 +1027,300 @@ mod tests {
         };
         PlanGenerator::force_correct_first_step_to_writer(&mut plan, Some(&cls), "继续写");
         assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    // ---- v0.30.14 防线 3：sanitize_plan_for_prose_request 回归 ----
+
+    fn make_sanitize_ctx(user_input: &str, cls: WritingIntentClassification) -> PlanContext {
+        PlanContext {
+            current_story_id: Some("story_1".to_string()),
+            has_story: true,
+            has_chapters: true,
+            chapter_count: 2,
+            current_content_preview: Some("已有正文...".to_string()),
+            user_input: user_input.to_string(),
+            scene_count: 1,
+            scenes_summary: vec![],
+            current_scene_id: None,
+            current_scene_stage: None,
+            total_word_count: 1000,
+            latest_chapter_word_count: 500,
+            story_progress: "in_progress".to_string(),
+            selected_text: None,
+            world_building_summary: None,
+            character_list: vec![],
+            foreshadowing_status: vec![],
+            style_dna_info: None,
+            mcp_tools_available: vec![],
+            deep_insight_summary: None,
+            style_weight: 50,
+            chapter_number: 2,
+            selected_strategy: None,
+            intent_classification: Some(cls),
+        }
+    }
+
+    fn make_step(step_id: &str, cap: &str) -> PlanStep {
+        PlanStep {
+            step_id: step_id.to_string(),
+            capability_id: cap.to_string(),
+            purpose: cap.to_string(),
+            parameters: HashMap::new(),
+            depends_on: vec![],
+            long_running: false,
+        }
+    }
+
+    fn make_plan(steps: Vec<PlanStep>) -> ExecutionPlan {
+        ExecutionPlan {
+            understanding: "test plan".to_string(),
+            steps,
+            fallback_message: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_sanitize_inspector_then_style_enhancer_prose() {
+        // v0.30.14 核心回归：用户报告"增强第二章"得到 [inspector, style_enhancer]
+        // 多步 plan，尾部 style_enhancer 用"请提供原始文本"模板覆盖正文。净化后末步
+        // 必须为 writer。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: true,
+            task_type: AssetTaskType::Other,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("增强第二章的文学性", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "inspector"),
+            make_step("s2", "builtin.style_enhancer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert!(!plan.steps.is_empty());
+        assert_eq!(plan.steps.last().unwrap().capability_id, "writer");
+        // style_enhancer 必须被移除
+        assert!(plan
+            .steps
+            .iter()
+            .all(|s| !s.capability_id.contains("style_enhancer")));
+    }
+
+    #[test]
+    fn test_sanitize_style_enhancer_only_prose() {
+        let cls = WritingIntentClassification::conservative_fallback();
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut plan = make_plan(vec![make_step("s1", "builtin.style_enhancer")]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        // 续写 -> 塌缩单 writer
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_writer_then_style_enhancer_prose() {
+        // [writer, style_enhancer]：移除尾部 style_enhancer，保留 writer。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: true,
+            task_type: AssetTaskType::Other,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("增强第二章", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "writer"),
+            make_step("s2", "builtin.style_enhancer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_inspector_writer_rewrite_preserved() {
+        // Rule 9 合法流 [inspector, writer]（改写：先审后写，末步 writer）必须保留。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: true,
+            task_type: AssetTaskType::Rewrite,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("改写第二章", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "inspector"),
+            make_step("s2", "writer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].capability_id, "inspector");
+        assert_eq!(plan.steps[1].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_continuation_multi_step_collapsed() {
+        // 续写本质单步；多步必为误路由 -> 塌缩单 writer。
+        let cls = WritingIntentClassification::conservative_fallback(); // is_continuation=true
+        let ctx = make_sanitize_ctx("继续写当前这部小说", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "inspector"),
+            make_step("s2", "writer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert!(plan.understanding.contains("collapsed"));
+    }
+
+    #[test]
+    fn test_sanitize_continuation_single_writer_unchanged() {
+        let cls = WritingIntentClassification::conservative_fallback();
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut plan = make_plan(vec![make_step("s1", "writer")]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_audit_not_purged() {
+        // 显式审查（is_prose_request=false）保留 inspector--审查报告是用户想要的。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: false,
+            task_type: AssetTaskType::Audit,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("检查第二章的逻辑问题", cls);
+        let mut plan = make_plan(vec![make_step("s1", "inspector")]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "inspector");
+    }
+
+    #[test]
+    fn test_sanitize_outline_writer_preserved() {
+        // [outline_planner, writer]：末步 writer，保留（outline 作为中间步合法）。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: true,
+            task_type: AssetTaskType::Other,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("写第二章", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "outline_planner"),
+            make_step("s2", "writer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[1].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_outline_only_prose_becomes_writer() {
+        // [outline_planner]：末步非 writer -> 弹出 -> 空 -> 补 writer。
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: true,
+            task_type: AssetTaskType::Other,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("写第二章", cls);
+        let mut plan = make_plan(vec![make_step("s1", "outline_planner")]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_empty_prose_gets_writer() {
+        let cls = WritingIntentClassification::conservative_fallback();
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut plan = make_plan(vec![]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_no_classification_unchanged() {
+        // 无分类不净化（保守，交由 force-correction 兜底）。
+        let mut plan = make_plan(vec![
+            make_step("s1", "inspector"),
+            make_step("s2", "builtin.style_enhancer"),
+        ]);
+        let ctx = make_sanitize_ctx(
+            "继续写",
+            WritingIntentClassification::conservative_fallback(),
+        );
+        PlanGenerator::sanitize_plan_for_prose_request(&mut plan, None, &ctx);
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[1].capability_id, "builtin.style_enhancer");
+    }
+
+    #[test]
+    fn test_sanitize_sanitized_writer_step_has_instruction() {
+        // 净化补的 writer 步必须带 instruction（用户输入）+ current_content。
+        let cls = WritingIntentClassification::conservative_fallback();
+        let ctx = make_sanitize_ctx("继续写这部小说", cls);
+        let mut plan = make_plan(vec![]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        let w = &plan.steps[0];
+        assert_eq!(w.capability_id, "writer");
+        assert_eq!(
+            w.parameters.get("instruction").and_then(|v| v.as_str()),
+            Some("继续写这部小说")
+        );
+        assert_eq!(
+            w.parameters.get("current_content").and_then(|v| v.as_str()),
+            Some("已有正文...")
+        );
+        assert_eq!(
+            w.parameters.get("story_id").and_then(|v| v.as_str()),
+            Some("story_1")
+        );
     }
 }

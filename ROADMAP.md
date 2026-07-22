@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-22（v0.30.13 修复续写返回风格增强模板：SING 路径绕过 force-correction）
+> 最后更新: 2026-07-22（v0.30.14 修复续写返回风格增强模板：多步 plan 尾部非 writer 覆盖正文）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### 🐛 v0.30.14 - 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）✅ (2026-07-22)
+
+- [x] 修复续写返回风格增强模板（第 5 次复发）：`execute_plan` 用最后产出 content 的步骤作为 final_content，force-correction 只修正首步无法拦截尾部 style_enhancer/inspector；新增防线 3 `sanitize_plan_for_prose_request` 在咽喉点对所有 is_prose_request plan 净化（移除非 prose 技能 / 续写塌缩单 writer / 弹出尾部非 writer 保证末步 writer / 空则补 writer），保留 [inspector, writer] Rule 9 流，非 prose（Audit）不净化。
 
 ### 🐛 v0.30.13 - 续写返回风格增强模板修复（SING 路径绕过 force-correction）✅ (2026-07-22)
 

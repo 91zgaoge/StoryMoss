@@ -304,6 +304,16 @@ impl PlanExecutor {
             &context.user_input,
         );
 
+        // v0.30.14 防线 3 咽喉点：prose 请求计划净化。force-correction 只修正首步，
+        // 无法拦截多步 plan 尾部的 style_enhancer/inspector 等非 writer 步骤--而
+        // execute_plan 用最后产出 content 的步骤作为 final_content，尾部非 writer
+        // 会用模板/报告覆盖 writer 正文（第 5 次复发根因）。净化保证末步为 writer。
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            context.intent_classification.as_ref(),
+            context,
+        );
+
         // Inject PlanContext information into every step so agents get full context
         for step in &mut plan.steps {
             if let Some(ref preview) = context.current_content_preview {
