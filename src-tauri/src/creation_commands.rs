@@ -1378,12 +1378,41 @@ pub async fn generate_scene_outline(
     };
 
     let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+
+    // v0.30.15: 注入完整故事大纲 + 场景序号，让场景大纲围绕故事大纲生成、复用已
+    // 登场角色，禁止幻觉新角色（修复"金敏秀"式偏离：场景大纲与故事大纲两张皮）。
+    let story_outline = StoryOutlineRepository::new(pool.inner().clone())
+        .get_by_story(&scene.story_id)
+        .ok()
+        .flatten()
+        .map(|o| {
+            let c = o.content;
+            // 截断 safeguard，避免超长大纲挤占上下文
+            if c.chars().count() > 4000 {
+                let truncated: String = c.chars().take(4000).collect();
+                truncated + "\n…（已截断）"
+            } else {
+                c
+            }
+        });
+    let mut parameters = HashMap::new();
+    if let Some(ref outline) = story_outline {
+        parameters.insert(
+            "story_outline".to_string(),
+            serde_json::Value::String(outline.clone()),
+        );
+    }
+    parameters.insert(
+        "scene_number".to_string(),
+        serde_json::Value::Number(scene.sequence_number.max(1).into()),
+    );
+
     let task = AgentTask {
         id: uuid::Uuid::new_v4().to_string(),
         agent_type: AgentType::OutlinePlanner,
         context,
         input,
-        parameters: HashMap::new(),
+        parameters,
         tier: None,
     };
 

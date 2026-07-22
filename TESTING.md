@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.14)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.15)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.15 变更说明
+
+- 场景围绕故事大纲生成（创作原则加固）：根因 A 场景大纲生成 `generate_scene_outline` 复用故事级 outline_planner 提示词且不注入 story_outlines.content 致幻觉新角色"金敏秀"；根因 B writer（TimeSliced/TriShot）prompt 从不包含故事大纲致续写偏离。Fix A：新增场景级提示词 `scene_outline.md`（强制复用已登场角色、禁止发明新角色、围绕故事大纲节点）+ `generate_scene_outline` 注入故事大纲 + `build_outline_prompt` 分流；Fix B：`WriteTimeBundle` 加 `story_outline` 字段 + `to_prompt` 红线后插入权威段【故事大纲（必须围绕展开）】，一处覆盖两条 writer 路径，冲突时以故事大纲为准。
+- 新增 4 个回归测试：WriteTimeBundle `to_prompt` story_outline 渲染 / 红线-故事大纲顺序不变量 / story_outline 缺失不渲染；registry `scene_outline` 提示词注册（含"禁止发明新角色"指令）。
+- 全量基线：`cargo test --lib` 964 passed（+4）；fmt / architecture_guard 全绿；clippy 零新增（baseline 550）。
 
 ### v0.30.14 变更说明
 
@@ -526,4 +532,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.14 防线3 sanitize 净化多步尾部，测试基线 960_
+_最后更新: 2026-07-22 - v0.30.15 场景围绕故事大纲生成，测试基线 964_

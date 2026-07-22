@@ -2752,6 +2752,31 @@ impl AgentService {
         use crate::prompts::TemplateEngine;
 
         let ctx = &task.context;
+
+        // v0.30.15: 场景大纲模式（generate_scene_outline 注入了 story_outline）走
+        // 专用 scene_outline 提示词，围绕故事大纲 + 复用已登场角色，禁止幻觉新角色。
+        // 非场景模式（workflow 故事级大纲）仍用 outline_planner，行为不变。
+        if let Some(story_outline) = task
+            .parameters
+            .get("story_outline")
+            .and_then(|v| v.as_str())
+        {
+            let mut vars = HashMap::new();
+            vars.insert("story_outline".to_string(), story_outline.to_string());
+            vars.insert(
+                "scene_number".to_string(),
+                task.parameters
+                    .get("scene_number")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "1".to_string()),
+            );
+            vars.insert("characters".to_string(), ctx.format_characters());
+            vars.insert("scene_info".to_string(), task.input.clone());
+            let tpl = self.resolve_prompt("scene_outline");
+            return TemplateEngine::render_with_conditions(&tpl, &vars);
+        }
+
         let mut vars = HashMap::new();
         vars.insert("premise".to_string(), task.input.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
