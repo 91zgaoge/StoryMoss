@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.22)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.23)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.23 变更说明
+
+- 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化）：`intent.rs` `build_classification_prompt` 移除 `已有故事={story}` 上下文注入（偏差来源）+ 移除保守措辞 + 新增 3 正例；新增 `conservative_fallback_with_context(has_existing_story)`（LLM 失败时无故事->创世/有故事->续写）；仅缓存 LLM 成功结果不缓存兜底；缓存键简化为仅 `user_input`。`FrontstageApp.tsx` 两处 LLM 失败兜底上下文化（`stories.length === 0`）。
+- 新增 4 个回归测试：`test_conservative_fallback_no_story_is_genesis`（无故事兜底->创世）/ `test_conservative_fallback_with_story_is_continuation`（有故事兜底->续写）/ `test_classification_prompt_no_context_bias`（提示词无 DB 状态偏差）/ `test_classification_prompt_has_positive_examples`（提示词含正例）。
+- 全量基线：`cargo test --lib` 978 passed（+4）；`npx vitest run` 307 passed / 3 skipped。
 
 ### v0.30.22 变更说明
 
@@ -568,4 +574,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.22 PROBLEM 七元素框架集成，测试基线 974_
+_最后更新: 2026-07-23 - v0.30.23 意图分类 Bug 修复，测试基线 978_

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.23（2026-07-23）
+
+### 意图分类 Bug 修复--LLM 分类去偏 + 失败兜底上下文化
+
+- **根因（LLM 分类本身被破坏）**：用户输入"写一部现代间谍的长篇小说"被分类为续写，导致 `VALIDATION_FAILED: 请先在左侧选择或创建一个作品`。5 层防线失守：①提示词注入 `已有故事=true` 上下文偏差，LLM 受影响倾向续写；②提示词 `仅当"明确要求新开一部"` 过于保守；③无正例，LLM 缺少参照；④兜底 `conservative_fallback()` 恒返回 `is_new_novel=false` 无视 DB 状态；⑤失败结果被缓存，错误分类持续存在。
+- **Fix A（提示词去偏·主修复·intent.rs）**：`build_classification_prompt` 移除 `上下文：已有故事={story}` 上下文注入行（偏差来源）；移除 `仅当` 保守措辞，改为列举创世表达 + 明确"判断依据是用户输入本身的表达，与是否已有故事无关"；新增 3 个正例（"写一部科幻小说" -> is_new_novel=true / "继续写" -> continuation / "把这段改得更生动" -> rewrite）。LLM 不再受 DB 状态偏差，基于用户输入本身判定意图。
+- **Fix B（上下文感知兜底·intent.rs）**：新增 `conservative_fallback_with_context(has_existing_story)`--LLM 失败/超时时，无故事返回创世（`is_new_novel=true, task_type=Genesis`，不可能续写不存在的作品），有故事返回续写（与原 `conservative_fallback` 同语义）。3 个兜底路径（JSON 解析失败 / LLM 错误 / 超时）全部改用。原 `conservative_fallback()` 标记 `#[deprecated]`。
+- **Fix C（不缓存失败·intent.rs）**：`classify_writing_intent` 返回值增加 `is_fallback` 标记，仅 LLM 成功解析的结果写入缓存，兜底结果不缓存--临时超时/网络问题不应让错误分类持续存在。缓存键从 `"{input}|{story}|{content}"` 简化为 `"{input}"`（提示词不再使用上下文，同输入结果不随上下文变化）。
+- **Fix D（前端兜底上下文化·FrontstageApp.tsx）**：catch 块和 null 防御两处 LLM 失败兜底从硬编码 `is_new_novel: false` 改为 `is_new_novel: stories.length === 0`（无故事时创世）。`isBootstrap` 判定不变（`classification.is_new_novel`），尊重 LLM 结果。
+- **设计原则**：LLM 是意图判断的唯一权威，分类基于用户输入本身；不回到硬编码关键词匹配（v0.30.11 已废弃）；不用 `|| !has_existing_story` 覆盖 LLM 结果；DB 状态仅在 LLM 失败兜底时使用。
+- **验证**：`cargo test --lib` 978 passed（+4：兜底上下文化 / 提示词去偏 / 正例验证）；`npx vitest run` 307 passed；fmt / clippy（baseline 550）/ tsc / prettier / architecture_guard 全绿。
+
 ## v0.30.22（2026-07-23）
 
 ### PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）

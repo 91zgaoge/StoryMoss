@@ -3712,11 +3712,16 @@ const FrontstageApp: React.FC = () => {
             }
           }
         } catch (e) {
-          frontstageLogger.warn('[SmartGeneration] 意图分类失败，兜底为续写', { error: e });
+          // v0.30.23: LLM 失败时上下文化兜底--无故事时创世（不可能续写不存在的作品）
+          const noStories = stories.length === 0;
+          frontstageLogger.warn('[SmartGeneration] 意图分类失败，上下文兜底', {
+            error: e,
+            is_new_novel: noStories,
+          });
           classification = {
-            is_new_novel: false,
-            is_continuation: true,
-            task_type: 'continuation',
+            is_new_novel: noStories,
+            is_continuation: !noStories,
+            task_type: noStories ? 'genesis' : 'continuation',
             is_prose_request: true,
             input_clarity: 'vague',
             confidence: 0,
@@ -3724,15 +3729,18 @@ const FrontstageApp: React.FC = () => {
         }
       }
       // v0.30.18: 防御--classifyIntent 可能 resolve 为 null（E2E mock 对未注册命令
-      // 返回 null，或后端序列化异常）而不抛异常，catch 无法拦截。此处兜底为续写
-      // （与 catch 同语义：误判续写为创世会启动 Agency 全流程覆盖工作，故默认偏向
-      // 续写），避免 null.is_new_novel 崩溃（曾导致 v0.30.16 CI E2E 全套 PAGEERROR）。
+      // 返回 null，或后端序列化异常）而不抛异常，catch 无法拦截。此处上下文兜底
+      // （v0.30.23: 无故事时创世，避免 null.is_new_novel 崩溃，曾导致 v0.30.16 CI
+      // E2E 全套 PAGEERROR）。
       if (!classification) {
-        frontstageLogger.warn('[SmartGeneration] 意图分类返回空，兜底为续写');
+        const noStories = stories.length === 0;
+        frontstageLogger.warn('[SmartGeneration] 意图分类返回空，上下文兜底', {
+          is_new_novel: noStories,
+        });
         classification = {
-          is_new_novel: false,
-          is_continuation: true,
-          task_type: 'continuation',
+          is_new_novel: noStories,
+          is_continuation: !noStories,
+          task_type: noStories ? 'genesis' : 'continuation',
           is_prose_request: true,
           input_clarity: 'vague',
           confidence: 0,

@@ -776,6 +776,7 @@ pub struct PlanExecutorProgress {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // conservative_fallback() 在测试中用作 fixture
 mod tests {
     use super::*;
 

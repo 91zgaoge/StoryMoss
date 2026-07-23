@@ -484,10 +484,12 @@ jobs:
           if-no-files-found: ignore
 
   # Sync signed release artifacts to storymoss.top via FTP
+  # continue-on-error: FTP 服务器磁盘满等基础设施故障不应阻塞构建
   upload-to-website:
     needs: [tauri-build]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
