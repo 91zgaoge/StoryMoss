@@ -1104,6 +1104,8 @@ pub struct Story {
     pub methodology_step: Option<i32>,
     /// 关联的参考书籍 ID（拆书功能）
     pub reference_book_id: Option<String>,
+    /// PROBLEM 框架生成的 logline（v0.30.22）
+    pub logline: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

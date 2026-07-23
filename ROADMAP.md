@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-22（v0.30.21 续写资产层级生成）
+> 最后更新: 2026-07-22（v0.30.22 PROBLEM 七元素框架集成）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.22 - PROBLEM 七元素框架集成 ✅ (2026-07-22)
+
+- [x] 新增 Erik Bork PROBLEM 七元素（Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）作为后端创作资产；新增提示词 `agency_problem_logline.md` / `agency_problem_outline.md`。
+- [x] DB V114 迁移新增 `stories.logline` 列，Story 模型与 StoryRepository 同步。
+- [x] `generate_logline`：简单 premise（< 100 字符）触发 logline 生成并替换原 premise。
+- [x] `ensure_story_outline`：从注册表加载 PROBLEM outline 提示词并注入 logline 上下文；`producer_depth_assets` outline 字段注入 PROBLEM 指导；`build_continue_writer_context` 以【故事Logline】注入。
+- [x] 验证：`cargo test --lib` 974 passed（+3 logline 测试）；clippy baseline 550 无新增告警。
 
 ### ✨ v0.30.21 - 续写资产层级生成 ✅ (2026-07-22)
 
