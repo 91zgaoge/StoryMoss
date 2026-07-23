@@ -38,6 +38,10 @@ struct OpenAiRequest {
 struct Message {
     role: String,
     content: String,
+    /// v0.30.25: DeepSeek 等推理模型把思维链放在 reasoning_content 字段，
+    /// content 可能为空。serde default 确保非推理模型不受影响。
+    #[serde(skip_serializing, default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +76,9 @@ struct OpenAiStreamChoice {
 #[derive(Debug, Deserialize, Default)]
 struct OpenAiDelta {
     content: Option<String>,
+    /// v0.30.25: 推理模型流式响应的 reasoning_content delta
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +100,23 @@ struct Usage {
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: Message,
+}
+
+/// v0.30.25: 推理模型（DeepSeek 等）可能把实际内容放在 reasoning_content 而
+/// content 为空。 此纯函数实现 fallback 逻辑，供单测验证。
+fn resolve_content(content: &str, reasoning_content: &Option<String>) -> String {
+    if content.is_empty() {
+        if let Some(ref rc) = reasoning_content {
+            if !rc.is_empty() {
+                log::warn!(
+                    "[OpenAI] content 为空，使用 reasoning_content fallback（{} 字符）",
+                    rc.chars().count()
+                );
+                return rc.clone();
+            }
+        }
+    }
+    content.to_string()
 }
 
 impl OpenAiAdapter {
@@ -159,10 +183,12 @@ impl OpenAiAdapter {
             Message {
                 role: "system".to_string(),
                 content: system_content.to_string(),
+                reasoning_content: None,
             },
             Message {
                 role: "user".to_string(),
                 content: prompt,
+                reasoning_content: None,
             },
         ]
     }
@@ -235,7 +261,7 @@ impl LlmAdapter for OpenAiAdapter {
         let content = openai_resp
             .choices
             .first()
-            .map(|c| c.message.content.clone())
+            .map(|c| resolve_content(&c.message.content, &c.message.reasoning_content))
             .unwrap_or_default();
 
         let cost = self.calculate_cost(&openai_resp.model, openai_resp.usage.total_tokens);
@@ -318,7 +344,15 @@ impl LlmAdapter for OpenAiAdapter {
                 match serde_json::from_str::<OpenAiStreamResponse>(data) {
                     Ok(parsed) => {
                         if let Some(choice) = parsed.choices.first() {
-                            if let Some(content) = &choice.delta.content {
+                            // v0.30.25: 优先转发 content，为空时 fallback reasoning_content
+                            let text = choice
+                                .delta
+                                .content
+                                .as_ref()
+                                .filter(|c| !c.is_empty())
+                                .or(choice.delta.reasoning_content.as_ref())
+                                .filter(|c| !c.is_empty());
+                            if let Some(content) = text {
                                 if tx.send(Ok(content.clone())).await.is_err() {
                                     break;
                                 }
@@ -347,7 +381,7 @@ impl LlmAdapter for OpenAiAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_top_p;
+    use super::{resolve_content, sanitize_top_p};
 
     #[test]
     fn sanitize_top_p_keeps_valid_values() {
@@ -358,5 +392,45 @@ mod tests {
         assert_eq!(sanitize_top_p(Some(0.1)), Some(0.1));
         assert_eq!(sanitize_top_p(Some(0.5)), Some(0.5));
         assert_eq!(sanitize_top_p(Some(1.0)), Some(1.0));
+    }
+
+    // ===== v0.30.25: reasoning_content fallback 测试 =====
+
+    #[test]
+    fn resolve_content_uses_content_when_nonempty() {
+        let rc = Some("思维链内容".to_string());
+        assert_eq!(resolve_content("实际回答", &rc), "实际回答");
+        assert_eq!(resolve_content("实际回答", &None), "实际回答");
+    }
+
+    #[test]
+    fn resolve_content_falls_back_to_reasoning_when_content_empty() {
+        let rc = Some("这是推理模型的实际内容".to_string());
+        assert_eq!(resolve_content("", &rc), "这是推理模型的实际内容");
+    }
+
+    #[test]
+    fn resolve_content_returns_empty_when_both_empty() {
+        assert_eq!(resolve_content("", &None), "");
+        assert_eq!(resolve_content("", &Some("".to_string())), "");
+    }
+
+    #[test]
+    fn message_deserializes_with_reasoning_content() {
+        use super::Message;
+        let json = r#"{"role":"assistant","content":"","reasoning_content":"推理内容"}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.content, "");
+        assert_eq!(msg.reasoning_content.as_deref(), Some("推理内容"));
+    }
+
+    #[test]
+    fn message_deserializes_without_reasoning_content() {
+        use super::Message;
+        // 非推理模型不返回 reasoning_content，serde default 确保不受影响
+        let json = r#"{"role":"assistant","content":"正常回答"}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.content, "正常回答");
+        assert!(msg.reasoning_content.is_none());
     }
 }

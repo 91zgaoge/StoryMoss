@@ -83,8 +83,14 @@ impl AutoContractBuilder {
             .map_err(|e| format!("读取角色失败: {}", e))?;
         if characters.is_empty() {
             self.emit_progress("analyzing", "正在分析故事内容，准备生成默认角色...", 0.05);
-            match self.build_default_character(story_id).await {
-                Ok(_character) => {
+            // v0.30.25: 每步 30s 超时，防止单个慢模型调用阻塞数分钟
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                self.build_default_character(story_id),
+            )
+            .await
+            {
+                Ok(Ok(_character)) => {
                     self.emit_progress("saving", "默认角色已生成并保存", 0.15);
                     result.created_character = true;
                     log::info!(
@@ -92,9 +98,13 @@ impl AutoContractBuilder {
                         story_id
                     );
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     self.emit_progress("error", &format!("默认角色生成失败: {}", e), 0.0);
                     log::warn!("[AutoContract] Failed to create default character: {}", e);
+                }
+                Err(_) => {
+                    self.emit_progress("error", "默认角色生成超时（30s），跳过", 0.0);
+                    log::warn!("[AutoContract] default character generation timed out (30s)");
                 }
             }
         }
@@ -138,8 +148,13 @@ impl AutoContractBuilder {
         // 3. 检查并补齐 MASTER_SETTING
         if tree.master_setting.is_none() {
             self.emit_progress("analyzing", "正在分析故事内容，准备生成世界观合同...", 0.3);
-            match self.build_master_setting(story_id).await {
-                Ok(_contract) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                self.build_master_setting(story_id),
+            )
+            .await
+            {
+                Ok(Ok(_contract)) => {
                     self.emit_progress("saving", "世界观合同已生成并保存", 0.45);
                     result.created_master = true;
                     log::info!(
@@ -147,9 +162,13 @@ impl AutoContractBuilder {
                         story_id
                     );
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     self.emit_progress("error", &format!("世界观合同生成失败: {}", e), 0.0);
                     log::warn!("[AutoContract] Failed to create MASTER_SETTING: {}", e);
+                }
+                Err(_) => {
+                    self.emit_progress("error", "世界观合同生成超时（30s），跳过", 0.0);
+                    log::warn!("[AutoContract] MASTER_SETTING generation timed out (30s)");
                 }
             }
         }
@@ -163,8 +182,13 @@ impl AutoContractBuilder {
 
         if !has_chapter_contract {
             self.emit_progress("analyzing", "正在分析章节内容，准备生成章节合同...", 0.5);
-            match self.build_chapter_contract(story_id, chapter_number).await {
-                Ok(_contract) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                self.build_chapter_contract(story_id, chapter_number),
+            )
+            .await
+            {
+                Ok(Ok(_contract)) => {
                     self.emit_progress("saving", "章节合同已生成并保存", 0.65);
                     result.created_chapter = true;
                     log::info!(
@@ -173,9 +197,13 @@ impl AutoContractBuilder {
                         chapter_number
                     );
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     self.emit_progress("error", &format!("章节合同生成失败: {}", e), 0.0);
                     log::warn!("[AutoContract] Failed to create CHAPTER contract: {}", e);
+                }
+                Err(_) => {
+                    self.emit_progress("error", "章节合同生成超时（30s），跳过", 0.0);
+                    log::warn!("[AutoContract] CHAPTER contract generation timed out (30s)");
                 }
             }
         }
@@ -191,8 +219,13 @@ impl AutoContractBuilder {
                     .unwrap_or(false);
                 if !has_outline {
                     self.emit_progress("analyzing", "正在分析场景信息，准备生成场景大纲...", 0.75);
-                    match self.build_scene_outline(story_id, sid, &scene).await {
-                        Ok(_) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        self.build_scene_outline(story_id, sid, &scene),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {
                             self.emit_progress("saving", "场景大纲已生成并保存", 0.9);
                             result.created_outline = true;
                             log::info!(
@@ -201,9 +234,13 @@ impl AutoContractBuilder {
                                 sid
                             );
                         }
-                        Err(e) => {
+                        Ok(Err(e)) => {
                             self.emit_progress("error", &format!("场景大纲生成失败: {}", e), 0.0);
                             log::warn!("[AutoContract] Failed to create scene outline: {}", e);
+                        }
+                        Err(_) => {
+                            self.emit_progress("error", "场景大纲生成超时（30s），跳过", 0.0);
+                            log::warn!("[AutoContract] scene outline generation timed out (30s)");
                         }
                     }
                 }

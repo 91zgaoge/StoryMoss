@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.23
+- **版本**: v0.30.25
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,16 +80,33 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 978 passed
+- `cargo test --lib` ✅ 987 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 307 passed / 3 skipped
+- `npx vitest run` ✅ 311 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 550（零新增）
+- `cargo clippy --lib` ✅ 549（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.25 - 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时）
+
+- **根因（三层叠加）**：用户输入"续写"后卡死 600s。①前端 `FrontstageApp.tsx` 在调用 `smart_execute` 前 `await autoCreateMissingContracts`，`auto_fill` 串行 4 次 LLM 调用（~6 分钟），v0.26.22 的 `is_silent_background` 只隐藏了 `isAnyBackendActive` 但 `await` 仍阻塞且 `isGenerating=true` 触发 600s 看门狗；后端 TimeSliced 续写路径本已跳过 auto_contract，但前端从未调用到。②DeepSeek 推理模型把思维链放在 `reasoning_content` 字段，`openai.rs` 的 `Message` 结构体不捕获该字段 -> serde 丢弃 -> `content=""`（0 字符）但 `tokens=2643`，auto_contract 收到空内容静默失败，合同永远补不齐。③`auto_contract.rs` 的 `auto_fill` 每个 `build_*` 调用无超时，单个慢模型调用阻塞数分钟。
+- **Fix 1（主修复·`FrontstageApp.tsx`）**：续写请求不再阻塞 auto_contract。`handleSmartGeneration` 中 `classification.is_continuation` 时后台 fire-and-forget `autoCreateMissingContracts`（不 await，直接进入 smart_execute）；`handleRequestGeneration`（仅续写入口）同理。新增 `fireAutoContractInBackground` helper + `autoContractInProgressRef` 防并发 + 非阻塞 toast（成功/失败）。非续写请求（rewrite/audit）保持原有阻塞 await 行为。
+- **Fix 2（次修复·`openai.rs`）**：`Message` 结构体加 `#[serde(skip_serializing, default)] reasoning_content: Option<String>`；`OpenAiDelta` 同理。非流式/流式提取在 `content` 为空时 fallback 到 `reasoning_content`，并 `log::warn!`。提取纯函数 `resolve_content` 供单测。
+- **Fix 3（三修复·`auto_contract.rs`）**：`auto_fill` 的 4 个 `build_*` LLM 调用各包 `tokio::time::timeout(30s)`，超时与 Err 同处理（warn + 跳过 + 继续）。总上限 120s（4×30s），远低于 600s。
+- **验证**：`cargo test --lib` 987 passed（+5：resolve_content fallback + Message 反序列化）；`npx vitest run` 311 passed；fmt / clippy（baseline 549）/ tsc / prettier / architecture_guard 全绿。
+
+### v0.30.24 - Logline 幽灵提示（用户输入简单创世指令时实时生成增强版 logline）
+
+- **功能**：用户在输入栏输入简单创世指令（如"写一部现代间谍的长篇小说"）后，后台用 v0.30.22 的 PROBLEM logline 生成功能产出一句话强力 logline，以幽灵提示形式显示在输入栏下方，用户按 `->` 即可用 logline 替换原始简单指令再执行。避免用户简单指令得不到好的生成结果而反复试，同时为用户提供故事创意的体验和技能锻炼。
+- **后端（`commands/orchestrator.rs` + `handlers.rs`）**：新增 `generate_logline_hint` 命令--输入为空或 ≥ 100 字符返回 `None`（与 v0.30.22 `< 100 字符` 触发条件对齐）；复用 `agency_problem_logline` prompt 资产（用户在幕后编辑后自动生效）；`LlmService::generate_for_task_with_system_prompt` + 15s 超时；失败/超时静默返回 `None`。提取纯函数 `should_skip_logline_generation` / `is_valid_logline` 供单测。
+- **前端状态（`FrontstageApp.tsx`）**：新增 `loglineHint` / `loglineHintLoading` state + `loglineHintTimerRef` / `loglineHintReqIdRef` 防抖 ref；`useEffect` 监听 `inputValue` 变化，1.5s 防抖后调 `generateLoglineHint`，请求 ID 防竞态（仅接受最新请求结果）；`handleInputKeyDown` 扩展 `->` 接受 logline（输入非空时，区别于 ghost hint 的空输入场景）+ `Esc` 清除；`handleInputSubmit` 清理 logline hint。
+- **UI（`FrontstageBottomBar.tsx` + `frontstage.css`）**：输入框下方新增 `.frontstage-logline-hint` 建议条--loading 时显示旋转图标 + "正在生成增强版指令…"；就绪后显示 Lightbulb 图标 + logline 文本 + "按 -> 使用"提示；点击建议条也可接受（等同于 `->`）。CSS 含淡入动画 + hover 高亮。
+- **不干扰现有幽灵提示系统**：现有 `ghostHint` 仅在输入为空时显示（placeholder 式），logline 提示在输入非空时显示（suggestion 式），是独立的 UI 层。两个 `->` 处理互斥（ghost hint 要求 `!inputValue`，logline hint 要求 `inputValue`）。
+- **验证**：`cargo test --lib` 982 passed（+4：should_skip / is_valid 纯函数守卫）；`npx vitest run` 311 passed（+4：logline 渲染 / loading / 点击接受 / 空输入不渲染）；fmt / clippy（baseline 550，实际 549）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.23 - 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化）
 
@@ -562,7 +579,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.23_
+_最后更新: 2026-07-24 - v0.30.25_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -77,6 +77,7 @@ tauri::generate_handler! {
     commands::orchestrator::check_preflight,
     commands::orchestrator::smart_execute,
     commands::orchestrator::get_input_hint,
+    commands::orchestrator::generate_logline_hint,
     // Agent commands (仅保留前端有调用的)
     agents::commands::agent_execute_stream,
     agents::commands::agent_cancel_task,

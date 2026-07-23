@@ -10,6 +10,7 @@ import {
   checkPreflight,
   autoCreateMissingContracts,
   getInputHint,
+  generateLoglineHint,
   runRefine,
   runReview,
   runFinalize,
@@ -942,6 +943,13 @@ const FrontstageApp: React.FC = () => {
   const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1); // -1=LLM建议, 0+=历史
+  // v0.30.24: Logline 幽灵提示--用户输入简单创世指令时后台生成增强版 logline
+  const [loglineHint, setLoglineHint] = useState('');
+  const [loglineHintLoading, setLoglineHintLoading] = useState(false);
+  const loglineHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loglineHintReqIdRef = useRef(0);
+  // v0.30.25: 防止并发后台合同补齐（续写时后台发射，不阻塞用户）
+  const autoContractInProgressRef = useRef(false);
   // 按故事隔离：切换故事时加载该故事的输入历史（localStorage 持久化），
   // 窗口关闭/重启后历史不丢失。
   useEffect(() => {
@@ -950,6 +958,47 @@ const FrontstageApp: React.FC = () => {
     setHistoryIndex(-1);
     setGhostHint('');
   }, [currentStory?.id]);
+  // v0.30.24: Logline 幽灵提示防抖--输入非空且 < 100 字符时，1.5s 后后台生成增强版 logline
+  useEffect(() => {
+    const trimmed = inputValue.trim();
+    // 清除上一个 timer
+    if (loglineHintTimerRef.current) {
+      clearTimeout(loglineHintTimerRef.current);
+      loglineHintTimerRef.current = null;
+    }
+    // 空输入或 ≥ 100 字符（详细 premise 无需增强）-> 不生成
+    if (!trimmed || trimmed.length >= 100) {
+      setLoglineHint('');
+      setLoglineHintLoading(false);
+      return;
+    }
+    // 输入变化时先清除旧提示
+    setLoglineHint('');
+    setLoglineHintLoading(true);
+    const reqId = ++loglineHintReqIdRef.current;
+    loglineHintTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await generateLoglineHint(trimmed);
+        // 只接受最新一次请求的结果（防止竞态）
+        if (reqId === loglineHintReqIdRef.current) {
+          if (result) {
+            setLoglineHint(result);
+          }
+          setLoglineHintLoading(false);
+        }
+      } catch {
+        if (reqId === loglineHintReqIdRef.current) {
+          setLoglineHintLoading(false);
+        }
+      }
+    }, 1500);
+    return () => {
+      if (loglineHintTimerRef.current) {
+        clearTimeout(loglineHintTimerRef.current);
+        loglineHintTimerRef.current = null;
+      }
+    };
+  }, [inputValue]);
   // v0.7.8: 使用新版模型管理系统丰富底部栏 tooltip
   const { data: settings } = useSettings();
   const { data: allModels = [] } = useModels();
@@ -2877,6 +2926,37 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
+  // v0.30.25: 后台发射合同补齐（不阻塞续写）。续写请求不再 await auto_contract，
+  // 而是后台 fire-and-forget，直接进入 smart_execute。后端 TimeSliced 路径已跳过
+  // auto_contract，合同仅用于提升质量，非续写必需。
+  const fireAutoContractInBackground = useCallback(
+    (storyId: string, chapterNumber: number, sceneId: string | undefined) => {
+      if (autoContractInProgressRef.current) return; // 已有后台补齐在运行
+      autoContractInProgressRef.current = true;
+      toast.warning('合同正在后台补齐，不影响当前续写');
+      autoCreateMissingContracts(storyId, chapterNumber, sceneId)
+        .then(result => {
+          if (
+            result.created_master_setting ||
+            result.created_chapter_contract ||
+            result.created_outline
+          ) {
+            toast.success('合同已在后台补齐完成');
+          } else {
+            toast.warning('合同后台补齐未成功，可从幕后手动创建');
+          }
+        })
+        .catch(e => {
+          frontstageLogger.warn('Background auto_contract failed', { error: e });
+          toast.warning('合同后台补齐失败，可从幕后手动创建');
+        })
+        .finally(() => {
+          autoContractInProgressRef.current = false;
+        });
+    },
+    []
+  );
+
   // Request AI generation -- now routes through backend smart_execute
   const handleRequestGeneration = useCallback(
     async (context?: string) => {
@@ -2910,58 +2990,15 @@ const FrontstageApp: React.FC = () => {
               (i: string) => i.includes('大纲') || i.includes('outline')
             );
             if (isMissingContracts || isMissingOutline) {
-              setIsGenerating(true);
-              // 生成明确的提示文案
-              const missingItems: string[] = [];
-              if (isMissingContracts) {
-                if (preflight.missing_contracts.includes('MASTER_SETTING'))
-                  missingItems.push('世界观合同');
-                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
-                  missingItems.push('章节合同');
-              }
-              if (isMissingOutline) missingItems.push('场景大纲');
-              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-              setGenerationStatus(hintMsg);
-              let progressUnlisten: (() => void) | null = null;
-              try {
-                progressUnlisten = await listen('contract-auto-progress', event => {
-                  const p = event.payload as any;
-                  setGenerationStatus(p.message);
-                  const pct = Math.round((p.progress || 0) * 100);
-                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-                });
-                const targetSceneId = currentScene?.id || currentChapter.scene_id;
-                const result = await autoCreateMissingContracts(
-                  currentStory.id,
-                  currentChapter.chapter_number,
-                  targetSceneId
-                );
-                if (
-                  !result.created_master_setting &&
-                  !result.created_chapter_contract &&
-                  !result.created_outline
-                ) {
-                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
-                    id: loadingToastId,
-                  });
-                  setIsGenerating(false);
-                  setGenerationStatus('');
-                  return;
-                }
-                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
-                  id: loadingToastId,
-                });
-                // 补齐成功，继续执行后续生成逻辑
-              } catch (e) {
-                frontstageLogger.error('Auto creation failed', { error: e });
-                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
-                setIsGenerating(false);
-                setGenerationStatus('');
-                return;
-              } finally {
-                if (progressUnlisten) progressUnlisten();
-              }
+              // v0.30.25: 此函数仅用于续写（WenSi/Ctrl+Enter/RichTextEditor），
+              // 后台补齐合同不阻塞续写。后端 TimeSliced 路径已跳过 auto_contract。
+              const targetSceneId = currentScene?.id || currentChapter.scene_id;
+              fireAutoContractInBackground(
+                currentStory.id,
+                currentChapter.chapter_number,
+                targetSceneId
+              );
+              // 不 await，直接继续后续生成逻辑
             } else {
               const issues =
                 preflight.blocking_issues.length > 0
@@ -3847,55 +3884,68 @@ const FrontstageApp: React.FC = () => {
               (i: string) => i.includes('大纲') || i.includes('outline')
             );
             if (isMissingContracts || isMissingOutline) {
-              setIsGenerating(true);
-              const missingItems: string[] = [];
-              if (isMissingContracts) {
-                if (preflight.missing_contracts.includes('MASTER_SETTING'))
-                  missingItems.push('世界观合同');
-                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
-                  missingItems.push('章节合同');
-              }
-              if (isMissingOutline) missingItems.push('场景大纲');
-              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-              setGenerationStatus(hintMsg);
-              let progressUnlisten: (() => void) | null = null;
-              try {
-                progressUnlisten = await listen('contract-auto-progress', event => {
-                  const p = event.payload as any;
-                  setGenerationStatus(p.message);
-                  const pct = Math.round((p.progress || 0) * 100);
-                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-                });
+              if (classification.is_continuation) {
+                // v0.30.25: 续写请求后台补齐合同，不阻塞续写。
+                // 后端 TimeSliced 路径已跳过 auto_contract，合同仅用于提升质量。
                 const targetSceneId = currentScene?.id || currentChapter.scene_id;
-                const result = await autoCreateMissingContracts(
+                fireAutoContractInBackground(
                   currentStory.id,
                   currentChapter.chapter_number,
                   targetSceneId
                 );
-                if (
-                  !result.created_master_setting &&
-                  !result.created_chapter_contract &&
-                  !result.created_outline
-                ) {
-                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                // 不 await，直接继续后续生成逻辑
+              } else {
+                // 非续写（rewrite/audit 等）：保持原有阻塞补齐行为
+                setIsGenerating(true);
+                const missingItems: string[] = [];
+                if (isMissingContracts) {
+                  if (preflight.missing_contracts.includes('MASTER_SETTING'))
+                    missingItems.push('世界观合同');
+                  if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
+                    missingItems.push('章节合同');
+                }
+                if (isMissingOutline) missingItems.push('场景大纲');
+                const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
+                const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
+                setGenerationStatus(hintMsg);
+                let progressUnlisten: (() => void) | null = null;
+                try {
+                  progressUnlisten = await listen('contract-auto-progress', event => {
+                    const p = event.payload as any;
+                    setGenerationStatus(p.message);
+                    const pct = Math.round((p.progress || 0) * 100);
+                    toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
+                  });
+                  const targetSceneId = currentScene?.id || currentChapter.scene_id;
+                  const result = await autoCreateMissingContracts(
+                    currentStory.id,
+                    currentChapter.chapter_number,
+                    targetSceneId
+                  );
+                  if (
+                    !result.created_master_setting &&
+                    !result.created_chapter_contract &&
+                    !result.created_outline
+                  ) {
+                    toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                      id: loadingToastId,
+                    });
+                    setIsGenerating(false);
+                    setGenerationStatus('');
+                    return;
+                  }
+                  toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
                     id: loadingToastId,
                   });
+                } catch (e) {
+                  frontstageLogger.error('Auto creation failed', { error: e });
+                  toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
                   setIsGenerating(false);
                   setGenerationStatus('');
                   return;
+                } finally {
+                  if (progressUnlisten) progressUnlisten();
                 }
-                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
-                  id: loadingToastId,
-                });
-              } catch (e) {
-                frontstageLogger.error('Auto creation failed', { error: e });
-                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
-                setIsGenerating(false);
-                setGenerationStatus('');
-                return;
-              } finally {
-                if (progressUnlisten) progressUnlisten();
               }
             } else {
               const issues =
@@ -4295,6 +4345,7 @@ const FrontstageApp: React.FC = () => {
     if (sid) saveInputHistory(sid, next);
     setGhostHint('');
     setHistoryIndex(-1);
+    setLoglineHint(''); // v0.30.24: 清除 logline 幽灵提示
     handleSmartGeneration(text);
     setInputValue('');
   }, [inputValue, inputHistory, currentStory?.id, handleSmartGeneration]);
@@ -4383,6 +4434,18 @@ const FrontstageApp: React.FC = () => {
         return;
       }
       // → 键：确认填充 ghost hint
+      // v0.30.24: Esc 键清除 logline 幽灵提示
+      if (e.key === 'Escape' && loglineHint) {
+        setLoglineHint('');
+        return;
+      }
+      // v0.30.24: -> 键接受 logline 幽灵提示（输入非空时，区别于 ghost hint 的空输入场景）
+      if (e.key === 'ArrowRight' && loglineHint && inputValue) {
+        e.preventDefault();
+        setInputValue(loglineHint);
+        setLoglineHint('');
+        return;
+      }
       if (e.key === 'ArrowRight' && ghostHint && !inputValue) {
         e.preventDefault();
         setInputValue(ghostHint);
@@ -4406,6 +4469,7 @@ const FrontstageApp: React.FC = () => {
       historyIndex,
       inputHistory,
       fetchSmartHint,
+      loglineHint,
     ]
   );
 
@@ -4672,6 +4736,8 @@ const FrontstageApp: React.FC = () => {
               onCancelGeneration={handleCancelGeneration}
               onInputFocus={handleInputFocus}
               onInputKeyDown={handleInputKeyDown}
+              loglineHint={loglineHint}
+              loglineHintLoading={loglineHintLoading}
             />
           </div>
         </div>

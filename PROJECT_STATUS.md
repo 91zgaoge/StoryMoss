@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.23 项目完成状态
+# StoryMoss (草苔) v0.30.25 项目完成状态
 
-> 最后更新: 2026-07-23（v0.30.23 意图分类 Bug 修复：LLM 分类去偏 + 失败兜底上下文化）
+> 最后更新: 2026-07-24（v0.30.25 修复续写 600s 超时：auto_contract 后台化 + reasoning_content fallback + 每步 30s 超时）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
