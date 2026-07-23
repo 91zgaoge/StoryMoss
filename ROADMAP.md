@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-22（v0.30.22 PROBLEM 七元素框架集成）
+> 最后更新: 2026-07-23（v0.30.23 意图分类 Bug 修复）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.23 - 意图分类 Bug 修复 ✅ (2026-07-23)
+
+- [x] 提示词去偏：移除 `已有故事=true` 上下文注入（偏差来源）+ 移除 `仅当` 保守措辞 + 新增 3 个正例（"写一部科幻小说" -> is_new_novel=true）。
+- [x] 上下文感知兜底：新增 `conservative_fallback_with_context(has_existing_story)`--LLM 失败时无故事返回创世，有故事返回续写。原 `conservative_fallback()` 标记 `#[deprecated]`。
+- [x] 不缓存失败：仅 LLM 成功解析的结果写入缓存，兜底结果不缓存。缓存键简化为仅 `user_input`。
+- [x] 前端兜底上下文化：catch 块和 null 防御用 `stories.length === 0` 替代硬编码 `is_new_novel: false`。
+- [x] 设计原则：LLM 是意图判断的唯一权威；不回到硬编码关键词匹配；不用 `|| !has_existing_story` 覆盖 LLM 结果。
+- [x] 验证：`cargo test --lib` 978 passed（+4）；`npx vitest run` 307 passed；clippy baseline 550 无新增告警。
 
 ### ✨ v0.30.22 - PROBLEM 七元素框架集成 ✅ (2026-07-22)
 

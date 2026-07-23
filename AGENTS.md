@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.22
+- **版本**: v0.30.23
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 974 passed
+- `cargo test --lib` ✅ 978 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 307 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.23 - 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化）
+
+- **根因（LLM 分类本身被破坏）**：用户输入"写一部现代间谍的长篇小说"被分类为续写 -> `VALIDATION_FAILED: 请先在左侧选择或创建一个作品`。5 层防线失守：①提示词注入 `已有故事=true` 上下文偏差使 LLM 倾向续写；②`仅当"明确要求新开一部"` 过于保守；③无正例；④兜底 `conservative_fallback()` 恒返回 `is_new_novel=false` 无视 DB 状态；⑤失败结果被缓存。
+- **Fix A（提示词去偏·主修复·intent.rs）**：`build_classification_prompt` 移除 `上下文：已有故事={story}` 上下文注入行（偏差来源）；移除 `仅当` 保守措辞；新增 3 个正例（"写一部科幻小说" -> is_new_novel=true）。LLM 不再受 DB 状态偏差，基于用户输入本身判定意图。
+- **Fix B（上下文感知兜底·intent.rs）**：新增 `conservative_fallback_with_context(has_existing_story)`--LLM 失败时无故事返回创世（不可能续写不存在的作品），有故事返回续写。3 个兜底路径全部改用。原 `conservative_fallback()` 标记 `#[deprecated]`。
+- **Fix C（不缓存失败·intent.rs）**：仅 LLM 成功解析的结果写入缓存，兜底结果不缓存。缓存键简化为仅 `user_input`（提示词不再使用上下文）。
+- **Fix D（前端兜底上下文化·FrontstageApp.tsx）**：catch 块和 null 防御两处 LLM 失败兜底从硬编码 `is_new_novel: false` 改为 `is_new_novel: stories.length === 0`。`isBootstrap` 判定不变（尊重 LLM 结果）。
+- **设计原则**：LLM 是意图判断的唯一权威；不回到硬编码关键词匹配；不用 `|| !has_existing_story` 覆盖 LLM 结果；DB 状态仅在 LLM 失败兜底时使用。
+- **验证**：`cargo test --lib` 978 passed（+4）；`npx vitest run` 307 passed；fmt / clippy（baseline 550）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.22 - PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）
 
@@ -552,7 +562,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.22_
+_最后更新: 2026-07-23 - v0.30.23_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

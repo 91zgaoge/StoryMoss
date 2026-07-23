@@ -153,6 +153,7 @@ impl WritingIntentClassification {
     ///   安全默认；
     /// - `task_type=Continuation`：注入最贴合正文生成的资产集；
     /// - `input_clarity=Vague`：触发四元组补全（多注入比少注入安全）。
+    #[deprecated(note = "v0.30.23: 改用 conservative_fallback_with_context（无故事时创世）")]
     pub fn conservative_fallback() -> Self {
         Self {
             is_new_novel: false,
@@ -164,10 +165,35 @@ impl WritingIntentClassification {
             confidence: 0.0,
         }
     }
+
+    /// v0.30.23: 上下文感知兜底。LLM 失败/超时时使用。
+    ///
+    /// - `has_existing_story=false`：无故事不可能续写，返回创世
+    ///   （`is_new_novel=true, task_type=Genesis`）。这是 DB 状态推断
+    ///   而非关键词匹配--LLM 没给出结果时，"无故事不可能续写"是 合理逻辑推断。
+    /// - `has_existing_story=true`：有故事时偏续写（与原
+    ///   [`conservative_fallback`] 同语义），避免误启动 Agency 覆盖工作。
+    pub fn conservative_fallback_with_context(has_existing_story: bool) -> Self {
+        if !has_existing_story {
+            Self {
+                is_new_novel: true,
+                is_continuation: false,
+                task_type: AssetTaskType::Genesis,
+                is_prose_request: true,
+                input_clarity: InputClarity::Vague,
+                detected_genre: None,
+                confidence: 0.0,
+            }
+        } else {
+            #[allow(deprecated)]
+            Self::conservative_fallback()
+        }
+    }
 }
 
-/// 会话级分类缓存：按 (user_input, has_existing_story, has_current_content)
-/// 哈希。 重复输入（如"继续写"）二次命中即时返回，避免每次生成都付 LLM 往返。
+/// 会话级分类缓存：按 user_input 哈希（v0.30.23: 提示词不再注入上下文，
+/// 故缓存键仅按输入文本）。 重复输入（如"继续写"）二次命中即时返回，
+/// 避免每次生成都付 LLM 往返。仅缓存 LLM 成功结果，不缓存兜底。
 static CLASSIFICATION_CACHE: Lazy<Mutex<HashMap<String, WritingIntentClassification>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -323,25 +349,25 @@ JSON Schema:
     /// 设计要点：
     /// - **最快模型层 + max_tokens=256 + temp=0**：远程模型 ~1s；
     /// - **8s 超时**：本地慢模型最坏 +8s，超时降级为
-    ///   [`conservative_fallback`]；
-    /// - **会话缓存**：相同 (输入, 上下文) 二次命中即时返回；
+    ///   [`conservative_fallback_with_context`]；
+    /// - **会话缓存**：相同输入二次命中即时返回（v0.30.23: 缓存键 仅按
+    ///   user_input，提示词不再使用上下文故结果不随上下文变化）；
     /// - **一次调用多决策**：is_new_novel / task_type / is_prose /
     ///   input_clarity / detected_genre 全在一次调用产出，避免多次 LLM；
-    /// - **注入 has_existing_story / has_current_content 上下文**：让 LLM
-    ///   能区分 "创建新小说"与"续写已有"（`IntentType::TextGenerate`
-    ///   缺这个语义）。
+    /// - **v0.30.23 去偏**：提示词不再注入 has_existing_story /
+    ///   has_current_content（此前"已有故事=true"使 LLM 倾向续写）。
+    ///   参数保留仅供兜底使用。
+    /// - **v0.30.23 不缓存失败**：仅 LLM 成功解析的结果写入缓存，
+    ///   兜底结果不缓存（临时超时/网络问题不应让错误分类持续存在）。
     pub async fn classify_writing_intent(
         &self,
         user_input: &str,
         has_existing_story: bool,
         has_current_content: bool,
     ) -> WritingIntentClassification {
-        let cache_key = format!(
-            "{}|{}|{}",
-            user_input.trim(),
-            has_existing_story,
-            has_current_content
-        );
+        // v0.30.23: 缓存键仅按 user_input（提示词不再使用上下文，
+        // 同输入的 LLM 结果不随上下文变化）。
+        let cache_key = user_input.trim().to_string();
         if let Some(cached) = classification_cache_get(&cache_key) {
             log::debug!("[IntentParser] classify_writing_intent cache hit");
             return cached;
@@ -356,55 +382,86 @@ JSON Schema:
             Some(0.0),
             Some("intent_classify"),
         );
-        let classification = match tokio::time::timeout(Duration::from_secs(8), labelled).await {
-            Ok(Ok(GenerateResponse { content, .. })) => Self::parse_classification_json(&content)
-                .unwrap_or_else(|| {
+        // v0.30.23: is_fallback 标记--仅成功 LLM 结果写入缓存。
+        let (classification, is_fallback) =
+            match tokio::time::timeout(Duration::from_secs(8), labelled).await {
+                Ok(Ok(GenerateResponse { content, .. })) => {
+                    match Self::parse_classification_json(&content) {
+                        Some(c) => (c, false),
+                        None => {
+                            log::warn!(
+                            "[IntentParser] classify_writing_intent JSON 解析失败，兜底。raw: {}",
+                            &content[..content.len().min(200)]
+                        );
+                            (
+                                WritingIntentClassification::conservative_fallback_with_context(
+                                    has_existing_story,
+                                ),
+                                true,
+                            )
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
                     log::warn!(
-                        "[IntentParser] classify_writing_intent JSON 解析失败，兜底。raw: {}",
-                        &content[..content.len().min(200)]
+                        "[IntentParser] classify_writing_intent LLM 失败，兜底: {}",
+                        e
                     );
-                    WritingIntentClassification::conservative_fallback()
-                }),
-            Ok(Err(e)) => {
-                log::warn!(
-                    "[IntentParser] classify_writing_intent LLM 失败，兜底: {}",
-                    e
-                );
-                WritingIntentClassification::conservative_fallback()
-            }
-            Err(_) => {
-                log::warn!("[IntentParser] classify_writing_intent 8s 超时，兜底");
-                WritingIntentClassification::conservative_fallback()
-            }
-        };
-        classification_cache_put(cache_key, classification.clone());
+                    (
+                        WritingIntentClassification::conservative_fallback_with_context(
+                            has_existing_story,
+                        ),
+                        true,
+                    )
+                }
+                Err(_) => {
+                    log::warn!("[IntentParser] classify_writing_intent 8s 超时，兜底");
+                    (
+                        WritingIntentClassification::conservative_fallback_with_context(
+                            has_existing_story,
+                        ),
+                        true,
+                    )
+                }
+            };
+        // v0.30.23: 仅缓存成功的 LLM 分类，不缓存兜底结果。
+        if !is_fallback {
+            classification_cache_put(cache_key, classification.clone());
+        }
         classification
     }
 
     fn build_classification_prompt(
         user_input: &str,
-        has_existing_story: bool,
-        has_current_content: bool,
+        _has_existing_story: bool,
+        _has_current_content: bool,
     ) -> String {
+        // v0.30.23: 提示词去偏--不再注入"已有故事/已有正文"上下文。
+        // LLM 应基于用户输入本身的表达判定意图，而非被 DB 状态偏差
+        // （此前"已有故事=true"使 LLM 倾向续写，导致"写一部X小说"被误分类）。
+        // has_existing_story/has_current_content 参数保留（兜底用），但不进入提示词。
         format!(
             r#"判定用户创作意图，仅输出 JSON。
 
-上下文：已有故事={story}，当前章节已有正文={content}。
 用户输入：{input}
 
 判定规则：
-- is_new_novel: 用户想从头创作一部新小说（而非续写已有）。仅当"明确要求新开一部/写一部新作品"时为 true。续写/改写/分析/闲聊均为 false。
+- is_new_novel: 用户想从头创作一部新小说。"写一部/写一本/创作一部/新开一部"等创世表达均为 true。续写/改写/分析/闲聊均为 false。
+  注意：判断依据是用户输入本身的表达，与是否已有故事无关。即使已有故事，用户仍可创建新小说。
 - is_continuation: 用户想接着已有内容往下写（续写/继续/接着写）。
-- task_type: continuation（续写正文）/ rewrite（改写润色已有文本）/ genesis（创世/新场景/大纲规划）/ audit（检查/质检/分析）
+- task_type: continuation（续写正文）/ rewrite（改写润色已有文本）/ genesis（创世/新小说/新场景）/ audit（检查/质检/分析）
 - is_prose: 用户想生成小说正文（续写/创作首章），而非大纲/风格/分析。prose 请求必须用 writer。
 - input_clarity: vague（仅题材或笼统）/ with_seed（含部分角色或冲突）/ with_full_concept（角色+冲突+目标齐全）
-- detected_genre: 识别的题材（武侠/玄幻/都市/科幻/重生/穿越/历史/军事/言情等），无法识别为 null。
+- detected_genre: 识别的题材（武侠/玄幻/都市/科幻/重生/穿越/历史/军事/言情/间谍等），无法识别为 null。
 - confidence: 0.0-1.0。
+
+示例：
+- "写一部科幻小说" -> is_new_novel=true, task_type=genesis, is_prose=true
+- "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation
+- "把这段改得更生动" -> is_new_novel=false, task_type=rewrite, is_prose=false
 
 仅输出 JSON：
 {{"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
-            story = has_existing_story,
-            content = has_current_content,
             input = user_input,
         )
     }
@@ -930,6 +987,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_conservative_fallback_safe_defaults() {
         let c = WritingIntentClassification::conservative_fallback();
         assert!(!c.is_new_novel, "兜底不应启动创世（避免覆盖已有工作）");
@@ -938,6 +996,60 @@ mod tests {
         assert!(c.is_prose_request, "兜底保 force-to-writer 安全默认");
         assert_eq!(c.input_clarity, InputClarity::Vague);
         assert_eq!(c.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_conservative_fallback_no_story_is_genesis() {
+        // v0.30.23: LLM 失败 + 无故事 -> 创世（不可能续写不存在的作品）
+        let c = WritingIntentClassification::conservative_fallback_with_context(false);
+        assert!(c.is_new_novel, "无故事时兜底应为创世");
+        assert!(!c.is_continuation);
+        assert_eq!(c.task_type, AssetTaskType::Genesis);
+        assert!(c.is_prose_request);
+        assert_eq!(c.input_clarity, InputClarity::Vague);
+        assert_eq!(c.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_conservative_fallback_with_story_is_continuation() {
+        // v0.30.23: LLM 失败 + 有故事 -> 续写（避免误启动 Agency 覆盖工作）
+        let c = WritingIntentClassification::conservative_fallback_with_context(true);
+        assert!(!c.is_new_novel, "有故事时兜底应偏续写");
+        assert!(c.is_continuation);
+        assert_eq!(c.task_type, AssetTaskType::Continuation);
+        assert!(c.is_prose_request);
+    }
+
+    #[test]
+    fn test_classification_prompt_no_context_bias() {
+        // v0.30.23: 提示词不应注入"已有故事="上下文行（偏差来源）
+        let prompt = IntentParser::build_classification_prompt("写一部科幻小说", true, true);
+        assert!(
+            !prompt.contains("已有故事="),
+            "提示词不应注入 DB 状态上下文（偏差来源）"
+        );
+        assert!(
+            !prompt.contains("已有正文="),
+            "提示词不应注入 DB 状态上下文（偏差来源）"
+        );
+    }
+
+    #[test]
+    fn test_classification_prompt_has_positive_examples() {
+        // v0.30.23: 提示词应含正例，让 LLM 知道"写一部X" = is_new_novel=true
+        let prompt = IntentParser::build_classification_prompt("写一部科幻小说", false, false);
+        assert!(
+            prompt.contains("写一部科幻小说"),
+            "提示词应含'写一部科幻小说'正例"
+        );
+        assert!(
+            prompt.contains("is_new_novel=true"),
+            "提示词正例应标注 is_new_novel=true"
+        );
+        assert!(
+            prompt.contains("与是否已有故事无关"),
+            "提示词应明确判断与已有故事无关"
+        );
     }
 
     #[test]
