@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.19 项目完成状态
+# StoryMoss (草苔) v0.30.20 项目完成状态
 
-> 最后更新: 2026-07-23（v0.30.19 修复质量门编辑审计 Agent 熔断，本地模型 JSON 不遵从散文回退）
+> 最后更新: 2026-07-23（v0.30.20 Agency 续写效率优化与质量门硬化，本地模型 JSON 不遵从散文回退）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,16 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.20 - Agency 续写效率优化与质量门硬化（2026-07-22）
+
+- 续写 run_deadline（`run_continue`/`run_continue_batch` 调 `setup_run_deadline`）
+- 续写 writer 散文回退（`writer_prose_fallback` 参数化 `chapter_key`；`write_chapter` 熔断回退）
+- 续写 writer 上下文预注入（`build_continue_writer_context` 读 DB 角色/世界/场景）
+- Editor 质量门 deadline（`evaluate_gate_impl` 加 deadline，v0.30.19 fallback 使安全）
+- Editor 草稿预注入（task 注入 `draft.content`，省 1 轮 board_read）
+- 连接超时调优（`llm_connect_timeout_secs` 60s -> 15s）
+- `cargo test --lib` 967 passed（+2）
 
 ### v0.30.19 - 修复质量门编辑审计 Agent 熔断（2026-07-23）
 

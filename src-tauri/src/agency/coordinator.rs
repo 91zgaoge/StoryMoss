@@ -1737,6 +1737,7 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
         budget: &Arc<AgencyBudget>,
+        chapter_key: &str,
     ) -> Result<BoardItem, AppError> {
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
@@ -1763,7 +1764,7 @@ impl AgencyCoordinator {
             .complete(
                 "你是小说主创，只输出章节正文。",
                 &format!(
-                    "故事前提：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。",
+                    "故事前提：{}\n\n创作资产：\n{}\n\n写作要求：章节正文，1500-2500 字，只输出正文，不写标题。",
                     premise, assets_ctx
                 ),
                 TaskType::CreativeWriting,
@@ -1774,7 +1775,7 @@ impl AgencyCoordinator {
         let chars = text.chars().count();
         if chars < 200 {
             return Err(AppError::from(format!(
-                "首章散文回退仍过短（{} 字符），快速路径与回退均不可用",
+                "散文回退仍过短（{} 字符），快速路径与回退均不可用",
                 chars
             )));
         }
@@ -1782,6 +1783,7 @@ impl AgencyCoordinator {
         let board_c = board.clone();
         let rid = run_id.to_string();
         let sid = story_id.to_string();
+        let ckey = chapter_key.to_string();
         self.db(move || {
             board_c.write(
                 &rid,
@@ -1789,7 +1791,7 @@ impl AgencyCoordinator {
                 AgentRole::LeadWriter,
                 BoardZone::Draft,
                 "chapter",
-                "第1章",
+                &ckey,
                 &text,
                 &summary,
             )
@@ -1988,7 +1990,7 @@ impl AgencyCoordinator {
                     "agency: 主创 tool_loop 连续解析失败，回退自由体散文 run={}",
                     run_id
                 );
-                self.writer_prose_fallback(run_id, &story_id, premise, budget)
+                self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
                     .await?;
             } else {
                 return Err(AppError::from(circuit_break_message(
@@ -2155,6 +2157,9 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // v0.30.20: 续写也设 run 级 deadline（与创世一致），tool_loop 每轮检查，
+        // 剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
+        self.setup_run_deadline();
         let result = self
             .run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel, &budget)
             .await;
@@ -2410,6 +2415,71 @@ impl AgencyCoordinator {
         Ok(())
     }
 
+    /// 续写 writer 上下文预注入：从 DB 读角色/世界/最近场景（与 asset_query
+    /// 同源但预注入到 task，消除 writer 多轮 board_read/asset_query 轮询）。
+    /// 返回空串表示无可用上下文（writer 走原 tool_loop 自轮询路径）。
+    async fn build_continue_writer_context(&self, story_id: &str) -> String {
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        self.db(move || {
+            use crate::db::repositories::{
+                CharacterRepository, SceneRepository, WorldBuildingRepository,
+            };
+            let mut ctx = String::new();
+            // 角色（与 asset_query(kind=characters) 同源）
+            let chars = CharacterRepository::new(pool.clone())
+                .get_by_story(&sid)
+                .unwrap_or_default();
+            for c in &chars {
+                let line = format!(
+                    "【角色·{}】性格：{}｜目标：{}｜背景：{}\n",
+                    c.name,
+                    c.personality.as_deref().unwrap_or("-"),
+                    c.goals.as_deref().unwrap_or("-"),
+                    c.background.as_deref().unwrap_or("-"),
+                );
+                if ctx.chars().count() + line.chars().count() > 4000 {
+                    break;
+                }
+                ctx.push_str(&line);
+            }
+            // 世界构建（与 asset_query(kind=world) 同源）
+            if let Ok(Some(w)) = WorldBuildingRepository::new(pool.clone()).get_by_story(&sid) {
+                let line = format!(
+                    "【世界观】概念：{}\n历史：{}\n",
+                    w.concept,
+                    w.history.as_deref().unwrap_or("-"),
+                );
+                if ctx.chars().count() + line.chars().count() <= 6000 {
+                    ctx.push_str(&line);
+                }
+            }
+            // 最近 2 个场景（与 asset_query(kind=scenes) 同源，取最新 2 章）
+            let scenes = SceneRepository::new(pool)
+                .get_by_story(&sid)
+                .unwrap_or_default();
+            for s in scenes.iter().rev().take(2) {
+                let content: String = s
+                    .content
+                    .as_deref()
+                    .unwrap_or("")
+                    .chars()
+                    .take(2000)
+                    .collect();
+                let title = s.title.as_deref().unwrap_or("无标题");
+                let line = format!("【前文·第{}场 {}】{}\n", s.sequence_number, title, content);
+                if ctx.chars().count() + line.chars().count() > 8000 {
+                    ctx.push_str("…（更多前文已省略）");
+                    break;
+                }
+                ctx.push_str(&line);
+            }
+            Ok(ctx)
+        })
+        .await
+        .unwrap_or_default()
+    }
+
     /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft
     /// 条目。
     async fn write_chapter(
@@ -2423,16 +2493,45 @@ impl AgencyCoordinator {
         chapter_number: i32,
     ) -> Result<BoardItem, AppError> {
         let key = format!("第{}章", chapter_number);
-        let writer_out = self.run_role_with_llm_and_budget(
-            budget, AgentRole::LeadWriter, board, registry, run_id, story_id, premise,
-            &format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key),
-        ).await.map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
+        // v0.30.20: 预注入 DB 上下文（角色/世界/最近场景），消除 writer 多轮
+        // board_read/asset_query 轮询（tool_loop 从 3-7 轮降到 1-2 轮）。
+        let assets_ctx = self.build_continue_writer_context(story_id).await;
+        let writer_task = if assets_ctx.is_empty() {
+            format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
+        } else {
+            format!("续写{}（1500-2500 字）。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
+        };
+        let writer_out = self
+            .run_role_with_llm_and_budget(
+                budget,
+                AgentRole::LeadWriter,
+                board,
+                registry,
+                run_id,
+                story_id,
+                premise,
+                &writer_task,
+            )
+            .await
+            .map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         if writer_out.aborted {
-            return Err(AppError::from(circuit_break_message(
-                "主创 Agent",
-                "本章未完成",
-                circuit_break_reason(&writer_out),
-            )));
+            let reason = circuit_break_reason(&writer_out);
+            // v0.30.20: 连续解析失败（本地模型写散文而非 JSON action）时回退自由体
+            // 散文单调用（与 genesis legacy 同理），避免整章失败。
+            if reason == "连续解析失败" {
+                log::warn!(
+                    "agency: 续写主创 tool_loop 连续解析失败，回退自由体散文 run={}",
+                    run_id
+                );
+                self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
+                    .await?;
+            } else {
+                return Err(AppError::from(circuit_break_message(
+                    "主创 Agent",
+                    "本章未完成",
+                    reason,
+                )));
+            }
         }
         // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
         self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
@@ -2581,6 +2680,9 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // v0.30.20: 批量续写也设 run 级 deadline（与创世一致），tool_loop 每轮
+        // 检查，剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
+        self.setup_run_deadline();
         let result = self
             .run_batch_inner(
                 run_id,
@@ -3029,6 +3131,7 @@ impl AgencyCoordinator {
             registry: registry.clone(),
             pool: self.pool.clone(),
             app_handle: self.app_handle.clone(),
+            deadline: self.current_deadline(),
         }
     }
 
@@ -3071,8 +3174,10 @@ impl AgencyCoordinator {
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
+        let deadline = self.current_deadline();
         let (outcome, gate_score) = evaluate_gate_impl(
             &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft, round,
+            deadline,
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted 元数据
@@ -3348,6 +3453,7 @@ async fn evaluate_gate_impl(
     premise: &str,
     draft: &BoardItem,
     round: u32,
+    deadline: Option<std::time::Instant>,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
     // v0.30.19: 本地模型（Qwen/Gemma）在 ReAct tool_loop 内常不遵从 JSON
@@ -3371,13 +3477,14 @@ async fn evaluate_gate_impl(
             story_id,
             premise,
             &format!(
-                "审查 draft 区的最新章节草稿（{}）。按系统提示词出具裁决 JSON。",
-                draft.key
+                "审查以下章节草稿（{}）并出具裁决 JSON：\n\n{}\n\n按系统提示词的 rubric 出具裁决。",
+                draft.key,
+                draft.content.chars().take(8000).collect::<String>()
             ),
-            // v0.30.4: editor 轮次少（6 轮）且在 writer 之后，deadline 已接近时
-            // editor 熔断会让整 run 失败；此处传 None 让 editor 跑完。
-            // 整体超时由 smart_execute 外层 tokio::time::timeout 兜底。
-            None,
+            // v0.30.20: v0.30.19 的 salvage + editor_verdict_prose_fallback 已使
+            // deadline 安全--熔断后仍有两次兜底产出裁决。此处传 deadline 让
+            // editor 获得超时保护（剩余 <30s 熔断 -> salvage -> 散文回退）。
+            deadline,
         )
         .await
         .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
@@ -3594,6 +3701,7 @@ pub struct GateRunner {
     registry: Arc<ToolRegistry>,
     pool: DbPool,
     app_handle: Option<AppHandle>,
+    deadline: Option<std::time::Instant>,
 }
 
 impl GateRunner {
@@ -3616,6 +3724,7 @@ impl GateRunner {
             &premise,
             &draft,
             round,
+            self.deadline,
         )
         .await?;
         // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate 同语义）
@@ -4819,6 +4928,122 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(run.status, "completed");
+    }
+
+    /// v0.30.20: 续写 writer 连续解析失败 -> 散文回退保产出（与 genesis
+    /// test_legacy_writer_prose_fallback 对称，但走 run_continue 路径）。
+    #[tokio::test]
+    async fn test_continue_writer_prose_fallback() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "续写散文回退".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &ch1.id,
+                &crate::db::repositories::SceneUpdate {
+                    content: Some("第一章正文。".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+        let llm = MockLlm::scripted(vec![
+            "不是 JSON",       // writer parse fail #1
+            "还不是 JSON",     // writer parse fail #2
+            "依然不是 JSON",   // writer parse fail #3 -> 熔断
+            chapter2.as_str(), // writer_prose_fallback 散文
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor pass */
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let result = coordinator
+            .run_continue("rc-prose", &story.id, 2)
+            .await
+            .unwrap();
+        assert_eq!(result.chapter_number, 2);
+        let scene = crate::db::repositories::SceneRepository::new(pool.clone())
+            .get_by_id(&result.scene_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            scene.content.as_deref(),
+            Some(chapter2.as_str()),
+            "scene content should be prose fallback output"
+        );
+        let run = AgencyRepository::new(pool.clone())
+            .get_run("rc-prose")
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "completed");
+    }
+
+    /// v0.30.20: build_continue_writer_context reads characters/world/scenes
+    /// from DB, pre-injecting into writer task (eliminates board_read polling).
+    #[tokio::test]
+    async fn test_build_continue_writer_context() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "上下文测试".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &ch1.id,
+                &crate::db::repositories::SceneUpdate {
+                    content: Some("第一章正文内容。".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let coordinator = AgencyCoordinator::for_test(pool, MockLlm::scripted(vec![]));
+        let ctx = coordinator.build_continue_writer_context(&story.id).await;
+        assert!(
+            ctx.contains("阿苔"),
+            "context should contain character name"
+        );
+        assert!(
+            ctx.contains("第一章正文内容"),
+            "context should contain scene content"
+        );
     }
 
     #[tokio::test]

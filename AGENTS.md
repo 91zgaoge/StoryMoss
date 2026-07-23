@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.19
+- **版本**: v0.30.20
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,16 +80,27 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 965 passed
+- `cargo test --lib` ✅ 967 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 307 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 无新增告警
+- `cargo clippy --lib` ✅ 549（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.20 - Agency 续写效率优化与质量门硬化
+
+- **背景**：对照创世路径（`run_genesis`）审计续写路径（`run_continue` / `run_continue_batch`），发现三项结构性缺口（无 run 级 deadline / 无资产预注入 / 无散文回退）+ editor 质量门 deadline 仍为 None（v0.30.4 有意豁免，但 v0.30.19 的 salvage + prose_fallback 已使 deadline 安全可行）。
+- **P0-1 续写 run_deadline**（`coordinator.rs`）：`run_continue` / `run_continue_batch` 入口调 `setup_run_deadline()`，与创世一致。`setup_run_deadline` 在 `app_handle=None`（测试环境）时 no-op。deadline 设置后 `run_role_with_llm_and_budget` 自动读取并传给 tool_loop（剩余 <30s 熔断保产出）。
+- **P0-2 续写 writer 散文回退**（`coordinator.rs`）：参数化 `writer_prose_fallback` 新增 `chapter_key: &str`（替换硬编码 "第1章"），prompt "第一章正文" -> "章节正文"（generic）；`write_chapter` 熔断时 reason == "连续解析失败" 回退散文单调用（与 genesis legacy 同理），MaxTurns/Deadline 仍 Err。
+- **P0-3 续写 writer 上下文预注入**（`coordinator.rs`）：新建 `build_continue_writer_context` 从 DB 读角色（`CharacterRepository`）/世界（`WorldBuildingRepository`）/最近 2 场景（`SceneRepository`），格式化截断 8000 字符注入 writer task，消除多轮 board_read/asset_query 轮询（tool_loop 从 3-7 轮降到 1-2 轮）。空则保留原 task（writer 自轮询）。
+- **P1-1 Editor 质量门 deadline**（`coordinator.rs`）：`evaluate_gate_impl` 新增 `deadline: Option<Instant>` 参数替换原 `None`；`evaluate_gate` 方法传 `self.current_deadline()`；`GateRunner` 结构体新增 `deadline` 字段，`gate_runner()` 工厂设 `self.current_deadline()`，`GateRunner::evaluate` 传 `self.deadline`。v0.30.19 的 salvage + prose_fallback 使 deadline 安全（熔断后仍有两次兜底）。
+- **P1-2 Editor 草稿预注入**（`coordinator.rs`）：`evaluate_gate_impl` editor task 从 "审查 draft 区的最新章节草稿" 改为注入 `draft.content`（截断 8000 字符），editor 无需 board_read 即可审查（tool_loop 从 2 轮降到 1 轮）。
+- **P1-3 连接超时调优**（`config/settings.rs`）：`llm_connect_timeout_secs` 默认 60s -> 15s（TCP 连接建立超时，非响应超时；模型不可达时浪费从 240s 降到 60s）。
+- **验证**：`cargo test --lib` 967 passed（+2：续写散文回退 + 上下文预注入）；fmt / architecture_guard 全绿；clippy 549（零新增）；tsc 通过。
 
 ### v0.30.19 - 质量门编辑审计 Agent 熔断修复（本地模型 JSON 不遵从，散文回退）
 
@@ -520,7 +531,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.19_
+_最后更新: 2026-07-22 - v0.30.20_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -1,8 +1,12 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.19)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.20)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.20 变更说明
+
+- Agency 续写效率优化：续写 `run_continue`/`run_continue_batch` 加 `setup_run_deadline`（tool_loop 超时保护）；`write_chapter` 加散文回退（`writer_prose_fallback` 参数化 `chapter_key`）+ 上下文预注入（`build_continue_writer_context` 读 DB 角色/世界/场景）；Editor 质量门加 deadline + 草稿预注入；`llm_connect_timeout_secs` 默认 60s -> 15s。新增 `test_continue_writer_prose_fallback`（续写 writer 熔断 -> 散文回退 -> 章节成功）+ `test_build_continue_writer_context`（DB 资产预注入上下文非空）。`cargo test --lib` 967 passed。
 
 ### v0.30.19 变更说明
 
