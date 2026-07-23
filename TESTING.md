@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.24)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.25)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.25 变更说明
+
+- 续写 600s 超时修复（三层根因）：`openai.rs` 新增 `reasoning_content` 字段 + `resolve_content` 纯函数 fallback（DeepSeek 推理模型空 content）；`auto_contract.rs` 4 个 `build_*` 调用各包 30s timeout；`FrontstageApp.tsx` 续写时后台 fire-and-forget auto_contract。
+- 新增 5 个 Rust 测试：`resolve_content` fallback 场景（空 content + reasoning_content / content 非空不 fallback / 空 reasoning_content / Message 反序列化 reasoning_content / OpenAiDelta 反序列化）。
+- 全量基线：`cargo test --lib` 987 passed（+5）；`npx vitest run` 311 passed / 3 skipped；fmt / clippy（baseline 549）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.24 变更说明
 

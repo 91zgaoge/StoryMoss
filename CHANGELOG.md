@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.25（2026-07-24）
+
+### 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时）
+
+- **根因（三层叠加）**：用户输入"续写"后卡死 600s。①前端在调用 `smart_execute` 前 `await autoCreateMissingContracts`，`auto_fill` 串行 4 次 LLM 调用（~6 分钟），v0.26.22 的 `is_silent_background` 只隐藏了 `isAnyBackendActive` 但 `await` 仍阻塞且 `isGenerating=true` 触发 600s 看门狗；②DeepSeek 推理模型把思维链放在 `reasoning_content` 字段，`openai.rs` 的 `Message` 结构体不捕获该字段 -> `content=""`（0 字符）但 `tokens=2643`，auto_contract 收到空内容静默失败；③`auto_contract.rs` 的 `auto_fill` 每个 `build_*` 调用无超时，单个慢模型调用阻塞数分钟。
+- **Fix 1（主修复·FrontstageApp.tsx）**：续写请求不再阻塞 auto_contract。`handleSmartGeneration` 中 `classification.is_continuation` 时后台 fire-and-forget `autoCreateMissingContracts`（不 await，直接进入 smart_execute）；`handleRequestGeneration`（仅续写入口）同理。新增 `fireAutoContractInBackground` helper + `autoContractInProgressRef` 防并发。非续写请求（rewrite/audit）保持原有阻塞行为。
+- **Fix 2（次修复·openai.rs）**：`Message` 结构体加 `#[serde(skip_serializing, default)] reasoning_content: Option<String>`；`OpenAiDelta` 同理。非流式/流式提取在 `content` 为空时 fallback 到 `reasoning_content`。提取纯函数 `resolve_content` 供单测。
+- **Fix 3（三修复·auto_contract.rs）**：`auto_fill` 的 4 个 `build_*` LLM 调用各包 `tokio::time::timeout(30s)`，超时与 Err 同处理（warn + 跳过 + 继续）。总上限 120s（4×30s），远低于 600s。
+- **验证**：`cargo test --lib` 987 passed（+5：resolve_content fallback + Message 反序列化）；`npx vitest run` 311 passed；fmt / clippy（baseline 549）/ tsc / prettier / architecture_guard 全绿。
+
 ## v0.30.24（2026-07-23）
 
 ### Logline 幽灵提示--用户输入简单创世指令时实时生成增强版 logline

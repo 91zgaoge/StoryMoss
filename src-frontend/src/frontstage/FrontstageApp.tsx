@@ -948,6 +948,8 @@ const FrontstageApp: React.FC = () => {
   const [loglineHintLoading, setLoglineHintLoading] = useState(false);
   const loglineHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loglineHintReqIdRef = useRef(0);
+  // v0.30.25: 防止并发后台合同补齐（续写时后台发射，不阻塞用户）
+  const autoContractInProgressRef = useRef(false);
   // 按故事隔离：切换故事时加载该故事的输入历史（localStorage 持久化），
   // 窗口关闭/重启后历史不丢失。
   useEffect(() => {
@@ -2924,6 +2926,37 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
+  // v0.30.25: 后台发射合同补齐（不阻塞续写）。续写请求不再 await auto_contract，
+  // 而是后台 fire-and-forget，直接进入 smart_execute。后端 TimeSliced 路径已跳过
+  // auto_contract，合同仅用于提升质量，非续写必需。
+  const fireAutoContractInBackground = useCallback(
+    (storyId: string, chapterNumber: number, sceneId: string | undefined) => {
+      if (autoContractInProgressRef.current) return; // 已有后台补齐在运行
+      autoContractInProgressRef.current = true;
+      toast.warning('合同正在后台补齐，不影响当前续写');
+      autoCreateMissingContracts(storyId, chapterNumber, sceneId)
+        .then(result => {
+          if (
+            result.created_master_setting ||
+            result.created_chapter_contract ||
+            result.created_outline
+          ) {
+            toast.success('合同已在后台补齐完成');
+          } else {
+            toast.warning('合同后台补齐未成功，可从幕后手动创建');
+          }
+        })
+        .catch(e => {
+          frontstageLogger.warn('Background auto_contract failed', { error: e });
+          toast.warning('合同后台补齐失败，可从幕后手动创建');
+        })
+        .finally(() => {
+          autoContractInProgressRef.current = false;
+        });
+    },
+    []
+  );
+
   // Request AI generation -- now routes through backend smart_execute
   const handleRequestGeneration = useCallback(
     async (context?: string) => {
@@ -2957,58 +2990,15 @@ const FrontstageApp: React.FC = () => {
               (i: string) => i.includes('大纲') || i.includes('outline')
             );
             if (isMissingContracts || isMissingOutline) {
-              setIsGenerating(true);
-              // 生成明确的提示文案
-              const missingItems: string[] = [];
-              if (isMissingContracts) {
-                if (preflight.missing_contracts.includes('MASTER_SETTING'))
-                  missingItems.push('世界观合同');
-                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
-                  missingItems.push('章节合同');
-              }
-              if (isMissingOutline) missingItems.push('场景大纲');
-              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-              setGenerationStatus(hintMsg);
-              let progressUnlisten: (() => void) | null = null;
-              try {
-                progressUnlisten = await listen('contract-auto-progress', event => {
-                  const p = event.payload as any;
-                  setGenerationStatus(p.message);
-                  const pct = Math.round((p.progress || 0) * 100);
-                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-                });
-                const targetSceneId = currentScene?.id || currentChapter.scene_id;
-                const result = await autoCreateMissingContracts(
-                  currentStory.id,
-                  currentChapter.chapter_number,
-                  targetSceneId
-                );
-                if (
-                  !result.created_master_setting &&
-                  !result.created_chapter_contract &&
-                  !result.created_outline
-                ) {
-                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
-                    id: loadingToastId,
-                  });
-                  setIsGenerating(false);
-                  setGenerationStatus('');
-                  return;
-                }
-                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
-                  id: loadingToastId,
-                });
-                // 补齐成功，继续执行后续生成逻辑
-              } catch (e) {
-                frontstageLogger.error('Auto creation failed', { error: e });
-                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
-                setIsGenerating(false);
-                setGenerationStatus('');
-                return;
-              } finally {
-                if (progressUnlisten) progressUnlisten();
-              }
+              // v0.30.25: 此函数仅用于续写（WenSi/Ctrl+Enter/RichTextEditor），
+              // 后台补齐合同不阻塞续写。后端 TimeSliced 路径已跳过 auto_contract。
+              const targetSceneId = currentScene?.id || currentChapter.scene_id;
+              fireAutoContractInBackground(
+                currentStory.id,
+                currentChapter.chapter_number,
+                targetSceneId
+              );
+              // 不 await，直接继续后续生成逻辑
             } else {
               const issues =
                 preflight.blocking_issues.length > 0
@@ -3894,55 +3884,68 @@ const FrontstageApp: React.FC = () => {
               (i: string) => i.includes('大纲') || i.includes('outline')
             );
             if (isMissingContracts || isMissingOutline) {
-              setIsGenerating(true);
-              const missingItems: string[] = [];
-              if (isMissingContracts) {
-                if (preflight.missing_contracts.includes('MASTER_SETTING'))
-                  missingItems.push('世界观合同');
-                if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
-                  missingItems.push('章节合同');
-              }
-              if (isMissingOutline) missingItems.push('场景大纲');
-              const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
-              const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
-              setGenerationStatus(hintMsg);
-              let progressUnlisten: (() => void) | null = null;
-              try {
-                progressUnlisten = await listen('contract-auto-progress', event => {
-                  const p = event.payload as any;
-                  setGenerationStatus(p.message);
-                  const pct = Math.round((p.progress || 0) * 100);
-                  toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
-                });
+              if (classification.is_continuation) {
+                // v0.30.25: 续写请求后台补齐合同，不阻塞续写。
+                // 后端 TimeSliced 路径已跳过 auto_contract，合同仅用于提升质量。
                 const targetSceneId = currentScene?.id || currentChapter.scene_id;
-                const result = await autoCreateMissingContracts(
+                fireAutoContractInBackground(
                   currentStory.id,
                   currentChapter.chapter_number,
                   targetSceneId
                 );
-                if (
-                  !result.created_master_setting &&
-                  !result.created_chapter_contract &&
-                  !result.created_outline
-                ) {
-                  toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                // 不 await，直接继续后续生成逻辑
+              } else {
+                // 非续写（rewrite/audit 等）：保持原有阻塞补齐行为
+                setIsGenerating(true);
+                const missingItems: string[] = [];
+                if (isMissingContracts) {
+                  if (preflight.missing_contracts.includes('MASTER_SETTING'))
+                    missingItems.push('世界观合同');
+                  if (preflight.missing_contracts.some((c: string) => c.startsWith('CHAPTER_')))
+                    missingItems.push('章节合同');
+                }
+                if (isMissingOutline) missingItems.push('场景大纲');
+                const hintMsg = `检测到缺少 ${missingItems.join('、')}，系统正在自动补齐，请稍候...`;
+                const loadingToastId = toast.loading(hintMsg, { duration: Infinity });
+                setGenerationStatus(hintMsg);
+                let progressUnlisten: (() => void) | null = null;
+                try {
+                  progressUnlisten = await listen('contract-auto-progress', event => {
+                    const p = event.payload as any;
+                    setGenerationStatus(p.message);
+                    const pct = Math.round((p.progress || 0) * 100);
+                    toast.loading(`${p.message} (${pct}%)`, { id: loadingToastId });
+                  });
+                  const targetSceneId = currentScene?.id || currentChapter.scene_id;
+                  const result = await autoCreateMissingContracts(
+                    currentStory.id,
+                    currentChapter.chapter_number,
+                    targetSceneId
+                  );
+                  if (
+                    !result.created_master_setting &&
+                    !result.created_chapter_contract &&
+                    !result.created_outline
+                  ) {
+                    toast.error(`自动补齐未成功（${missingItems.join('、')}），请手动创建`, {
+                      id: loadingToastId,
+                    });
+                    setIsGenerating(false);
+                    setGenerationStatus('');
+                    return;
+                  }
+                  toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
                     id: loadingToastId,
                   });
+                } catch (e) {
+                  frontstageLogger.error('Auto creation failed', { error: e });
+                  toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
                   setIsGenerating(false);
                   setGenerationStatus('');
                   return;
+                } finally {
+                  if (progressUnlisten) progressUnlisten();
                 }
-                toast.success(`补齐完成（${missingItems.join('、')}），继续生成...`, {
-                  id: loadingToastId,
-                });
-              } catch (e) {
-                frontstageLogger.error('Auto creation failed', { error: e });
-                toast.error('自动补齐失败，请手动创建', { id: loadingToastId });
-                setIsGenerating(false);
-                setGenerationStatus('');
-                return;
-              } finally {
-                if (progressUnlisten) progressUnlisten();
               }
             } else {
               const issues =

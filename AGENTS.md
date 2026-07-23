@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.24
+- **版本**: v0.30.25
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 982 passed
+- `cargo test --lib` ✅ 987 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 311 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.25 - 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时）
+
+- **根因（三层叠加）**：用户输入"续写"后卡死 600s。①前端 `FrontstageApp.tsx` 在调用 `smart_execute` 前 `await autoCreateMissingContracts`，`auto_fill` 串行 4 次 LLM 调用（~6 分钟），v0.26.22 的 `is_silent_background` 只隐藏了 `isAnyBackendActive` 但 `await` 仍阻塞且 `isGenerating=true` 触发 600s 看门狗；后端 TimeSliced 续写路径本已跳过 auto_contract，但前端从未调用到。②DeepSeek 推理模型把思维链放在 `reasoning_content` 字段，`openai.rs` 的 `Message` 结构体不捕获该字段 -> serde 丢弃 -> `content=""`（0 字符）但 `tokens=2643`，auto_contract 收到空内容静默失败，合同永远补不齐。③`auto_contract.rs` 的 `auto_fill` 每个 `build_*` 调用无超时，单个慢模型调用阻塞数分钟。
+- **Fix 1（主修复·`FrontstageApp.tsx`）**：续写请求不再阻塞 auto_contract。`handleSmartGeneration` 中 `classification.is_continuation` 时后台 fire-and-forget `autoCreateMissingContracts`（不 await，直接进入 smart_execute）；`handleRequestGeneration`（仅续写入口）同理。新增 `fireAutoContractInBackground` helper + `autoContractInProgressRef` 防并发 + 非阻塞 toast（成功/失败）。非续写请求（rewrite/audit）保持原有阻塞 await 行为。
+- **Fix 2（次修复·`openai.rs`）**：`Message` 结构体加 `#[serde(skip_serializing, default)] reasoning_content: Option<String>`；`OpenAiDelta` 同理。非流式/流式提取在 `content` 为空时 fallback 到 `reasoning_content`，并 `log::warn!`。提取纯函数 `resolve_content` 供单测。
+- **Fix 3（三修复·`auto_contract.rs`）**：`auto_fill` 的 4 个 `build_*` LLM 调用各包 `tokio::time::timeout(30s)`，超时与 Err 同处理（warn + 跳过 + 继续）。总上限 120s（4×30s），远低于 600s。
+- **验证**：`cargo test --lib` 987 passed（+5：resolve_content fallback + Message 反序列化）；`npx vitest run` 311 passed；fmt / clippy（baseline 549）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.24 - Logline 幽灵提示（用户输入简单创世指令时实时生成增强版 logline）
 
@@ -571,7 +579,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.24_
+_最后更新: 2026-07-24 - v0.30.25_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

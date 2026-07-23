@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.24 项目完成状态
+# StoryMoss (草苔) v0.30.25 项目完成状态
 
-> 最后更新: 2026-07-23（v0.30.24 Logline 幽灵提示--用户输入简单创世指令时实时生成增强版 logline）
+> 最后更新: 2026-07-24（v0.30.25 修复续写 600s 超时：auto_contract 后台化 + reasoning_content fallback + 每步 30s 超时）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
