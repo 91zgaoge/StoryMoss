@@ -10,6 +10,7 @@ import {
   checkPreflight,
   autoCreateMissingContracts,
   getInputHint,
+  generateLoglineHint,
   runRefine,
   runReview,
   runFinalize,
@@ -942,6 +943,11 @@ const FrontstageApp: React.FC = () => {
   const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1); // -1=LLM建议, 0+=历史
+  // v0.30.24: Logline 幽灵提示--用户输入简单创世指令时后台生成增强版 logline
+  const [loglineHint, setLoglineHint] = useState('');
+  const [loglineHintLoading, setLoglineHintLoading] = useState(false);
+  const loglineHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loglineHintReqIdRef = useRef(0);
   // 按故事隔离：切换故事时加载该故事的输入历史（localStorage 持久化），
   // 窗口关闭/重启后历史不丢失。
   useEffect(() => {
@@ -950,6 +956,47 @@ const FrontstageApp: React.FC = () => {
     setHistoryIndex(-1);
     setGhostHint('');
   }, [currentStory?.id]);
+  // v0.30.24: Logline 幽灵提示防抖--输入非空且 < 100 字符时，1.5s 后后台生成增强版 logline
+  useEffect(() => {
+    const trimmed = inputValue.trim();
+    // 清除上一个 timer
+    if (loglineHintTimerRef.current) {
+      clearTimeout(loglineHintTimerRef.current);
+      loglineHintTimerRef.current = null;
+    }
+    // 空输入或 ≥ 100 字符（详细 premise 无需增强）-> 不生成
+    if (!trimmed || trimmed.length >= 100) {
+      setLoglineHint('');
+      setLoglineHintLoading(false);
+      return;
+    }
+    // 输入变化时先清除旧提示
+    setLoglineHint('');
+    setLoglineHintLoading(true);
+    const reqId = ++loglineHintReqIdRef.current;
+    loglineHintTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await generateLoglineHint(trimmed);
+        // 只接受最新一次请求的结果（防止竞态）
+        if (reqId === loglineHintReqIdRef.current) {
+          if (result) {
+            setLoglineHint(result);
+          }
+          setLoglineHintLoading(false);
+        }
+      } catch {
+        if (reqId === loglineHintReqIdRef.current) {
+          setLoglineHintLoading(false);
+        }
+      }
+    }, 1500);
+    return () => {
+      if (loglineHintTimerRef.current) {
+        clearTimeout(loglineHintTimerRef.current);
+        loglineHintTimerRef.current = null;
+      }
+    };
+  }, [inputValue]);
   // v0.7.8: 使用新版模型管理系统丰富底部栏 tooltip
   const { data: settings } = useSettings();
   const { data: allModels = [] } = useModels();
@@ -4295,6 +4342,7 @@ const FrontstageApp: React.FC = () => {
     if (sid) saveInputHistory(sid, next);
     setGhostHint('');
     setHistoryIndex(-1);
+    setLoglineHint(''); // v0.30.24: 清除 logline 幽灵提示
     handleSmartGeneration(text);
     setInputValue('');
   }, [inputValue, inputHistory, currentStory?.id, handleSmartGeneration]);
@@ -4383,6 +4431,18 @@ const FrontstageApp: React.FC = () => {
         return;
       }
       // → 键：确认填充 ghost hint
+      // v0.30.24: Esc 键清除 logline 幽灵提示
+      if (e.key === 'Escape' && loglineHint) {
+        setLoglineHint('');
+        return;
+      }
+      // v0.30.24: -> 键接受 logline 幽灵提示（输入非空时，区别于 ghost hint 的空输入场景）
+      if (e.key === 'ArrowRight' && loglineHint && inputValue) {
+        e.preventDefault();
+        setInputValue(loglineHint);
+        setLoglineHint('');
+        return;
+      }
       if (e.key === 'ArrowRight' && ghostHint && !inputValue) {
         e.preventDefault();
         setInputValue(ghostHint);
@@ -4406,6 +4466,7 @@ const FrontstageApp: React.FC = () => {
       historyIndex,
       inputHistory,
       fetchSmartHint,
+      loglineHint,
     ]
   );
 
@@ -4672,6 +4733,8 @@ const FrontstageApp: React.FC = () => {
               onCancelGeneration={handleCancelGeneration}
               onInputFocus={handleInputFocus}
               onInputKeyDown={handleInputKeyDown}
+              loglineHint={loglineHint}
+              loglineHintLoading={loglineHintLoading}
             />
           </div>
         </div>

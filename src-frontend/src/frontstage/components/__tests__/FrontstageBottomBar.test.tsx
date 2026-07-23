@@ -176,4 +176,54 @@ describe('FrontstageBottomBar', () => {
     expect(screen.getByText('准备上下文...')).toBeInTheDocument();
     expect(base?.textContent).not.toMatch(/📂/);
   });
+
+  // ===== v0.30.24: Logline 幽灵提示测试 =====
+
+  it('loglineHint 非空且输入非空时应该渲染建议条', () => {
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        inputValue="写一部现代间谍的长篇小说"
+        loglineHint="当一个退役特工发现妻子是潜伏二十年的敌方间谍后必须阻止她引爆情报网络"
+      />
+    );
+    expect(
+      screen.getByText('当一个退役特工发现妻子是潜伏二十年的敌方间谍后必须阻止她引爆情报网络')
+    ).toBeInTheDocument();
+    expect(document.querySelector('.frontstage-logline-hint')).toBeInTheDocument();
+  });
+
+  it('loglineHintLoading 时应该显示加载提示', () => {
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        inputValue="写一部科幻小说"
+        loglineHintLoading={true}
+      />
+    );
+    expect(screen.getByText('正在生成增强版指令…')).toBeInTheDocument();
+    expect(document.querySelector('.frontstage-logline-loading')).toBeInTheDocument();
+  });
+
+  it('点击建议条应该用 logline 替换输入', async () => {
+    const onInputChange = vi.fn();
+    const logline = '当一个退役特工发现妻子是间谍后必须阻止她引爆情报网络';
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        inputValue="写一部间谍小说"
+        loglineHint={logline}
+        onInputChange={onInputChange}
+      />
+    );
+    const hintBar = document.querySelector('.frontstage-logline-hint') as HTMLElement;
+    expect(hintBar).toBeInTheDocument();
+    await userEvent.click(hintBar);
+    expect(onInputChange).toHaveBeenCalledWith(logline);
+  });
+
+  it('输入为空时不应渲染 logline 建议条', () => {
+    render(<FrontstageBottomBar {...defaultProps} inputValue="" loglineHint="一些 logline 内容" />);
+    expect(document.querySelector('.frontstage-logline-hint')).not.toBeInTheDocument();
+  });
 });

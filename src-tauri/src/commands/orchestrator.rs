@@ -931,6 +931,91 @@ pub async fn get_input_hint(
     }
 }
 
+/// v0.30.24: 纯函数--判断输入是否应跳过 logline 生成。
+/// 空输入或 ≥ 100 字符（详细 premise 无需增强）时跳过，与 v0.30.22 `< 100 字符`
+/// 触发对齐。
+fn should_skip_logline_generation(user_input: &str) -> bool {
+    let trimmed = user_input.trim();
+    trimmed.is_empty() || trimmed.chars().count() >= 100
+}
+
+/// v0.30.24: 纯函数--校验 LLM 返回的 logline 是否有效（非空且 ≥ 10 字符）。
+fn is_valid_logline(logline: &str) -> bool {
+    let trimmed = logline.trim();
+    !trimmed.is_empty() && trimmed.chars().count() >= 10
+}
+
+/// v0.30.24: Logline 幽灵提示--用户输入简单创世指令时，后台用 v0.30.22 的
+/// PROBLEM logline 生成功能产出一句强力 logline，前端以幽灵提示显示，
+/// 用户按 -> 即可用 logline 替换原始简单指令。
+///
+/// - 输入为空或 ≥ 100 字符 -> 返回 None（与 v0.30.22 `< 100 字符` 触发对齐）
+/// - 复用 `agency_problem_logline` prompt 资产（用户编辑后自动生效）
+/// - 15s 超时，失败/超时静默返回 None（不报错，不阻塞 UI）
+#[tauri::command(rename_all = "snake_case")]
+pub async fn generate_logline_hint(
+    user_input: String,
+    app_handle: AppHandle,
+) -> Result<Option<String>, AppError> {
+    if should_skip_logline_generation(&user_input) {
+        return Ok(None);
+    }
+    let trimmed = user_input.trim();
+
+    // 从 registry 加载 PROBLEM logline 提示词（与 coordinator.rs generate_logline
+    // 一致）
+    let system = crate::prompts::registry::resolve_prompt_default_with_vars(
+        "agency_problem_logline",
+        &std::collections::HashMap::new(),
+    )
+    .unwrap_or_else(|| {
+        "你是故事概念设计师，精通 PROBLEM 七元素框架\
+         （Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）。\
+         只输出一句 logline（不超过 100 字），格式：\
+         当一个[主角]在[催化事件]后，必须[核心不可能的任务]，否则[灾难性后果]。"
+            .to_string()
+    });
+    let user_prompt = format!(
+        "用户输入：{}\n\n请基于以上用户输入，用 PROBLEM 七元素框架生成一个强力的 logline。",
+        trimmed
+    );
+
+    let llm_service = crate::llm::service::LlmService::new(app_handle.clone());
+    let labelled = llm_service.generate_for_task_with_system_prompt(
+        crate::router::TaskType::Brainstorming,
+        user_prompt,
+        Some(1024),
+        Some(0.7),
+        Some("logline_hint"),
+        Some(system),
+        None,
+    );
+
+    match tokio::time::timeout(std::time::Duration::from_secs(15), labelled).await {
+        Ok((_, Ok(resp))) => {
+            let logline = resp.content.trim().to_string();
+            if !is_valid_logline(&logline) {
+                log::warn!("[generate_logline_hint] logline 过短或为空，丢弃");
+                Ok(None)
+            } else {
+                log::info!(
+                    "[generate_logline_hint] logline 生成成功（{} 字符）",
+                    logline.chars().count()
+                );
+                Ok(Some(logline))
+            }
+        }
+        Ok((_, Err(e))) => {
+            log::warn!("[generate_logline_hint] LLM 调用失败，静默降级: {}", e);
+            Ok(None)
+        }
+        Err(_) => {
+            log::warn!("[generate_logline_hint] 15s 超时，静默降级");
+            Ok(None)
+        }
+    }
+}
+
 /// v0.10.0: 根据 Story 已保存的策略元数据构建 SelectedStrategy
 fn build_selected_strategy(
     current_story: &Option<crate::db::Story>,
@@ -1210,5 +1295,46 @@ mod tests {
         let story = story_with_genre("完全不存在的题材 XYZ123");
         let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague);
         assert!(strategy.is_none(), "无法匹配任何题材画像时应返回 None");
+    }
+
+    // ===== v0.30.24: generate_logline_hint 守卫逻辑测试 =====
+
+    #[test]
+    fn test_should_skip_logline_generation_empty_input() {
+        assert!(should_skip_logline_generation(""));
+        assert!(should_skip_logline_generation("   "));
+        assert!(should_skip_logline_generation("\n\t"));
+    }
+
+    #[test]
+    fn test_should_skip_logline_generation_long_input() {
+        // 100 字符 -> 跳过（详细 premise 无需增强）
+        let long_input = "a".repeat(100);
+        assert!(should_skip_logline_generation(&long_input));
+        // 99 字符 -> 不跳过
+        let short_input = "a".repeat(99);
+        assert!(!should_skip_logline_generation(&short_input));
+    }
+
+    #[test]
+    fn test_should_skip_logline_generation_normal_input() {
+        // 正常创世指令 -> 不跳过
+        assert!(!should_skip_logline_generation("写一部现代间谍的长篇小说"));
+        assert!(!should_skip_logline_generation("  写一部科幻小说  "));
+    }
+
+    #[test]
+    fn test_is_valid_logline() {
+        // 空 -> 无效
+        assert!(!is_valid_logline(""));
+        assert!(!is_valid_logline("   "));
+        // < 10 字符 -> 无效
+        assert!(!is_valid_logline("短句"));
+        assert!(!is_valid_logline("abcdefghi")); // 9 字符
+                                                 // ≥ 10 字符 -> 有效
+        assert!(is_valid_logline(
+            "当一个退役特工发现妻子是间谍后必须阻止她引爆情报网络"
+        ));
+        assert!(is_valid_logline("abcdefghij")); // 10 字符
     }
 }

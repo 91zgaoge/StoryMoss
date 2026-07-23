@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.23)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.24)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.24 变更说明
+
+- Logline 幽灵提示（用户输入简单创世指令时实时生成增强版 logline）：`commands/orchestrator.rs` 新增 `generate_logline_hint` 命令 + 纯函数 `should_skip_logline_generation` / `is_valid_logline`；`FrontstageApp.tsx` 新增 logline state + 1.5s 防抖 + `->` / `Esc` 键盘处理；`FrontstageBottomBar.tsx` 新增建议条渲染 + CSS。
+- 新增 4 个 Rust 测试：`test_should_skip_logline_generation_empty_input` / `test_should_skip_logline_generation_long_input` / `test_should_skip_logline_generation_normal_input` / `test_is_valid_logline`。
+- 新增 4 个 vitest 测试：logline 渲染 / loading 提示 / 点击接受 / 空输入不渲染。
+- 全量基线：`cargo test --lib` 982 passed（+4）；`npx vitest run` 311 passed / 3 skipped。
 
 ### v0.30.23 变更说明
 
