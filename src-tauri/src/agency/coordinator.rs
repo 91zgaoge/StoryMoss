@@ -1252,11 +1252,27 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "concept").await?;
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
+        // v0.30.22: PROBLEM logline 增强--简单前提（< 100 字符）生成强力 logline
+        let (effective_premise, generated_logline) = if premise.chars().count() < 100 {
+            match self.generate_logline(run_id, premise, budget).await {
+                Ok(ll) if ll.chars().count() > 20 => {
+                    log::info!(
+                        "agency: PROBLEM logline 生成（{} 字符），替换简单前提",
+                        ll.chars().count()
+                    );
+                    (ll.clone(), Some(ll))
+                }
+                _ => (premise.to_string(), None),
+            }
+        } else {
+            (premise.to_string(), None)
+        };
+
         // Phase A：概念单调用（快速路径与 legacy 共用此响应）
-        match self.concept_pack(run_id, premise, budget).await {
+        let result = match self.concept_pack(run_id, &effective_premise, budget).await {
             Ok(pack) if !pack.characters.is_empty() => {
                 match self
-                    .genesis_fastpath(run_id, premise, repo, cancel, budget, &pack)
+                    .genesis_fastpath(run_id, &effective_premise, repo, cancel, budget, &pack)
                     .await
                 {
                     Ok(r) => Ok(r),
@@ -1272,20 +1288,34 @@ impl AgencyCoordinator {
                             e
                         );
                         let raw = serde_json::to_string(&pack).unwrap_or_default();
-                        self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, &raw)
-                            .await
+                        self.run_genesis_legacy_inner(
+                            run_id,
+                            &effective_premise,
+                            repo,
+                            cancel,
+                            budget,
+                            &raw,
+                        )
+                        .await
                     }
                 }
             }
             Ok(pack) => {
-                // 无角色卡的概念包不足以驱动快速路径——legacy 六阶段（概念结果复用）
+                // 无角色卡的概念包不足以驱动快速路径--legacy 六阶段（概念结果复用）
                 log::warn!(
                     "agency genesis: concept pack 无角色卡，走串行流程 run={}",
                     run_id
                 );
                 let raw = serde_json::to_string(&pack).unwrap_or_default();
-                self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, &raw)
-                    .await
+                self.run_genesis_legacy_inner(
+                    run_id,
+                    &effective_premise,
+                    repo,
+                    cancel,
+                    budget,
+                    &raw,
+                )
+                .await
             }
             Err(e) => {
                 // 取消（概念调用在飞被取消）同理直接传播，不回退 legacy
@@ -1297,10 +1327,28 @@ impl AgencyCoordinator {
                     run_id,
                     e
                 );
-                self.run_genesis_legacy_inner(run_id, premise, repo, cancel, budget, "")
+                self.run_genesis_legacy_inner(run_id, &effective_premise, repo, cancel, budget, "")
                     .await
             }
+        };
+
+        // v0.30.22: 持久化 PROBLEM logline（genesis 成功后写入 stories.logline）
+        if let Some(ref logline) = generated_logline {
+            if let Ok(ref r) = result {
+                let pool = self.pool.clone();
+                let sid = r.story_id.clone();
+                let ll = logline.clone();
+                let _ = self
+                    .db(move || -> Result<(), AppError> {
+                        StoryRepository::new(pool)
+                            .update_logline(&sid, &ll)
+                            .map_err(AppError::from)
+                    })
+                    .await;
+            }
         }
+
+        result
     }
 
     /// 快速路径 Phase A 续 + B + C：建 story → 角色卡入资产区 → 双模式
@@ -1450,6 +1498,47 @@ impl AgencyCoordinator {
         })
     }
 
+    /// v0.30.22: PROBLEM 框架 logline 生成。
+    /// 当用户输入是简单指令（如"写一部科幻小说"）时，用 PROBLEM 七元素
+    /// 框架将其转化为强力 logline，替换原 premise 驱动后续创世流程。
+    /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM。
+    async fn generate_logline(
+        &self,
+        run_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<String, AppError> {
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, ""),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        // 从 registry 加载 PROBLEM logline 提示词（支持用户覆盖）
+        let system = crate::prompts::registry::resolve_prompt_default_with_vars(
+            "agency_problem_logline",
+            &HashMap::new(),
+        )
+        .unwrap_or_else(|| {
+            "你是故事概念设计师，精通 PROBLEM 七元素框架\
+             （Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）。\
+             只输出一句 logline（不超过 100 字），格式：\
+             当一个[主角]在[催化事件]后，必须[核心不可能的任务]，否则[灾难性后果]。"
+                .to_string()
+        });
+        let user = format!(
+            "用户输入：{}\n\n请基于以上用户输入，用 PROBLEM 七元素框架生成一个强力的 logline。",
+            premise
+        );
+        let text = llm
+            .complete(&system, &user, TaskType::Brainstorming, 1024)
+            .await
+            .map_err(|e| {
+                log::warn!("agency: PROBLEM logline 生成失败 run={} err={}", run_id, e);
+                AppError::from(format!("logline 生成失败: {}", e))
+            })?;
+        Ok(text.trim().to_string())
+    }
+
     /// 概念包单调用（Phase A，Producer 档，经 BudgetedLlm 记账/限流）。
     /// story_id 此时尚不存在——传空串，llm_call 埋点跳过。
     async fn concept_pack(
@@ -1490,7 +1579,7 @@ impl AgencyCoordinator {
         let concept_json = serde_json::to_string(concept).unwrap_or_default();
         let raw = llm.complete_json(
             "你是小说策划，只输出 JSON。",
-            &format!("故事前提：{}\n\n概念设定：{}\n\n输出 JSON：{{\"world\":\"世界观设定\",\"outline\":\"第一卷大纲\",\"foreshadowing\":[\"伏笔1（含回收计划）\"]}}", premise, concept_json),
+            &format!("故事前提：{}\n\n概念设定：{}\n\n输出 JSON：{{\"world\":\"世界观设定\",\"outline\":\"第一卷大纲（必须基于 PROBLEM 七元素：P惩罚性核心冲突/R可共情主角/O原创转折/B可信世界规则/L改变人生赌注/E娱乐性/M主题意义。须含核心冲突、三幕结构、至少3个转折点）\",\"foreshadowing\":[\"伏笔1（含回收计划）\"]}}", premise, concept_json),
             TaskType::WorldBuilding,
             4096,
         ).await?;
@@ -2627,18 +2716,41 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_default()
         };
+        // v0.30.22: 读 logline（PROBLEM 框架生成的核心方向）
+        let logline_ctx = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<String, AppError> {
+                let story = StoryRepository::new(pool)
+                    .get_by_id(&sid)
+                    .map_err(AppError::from)?;
+                Ok(story
+                    .and_then(|s| s.logline)
+                    .filter(|l| !l.is_empty())
+                    .unwrap_or_default())
+            })
+            .await
+            .unwrap_or_default()
+        };
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::Producer, story_id),
             budget.clone(),
             AgentRole::Producer,
         );
-        let system =
+        // v0.30.22: 从 registry 加载 PROBLEM 大纲提示词（支持用户覆盖）
+        let system = crate::prompts::registry::resolve_prompt_default_with_vars(
+            "agency_problem_outline",
+            &HashMap::new(),
+        )
+        .unwrap_or_else(|| {
             "你是故事大纲规划师。根据世界观和角色，生成包含三幕结构、核心冲突和转折点的故事大纲。\
-                       大纲必须服从世界观的设定和约束--冲突根植于世界观的权力结构和矛盾。\
-                       不要泛泛而谈，要给出具体的核心冲突、转折点和推进方向。\
-                       只输出故事大纲正文，不要输出 JSON 或标题前缀。";
+             大纲必须服从世界观的设定和约束--冲突根植于世界观的权力结构和矛盾。\
+             不要泛泛而谈，要给出具体的核心冲突、转折点和推进方向。\
+             只输出故事大纲正文，不要输出 JSON 或标题前缀。"
+                .to_string()
+        });
         let user = format!(
-            "故事前提：{}\n\n世界观设定：\n{}\n\n角色：\n{}\n\n请生成故事大纲（800-1500 字），包含：\n\
+            "故事前提：{}\n\n世界观设定：\n{}\n\n角色：\n{}\n\n{}请生成故事大纲（800-1500 字），包含：\n\
              1. 核心冲突（根植于世界观的矛盾）\n\
              2. 三幕结构（起因/发展/高潮与结局）\n\
              3. 关键转折点（至少 3 个）\n\
@@ -2649,10 +2761,15 @@ impl AgencyCoordinator {
                 "（暂无角色卡）"
             } else {
                 &chars_ctx
+            },
+            if logline_ctx.is_empty() {
+                String::new()
+            } else {
+                format!("故事 Logline：{}\n\n", logline_ctx)
             }
         );
         let text = llm
-            .complete(system, &user, TaskType::Analysis, 4096)
+            .complete(&system, &user, TaskType::Analysis, 4096)
             .await
             .map_err(|e| {
                 log::warn!("agency: 故事大纲生成失败 run={} err={}", run_id, e);
@@ -2745,6 +2862,17 @@ impl AgencyCoordinator {
                 let line = format!("【故事大纲】{}\n", outline_text);
                 if ctx.chars().count() + line.chars().count() <= 10000 {
                     ctx.push_str(&line);
+                }
+            }
+            // Logline（v0.30.22 新增：writer 必须遵循的核心方向）
+            if let Ok(Some(story)) = StoryRepository::new(pool.clone()).get_by_id(&sid) {
+                if let Some(ref ll) = story.logline {
+                    if !ll.is_empty() {
+                        let line = format!("【故事Logline】{}\n", ll);
+                        if ctx.chars().count() + line.chars().count() <= 10000 {
+                            ctx.push_str(&line);
+                        }
+                    }
                 }
             }
             // 最近 2 个场景（与 asset_query(kind=scenes) 同源，取最新 2 章）
@@ -4244,6 +4372,14 @@ mod tests {
     use super::*;
     use crate::{agency::repository::AgencyRepository, db::create_test_pool};
 
+    /// 长前提（> 100 字符），跳过 PROBLEM logline 生成（v0.30.22）。
+    /// 现有 genesis 测试的 MockLlm 队列按原始调用序设计，logline 额外
+    /// LLM 调用会消费首条响应导致队列错位。使用长前提确保 logline 不触发。
+    const LONG_PREMISE: &str =
+        "在一个被双星辐射笼罩的废土世界，孤独的拾荒者偶然发现了传说中星海遗迹的\
+        坐标碎片。为了拯救日渐衰败的家园，他必须穿越致命的辐射区、躲避掠夺者的追杀，在遗迹中找到\
+        改变命运的力量。这是一个关于生存、勇气、牺牲和希望的科幻故事，讲述人性的光辉与黑暗。";
+
     struct MockLlm {
         responses: Mutex<VecDeque<String>>,
         /// 已收调用记录（user_prompt 原文），供调用顺序断言。
@@ -4331,10 +4467,7 @@ mod tests {
     async fn test_genesis_end_to_end_pass() {
         let pool = create_test_pool().unwrap();
         let coordinator = AgencyCoordinator::for_test(pool.clone(), pass_script());
-        let result = coordinator
-            .run_genesis("r1", "星海拾荒者的故事")
-            .await
-            .unwrap();
+        let result = coordinator.run_genesis("r1", LONG_PREMISE).await.unwrap();
         assert!(!result.revised);
         assert_eq!(result.verdict.verdict, "pass");
         // run 状态 completed
@@ -4379,10 +4512,7 @@ mod tests {
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"修订后合格\"}"}"#,
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-        let result = coordinator
-            .run_genesis("r2", "星海拾荒者的故事")
-            .await
-            .unwrap();
+        let result = coordinator.run_genesis("r2", LONG_PREMISE).await.unwrap();
         assert!(result.revised);
         let scene = SceneRepository::new(pool.clone())
             .get_by_id(&result.scene_id)
@@ -4401,7 +4531,10 @@ mod tests {
             "依然不是", // producer 连续解析失败 → aborted
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-        let err = coordinator.run_genesis("r3", "前提").await.unwrap_err();
+        let err = coordinator
+            .run_genesis("r3", LONG_PREMISE)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string().contains("管理")
                 || err.to_string().contains("producer")
@@ -4423,7 +4556,10 @@ mod tests {
             "依然不是", // producer 连续解析失败 → aborted
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-        let err = coordinator.run_genesis("r-cb", "前提").await.unwrap_err();
+        let err = coordinator
+            .run_genesis("r-cb", LONG_PREMISE)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string().contains("连续解析失败"),
             "熔断消息应含主因: {}",
@@ -4441,7 +4577,10 @@ mod tests {
         let mut lines = vec![r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#];
         lines.extend(std::iter::repeat(tool_call).take(12));
         let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(lines));
-        let err = coordinator.run_genesis("r-mt", "前提").await.unwrap_err();
+        let err = coordinator
+            .run_genesis("r-mt", LONG_PREMISE)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string().contains("达到最大轮数"),
             "熔断消息应含主因: {}",
@@ -4465,7 +4604,10 @@ mod tests {
             "仍然不是JSON裁决", // v0.30.19: editor 散文回退也失败 -> run failed
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-        let err = coordinator.run_genesis("r4", "前提").await.unwrap_err();
+        let err = coordinator
+            .run_genesis("r4", LONG_PREMISE)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("编辑审计") || err.to_string().contains("熔断"));
         let repo = AgencyRepository::new(pool.clone());
         let run = repo.get_run("r4").unwrap().unwrap();
@@ -4506,7 +4648,7 @@ mod tests {
         });
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let err = coordinator
-            .run_genesis("r5", "星海拾荒者的故事")
+            .run_genesis("r5", LONG_PREMISE)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("取消"), "应返回取消错误: {}", err);
@@ -4539,7 +4681,7 @@ mod tests {
         let (llm, chapter) = fastpath_script();
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
         let result = coordinator
-            .run_genesis("rf-multi", "星海拾荒者的故事")
+            .run_genesis("rf-multi", LONG_PREMISE)
             .await
             .unwrap();
         assert!(!result.revised);
@@ -4578,7 +4720,7 @@ mod tests {
         let coordinator =
             AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
         let result = coordinator
-            .run_genesis("rf-single", "星海拾荒者的故事")
+            .run_genesis("rf-single", LONG_PREMISE)
             .await
             .unwrap();
         let repo = AgencyRepository::new(pool.clone());
@@ -4628,7 +4770,7 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
         let result = coordinator
-            .run_genesis("rf-fallback", "星海拾荒者的故事")
+            .run_genesis("rf-fallback", LONG_PREMISE)
             .await
             .unwrap();
         let repo = AgencyRepository::new(pool.clone());
@@ -4669,7 +4811,7 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let result = coordinator
-            .run_genesis("rf-editor-fb", "星海拾荒者的故事")
+            .run_genesis("rf-editor-fb", LONG_PREMISE)
             .await
             .unwrap();
         assert_eq!(
@@ -4704,7 +4846,7 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
         let result = coordinator
-            .run_genesis("rf-prose-assets", "星海拾荒者的故事")
+            .run_genesis("rf-prose-assets", LONG_PREMISE)
             .await
             .unwrap();
         let repo = AgencyRepository::new(pool.clone());
@@ -4753,7 +4895,7 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
         let result = coordinator
-            .run_genesis("rf-prose-fallback", "星海拾荒者的故事")
+            .run_genesis("rf-prose-fallback", LONG_PREMISE)
             .await
             .unwrap();
         let repo = AgencyRepository::new(pool.clone());
@@ -5023,7 +5165,7 @@ mod tests {
         let coordinator =
             AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
         coordinator
-            .run_genesis("rf-json", "星海拾荒者的故事")
+            .run_genesis("rf-json", LONG_PREMISE)
             .await
             .unwrap();
         let json_calls = llm.json_calls.lock().unwrap();
@@ -5121,7 +5263,7 @@ mod tests {
         });
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
         let err = coordinator
-            .run_genesis("rf-cancel", "星海拾荒者的故事")
+            .run_genesis("rf-cancel", LONG_PREMISE)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("取消"), "应返回取消错误: {}", err);
@@ -5247,7 +5389,7 @@ mod tests {
         ]);
         let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
         let err = coordinator
-            .run_genesis("r-gate-1", "前提")
+            .run_genesis("r-gate-1", LONG_PREMISE)
             .await
             .unwrap_err();
         assert!(
@@ -5485,6 +5627,15 @@ mod tests {
                 rusqlite::params![story.id],
             )
             .unwrap();
+            // v0.30.22: 预置 logline（PROBLEM 框架生成的核心方向）
+            conn.execute(
+                "UPDATE stories SET logline = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    "当一个废土拾荒者发现星环坐标后，必须穿越辐射区，否则家园将毁灭。",
+                    story.id
+                ],
+            )
+            .unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
@@ -5516,6 +5667,134 @@ mod tests {
         assert!(
             ctx.contains("寻找星环"),
             "context should contain story outline content"
+        );
+        // v0.30.22: logline 注入
+        assert!(
+            ctx.contains("【故事Logline】"),
+            "context should contain logline section"
+        );
+        assert!(
+            ctx.contains("废土拾荒者"),
+            "context should contain logline content"
+        );
+    }
+
+    /// v0.30.22: 简单前提（< 100 字符）触发 PROBLEM logline 生成。
+    /// MockLlm 队列首位为 logline 响应，后续为 fastpath 脚本。
+    /// 验证：首次 LLM 调用是 logline 生成（含 PROBLEM），且 logline 持久化到
+    /// DB。
+    #[tokio::test]
+    async fn test_generate_logline_from_simple_premise() {
+        let pool = create_test_pool().unwrap();
+        let logline = "当一个废土拾荒者发现星海遗迹的坐标后，必须穿越辐射区抵达遗迹，否则遗迹的秘密将永远埋没。";
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let llm = MockLlm::scripted(vec![
+            logline,
+            r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
+            chapter.as_str(),
+            r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        ]);
+        let coordinator =
+            AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
+        let result = coordinator
+            .run_genesis("rf-logline", "写一部科幻小说")
+            .await
+            .unwrap();
+        // 首次调用应为 logline 生成（user prompt 含 PROBLEM）
+        let calls = llm.calls.lock().unwrap();
+        assert!(
+            calls[0].contains("PROBLEM") || calls[0].contains("logline"),
+            "首次调用应为 logline 生成: {}",
+            &calls[0][..calls[0].len().min(80)]
+        );
+        // 第二次调用为 concept pack（含 characters）
+        assert!(
+            calls[1].contains("characters"),
+            "第二次调用应为概念包: {}",
+            &calls[1][..calls[1].len().min(80)]
+        );
+        drop(calls);
+        // logline 持久化到 stories.logline
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .get_by_id(&result.story_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            story.logline.as_deref(),
+            Some(logline),
+            "logline 应持久化到 stories.logline"
+        );
+    }
+
+    /// v0.30.22: 长前提（≥ 100 字符）跳过 PROBLEM logline 生成。
+    /// MockLlm 队列与 fastpath_script 一致（无 logline 响应）。
+    /// 验证：首次 LLM 调用是 concept pack（非 logline），且 stories.logline 为
+    /// None。
+    #[tokio::test]
+    async fn test_generate_logline_skipped_for_long_premise() {
+        let pool = create_test_pool().unwrap();
+        let (llm, _chapter) = fastpath_script();
+        let coordinator =
+            AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
+        let result = coordinator
+            .run_genesis("rf-no-logline", LONG_PREMISE)
+            .await
+            .unwrap();
+        // 首次调用应为 concept pack（含 characters），非 logline
+        let calls = llm.calls.lock().unwrap();
+        assert!(
+            calls[0].contains("characters"),
+            "长前提首次调用应为概念包: {}",
+            &calls[0][..calls[0].len().min(80)]
+        );
+        assert!(!calls[0].contains("PROBLEM"), "长前提不应触发 logline 生成");
+        drop(calls);
+        // logline 不应生成
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .get_by_id(&result.story_id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            story.logline.is_none(),
+            "长前提不应生成 logline: {:?}",
+            story.logline
+        );
+    }
+
+    /// v0.30.22: genesis 完成后 PROBLEM logline 持久化到 stories.logline。
+    /// 与 test_generate_logline_from_simple_premise 互补：该测试聚焦
+    /// DB 持久化正确性（update_logline 在 genesis 成功后执行）。
+    #[tokio::test]
+    async fn test_logline_stored_after_genesis() {
+        let pool = create_test_pool().unwrap();
+        let logline = "当一名星际考古学家发现远古文明的警告信号后，必须在七十二小时内解码，否则地球将被吞噬。";
+        let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+        let llm = MockLlm::scripted(vec![
+            logline,
+            r#"{"title":"解码者","genre":"科幻","logline":"考古学家的七十二小时","characters":[{"name":"林深","background":"星际考古学家","personality":"执着","goals":"解码警告信号"}]}"#,
+            chapter.as_str(),
+            r#"{"world":"星际联邦时代，远古文明遗迹遍布","outline":"第一卷：信号解码","foreshadowing":["远古文明的最后一行文字"]}"#,
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        ]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
+        let result = coordinator
+            .run_genesis("rf-logline-store", "写一部科幻小说")
+            .await
+            .unwrap();
+        assert_eq!(result.verdict.verdict, "pass");
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .get_by_id(&result.story_id)
+            .unwrap()
+            .unwrap();
+        assert!(story.logline.is_some(), "genesis 完成后 logline 应已持久化");
+        assert!(
+            story
+                .logline
+                .as_deref()
+                .is_some_and(|l| l.contains("考古学家")),
+            "logline 内容应包含考古学家: {:?}",
+            story.logline
         );
     }
 
@@ -6433,10 +6712,7 @@ mod tests {
     async fn test_checkpoints_written_at_milestones() {
         let pool = create_test_pool().unwrap();
         let coordinator = AgencyCoordinator::for_test(pool.clone(), pass_script());
-        let result = coordinator
-            .run_genesis("cp-g", "星海拾荒者的故事")
-            .await
-            .unwrap();
+        let result = coordinator.run_genesis("cp-g", LONG_PREMISE).await.unwrap();
         let repo = AgencyRepository::new(pool.clone());
         let list = repo.list_checkpoints(&result.story_id).unwrap();
         let milestones: Vec<&str> = list.iter().map(|c| c.milestone.as_str()).collect();

@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.22（2026-07-23）
+
+### PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）
+
+- **背景**：用户输入简单指令（如"写一部科幻小说"）直接作为 `premise` 透传到 `concept_pack` -> `genesis_fastpath`，全程无方向约束。`concept_pack` 虽生成 `logline` 字段但从未使用，`ensure_story_outline` 的提示词是宽松的通用大纲要求，缺乏结构化的创意质量检验。
+- **核心**：将 Erik Bork 的 PROBLEM 七元素（Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）编码为可编辑的 prompt 资产，在创世和续写两个关键点注入。
+- **Phase 1（Prompt 资产）**：新增 `resources/prompts/agency/agency_problem_logline.md`（PROBLEM logline 系统提示词）和 `agency_problem_outline.md`（PROBLEM 大纲系统提示词），由 WalkDir + YAML frontmatter 机制自动注册，用户可在幕后提示词注册表编辑。
+- **Phase 2（DB 变更）**：V114 迁移 `ALTER TABLE stories ADD COLUMN logline TEXT`；`Story` model 追加 `logline: Option<String>`；`StoryRepository` 3 个 SELECT 加 logline 列 + 新增 `update_logline` 方法。
+- **Phase 3（Logline 生成）**：`coordinator.rs` 新增 `generate_logline` 方法--从 registry 加载 PROBLEM logline prompt，单次 Producer LLM 调用生成强力 logline。`run_genesis_inner` 在 `concept_pack` 前检测简单前提（< 100 字符），生成 logline 替换原前提驱动下游。genesis 成功后调 `update_logline` 持久化到 `stories.logline`。
+- **Phase 4（大纲增强）**：`ensure_story_outline`（续写路径）system prompt 从 registry 加载 PROBLEM 大纲提示词；user prompt 追加 logline 上下文。`producer_depth_assets`（创世路径）outline 字段描述增强 PROBLEM 七元素指引。
+- **Phase 5（Writer 上下文）**：`build_continue_writer_context` 在故事大纲注入后追加 `【故事Logline】` 注入（10000 字符预算），writer 必须遵循核心方向。
+- **验证**：`cargo test --lib` 974 passed（+3：logline 生成 / 跳过 / 持久化）；fmt / clippy（baseline 550）/ tsc / prettier / architecture_guard 全绿。
+
 ## v0.30.21（2026-07-22）
 
 ### 续写资产层级生成（世界观 -> 故事大纲 -> 章节大纲 -> 正文）

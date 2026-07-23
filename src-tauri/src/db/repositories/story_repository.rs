@@ -50,6 +50,7 @@ impl StoryRepository {
             methodology_id: req.methodology_id,
             methodology_step: None,
             reference_book_id: req.reference_book_id,
+            logline: None,
             created_at: now,
             updated_at: now,
         })
@@ -73,14 +74,14 @@ impl StoryRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
-             methodology_id, methodology_step, reference_book_id, created_at, updated_at FROM \
-             stories ORDER BY updated_at DESC",
+             methodology_id, methodology_step, reference_book_id, logline, created_at, updated_at \
+             FROM stories ORDER BY updated_at DESC",
         )?;
 
         let stories = stmt
             .query_map([], |row| {
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
+                let created_str: String = row.get(12)?;
+                let updated_str: String = row.get(13)?;
                 Ok(Story {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -93,6 +94,7 @@ impl StoryRepository {
                     methodology_id: row.get(8)?,
                     methodology_step: row.get(9)?,
                     reference_book_id: row.get(10)?,
+                    logline: row.get(11)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
@@ -111,7 +113,7 @@ impl StoryRepository {
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.description, s.genre, s.tone, s.pacing, s.style_dna_id, \
              s.genre_profile_id, s.methodology_id, s.methodology_step, s.reference_book_id, \
-             s.created_at, s.updated_at, \
+             s.logline, s.created_at, s.updated_at, \
              (SELECT COUNT(*) FROM characters c WHERE c.story_id = s.id) AS character_count, \
              (SELECT COUNT(*) FROM scenes sc WHERE sc.story_id = s.id) AS scene_count, \
              (SELECT COUNT(*) FROM chapters ch WHERE ch.story_id = s.id) AS chapter_count, \
@@ -122,8 +124,8 @@ impl StoryRepository {
 
         let stories = stmt
             .query_map([], |row| {
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
+                let created_str: String = row.get(12)?;
+                let updated_str: String = row.get(13)?;
                 Ok(StoryListItem {
                     story: Story {
                         id: row.get(0)?,
@@ -137,13 +139,14 @@ impl StoryRepository {
                         methodology_id: row.get(8)?,
                         methodology_step: row.get(9)?,
                         reference_book_id: row.get(10)?,
+                        logline: row.get(11)?,
                         created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                         updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                     },
-                    character_count: row.get(13)?,
-                    scene_count: row.get(14)?,
-                    chapter_count: row.get(15)?,
-                    word_count: row.get(16)?,
+                    character_count: row.get(14)?,
+                    scene_count: row.get(15)?,
+                    chapter_count: row.get(16)?,
+                    word_count: row.get(17)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -158,14 +161,14 @@ impl StoryRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
-             methodology_id, methodology_step, reference_book_id, created_at, updated_at FROM \
-             stories WHERE id = ?1",
+             methodology_id, methodology_step, reference_book_id, logline, created_at, updated_at \
+             FROM stories WHERE id = ?1",
         )?;
 
         let story = stmt
             .query_row([id], |row| {
-                let created_str: String = row.get(11)?;
-                let updated_str: String = row.get(12)?;
+                let created_str: String = row.get(12)?;
+                let updated_str: String = row.get(13)?;
                 Ok(Story {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -178,6 +181,7 @@ impl StoryRepository {
                     methodology_id: row.get(8)?,
                     methodology_step: row.get(9)?,
                     reference_book_id: row.get(10)?,
+                    logline: row.get(11)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
@@ -185,6 +189,20 @@ impl StoryRepository {
             .optional()?;
 
         Ok(story)
+    }
+
+    /// v0.30.22: 更新故事的 PROBLEM logline（genesis 完成后调用）。
+    pub fn update_logline(&self, id: &str, logline: &str) -> Result<(), rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE stories SET logline = ?1, updated_at = ?2 WHERE id = ?3",
+            params![logline, now, id],
+        )?;
+        Ok(())
     }
 
     pub fn update(&self, id: &str, req: &UpdateStoryRequest) -> Result<usize, rusqlite::Error> {

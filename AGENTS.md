@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.21
+- **版本**: v0.30.22
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,7 +80,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 971 passed
+- `cargo test --lib` ✅ 974 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 307 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -90,6 +90,17 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.22 - PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）
+
+- **背景**：用户输入简单指令（如"写一部科幻小说"）直接作为 `premise` 透传到 `concept_pack` -> `genesis_fastpath`，全程无方向约束。`concept_pack` 虽生成 `logline` 字段但从未使用，`ensure_story_outline` 提示词宽松，缺乏结构化创意质量检验。
+- **核心**：将 Erik Bork 的 PROBLEM 七元素（Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）编码为可编辑 prompt 资产，在创世和续写两个关键点注入。
+- **Phase 1（Prompt 资产）**：新增 `agency_problem_logline.md` + `agency_problem_outline.md`，WalkDir 自动注册。
+- **Phase 2（DB）**：V114 迁移 `stories ADD COLUMN logline TEXT`；`Story` model + `StoryRepository`（3 SELECT 加列 + `update_logline`）。
+- **Phase 3（Logline 生成）**：`generate_logline` 单次 Producer LLM 调用；`run_genesis_inner` 在 `concept_pack` 前检测简单前提（< 100 字符）生成 logline 替换原 premise；genesis 成功后 `update_logline` 持久化。
+- **Phase 4（大纲增强）**：`ensure_story_outline` system prompt 从 registry 加载 PROBLEM 大纲提示词 + logline 上下文；`producer_depth_assets` outline 字段增强 PROBLEM 指引。
+- **Phase 5（Writer 上下文）**：`build_continue_writer_context` 追加 `【故事Logline】` 注入。
+- **验证**：`cargo test --lib` 974 passed（+3：logline 生成 / 跳过 / 持久化）；fmt / clippy（baseline 550）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.21 - 续写资产层级生成（世界观 -> 故事大纲 -> 章节大纲 -> 正文）
 
@@ -541,7 +552,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.21_
+_最后更新: 2026-07-23 - v0.30.22_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

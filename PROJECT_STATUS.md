@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.21 项目完成状态
+# StoryMoss (草苔) v0.30.22 项目完成状态
 
-> 最后更新: 2026-07-22（v0.30.21 续写资产层级生成：世界观 -> 故事大纲 -> 章节大纲 -> 正文）
+> 最后更新: 2026-07-22（v0.30.22 PROBLEM 七元素框架集成：Logline 生成 + 故事大纲增强）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,23 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.22 - PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）（2026-07-22）
+
+- 新增 Erik Bork PROBLEM 七元素（Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）作为后端创作资产
+- 新增提示词文件 `agency_problem_logline.md` / `agency_problem_outline.md`
+- DB V114 迁移新增 `stories.logline` 列；Story 模型与 StoryRepository 同步改动
+- `generate_logline`：简单 premise（< 100 字符）触发 logline 生成并替换原 premise
+- `ensure_story_outline`：从注册表加载 PROBLEM outline 提示词 + 注入 logline 上下文
+- `producer_depth_assets` outline 字段注入 PROBLEM 指导；`build_continue_writer_context` 以【故事Logline】注入
+- `cargo test --lib` 974 passed（+3 logline 测试）；clippy baseline 550 无新增告警
+
+### v0.30.21 - 续写资产层级生成：世界观 -> 故事大纲 -> 章节大纲 -> 正文（2026-07-22）
+
+- 续写 `ensure_assets` 扩展：角色检查后追加 world_buildings / story_outlines 检查，缺失时调 `ensure_world_building` / `ensure_story_outline` 单次 Producer LLM 调用生成并落库（不抢主创 LLM）
+- `build_continue_writer_context` 注入故事大纲；`generate_chapter_outline` 在 writer tool_loop 前生成章节大纲（服从故事大纲），strict writer task 含故事大纲 + 本章大纲 + 写作要求
+- `handle_gate` 存 `scenes.outline_content`，形成"世界观 -> 故事大纲 -> 章节大纲 -> 正文"层级约束链
+- `cargo test --lib` 971 passed
 
 ### v0.30.20 - Agency 续写效率优化与质量门硬化（2026-07-22）
 
@@ -844,7 +861,7 @@
 | 检查项                                    | 状态                                                |
 | ----------------------------------------- | --------------------------------------------------- |
 | `cargo check`                             | ✅ 零错误                                           |
-| `cargo test --lib`                        | ✅ 936 passed / 0 failed / 2 ignored                |
+| `cargo test --lib`                        | ✅ 974 passed / 0 failed / 2 ignored                |
 | `cargo test --lib intention_graph`        | ✅ 21/21                                            |
 | `cargo test --lib adaptive::asset_params` | ✅ 3/3                                              |
 | `cargo test --lib genre_resolver`         | ✅ 5/5                                              |

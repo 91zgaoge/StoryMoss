@@ -668,6 +668,7 @@ mod tests {
             methodology_id: None,
             methodology_step: None,
             reference_book_id: None,
+            logline: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.21)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.22)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.22 变更说明
+
+- PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）：引入 Erik Bork 的 PROBLEM 七元素作为后端创作资产。`coordinator.rs` 新增 `generate_logline`（简单 premise < 100 字触发 PROBLEM logline 生成）；`run_genesis_inner` 在 concept_pack 前注入 logline Producer LLM 调用并落库（V114 迁移 `ALTER TABLE stories ADD COLUMN logline TEXT`，Story 模型加 `logline: Option<String>`，`StoryRepository::update_logline`）；`ensure_story_outline` 改用注册表 PROBLEM outline 提示词，`build_continue_writer_context` 注入【故事Logline】，`producer_depth_assets` 增强 PROBLEM 指导；提示词资产 `resources/prompts/agency/agency_problem_logline.md` / `agency_problem_outline.md` 经 WalkDir 自动注册。
+- 新增 3 个 logline 回归测试：`test_generate_logline_from_simple_premise`（简单 premise 触发 PROBLEM logline 生成）/ `test_generate_logline_skipped_for_long_premise`（长 premise ≥ 100 字跳过生成）/ `test_logline_stored_after_genesis`（创世后 logline 落库 `stories.logline`）。
+- 全量基线：`cargo test --lib` 974 passed（+3）。
 
 ### v0.30.21 变更说明
 
@@ -562,4 +568,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.18 修复意图分类 null 崩溃，测试基线 964/307_
+_最后更新: 2026-07-22 - v0.30.22 PROBLEM 七元素框架集成，测试基线 974_
