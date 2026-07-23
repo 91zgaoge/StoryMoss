@@ -1,8 +1,12 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.20)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.21)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.21 变更说明
+
+- 续写资产层级生成：`ensure_assets` 扩展检查 world_buildings / story_outlines，缺失时调 `ensure_world_building` / `ensure_story_outline` 单次 Producer LLM 调用生成并落库。`build_continue_writer_context` 注入故事大纲。`generate_chapter_outline` 在 writer tool_loop 前生成章节大纲。`handle_gate` 存 `scenes.outline_content`。新增 `test_ensure_world_building_generates_when_missing` + `test_ensure_story_outline_generates_when_missing` + `test_generate_chapter_outline` + `test_generate_chapter_outline_skips_without_story_outline`。更新现有续写测试预置 world_buildings + story_outlines + 章节大纲 mock 响应。`cargo test --lib` 971 passed。
 
 ### v0.30.20 变更说明
 
