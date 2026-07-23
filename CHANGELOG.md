@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.24（2026-07-23）
+
+### Logline 幽灵提示--用户输入简单创世指令时实时生成增强版 logline
+
+- **功能**：用户在输入栏输入简单创世指令（如"写一部现代间谍的长篇小说"）后，后台用 v0.30.22 的 PROBLEM logline 生成功能产出一句话强力 logline，以幽灵提示形式显示在输入栏下方，用户按 `->` 即可用 logline 替换原始简单指令再执行。避免用户简单指令得不到好的生成结果而反复试，同时为用户提供故事创意的体验和技能锻炼。
+- **后端（`commands/orchestrator.rs` + `handlers.rs`）**：新增 `generate_logline_hint` 命令--输入为空或 ≥ 100 字符返回 `None`（与 v0.30.22 `< 100 字符` 触发条件对齐）；复用 `agency_problem_logline` prompt 资产（用户在幕后编辑后自动生效）；`LlmService::generate_for_task_with_system_prompt` + 15s 超时；失败/超时静默返回 `None`。提取纯函数 `should_skip_logline_generation` / `is_valid_logline` 供单测。
+- **前端状态（`FrontstageApp.tsx`）**：新增 `loglineHint` / `loglineHintLoading` state + `loglineHintTimerRef` / `loglineHintReqIdRef` 防抖 ref；`useEffect` 监听 `inputValue` 变化，1.5s 防抖后调 `generateLoglineHint`，请求 ID 防竞态（仅接受最新请求结果）；`handleInputKeyDown` 扩展 `->` 接受 logline（输入非空时，区别于 ghost hint 的空输入场景）+ `Esc` 清除；`handleInputSubmit` 清理 logline hint。
+- **UI（`FrontstageBottomBar.tsx` + `frontstage.css`）**：输入框下方新增 `.frontstage-logline-hint` 建议条--loading 时显示旋转图标 + "正在生成增强版指令…"；就绪后显示 Lightbulb 图标 + logline 文本 + "按 -> 使用"提示；点击建议条也可接受（等同于 `->`）。CSS 含淡入动画 + hover 高亮。
+- **不干扰现有幽灵提示系统**：现有 `ghostHint` 仅在输入为空时显示（placeholder 式），logline 提示在输入非空时显示（suggestion 式），是独立的 UI 层。两个 `->` 处理互斥（ghost hint 要求 `!inputValue`，logline hint 要求 `inputValue`）。
+- **验证**：`cargo test --lib` 982 passed（+4：should_skip / is_valid 纯函数守卫）；`npx vitest run` 311 passed（+4：logline 渲染 / loading / 点击接受 / 空输入不渲染）；fmt / clippy（baseline 550，实际 549）/ tsc / prettier / architecture_guard 全绿。
+
 ## v0.30.23（2026-07-23）
 
 ### 意图分类 Bug 修复--LLM 分类去偏 + 失败兜底上下文化

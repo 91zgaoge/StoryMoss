@@ -3644,6 +3644,65 @@ body.force-hide-ghost .ghost-paragraph {
   cursor: not-allowed;
 }
 
+/* v0.30.24: Logline 幽灵提示--输入非空时显示增强版指令建议 */
+.frontstage-logline-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: 6px 12px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.95));
+  border: 1px solid var(--warm-sand, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--stone-gray);
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  animation: logline-hint-fade-in 0.2s ease;
+}
+
+.frontstage-logline-hint:hover {
+  border-color: var(--terracotta, #c65d3a);
+  box-shadow: 0 2px 12px rgba(198, 93, 58, 0.15);
+}
+
+.frontstage-logline-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.frontstage-logline-action {
+  color: var(--terracotta, #c65d3a);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.frontstage-logline-loading {
+  color: var(--stone-gray);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@keyframes logline-hint-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* 发送按钮 */
 .frontstage-input-send {
   width: 32px;

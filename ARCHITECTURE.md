@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.30.23 架构文档
+# StoryMoss (草苔) v0.30.24 架构文档
 
+> **v0.30.24**：Logline 幽灵提示--用户输入简单创世指令时实时生成增强版 logline。`commands/orchestrator.rs` 新增 `generate_logline_hint` 命令（复用 v0.30.22 `agency_problem_logline` prompt 资产 + `LlmService` + 15s 超时 + 静默降级），提取纯函数 `should_skip_logline_generation` / `is_valid_logline` 供单测。`FrontstageApp.tsx` 新增 `loglineHint` / `loglineHintLoading` state + 1.5s 防抖 effect（请求 ID 防竞态）+ `->` / `Esc` 键盘处理。`FrontstageBottomBar.tsx` 新增 `.frontstage-logline-hint` 建议条（loading 旋转图标 / 就绪 Lightbulb + logline + "按 -> 使用" / 点击接受）。与现有 `ghostHint` 互斥（ghost hint 仅空输入时显示，logline hint 仅非空输入时显示）。
+>
 > **v0.30.23**：意图分类 Bug 修复--LLM 分类去偏 + 失败兜底上下文化。`intent.rs` `build_classification_prompt` 移除 `已有故事={story}` 上下文注入行（偏差来源，使 LLM 倾向续写），改为基于用户输入本身判定意图；新增 3 个正例（"写一部科幻小说" -> is_new_novel=true）；新增 `conservative_fallback_with_context(has_existing_story)`--LLM 失败时无故事返回创世（不可能续写不存在的作品），有故事返回续写；仅缓存 LLM 成功结果不缓存兜底；缓存键简化为仅 `user_input`。`FrontstageApp.tsx` 两处 LLM 失败兜底从硬编码 `is_new_novel: false` 改为 `stories.length === 0`。设计原则：LLM 是意图判断的唯一权威，不回到硬编码关键词匹配，不用 `|| !has_existing_story` 覆盖 LLM 结果。
 >
 > **v0.30.22**：PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）--引入 Erik Bork 的 PROBLEM 七元素作为后端创作资产。`coordinator.rs` 新增 `generate_logline`（简单 premise < 100 字触发 PROBLEM logline 生成）；`run_genesis_inner` 在 concept_pack 前新增一次 Producer LLM 调用产出 logline，经 `StoryRepository::update_logline` 持久化至 `stories.logline`（V114 迁移 `ALTER TABLE stories ADD COLUMN logline TEXT`，Story 模型加 `logline: Option<String>`）；`ensure_story_outline` 改用注册表 PROBLEM outline 提示词、`build_continue_writer_context` 注入【故事Logline】，两者均从 DB 读 logline；`producer_depth_assets` 增强 PROBLEM 指导。提示词资产 `resources/prompts/agency/agency_problem_logline.md` / `agency_problem_outline.md` 经 WalkDir 自动注册。
