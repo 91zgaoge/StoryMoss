@@ -1,10 +1,10 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-23（v0.30.19 修复质量门编辑审计 Agent 熔断）
+> 最后更新: 2026-07-23（v0.30.20 修复质量门编辑审计 Agent 熔断）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
 
-### 🐛 v0.30.19 - 修复质量门编辑审计 Agent 熔断 ✅ (2026-07-23)
+### 🐛 v0.30.20 - 修复质量门编辑审计 Agent 熔断 ✅ (2026-07-23)
 
 - [x] 修复 Agency 质量门 editor_auditor tool_loop 在本地模型不遵从 JSON action 时连续解析失败/达最大轮数熔断 -> 原直接 Failed 导致整 run 失败。Fix：①salvage（熔断时仍 `parse_lenient` 提取末轮裁决 JSON）；②散文回退（`editor_verdict_prose_fallback` 单次 `llm.complete()` 直接请求裁决 JSON，与 `writer_prose_fallback` 同理）。`cargo test --lib` 965 passed。
 

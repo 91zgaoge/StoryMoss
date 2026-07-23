@@ -358,7 +358,7 @@ fn default_auto_rewrite_severity_threshold() -> String {
 }
 
 fn default_llm_connect_timeout() -> u64 {
-    60
+    15
 }
 fn default_smart_execute_timeout() -> u64 {
     600

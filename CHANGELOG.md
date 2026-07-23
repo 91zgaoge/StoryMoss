@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.20（2026-07-22）
+
+### Agency 续写效率优化与质量门硬化
+
+- **续写 run_deadline**：`run_continue` / `run_continue_batch` 调 `setup_run_deadline()`，tool_loop 获超时保护（剩余 <30s 熔断保产出）。
+- **续写 writer 散文回退**：参数化 `writer_prose_fallback`（`chapter_key`）；`write_chapter` 连续解析失败熔断时回退散文单调用，避免整章失败。
+- **续写 writer 上下文预注入**：新建 `build_continue_writer_context` 从 DB 读角色/世界/最近场景注入 task，tool_loop 从 3-7 轮降到 1-2 轮。
+- **Editor 质量门 deadline**：`evaluate_gate_impl` 加 `deadline` 参数，v0.30.19 salvage + prose_fallback 使 deadline 安全。
+- **Editor 草稿预注入**：editor task 注入 `draft.content`，省 1 轮 board_read。
+- **连接超时调优**：`llm_connect_timeout_secs` 默认 60s -> 15s。
+- **验证**：`cargo test --lib` 967 passed（+2）；fmt / clippy / tsc / architecture_guard 全绿。
+
 ## v0.30.19（2026-07-23）
 
 ### 修复
