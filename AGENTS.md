@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.20
+- **版本**: v0.30.21
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,16 +80,26 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 967 passed
+- `cargo test --lib` ✅ 971 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 307 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 549（零新增）
+- `cargo clippy --lib` ✅ 550（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.21 - 续写资产层级生成（世界观 -> 故事大纲 -> 章节大纲 -> 正文）
+
+- **根因**：续写路径 `ensure_assets`（`coordinator.rs`）仅检查 `characters` 表行数，角色存在即返回--不检查、不生成 world_buildings / story_outlines。`build_continue_writer_context` 不注入故事大纲，`write_chapter` task 仅"续写第N章"无方向约束，导致生成内容缺乏方向和情节推进。
+- **Fix A（ensure_assets 扩展）**：角色检查后追加 world_buildings / story_outlines 检查；缺失时调 `ensure_world_building` / `ensure_story_outline` 单次 Producer LLM 调用（不跑 tool_loop，不抢主创 LLM）生成并落库。失败时 `log::warn` + `Ok(())` 不阻断续写。
+- **Fix B（build_continue_writer_context 注入故事大纲）**：读 `story_outlines.content` 注入 writer task（4000 字符预算），为 writer 提供整体推进方向。
+- **Fix C（generate_chapter_outline）**：writer tool_loop 前单次 Producer LLM 调用生成章节大纲（服从故事大纲），写入黑板 Draft 区 `key=outline-{chapter_key}`。无故事大纲时跳过（返回空串）。strict writer task 含故事大纲 + 本章大纲 + 写作要求（起伏/转折/冲突）。
+- **Fix D（handle_gate 存储 outline_content）**：装配 Scene 时从黑板读取章节大纲，存入 `scenes.outline_content`。
+- **层级约束**：世界观构建 -> 故事大纲 -> 章节大纲 -> 正文，每一层基于上一层生成，形成从世界观到正文的约束链。
+- **验证**：`cargo test --lib` 971 passed（+4：ensure_world_building / ensure_story_outline / generate_chapter_outline / skip_without_story_outline）；fmt / clippy（baseline 550）/ tsc / architecture_guard 全绿。
 
 ### v0.30.20 - Agency 续写效率优化与质量门硬化
 
@@ -531,7 +541,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-22 - v0.30.20_
+_最后更新: 2026-07-22 - v0.30.21_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

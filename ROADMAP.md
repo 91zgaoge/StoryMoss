@@ -1,8 +1,12 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-23（v0.30.20 修复质量门编辑审计 Agent 熔断）
+> 最后更新: 2026-07-22（v0.30.21 续写资产层级生成）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.21 - 续写资产层级生成 ✅ (2026-07-22)
+
+- [x] 续写 `ensure_assets` 扩展：角色检查后追加 world_buildings / story_outlines 检查，缺失时调 `ensure_world_building` / `ensure_story_outline` 单次 Producer LLM 调用生成并落库（不抢主创 LLM）。`build_continue_writer_context` 注入故事大纲。`generate_chapter_outline` 在 writer tool_loop 前生成章节大纲（服从故事大纲），strict writer task 含故事大纲 + 本章大纲 + 写作要求。`handle_gate` 存 `scenes.outline_content`。形成"世界观 -> 故事大纲 -> 章节大纲 -> 正文"层级约束链。`cargo test --lib` 971 passed。
 
 ### 🐛 v0.30.20 - 修复质量门编辑审计 Agent 熔断 ✅ (2026-07-23)
 

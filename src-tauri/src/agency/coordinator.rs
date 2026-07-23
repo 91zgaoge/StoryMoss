@@ -2412,6 +2412,289 @@ impl AgencyCoordinator {
                 .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             }
         }
+        // v0.30.21: 层级资产强制生成--角色存在但世界观/故事大纲缺失时补齐，
+        // 形成"世界观 -> 故事大纲 -> 章节大纲 -> 正文"的约束链。
+        let has_world = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<bool, AppError> {
+                let conn = pool
+                    .get()
+                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                let n: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM world_buildings WHERE story_id = ?1",
+                        rusqlite::params![sid],
+                        |r| r.get(0),
+                    )
+                    .map_err(AppError::from)?;
+                Ok(n > 0)
+            })
+            .await?
+        };
+        if !has_world {
+            self.ensure_world_building(run_id, story_id, premise, budget)
+                .await?;
+        }
+        let has_outline = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<bool, AppError> {
+                let conn = pool
+                    .get()
+                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                let n: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM story_outlines WHERE story_id = ?1",
+                        rusqlite::params![sid],
+                        |r| r.get(0),
+                    )
+                    .map_err(AppError::from)?;
+                Ok(n > 0)
+            })
+            .await?
+        };
+        if !has_outline {
+            self.ensure_story_outline(run_id, story_id, premise, budget)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// v0.30.21: 强制生成世界观构建（角色已有但世界观缺失时）。
+    /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM（Producer
+    /// 信号量独立）。 失败时 log::warn 并返回 Ok(())（不阻断续写，writer
+    /// 走原路径）。
+    async fn ensure_world_building(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<(), AppError> {
+        // 读已有角色摘要（世界观需为角色提供冲突土壤）
+        let chars_ctx = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<String, AppError> {
+                use crate::db::repositories::CharacterRepository;
+                let chars = CharacterRepository::new(pool)
+                    .get_by_story(&sid)
+                    .map_err(AppError::from)?;
+                let mut ctx = String::new();
+                for c in chars.iter().take(5) {
+                    let line = format!(
+                        "- {}：性格{}，目标{}\n",
+                        c.name,
+                        c.personality.as_deref().unwrap_or("-"),
+                        c.goals.as_deref().unwrap_or("-"),
+                    );
+                    ctx.push_str(&line);
+                }
+                Ok(ctx)
+            })
+            .await
+            .unwrap_or_default()
+        };
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let system = "你是故事世界观构建师。根据故事前提和已有角色，生成一个包含冲突源、权力结构和内在张力的世界观设定。\
+                       世界观必须为故事提供冲突土壤--权力争夺、资源匮乏、价值观对立、生存威胁等。\
+                       不要泛泛而谈，要给出具体的冲突根源、社会结构和潜在矛盾。\
+                       只输出世界观设定正文，不要输出 JSON 或标题前缀。";
+        let user = format!(
+            "故事前提：{}\n\n已有角色：\n{}\n\n请生成世界观设定（800-1500 字），包含：\n\
+             1. 世界概念与核心设定\n\
+             2. 历史背景与冲突根源\n\
+             3. 权力结构与社会矛盾\n\
+             4. 对角色构成压力的冲突源",
+            premise,
+            if chars_ctx.is_empty() {
+                "（暂无角色卡）"
+            } else {
+                &chars_ctx
+            }
+        );
+        let text = llm
+            .complete(system, &user, TaskType::WorldBuilding, 4096)
+            .await
+            .map_err(|e| {
+                log::warn!("agency: 世界观生成失败 run={} err={}", run_id, e);
+                AppError::from(format!("世界观生成失败: {}", e))
+            });
+        let text = match text {
+            Ok(t) => t.trim().to_string(),
+            Err(_) => return Ok(()), // 兜底：不阻断续写
+        };
+        if text.chars().count() < 100 {
+            log::warn!(
+                "agency: 世界观生成过短（{} 字符），跳过落库 run={}",
+                text.chars().count(),
+                run_id
+            );
+            return Ok(());
+        }
+        // 落库：concept 存全文前 500 字，history 存全文
+        let concept: String = text.chars().take(500).collect();
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let history = text.clone();
+        let _ = self
+            .db(move || -> Result<(), AppError> {
+                use crate::db::repositories::WorldBuildingRepository;
+                WorldBuildingRepository::new(pool)
+                    .create_with_source(&sid, &concept, Some("agency"), Some(true))
+                    .map_err(AppError::from)?;
+                Ok(())
+            })
+            .await;
+        // 补写 history（create_with_source 不接受 history 参数）
+        let pool2 = self.pool.clone();
+        let sid2 = story_id.to_string();
+        let _ = self
+            .db(move || -> Result<(), AppError> {
+                let conn = pool2
+                    .get()
+                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                conn.execute(
+                    "UPDATE world_buildings SET history = ?2 WHERE story_id = ?1 AND (history IS NULL OR history = '')",
+                    rusqlite::params![sid2, history],
+                )
+                .map_err(AppError::from)?;
+                Ok(())
+            })
+            .await;
+        log::info!(
+            "agency: 世界观已生成并落库 story={} run={}（{} 字符）",
+            story_id,
+            run_id,
+            text.chars().count()
+        );
+        Ok(())
+    }
+
+    /// v0.30.21: 强制生成故事大纲（服从世界观）。
+    /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM。
+    /// 失败时 log::warn 并返回 Ok(())。
+    async fn ensure_story_outline(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<(), AppError> {
+        // 读世界观（故事大纲必须服从世界观约束）
+        let world_ctx = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<String, AppError> {
+                use crate::db::repositories::WorldBuildingRepository;
+                let wb = WorldBuildingRepository::new(pool)
+                    .get_by_story(&sid)
+                    .map_err(AppError::from)?;
+                Ok(match wb {
+                    Some(w) => format!(
+                        "概念：{}\n历史：{}",
+                        w.concept,
+                        w.history.as_deref().unwrap_or("-")
+                    ),
+                    None => "（暂无世界观）".to_string(),
+                })
+            })
+            .await
+            .unwrap_or_default()
+        };
+        // 读已有角色摘要
+        let chars_ctx = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || -> Result<String, AppError> {
+                use crate::db::repositories::CharacterRepository;
+                let chars = CharacterRepository::new(pool)
+                    .get_by_story(&sid)
+                    .map_err(AppError::from)?;
+                let mut ctx = String::new();
+                for c in chars.iter().take(5) {
+                    let line =
+                        format!("- {}：目标{}\n", c.name, c.goals.as_deref().unwrap_or("-"),);
+                    ctx.push_str(&line);
+                }
+                Ok(ctx)
+            })
+            .await
+            .unwrap_or_default()
+        };
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let system =
+            "你是故事大纲规划师。根据世界观和角色，生成包含三幕结构、核心冲突和转折点的故事大纲。\
+                       大纲必须服从世界观的设定和约束--冲突根植于世界观的权力结构和矛盾。\
+                       不要泛泛而谈，要给出具体的核心冲突、转折点和推进方向。\
+                       只输出故事大纲正文，不要输出 JSON 或标题前缀。";
+        let user = format!(
+            "故事前提：{}\n\n世界观设定：\n{}\n\n角色：\n{}\n\n请生成故事大纲（800-1500 字），包含：\n\
+             1. 核心冲突（根植于世界观的矛盾）\n\
+             2. 三幕结构（起因/发展/高潮与结局）\n\
+             3. 关键转折点（至少 3 个）\n\
+             4. 整体推进方向（故事往哪走）",
+            premise,
+            world_ctx,
+            if chars_ctx.is_empty() {
+                "（暂无角色卡）"
+            } else {
+                &chars_ctx
+            }
+        );
+        let text = llm
+            .complete(system, &user, TaskType::Analysis, 4096)
+            .await
+            .map_err(|e| {
+                log::warn!("agency: 故事大纲生成失败 run={} err={}", run_id, e);
+                AppError::from(format!("故事大纲生成失败: {}", e))
+            });
+        let text = match text {
+            Ok(t) => t.trim().to_string(),
+            Err(_) => return Ok(()),
+        };
+        if text.chars().count() < 100 {
+            log::warn!(
+                "agency: 故事大纲生成过短（{} 字符），跳过落库 run={}",
+                text.chars().count(),
+                run_id
+            );
+            return Ok(());
+        }
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let content = text.clone();
+        let _ = self
+            .db(move || -> Result<(), AppError> {
+                use crate::db::repositories::StoryOutlineRepository;
+                let repo = StoryOutlineRepository::new(pool);
+                // 已有则更新，否则创建
+                let existing = repo.get_by_story(&sid).map_err(AppError::from)?;
+                if existing.is_some() {
+                    repo.update(&sid, Some(&content), None)
+                        .map_err(AppError::from)?;
+                } else {
+                    repo.create(&sid, &content, None, 3, None)
+                        .map_err(AppError::from)?;
+                }
+                Ok(())
+            })
+            .await;
+        log::info!(
+            "agency: 故事大纲已生成并落库 story={} run={}（{} 字符）",
+            story_id,
+            run_id,
+            text.chars().count()
+        );
         Ok(())
     }
 
@@ -2423,7 +2706,8 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         self.db(move || {
             use crate::db::repositories::{
-                CharacterRepository, SceneRepository, WorldBuildingRepository,
+                CharacterRepository, SceneRepository, StoryOutlineRepository,
+                WorldBuildingRepository,
             };
             let mut ctx = String::new();
             // 角色（与 asset_query(kind=characters) 同源）
@@ -2454,6 +2738,15 @@ impl AgencyCoordinator {
                     ctx.push_str(&line);
                 }
             }
+            // 故事大纲（v0.30.21 新增：writer 必须遵循整体推进方向）
+            if let Ok(Some(outline)) = StoryOutlineRepository::new(pool.clone()).get_by_story(&sid)
+            {
+                let outline_text: String = outline.content.chars().take(4000).collect();
+                let line = format!("【故事大纲】{}\n", outline_text);
+                if ctx.chars().count() + line.chars().count() <= 10000 {
+                    ctx.push_str(&line);
+                }
+            }
             // 最近 2 个场景（与 asset_query(kind=scenes) 同源，取最新 2 章）
             let scenes = SceneRepository::new(pool)
                 .get_by_story(&sid)
@@ -2480,6 +2773,94 @@ impl AgencyCoordinator {
         .unwrap_or_default()
     }
 
+    /// v0.30.21: 生成本章详细大纲（服从故事大纲推进方向）。
+    /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM。
+    /// 大纲写入黑板 Draft 区 key="outline-{chapter_key}"（供 handle_gate
+    /// 读取存为 scenes.outline_content）。失败时返回空串（writer task
+    /// 不含章节大纲约束， 但不阻断续写）。
+    async fn generate_chapter_outline(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+        chapter_number: i32,
+        assets_ctx: &str,
+    ) -> String {
+        let key = format!("第{}章", chapter_number);
+        // v0.30.21: 无故事大纲时不生成章节大纲（章节大纲须服从故事大纲）
+        if !assets_ctx.contains("【故事大纲】") {
+            return String::new();
+        }
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let system = "你是章节大纲规划师。根据故事大纲和前文，生成本章详细大纲。\
+                       章节大纲必须服从故事大纲的推进方向，指定本章的核心冲突、情节转折和推进内容。\
+                       要有起伏、有转折、有精彩的冲突。\
+                       只输出章节大纲正文，不要输出 JSON 或标题前缀。";
+        let user = format!(
+            "故事前提：{}\n\n本章：{}\n\n已有资产与前文：\n{}\n\n请生成本章大纲（200-400 字），包含：\n\
+             1. 本章核心冲突\n\
+             2. 情节转折点（至少 1 个）\n\
+             3. 本章推进内容（故事往前走什么）\n\
+             4. 场景设计（场景/对话/动作概要）",
+            premise, key, assets_ctx
+        );
+        let result = llm.complete(system, &user, TaskType::Analysis, 2048).await;
+        let text = match result {
+            Ok(t) => t.trim().to_string(),
+            Err(e) => {
+                log::warn!(
+                    "agency: 章节大纲生成失败 run={} chapter={} err={}",
+                    run_id,
+                    chapter_number,
+                    e
+                );
+                return String::new();
+            }
+        };
+        if text.chars().count() < 50 {
+            log::warn!(
+                "agency: 章节大纲生成过短（{} 字符），跳过 run={} chapter={}",
+                text.chars().count(),
+                run_id,
+                chapter_number
+            );
+            return String::new();
+        }
+        // 写入黑板 Draft 区（供 handle_gate 读取存为 scenes.outline_content）
+        let board = self.board();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let outline_key = format!("outline-{}", key);
+        let outline_text = text.clone();
+        let summary: String = text.chars().take(60).collect();
+        let _ = self
+            .db(move || {
+                board.write(
+                    &rid,
+                    &sid,
+                    AgentRole::Producer,
+                    BoardZone::Draft,
+                    "outline",
+                    &outline_key,
+                    &outline_text,
+                    &summary,
+                )
+            })
+            .await;
+        log::info!(
+            "agency: 章节大纲已生成 run={} chapter={}（{} 字符）",
+            run_id,
+            chapter_number,
+            text.chars().count()
+        );
+        text
+    }
+
     /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft
     /// 条目。
     async fn write_chapter(
@@ -2495,9 +2876,34 @@ impl AgencyCoordinator {
         let key = format!("第{}章", chapter_number);
         // v0.30.20: 预注入 DB 上下文（角色/世界/最近场景），消除 writer 多轮
         // board_read/asset_query 轮询（tool_loop 从 3-7 轮降到 1-2 轮）。
+        // v0.30.21: assets_ctx 现含故事大纲（整体推进方向）。
         let assets_ctx = self.build_continue_writer_context(story_id).await;
-        let writer_task = if assets_ctx.is_empty() {
+        // v0.30.21: 生成本章大纲（服从故事大纲），为 writer 提供章节级约束。
+        let chapter_outline = self
+            .generate_chapter_outline(
+                run_id,
+                story_id,
+                premise,
+                budget,
+                chapter_number,
+                &assets_ctx,
+            )
+            .await;
+        let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
             format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
+        } else if !chapter_outline.is_empty() {
+            // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+ 写作要求
+            format!(
+                "续写{}（1500-2500 字）。\n\
+                 【本章大纲（必须遵循的章节方向）】\n{}\n\
+                 【世界观、角色、故事大纲与前文】\n{}\n\
+                 写作要求：\n\
+                 - 严格按照本章大纲的冲突和转折撰写，不得偏离故事大纲的推进方向\n\
+                 - 必须有起伏、有转折、有精彩的冲突\n\
+                 - 角色行为符合其性格和目标，与前文保持连贯\n\
+                 完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
+                key, chapter_outline, assets_ctx, key
+            )
         } else {
             format!("续写{}（1500-2500 字）。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
@@ -2633,6 +3039,22 @@ impl AgencyCoordinator {
         };
         // 装配：草稿 → Scene 真源
         self.update_phase(repo, run_id, "assembly").await?;
+        // v0.30.21: 读取本章大纲（write_chapter 的 generate_chapter_outline 写入黑板）
+        let outline_key = format!("outline-第{}章", chapter_number);
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let okey = outline_key.clone();
+        let outline_content = self
+            .db(move || -> Result<Option<String>, AppError> {
+                let drafts = board_c.list_zone(&rid, BoardZone::Draft)?;
+                Ok(drafts
+                    .into_iter()
+                    .rev()
+                    .find(|d| d.status == "active" && !d.content.is_empty() && d.key == okey)
+                    .map(|d| d.content))
+            })
+            .await
+            .unwrap_or(None);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let content = draft.content.clone();
@@ -2646,6 +3068,7 @@ impl AgencyCoordinator {
                 &scene.id,
                 &crate::db::repositories::SceneUpdate {
                     content: Some(content),
+                    outline_content, // v0.30.21: 存储章节大纲
                     ..Default::default()
                 },
             )
@@ -4887,6 +5310,17 @@ mod tests {
                  VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
                 rusqlite::params![story.id],
             ).unwrap();
+            // v0.30.21: 预置世界观与故事大纲
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
@@ -4906,6 +5340,8 @@ mod tests {
             chapter2
         );
         let llm = MockLlm::scripted(vec![
+            // v0.30.21: generate_chapter_outline（Producer 单调用，返回章节大纲正文）
+            "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
             // writer: 查前文 + 写第 2 章（约定 key 为阿拉伯数字形式，与 write_chapter 一致）
             write2.as_str(),
             r#"{"type":"final","content":"第二章完成"}"#,
@@ -4954,6 +5390,19 @@ mod tests {
                 rusqlite::params![story.id],
             )
             .unwrap();
+            // v0.30.21: 预置世界观与故事大纲
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
@@ -4969,6 +5418,8 @@ mod tests {
 
         let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
         let llm = MockLlm::scripted(vec![
+            // v0.30.21: generate_chapter_outline（Producer 单调用）
+            "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
             "不是 JSON",       // writer parse fail #1
             "还不是 JSON",     // writer parse fail #2
             "依然不是 JSON",   // writer parse fail #3 -> 熔断
@@ -5021,6 +5472,19 @@ mod tests {
                 rusqlite::params![story.id],
             )
             .unwrap();
+            // v0.30.21: 预置世界观与故事大纲
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
@@ -5043,6 +5507,15 @@ mod tests {
         assert!(
             ctx.contains("第一章正文内容"),
             "context should contain scene content"
+        );
+        // v0.30.21: 故事大纲注入
+        assert!(
+            ctx.contains("【故事大纲】"),
+            "context should contain story outline section"
+        );
+        assert!(
+            ctx.contains("寻找星环"),
+            "context should contain story outline content"
         );
     }
 
@@ -5247,6 +5720,18 @@ mod tests {
              VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
             rusqlite::params![story.id],
         ).unwrap();
+        // v0.30.21: 预置世界观与故事大纲（避免 ensure_assets 触发 LLM 生成，
+        // 消耗 mock 队列响应）
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明：资源匮乏的拾荒世界', '[]', '星环崩塌后残存文明争夺资源', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：阿苔寻找星环秘密。三幕结构：起因-发展-高潮。转折点：盟友背叛。推进方向：前往禁区。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
         story.id
     }
 
@@ -5254,6 +5739,16 @@ mod tests {
     async fn test_batch_parallel_two_chapters() {
         let pool = create_test_pool().unwrap();
         let story_id = seed_story_with_assets(&pool);
+        // v0.30.21: 删除故事大纲以跳过 generate_chapter_outline（避免 Producer
+        // LLM 调用的 60ms delay 破坏 gate(1) ∥ writer(2) 并行时序）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "DELETE FROM story_outlines WHERE story_id = ?1",
+                rusqlite::params![&story_id],
+            )
+            .unwrap();
+        }
         let mock = RoutingMock::new(60);
         let write1 = format!(
             r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
@@ -5507,8 +6002,23 @@ mod tests {
             .unwrap();
             conn.execute(
                 "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
-                 VALUES ('c1', 's1', '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')", [],
-            ).unwrap();
+                 VALUES ('c1', 's1', '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            // v0.30.21: 预置世界观与故事大纲
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', 's1', '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', 's1', '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create("s1", 1, Some("第一章")).unwrap();
@@ -5528,6 +6038,8 @@ mod tests {
             pass_grade_content("第二章：星舰苏醒。")
         );
         let llm = MockLlm::scripted(vec![
+            // v0.30.21: generate_chapter_outline（Producer 单调用）
+            "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
             write2.as_str(),
             r#"{"type":"final","content":"完成"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
@@ -5595,8 +6107,23 @@ mod tests {
             .unwrap();
             conn.execute(
                 "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
-                 VALUES ('c1', 's1', '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')", [],
-            ).unwrap();
+                 VALUES ('c1', 's1', '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            // v0.30.21: 预置世界观与故事大纲
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', 's1', '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', 's1', '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
         }
         let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let ch1 = scene_repo.create("s1", 1, Some("第一章")).unwrap();
@@ -5933,6 +6460,8 @@ mod tests {
             pass_grade_content("第1章正文。")
         );
         let llm = MockLlm::scripted(vec![
+            // v0.30.21: generate_chapter_outline（Producer 单调用）
+            "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
             write1.as_str(),
             r#"{"type":"final","content":"完成"}"#,
             r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
@@ -5954,5 +6483,246 @@ mod tests {
         assert_eq!(gates[0]["chapter"].as_i64(), Some(1));
         let weighted = gates[0]["weighted"].as_f64().unwrap();
         assert!(weighted > 0.75, "本章 weighted 应过阈值: {}", weighted);
+    }
+
+    /// v0.30.21: ensure_world_building 在世界观缺失时强制生成并落库。
+    #[tokio::test]
+    async fn test_ensure_world_building_generates_when_missing() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "世界观测试".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置角色（有角色但无世界观 -> ensure_world_building 被触发）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        // MockLlm: ensure_world_building（Producer complete 调用）
+        let world_text = "双星文明：资源匮乏的拾荒世界。星环崩塌后残存文明在废墟中争夺资源。\
+                          权力结构：星环议会垄断技术残骸，拾荒者处于社会底层。\
+                          冲突源：拾荒者与议会的资源争夺，星环重启的技术秘密。\
+                          社会矛盾：技术垄断与生存权的对立，底层反抗暗流涌动。";
+        let llm = MockLlm::scripted(vec![world_text]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        // 直接调用 ensure_assets（内含 ensure_world_building）
+        let repo = AgencyRepository::new(pool.clone());
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        coordinator
+            .ensure_assets(&budget, &repo, "r-wb", &story.id, "前提")
+            .await
+            .unwrap();
+        // 验证 world_buildings 表有行
+        let count: i64 = {
+            let conn = pool.get().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM world_buildings WHERE story_id = ?1",
+                rusqlite::params![story.id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count, 1, "world_buildings should have 1 row");
+        // 验证 concept 和 history 已写入
+        let wb = crate::db::repositories::WorldBuildingRepository::new(pool.clone())
+            .get_by_story(&story.id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            wb.concept.contains("双星文明"),
+            "concept should contain generated text"
+        );
+        assert!(
+            wb.history.as_deref().unwrap_or("").contains("星环崩塌"),
+            "history should contain generated text"
+        );
+    }
+
+    /// v0.30.21: ensure_story_outline 在故事大纲缺失时强制生成并落库。
+    #[tokio::test]
+    async fn test_ensure_story_outline_generates_when_missing() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "大纲测试".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置角色 + 世界观（有角色和世界观但无故事大纲 -> ensure_story_outline
+        // 被触发）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        // MockLlm: ensure_story_outline（Producer complete 调用）
+        let outline_text = "核心冲突：阿苔寻找星环秘密，与星环议会的垄断形成对抗。\
+                            三幕结构：起因-阿苔发现星环线索；发展-盟友背叛与禁区探索；高潮-星环重启与真相揭露。\
+                            关键转折点：盟友背叛、星环重启、禁区发现。\
+                            整体推进方向：从拾荒生存到揭开文明真相，最终改变权力格局。";
+        let llm = MockLlm::scripted(vec![outline_text]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let repo = AgencyRepository::new(pool.clone());
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        coordinator
+            .ensure_assets(&budget, &repo, "r-so", &story.id, "前提")
+            .await
+            .unwrap();
+        // 验证 story_outlines 表有行
+        let outline = crate::db::repositories::StoryOutlineRepository::new(pool.clone())
+            .get_by_story(&story.id)
+            .unwrap();
+        assert!(outline.is_some(), "story_outlines should have a row");
+        assert!(
+            outline.unwrap().content.contains("核心冲突"),
+            "outline content should contain generated text"
+        );
+    }
+
+    /// v0.30.21: generate_chapter_outline 生成章节大纲并写入黑板。
+    #[tokio::test]
+    async fn test_generate_chapter_outline() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "章节大纲测试".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置角色 + 世界观 + 故事大纲
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        // MockLlm: generate_chapter_outline 的 Producer complete 调用
+        let chapter_outline_text = "本章核心冲突：阿苔发现星环秘密。\
+                                     转折点：盟友突然背叛。\
+                                     推进内容：前往禁区探索真相。\
+                                     场景设计：对话与追逐交替。";
+        let llm = MockLlm::scripted(vec![chapter_outline_text]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        // 先构建 assets_ctx（含故事大纲）
+        let assets_ctx = coordinator.build_continue_writer_context(&story.id).await;
+        assert!(
+            assets_ctx.contains("【故事大纲】"),
+            "assets_ctx should contain story outline"
+        );
+        // 生成章节大纲
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let outline = coordinator
+            .generate_chapter_outline("r-co", &story.id, "前提", &budget, 1, &assets_ctx)
+            .await;
+        assert!(!outline.is_empty(), "chapter outline should be non-empty");
+        assert!(
+            outline.contains("核心冲突"),
+            "chapter outline should contain conflict"
+        );
+        // 验证黑板 Draft 区有 outline-第1章 条目
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let drafts = board.list_zone("r-co", BoardZone::Draft).unwrap();
+        assert!(
+            drafts
+                .iter()
+                .any(|d| d.key == "outline-第1章" && !d.content.is_empty()),
+            "blackboard Draft zone should have outline-第1章 entry"
+        );
+    }
+
+    /// v0.30.21: generate_chapter_outline 无故事大纲时跳过（返回空串）。
+    #[tokio::test]
+    async fn test_generate_chapter_outline_skips_without_story_outline() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "无大纲跳过测试".into(),
+                description: Some("前提".into()),
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置角色 + 世界观，但不预置故事大纲
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        // MockLlm: 不应有调用（空队列）
+        let llm = MockLlm::scripted(vec![]);
+        let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+        let assets_ctx = coordinator.build_continue_writer_context(&story.id).await;
+        assert!(
+            !assets_ctx.contains("【故事大纲】"),
+            "assets_ctx should NOT contain story outline"
+        );
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        let outline = coordinator
+            .generate_chapter_outline("r-skip", &story.id, "前提", &budget, 1, &assets_ctx)
+            .await;
+        assert!(
+            outline.is_empty(),
+            "chapter outline should be empty when no story outline exists"
+        );
     }
 }
