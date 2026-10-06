@@ -72,6 +72,9 @@ impl ForeshadowingServiceImpl {
             setup_event_id: row.get(9)?,
             payoff_event_id: row.get(10)?,
             risk_signals_score: row.get(11)?,
+            target_start_scene: row.get(12)?,
+            target_end_scene: row.get(13)?,
+            evidence: row.get(14)?,
         })
     }
 
@@ -238,7 +241,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
                  importance, created_at, resolved_at, setup_event_id, payoff_event_id,
-                 risk_signals_score
+                 risk_signals_score, target_start_scene, target_end_scene, evidence
              FROM foreshadowing_tracker WHERE story_id = ?1
              ORDER BY importance DESC, created_at ASC",
             )
@@ -258,7 +261,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
                  importance, created_at, resolved_at, setup_event_id, payoff_event_id,
-                 risk_signals_score
+                 risk_signals_score, target_start_scene, target_end_scene, evidence
              FROM foreshadowing_tracker WHERE id = ?1",
             )
             .map_err(into_internal)?;
@@ -280,7 +283,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
                  importance, created_at, resolved_at, setup_event_id, payoff_event_id,
-                 risk_signals_score
+                 risk_signals_score, target_start_scene, target_end_scene, evidence
              FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup'
              ORDER BY importance DESC, created_at ASC",
             )
@@ -372,6 +375,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         limit: usize,
     ) -> Result<Vec<String>, ForeshadowingError> {
         let unresolved = self.get_unresolved(story_id)?;
+        let current = self.current_scene_number(story_id).unwrap_or(0);
         let hints: Vec<String> = unresolved
             .into_iter()
             .take(limit)
@@ -381,7 +385,22 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                     5..=7 => "【重要】",
                     _ => "【次要】",
                 };
-                format!("{} 未回收伏笔: {}", importance_marker, r.content)
+                // v0.62.0 P2-C：把「计划回收窗口」与「实际回收」分离后，
+                // 注入话术可以分档——临近窗口的明确禁止提前回收，
+                // 已过窗口的要求尽快回收（对齐外部项目的最佳实践）。
+                let window_note = match r.target_end_scene {
+                    Some(end) if current > 0 && end > current && end - current <= 5 => {
+                        format!("（计划第{end}章前后回收，请勿提前回收）")
+                    }
+                    Some(end) if current > 0 && end <= current => {
+                        format!("（已到/超过计划回收点第{end}章，请尽快回收）")
+                    }
+                    _ => String::new(),
+                };
+                format!(
+                    "{} 未回收伏笔: {}{}",
+                    importance_marker, r.content, window_note
+                )
             })
             .collect();
         Ok(hints)
@@ -737,7 +756,7 @@ mod tests {
             );",
         )
         .unwrap();
-        // Minimal foreshadowing_tracker schema (V015 + V027 + V079).
+        // Minimal foreshadowing_tracker schema (V015 + V027 + V079 + V137).
         conn.execute_batch(
             "CREATE TABLE foreshadowing_tracker (
                 id TEXT PRIMARY KEY,
@@ -756,7 +775,11 @@ mod tests {
                 target_end_scene INTEGER,
                 risk_signals TEXT,
                 scope_type TEXT DEFAULT 'story',
-                ledger_key TEXT
+                ledger_key TEXT,
+                evidence TEXT,
+                strength INTEGER DEFAULT 5,
+                subtlety INTEGER DEFAULT 5,
+                related_foreshadow_ids TEXT DEFAULT '[]'
             );",
         )
         .unwrap();
@@ -820,6 +843,60 @@ mod tests {
         assert_eq!(hints.len(), 2);
         assert!(hints[0].contains("关键"));
         assert!(hints[1].contains("次要"));
+    }
+
+    /// v0.62.0 P2-C 契约：注入话术按「计划回收窗口」分档——
+    /// 临近窗口明确禁止提前回收；已过窗口要求尽快回收。
+    #[test]
+    fn service_hints_annotate_planned_payoff_window() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool.clone());
+        let id = service
+            .create("story-1", "玉佩的秘密", Some("s1"), 8)
+            .unwrap();
+
+        // 当前最新场 = 5；计划第 7 场回收 → 临近窗口
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = 7 WHERE id = ?1",
+                rusqlite::params![&id],
+            )
+            .unwrap();
+        }
+        let near = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            near[0].contains("请勿提前回收"),
+            "临近窗口应禁止提前回收: {near:?}"
+        );
+
+        // 计划第 4 场回收但已写到第 5 场 → 已过期
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = 4 WHERE id = ?1",
+                rusqlite::params![&id],
+            )
+            .unwrap();
+        }
+        let overdue = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            overdue[0].contains("尽快回收"),
+            "过期窗口应要求尽快回收: {overdue:?}"
+        );
+
+        // 无计划窗口时不加注（保持原格式）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = NULL WHERE id = ?1",
+                rusqlite::params![&id],
+            )
+            .unwrap();
+        }
+        let plain = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(!plain[0].contains("回收）"), "无窗口不应加注: {plain:?}");
     }
 
     #[test]

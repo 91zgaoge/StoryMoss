@@ -23,8 +23,10 @@ pub mod fulfillment_checker;
 pub mod mini_review;
 pub mod preflight;
 pub mod projection_writers;
+pub mod prose_lint;
 pub mod scene_service;
 pub mod segment_summary;
+pub mod style_learning;
 
 // Re-export public types used by external code.
 #[allow(unused_imports)]

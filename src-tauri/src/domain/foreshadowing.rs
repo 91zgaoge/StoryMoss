@@ -86,6 +86,12 @@ pub struct ForeshadowingRecord {
     pub importance: i32, // 1-10
     pub created_at: String,
     pub resolved_at: Option<String>,
+    /// v0.62.0 P2-C：计划回收窗口（场景序号区间，与 payoff_scene_id
+    /// 的「实际回收」分离）
+    pub target_start_scene: Option<i32>,
+    pub target_end_scene: Option<i32>,
+    /// v0.62.0 P2-C：埋设时的原文证据句（证据锚定）
+    pub evidence: Option<String>,
 }
 
 impl ForeshadowingRecord {
@@ -376,6 +382,9 @@ mod tests {
             importance: 5,
             created_at: created_at.to_rfc3339(),
             resolved_at: None,
+            target_start_scene: None,
+            target_end_scene: None,
+            evidence: None,
         }
     }
 

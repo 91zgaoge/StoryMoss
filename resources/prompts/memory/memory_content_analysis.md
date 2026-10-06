@@ -70,7 +70,8 @@ variables:
     {
       "content": "伏笔内容",
       "type_": "setup",
-      "related_to": ["相关内容"]
+      "related_to": ["相关内容"],
+      "evidence": "埋设该伏笔的原文摘录（原句，供后续复核定位）"
     }
   ],
   "themes": ["主题1", "主题2"],
@@ -177,3 +178,4 @@ variables:
 6. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
 7. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
 8. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy
+9. foreshadowing 的 evidence 必须是正文原句摘录（不得改写），用于后续埋设与回收的定位复核

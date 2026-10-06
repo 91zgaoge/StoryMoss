@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod anthropic;
 pub mod commands;
+pub mod cost;
 pub mod ollama;
 pub mod openai;
 pub mod prompt;

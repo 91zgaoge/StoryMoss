@@ -310,6 +310,7 @@ tauri::generate_handler! {
     pipeline::commands::get_story_chapter_drafts,
     pipeline::commands::get_latest_pipeline_review,
     llm::commands::get_story_llm_calls,
+    llm::commands::get_story_cost_summary,
     llm::commands::get_recent_llm_calls,
     llm::commands::get_llm_call_stats,
     scene_commands::update_character_state,

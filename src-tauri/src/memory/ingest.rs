@@ -299,7 +299,13 @@ pub struct Foreshadowing {
     pub type_: String,
     #[serde(default)]
     pub related_to: Vec<String>,
+    /// v0.62.0 P2-C：埋设处的原文摘录（证据锚定）
+    #[serde(default)]
+    pub evidence: String,
 }
+
+/// 单次 ingest 自动登记伏笔的上限（P2-C：防伏笔爆炸，其余留给人工确认）
+const MAX_NEW_FORESHADOWINGS_PER_INGEST: usize = 5;
 
 fn default_fore_type() -> String {
     "setup".to_string()
@@ -759,7 +765,8 @@ impl IngestPipeline {
     {{
       "content": "伏笔内容",
       "type_": "setup", // 可选值: setup(埋下)/payoff(回收)
-      "related_to": ["相关内容"]
+      "related_to": ["相关内容"],
+      "evidence": "埋设该伏笔的原文摘录（原句，供后续复核定位）"
     }}
   ],
   "themes": ["主题1", "主题2"],
@@ -857,7 +864,8 @@ impl IngestPipeline {
 8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造
 9. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
 10. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
-11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy"#.to_string());
+11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy
+12. foreshadowing 的 evidence 必须是正文原句摘录（不得改写），用于后续埋设与回收的定位复核"#.to_string());
             let mut vars = std::collections::HashMap::new();
             vars.insert("content".to_string(), content.text.clone());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -928,7 +936,8 @@ impl IngestPipeline {
     {{
       "content": "伏笔内容",
       "type_": "setup", // 可选值: setup(埋下)/payoff(回收)
-      "related_to": ["相关内容"]
+      "related_to": ["相关内容"],
+      "evidence": "埋设该伏笔的原文摘录（原句，供后续复核定位）"
     }}
   ],
   "themes": ["主题1", "主题2"],
@@ -1026,7 +1035,8 @@ impl IngestPipeline {
 8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造
 9. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
 10. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
-11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy"#,
+11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy
+12. foreshadowing 的 evidence 必须是正文原句摘录（不得改写），用于后续埋设与回收的定位复核"#,
                 content.text, content.source
             )
         };
@@ -1498,6 +1508,16 @@ impl IngestPipeline {
             if fs.type_ != "setup" {
                 continue;
             }
+            // v0.62.0 P2-C：单次 ingest
+            // 自动新建上限，防伏笔爆炸（对齐外部项目经验）
+            if registered >= MAX_NEW_FORESHADOWINGS_PER_INGEST {
+                log::info!(
+                    "[Ingest] 伏笔自动登记达到上限 {}，其余留给人工确认 (story_id={})",
+                    MAX_NEW_FORESHADOWINGS_PER_INGEST,
+                    content.story_id
+                );
+                break;
+            }
             let trimmed = fs.content.trim();
             if trimmed.is_empty() {
                 continue;
@@ -1520,16 +1540,26 @@ impl IngestPipeline {
             let now = chrono::Local::now().to_rfc3339();
             // importance 默认 5（中等），无 LLM 显式重要性评分时保守取值
             let importance = 5_i32;
+            // v0.62.0 P2-C：证据锚定——记录埋设处的原文摘录（供复核与定位）
+            let evidence = {
+                let text = fs.evidence.trim();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text.to_string())
+                }
+            };
             conn.execute(
                 "INSERT INTO foreshadowing_tracker \
-                 (id, story_id, content, setup_scene_id, status, importance, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, 'setup', ?5, ?6)",
+                 (id, story_id, content, setup_scene_id, status, importance, evidence, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, 'setup', ?5, ?6, ?7)",
                 params![
                     &id,
                     &content.story_id,
                     trimmed,
                     content.scene_id.as_ref().map(|s| s.as_str()),
                     importance,
+                    evidence,
                     now,
                 ],
             )?;

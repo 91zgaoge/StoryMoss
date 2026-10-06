@@ -266,3 +266,27 @@ pub async fn get_llm_call_stats(
         total_cost,
     })
 }
+
+/// v0.62.0 P2-D：单故事成本账本（调用次数 / token / 零记账次数 +
+/// 计费盲区告警）。
+#[command(rename_all = "snake_case")]
+pub async fn get_story_cost_summary(
+    story_id: String,
+    pool: State<'_, crate::db::DbPool>,
+) -> Result<StoryCostReport, AppError> {
+    let pool = pool.inner().clone();
+    let story = story_id.clone();
+    tauri::async_runtime::spawn_blocking(move || StoryCostReport {
+        summary: crate::llm::cost::summarize_story_cost(&pool, &story),
+        anomalies: crate::llm::cost::detect_cost_anomalies(&pool, &story, 30),
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("成本汇总失败: {}", e)))
+}
+
+/// 成本账本返回体。
+#[derive(Debug, Clone, Serialize)]
+pub struct StoryCostReport {
+    pub summary: crate::llm::cost::StoryCostSummary,
+    pub anomalies: Vec<crate::llm::cost::CostAnomaly>,
+}

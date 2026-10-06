@@ -1865,3 +1865,15 @@ v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安�
 
 - **验证**：`cargo +nightly fmt -- --check` 0 diff；`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（均不变）。
 - **复发处置**：CI 若在格式步失败 → `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。
+
+---
+
+*归档于 2026-10-06（v0.62.0）：v0.59.2 摘要。*
+
+### v0.59.2 - 修静默清空、清死代码、归档旧文档
+
+载入期空文档保护：ProseMirror 空文档是 `<p></p>`（真值），旧 `if (!content)` 守卫挡不住 → 正文未到时编辑器自带空文档被 2s 防抖保存落库、覆盖整章（e2e 稳定复现）。现 `markSceneContentLoaded` 布防、`isEmptyEditorHtml` 判定、首次非空保存自动解除。另修 JSON 尾随逗号换行形态（模型几乎总把闭合括号另起一行）。E2E 去掉 `continue-on-error` 提升为阻塞门；删 5 个零引用编辑器扩展 + 4 个孤儿 hook（前端测试 −24）；根目录 33 份陈旧 .md 归档到 `docs/archive/root-legacy/`；landing 字体 CDN 上锁 `@3.0.0` + SRI。
+
+- **验证**：`cargo test --lib` 1626 passed / 3 ignored（+2）；`npx vitest run` 585 passed / 3 skipped（净 −24：删 27 孤儿测试 + 新增 3 项空文档判定）；Playwright 39 passed / 5 skipped（连续两轮）；landing 24 passed + build 通过。
+- **契约**：`isEmptyEditorHtml` 空文档判定；`test_extract_fenced_json_trailing_comma_newline`；`test_strip_whitespace_trailing_commas_keeps_string_literals`；`frontstage-editing` 自动保存持久化用例（3 轮稳定）。
+- **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；src-server 无 DB 不可编译、CI 未覆盖；withGlobalTauri + 宽松 CSP、FTP 明文、`story_outlines` 机器覆盖手写大纲、Agency↔agents 环依赖与 coordinator 巨石拆分待办。

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.61.0
+- **版本**: v0.62.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1653 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要）
+- `cargo test -p storymoss` ✅ 1671 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 590 passed / 3 skipped（+5 级联中心页面：渲染/去查看/忽略/触发改写/空态）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.62.0 - 文本质量与成本：prose_lint / 文风逆向学习 / 伏笔增强 / 成本账本
+
+P2 阶段。**P2-A** `story_system::prose_lint` 纯 Rust 两档规则（blocking：注入术语泄漏 + 否定排比 + 章尾预告腔；advisory：破折号密度/重复句/极短收尾/开篇时间跳跃），接入 `auto_commit`（并入 review 记录）与 editor_qc 预注入块。**P2-B** V137 `style_preferences`：`update_scene` 人类编辑 → 防抖 120s + 单故事单处理器 → LLM 提炼可执行文风规则（资产 `style_delta_extraction`，标签「后台风格提炼」）→ 续写注入【作者文风偏好】。**P2-C** V137 给 foreshadowing_tracker 增 evidence/strength/subtlety/related_foreshadow_ids；ingest 自动登记上限 5 条；注入话术按计划回收窗口分档（临近「请勿提前回收」/过期「尽快回收」）。**P2-D** `llm::cost` 按故事聚合 + 阈值提示 + 零增量计费盲区检测（连续 ≥5 次零记账告警），命令 `get_story_cost_summary`。
+
+- **验证**：`cargo test --lib` 1671 passed / 3 ignored（+18）；前端无改动（vitest 590 / 3 skipped）；nightly fmt / guard 全绿。
+- **契约**：`flags_pipeline_header_leak_as_blocking`；`clean_literary_text_produces_no_blocking`；`parse_style_delta_validates_and_dedupes`；`style_signal_gate_filters_noise`；`service_hints_annotate_planned_payoff_window`；`zero_token_streak_is_flagged_but_normal_usage_is_not`。
+- **未关闭**：真机验证；P2-B/P2-D 无前端 UI（命令已就绪）；**不得宣称续写质量已修复**；网站发布待 Apple 公证解阻。
 
 ### v0.61.0 - 分层记忆金字塔：语义摘要 + 段摘要 + 全书纲要 + 自适应窗口
 
@@ -143,14 +151,6 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
 - **验证**：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；tsc / guard / nightly fmt / playwright 全绿。
 - **契约**：`test_materialize_does_not_overwrite_user_created_outline`；`test_materialize_still_updates_machine_outline`；`test_sync_story_delta_skips_user_created_outline`；`update_with_content_marks_user_created`；`update_without_content_keeps_source`。
 - **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；withGlobalTauri + CSP 需真机运行时验证；FTP 明文；Agency↔agents 环依赖 / coordinator 拆分 / llm_calls 保留 / src-server CI。
-
-### v0.59.2 - 修静默清空、清死代码、归档旧文档
-
-载入期空文档保护：ProseMirror 空文档是 `<p></p>`（真值），旧 `if (!content)` 守卫挡不住 → 正文未到时编辑器自带空文档被 2s 防抖保存落库、覆盖整章（e2e 稳定复现）。现 `markSceneContentLoaded` 布防、`isEmptyEditorHtml` 判定、首次非空保存自动解除。另修 JSON 尾随逗号换行形态（模型几乎总把闭合括号另起一行）。E2E 去掉 `continue-on-error` 提升为阻塞门；删 5 个零引用编辑器扩展 + 4 个孤儿 hook（前端测试 −24）；根目录 33 份陈旧 .md 归档到 `docs/archive/root-legacy/`；landing 字体 CDN 上锁 `@3.0.0` + SRI。
-
-- **验证**：`cargo test --lib` 1626 passed / 3 ignored（+2）；`npx vitest run` 585 passed / 3 skipped（净 −24：删 27 孤儿测试 + 新增 3 项空文档判定）；Playwright 39 passed / 5 skipped（连续两轮）；landing 24 passed + build 通过。
-- **契约**：`isEmptyEditorHtml` 空文档判定；`test_extract_fenced_json_trailing_comma_newline`；`test_strip_whitespace_trailing_commas_keeps_string_literals`；`frontstage-editing` 自动保存持久化用例（3 轮稳定）。
-- **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；src-server 无 DB 不可编译、CI 未覆盖；withGlobalTauri + 宽松 CSP、FTP 明文、`story_outlines` 机器覆盖手写大纲、Agency↔agents 环依赖与 coordinator 巨石拆分待办。
 
 ## Always Do
 

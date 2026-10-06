@@ -2742,6 +2742,7 @@ pub(crate) fn is_silent_background_label(label: &str) -> bool {
             | "auto_contract_default_character"
             | "bg-observe-editor"
             | "后台级联扫描"
+            | "后台风格提炼"
     )
 }
 

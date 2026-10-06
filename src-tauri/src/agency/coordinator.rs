@@ -4538,6 +4538,12 @@ impl AgencyCoordinator {
                     {
                         blocks.push(block);
                     }
+                    // P2-B：作者文风偏好（从手改中提炼），优先遵守。
+                    if let Some(block) =
+                        crate::story_system::style_learning::render_style_block(&pool, &sid)
+                    {
+                        blocks.push(block);
+                    }
                     Ok(blocks)
                 })
                 .await
@@ -6129,6 +6135,15 @@ pub(crate) async fn evaluate_gate_impl(
                         "【知识边界与物品核对（逐条核查以下疑点；确认与正文冲突则判 blocking）】\n{}\n\n",
                         lines.join("\n")
                     ));
+                }
+            }
+            // P2-A（v0.62.0）：确定性文本质检（注入术语泄漏 / 否定排比 / 章尾预告腔…）
+            {
+                let findings = crate::story_system::prose_lint::lint_text(&draft_content);
+                if let Some(block) = crate::story_system::prose_lint::render_lint_block(&findings, 6)
+                {
+                    ctx.push_str(&block);
+                    ctx.push_str("\n\n");
                 }
             }
             ctx

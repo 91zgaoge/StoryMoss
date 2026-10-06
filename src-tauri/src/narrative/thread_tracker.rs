@@ -465,6 +465,9 @@ mod tests {
                 importance: 8,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 resolved_at: None,
+                target_start_scene: None,
+                target_end_scene: None,
+                evidence: None,
             }],
         };
         let threads = ThreadTracker::infer_threads_with_provider(&events, Some(&provider));

@@ -298,8 +298,8 @@ pub async fn update_scene(
     let pool_clone = pool.inner().clone();
     let scene_id_clone = scene_id.clone();
     let updates_clone = updates.clone();
-    let (result, story_id_opt, had_content_before) =
-        tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, bool), AppError> {
+    let (result, story_id_opt, had_content_before, prior_content) = tokio::task::spawn_blocking(
+        move || -> Result<(usize, Option<String>, bool, Option<String>), AppError> {
             let repo = SceneRepository::new(pool_clone);
             // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default
             // 导致空字符串）
@@ -310,16 +310,18 @@ pub async fn update_scene(
                 .as_ref()
                 .map(|s| s.content.is_some() || s.draft_content.is_some())
                 .unwrap_or(true);
+            // v0.62.0 P2-B：保留前文，供作者手改的风格逆向学习做 before/after
+            // 对比
+            let prior_content = prior_scene.as_ref().and_then(|s| s.content.clone());
             let result = repo.update(&scene_id_clone, &updates_clone).map_err(|e| {
                 log::error!("[story_commands] {} failed: {}", "update_scene", e);
                 AppError::from(e)
             })?;
-            Ok((result, story_id_opt, had_content_before))
-        })
-        .await
-        .map_err(|e| {
-            AppError::from(format!("[update_scene] spawn_blocking join error: {}", e))
-        })??;
+            Ok((result, story_id_opt, had_content_before, prior_content))
+        },
+    )
+    .await
+    .map_err(|e| AppError::from(format!("[update_scene] spawn_blocking join error: {}", e)))??;
 
     // v0.26.50: AutoIngest 走 SceneIngestor
     // 防抖路径，避免每次自动保存立刻抢本地模型。正文变更改由
@@ -362,6 +364,18 @@ pub async fn update_scene(
         // user_edit 观察埋点（best-effort）：人类编辑触发（content 变更且
         // source 非 agency——agency 装配写入跳过，防自观察）。
         if content_changed && updates.source.as_deref() != Some("agency") {
+            // v0.62.0 P2-B：作者手改 → 风格逆向学习（防抖 120s，按故事合并）。
+            if let (Some(before), Some(after)) =
+                (prior_content.as_deref(), updates.content.as_deref())
+            {
+                crate::story_system::style_learning::note_user_edit(
+                    app_handle.clone(),
+                    pool.inner().clone(),
+                    story_id.clone(),
+                    before,
+                    after,
+                );
+            }
             if let Ok(dir) = app_handle.path().app_data_dir() {
                 let logger = crate::agency::learning::ObservationLogger::new(dir);
                 let sid = story_id.clone();

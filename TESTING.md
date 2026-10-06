@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.61.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.62.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.62.0 变更说明
+
+- 新增 Rust 18 项：`prose_lint` 8 项（各规则正反例 + 文学文本零误报 + 渲染边界）、`style_learning` 5 项（解析/门控/幂等 upsert/停用/块渲染）、`llm::cost` 4 项（聚合/阈值/盲区/未知故事）、伏笔窗口话术 1 项。
+- 同步补齐两处测试内嵌 schema（foreshadowing_tracker 手写 DDL）以匹配 V137 新列。
+- 全量基线：`cargo test --lib` 1671 passed / 3 ignored。
 
 ### v0.61.0 变更说明
 

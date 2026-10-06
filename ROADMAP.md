@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-06（v0.61.0 P1 记忆质量完成；P2–P3 进行中，见 docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）
+> 最后更新: 2026-10-06（v0.62.0 P2 文本质量与成本完成；P3 进行中，见 docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.62.0 - 文本质量与成本 ✅ (2026-10-06)
+
+- [x] **P2-A** `prose_lint` 确定性两档规则 + 接入 commit/editor_qc。
+- [x] **P2-B** V137 `style_preferences` + 防抖提炼 + 续写注入【作者文风偏好】。
+- [x] **P2-C** 伏笔 evidence/strength/subtlety/链 + 单章上限 5 + 注入话术窗口分档。
+- [x] **P2-D** `llm::cost` 聚合 + 阈值提示 + 零增量计费盲区哨兵 + 命令。
+- **进行中**：P3 工程纪律（质量债 / 新增物审批 / 检查点与时间旅行 / Compass / 三测试套件）。
 
 ### ✨ v0.61.0 - 分层记忆金字塔 ✅ (2026-10-06)
 

@@ -2,6 +2,45 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.62.0（2026-10-06）
+
+**P2：文本质量与成本**——确定性文本质检、作者文风逆向学习、伏笔增强、成本账本与计费盲区哨兵。
+
+### P2-A 确定性文本质检 `prose_lint`
+
+- 新模块 `story_system::prose_lint`（纯 Rust 规则引擎），两档：
+  - **blocking**：注入术语泄漏（【必须改变】【本拍状态网】【故事纲要】等 prompt 头与「节拍卡/必须改变项/change_delta/爽点密度」等流水线词被抄进正文）、「不是 A 而是 B」否定排比、章尾总结/预告腔（这才刚刚开始/殊不知/然而他不知道/命运的齿轮…）；
+  - **advisory**：破折号密度（>3/千字）、章内逐字重复句、章尾极短句收束、开篇时间跳跃词。
+- 接入两处：`auto_commit` 把发现并入 commit 的 review 记录（blocking 额外进日志）；编辑器审计（editor_qc）预注入【确定性文本质检】核对块，要求裁决逐条体现。
+
+### P2-B 作者文风逆向学习
+
+- 新表 `style_preferences`（V137，UNIQUE(story_id, pattern)）：从作者手改 AI 稿的 before/after 差异中提炼「可执行文风规则」（如「删掉解释性副词」「对话不加修饰语」）。
+- 触发：`update_scene` 人类编辑（source≠agency、前后文 ≥200 字、差异 ≥20 字）→ **防抖 120s + 同故事单处理器 + last-write-wins**（成本上限：每故事每 2 分钟最多一次提炼）；提炼走后台闸门，标签「后台风格提炼」静默。
+- 注入：续写上下文新增【作者文风偏好（从你的手改中提炼，优先遵守）】；`deactivate_preference` 支持后续 UI 撤销单条规则。
+
+### P2-C 伏笔增强
+
+- V137 给 `foreshadowing_tracker` 增列：`evidence`（埋设原文证据，证据锚定）、`strength`/`subtlety`、`related_foreshadow_ids`（伏笔链）。
+- 单次 ingest 自动登记伏笔**上限 5 条**（防伏笔爆炸，其余留给人工确认）；ingest 抽取与提示词资产同步产出 `evidence` 原句摘录。
+- 注入话术分档（计划回收窗口 vs 实际回收分离）：临近窗口（≤5 场）→「请勿提前回收」；已过窗口 →「请尽快回收」；无计划窗口保持原格式。
+
+### P2-D 成本账本与计费盲区哨兵
+
+- 新模块 `llm::cost`：按故事聚合 `llm_calls`（调用数/token/失败数/零记账数/时间范围）+ 阈值提示（默认 50 万 token 提示，不熔断）+ **零增量计费盲区检测**（最近连续 ≥5 次记账 0 token → 告警「任何预算上限都不会触发」）。
+- 新命令 `get_story_cost_summary`（前端可接入用量视图；本版未做 UI）。
+
+### 测试
+
+- `cargo test --lib` 1671 passed / 3 ignored（+18）；前端无改动（vitest 590 / 3 skipped）；`cargo +nightly fmt`、`architecture_guard.py` 全绿。
+- 契约：`flags_pipeline_header_leak_as_blocking`、`flags_not_x_but_y_but_not_plain_negation`、`flags_trailer_ending_only_at_tail`、`clean_literary_text_produces_no_blocking`、`parse_style_delta_validates_and_dedupes`、`style_signal_gate_filters_noise`、`upsert_is_idempotent_and_deactivate_works`、`service_hints_annotate_planned_payoff_window`、`zero_token_streak_is_flagged_but_normal_usage_is_not` 等。
+
+### 未关闭
+
+- 真机 10+ 章验证摘要/文风偏好/伏笔话术的真实效果；**不得宣称续写质量已修复**。
+- P2-B/P2-D 暂无前端 UI（偏好列表管理、用量视图），命令已就绪；在 P3 或后续版本接入。
+- 网站发布仍待 Apple 公证解阻（landing 兜底维持 0.58.0）。
+
 ## v0.61.0（2026-10-06）
 
 **P1：记忆质量**——分层记忆金字塔（章 → 段 → 全书）+ 自适应窗口。此前章节摘要是「正文前 1000 字截断」，既不是摘要也不携带状态变化；长篇的中远期情节只能靠向量检索概率召回。本版给长篇一个**确定性的远期纲要**。

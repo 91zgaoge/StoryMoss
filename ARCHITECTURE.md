@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.61.0 架构文档
+# StoryMoss (草苔) v0.62.0 架构文档
+
+> **v0.62.0**（P2 文本质量与成本）：`story_system::prose_lint`（纯规则引擎，blocking/advisory 两档）在 `auto_commit` 并入 review 记录、在 editor_qc 预注入核对块。**V137**：`foreshadowing_tracker` 增 `evidence/strength/subtlety/related_foreshadow_ids`（`ForeshadowingRecord` 同步暴露 target_start/end 与 evidence，注入话术按计划窗口分档）；新表 `style_preferences`（UNIQUE(story_id, pattern)）承载作者文风偏好——`story_system::style_learning` 在 `update_scene` 人类编辑后防抖 120s、单故事单处理器（PENDING/RUNNING 两个进程内表）提炼（资产 `style_delta_extraction`，标签「后台风格提炼」），`render_style_block` 经 continuity_blocks 进入续写资产。`llm::cost` 按故事聚合 llm_calls 并提供零增量计费盲区检测，命令 `get_story_cost_summary`。
 
 > **v0.61.0**（P1 记忆质量）：**V136** `story_segment_summaries`（level segment/book，UNIQUE(story_id,level,segment_index)）承载段摘要与全书纲要；`story_system::chapter_summary` 把 commit 摘要升级为 LLM 语义摘要（`parse_summary_response` 形态校验，失败回退截断，标签 `background-summary`）；`story_system::segment_summary` 负责段数学（`completed_segment_count` / `segment_bounds`）、区间章摘要收集、段/书摘要生成与 `spawn_refresh_after_commit` 后台补齐（挂接 `schedule_commit_and_split` 的 commit 成功分支）。`memory::orchestrator::adaptive_summary_window`（10/5/3）替换写死的 3 章窗口，工作记忆按书长注入最近段摘要与全书纲要；`render_story_so_far_block` 经 `write_beat_once` 的 continuity_blocks 进入续写资产【故事纲要】。
 

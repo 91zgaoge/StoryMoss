@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.61.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.62.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.62.0 · 文本质量与成本：确定性文本质检 + 文风逆向学习 + 伏笔增强 + 成本账本
+
+- **确定性文本质检**：注入术语泄漏（【必须改变】等 prompt 头被抄进正文）、「不是…而是…」排比、章尾总结/预告腔、破折号密度、章内重复句——commit 与编辑审计双向接入。
+- **作者文风逆向学习**：从你对 AI 稿的手改中提炼文风规则（如「删掉解释性副词」），续写时以【作者文风偏好】优先遵守；防抖 + 单故事单处理器控制成本。
+- **伏笔增强**：埋设证据锚定、强度/隐藏度、伏笔链、单章新建上限；注入话术分档（临近回收窗口明确「请勿提前回收」、过期「请尽快回收」）。
+- **成本账本**：按故事聚合调用/token，超阈值提示；**计费盲区哨兵**（连续零记账即告警「预算上限不会触发」）。
 
 ### v0.61.0 · 分层记忆金字塔：章节语义摘要 + 段摘要 + 全书纲要
 

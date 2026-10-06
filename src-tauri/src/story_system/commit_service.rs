@@ -97,12 +97,30 @@ impl SceneCommitService {
         .await;
 
         // Mini review（LLM 失败自动回退启发式）
-        let review_result = mini_review::run_mini_review(content.unwrap_or(""), &contract, llm_ref)
-            .await
-            .unwrap_or_else(|e| {
-                log::warn!("[SceneCommitService] mini review 失败（非阻塞）: {}", e);
-                mini_review::heuristic_review(content.unwrap_or(""), &contract)
-            });
+        let mut review_result =
+            mini_review::run_mini_review(content.unwrap_or(""), &contract, llm_ref)
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("[SceneCommitService] mini review 失败（非阻塞）: {}", e);
+                    mini_review::heuristic_review(content.unwrap_or(""), &contract)
+                });
+
+        // P2-A（v0.62.0）：确定性文本质检——注入术语泄漏 / 否定排比 / 章尾预告腔
+        // 等形态在 LLM 评审里天然难被抓住，这里低成本兜底并记入 commit 结果。
+        let lint_findings = super::prose_lint::lint_text(content.unwrap_or(""));
+        if !lint_findings.is_empty() {
+            let blocking = super::prose_lint::blocking_findings(&lint_findings).len();
+            if blocking > 0 {
+                log::warn!(
+                    "[prose_lint] 第{}章检出 {} 条 blocking 文本问题（日志可查规则明细）",
+                    chapter_number,
+                    blocking
+                );
+            }
+            review_result
+                .issues
+                .extend(super::prose_lint::summarize_findings(&lint_findings));
+        }
 
         // 合同履行度检查
         let fulfillment_result = contract.evaluate_fulfillment(content.unwrap_or(""));

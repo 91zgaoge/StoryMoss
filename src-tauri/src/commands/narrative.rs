@@ -174,7 +174,13 @@ mod tests {
                 resolved_at TEXT,
                 setup_event_id TEXT,
                 payoff_event_id TEXT,
-                risk_signals_score REAL DEFAULT 0.0
+                risk_signals_score REAL DEFAULT 0.0,
+                target_start_scene INTEGER,
+                target_end_scene INTEGER,
+                evidence TEXT,
+                strength INTEGER DEFAULT 5,
+                subtlety INTEGER DEFAULT 5,
+                related_foreshadow_ids TEXT DEFAULT '[]'
             );",
         )
         .unwrap();
