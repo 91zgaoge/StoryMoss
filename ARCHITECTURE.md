@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.62.0 架构文档
+# StoryMoss (草苔) v0.63.0 架构文档
+
+> **v0.63.0**（P3 工程纪律）：**V138** 三表——`quality_debts`（UNIQUE(story,chapter,detail) 幂等；`story_system::quality_debt`，coordinator 的 spawn_editor_qc 在 RevisionRequired/salvage/异常降级时记账）、`story_checkpoints`（UNIQUE(story,chapter)；`story_system::checkpoint` 在段摘要刷新的 10 章边界写快照，`query_as_of` 用 append-only 知情流水 + `reveal_chapter` 做「截至第 N 章」回溯，物品账本标注 current_only）、`pending_reviews`（UNIQUE(story,kind,subject)；ingest 对 importance ≥7 的世界规则入队，确认前不作硬约束）。`story_system::compass` 确定性派生终局方向/活跃长线/进度并经 continuity_blocks 注入。命令：list/resolve_quality_debts、query_story_as_of、list/resolve_pending_reviews。组合契约见 `tests::three_rulers_contract_test`。**未实施**：P3-F 声明式投影路由表。
 
 > **v0.62.0**（P2 文本质量与成本）：`story_system::prose_lint`（纯规则引擎，blocking/advisory 两档）在 `auto_commit` 并入 review 记录、在 editor_qc 预注入核对块。**V137**：`foreshadowing_tracker` 增 `evidence/strength/subtlety/related_foreshadow_ids`（`ForeshadowingRecord` 同步暴露 target_start/end 与 evidence，注入话术按计划窗口分档）；新表 `style_preferences`（UNIQUE(story_id, pattern)）承载作者文风偏好——`story_system::style_learning` 在 `update_scene` 人类编辑后防抖 120s、单故事单处理器（PENDING/RUNNING 两个进程内表）提炼（资产 `style_delta_extraction`，标签「后台风格提炼」），`render_style_block` 经 continuity_blocks 进入续写资产。`llm::cost` 按故事聚合 llm_calls 并提供零增量计费盲区检测，命令 `get_story_cost_summary`。
 

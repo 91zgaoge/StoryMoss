@@ -2807,6 +2807,55 @@ impl AgencyCoordinator {
                     serde_json::json!(chapter_number),
                 );
             }
+            // P3-A（v0.63.0）：质检降级/未解决问题入质量债台账——fail-open
+            // 保产出
+            // 的取舍不变，但降级不再静默消失（可在后续版本批量处理）。
+            {
+                let passed = payload
+                    .get("passed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let salvaged = payload
+                    .get("salvaged")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let issues: Vec<String> = payload
+                    .get("issues")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !passed || salvaged {
+                    let pool_for_debt = pool.clone();
+                    let sid = story_id.clone();
+                    let chapter = chapter_number;
+                    let source_label = source.to_string();
+                    let detail = if !issues.is_empty() {
+                        issues.join("；")
+                    } else {
+                        payload
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("质检降级放行")
+                            .to_string()
+                    };
+                    let severity = if passed { "info" } else { "warning" };
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let _ = crate::story_system::quality_debt::record_debt(
+                            &pool_for_debt,
+                            &sid,
+                            None,
+                            chapter,
+                            &source_label,
+                            severity,
+                            &detail,
+                        );
+                    });
+                }
+            }
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
             // 后台质检 fail-open：章节已落库。不合格走
             // toast，顶栏不得报「后台审查失败」 （否则 friendlyText
@@ -4541,6 +4590,12 @@ impl AgencyCoordinator {
                     // P2-B：作者文风偏好（从手改中提炼），优先遵守。
                     if let Some(block) =
                         crate::story_system::style_learning::render_style_block(&pool, &sid)
+                    {
+                        blocks.push(block);
+                    }
+                    // P3-D：终局指南针（确定性派生的长线方向锚）。
+                    if let Some(block) =
+                        crate::story_system::compass::render_compass_block(&pool, &sid)
                     {
                         blocks.push(block);
                     }

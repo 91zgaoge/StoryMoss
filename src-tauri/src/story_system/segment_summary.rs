@@ -376,6 +376,14 @@ pub fn spawn_refresh_after_commit(
         let _bg_permit = bg_permit.unwrap();
         let llm = LlmService::new(app);
         let written = refresh_summaries(&pool, &llm, &story_id, chapter_number).await;
+        // P3-C：段边界（每 SEGMENT_SIZE 章）写一份连续性快照，支撑回溯与恢复。
+        if chapter_number % SEGMENT_SIZE == 0 {
+            if let Err(e) =
+                crate::story_system::checkpoint::write_checkpoint(&pool, &story_id, chapter_number)
+            {
+                log::warn!("[checkpoint] 写入检查点失败（非阻塞）: {}", e);
+            }
+        }
         if written > 0 {
             log::info!(
                 "[segment_summary] 分层摘要刷新完成：{} 条（story_id={}）",

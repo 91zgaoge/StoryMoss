@@ -149,3 +149,89 @@ pub fn get_latest_style_snapshot(
     let repo = crate::db::StyleSnapshotRepository::new(pool);
     repo.get_latest_by_story(&story_id).map_err(AppError::from)
 }
+
+// ==================== v0.63.0 P3：质量债 / 时间旅行 / 待确认队列
+// ====================
+
+/// 列出质量债（默认 open；status 可传 open/resolved/dismissed）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_quality_debts(
+    story_id: String,
+    status: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::story_system::quality_debt::QualityDebt>, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::quality_debt::list_debts(&pool, &story_id, status.as_deref(), 200)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("查询质量债失败: {}", e)))
+}
+
+/// 结清 / 忽略一条质量债。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resolve_quality_debt(
+    debt_id: String,
+    status: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
+    let status = status.unwrap_or_else(|| "resolved".to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::quality_debt::resolve_debt(&pool, &debt_id, &status)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("更新质量债失败: {}", e)))?
+}
+
+/// 「截至第 N 章」的回溯视图：角色已知 / 真相揭示 / 物品归属（当前值）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn query_story_as_of(
+    story_id: String,
+    chapter_number: i32,
+    pool: State<'_, DbPool>,
+) -> Result<crate::story_system::checkpoint::AsOfView, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::checkpoint::query_as_of(&pool, &story_id, chapter_number)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("回溯查询失败: {}", e)))
+}
+
+/// 列出待确认的规则类新增物（默认 pending）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_pending_reviews(
+    story_id: String,
+    status: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::story_system::pending_review::PendingReview>, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::pending_review::list_pending_reviews(
+            &pool,
+            &story_id,
+            status.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("查询待确认项失败: {}", e)))
+}
+
+/// 确认 / 拒绝一条待确认项。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resolve_pending_review(
+    review_id: String,
+    status: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
+    let status = status.unwrap_or_else(|| "confirmed".to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::pending_review::resolve_pending_review(&pool, &review_id, &status)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("更新待确认项失败: {}", e)))?
+}

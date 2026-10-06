@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.62.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.63.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.63.0 变更说明
+
+- 新增 Rust 14 项：质量债 4 项（幂等 upsert/升级/结清/建议窗口）+ 检查点与时间旅行 4 项（as-of 过滤/快照幂等/current_only 标注/知情流水端到端）+ 指南针 3 项（块格式提取/派生/空故事）+ 待确认队列 2 项 + 三把尺子组合契约 1 项（`tests/three_rulers_contract_test.rs`）。
+- 前端无改动（vitest 590 / 3 skipped 不变）。
+- 全量基线：`cargo test --lib` 1685 passed / 3 ignored。
 
 ### v0.62.0 变更说明
 

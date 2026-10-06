@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.62.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.63.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,14 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.63.0 · 工程纪律：质量债台账 + 时间旅行查询 + 终局指南针 + 待确认队列
+
+- **质量债台账**：质检降级放行（fail-open）不再静默——未解决问题自动入账（含建议回收窗口），可结清/忽略，命令已就绪。
+- **时间旅行查询**：给定章节 N，「截至第 N 章」的角色已知信息与世界真相揭示状态可回溯（基于 append-only 知情流水与揭示状态机）；每 10 章自动写连续性快照。
+- **终局指南针**：确定性派生「终局方向 / 活跃长线 / 进度」，随续写注入——长线方向不会在支线中丢失（零额外 LLM 成本）。
+- **待确认队列**：分析自动新增的世界观硬规则进入待确认队列，确认后才作为硬约束。
+- **三把尺子组合契约**：玉佩 / 知识边界 / 级联冲突在同一故事内组合回归。
 
 ### v0.62.0 · 文本质量与成本：确定性文本质检 + 文风逆向学习 + 伏笔增强 + 成本账本
 

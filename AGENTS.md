@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.62.0
+- **版本**: v0.63.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1671 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵）
+- `cargo test -p storymoss` ✅ 1685 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 590 passed / 3 skipped（+5 级联中心页面：渲染/去查看/忽略/触发改写/空态）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.63.0 - 工程纪律：质量债 / 时间旅行 / 终局指南针 / 待确认队列（P0–P3 收官）
+
+P3 阶段，也是 P0–P3 四阶段路线图的收官版本。**V138** 三张表：`quality_debts`（质检降级不再静默：RevisionRequired / salvage / 异常降级入账，含建议回收窗口，幂等 upsert）、`story_checkpoints`（每 10 章随段摘要写连续性快照：角色状态/物品归属/未回收伏笔/段摘要/全书纲要）、`pending_reviews`（规则类新增物待确认队列）。**时间旅行**：`story_system::checkpoint::query_as_of` 基于 append-only 知情流水与 `reveal_chapter` 给出「截至第 N 章」的角色已知与真相揭示状态（物品账本非追加式，结果标注 current_only）。**终局指南针**：`story_system::compass` 确定性派生（核心冲突行 / 活跃伏笔 / 进度）并注入续写，零额外 LLM。**待确认**：ingest 中 importance ≥7 的世界规则进队列。**三把尺子组合契约**：`tests::three_rulers_contract_test` 在同一故事内组合验证玉佩/知识边界/级联三条主线。5 个新命令：`list_quality_debts` / `resolve_quality_debt` / `query_story_as_of` / `list_pending_reviews` / `resolve_pending_review`。
+
+- **验证**：`cargo test --lib` 1685 passed / 3 ignored（+14）；前端无改动（vitest 590 / 3 skipped）；nightly fmt / guard 全绿。
+- **契约**：`record_is_idempotent_and_lists_open_debts`；`as_of_filters_knowledge_and_reveals_by_chapter`；`checkpoint_upsert_and_lookup_by_chapter`；`compass_derives_direction_threads_and_scale`；`note_is_idempotent_and_resolve_removes_from_pending`；`three_rulers_hold_on_one_story`。
+- **未关闭**：P2-B/P2-D/P3-A/P3-B 的后端与命令已就绪但**无 UI**；P3-F 声明式投影路由表未实施；真机三把尺子端到端复跑未做（**不得宣称续写质量已修复**）；网站发布待 Apple 公证解阻。
 
 ### v0.62.0 - 文本质量与成本：prose_lint / 文风逆向学习 / 伏笔增强 / 成本账本
 
@@ -143,14 +151,6 @@ P1 阶段（docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）。**P1-A**�
 - **验证**：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing tsc + 24 tests；build.yml YAML 解析通过；本地按 docs-guard 同款命令预演通过。
 - **契约**：`docs-guard`（发布必需文档门禁）。
 - **未关闭**：签署 Apple 协议后重跑 macOS 构建 → upload-to-website 才会发布 0.59.x（含 0.58.0 缺失的 `.deb`）；真机续写未复跑，**不得宣称续写质量已修复**。
-
-### v0.59.3 - 手写大纲不再被机器改写
-
-V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可精炼」语义）。作者手写/弹窗确认（`user_created`）时：创世 `materialize` 的 upsert 带 `WHERE source <> 'user_created'` 不覆盖；资产回流 `sync_story_delta` 直接跳过不追加；`StoryOutlineRepository::update` 仅在带内容时打标（只改 structure_json 不改来源）。另删死模块 `memory/hybrid_search.rs`（410 行）与 capability 死权限 `http:default`。
-
-- **验证**：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；tsc / guard / nightly fmt / playwright 全绿。
-- **契约**：`test_materialize_does_not_overwrite_user_created_outline`；`test_materialize_still_updates_machine_outline`；`test_sync_story_delta_skips_user_created_outline`；`update_with_content_marks_user_created`；`update_without_content_keeps_source`。
-- **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；withGlobalTauri + CSP 需真机运行时验证；FTP 明文；Agency↔agents 环依赖 / coordinator 拆分 / llm_calls 保留 / src-server CI。
 
 ## Always Do
 

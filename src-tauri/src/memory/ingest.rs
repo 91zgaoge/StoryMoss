@@ -533,6 +533,22 @@ impl IngestPipeline {
             ) {
                 log::warn!("[Ingest] 保存时间线事件失败: {}", e);
             }
+            // P3-B：规则类新增物进入待确认队列（未经作者确认不作为硬约束）。
+            if let Some(wb) = &analysis.world_building {
+                for rule in &wb.rules {
+                    if rule.importance
+                        >= crate::story_system::pending_review::RULE_REVIEW_MIN_IMPORTANCE
+                    {
+                        let _ = crate::story_system::pending_review::note_pending_review(
+                            pool,
+                            &content.story_id,
+                            "world_rule",
+                            &rule.name,
+                            &rule.description,
+                        );
+                    }
+                }
+            }
             if let Err(e) = crate::memory::continuity::persist_item_holdings(
                 pool,
                 &content.story_id,

@@ -1877,3 +1877,15 @@ v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安�
 - **验证**：`cargo test --lib` 1626 passed / 3 ignored（+2）；`npx vitest run` 585 passed / 3 skipped（净 −24：删 27 孤儿测试 + 新增 3 项空文档判定）；Playwright 39 passed / 5 skipped（连续两轮）；landing 24 passed + build 通过。
 - **契约**：`isEmptyEditorHtml` 空文档判定；`test_extract_fenced_json_trailing_comma_newline`；`test_strip_whitespace_trailing_commas_keeps_string_literals`；`frontstage-editing` 自动保存持久化用例（3 轮稳定）。
 - **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；src-server 无 DB 不可编译、CI 未覆盖；withGlobalTauri + 宽松 CSP、FTP 明文、`story_outlines` 机器覆盖手写大纲、Agency↔agents 环依赖与 coordinator 巨石拆分待办。
+
+---
+
+*归档于 2026-10-06（v0.63.0）：v0.59.3 摘要。*
+
+### v0.59.3 - 手写大纲不再被机器改写
+
+V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可精炼」语义）。作者手写/弹窗确认（`user_created`）时：创世 `materialize` 的 upsert 带 `WHERE source <> 'user_created'` 不覆盖；资产回流 `sync_story_delta` 直接跳过不追加；`StoryOutlineRepository::update` 仅在带内容时打标（只改 structure_json 不改来源）。另删死模块 `memory/hybrid_search.rs`（410 行）与 capability 死权限 `http:default`。
+
+- **验证**：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；tsc / guard / nightly fmt / playwright 全绿。
+- **契约**：`test_materialize_does_not_overwrite_user_created_outline`；`test_materialize_still_updates_machine_outline`；`test_sync_story_delta_skips_user_created_outline`；`update_with_content_marks_user_created`；`update_without_content_keeps_source`。
+- **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；withGlobalTauri + CSP 需真机运行时验证；FTP 明文；Agency↔agents 环依赖 / coordinator 拆分 / llm_calls 保留 / src-server CI。

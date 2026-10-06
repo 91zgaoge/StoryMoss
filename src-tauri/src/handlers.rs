@@ -311,6 +311,12 @@ tauri::generate_handler! {
     pipeline::commands::get_latest_pipeline_review,
     llm::commands::get_story_llm_calls,
     llm::commands::get_story_cost_summary,
+    // v0.63.0 P3：质量债 / 时间旅行 / 待确认队列
+    commands::story_system::list_quality_debts,
+    commands::story_system::resolve_quality_debt,
+    commands::story_system::query_story_as_of,
+    commands::story_system::list_pending_reviews,
+    commands::story_system::resolve_pending_review,
     llm::commands::get_recent_llm_calls,
     llm::commands::get_llm_call_stats,
     scene_commands::update_character_state,
