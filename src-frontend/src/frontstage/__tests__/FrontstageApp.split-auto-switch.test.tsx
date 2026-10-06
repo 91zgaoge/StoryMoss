@@ -322,9 +322,13 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     // 注意：不能仅用 toContain('溢出段落') 作门控——旧全文 FULL_TEXT 本就含「溢出段落」，
     // 切换前即满足，会立即通过而未真正等待 setContent 替换，导致下一行 not.toContain
     // 在异步链未完成时超时失败（flaky）。
-    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'));
+    // 切换链路是异步的（重载章节列表 → 拉新章 → 取 scene）：CI 抖动下默认
+    // 1000ms 会超时（v0.64.0 首轮发布即因此失败），统一给 5s 上界。
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
+      timeout: 5000,
+    });
     await waitFor(() => expect(captured.content).not.toContain('旧章独有开头段落'), {
-      timeout: 3000,
+      timeout: 5000,
     });
     // 切换后编辑器显示新章溢出内容
     expect(captured.content).toContain('溢出段落');
@@ -358,8 +362,12 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     // 切换到新章后 sceneId 必须是 scene id。修复前：split 分支未拉取 scenes，
     // selectChapter 读到 stale 空数组，sceneId 回落 chapter.id（'ch-2'），后续
     // update_scene 走后端 heal 建出 id=chapter.id 的重复 scene，正文被拆到两个 scene。
-    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'));
-    await waitFor(() => expect(useFrontstageStore.getState().sceneId).toBe('scene-2'));
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(useFrontstageStore.getState().sceneId).toBe('scene-2'), {
+      timeout: 5000,
+    });
     expect(
       mockLoggedInvoke.mock.calls.filter(c => c[0] === 'get_chapter_scenes').length
     ).toBeGreaterThan(0);
