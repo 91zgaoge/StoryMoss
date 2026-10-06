@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.64.0 架构文档
+# StoryMoss (草苔) v0.64.1 架构文档
+
+> **v0.64.1**：无架构变更（landing 兜底版本与测试加固；发布流程修正为 GitHub + Cursor 代理双 remote 推送）。
 
 > **v0.64.0**：**声明式投影路由表**（P3-F）——`projection_writers::{CommitArtifact, ProjectionWriterKind, PROJECTION_ROUTES}` 把「提交产物 → 投影 writer」变成纯数据表；`get_projection_writers` 按表构造（漏接线告警）、`projection_status_keys()` 派生 commit 状态键（新增 writer 自动进 pending 初始化）、`route_summary` 记录每次提交的路由摘要（on/off + 激活 writer）供审计。异步 writer（vector / kg）在表内以 `deferred` 声明，执行仍由 `apply_commit` 的 future 完成——行为保持的重构。前端新增「运行维护」页（`pages/Maintenance.tsx` + `hooks/useMaintenance.ts`）：质量债 / 待确认 / 文风偏好 / 成本四 Tab，配套命令 `list_style_preferences` / `set_style_preference_status`。修复 `llm::cost` 的 deny 级 clippy 问题（曾阻塞 v0.63.0 发布）。
 

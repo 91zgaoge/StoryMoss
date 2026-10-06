@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.64.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.64.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,18 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.64.1 · 发布链路恢复：0.64.0 已上线，兜底版本与用例加固
+
+- **0.64.0 已完整上线**：`latest.json` = 0.64.0，macOS（公证通过）/Windows/Linux 四个安装包全部可下载，此前缺失的 `.deb` 也补齐了。
+- landing 兜底版本 0.58.0 → 0.64.0（离线时下载链接指向最近一次确认在线的版本）。
+- 加固一个在 CI 高负载下会超时的分章切换用例（纯测试时序，不改产品逻辑）。
+
+### v0.64.1 · 发布链路恢复：0.64.0 已上线，兜底版本与用例加固
+
+- **0.64.0 已完整上线**：`latest.json` = 0.64.0，macOS（公证通过）/Windows/Linux 四个安装包全部可下载，此前缺失的 `.deb` 也补齐了。
+- landing 兜底版本 0.58.0 → 0.64.0（离线时下载链接指向最近一次确认在线的版本）。
+- 加固一个在 CI 高负载下会超时的分章切换用例（纯测试时序，不改产品逻辑）。
 
 ### v0.64.0 · 运行维护页 + 声明式投影路由表
 

@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.64.1（2026-10-07）
+
+**发布链路恢复后的收尾**：Apple 公证协议签署生效，v0.64.0 已完整发布到 storymoss.top（含此前缺失的 `.deb`）；本版更新 landing 兜底版本并加固一个阻塞发布的脆弱用例。
+
+### 发布确认（v0.64.0 实测）
+
+- `https://storymoss.top/releases/latest.json` = **0.64.0**；`StoryMoss_0.64.0_aarch64.dmg` / `_x64_zh-CN.msi` / `_amd64.AppImage` / `_amd64.deb` **全部 200**（deb 白名单修复后首次补齐）。
+- macOS 公证通过（0.59.x 起的 `403 A required agreement is missing or has expired` 随协议签署解除）。
+- 同时修正：此前四个版本（v0.60.0–v0.63.0）只推送到 Cursor 代理 remote，GitHub 侧 master 停在 v0.59.4、CI 从未运行——已补推并纳入发布流程。
+
+### 修复
+
+- **landing 兜底版本**：`FALLBACK_VERSION` 0.58.0 → **0.64.0**（最近一次确认在线的版本）。离线/服务器故障时下载链接不再指向半年前的版本；保留策略保留最近 5 个版本，兜底在后续 4 次发版前始终有效。
+- **分章自动切换用例加固**：`FrontstageApp.split-auto-switch`「分章命中当前章」的切换链路（重载章节列表 → 拉新章 → 取 scene）是异步的，用例第一个 `waitFor` 使用默认 1000ms 上界；CI 负载高时超时判 `expected 'ch-1' to be 'ch-2'`（v0.64.0 首轮发布构建即因此失败，本地与上一轮 CI 均通过）。三处等待统一显式 5s，与该用例原本已设 3000ms 的第二个等待同一意图——纯测试时序加固，不改产品逻辑。
+
+### 测试
+
+- `cargo test --lib` 1691 passed / 3 ignored（无 Rust 改动）；`npx vitest run` 594 passed / 3 skipped；landing `tsc` + 24 tests；`cargo clippy` 0 error；fmt / prettier / guard 全绿。
+
+### 未关闭
+
+- 真机端到端（三把尺子 + 长篇 10+ 章）仍未复跑；**不得宣称续写质量已修复**。
+
 ## v0.64.0（2026-10-06）
 
 **收尾两项遗留 + 修复 CI 发布链路**：P3-F 声明式投影路由表、四处新能力的统一界面（幕后「运行维护」页），并修掉导致 v0.63.0 发布构建失败的 Clippy 错误。

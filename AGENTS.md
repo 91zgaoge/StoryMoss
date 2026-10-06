@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.64.0
+- **版本**: v0.64.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -111,6 +111,13 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.64.1 - 发布链路恢复：0.64.0 上线 + 兜底版本 + 用例加固
+
+**发布确认**：Apple 协议签署生效 → v0.64.0 完整发布（latest.json=0.64.0；dmg/msi/AppImage/**deb** 全 200）。**landing** `FALLBACK_VERSION` 0.58.0→0.64.0（最近一次确认在线版本；保留策略 5 版内有效）。**加固**：`FrontstageApp.split-auto-switch` 分章切换用例三处等待显式 5s（默认 1000ms 在 CI 高负载下超时，曾致 v0.64.0 首轮构建失败；纯测试时序）。**流程修正**：v0.60.0–v0.63.0 此前只推到 Cursor 代理，GitHub master 停在 v0.59.4、CI 未运行——已补推，后续每版双 remote 推送。
+
+- **验证**：Rust 1691 passed / 3 ignored（无改动）；vitest 594 / 3 skipped；landing 24；clippy 0 error；fmt/prettier/guard 全绿。
+- **未关闭**：真机端到端未复跑（**不得宣称续写质量已修复**）。
+
 ### v0.64.0 - 运行维护页 + 声明式投影路由表（P3-F 落地与 CI 修复）
 
 **P3-F 声明式投影路由表**（`story_system::projection_writers`）：`CommitArtifact` × `ProjectionWriterKind` 纯数据表 `PROJECTION_ROUTES`；`get_projection_writers` 与 `projection_status_keys()` 均从表派生（漏接线告警、新增 writer 自动进状态键），每次 commit 记录路由摘要便于审计；契约测试 6 项（产物全覆盖/顺序与 name 一致/无孤儿/状态键含异步/空值判定/摘要 on-off）。**幕后「运行维护」页**：质量债、待确认、文风偏好、成本四 Tab（此前四处的后端命令均无界面）；新增 `list_style_preferences` / `set_style_preference_status` 命令与 4 项 vitest。**修复**：`llm::cost` 的 `clippy::redundant_comparisons`（deny 级）阻塞了 v0.63.0 的 CI 发布链路——修复并把 `cargo clippy` 纳入每版验证。
@@ -142,14 +149,6 @@ P1 阶段（docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）。**P1-A**�
 - **验证**：`cargo test --lib` 1653 passed / 3 ignored（+10）；前端无改动（vitest 590 / 3 skipped）；nightly fmt / architecture_guard 全绿。
 - **契约**：`adaptive_summary_window_shrinks_with_book_length`；`segment_math_covers_expected_ranges`；`upsert_segment_summary_is_idempotent_per_index`；`story_so_far_block_includes_segments_only_for_long_books`；`parse_rejects_json_too_short_and_too_long`。
 - **未关闭**：真机 10+ 章验证摘要质量；**不得宣称续写质量已修复**；网站发布待 Apple 公证解阻。
-
-### v0.60.0 - 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
-
-对照外部五项目对比报告（docs/audits）落地 P0 阶段，把「防吃书」从提示词叮嘱变成可校验机制。**V135** 新增四张表：`story_timeline_events`（世界真相 / 读者认知 / 揭示状态机双栏建模）、`character_knowledge_log`（知情变更审计流水）、`item_holdings`（关键物品持有者账本）、`cascade_impacts`（改稿影响报告）。**知识边界**：ingest 新增 `knowledge_updates`/`timeline_events` 抽取，修掉 secrets 被 COALESCE 永久冻结的断链；续写资产注入【本拍信息差】【未公开真相】禁令（计划内揭示自动豁免）；`detect_knowledge_leaks` 接入续写探针与 editor_qc 疑点清单；Agency 快照不再丢弃 secrets。**物品归属**：`item_holdings` 按 (story,item) upsert，续写注入【在场物品】，`detect_possession_conflicts` 拦「非持有者使用/遗失物再现」（当场转手豁免）。**级联**：场景 re-ingest 后自动跑确定性影响分析（下游章、无处不在实体过滤）＋ LLM 冲突扫描（提示词资产 `cascade_conflict_scan`），发 `SyncEvent::CascadeImpactDetected`，新增 4 命令与幕后「级联中心」页（去查看/重跑分析/触发改写/忽略）——**只报告不改写后文**。
-
-- **验证**：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / architecture_guard 全绿。
-- **契约**：`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）；`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`；`test_knowledge_boundary_detects_unknown_secret_leak` / `..._hidden_truth_reveal`；`test_possession_conflict_flags_absent_holder_but_allows_transfer` / `..._lost_item_reuse`；`test_continuity_gaps_reads_db_and_respects_planned_text`；`test_ubiquitous_entity_is_filtered_out`；`CascadeCenter` 5 用例。
-- **未关闭**：真机三把尺子端到端复跑（P3 三测试套件收口）；**不得宣称续写质量已修复**；网站发布仍待 Apple 公证解阻。
 
 ## Always Do
 

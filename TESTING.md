@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.1 变更说明
+
+- 无新增用例；加固 `FrontstageApp.split-auto-switch` 分章切换用例：三处 `waitFor` 显式 5s 上界（默认 1000ms 在 CI 高负载下超时，曾致 v0.64.0 首轮发布构建失败）。**经验**：涉及「重载列表 → 拉取 → 切换」多段异步链路的断言必须显式给上界。
+- 基线不变：Rust 1691 passed / 3 ignored；vitest 594 passed / 3 skipped；landing 24 passed。
 
 ### v0.64.0 变更说明
 

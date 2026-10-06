@@ -1902,3 +1902,15 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
 - **验证**：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing tsc + 24 tests；build.yml YAML 解析通过；本地按 docs-guard 同款命令预演通过。
 - **契约**：`docs-guard`（发布必需文档门禁）。
 - **未关闭**：签署 Apple 协议后重跑 macOS 构建 → upload-to-website 才会发布 0.59.x（含 0.58.0 缺失的 `.deb`）；真机续写未复跑，**不得宣称续写质量已修复**。
+
+---
+
+*归档于 2026-10-07（v0.64.1）：v0.59.3 摘要。*
+
+### v0.60.0 - 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
+
+对照外部五项目对比报告（docs/audits）落地 P0 阶段，把「防吃书」从提示词叮嘱变成可校验机制。**V135** 新增四张表：`story_timeline_events`（世界真相 / 读者认知 / 揭示状态机双栏建模）、`character_knowledge_log`（知情变更审计流水）、`item_holdings`（关键物品持有者账本）、`cascade_impacts`（改稿影响报告）。**知识边界**：ingest 新增 `knowledge_updates`/`timeline_events` 抽取，修掉 secrets 被 COALESCE 永久冻结的断链；续写资产注入【本拍信息差】【未公开真相】禁令（计划内揭示自动豁免）；`detect_knowledge_leaks` 接入续写探针与 editor_qc 疑点清单；Agency 快照不再丢弃 secrets。**物品归属**：`item_holdings` 按 (story,item) upsert，续写注入【在场物品】，`detect_possession_conflicts` 拦「非持有者使用/遗失物再现」（当场转手豁免）。**级联**：场景 re-ingest 后自动跑确定性影响分析（下游章、无处不在实体过滤）＋ LLM 冲突扫描（提示词资产 `cascade_conflict_scan`），发 `SyncEvent::CascadeImpactDetected`，新增 4 命令与幕后「级联中心」页（去查看/重跑分析/触发改写/忽略）——**只报告不改写后文**。
+
+- **验证**：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / architecture_guard 全绿。
+- **契约**：`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）；`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`；`test_knowledge_boundary_detects_unknown_secret_leak` / `..._hidden_truth_reveal`；`test_possession_conflict_flags_absent_holder_but_allows_transfer` / `..._lost_item_reuse`；`test_continuity_gaps_reads_db_and_respects_planned_text`；`test_ubiquitous_entity_is_filtered_out`；`CascadeCenter` 5 用例。
+- **未关闭**：真机三把尺子端到端复跑（P3 三测试套件收口）；**不得宣称续写质量已修复**；网站发布仍待 Apple 公证解阻。

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.64.0 项目完成状态
+# StoryMoss (草苔) v0.64.1 项目完成状态
 
-> 最后更新: 2026-10-06（v0.64.0：运行维护页 + 声明式投影路由表（P3-F）；修复 Clippy 阻塞；Apple 协议已签署，发布链路重跑中）
+> 最后更新: 2026-10-07（v0.64.1：**0.64.0 已完整上线**（含补齐的 .deb）；landing 兜底 0.58.0→0.64.0；分章用例加固；发布流程改为双 remote 推送）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.64.1 - 发布链路恢复（2026-10-07）
+
+- **0.64.0 已上线**：latest.json=0.64.0；dmg/msi/AppImage/deb 全 200（Apple 公证协议签署生效）。
+- landing 兜底版本 0.58.0 → **0.64.0**。
+- 分章自动切换用例三处等待显式 5s（CI 抖动曾阻塞发布）。
+- v0.60.0–v0.63.0 补推到 GitHub（此前只在 Cursor 代理），CI 恢复运行。
+- 基线：Rust 1691 / 3 ignored（无改动）；vitest 594 / 3 skipped；landing 24。
 
 ### v0.64.0 - 运行维护页 + 声明式投影路由表（2026-10-06）
 
