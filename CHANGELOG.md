@@ -2,6 +2,33 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.59.2（2026-10-06）
+
+补齐 v0.59.0 检视清单的剩余缺口：修掉一个会静默清空正文的真实缺陷、清理死代码、归档陈旧文档、landing 依赖上锁。
+
+### 修复（P1，真实数据丢失）
+
+- **载入期空写覆盖整章正文**：ProseMirror 的空文档序列化是 `<p></p>`（真值字符串），旧守卫 `if (!content) return` 挡不住它——章节正文尚未到达时编辑器自带的空文档会被 2s 防抖保存原样落库，把已持久化正文覆盖成空（`e2e/frontstage-editing`「自动保存持久化」可稳定复现）。现引入「载入后空文档保护」：后端正文（非空）载入即布防，保护期内空内容保存一律跳过并记 `frontstage:persist_skip_empty_after_load`；一旦出现非空保存（用户真的在写）自动解除，正常写作后的主动清空仍可落库。
+- **JSON 尾随逗号换行形态**：真实模型（尤其围栏 JSON）几乎总把闭合括号另起一行，`,` + 换行 + `}` / `]` 此前解析失败、整段资产被丢弃。新增逐字符扫描修复（字符串字面量内部原样保留，含 `\"` 转义）。
+
+### 工程
+
+- **E2E 提升为阻塞门**：前置条件达成（空写竞态已修 + 固定 sleep 改轮询断言，本地连续两轮 39 passed / 0 failed），`e2e-check` 去掉 `continue-on-error`。
+- **死代码清理**：删除 5 个零引用 TipTap 扩展（`TrackChanges`/`CommentAnchor`/`TextAnnotationMark`/`characterName`/`SceneDividerNode`）、4 个仅被自身测试引用的孤儿 hook 及其 barrel 与测试（前端测试 −24 项）。
+- **陈旧文档归档**：根目录 33 份逾两个月未更新的 .md 移入 `docs/archive/root-legacy/`（内容未改，附清单），根目录 .md 44 → 11。
+- **landing CDN 依赖上锁**：字体 CSS 由不带版本号改为 `@3.0.0` 并加 SRI + `crossorigin`，第三方样式表被替换时浏览器直接拒绝加载。
+
+### 测试
+
+- `cargo test --lib` 1626 passed / 3 ignored（+2：JSON 尾随逗号换行 2）。
+- `npx vitest run` 585 passed / 3 skipped（删除 27 项孤儿 hook 测试，新增 3 项空文档判定单测，净 −24）。
+- Playwright：全套 39 passed / 5 skipped（连续两轮）；landing 24 passed；`npm run build` 通过。
+
+### 未关闭
+
+- 真机创世/续写仍未重跑；**不得宣称续写质量已修复**。
+- `src-server` 无 PostgreSQL 环境不可编译、CI 未覆盖；`withGlobalTauri` + 宽松 CSP、发布 FTP 明文传输、`story_outlines` 机器覆盖手写大纲、Agency↔agents 环依赖与 coordinator 巨石拆分仍待办。
+
 ## v0.59.1（2026-10-06）
 
 v0.59.0 的 CI 在「Check Rust formatting」一步失败（tauri-build 被跳过，全平台安装包未产出），本版为构建修复。

@@ -9,9 +9,16 @@
       content="草苔 StoryMoss：三个 AI 代理协作的小说创作工作室。主创执笔、管理备料、编辑审计把关；持续学习你的风格。本地运行，开源可审计。"
     />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <!-- v0.59.2：锁定 CDN 包版本（原先不带版本号，上游一发包内容就变），
+         并加 SRI + crossorigin——第三方 CSS 属于可注入面，校验失败浏览器直接
+         拒绝加载，而不是静默执行被替换的样式表。
+         升级字体：改版本号并重算
+         `curl -s <新URL> | openssl dgst -sha384 -binary | openssl base64 -A`。 -->
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@chinese-fonts/lxgwwenkai/dist/LXGWWenKai-Regular/result.css"
+      href="https://cdn.jsdelivr.net/npm/@chinese-fonts/lxgwwenkai@3.0.0/dist/LXGWWenKai-Regular/result.css"
+      integrity="sha384-KBoJ3mw/30u4DDppUsR0wMvA3Xh6egaS2FW+FLIKinEyuzrqHHBxvBy0WSX6/4bV"
+      crossorigin="anonymous"
     />
   </head>
   <body>

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.59.1 项目完成状态
+# StoryMoss (草苔) v0.59.2 项目完成状态
 
-> 最后更新: 2026-10-06（v0.59.1 构建修复：对齐新版 nightly rustfmt；含 v0.59.0 验收证据链 / 数据层治理 / 续写质检闭环）
+> 最后更新: 2026-10-06（v0.59.2 修静默清空正文 / 死代码清理 / 陈旧文档归档 / landing SRI）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.59.2 - 修静默清空、清死代码、归档旧文档（2026-10-06）
+
+- 修 P1：载入期空文档（`<p></p>`）覆盖整章正文；新增载入后空写保护 + 单测 + E2E 复现用例。
+- 修 JSON `,` + 换行 + 闭合括号的尾随逗号解析失败（字符串内部原样保留）。
+- E2E 提升为阻塞门；删 5 个零引用编辑器扩展 + 4 个孤儿 hook（前端测试 −24）；根目录 .md 44 → 11。
+- landing 字体 CDN 版本上锁 `@3.0.0` + SRI + crossorigin。
+- 基线：`cargo test --lib` 1626 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；Playwright 39 passed / 5 skipped。
 
 ### v0.59.1 - 构建修复：对齐新版 nightly rustfmt（2026-10-06）
 

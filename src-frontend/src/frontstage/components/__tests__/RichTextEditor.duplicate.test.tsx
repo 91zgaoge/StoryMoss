@@ -70,7 +70,6 @@ vi.mock('@tiptap/extension-highlight', () => ({
 }));
 
 vi.mock('../tiptap/AiSuggestionNode', () => ({ AiSuggestionNode: {} }));
-vi.mock('@/frontstage/extensions/SceneDividerNode', () => ({ SceneDividerNode: {} }));
 
 vi.mock('@/utils/cn', () => ({
   cn: (...classes: (string | false | undefined)[]) => classes.filter(Boolean).join(' '),

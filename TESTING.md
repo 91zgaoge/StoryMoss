@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.59.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.59.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.59.2 变更说明
+
+- 新增：`isEmptyEditorHtml` 空文档判定 3 项（前端）；`extract_and_sanitize_json` 尾随逗号换行 2 项（Rust）。
+- 删除：4 个孤儿 hook 的 27 项测试（无生产消费者）。
+- 门禁：`e2e-check` 提升为阻塞；Playwright 39 passed / 5 skipped（连续两轮）。
+- 全量基线：`cargo test --lib` 1626 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped。
 
 ### v0.59.1 变更说明
 

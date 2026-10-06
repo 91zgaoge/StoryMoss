@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-06（v0.59.1 构建修复：对齐新版 nightly rustfmt）
+> 最后更新: 2026-10-06（v0.59.2 静默清空修复 / 死代码清理 / 文档归档 / landing SRI）
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.59.2 - 修静默清空、清死代码、归档旧文档 ✅ (2026-10-06)
+
+- [x] 载入期空文档保护（含 `isEmptyEditorHtml` 单测与 E2E 复现）；JSON 尾随逗号换行形态修复。
+- [x] E2E 提升为阻塞门；删除零引用扩展/孤儿 hook；根目录陈旧 .md 归档 33 份；landing SRI。
+- **未关闭**：真机续写；src-server CI 覆盖；withGlobalTauri/CSP；FTP 明文；story_outlines 覆盖语义；Agency↔agents 环依赖。
 
 ### ✨ v0.59.1 - 构建修复：对齐新版 nightly rustfmt ✅ (2026-10-06)
 

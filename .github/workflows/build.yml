@@ -163,12 +163,10 @@ jobs:
   e2e-check:
     needs: [frontend-check, rust-check]
     runs-on: ubuntu-latest
-    # v0.59.0：暂不提升为阻塞门。原因：frontstage-editing「自动保存持久化」
-    # 用例暴露了真实的载入竞态（章节内容到达前，空编辑器可能先触发 debounce
-    # 保存并把已持久化正文覆盖成空），修复前保持非阻塞，避免 CI 假红。
-    # 新增的 frontstage-agency-append spec 与轮询式断言已就位，待该竞态修复后
-    # 再提升为门禁。
-    continue-on-error: true
+    # v0.59.2：提升为阻塞门。前置条件已满足：载入期空写竞态已修（见
+    # useScenePersistence 的 loadGuard），frontstage-editing 的固定 sleep
+    # 改为轮询断言，本地连续两轮全量 39 passed / 0 failed。
+    # 仍跑在 Vite dev server + 假 IPC 上（无真实 Tauri 后端），只锁前端契约。
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

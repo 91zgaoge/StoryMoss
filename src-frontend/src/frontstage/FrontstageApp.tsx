@@ -1365,7 +1365,9 @@ const FrontstageApp: React.FC = () => {
     handleRetrySave,
     saveError,
     cancelPersistRetry,
+    markSceneContentLoaded,
   } = useScenePersistence({ editorRef, latestContentRef, justSavedRef, setIsSaved });
+  // markSceneContentLoaded：selectChapter 应用后端正文后调用（v0.59.2 载入期空写保护）
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
   // A4-1.8: notify_backstage_content_changed 节流定时器
@@ -2922,6 +2924,9 @@ const FrontstageApp: React.FC = () => {
         chapter.id,
         currentStory?.title
       );
+      // v0.59.2：布防「载入期空写保护」——刚载入的正文非空时，编辑器挂载自带的
+      // 空文档（ProseMirror 序列化为 <p></p>，非空字符串）不得覆盖它。
+      markSceneContentLoaded(linkedSceneId || chapter.id, formattedContent.trim().length > 0);
       // v0.33.x: 关键诊断——sceneId 解析来源。chapter_id_fallback 意味着后续
       // update_scene 将以 chapter.id 触发后端"不存在则创建"的 heal 路径，
       // 提示 chapter↔scene 关联缺失或 scenes 列表未加载。

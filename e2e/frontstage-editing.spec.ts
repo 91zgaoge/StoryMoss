@@ -44,7 +44,7 @@ test.describe('Frontstage 编辑器测试', () => {
     // 而不是固定 sleep（固定等待在并行负载下会偶发假失败）。
     await expect
       .poll(
-        expected =>
+        () =>
           page.evaluate(text => {
             const w = window as unknown as {
               __calls?: { cmd: string; args?: unknown }[];
@@ -52,7 +52,7 @@ test.describe('Frontstage 编辑器测试', () => {
             return (w.__calls ?? []).some(
               c => c.cmd === 'update_scene' && JSON.stringify(c.args ?? {}).includes(text)
             );
-          }, expected),
+          }, TEST_CONTENT),
         { timeout: 20000, message: '等待自动保存把本次输入写入 update_scene' }
       )
       .toBe(true);

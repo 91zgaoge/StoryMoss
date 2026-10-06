@@ -1,7 +1,41 @@
 
 ---
 
-*归档于 2026-10-06（v0.59.0 AGENTS.md 瘦身）：以下为 v0.30.26–v0.54.0 的逐版本摘要。*
+*归档于 2026-10-06（v0.59.2）：v0.56.0 / v0.55.0 摘要。*
+
+### v0.55.0 - 资产渐进展开 / 续写冻结 / 短操作合同
+
+第二至四期对照 grok-bot 控制面：Producer/Editor 工具目录只注入名+一行，schema 走原生 `tools[]`；新增 `asset_read` 按名取全卡。续写仍零工具，全卡只给在场/冲突，其余半卡。一次 `write_beat_once` 冻结节拍卡与阵容，返回后解冻。`CONTINUE_BEAT_SYSTEM` 改为 11 行合同 + 三条对错范例。不改三档路由、不把主创拉回 ToolLoop。
+
+- **验证**：`cargo test --lib` 1549 passed / 2 ignored（+7）。
+- **契约**：`catalog_for_role_is_name_and_one_line`；`asset_read_returns_full_card_and_refuses_unknown_name`；`continue_user_omits_asset_read_and_keeps_present_full_cards`；`pin_keeps_first_shot_when_later_cast_changes`；`continue_freeze_pin_ignores_later_db_mutation`；`continue_beat_operational_contract_has_three_examples`。
+- **未关闭**：真机须再跑创世/续写；**不得宣称 ToolLoop JSON 熔断或续写质量已修复**。
+
+### v0.56.0 - 续写导演锁 / 管理 Agent 必写人物关系
+
+对照 `docs/plans/2026-08-27-continue-director-lock-design.md`：续写主创仍单次 `complete()`、零工具。拍前 Rust 编译人物锁（头衔+名合并、近文亲缘、本拍关系），可选 Producer `complete_json` 约 20s enrich；冻结含锁。探针去掉「丢掉已在场者 / 点名不足 2 人」，改拦同一人双身体与亲缘写反。管理 Agent 写角色后必须 upsert `character_relationships`（同对一行）；≥2 角色且关系表空则 `ensure_relationships` 补写。不自动删/合并角色表脏行。
+
+- **验证**：`cargo test --lib` 1569 passed / 2 ignored（+20）；`npx tsc --noEmit` / `cargo +nightly fmt` / `architecture_guard.py` 全绿。
+- **契约**：`same_person_title_plus_given_name`；`probe_rejects_cao_split_bodies`；`probe_rejects_nephew_when_lock_is_father`；`probe_does_not_gap_silent_present`；`pin_keeps_director_lock`；`test_materialize_relationship_after_characters_even_if_listed_first`；`test_materialize_relationship_updates_existing_pair`；`ensure_assets_upserts_missing_relationships_for_two_characters`。
+- **未关闭**：真机须从「飞身扑上」同一开头再跑；**不得宣称续写质量已修复**。角色表脏行仍不自动删除。
+
+
+---
+
+*归档于 2026-10-06（v0.59.2）：v0.56.1 摘要。*
+
+### v0.56.1 - 拆人探针认抱衣角；死人不得再用眼睛锁定
+
+真机从「飞身扑上」续写：琬公主曹元佩抱着曹元佩的衣角（同一人两个身体），明成公主已气绝却用眼睛锁定苏亦铁。根因：拆人探针只认「名字+则/蜷缩」，抱衣角漏网；死人探针只拦再刺/再气绝，不拦活人目光。现改：同一人两个称呼独立出现即缺口；已死者点名后 80 字内出现眼睛/锁定/审视则缺口。合同 Wrong 补抱衣角。不改主创零工具。
+
+- **验证**：`cargo test --lib` 1571 passed / 2 ignored（+2）。
+- **契约**：`probe_rejects_hugging_own_clothes_as_two_people`；`probe_rejects_dead_princess_living_gaze`。
+- **未关闭**：真机须从「飞身扑上」再跑；**不得宣称续写质量已修复**。探针只重试一次，仍失败会 salvage 落库。
+
+
+---
+
+*归档于 2026-10-06（v0.59.0 AGENTS.md 瘦身）：以下为 v0.30.26–v0.54.0 的逐版本摘要；v0.56.1 见本文件顶部。*
 
 ### v0.54.0 - Agency ToolLoop 原生 function calling
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.59.2 · 修静默清空、清死代码、归档旧文档
+
+- 修「载入期空文档覆盖整章正文」（ProseMirror 空文档 `<p></p>` 绕过旧守卫）与 JSON 尾随逗号换行形态解析失败。
+- E2E 提升为阻塞门；删除 5 个零引用编辑器扩展与 4 个孤儿 hook；根目录 33 份陈旧文档归档；landing 字体 CDN 版本上锁 + SRI。
 
 ### v0.59.0 · 验收证据链、数据层治理与续写质检闭环
 

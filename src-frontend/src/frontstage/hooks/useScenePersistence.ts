@@ -39,6 +39,23 @@ const logToBackend = (phase: string, message: string, details?: Record<string, u
 // 重试出火时若 store sceneId 已切换（如自动分章）则 no-op，避免旧全文回写已截断的旧 scene
 const SAVE_RETRY_DELAYS_MS = [2000, 10000, 30000];
 
+/**
+ * v0.59.2：编辑器「视觉空文档」判定。
+ *
+ * ProseMirror 的空文档序列化是 `<p></p>` / `<p><br></p>` 这类**非空字符串**，
+ * 早先的 `if (!content) return` 只挡得住 `''`，挡不住「正文尚未到达时编辑器
+ * 自带的空文档」——它会被 2s 防抖保存原样落库，覆盖后端已有正文
+ * （`e2e/frontstage-editing.spec.ts`「自动保存持久化」可稳定复现）。
+ */
+export function isEmptyEditorHtml(html: string): boolean {
+  return (
+    html
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim().length === 0
+  );
+}
+
 export interface UseScenePersistenceParams {
   /** 编辑器引用——flushSceneSave 直接读取编辑器实际 HTML，而非 latestContentRef */
   editorRef: RefObject<RichTextEditorRef>;
@@ -72,6 +89,19 @@ export default function useScenePersistence({
   const lastFlushLoggedSceneIdRef = useRef<string | null>(null);
   // v0.33.x: 在途失败重试定时器——分章切换等场景可取消持有旧正文的在途重试
   const saveRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // v0.59.2: 载入期空写保护。后端正文（非空）刚载入时布防；布防期内遇到
+  // 「视觉空文档」的保存一律跳过并记日志——那是编辑器挂载自带的空 doc，
+  // 不是用户清空。一旦出现非空保存（说明用户真的在写），保护自动解除，
+  // 因此「用户删光正文」在正常写作后仍可落库；只有「载入后未编辑就清空」
+  // 这一种情况被挡住（宁可保留旧文，也不静默清空整章）。
+  const loadGuardRef = useRef<{ sceneId: string; armed: boolean }>({
+    sceneId: '',
+    armed: false,
+  });
+  const markSceneContentLoaded = useCallback((sceneId: string, hadContent: boolean) => {
+    loadGuardRef.current = { sceneId, armed: hadContent };
+  }, []);
   // v0.33.x: 取消在途重试（分章自动切换时调用）——重试闭包持有分章前旧全文，
   // 出火后会把旧全文回写到已截断的旧 scene，造成"旧全文 + 新章溢出副本"重复
   const cancelPersistRetry = useCallback(() => {
@@ -85,6 +115,20 @@ export default function useScenePersistence({
   const persistSceneContent = useCallback(
     async (sceneId: string, content: string, title?: string, retryCount = 0): Promise<void> => {
       if (!sceneId || !content) return;
+      // v0.59.2: 载入期空写保护（见 loadGuardRef 注释）
+      const guard = loadGuardRef.current;
+      if (guard.armed && guard.sceneId === sceneId) {
+        if (isEmptyEditorHtml(content)) {
+          logToBackend(
+            'frontstage:persist_skip_empty_after_load',
+            'persist skipped: empty editor doc right after scene load',
+            { sceneId, contentLen: content.length }
+          );
+          return;
+        }
+        // 用户已经在写：解除保护，后续清空照常落库
+        guard.armed = false;
+      }
       const prev = saveChainRef.current;
       let release!: () => void;
       saveChainRef.current = new Promise<void>(r => {
@@ -221,5 +265,6 @@ export default function useScenePersistence({
     handleRetrySave,
     saveError,
     cancelPersistRetry,
+    markSceneContentLoaded,
   };
 }

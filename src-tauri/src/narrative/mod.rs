@@ -259,6 +259,11 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
             break;
         }
     }
+    // 6b. v0.59.2：带换行的尾随逗号（`"a": 1,\n}` / `[\n  1,\n]`）。
+    //     真实模型（尤其走 markdown 围栏时）几乎总是把闭合括号另起一行，
+    //     上面的同行替换覆盖不到 → serde 解析失败 → 整段资产被丢弃。
+    //     逐字符扫描并跳过字符串内部，避免把正文里的 ",\n}" 当语法错删掉。
+    s = strip_whitespace_trailing_commas(&s);
 
     // 7. 修复空值：`: ,` → `: null,`，`: ]` → `: null]`，`: }` → `: null}`
     for (bad, good) in [
@@ -275,6 +280,54 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     // 如果 JSON 键名或值边界使用了中文引号，那是 LLM 的格式错误，应由 LLM 修正
 
     Ok(s)
+}
+
+/// v0.59.2：删除「逗号 +（可含换行的）空白 + 闭合括号」里的尾随逗号。
+///
+/// 逐字符扫描，字符串字面量内部原样保留——正文里出现 `,\n}` 这类字面量
+/// （例如角色对白里引用 JSON 片段）不能被误改。转义引号 `\"` 不改变串内状态。
+fn strip_whitespace_trailing_commas(s: &str) -> String {
+    let bytes: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == ',' {
+            // 向后看：只允许空白，随后必须是 ] 或 }
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && (bytes[j] == ']' || bytes[j] == '}') {
+                // 丢掉这个逗号，保留其后的空白与闭合括号
+                i += 1;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -435,6 +488,40 @@ mod tests {
         assert!(extract_and_sanitize_json(truncated).is_err());
         // 围栏里的截断体同样失败。
         assert!(extract_and_sanitize_json("```json\n{\"scene_outline\": \"钟楼").is_err());
+    }
+
+    #[test]
+    fn test_extract_fenced_json_trailing_comma_newline() {
+        // v0.59.2：真实模型把闭合括号另起一行（围栏 JSON 尤其常见），
+        // `,\n}` / `,\n  ]` 形态此前会解析失败、整段资产被丢弃。
+        let content =
+            "```json\n{\n  \"title\": \"锈蚀纪元\",\n  \"themes\": [\n    \"生存\",\n  ],\n}\n```";
+        let sanitized = extract_and_sanitize_json(content).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert_eq!(value["title"], "锈蚀纪元");
+        assert_eq!(value["themes"][0], "生存");
+
+        // 无围栏的同类形态（纯对象，控制台常见）
+        let plain = "{\n  \"a\": 1,\n  \"b\": {\n    \"c\": 2,\n  },\n}";
+        let sanitized_plain = extract_and_sanitize_json(plain).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&sanitized_plain).unwrap();
+        assert_eq!(v2["b"]["c"], 2);
+    }
+
+    #[test]
+    fn test_strip_whitespace_trailing_commas_keeps_string_literals() {
+        // 字符串值内部的 ",\n}" 是正文内容，不得被当作语法错删除。
+        let raw = "{\n  \"prose\": \"他念出：{\\\"a\\\": 1,\n}\",\n  \"n\": 2,\n}";
+        let stripped = strip_whitespace_trailing_commas(raw);
+        assert!(
+            stripped.contains("1,\n}"),
+            "字符串内的逗号+换行+括号必须原样保留：{stripped}"
+        );
+        // 结构性的尾随逗号仍被删除
+        assert!(
+            !stripped.contains("2,\n}"),
+            "结构性尾随逗号应删除：{stripped}"
+        );
     }
 
     #[test]
