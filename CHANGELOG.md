@@ -2,6 +2,30 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.59.3（2026-10-06）
+
+补齐检视清单里「机器提取静默覆盖手写大纲」与两处死件。
+
+### 修复：故事大纲不再被机器静默改写
+
+- V134 给 `story_outlines` 加 `source` 列（存量行标记 `unknown`，保持原语义：机器仍可精炼，不会把老库大纲永久冻结）。
+- 三条写入路径按来源分流：作者手写/弹窗确认（`user_created`）的大纲，创世资产 `materialize` 不再整体覆盖（`ON CONFLICT ... DO UPDATE ... WHERE source <> 'user_created'`），资产回流 ingest 不再追加冲突/转折点；作者保存（`StoryOutlineRepository::update` 带内容）自动打上 `user_created`，只改 structure_json 时不改来源。机器来源仍可继续精炼。
+
+### 清理死件
+
+- 删除 `memory/hybrid_search.rs`（410 行，声明为模块但全仓无调用者；实际检索走 `lancedb_store::hybrid_search`）。
+- 移除 capability 里的死权限 `http:default`（前端零 `plugin-http` 引用），收窄 webview 的 IPC 面。
+
+### 测试
+
+- `cargo test --lib` 1628 passed / 3 ignored（+5：大纲来源保护 3 + 仓库层 2）。
+- `npx vitest run` 585 passed / 3 skipped；`npx tsc --noEmit`、`architecture_guard.py`、`cargo +nightly fmt` 全绿；Playwright 39 passed / 5 skipped。
+
+### 未关闭
+
+- 真机创世/续写仍未重跑；**不得宣称续写质量已修复**。
+- `withGlobalTauri` + CSP（`unsafe-eval`/`connect-src *`）需真机运行时验证后再收；发布仍走 FTP 明文；Agency↔agents 环依赖与 `coordinator.rs` 拆分、`llm_calls` 保留策略、`src-server` CI 覆盖待办。
+
 ## v0.59.2（2026-10-06）
 
 补齐 v0.59.0 检视清单的剩余缺口：修掉一个会静默清空正文的真实缺陷、清理死代码、归档陈旧文档、landing 依赖上锁。

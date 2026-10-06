@@ -101,8 +101,12 @@ impl StoryOutlineRepository {
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
+            // v0.59.3：带内容更新即视为「作者手写/已确认」→ 标记 source=user_created，
+            // 后续机器路径（materialize / ingest）不得再覆盖或追加（见 V134）。
             "UPDATE story_outlines SET content = COALESCE(?2, content), structure_json = \
-             COALESCE(?3, structure_json), updated_at = ?4 WHERE story_id = ?1",
+             COALESCE(?3, structure_json), \
+             source = CASE WHEN ?2 IS NOT NULL THEN 'user_created' ELSE source END, \
+             updated_at = ?4 WHERE story_id = ?1",
             params![story_id, content, structure_json, now],
         )?;
         Ok(count)
@@ -132,5 +136,65 @@ impl StoryOutlineRepository {
             params![story_id, analyzed_structure_json, now],
         )?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{create_test_pool, CreateStoryRequest, StoryRepository};
+
+    fn story(pool: &crate::db::DbPool, _id: &str) -> String {
+        StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "大纲来源测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id
+    }
+
+    fn source_of(pool: &crate::db::DbPool, story_id: &str) -> Option<String> {
+        let conn = pool.get().unwrap();
+        conn.query_row(
+            "SELECT source FROM story_outlines WHERE story_id = ?1",
+            params![story_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .unwrap()
+    }
+
+    /// v0.59.3：用户带内容保存 = 手写/已确认 → 打上 user_created，
+    /// 机器路径（创世 materialize / ingest）此后不得覆盖或追加。
+    #[test]
+    fn update_with_content_marks_user_created() {
+        let pool = create_test_pool().unwrap();
+        let sid = story(&pool, "s1");
+        let repo = StoryOutlineRepository::new(pool.clone());
+        repo.create(&sid, "机器初稿", None, 3, None).unwrap();
+        repo.update(&sid, Some("作者改写后的三幕结构"), None)
+            .unwrap();
+        assert_eq!(source_of(&pool, &sid).as_deref(), Some("user_created"));
+    }
+
+    /// 只改 structure_json（content=None）不改来源标记——否则机器侧更新
+    /// 结构时会把机器大纲误标成手写，永久冻结后续精炼。
+    #[test]
+    fn update_without_content_keeps_source() {
+        let pool = create_test_pool().unwrap();
+        let sid = story(&pool, "s1");
+        let repo = StoryOutlineRepository::new(pool.clone());
+        repo.create(&sid, "机器初稿", None, 3, None).unwrap();
+        repo.update(&sid, None, Some("{\"act1\":\"x\"}")).unwrap();
+        let src = source_of(&pool, &sid);
+        assert!(
+            src.is_none() || src.as_deref() == Some("unknown"),
+            "无内容更新不得把来源改成 user_created：{src:?}"
+        );
     }
 }

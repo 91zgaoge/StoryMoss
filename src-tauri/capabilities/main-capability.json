@@ -29,7 +29,6 @@
     "dialog:allow-ask",
     "dialog:allow-message",
     "shell:default",
-    "shell:allow-open",
-    "http:default"
+    "shell:allow-open"
   ]
 }

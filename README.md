@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.59.3 · 手写大纲不再被机器改写
+
+- 故事大纲按来源分流（V134 `source` 列）：作者手写/确认过的大纲不再被创世资产覆盖、也不被资产回流追加；机器来源仍可继续精炼。
+- 清理死件：删除无调用者的 `memory/hybrid_search.rs`（410 行）与 capability 死权限 `http:default`。
 
 ### v0.59.2 · 修静默清空、清死代码、归档旧文档
 

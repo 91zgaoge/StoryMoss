@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.59.2 项目完成状态
+# StoryMoss (草苔) v0.59.3 项目完成状态
 
-> 最后更新: 2026-10-06（v0.59.2 修静默清空正文 / 死代码清理 / 陈旧文档归档 / landing SRI）
+> 最后更新: 2026-10-06（v0.59.3 手写大纲来源保护 / 死模块与死权限清理）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.59.3 - 手写大纲不再被机器改写（2026-10-06）
+
+- V134 `story_outlines.source`：作者手写/确认（user_created）的大纲不再被创世 materialize 覆盖、不再被 ingest 追加；存量行为 unknown（保持原语义）。
+- 删除死模块 `memory/hybrid_search.rs`（410 行）与 capability 死权限 `http:default`。
+- 基线：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；Playwright 39 passed / 5 skipped。
 
 ### v0.59.2 - 修静默清空、清死代码、归档旧文档（2026-10-06）
 

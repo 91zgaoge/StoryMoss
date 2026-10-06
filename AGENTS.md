@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.59.2
+- **版本**: v0.59.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -111,6 +111,14 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.59.3 - 手写大纲不再被机器改写
+
+V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可精炼」语义）。作者手写/弹窗确认（`user_created`）时：创世 `materialize` 的 upsert 带 `WHERE source <> 'user_created'` 不覆盖；资产回流 `sync_story_delta` 直接跳过不追加；`StoryOutlineRepository::update` 仅在带内容时打标（只改 structure_json 不改来源）。另删死模块 `memory/hybrid_search.rs`（410 行）与 capability 死权限 `http:default`。
+
+- **验证**：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；tsc / guard / nightly fmt / playwright 全绿。
+- **契约**：`test_materialize_does_not_overwrite_user_created_outline`；`test_materialize_still_updates_machine_outline`；`test_sync_story_delta_skips_user_created_outline`；`update_with_content_marks_user_created`；`update_without_content_keeps_source`。
+- **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；withGlobalTauri + CSP 需真机运行时验证；FTP 明文；Agency↔agents 环依赖 / coordinator 拆分 / llm_calls 保留 / src-server CI。
+
 ### v0.59.2 - 修静默清空、清死代码、归档旧文档
 
 载入期空文档保护：ProseMirror 空文档是 `<p></p>`（真值），旧 `if (!content)` 守卫挡不住 → 正文未到时编辑器自带空文档被 2s 防抖保存落库、覆盖整章（e2e 稳定复现）。现 `markSceneContentLoaded` 布防、`isEmptyEditorHtml` 判定、首次非空保存自动解除。另修 JSON 尾随逗号换行形态（模型几乎总把闭合括号另起一行）。E2E 去掉 `continue-on-error` 提升为阻塞门；删 5 个零引用编辑器扩展 + 4 个孤儿 hook（前端测试 −24）；根目录 33 份陈旧 .md 归档到 `docs/archive/root-legacy/`；landing 字体 CDN 上锁 `@3.0.0` + SRI。
@@ -141,16 +149,6 @@ v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安�
 - **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）；`tsc` / `architecture_guard.py` 全绿。
 - **契约**：`change_delta_from_hostile_cast`；`continue_system_has_stall_example`；`editor_issue_parses_impact_and_fix`；`probe_gaps_when_increment_is_tail_recap`；`probe_does_not_gap_literary_aside_when_not_recap`；`looks_like_short_drama_defaults_novel`；`continue_beat_complete_does_not_require_tools`；制作限制只在短剧显示。
 - **未关闭**：真机须再跑创世/续写/短剧；**不得宣称续写质量已修复**。不分镜、不自动删角色脏行。
-
-### v0.56.2 - 下引号不再单独成段；编辑审计顶栏不再报「已完成失败」
-
-幕前对话句号后空行 + 全角缩进会把闭合引号排成带段首缩进的孤段。根因：悬挂合并只认「换行后立刻是引号」，夹着全角空格就漏；空行分段路径还不跑 HTML 孤段合并。现跳过换行与引号之间的空白并丢掉缩进，空行/存量 HTML 都并回上一句。后台编辑审查本是 fail-open（章节已落库），却把 `Err` 标成「后台审查失败」，顶栏拼成「编辑审计已完成后台审查失败」。现 done 固定「后台审查」，失败只走 toast/日志；`friendlyText` 对失败/超时不再加「已完成」。
-
-- **验证**：`cargo test --lib` 1572 passed / 2 ignored（+1）；`npx vitest run` 606 passed / 3 skipped（+4）。
-- **契约**：`blank-line path: indented hanging closing quote`；`失败/超时不得拼成「已完成…失败」`；`editor_qc_done_detail_is_fail_open_not_failure`。
-- **未关闭**：已落库旧章下次打开会并回孤引号。真机须再续写确认；**不得宣称续写质量已修复**。
-
-
 
 
 ## Always Do

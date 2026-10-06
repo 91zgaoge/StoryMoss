@@ -349,9 +349,12 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                 let id = uuid::Uuid::new_v4().to_string();
                 let ts = now();
                 let result = conn.execute(
-                    "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, 3, ?4, ?5)
-                     ON CONFLICT(story_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                    // v0.59.3：作者手写/已确认（source=user_created）的大纲不得被创世
+                    // 资产静默覆盖——DO UPDATE 的 WHERE 让冲突时保留作者原文。
+                    "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, updated_at, source)
+                     VALUES (?1, ?2, ?3, 3, ?4, ?5, 'agency')
+                     ON CONFLICT(story_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, source = 'agency'
+                     WHERE COALESCE(story_outlines.source, 'unknown') <> 'user_created'",
                     params![id, story_id, item.content, ts, ts],
                 );
                 match result {
@@ -660,6 +663,63 @@ mod tests {
             )
             .unwrap();
         assert!(content.contains("起承转合"));
+    }
+
+    /// v0.59.3：作者手写/
+    /// 已确认的大纲（source=user_created）不得被创世资产覆盖。
+    #[test]
+    fn test_materialize_does_not_overwrite_user_created_outline() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, updated_at, source)
+                 VALUES ('o1', 's1', '作者手写的大纲：只此一份', 3, 'now', 'now', 'user_created')",
+                [],
+            )
+            .unwrap();
+        }
+        let items = vec![item("outline", "第一卷", "机器生成的大纲：另起炉灶")];
+        materialize_assets(&pool, "s1", &items);
+        let conn = pool.get().unwrap();
+        let (content, source): (String, String) = conn
+            .query_row(
+                "SELECT content, source FROM story_outlines WHERE story_id='s1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(content, "作者手写的大纲：只此一份", "手写大纲不得被覆盖");
+        assert_eq!(source, "user_created", "手写标记不得被改写");
+    }
+
+    /// 机器来源（agency/unknown）仍可被新资产覆盖——保护只针对 user_created。
+    #[test]
+    fn test_materialize_still_updates_machine_outline() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, updated_at, source)
+                 VALUES ('o1', 's1', '旧机器大纲', 3, 'now', 'now', 'agency')",
+                [],
+            )
+            .unwrap();
+        }
+        let items = vec![item("outline", "第一卷", "新机器大纲")];
+        materialize_assets(&pool, "s1", &items);
+        let conn = pool.get().unwrap();
+        let (content, source): (String, String) = conn
+            .query_row(
+                "SELECT content, source FROM story_outlines WHERE story_id='s1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(content.contains("新机器大纲"));
+        assert_eq!(source, "agency");
     }
 
     #[test]

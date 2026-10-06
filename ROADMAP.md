@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-06（v0.59.2 静默清空修复 / 死代码清理 / 文档归档 / landing SRI）
+> 最后更新: 2026-10-06（v0.59.3 手写大纲来源保护 / 死件清理）
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.59.3 - 手写大纲不再被机器改写 ✅ (2026-10-06)
+
+- [x] V134 source 列 + 三条写入路径分流（materialize 不覆盖 / ingest 不追加 / 用户保存打标）；机器来源仍可精炼。
+- [x] 删死模块 hybrid_search.rs 与 capability 死权限 http:default。
+- **未关闭**：真机续写；withGlobalTauri + CSP；FTP 明文；Agency↔agents 环依赖与 coordinator 拆分；llm_calls 保留；src-server CI。
 
 ### ✨ v0.59.2 - 修静默清空、清死代码、归档旧文档 ✅ (2026-10-06)
 

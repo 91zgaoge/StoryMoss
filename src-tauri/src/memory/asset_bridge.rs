@@ -789,9 +789,15 @@ fn sync_story_delta(
 
     let existing = conn
         .query_row(
-            "SELECT id, content FROM story_outlines WHERE story_id = ?1",
+            "SELECT id, content, COALESCE(source, 'unknown') FROM story_outlines WHERE story_id = ?1",
             params![story_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .ok();
 
@@ -818,7 +824,14 @@ fn sync_story_delta(
                 }
             }
         }
-        Some((id, content)) => {
+        Some((id, content, source)) => {
+            // v0.59.3：作者手写/已确认的大纲不追加机器内容——此前 ingest
+            // 会把提取出的 冲突/转折点直接拼进作者原文，
+            // 手写资产被改动而用户无从察觉（见 V134）。
+            if source == "user_created" {
+                log::info!("[AssetBridge] 故事大纲为作者手写（source=user_created），跳过机器追加");
+                return 0;
+            }
             let mut new_content = content.clone();
             let mut changed = false;
             for (raw, section) in &sections {
@@ -1442,6 +1455,45 @@ mod tests {
     // ---------- 故事大纲 ----------
 
     #[test]
+    /// v0.59.3：作者手写大纲（source=user_created）不再被 ingest 追加机器内容。
+    #[test]
+    fn test_sync_story_delta_skips_user_created_outline() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, updated_at, source)
+                 VALUES ('o1', 's1', '作者手写：三幕结构自行安排', 3, 'now', 'now', 'user_created')",
+                [],
+            )
+            .unwrap();
+        }
+        let analysis = analysis_from_json(serde_json::json!({
+            "entities": [],
+            "sentiment": {"overall": "neutral", "intensity": 0.5, "arc": []},
+            "story_delta": {
+                "core_conflict": "机器提取的核心冲突",
+                "turning_points": ["机器提取的转折点"]
+            },
+        }));
+        assert_eq!(
+            sync_assets_from_analysis(&pool, "s1", None, &analysis),
+            0,
+            "手写大纲不得被追加"
+        );
+        let conn = pool.get().unwrap();
+        let (content, source): (String, String) = conn
+            .query_row(
+                "SELECT content, source FROM story_outlines WHERE story_id='s1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(content, "作者手写：三幕结构自行安排");
+        assert_eq!(source, "user_created");
+    }
+
     fn test_sync_story_delta_append_and_dedup() {
         let pool = create_test_pool().unwrap();
         story(&pool, "s1");
