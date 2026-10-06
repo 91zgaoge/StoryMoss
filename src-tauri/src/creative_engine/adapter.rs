@@ -183,6 +183,8 @@ impl CreativeEnginePort for CreativeEngineAdapter {
                         current_emotion: cs.current_emotion,
                         active_goal: cs.active_goal,
                         arc_progress: cs.arc_progress,
+                        secrets_known: cs.secrets_known,
+                        secrets_unknown: cs.secrets_unknown,
                     })
                     .collect();
                 let conflicts = c

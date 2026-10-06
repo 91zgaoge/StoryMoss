@@ -2,6 +2,45 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.60.0（2026-10-06）
+
+**P0：三把尺子**——对照 `docs/audits/2026-10-06-ai-novel-landscape-comparison.md` 与 `docs/plans/2026-10-06-p0-p3-roadmap-implementation.md`（P0–P3 四阶段路线的第一阶段）。把「长篇写作防吃书」从提示词层面的叮嘱，落成三个可校验、可回归的机制：知识边界、物品归属、改稿级联影响报告。
+
+### P0-1 知识边界（三层信息分离）
+
+- **数据**（V135）：新增 `story_timeline_events`（每条事件同时记录世界真相 `objective_fact`、读者此刻认知 `reader_knowledge`、揭示状态机 `hidden/partial/revealed` 与实际揭示章）与 `character_knowledge_log`（角色知情变更的 append-only 审计流水）。
+- **修复断链**：`character_states.secrets_known/secrets_unknown` 此前在 ingest 里被 COALESCE **永久冻结**（只能靠手动写）。ingest 分析 schema 新增 `knowledge_updates`（谁获知了什么），落库时把事实写入已知、从尚不知道中移除，并留审计流水。
+- **预防注入**：续写资产新增【本拍信息差（绝不可泄露）】【未公开真相（未经大纲明确安排不得写进正文）】两块禁令；禁令对「本拍规划内已安排的揭示/获知」自动豁免（防误伤计划内情节）。
+- **检测**：`memory::continuity::detect_knowledge_leaks` 纯函数——角色尚不知道的事实或未揭示真相的**高区分度片段**（≥8 连续字符）出现在增量正文时告警，接入 `write_beat_once` 探针（触发一次补写重试）；编辑器审计（editor_qc）预注入「知识边界与物品核对」疑点清单，供审计逐条核查。
+- **修复 Agency 断链**：`domain::asset_snapshot::CharacterStateSnapshot` 保留 secrets 字段，`creative_engine::adapter` 转换不再丢弃，Agency 工具上下文可见信息差。
+
+### P0-2 物品归属（玉佩账本）
+
+- **数据**（V135）：新增 `item_holdings`（物品名/持有者/状态 held·lost·destroyed/取得章/原文证据），遵循「只登记跨章影响行动边界的关键资源」的克制原则。
+- **抽取**：ingest schema 新增 `item_holdings`（acquire/transfer/lose/destroy），按 (story, item) upsert，持有者名解析到角色 id。
+- **注入**：续写资产新增【在场物品（归属必须一致：非持有者不得使用，除非本拍明确转手）】。
+- **检测**：`detect_possession_conflicts` 纯函数——物品在使用动词窗口内出现而持有者不在场（且非当场转手）时告警；已遗失/损毁物品再次出现告警；接入续写探针。
+
+### P0-3 改稿级联影响报告（只报告不改写）
+
+- **数据**（V135）：新增 `cascade_impacts`（batch 分组、源场景→目标场景、分数、severity、实体、detail/evidence、decision、stale 标记）。
+- **自动触发**：场景 re-ingest 完成后自动运行（`SceneIngestor::spawn_ingest_now` 挂接）——确定性影响分析（本场景实体 → 下游场景 mention 聚合打分，**无处不在实体自动过滤**，否则主角名一改命中全书）→ 只保留后续章节 → 落库。
+- **LLM 冲突扫描**：改动章正文节选 + 至多 5 个下游章摘要 → 结构化冲突清单（severity/description/双证据/建议），新增提示词资产 `cascade_conflict_scan`；解析容错（围栏/尾随逗号/思考链），失败仅告警可降级。
+- **事件与命令**：新增 `SyncEvent::CascadeImpactDetected`（TS 绑定同步导出）；新增 `list_cascade_impacts` / `ignore_cascade_impact` / `reanalyze_scene` / `trigger_cascade_rewrite_for_impact` 四个命令。
+- **前端「级联中心」**：幕后诊断组新页面——按改稿批次分组、severity 徽章、「分析可能已失效」标记，每条四动作：**去查看 / 重跑分析 / 触发改写（复用既有 cascade_rewrite 引擎出 Diff，任务中心审阅）/ 忽略**。系统不自动改写后文，全部由作者决策。
+- 顺手修复：`trigger_cascade_rewrite` 的实体名现在从 KG 解析（此前直接把 entity_id 当名字塞进改写 prompt）。
+
+### 测试
+
+- `cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；`npx tsc --noEmit`、`cargo +nightly fmt`、`prettier`、`architecture_guard.py` 全绿。
+- 契约测试：`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`、`test_knowledge_boundary_detects_unknown_secret_leak`、`test_knowledge_boundary_detects_hidden_truth_reveal`、`test_possession_conflict_flags_absent_holder_but_allows_transfer`、`test_possession_conflict_flags_lost_item_reuse`、`test_persist_item_holdings_upserts_by_item_and_tracks_status`、`test_continuity_gaps_reads_db_and_respects_planned_text`、`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）、`test_ignore_and_stale_clear_decision_transitions`、`test_ubiquitous_entity_is_filtered_out`、`test_build_change_events_resolves_entity_names_from_kg`、`test_parse_conflict_scan_tolerates_fences_and_trailing_commas`、`CascadeCenter` 页面 5 用例。
+
+### 未关闭
+
+- 真机创世/续写仍未重跑；**不得宣称续写质量已修复**。
+- 帖主三把尺子的端到端（真机）验证待做：P0 已把三把尺子固化为契约测试与探针，真机复跑在 P3 的「三测试套件」中收口。
+- 网站发布仍待人工解阻（Apple 公证协议未签署 → 0.59.x/0.60.0 未上传）；landing 兜底版本维持 0.58.0。
+
 ## v0.59.4（2026-10-06）
 
 发布纪律与网站链路修复。起因：v0.59.1–v0.59.3 连续三个版本漏更 `ARCHITECTURE.md`（文档更新脚本未断言、静默失配），且线上 `latest.json` 仍停在 0.58.0 —— 根因是 macOS 构建被 Apple 公证拦截，`upload-to-website` 因此被跳过。

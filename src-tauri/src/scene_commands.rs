@@ -1018,11 +1018,27 @@ pub async fn trigger_cascade_rewrite(
         task_system::{models::CreateTaskRequest, service::TaskService},
     };
 
+    // v0.60.0：从 KG 解析实体名（此前直接复用 entity_id，改写 prompt 里
+    // 只有裸 id，模型无法判断改写对象）。解析失败回退 id 保持兼容。
+    let entity_name = {
+        let pool = _pool.inner();
+        pool.get()
+            .ok()
+            .and_then(|conn| {
+                conn.query_row(
+                    "SELECT name FROM kg_entities WHERE id = ?1",
+                    rusqlite::params![&entity_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+            })
+            .unwrap_or_else(|| entity_id.clone())
+    };
     let change_event = EntityChangeEvent {
         story_id: story_id.clone(),
         entity_id: entity_id.clone(),
         entity_type: entity_type.clone(),
-        entity_name: entity_id.clone(), // TODO: resolve entity name from KG
+        entity_name,
         change_type: ChangeType::AttributeModified,
         before_json,
         after_json,

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.59.4
+- **版本**: v0.60.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1626 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号）
+- `cargo test -p storymoss` ✅ 1643 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 585 passed / 3 skipped（删 27 项孤儿 hook 测试；+2 续写质检闭环、+3 空文档判定）
+- `npx vitest run` ✅ 590 passed / 3 skipped（+5 级联中心页面：渲染/去查看/忽略/触发改写/空态）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.60.0 - 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
+
+对照外部五项目对比报告（docs/audits）落地 P0 阶段，把「防吃书」从提示词叮嘱变成可校验机制。**V135** 新增四张表：`story_timeline_events`（世界真相 / 读者认知 / 揭示状态机双栏建模）、`character_knowledge_log`（知情变更审计流水）、`item_holdings`（关键物品持有者账本）、`cascade_impacts`（改稿影响报告）。**知识边界**：ingest 新增 `knowledge_updates`/`timeline_events` 抽取，修掉 secrets 被 COALESCE 永久冻结的断链；续写资产注入【本拍信息差】【未公开真相】禁令（计划内揭示自动豁免）；`detect_knowledge_leaks` 接入续写探针与 editor_qc 疑点清单；Agency 快照不再丢弃 secrets。**物品归属**：`item_holdings` 按 (story,item) upsert，续写注入【在场物品】，`detect_possession_conflicts` 拦「非持有者使用/遗失物再现」（当场转手豁免）。**级联**：场景 re-ingest 后自动跑确定性影响分析（下游章、无处不在实体过滤）＋ LLM 冲突扫描（提示词资产 `cascade_conflict_scan`），发 `SyncEvent::CascadeImpactDetected`，新增 4 命令与幕后「级联中心」页（去查看/重跑分析/触发改写/忽略）——**只报告不改写后文**。
+
+- **验证**：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / architecture_guard 全绿。
+- **契约**：`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）；`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`；`test_knowledge_boundary_detects_unknown_secret_leak` / `..._hidden_truth_reveal`；`test_possession_conflict_flags_absent_holder_but_allows_transfer` / `..._lost_item_reuse`；`test_continuity_gaps_reads_db_and_respects_planned_text`；`test_ubiquitous_entity_is_filtered_out`；`CascadeCenter` 5 用例。
+- **未关闭**：真机三把尺子端到端复跑（P3 三测试套件收口）；**不得宣称续写质量已修复**；网站发布仍待 Apple 公证解阻。
 
 ### v0.59.4 - 发布纪律门禁与网站链路修复
 
@@ -142,23 +150,6 @@ v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安�
 
 - **验证**：`cargo +nightly fmt -- --check` 0 diff；`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（均不变）。
 - **复发处置**：CI 若在格式步失败 → `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。
-
-### v0.59.0 - 验收证据链、数据层治理与续写质检闭环
-
-对照 `docs/audits/2026-10-06-project-review-v0.58.0.md`。三批实施：CI 恢复阻塞（弃用「49 个 V092 基线失败」过时注释）、迁移记 checksum + 集合水位线（低于水位的补丁迁移可执行）、V133 六索引与删故事级联、后台 ingest/QC 纳入 run 预算与取消传播、续写质检可行动（事件带 mode/chapter + 幕前「按审查意见修订本章」走 `auto_revise(revision_type=editor_qc)`）、补齐 4 个占位 prompt 资产、server JWT/DEV_UPGRADE 缺省加固、导出 ZIP 默认剔除 API key、发布白名单补 .deb、AGENTS.md 1208→190 行、FrontstageApp 抽 `useScenePersistence`。
-
-- **验证**：`cargo test --lib` 1624 passed / 3 ignored（+41）；`npx vitest run` 609 passed / 3 skipped（+2）；`tsc` / `architecture_guard` / `cargo +nightly fmt` / prettier 全绿；Playwright 39 passed / 5 skipped。
-- **契约**：`test_apply_pending_backfills_lower_versioned_migration`；`test_record_migration_stores_content_checksum`；`test_pick_migrations_dir_ignores_build_output_copy_even_when_newer`；`export_strips_api_keys_by_default`；`test_prune_activity_log_keeps_recent_rows`；`revise_task_description_injects_editor_qc_issues`；续写质检不合格不提示「重新创世」且出现可修订操作条；`rejects_known_insecure_defaults`（server，独立提取运行）。
-- **未关闭**：真机续写仍未复跑，**不得宣称续写质量已修复**；新发现载入期空保存竞态（E2E 门禁暂留非阻塞）；`src-server` 无 DB 环境不可编译、CI 未覆盖；golden harness 需真机基线。
-
-### v0.58.0 - 戏剧工艺 + 短剧格式（AI-drama-pound）
-
-对照 `docs/plans/2026-08-29-drama-craft-fusion-design.md`。工艺来源 [AI-drama-pound](https://github.com/POUND0423/AI-drama-pound)（MIT），不 vendoring 对方 skill，不把主创拉回 ToolLoop。节拍卡增加本拍必须改变项；续写短合同禁止原地踏步；编辑审计可读 impact/fix；探针只在复述近文且未兑现改变项时 gap。V131 `story_format` 默认 novel；显式短剧词才切竖屏剧本组装。幕后新建可选长篇/短剧。幕前仍写 `scenes.content`。
-
-- **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）；`tsc` / `architecture_guard.py` 全绿。
-- **契约**：`change_delta_from_hostile_cast`；`continue_system_has_stall_example`；`editor_issue_parses_impact_and_fix`；`probe_gaps_when_increment_is_tail_recap`；`probe_does_not_gap_literary_aside_when_not_recap`；`looks_like_short_drama_defaults_novel`；`continue_beat_complete_does_not_require_tools`；制作限制只在短剧显示。
-- **未关闭**：真机须再跑创世/续写/短剧；**不得宣称续写质量已修复**。不分镜、不自动删角色脏行。
-
 
 ## Always Do
 

@@ -321,6 +321,8 @@ export type ViewType =
   | 'intention-graph'
   | 'logs'
   | 'tracing'
+  /** v0.60.0 改稿级联影响报告中心（P0-T4） */
+  | 'cascade-center'
   | 'settings';
 
 // ===== Intent Engine Types =====

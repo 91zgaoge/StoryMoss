@@ -34,4 +34,12 @@ summary: string, } } | { "type": "revisionSuggested", "payload": { story_id: str
 /**
  * 建议列表（每条含维度、描述、建议改法）
  */
-suggestions: Array<string>, } };
+suggestions: Array<string>, } } | { "type": "cascadeImpactDetected", "payload": { story_id: string, batch_id: string, source_scene_id: string, source_chapter_number: number | null, 
+/**
+ * 受影响目标条数
+ */
+count: number, 
+/**
+ * 其中疑似冲突（severity=warning/critical 或 kind=conflict）条数
+ */
+conflict_count: number, } };

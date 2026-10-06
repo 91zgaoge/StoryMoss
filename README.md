@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.4-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.60.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.60.0 · 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
+
+- **知识边界（V135）**：时间线事件同时记录「世界真相 / 读者认知 / 揭示状态」，角色知情变更（谁获知了什么）落库并留审计流水——修掉了 secrets 字段被 COALESCE 永久冻结的断链；续写注入【本拍信息差】禁令，泄密可被探针与编辑器审计检出。
+- **物品归属（玉佩账本）**：关键物品的持有者成为可校验状态，续写注入【在场物品】，非持有者使用/遗失物再现会被探针拦下。
+- **改稿级联影响报告 + 级联中心**：改旧章后自动列出受影响的下游章节与疑似冲突，四条动作（去查看 / 重跑分析 / 触发改写 / 忽略）全部由作者决策——**系统只报告，不自动改写后文**。
 
 ### v0.59.4 · 发布纪律门禁与网站链路修复
 

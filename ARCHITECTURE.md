@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.59.4 架构文档
+# StoryMoss (草苔) v0.60.0 架构文档
+
+> **v0.60.0**：P0「三把尺子」。**V135** 四张表：`story_timeline_events`（objective_fact / reader_knowledge / reveal_status 三层信息分离）、`character_knowledge_log`（知情变更审计）、`item_holdings`（物品归属账本）、`cascade_impacts`（改稿影响，batch 分组 + decision/stale 状态）。**知识边界**：ingest 新增 `knowledge_updates`/`timeline_events` 抽取并落库（`memory::continuity::persist_*`），secrets 不再是 COALESCE 冻结值；续写侧 `render_continuity_blocks` 注入【本拍信息差】【未公开真相】（`planned_text_for_card` 豁免计划内揭示），`detect_knowledge_leaks` 经 `continuity_probe_gaps` 接入 `write_beat_once` 探针，editor_qc 预注入疑点清单；`domain::asset_snapshot::CharacterStateSnapshot` 保留 secrets，adapter 不再丢弃。**物品归属**：`persist_item_holdings` 按 (story,item) upsert；`detect_possession_conflicts` 探针（使用动词窗口 + 当场转手豁免 + 遗失物再现）。**级联**：`creative_engine::cascade_rewriter::impact_report`——`compute_mention_impacts`（下游 + 无处不在实体过滤，`score = Σconf × √count`）→ `persist_impacts` → `scan_conflicts_with_llm`（提示词资产 `cascade_conflict_scan`，label「后台级联扫描」静默）→ `SyncEvent::CascadeImpactDetected`；`SceneIngestor::spawn_ingest_now` 完成后自动 spawn，四命令（list/ignore/reanalyze/trigger_for_impact）经 handlers 注册；前端「级联中心」页只呈现与决策，**不自动改写后文**。
 
 > **v0.59.4**：无架构变更，修正发布纪律：发布 tag 增加「必需文档已更新」门禁；landing 兜底版本回退到网站上真实存在的版本（Apple 公证协议未签署 → 0.59.x 尚未发布，兜底不得指向 404）。
 

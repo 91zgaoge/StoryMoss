@@ -50,6 +50,7 @@ impl StateSync {
             SyncEvent::AuditRewriteSuggested { .. } => "audit-rewrite-suggested",
             SyncEvent::ContentAutoRevised { .. } => "content-auto-revised",
             SyncEvent::RevisionSuggested { .. } => "revision-suggested",
+            SyncEvent::CascadeImpactDetected { .. } => "cascade-impact-detected",
         };
 
         // 发射到通用频道 `sync-event`
@@ -523,6 +524,29 @@ impl StateSync {
                 scene_id: scene_id.map(|s| s.to_string()),
                 chapter_id: chapter_id.map(|s| s.to_string()),
                 suggestions: suggestions.to_vec(),
+            },
+        );
+    }
+
+    /// v0.60.0 P0-T4：改稿级联影响分析完成，产出受影响下游章节/冲突清单。
+    pub fn emit_cascade_impact_detected<R: Runtime>(
+        app: &AppHandle<R>,
+        story_id: &str,
+        batch_id: &str,
+        source_scene_id: &str,
+        source_chapter_number: Option<i32>,
+        count: usize,
+        conflict_count: usize,
+    ) {
+        Self::emit_event(
+            app,
+            SyncEvent::CascadeImpactDetected {
+                story_id: story_id.to_string(),
+                batch_id: batch_id.to_string(),
+                source_scene_id: source_scene_id.to_string(),
+                source_chapter_number,
+                count,
+                conflict_count,
             },
         );
     }

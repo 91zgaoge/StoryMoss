@@ -83,6 +83,15 @@ pub struct ContentAnalysis {
     /// 故事大纲增量（核心冲突/转折点）
     #[serde(default)]
     pub story_delta: Option<StoryDelta>,
+    /// 信息流：本段内容中谁获知了什么（知识边界 P0-T2）
+    #[serde(default)]
+    pub knowledge_updates: Vec<crate::memory::continuity::KnowledgeUpdate>,
+    /// 时间线事件：世界真相 / 读者认知 / 揭示状态（P0-T2）
+    #[serde(default)]
+    pub timeline_events: Vec<crate::memory::continuity::TimelineEventDelta>,
+    /// 关键资源归属增量（P0-T3，只登记跨章影响行动边界的物品）
+    #[serde(default)]
+    pub item_holdings: Vec<crate::memory::continuity::ItemHoldingDelta>,
 }
 
 /// 世界观增量
@@ -495,6 +504,40 @@ impl IngestPipeline {
             log::warn!("[Ingest] 保存角色状态失败: {}", e);
         }
 
+        // Step 1d: 知识边界与物品归属（P0-T2 / P0-T3）。
+        // 信息流修复此前的断链：角色知道了什么不再是永久冻结的 COALESCE 旧值；
+        // 时间线事件承载「世界真相 / 读者认知 / 揭示状态」三层；
+        // 物品归属账本只登记跨章影响行动边界的关键资源。
+        if let Some(pool) = &self.pool {
+            if let Err(e) = crate::memory::continuity::persist_knowledge_updates(
+                pool,
+                &content.story_id,
+                content.scene_id.as_deref(),
+                None,
+                &analysis.knowledge_updates,
+            ) {
+                log::warn!("[Ingest] 保存角色知情变更失败: {}", e);
+            }
+            if let Err(e) = crate::memory::continuity::persist_timeline_events(
+                pool,
+                &content.story_id,
+                content.scene_id.as_deref(),
+                None,
+                &analysis.timeline_events,
+            ) {
+                log::warn!("[Ingest] 保存时间线事件失败: {}", e);
+            }
+            if let Err(e) = crate::memory::continuity::persist_item_holdings(
+                pool,
+                &content.story_id,
+                content.scene_id.as_deref(),
+                None,
+                &analysis.item_holdings,
+            ) {
+                log::warn!("[Ingest] 保存物品归属失败: {}", e);
+            }
+        }
+
         // Step 2: 生成阶段 — 结构化知识档案
         let knowledge = self.generate_knowledge(&analysis, cancel).await?;
 
@@ -739,7 +782,31 @@ impl IngestPipeline {
   "story_delta": {{
     "core_conflict": "本段内容揭示或推进的故事核心冲突",
     "turning_points": ["本段出现的情节转折点"]
-  }}
+  }},
+  "knowledge_updates": [
+    {{
+      "character": "获知信息的角色名（必须是文本中明确出现的角色）",
+      "fact": "该角色在本次内容中获知的事实（一句话，可含关键人名/物名）",
+      "evidence": "支持该信息流的原文引用"
+    }}
+  ],
+  "timeline_events": [
+    {{
+      "objective_fact": "客观发生了什么（世界真相，作者侧视角，不与角色认知混淆）",
+      "reader_knowledge": "读者此刻知道或以为的事实（可省略）",
+      "reveal_status": "hidden", // hidden(未揭示)/partial(部分揭示)/revealed(已向读者揭示)
+      "participants": ["相关角色名"],
+      "evidence": "原文依据"
+    }}
+  ],
+  "item_holdings": [
+    {{
+      "item": "物品名（必须是文本中明确出现的物品）",
+      "holder": "当前持有者角色名（lost/destroy 时可省略）",
+      "action": "acquire", // acquire(获得)/transfer(转手)/lose(遗失)/destroy(损毁)
+      "evidence": "原文依据"
+    }}
+  ]
 }}
 
 【Few-shot示例】
@@ -787,7 +854,10 @@ impl IngestPipeline {
 5. world_building/scene_outline/story_delta 仅在有实质增量时输出，没有则整个字段省略
 6. 事件重要性评估: 1(轻微提及) 到 10(核心转折)
 7. 只输出纯 JSON：不要 markdown 代码块围栏，不要注释，不要尾随逗号
-8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造"#.to_string());
+8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造
+9. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
+10. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
+11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy"#.to_string());
             let mut vars = std::collections::HashMap::new();
             vars.insert("content".to_string(), content.text.clone());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -881,7 +951,31 @@ impl IngestPipeline {
   "story_delta": {{
     "core_conflict": "本段内容揭示或推进的故事核心冲突",
     "turning_points": ["本段出现的情节转折点"]
-  }}
+  }},
+  "knowledge_updates": [
+    {{
+      "character": "获知信息的角色名（必须是文本中明确出现的角色）",
+      "fact": "该角色在本次内容中获知的事实（一句话，可含关键人名/物名）",
+      "evidence": "支持该信息流的原文引用"
+    }}
+  ],
+  "timeline_events": [
+    {{
+      "objective_fact": "客观发生了什么（世界真相，作者侧视角，不与角色认知混淆）",
+      "reader_knowledge": "读者此刻知道或以为的事实（可省略）",
+      "reveal_status": "hidden", // hidden(未揭示)/partial(部分揭示)/revealed(已向读者揭示)
+      "participants": ["相关角色名"],
+      "evidence": "原文依据"
+    }}
+  ],
+  "item_holdings": [
+    {{
+      "item": "物品名（必须是文本中明确出现的物品）",
+      "holder": "当前持有者角色名（lost/destroy 时可省略）",
+      "action": "acquire", // acquire(获得)/transfer(转手)/lose(遗失)/destroy(损毁)
+      "evidence": "原文依据"
+    }}
+  ]
 }}
 
 【Few-shot示例】
@@ -929,7 +1023,10 @@ impl IngestPipeline {
 5. world_building/scene_outline/story_delta 仅在有实质增量时输出，没有则整个字段省略
 6. 事件重要性评估: 1(轻微提及) 到 10(核心转折)
 7. 只输出纯 JSON：不要 markdown 代码块围栏，不要注释，不要尾随逗号
-8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造"#,
+8. 如果文本中没有足够信息，对应字段返回空数组或整个省略即可，不要编造
+9. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
+10. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
+11. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy"#,
                 content.text, content.source
             )
         };

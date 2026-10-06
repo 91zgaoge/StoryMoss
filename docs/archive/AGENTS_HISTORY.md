@@ -1834,3 +1834,23 @@ This project is indexed by GitNexus as **StoryMoss** (22262 symbols, 46734 relat
 ---
 
 *归档于 2026-07-04。后续版本摘要请见根目录 AGENTS.md。*
+
+---
+
+*归档于 2026-10-06（v0.60.0）：v0.59.0 / v0.58.0 摘要。*
+
+### v0.59.0 - 验收证据链、数据层治理与续写质检闭环
+
+对照 `docs/audits/2026-10-06-project-review-v0.58.0.md`。三批实施：CI 恢复阻塞（弃用「49 个 V092 基线失败」过时注释）、迁移记 checksum + 集合水位线（低于水位的补丁迁移可执行）、V133 六索引与删故事级联、后台 ingest/QC 纳入 run 预算与取消传播、续写质检可行动（事件带 mode/chapter + 幕前「按审查意见修订本章」走 `auto_revise(revision_type=editor_qc)`）、补齐 4 个占位 prompt 资产、server JWT/DEV_UPGRADE 缺省加固、导出 ZIP 默认剔除 API key、发布白名单补 .deb、AGENTS.md 1208→190 行、FrontstageApp 抽 `useScenePersistence`。
+
+- **验证**：`cargo test --lib` 1624 passed / 3 ignored（+41）；`npx vitest run` 609 passed / 3 skipped（+2）；`tsc` / `architecture_guard` / `cargo +nightly fmt` / prettier 全绿；Playwright 39 passed / 5 skipped。
+- **契约**：`test_apply_pending_backfills_lower_versioned_migration`；`test_record_migration_stores_content_checksum`；`test_pick_migrations_dir_ignores_build_output_copy_even_when_newer`；`export_strips_api_keys_by_default`；`test_prune_activity_log_keeps_recent_rows`；`revise_task_description_injects_editor_qc_issues`；续写质检不合格不提示「重新创世」且出现可修订操作条；`rejects_known_insecure_defaults`（server，独立提取运行）。
+- **未关闭**：真机续写仍未复跑，**不得宣称续写质量已修复**；新发现载入期空保存竞态（E2E 门禁暂留非阻塞）；`src-server` 无 DB 环境不可编译、CI 未覆盖；golden harness 需真机基线。
+
+### v0.58.0 - 戏剧工艺 + 短剧格式（AI-drama-pound）
+
+对照 `docs/plans/2026-08-29-drama-craft-fusion-design.md`。工艺来源 [AI-drama-pound](https://github.com/POUND0423/AI-drama-pound)（MIT），不 vendoring 对方 skill，不把主创拉回 ToolLoop。节拍卡增加本拍必须改变项；续写短合同禁止原地踏步；编辑审计可读 impact/fix；探针只在复述近文且未兑现改变项时 gap。V131 `story_format` 默认 novel；显式短剧词才切竖屏剧本组装。幕后新建可选长篇/短剧。幕前仍写 `scenes.content`。
+
+- **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）；`tsc` / `architecture_guard.py` 全绿。
+- **契约**：`change_delta_from_hostile_cast`；`continue_system_has_stall_example`；`editor_issue_parses_impact_and_fix`；`probe_gaps_when_increment_is_tail_recap`；`probe_does_not_gap_literary_aside_when_not_recap`；`looks_like_short_drama_defaults_novel`；`continue_beat_complete_does_not_require_tools`；制作限制只在短剧显示。
+- **未关闭**：真机须再跑创世/续写/短剧；**不得宣称续写质量已修复**。不分镜、不自动删角色脏行。

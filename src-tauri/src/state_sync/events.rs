@@ -215,6 +215,20 @@ pub enum SyncEvent {
         /// 建议列表（每条含维度、描述、建议改法）
         suggestions: Vec<String>,
     },
+
+    /// v0.60.0 P0-T4：改稿级联影响分析完成——编辑旧章节后自动产出
+    /// 「受影响下游章节 + 疑似冲突」清单。只提示不改写：前端「级联中心」
+    /// 列出清单，由作者决定忽略 / 重跑分析 / 触发级联改写。
+    CascadeImpactDetected {
+        story_id: String,
+        batch_id: String,
+        source_scene_id: String,
+        source_chapter_number: Option<i32>,
+        /// 受影响目标条数
+        count: usize,
+        /// 其中疑似冲突（severity=warning/critical 或 kind=conflict）条数
+        conflict_count: usize,
+    },
 }
 
 impl SyncEvent {
@@ -256,6 +270,7 @@ impl SyncEvent {
             SyncEvent::AuditRewriteSuggested { .. } => "auditRewrite",
             SyncEvent::ContentAutoRevised { .. } => "contentAutoRevised",
             SyncEvent::RevisionSuggested { .. } => "revisionSuggested",
+            SyncEvent::CascadeImpactDetected { .. } => "cascadeImpact",
         }
     }
 
@@ -295,6 +310,7 @@ impl SyncEvent {
             SyncEvent::AuditRewriteSuggested { story_id, .. } => Some(story_id),
             SyncEvent::ContentAutoRevised { story_id, .. } => Some(story_id),
             SyncEvent::RevisionSuggested { story_id, .. } => Some(story_id),
+            SyncEvent::CascadeImpactDetected { story_id, .. } => Some(story_id),
         }
     }
 }

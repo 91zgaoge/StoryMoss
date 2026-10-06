@@ -7,6 +7,7 @@ mod change_detector;
 pub mod commands;
 pub mod executor;
 mod impact_analyzer;
+pub mod impact_report;
 pub mod models;
 mod repository;
 mod rewrite_engine;

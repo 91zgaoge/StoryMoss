@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub mod asset_bridge;
+pub mod continuity;
 pub mod facade;
 pub mod health_daemon;
 pub mod ingest;

@@ -108,6 +108,8 @@ const KEYS = {
   storyUnresolvedAnnotations: (storyId?: string) => ['story-unresolved-annotations', storyId],
   textAnnotations: (scope?: string, id?: string) => ['text-annotations', scope, id],
   writingStyle: (storyId?: string) => (storyId ? ['writing_style', storyId] : ['writing_style']),
+  cascadeImpacts: (storyId?: string) =>
+    storyId ? ['cascade_impacts', storyId] : ['cascade_impacts'],
 };
 
 // ==================== Hook ====================
@@ -328,6 +330,15 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           case 'taskCompleted': {
             queryClient.invalidateQueries({ queryKey: KEYS.tasks });
             optionsRef.current.onTaskCompleted?.(payload.task_id, payload.success);
+            break;
+          }
+
+          // === 改稿级联影响（v0.60.0 P0-T4）===
+          case 'cascadeImpactDetected': {
+            // 后台改稿影响分析完成：刷新级联中心列表
+            queryClient.invalidateQueries({
+              queryKey: KEYS.cascadeImpacts(payload.story_id),
+            });
             break;
           }
 

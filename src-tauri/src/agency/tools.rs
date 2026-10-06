@@ -60,13 +60,21 @@ fn format_character_states(states: &[CharacterStateSnapshot]) -> String {
     states
         .iter()
         .map(|s| {
-            format!(
+            let mut line = format!(
                 "- {} | 位置: {} | 情绪: {} | 目标: {}",
                 s.name,
                 s.current_location.as_deref().unwrap_or("无"),
                 s.current_emotion.as_deref().unwrap_or("无"),
                 s.active_goal.as_deref().unwrap_or("无")
-            )
+            );
+            // v0.60.0 P0-T2：知识边界（避免角色说出尚不知道的信息）
+            if !s.secrets_known.is_empty() {
+                line.push_str(&format!(" | 已知: {}", s.secrets_known.join("；")));
+            }
+            if !s.secrets_unknown.is_empty() {
+                line.push_str(&format!(" | 尚不知道: {}", s.secrets_unknown.join("；")));
+            }
+            line
         })
         .collect::<Vec<_>>()
         .join("\n")

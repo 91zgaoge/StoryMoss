@@ -2,7 +2,7 @@
 //!
 //! 提供 Diff 预览数据的查询，以及接受/拒绝改写片段的应用接口。
 
-use tauri::{command, AppHandle, State};
+use tauri::{command, AppHandle, Manager, State};
 
 use super::models::{CascadeTaskResult, RewriteSegment, UserDecision};
 use crate::{
@@ -184,4 +184,127 @@ pub async fn reject_cascade_rewrite(
     );
 
     Ok(rejected_count)
+}
+
+// ==================== v0.60.0 P0-T4：改稿级联影响报告 ====================
+
+/// 列出改稿级联影响条目（可按决策状态过滤）。
+#[command(rename_all = "snake_case")]
+pub async fn list_cascade_impacts(
+    story_id: String,
+    decision: Option<String>,
+    limit: Option<i64>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::creative_engine::cascade_rewriter::impact_report::CascadeImpact>, AppError> {
+    crate::creative_engine::cascade_rewriter::impact_report::list_impacts(
+        pool.inner(),
+        &story_id,
+        decision.as_deref(),
+        limit.unwrap_or(100),
+    )
+    .map_err(|e| AppError::internal(format!("查询级联影响失败: {}", e)))
+}
+
+/// 作者动作：忽略某条级联影响（不再在级联中心高亮）。
+#[command(rename_all = "snake_case")]
+pub async fn ignore_cascade_impact(
+    impact_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    crate::creative_engine::cascade_rewriter::impact_report::mark_impact_decision(
+        pool.inner(),
+        &impact_id,
+        "ignored",
+    )
+    .map_err(|e| AppError::internal(format!("更新级联影响失败: {}", e)))
+}
+
+/// 作者动作：重跑某场景的分析（re-ingest）。
+///
+/// 完成后该场景的「分析可能已失效」标记会被自动清除（见
+/// `impact_report::analyze_after_scene_ingest` 的收口）。
+#[command(rename_all = "snake_case")]
+pub async fn reanalyze_scene(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
+) -> Result<(), AppError> {
+    crate::story_system::scene_service::SceneIngestor::spawn_ingest_now(
+        scene_id,
+        pool.inner().clone(),
+        app_handle,
+        vector_store.inner().clone(),
+    );
+    Ok(())
+}
+
+/// 作者动作：由级联影响条目触发既有 cascade_rewrite 引擎改写目标场景。
+///
+/// 实体名/类型从 KG 解析；`after_json` 携带「上游章正文已修改 + 节选」，
+/// 让改写 prompt 获得变更上下文。任务创建后由 TaskService 立即异步执行。
+#[command(rename_all = "snake_case")]
+pub async fn trigger_cascade_rewrite_for_impact(
+    impact_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<String, AppError> {
+    use crate::task_system::{models::CreateTaskRequest, service::TaskService};
+
+    let pool_owned = pool.inner().clone();
+    let impact = crate::creative_engine::cascade_rewriter::impact_report::load_impact(
+        &pool_owned,
+        &impact_id,
+    )
+    .map_err(|e| AppError::internal(format!("查询级联影响失败: {}", e)))?
+    .ok_or_else(|| AppError::not_found("CascadeImpact", &impact_id))?;
+
+    let events =
+        crate::creative_engine::cascade_rewriter::impact_report::build_change_events_for_impact(
+            &pool_owned,
+            &impact,
+        );
+    if events.is_empty() {
+        return Err(AppError::internal(
+            "该影响条目没有可解析的实体，无法触发级联改写",
+        ));
+    }
+    let payload = super::models::CascadeTaskPayload {
+        story_id: impact.story_id.clone(),
+        change_events: events,
+    };
+    let payload_json = serde_json::to_string(&payload)
+        .map_err(|e| AppError::internal(format!("序列化级联任务失败: {}", e)))?;
+    let task_service: State<TaskService> = app_handle.state();
+    let source_chapter = impact
+        .source_chapter_number
+        .map(|c| format!("第{c}章"))
+        .unwrap_or_else(|| "未知章".to_string());
+    let target_chapter = impact
+        .target_chapter_number
+        .map(|c| format!("第{c}章"))
+        .unwrap_or_else(|| "目标场景".to_string());
+    let task = task_service
+        .create_task(CreateTaskRequest {
+            name: format!("级联改写: {source_chapter}改稿 → {target_chapter}"),
+            description: Some(format!(
+                "由改稿影响报告触发（{} → {}）",
+                impact.source_scene_id, impact.target_scene_id
+            )),
+            task_type: "cascade_rewrite".to_string(),
+            schedule_type: "once".to_string(),
+            cron_pattern: None,
+            payload: Some(payload_json),
+            enabled: Some(true),
+            max_retries: Some(1),
+            heartbeat_timeout_seconds: Some(300),
+        })
+        .map_err(|e| AppError::internal(format!("创建级联改写任务失败: {}", e)))?;
+
+    let _ = crate::creative_engine::cascade_rewriter::impact_report::mark_impact_decision(
+        &pool_owned,
+        &impact_id,
+        "rewrite_requested",
+    );
+    Ok(task.id)
 }

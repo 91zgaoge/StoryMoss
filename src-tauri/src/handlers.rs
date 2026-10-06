@@ -330,6 +330,11 @@ tauri::generate_handler! {
     creative_engine::cascade_rewriter::commands::get_cascade_rewrite_result,
     creative_engine::cascade_rewriter::commands::apply_cascade_rewrite,
     creative_engine::cascade_rewriter::commands::reject_cascade_rewrite,
+    // v0.60.0 P0-T4 改稿级联影响报告
+    creative_engine::cascade_rewriter::commands::list_cascade_impacts,
+    creative_engine::cascade_rewriter::commands::ignore_cascade_impact,
+    creative_engine::cascade_rewriter::commands::reanalyze_scene,
+    creative_engine::cascade_rewriter::commands::trigger_cascade_rewrite_for_impact,
     // LitSeg 叙事感知分段命令
     commands::narrative::analyze_narrative_structure,
     commands::narrative::get_narrative_events,

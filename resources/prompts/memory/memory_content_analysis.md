@@ -97,7 +97,31 @@ variables:
   "story_delta": {
     "core_conflict": "本段内容揭示或推进的故事核心冲突",
     "turning_points": ["本段出现的情节转折点"]
-  }
+  },
+  "knowledge_updates": [
+    {
+      "character": "获知信息的角色名（必须是文本中明确出现的角色）",
+      "fact": "该角色在本次内容中获知的事实（一句话，可含关键人名/物名）",
+      "evidence": "支持该信息流的原文引用"
+    }
+  ],
+  "timeline_events": [
+    {
+      "objective_fact": "客观发生了什么（世界真相，作者侧视角，不与角色认知混淆）",
+      "reader_knowledge": "读者此刻知道或以为的事实（可省略）",
+      "reveal_status": "hidden",
+      "participants": ["相关角色名"],
+      "evidence": "原文依据"
+    }
+  ],
+  "item_holdings": [
+    {
+      "item": "物品名（必须是文本中明确出现的物品）",
+      "holder": "当前持有者角色名（lost/destroy 时可省略）",
+      "action": "acquire",
+      "evidence": "原文依据"
+    }
+  ]
 }
 
 【字段说明】
@@ -150,3 +174,6 @@ variables:
 3. 关系必须有明确的原文证据支持，禁止臆测
 4. 只输出纯 JSON：不要 markdown 代码块围栏，不要注释，不要尾随逗号
 5. 如果文本中没有足够信息，对应字段返回空数组或整个省略，不要编造
+6. knowledge_updates 仅在文本明确写出「某角色获知/被告知/发现某信息」时输出；角色原本就知道的事不算
+7. timeline_events 仅在出现值得跨章追踪的秘密/真相/揭示时输出：objective_fact 写客观事实（作者侧），reader_knowledge 写读者此刻的认知，两者不得混写；reveal_status 默认 hidden，只有文本明确向读者揭示时才写 partial/revealed
+8. item_holdings 只登记跨章影响行动边界的关键物品（信物/武器/钥匙/凭证等），一次性道具不登记；action 取 acquire/transfer/lose/destroy

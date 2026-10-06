@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.59.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.60.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.60.0 变更说明
+
+- 新增 Rust 15 项：`memory::continuity` 8 项（知识流落库/揭示状态单向推进/物品 upsert 与状态/泄密与归属纯函数/探针接线）+ `cascade_rewriter::impact_report` 6 项（帖主测试③下游影响/忽略与 stale 迁移/无处不在实体过滤/冲突解析容错/KG 实体名解析）+ `continue_assets` 连续性块渲染 1 项。
+- 新增前端 5 项：`CascadeCenter` 页面（批次渲染与失效标记/去查看定位/忽略/触发改写/空态）。
+- 全量基线：`cargo test --lib` 1643 passed / 3 ignored；`npx vitest run` 590 passed / 3 skipped。
 
 ### v0.59.4 变更说明
 

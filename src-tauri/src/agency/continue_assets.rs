@@ -864,6 +864,9 @@ pub struct ContinueAssetsInput<'a> {
     pub logline: Option<&'a str>,
     /// 空 = 准入者全 L2；非空 = 仅这些名字 L2，其余准入 L1。
     pub full_card_names: &'a [String],
+    /// P0-T2/T3 连续性约束块（在场物品 / 本拍信息差 / 未公开真相），
+    /// 由 `memory::continuity::render_continuity_blocks` 预渲染。
+    pub continuity_blocks: &'a [String],
 }
 
 pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
@@ -1057,6 +1060,13 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (logline, false),
         (foreshadow, false),
     ];
+    let mut parts: Vec<(String, bool)> = parts.into_iter().collect();
+    for block in input.continuity_blocks {
+        if block.trim().is_empty() {
+            continue;
+        }
+        parts.push((block.clone(), true));
+    }
     let before = join_nonempty(&parts);
     let out = apply_asset_budget(&parts);
     let truncated = out.chars().count() < before.chars().count();
@@ -1293,6 +1303,7 @@ mod tests {
             arc_lines: &[],
             logline: Some("一句话"),
             full_card_names: &[],
+            continuity_blocks: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("情感内核：角色00的情感内核"));
@@ -1403,6 +1414,32 @@ mod tests {
     }
 
     #[test]
+    fn render_includes_continuity_blocks() {
+        let bundle = empty_bundle();
+        let blocks = vec![
+            "【本拍信息差（绝不可泄露）】\n  - 「徐棠」尚不知道：这封信是哥哥寄的（不得说出、不得由叙述点破）".to_string(),
+        ];
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &blocks,
+        };
+        let out = render_continue_assets(&input);
+        assert!(out.contains("本拍信息差"), "{out}");
+        assert!(out.contains("这封信是哥哥寄的"), "{out}");
+    }
+
+    #[test]
     fn render_includes_filtered_conflicts_and_goals() {
         let mut bundle = empty_bundle();
         bundle.active_conflicts = Some("皇权裂痕".into());
@@ -1421,6 +1458,7 @@ mod tests {
             arc_lines: &[],
             logline: None,
             full_card_names: &[],
+            continuity_blocks: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("皇权裂痕"), "{out}");

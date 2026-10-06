@@ -4517,6 +4517,19 @@ impl AgencyCoordinator {
                     &p.bundle.relationship_lines,
                     &lock,
                 );
+            let continuity_blocks = {
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                let names = admitted.clone();
+                let planned = planned_text_for_card(&card);
+                self.db(move || {
+                    Ok(crate::memory::continuity::render_continuity_blocks(
+                        &pool, &sid, &names, &planned,
+                    ))
+                })
+                .await
+                .unwrap_or_default()
+            };
             let assets = render_parts(
                 p,
                 &admitted,
@@ -4525,6 +4538,7 @@ impl AgencyCoordinator {
                 card.setting_location.as_deref(),
                 current_content,
                 &l2,
+                &continuity_blocks,
             );
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
             let user = crate::agency::beat_card::render_writer_user_prompt(
@@ -4687,7 +4701,8 @@ impl AgencyCoordinator {
         }
         let state =
             compile_continue_beat_state(&card, parts.as_ref(), current_content.unwrap_or(""));
-        let probe0 = crate::agency::beat_state::probe_increment_ex(
+        let planned_text = planned_text_for_card(&card);
+        let mut probe0 = crate::agency::beat_state::probe_increment_ex(
             &text,
             &card,
             &state,
@@ -4695,6 +4710,11 @@ impl AgencyCoordinator {
             Some(&lock),
             &prior_tail,
             &story_format,
+        );
+        // P0-T2/T3：知识边界与物品归属探针（角色说出尚不知道的信息 /
+        // 物品持有者不在场）
+        probe0.gaps.extend(
+            continuity_probe_gaps(self, story_id, &text, &state.present, &planned_text).await,
         );
         if !probe0.gaps.is_empty()
             && !did_short_retry
@@ -4720,7 +4740,7 @@ impl AgencyCoordinator {
             {
                 let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
                 if retry.chars().count() >= 200 {
-                    let probe1 = crate::agency::beat_state::probe_increment_ex(
+                    let mut probe1 = crate::agency::beat_state::probe_increment_ex(
                         &retry,
                         &card,
                         &state,
@@ -4728,6 +4748,16 @@ impl AgencyCoordinator {
                         Some(&lock),
                         &prior_tail,
                         &story_format,
+                    );
+                    probe1.gaps.extend(
+                        continuity_probe_gaps(
+                            self,
+                            story_id,
+                            &retry,
+                            &state.present,
+                            &planned_text,
+                        )
+                        .await,
                     );
                     let better = probe1.gaps.len() < probe0.gaps.len()
                         || (probe1.gaps.len() == probe0.gaps.len()
@@ -4844,6 +4874,7 @@ impl AgencyCoordinator {
                 card.setting_location.as_deref(),
                 Some(&latest_content),
                 &l2,
+                &[],
             )
         } else {
             String::new()
@@ -6010,6 +6041,7 @@ pub(crate) async fn evaluate_gate_impl(
     let editor_assets = {
         let pool_c = pool.clone();
         let sid = story_id.to_string();
+        let draft_content = draft.content.clone();
         tokio::task::spawn_blocking(move || -> String {
             use crate::db::{
                 repositories::{StoryOutlineRepository, WorldBuildingRepository},
@@ -6044,9 +6076,47 @@ pub(crate) async fn evaluate_gate_impl(
                 let truncated: String = world.chars().take(1500).collect();
                 ctx.push_str(&format!("【世界观设定】\n{}\n\n", truncated));
             }
-            if let Ok(Some(outline)) = StoryOutlineRepository::new(pool_c).get_by_story(&sid) {
+            if let Ok(Some(outline)) = StoryOutlineRepository::new(pool_c.clone()).get_by_story(&sid) {
                 let outline_text: String = outline.content.chars().take(2000).collect();
                 ctx.push_str(&format!("【故事大纲】\n{}\n\n", outline_text));
+            }
+            // P0-T2/T3: 知识边界与物品归属核对——给编辑器一份「逐条核查」清单：
+            // 在场角色尚不知道的信息、疑似泄密、疑似物品归属矛盾。编辑器据此判
+            // blocking；这是「列出疑点由作者/审计裁决」，不做自动改写。
+            {
+                let content = draft_content.as_str();
+                let holdings = crate::memory::continuity::load_item_holdings(&pool_c, &sid);
+                let knowledge =
+                    crate::memory::continuity::load_character_knowledge(&pool_c, &sid, &[]);
+                let hidden = crate::memory::continuity::load_hidden_truths(&pool_c, &sid);
+                let present: Vec<String> = knowledge
+                    .iter()
+                    .filter(|k| content.contains(&k.name))
+                    .map(|k| k.name.clone())
+                    .collect();
+                let mut lines: Vec<String> = Vec::new();
+                for k in knowledge.iter().filter(|k| present.contains(&k.name)) {
+                    if !k.unknown.is_empty() {
+                        let facts: Vec<String> = k.unknown.iter().take(4).cloned().collect();
+                        lines.push(format!("- 「{}」尚不知道：{}", k.name, facts.join("；")));
+                    }
+                }
+                for leak in crate::memory::continuity::detect_knowledge_leaks(
+                    content, &knowledge, &hidden, "",
+                ) {
+                    lines.push(format!("- 疑似泄密：{leak}"));
+                }
+                for conflict in crate::memory::continuity::detect_possession_conflicts(
+                    content, &present, &holdings,
+                ) {
+                    lines.push(format!("- 疑似归属矛盾：{conflict}"));
+                }
+                if !lines.is_empty() {
+                    ctx.push_str(&format!(
+                        "【知识边界与物品核对（逐条核查以下疑点；确认与正文冲突则判 blocking）】\n{}\n\n",
+                        lines.join("\n")
+                    ));
+                }
             }
             ctx
         })
@@ -6588,6 +6658,7 @@ pub(crate) fn render_parts(
     location: Option<&str>,
     current_content: Option<&str>,
     full_card_names: &[String],
+    continuity_blocks: &[String],
 ) -> String {
     use crate::agency::continue_assets::{
         build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
@@ -6650,6 +6721,7 @@ pub(crate) fn render_parts(
         arc_lines: &arc_lines,
         logline: parts.logline.as_deref(),
         full_card_names,
+        continuity_blocks,
     })
 }
 
@@ -6906,6 +6978,44 @@ fn compile_continue_beat_state(
     state
 }
 
+/// 汇总本拍规划文本（大纲节点 / 必须改变项 / 待兑现审查）。
+///
+/// 用于知识边界探针的「计划内揭示豁免」：若泄漏特征已出现在本拍规划里，
+/// 说明作者本就要在此拍揭示，不告警（控制误报，见 memory::continuity）。
+fn planned_text_for_card(card: &crate::agency::beat_card::SceneBeatCard) -> String {
+    let mut planned = card.next_outline_node.clone();
+    planned.push('\n');
+    planned.push_str(&card.change_delta.summary);
+    for issue in &card.open_review_issues {
+        planned.push('\n');
+        planned.push_str(issue);
+    }
+    planned
+}
+
+/// P0-T2/T3 探针：从 DB 读取知识边界与物品归属账本，检测本拍增量的连续性冲突。
+async fn continuity_probe_gaps(
+    coordinator: &AgencyCoordinator,
+    story_id: &str,
+    text: &str,
+    present: &[String],
+    planned: &str,
+) -> Vec<String> {
+    let pool = coordinator.pool.clone();
+    let sid = story_id.to_string();
+    let text = text.to_string();
+    let present = present.to_vec();
+    let planned = planned.to_string();
+    coordinator
+        .db(move || {
+            Ok(crate::memory::continuity::continuity_gaps(
+                &pool, &sid, &text, &present, &planned,
+            ))
+        })
+        .await
+        .unwrap_or_default()
+}
+
 /// 同步组装续写主创 user prompt（0 LLM）。测试与 `write_beat_once` 共用。
 pub(crate) fn assemble_continue_user_prompt(
     pool: &DbPool,
@@ -6953,6 +7063,7 @@ pub(crate) fn assemble_continue_user_prompt(
         card.setting_location.as_deref(),
         Some(current_content),
         &l2,
+        &[],
     );
     let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(
@@ -6979,7 +7090,7 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
         .take(ADMITTED_CAP)
         .cloned()
         .collect();
-    render_parts(&parts, &admitted, "", "", None, None, &[])
+    render_parts(&parts, &admitted, "", "", None, None, &[], &[])
 }
 
 #[cfg(test)]

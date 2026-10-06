@@ -24,6 +24,7 @@ import {
   Gauge,
   ChevronDown,
   Bot,
+  Workflow,
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -102,6 +103,7 @@ export const NAV_GROUPS: NavGroup[] = [
     defaultCollapsed: true,
     items: [
       { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
+      { id: 'cascade-center', label: '级联中心', icon: Workflow, impact: 'warm' },
       { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
       { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
       { id: 'agency-learning', label: '学习中心', icon: Brain, impact: 'warm' },

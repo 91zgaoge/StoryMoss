@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.59.4 项目完成状态
+# StoryMoss (草苔) v0.60.0 项目完成状态
 
-> 最后更新: 2026-10-06（v0.59.4 发布纪律门禁 + 网站链路修复；0.59.x 因 Apple 公证未签署尚未上线）
+> 最后更新: 2026-10-06（v0.60.0「三把尺子」P0 落地：知识边界 / 物品归属 / 改稿级联影响报告 + 级联中心；0.59.x/0.60.0 因 Apple 公证未签署尚未上线）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.60.0 - 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告（2026-10-06）
+
+- **V135 四表**：`story_timeline_events`（世界真相/读者认知/揭示状态机）、`character_knowledge_log`、`item_holdings`、`cascade_impacts`。
+- **知识边界**：ingest 抽取 `knowledge_updates`/`timeline_events`（修 secrets COALESCE 冻结断链）；续写注入【本拍信息差】【未公开真相】（计划内揭示豁免）；泄密探针 + editor_qc 疑点清单；Agency 快照保留 secrets。
+- **物品归属**：`item_holdings` upsert + 续写注入【在场物品】+ 归属矛盾探针（非持有者使用 / 遗失物再现；当场转手豁免）。
+- **级联影响报告**：re-ingest 后自动确定性影响分析（下游章 + 无处不在实体过滤）＋ LLM 冲突扫描 → `SyncEvent::CascadeImpactDetected` → 幕后「级联中心」四动作（去查看/重跑分析/触发改写/忽略）。**只报告不改写后文。**
+- 基线：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / guard 全绿。
+- **未关闭**：真机三把尺子端到端复跑（P3 收口）；网站发布待 Apple 公证解阻；**不得宣称续写质量已修复**。
 
 ### v0.59.4 - 发布纪律门禁与网站链路修复（2026-10-06）
 

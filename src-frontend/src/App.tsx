@@ -14,6 +14,7 @@ import { Skills } from '@/pages/Skills';
 import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
+import { CascadeCenter } from '@/pages/CascadeCenter';
 import { Foreshadowing } from '@/pages/Foreshadowing';
 import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
@@ -338,6 +339,8 @@ function App() {
         return <BookDeconstruction />;
       case 'tasks':
         return <Tasks />;
+      case 'cascade-center':
+        return <CascadeCenter />;
       case 'foreshadowing':
         return <Foreshadowing />;
       case 'narrative-analysis':

@@ -258,6 +258,15 @@ impl SceneIngestor {
                 "knowledgeGraph",
             );
 
+            // P0-T4: 改稿级联影响分析——编辑旧章后自动产出「受影响下游章节 +
+            // 疑似冲突」清单（只报告不改写，作者在级联中心决策）。
+            crate::creative_engine::cascade_rewriter::impact_report::spawn_analyze_after_scene_ingest(
+                app_handle_for_sync.clone(),
+                pool.clone(),
+                story_id.clone(),
+                scene_id.clone(),
+            );
+
             // 向量索引更新
             match crate::embeddings::embed_text_async(content_for_vector.clone()).await {
                 Ok(embedding) => {

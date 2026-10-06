@@ -12,6 +12,10 @@ pub struct CharacterStateSnapshot {
     pub current_emotion: Option<String>,
     pub active_goal: Option<String>,
     pub arc_progress: f32,
+    /// v0.60.0 P0-T2：知识边界——该角色已知 / 尚不知道的秘密。
+    /// 此前 adapter 转换时丢弃，导致 Agency 上下文看不到信息差。
+    pub secrets_known: Vec<String>,
+    pub secrets_unknown: Vec<String>,
 }
 
 /// 活跃冲突（中性视图）
