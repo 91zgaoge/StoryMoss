@@ -323,6 +323,8 @@ export type ViewType =
   | 'tracing'
   /** v0.60.0 改稿级联影响报告中心（P0-T4） */
   | 'cascade-center'
+  /** v0.64.0 运行维护（质量债/待确认/文风偏好/成本） */
+  | 'maintenance'
   | 'settings';
 
 // ===== Intent Engine Types =====

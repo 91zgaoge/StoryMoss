@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.63.0
+- **版本**: v0.64.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,12 +97,12 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1685 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子）
+- `cargo test -p storymoss` ✅ 1691 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 590 passed / 3 skipped（+5 级联中心页面：渲染/去查看/忽略/触发改写/空态）
+- `npx vitest run` ✅ 594 passed / 3 skipped（+5 级联中心页；+4 运行维护页）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 本版未重跑
+- `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 - `src-server` ⚠️ 无本地 PostgreSQL 无法编译（sqlx 宏），仅以独立提取的单测验证纯函数
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.0 - 运行维护页 + 声明式投影路由表（P3-F 落地与 CI 修复）
+
+**P3-F 声明式投影路由表**（`story_system::projection_writers`）：`CommitArtifact` × `ProjectionWriterKind` 纯数据表 `PROJECTION_ROUTES`；`get_projection_writers` 与 `projection_status_keys()` 均从表派生（漏接线告警、新增 writer 自动进状态键），每次 commit 记录路由摘要便于审计；契约测试 6 项（产物全覆盖/顺序与 name 一致/无孤儿/状态键含异步/空值判定/摘要 on-off）。**幕后「运行维护」页**：质量债、待确认、文风偏好、成本四 Tab（此前四处的后端命令均无界面）；新增 `list_style_preferences` / `set_style_preference_status` 命令与 4 项 vitest。**修复**：`llm::cost` 的 `clippy::redundant_comparisons`（deny 级）阻塞了 v0.63.0 的 CI 发布链路——修复并把 `cargo clippy` 纳入每版验证。
+
+- **验证**：`cargo test --lib` 1691 passed / 3 ignored（+6）；`npx vitest run` 594 passed / 3 skipped（+4）；`cargo clippy` 0 error；tsc / nightly fmt / prettier / guard 全绿。
+- **契约**：`routing_table_covers_every_artifact`；`sync_kinds_are_constructible_and_match_writer_names`；`status_keys_include_deferred_writers`；`artifact_has_content_treats_empty_payload_as_absent`；`route_summary_reports_on_off_per_artifact`；`Maintenance` 4 用例。
+- **未关闭**：真机端到端未复跑（**不得宣称续写质量已修复**）；v0.63.0 tag 保留（CI 已失败，不回改）；网站发布待本版 tag 跑通。
 
 ### v0.63.0 - 工程纪律：质量债 / 时间旅行 / 终局指南针 / 待确认队列（P0–P3 收官）
 
@@ -142,15 +150,6 @@ P1 阶段（docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）。**P1-A**�
 - **验证**：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / architecture_guard 全绿。
 - **契约**：`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）；`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`；`test_knowledge_boundary_detects_unknown_secret_leak` / `..._hidden_truth_reveal`；`test_possession_conflict_flags_absent_holder_but_allows_transfer` / `..._lost_item_reuse`；`test_continuity_gaps_reads_db_and_respects_planned_text`；`test_ubiquitous_entity_is_filtered_out`；`CascadeCenter` 5 用例。
 - **未关闭**：真机三把尺子端到端复跑（P3 三测试套件收口）；**不得宣称续写质量已修复**；网站发布仍待 Apple 公证解阻。
-
-### v0.59.4 - 发布纪律门禁与网站链路修复
-
-起因：v0.59.1–v0.59.3 连续三版漏更 `ARCHITECTURE.md`（文档更新脚本无断言、静默失配），且线上 `latest.json` 仍停在 0.58.0。新增 `docs-guard` 作业（tag 推送时机械校验 8 份必需文档都有改动，缺失即 fail）；补齐 ARCHITECTURE.md 的 v0.59.1–v0.59.3 记录；landing 兜底版本回退 0.58.0（0.59.x 线上 404，兜底不得指向不存在版本）。
-
-- **阻塞点（需人工）**：macOS `tauri-build` 失败于 Apple 公证 `403 A required agreement is missing or has expired`；`upload-to-website` 依赖三平台全成功 → 网站未更新（Windows/Linux 构建成功，但未上传）。
-- **验证**：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing tsc + 24 tests；build.yml YAML 解析通过；本地按 docs-guard 同款命令预演通过。
-- **契约**：`docs-guard`（发布必需文档门禁）。
-- **未关闭**：签署 Apple 协议后重跑 macOS 构建 → upload-to-website 才会发布 0.59.x（含 0.58.0 缺失的 `.deb`）；真机续写未复跑，**不得宣称续写质量已修复**。
 
 ## Always Do
 

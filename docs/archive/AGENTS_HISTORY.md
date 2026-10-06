@@ -1889,3 +1889,16 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
 - **验证**：`cargo test --lib` 1628 passed / 3 ignored（+5）；vitest 585 / 3 skipped；tsc / guard / nightly fmt / playwright 全绿。
 - **契约**：`test_materialize_does_not_overwrite_user_created_outline`；`test_materialize_still_updates_machine_outline`；`test_sync_story_delta_skips_user_created_outline`；`update_with_content_marks_user_created`；`update_without_content_keeps_source`。
 - **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；withGlobalTauri + CSP 需真机运行时验证；FTP 明文；Agency↔agents 环依赖 / coordinator 拆分 / llm_calls 保留 / src-server CI。
+
+---
+
+*归档于 2026-10-06（v0.64.0）：v0.59.4 摘要。*
+
+### v0.59.4 - 发布纪律门禁与网站链路修复
+
+起因：v0.59.1–v0.59.3 连续三版漏更 `ARCHITECTURE.md`（文档更新脚本无断言、静默失配），且线上 `latest.json` 仍停在 0.58.0。新增 `docs-guard` 作业（tag 推送时机械校验 8 份必需文档都有改动，缺失即 fail）；补齐 ARCHITECTURE.md 的 v0.59.1–v0.59.3 记录；landing 兜底版本回退 0.58.0（0.59.x 线上 404，兜底不得指向不存在版本）。
+
+- **阻塞点（需人工）**：macOS `tauri-build` 失败于 Apple 公证 `403 A required agreement is missing or has expired`；`upload-to-website` 依赖三平台全成功 → 网站未更新（Windows/Linux 构建成功，但未上传）。
+- **验证**：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing tsc + 24 tests；build.yml YAML 解析通过；本地按 docs-guard 同款命令预演通过。
+- **契约**：`docs-guard`（发布必需文档门禁）。
+- **未关闭**：签署 Apple 协议后重跑 macOS 构建 → upload-to-website 才会发布 0.59.x（含 0.58.0 缺失的 `.deb`）；真机续写未复跑，**不得宣称续写质量已修复**。

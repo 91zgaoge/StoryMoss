@@ -129,6 +129,66 @@ pub fn load_active_preferences(
     rows.map(|r| r.flatten().collect()).unwrap_or_default()
 }
 
+/// 列出偏好（可按状态过滤；status=None 表示全部），供「运行维护」页管理。
+pub fn list_preferences(
+    pool: &DbPool,
+    story_id: &str,
+    status: Option<&str>,
+    limit: i64,
+) -> Vec<StylePreference> {
+    let Ok(conn) = pool.get() else {
+        return Vec::new();
+    };
+    let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<StylePreference> {
+        Ok(StylePreference {
+            id: row.get(0)?,
+            story_id: row.get(1)?,
+            pattern: row.get(2)?,
+            evidence: row.get(3)?,
+            source: row.get(4)?,
+            status: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    };
+    let sql_all = "SELECT id, story_id, pattern, evidence, source, status, created_at, updated_at \
+                   FROM style_preferences WHERE story_id = ?1 \
+                   ORDER BY updated_at DESC LIMIT ?2";
+    let sql_status =
+        "SELECT id, story_id, pattern, evidence, source, status, created_at, updated_at \
+         FROM style_preferences WHERE story_id = ?1 AND status = ?2 \
+         ORDER BY updated_at DESC LIMIT ?3";
+    let rows: Vec<StylePreference> = match status {
+        Some(status) => match conn.prepare(sql_status) {
+            Ok(mut stmt) => stmt
+                .query_map(params![story_id, status, limit], map_row)
+                .map(|r| r.flatten().collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        },
+        None => match conn.prepare(sql_all) {
+            Ok(mut stmt) => stmt
+                .query_map(params![story_id, limit], map_row)
+                .map(|r| r.flatten().collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        },
+    };
+    rows
+}
+
+/// 重新启用一条被停用的偏好。
+pub fn reactivate_preference(pool: &DbPool, preference_id: &str) -> Result<usize, rusqlite::Error> {
+    let conn = pool
+        .get()
+        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    let now = Local::now().to_rfc3339();
+    conn.execute(
+        "UPDATE style_preferences SET status = 'active', updated_at = ?1 WHERE id = ?2",
+        params![now, preference_id],
+    )
+}
+
 /// upsert 一条偏好（同故事同 pattern 去重，刷新证据与时间）。
 pub fn upsert_preference(
     pool: &DbPool,

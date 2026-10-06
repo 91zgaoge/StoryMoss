@@ -317,6 +317,9 @@ tauri::generate_handler! {
     commands::story_system::query_story_as_of,
     commands::story_system::list_pending_reviews,
     commands::story_system::resolve_pending_review,
+    // v0.64.0：文风偏好管理
+    commands::story_system::list_style_preferences,
+    commands::story_system::set_style_preference_status,
     llm::commands::get_recent_llm_calls,
     llm::commands::get_llm_call_stats,
     scene_commands::update_character_state,

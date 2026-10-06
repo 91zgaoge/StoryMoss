@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.63.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.0 变更说明
+
+- 新增 Rust 6 项：投影路由表契约（产物全覆盖 / 同步顺序与 writer 名一致 / 无孤儿 writer / 状态键含异步 / 产物空值判定 / 路由摘要 on/off）。
+- 新增前端 4 项：`Maintenance` 页面（质量债结清 / 待确认确认与拒绝 / 文风偏好停用 / 成本聚合与盲区告警）。
+- **验证清单新增 `cargo clippy`**：CI 使用不带 `-D warnings` 的 `cargo clippy`，但 deny 级 lint（如 redundant_comparisons）会直接阻塞发布（v0.63.0 即因此失败）。
+- 全量基线：`cargo test --lib` 1691 passed / 3 ignored；`npx vitest run` 594 passed / 3 skipped。
 
 ### v0.63.0 变更说明
 

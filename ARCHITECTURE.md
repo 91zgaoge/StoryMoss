@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.63.0 架构文档
+# StoryMoss (草苔) v0.64.0 架构文档
+
+> **v0.64.0**：**声明式投影路由表**（P3-F）——`projection_writers::{CommitArtifact, ProjectionWriterKind, PROJECTION_ROUTES}` 把「提交产物 → 投影 writer」变成纯数据表；`get_projection_writers` 按表构造（漏接线告警）、`projection_status_keys()` 派生 commit 状态键（新增 writer 自动进 pending 初始化）、`route_summary` 记录每次提交的路由摘要（on/off + 激活 writer）供审计。异步 writer（vector / kg）在表内以 `deferred` 声明，执行仍由 `apply_commit` 的 future 完成——行为保持的重构。前端新增「运行维护」页（`pages/Maintenance.tsx` + `hooks/useMaintenance.ts`）：质量债 / 待确认 / 文风偏好 / 成本四 Tab，配套命令 `list_style_preferences` / `set_style_preference_status`。修复 `llm::cost` 的 deny 级 clippy 问题（曾阻塞 v0.63.0 发布）。
 
 > **v0.63.0**（P3 工程纪律）：**V138** 三表——`quality_debts`（UNIQUE(story,chapter,detail) 幂等；`story_system::quality_debt`，coordinator 的 spawn_editor_qc 在 RevisionRequired/salvage/异常降级时记账）、`story_checkpoints`（UNIQUE(story,chapter)；`story_system::checkpoint` 在段摘要刷新的 10 章边界写快照，`query_as_of` 用 append-only 知情流水 + `reveal_chapter` 做「截至第 N 章」回溯，物品账本标注 current_only）、`pending_reviews`（UNIQUE(story,kind,subject)；ingest 对 importance ≥7 的世界规则入队，确认前不作硬约束）。`story_system::compass` 确定性派生终局方向/活跃长线/进度并经 continuity_blocks 注入。命令：list/resolve_quality_debts、query_story_as_of、list/resolve_pending_reviews。组合契约见 `tests::three_rulers_contract_test`。**未实施**：P3-F 声明式投影路由表。
 

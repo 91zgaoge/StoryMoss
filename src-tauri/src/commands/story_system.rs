@@ -235,3 +235,46 @@ pub async fn resolve_pending_review(
     .await
     .map_err(|e| AppError::internal(format!("更新待确认项失败: {}", e)))?
 }
+
+// ==================== v0.64.0：文风偏好管理（运行维护页） ====================
+
+/// 列出作者文风偏好（status 传 active/disabled，缺省列出全部）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_style_preferences(
+    story_id: String,
+    status: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::story_system::style_learning::StylePreference>, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::style_learning::list_preferences(
+            &pool,
+            &story_id,
+            status.as_deref(),
+            200,
+        )
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("查询文风偏好失败: {}", e)))
+}
+
+/// 启用 / 停用一条文风偏好。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_style_preference_status(
+    preference_id: String,
+    active: bool,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if active {
+            crate::story_system::style_learning::reactivate_preference(&pool, &preference_id)
+                .map_err(AppError::from)
+        } else {
+            crate::story_system::style_learning::deactivate_preference(&pool, &preference_id)
+                .map_err(AppError::from)
+        }
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("更新文风偏好失败: {}", e)))?
+}

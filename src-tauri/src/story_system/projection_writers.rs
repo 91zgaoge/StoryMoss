@@ -27,6 +27,226 @@ pub trait ProjectionWriter {
     ) -> Result<bool, AppError>;
 }
 
+// ==================== 声明式投影路由表（P3-F，v0.64.0） ====================
+//
+// 参考 webnovel-writer 的「事件 → writer」声明式路由：把「哪类提交产物激活
+// 哪些投影」从隐式的注册顺序变成**纯数据表**——可单测（覆盖性/无孤儿）、
+// 可审计（commit 日志打印路由摘要）、可扩展（新增 writer 必须同时进表，
+// 测试会拦住漏配）。
+//
+// 语义边界（重要）：路由表决定「谁被触发、以什么顺序、状态键是什么」；
+// 单个 writer 内部的「产物为空则 skipped」判定保持不变（各 writer 自持），
+// 因此本表是行为保持的重构，不改变既有投影结果。
+
+/// 提交产物：一次 CHAPTER_COMMIT 中可被投影到 read-model 的部分。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommitArtifact {
+    StateDeltas,
+    EntityDeltas,
+    AcceptedEvents,
+    SummaryText,
+    /// 章节正文本身（KG 提取的触发条件，不在 commit_json 内）
+    ChapterContent,
+}
+
+impl CommitArtifact {
+    pub const ALL: [CommitArtifact; 5] = [
+        CommitArtifact::StateDeltas,
+        CommitArtifact::EntityDeltas,
+        CommitArtifact::AcceptedEvents,
+        CommitArtifact::SummaryText,
+        CommitArtifact::ChapterContent,
+    ];
+
+    /// commit_json 中的字段名（ChapterContent 无字段，标注为调用方参数）。
+    pub fn key(self) -> &'static str {
+        match self {
+            CommitArtifact::StateDeltas => "state_deltas_json",
+            CommitArtifact::EntityDeltas => "entity_deltas_json",
+            CommitArtifact::AcceptedEvents => "accepted_events_json",
+            CommitArtifact::SummaryText => "summary_text",
+            CommitArtifact::ChapterContent => "(chapter_content)",
+        }
+    }
+
+    /// 该产物在本次提交中是否有实质内容（空数组/空对象视为无）。
+    pub fn has_content(self, commit_json: &str, chapter_content: Option<&str>) -> bool {
+        #[derive(Deserialize)]
+        struct Probe {
+            #[serde(default)]
+            state_deltas_json: Option<String>,
+            #[serde(default)]
+            entity_deltas_json: Option<String>,
+            #[serde(default)]
+            accepted_events_json: Option<String>,
+            #[serde(default)]
+            summary_text: Option<String>,
+        }
+        if self == CommitArtifact::ChapterContent {
+            // 与 commit_service 中 KG 提取的准入一致（按字节长度判阈值）
+            return chapter_content
+                .map(|c| c.trim().len() >= 20)
+                .unwrap_or(false);
+        }
+        let Ok(probe) = serde_json::from_str::<Probe>(commit_json) else {
+            return false;
+        };
+        let raw = match self {
+            CommitArtifact::StateDeltas => probe.state_deltas_json,
+            CommitArtifact::EntityDeltas => probe.entity_deltas_json,
+            CommitArtifact::AcceptedEvents => probe.accepted_events_json,
+            CommitArtifact::SummaryText => probe.summary_text,
+            CommitArtifact::ChapterContent => None,
+        };
+        let Some(value) = raw else { return false };
+        let trimmed = value.trim();
+        !trimmed.is_empty() && trimmed != "[]" && trimmed != "{}" && trimmed != "null"
+    }
+}
+
+/// 投影写入器类别（与 trait 实现一一对应；`deferred` 表示异步执行）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProjectionWriterKind {
+    State,
+    Index,
+    Summary,
+    Memory,
+    Vector,
+    Kg,
+}
+
+impl ProjectionWriterKind {
+    pub const ALL: [ProjectionWriterKind; 6] = [
+        ProjectionWriterKind::State,
+        ProjectionWriterKind::Index,
+        ProjectionWriterKind::Summary,
+        ProjectionWriterKind::Memory,
+        ProjectionWriterKind::Vector,
+        ProjectionWriterKind::Kg,
+    ];
+
+    /// 与 `ProjectionWriter::name()` 一致的稳定键（也是 projection_status
+    /// 的键）。
+    pub fn name(self) -> &'static str {
+        match self {
+            ProjectionWriterKind::State => "state",
+            ProjectionWriterKind::Index => "index",
+            ProjectionWriterKind::Summary => "summary",
+            ProjectionWriterKind::Memory => "memory",
+            ProjectionWriterKind::Vector => "vector",
+            ProjectionWriterKind::Kg => "kg",
+        }
+    }
+
+    /// 异步（deferred）执行：与同步 writer 一起声明，但由调用方在后续阶段执行。
+    pub fn deferred(self) -> bool {
+        matches!(
+            self,
+            ProjectionWriterKind::Vector | ProjectionWriterKind::Kg
+        )
+    }
+}
+
+/// 一条路由：产物 → 被激活的 writer（含异步；顺序即执行顺序）。
+pub struct ProjectionRoute {
+    pub artifact: CommitArtifact,
+    pub writers: &'static [ProjectionWriterKind],
+}
+
+/// 声明式路由表（唯一权威；`get_projection_writers` 与状态键都从它派生）。
+pub const PROJECTION_ROUTES: &[ProjectionRoute] = &[
+    ProjectionRoute {
+        artifact: CommitArtifact::StateDeltas,
+        writers: &[ProjectionWriterKind::State],
+    },
+    ProjectionRoute {
+        artifact: CommitArtifact::EntityDeltas,
+        writers: &[ProjectionWriterKind::Index],
+    },
+    ProjectionRoute {
+        artifact: CommitArtifact::AcceptedEvents,
+        writers: &[ProjectionWriterKind::Memory],
+    },
+    ProjectionRoute {
+        artifact: CommitArtifact::SummaryText,
+        writers: &[ProjectionWriterKind::Summary, ProjectionWriterKind::Vector],
+    },
+    ProjectionRoute {
+        artifact: CommitArtifact::ChapterContent,
+        writers: &[ProjectionWriterKind::Kg],
+    },
+];
+
+/// 同步 writer 的执行顺序（按表去重，过滤异步）。
+pub fn sync_projection_kinds() -> Vec<ProjectionWriterKind> {
+    let mut out: Vec<ProjectionWriterKind> = Vec::new();
+    for route in PROJECTION_ROUTES {
+        for kind in route.writers {
+            if !kind.deferred() && !out.contains(kind) {
+                out.push(*kind);
+            }
+        }
+    }
+    out
+}
+
+/// 异步 writer（由调用方在后续阶段执行）。
+pub fn deferred_projection_kinds() -> Vec<ProjectionWriterKind> {
+    let mut out: Vec<ProjectionWriterKind> = Vec::new();
+    for route in PROJECTION_ROUTES {
+        for kind in route.writers {
+            if kind.deferred() && !out.contains(kind) {
+                out.push(*kind);
+            }
+        }
+    }
+    out
+}
+
+/// projection_status 的全部键（含异步），用于 commit 记录与前端展示。
+pub fn projection_status_keys() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for route in PROJECTION_ROUTES {
+        for kind in route.writers {
+            if !out.contains(&kind.name()) {
+                out.push(kind.name());
+            }
+        }
+    }
+    out
+}
+
+/// 路由摘要（写进 commit 日志，便于事后审计「这次提交触发了什么」）。
+pub fn route_summary(commit_json: &str, chapter_content: Option<&str>) -> String {
+    PROJECTION_ROUTES
+        .iter()
+        .map(|route| {
+            let flag = if route.artifact.has_content(commit_json, chapter_content) {
+                "on"
+            } else {
+                "off"
+            };
+            let writers: Vec<&str> = route.writers.iter().map(|k| k.name()).collect();
+            format!("{}:{flag}→[{}]", route.artifact.key(), writers.join(","))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 按类别构造同步 writer（新增类别必须在此接线，测试会校验覆盖性）。
+fn build_sync_writer(
+    kind: ProjectionWriterKind,
+    pool: DbPool,
+) -> Option<Box<dyn ProjectionWriter>> {
+    match kind {
+        ProjectionWriterKind::State => Some(Box::new(StateProjectionWriter::new(pool))),
+        ProjectionWriterKind::Index => Some(Box::new(IndexProjectionWriter::new(pool))),
+        ProjectionWriterKind::Summary => Some(Box::new(SummaryProjectionWriter::new(pool))),
+        ProjectionWriterKind::Memory => Some(Box::new(MemoryProjectionWriter::new(pool))),
+        ProjectionWriterKind::Vector | ProjectionWriterKind::Kg => None, // 异步，不在同步链
+    }
+}
+
 /// 状态投影写入器
 pub struct StateProjectionWriter {
     pool: DbPool,
@@ -320,12 +540,19 @@ impl ProjectionWriter for VectorProjectionWriter {
 
 /// 获取所有投影写入器
 pub fn get_projection_writers(pool: DbPool) -> Vec<Box<dyn ProjectionWriter>> {
-    vec![
-        Box::new(StateProjectionWriter::new(pool.clone())),
-        Box::new(IndexProjectionWriter::new(pool.clone())),
-        Box::new(SummaryProjectionWriter::new(pool.clone())),
-        Box::new(MemoryProjectionWriter::new(pool.clone())),
-    ]
+    // 顺序与组成由声明式路由表派生（P3-F）：新增 writer 只需进表 + 接线，
+    // 漏配会被 `projection_routing` 测试拦住。
+    let mut writers: Vec<Box<dyn ProjectionWriter>> = Vec::new();
+    for kind in sync_projection_kinds() {
+        match build_sync_writer(kind, pool.clone()) {
+            Some(writer) => writers.push(writer),
+            None => log::warn!(
+                "[ProjectionWriter] 路由表声明了同步 writer 「{}」但没有构造器接线",
+                kind.name()
+            ),
+        }
+    }
+    writers
 }
 
 /// 异步应用向量投影
@@ -353,4 +580,117 @@ pub async fn apply_vector_projection(
     store.add_record(record).await?;
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod projection_routing_tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    #[test]
+    fn routing_table_covers_every_artifact() {
+        for artifact in CommitArtifact::ALL {
+            assert!(
+                PROJECTION_ROUTES.iter().any(|r| r.artifact == artifact),
+                "产物 {:?} 没有路由（新增产物必须进表）",
+                artifact
+            );
+        }
+    }
+
+    #[test]
+    fn sync_kinds_are_constructible_and_match_writer_names() {
+        let pool = create_test_pool().unwrap();
+        let kinds = sync_projection_kinds();
+        assert_eq!(
+            kinds,
+            vec![
+                ProjectionWriterKind::State,
+                ProjectionWriterKind::Index,
+                ProjectionWriterKind::Memory,
+                ProjectionWriterKind::Summary,
+            ],
+            "同步执行顺序由表决定：state → index → memory → summary"
+        );
+        for kind in &kinds {
+            assert!(
+                build_sync_writer(*kind, pool.clone()).is_some(),
+                "路由表声明了同步 writer「{}」但没有构造器",
+                kind.name()
+            );
+        }
+        // 注册顺序与 name() 一致（审计依赖 name 作为状态键）
+        let writers = get_projection_writers(pool);
+        let names: Vec<&str> = writers.iter().map(|w| w.name()).collect();
+        assert_eq!(names, vec!["state", "index", "memory", "summary"]);
+    }
+
+    #[test]
+    fn status_keys_include_deferred_writers() {
+        let keys = projection_status_keys();
+        for expected in ["state", "index", "summary", "memory", "vector", "kg"] {
+            assert!(keys.contains(&expected), "状态键缺 {expected}: {keys:?}");
+        }
+        assert_eq!(keys.len(), 6, "状态键不应重复: {keys:?}");
+        // 每个类别都必须出现在某条路由里（无孤儿 writer）
+        for kind in ProjectionWriterKind::ALL {
+            assert!(
+                PROJECTION_ROUTES.iter().any(|r| r.writers.contains(&kind)),
+                "writer「{}」未出现在任何路由中",
+                kind.name()
+            );
+        }
+    }
+
+    #[test]
+    fn deferred_kinds_are_vector_and_kg() {
+        assert_eq!(
+            deferred_projection_kinds(),
+            vec![ProjectionWriterKind::Vector, ProjectionWriterKind::Kg]
+        );
+    }
+
+    #[test]
+    fn artifact_has_content_treats_empty_payload_as_absent() {
+        let empty = serde_json::json!({
+            "state_deltas_json": "[]",
+            "entity_deltas_json": "{}",
+            "accepted_events_json": "",
+            "summary_text": "第3章：他们分道扬镳。",
+        })
+        .to_string();
+        assert!(!CommitArtifact::StateDeltas.has_content(&empty, None));
+        assert!(!CommitArtifact::EntityDeltas.has_content(&empty, None));
+        assert!(!CommitArtifact::AcceptedEvents.has_content(&empty, None));
+        assert!(CommitArtifact::SummaryText.has_content(&empty, None));
+        assert!(!CommitArtifact::ChapterContent.has_content(&empty, None));
+        assert!(!CommitArtifact::ChapterContent.has_content(&empty, Some("太短")));
+        assert!(CommitArtifact::ChapterContent
+            .has_content(&empty, Some("这一章足够长，可以触发知识图谱提取了。")));
+    }
+
+    #[test]
+    fn route_summary_reports_on_off_per_artifact() {
+        let commit = serde_json::json!({
+            "state_deltas_json": "[{\"id\":\"c1\"}]",
+            "entity_deltas_json": "[]",
+            "accepted_events_json": "[]",
+            "summary_text": "第3章：雨夜对峙。",
+        })
+        .to_string();
+        let summary = route_summary(&commit, None);
+        assert!(
+            summary.contains("state_deltas_json:on→[state]"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("entity_deltas_json:off→[index]"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("summary_text:on→[summary,vector]"),
+            "{summary}"
+        );
+        assert!(summary.contains("(chapter_content):off→[kg]"), "{summary}");
+    }
 }

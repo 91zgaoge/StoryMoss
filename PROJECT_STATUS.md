@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.63.0 项目完成状态
+# StoryMoss (草苔) v0.64.0 项目完成状态
 
-> 最后更新: 2026-10-06（v0.63.0 P3 工程纪律收官：质量债 / 时间旅行 / 指南针 / 待确认队列——P0–P3 四阶段路线完成；0.59.x 起各版本因 Apple 公证未签署尚未上线）
+> 最后更新: 2026-10-06（v0.64.0：运行维护页 + 声明式投影路由表（P3-F）；修复 Clippy 阻塞；Apple 协议已签署，发布链路重跑中）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.64.0 - 运行维护页 + 声明式投影路由表（2026-10-06）
+
+- **P3-F**：`PROJECTION_ROUTES` 声明式路由表（产物 × writer），注册顺序与状态键从表派生，commit 记录路由摘要；6 项契约测试。
+- **运行维护页**：质量债 / 待确认 / 文风偏好 / 成本 四 Tab（补齐 P2/P3 的 UI 缺口）；+4 vitest。
+- **修复**：`clippy::redundant_comparisons`（v0.63.0 CI 失败根因）；`cargo clippy` 纳入每版验证。
+- 基线：`cargo test --lib` 1691 passed / 3 ignored（+6）；vitest 594 passed / 3 skipped（+4）；clippy 0 error。
+- **未关闭**：真机端到端未复跑；v0.63.0 tag 保留不回改；网站发布待本版 tag 跑通。
 
 ### v0.63.0 - 工程纪律（P0–P3 收官，2026-10-06）
 

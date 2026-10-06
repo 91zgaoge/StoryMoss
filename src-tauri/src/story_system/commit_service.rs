@@ -269,14 +269,18 @@ impl SceneCommitService {
 
         // W2-B7: 执行同步 projection writers（带性能测量）
         let writers = projection_writers::get_projection_writers(self.pool.clone());
-        let mut projection_status = serde_json::json!({
-            "state": "pending",
-            "index": "pending",
-            "summary": "pending",
-            "memory": "pending",
-            "vector": "pending",
-            "kg": "pending",
-        });
+        // P3-F：状态键由声明式路由表派生——新增 writer 自动出现，不会漏初始化
+        let mut projection_status = serde_json::Value::Object(
+            projection_writers::projection_status_keys()
+                .into_iter()
+                .map(|key| (key.to_string(), serde_json::json!("pending")))
+                .collect(),
+        );
+        // P3-F 可审计：记录本次提交的路由摘要（哪些产物 on/off、激活了谁）
+        log::info!(
+            "[ProjectionWriter] 路由: {}",
+            projection_writers::route_summary(&commit_json, chapter_content)
+        );
 
         let sync_start = Instant::now();
         for writer in writers {

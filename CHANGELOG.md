@@ -2,6 +2,41 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.64.0（2026-10-06）
+
+**收尾两项遗留 + 修复 CI 发布链路**：P3-F 声明式投影路由表、四处新能力的统一界面（幕后「运行维护」页），并修掉导致 v0.63.0 发布构建失败的 Clippy 错误。
+
+### P3-F 声明式投影路由表
+
+- `story_system::projection_writers` 新增纯数据路由表：`CommitArtifact`（state_deltas / entity_deltas / accepted_events / summary_text / chapter_content）× `ProjectionWriterKind`（state / index / summary / memory / vector / kg，含异步标记）。
+- 原来「写死注册顺序 + 手写状态键 JSON」改为**从表派生**：`get_projection_writers` 按表生成（漏接线会告警）、`projection_status_keys()` 生成 commit 状态键（新增 writer 自动出现，不会漏初始化 pending）。
+- 可审计：每次 commit 记录路由摘要 `state_deltas_json:on→[state] …`，事后可复盘「这次提交触发了什么」。
+- 契约测试 6 项：产物全覆盖、同步顺序与 writer 名一致、无孤儿 writer、状态键含异步、产物空值判定（空数组/空对象视为无）、路由摘要 on/off。
+
+### 幕后「运行维护」页（补上 P2/P3 的界面缺口）
+
+- 新页面（诊断组导航）四个 Tab 统一承载此前只有后端命令的能力：
+  - **质量债**：严重度/章号/来源/建议回收窗口，一键结清或忽略；
+  - **待确认**：分析自动新增的规则类资产（世界规则等），确认或拒绝；
+  - **文风偏好**：从手改中提炼的文风规则，可停用/启用（停用后不再注入续写）；
+  - **成本**：调用次数 / 累计 token / 失败数 / 零记账数四张卡 + 阈值提示 + 计费盲区告警。
+- 新增命令 `list_style_preferences` / `set_style_preference_status`（含 `list_preferences` 状态过滤与 `reactivate_preference`）；页面 4 项 vitest。
+
+### 修复
+
+- **Clippy（阻塞发布）**：`llm::cost` 的 `budget_warning` 判定含冗余比较（`clippy::redundant_comparisons` 为 deny 级），已在 v0.63.0 的 CI 中导致 `rust-check` 失败、进而跳过三平台构建与网站上传。本版修复并把 `cargo clippy` 纳入本地验证清单。
+- 顺手补：AGENTS.md 编译状态增加 `cargo clippy` 条目（此前标注「本版未重跑」）。
+
+### 测试
+
+- `cargo test --lib` 1691 passed / 3 ignored（+6 路由契约）；`npx vitest run` 594 passed / 3 skipped（+4 运行维护页）；`cargo clippy` 0 error；tsc / nightly fmt / prettier / architecture_guard 全绿。
+
+### 未关闭
+
+- 真机端到端（三把尺子 + 长篇 10+ 章）仍未复跑；**不得宣称续写质量已修复**。
+- v0.63.0 的 CI 运行已失败（Clippy），其 tag 保留不回改；发布以本版为准。
+- 网站发布：协议已签署，待本版 tag 触发三平台构建 + 上传后生效；landing 兜底版本随后同步。
+
 ## v0.62.0（2026-10-06）
 
 **P2：文本质量与成本**——确定性文本质检、作者文风逆向学习、伏笔增强、成本账本与计费盲区哨兵。

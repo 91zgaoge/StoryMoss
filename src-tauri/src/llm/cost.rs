@@ -87,8 +87,9 @@ pub fn summarize_story_cost(pool: &DbPool, story_id: &str) -> StoryCostSummary {
             summary.zero_token_calls = zero.max(0) as u64;
             summary.first_call_at = first;
             summary.last_call_at = last;
-            summary.budget_warning =
-                summary.total_tokens >= DEFAULT_STORY_TOKEN_WARN && summary.total_tokens > 0;
+            // 阈值本身大于 0，达到阈值即必然有真实用量（无需再判 total_tokens >
+            // 0）
+            summary.budget_warning = summary.total_tokens >= DEFAULT_STORY_TOKEN_WARN;
         }
         Err(e) => {
             log::warn!("[cost] 聚合 llm_calls 失败（story={}）: {}", story_id, e);

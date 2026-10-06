@@ -15,6 +15,7 @@ import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
 import { CascadeCenter } from '@/pages/CascadeCenter';
+import { Maintenance } from '@/pages/Maintenance';
 import { Foreshadowing } from '@/pages/Foreshadowing';
 import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
@@ -341,6 +342,8 @@ function App() {
         return <Tasks />;
       case 'cascade-center':
         return <CascadeCenter />;
+      case 'maintenance':
+        return <Maintenance />;
       case 'foreshadowing':
         return <Foreshadowing />;
       case 'narrative-analysis':

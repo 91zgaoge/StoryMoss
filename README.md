@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.63.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.64.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.64.0 · 运行维护页 + 声明式投影路由表
+
+- **幕后「运行维护」页**：质量债 / 待确认 / 文风偏好 / 成本四个 Tab 集中呈现与决策（此前只有后端命令）。
+- **声明式投影路由表**：提交产物 → 投影 writer 的映射变成纯数据表（可测试、可审计，每次 commit 记录路由摘要）。
+- 修复导致 v0.63.0 发布失败的 Clippy 错误（冗余比较，deny 级），并把 `cargo clippy` 纳入本地验证清单。
 
 ### v0.63.0 · 工程纪律：质量债台账 + 时间旅行查询 + 终局指南针 + 待确认队列
 
