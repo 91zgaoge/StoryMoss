@@ -2,6 +2,60 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.59.0（2026-10-06）
+
+对 `docs/audits/2026-10-06-project-review-v0.58.0.md` 全面检视结论的三批实施：验收证据链、数据层治理、续写质检闭环。不改「主创单次 complete / 零工具」的续写架构，不改三档路由。
+
+### 验收与质量证据链
+
+- CI：`cargo test --lib` 去掉 `continue-on-error`（恢复阻塞），弃用「49 个 V092 基线失败」的过时注释（实测 0 failed）。
+- 新增 provider 故障注入测试（reasoning_content 空正文 / markdown 围栏 JSON / 截断与空响应），把真机踩过的网关行为钉成回归。
+- 新增 golden 续写 harness（`#[ignore]`，按需真机跑，产出指标 JSON 供人工评分）。
+- E2E：新增幕前续写主路径 spec（续写落库 / 不重复 / 生成中重复提交不弹中断卡）；`frontstage-editing` 的固定 sleep 改为轮询断言。
+
+### 数据库治理
+
+- `schema_migrations` 记录内容校验和（V132），启动时比对同版本内容分歧并告警。
+- 待执行集合由「版本号 > MAX(version)」改为「未记录在 schema_migrations 的版本」：低于水位的补丁迁移不再被静默跳过（补执行前显式告警）。
+- 迁移目录候选剔除构建产物路径：dev 下 `target/debug/db/migrations` 陈旧副本不再可能被选中。
+- V133 补 6 处热查询索引（llm_calls 两个组合索引 / agency_board_items / agency_activity_log / character_relationships 三元组 / characters(story_id,name)）。
+- 删故事级联清理 `agency_*` / `ingest_jobs` / `llm_calls`；`agency_activity_log` 加 30 天保留策略（启动剪枝）。
+
+### 续写质检闭环（核心缺口）
+
+- 后台质检结果事件补 `mode`（genesis/continue）与 `chapter_number`：续写质检不再误提示「建议重新创世」。
+- 幕前新增可操作条：续写质检不合格时列出问题数并提供「按审查意见修订本章」，走 `auto_revise` 新增的 `revision_type=editor_qc` + `extra_instruction`（只改被点名处，未点名保持原样）。
+- 资产回流与后台质检纳入 run 预算与取消传播：用户取消后下游 LLM 最长 200ms 内停止，不再吃满唯一后台串行许可。
+
+### 提示词
+
+- 补齐 4 个占位 prompt 资产（writer / inspector / outline_planner / style_mimic）：文思自动续写/修改不再退化到一句泛化提示，且可在提示词页覆盖。
+
+### 安全与发布
+
+- `src-server`：`JWT_SECRET` 去掉可预测缺省（缺失 / 过短 / 公开示例值即拒绝启动）；`DEV_UPGRADE_ENABLED` 缺省改 false；compose 中 `JWT_SECRET` 改为必填。
+- 工作室导出 ZIP 默认剔除 API key（显式 `include_api_keys=true` 才保留）。
+- 发布白名单补 `.deb` / `.deb.sig`：修复 Linux deb 渠道 `latest.json` 指向 404 的更新断链。
+
+### 工程
+
+- `AGENTS.md` 1208 → 190 行（v0.30.26–v0.54.0 摘要移入 `docs/archive/AGENTS_HISTORY.md`）。
+- `FrontstageApp.tsx` 抽出 `useScenePersistence` 保存链 hook（−149 行，行为不变）。
+- 新增 `docs/audits/2026-10-06-project-review-v0.58.0.md`（全面检视报告）。
+
+### 测试
+
+- `cargo test --lib` 1624 passed / 3 ignored（+41：含 40 项故障注入/迁移治理/级联/取消传播/质检闭环/提示词/导出 + 1 项 golden harness）。
+- `npx vitest run` 609 passed / 3 skipped（+2）。
+- Playwright：新增 3 用例（幕前续写主路径），全套 39 passed / 5 skipped。
+
+### 未关闭
+
+- 真机创世/续写仍未重跑；**不得宣称续写质量已修复**。
+- **新发现（P1）**：载入章节时若正文到达慢于自动保存 debounce，空编辑器可能先写空、覆盖已持久化正文（`e2e/frontstage-editing.spec.ts` 可稳定复现）；E2E 门禁因此暂留非阻塞。
+- `src-server` 在无 PostgreSQL（且无 `.sqlx` 离线缓存）环境无法编译，CI 仍未覆盖；`withGlobalTauri` + 宽松 CSP、发布 FTP 明文传输待后续处理。
+- golden harness 需真机跑出基线后才有可对比的质量指标。
+
 ## v0.58.0（2026-08-29）
 
 把 [AI-drama-pound](https://github.com/POUND0423/AI-drama-pound)（MIT）的戏剧工艺编进现有小说创世/续写，并新增可选短剧格式。不嵌对方 skill，不把主创拉回 ToolLoop，不把剧本场次标头灌进长篇续写。

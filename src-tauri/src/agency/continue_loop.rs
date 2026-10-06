@@ -415,6 +415,7 @@ pub async fn run_asset_ingest(
     story_id: &str,
     scene_id: &str,
     content: &str,
+    external_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> BgExit {
     let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
     if bg_permit.is_err() {
@@ -438,6 +439,27 @@ pub async fn run_asset_ingest(
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
         timer_cancel.cancel();
     });
+
+    // v0.59.0：把 run 级取消接进 ingest —— 用户取消生成后，后台回流最长
+    // 300s 内也会停下，不再继续占用后台 LLM 串行许可。
+    if let Some(flag) = external_cancel {
+        use std::sync::atomic::Ordering;
+        let token = cancel.clone();
+        let run_id_owned = run_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                if flag.load(Ordering::SeqCst) {
+                    log::info!("agency: 资产回流收到 run 取消信号 (run={})", run_id_owned);
+                    token.cancel();
+                    break;
+                }
+                if token.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+    }
 
     let llm_service = crate::llm::LlmService::new(app.clone());
     let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)

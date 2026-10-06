@@ -323,7 +323,12 @@ pub struct AutoReviseRequest {
     pub chapter_id: Option<String>,
     pub scope: String, // "full" | "chapter" | "selection"
     pub selected_text: Option<String>,
-    pub revision_type: String, // "style" | "plot" | "dialogue" | "description" | "comprehensive"
+    pub revision_type: String, /* "style" | "plot" | "dialogue" | "description" |
+                                * "comprehensive" | "editor_qc" */
+    /// v0.59.0：编辑审计（后台质检）给出的具体问题清单，逐条注入修订要求。
+    /// 缺省（旧调用方）不影响既有行为。
+    #[serde(default)]
+    pub extra_instruction: Option<String>,
 }
 
 /// 自动修改响应
@@ -351,6 +356,11 @@ fn get_revision_instruction(revision_type: &str) -> &'static str {
         "plot" => "强化情节张力，增加伏笔和转折，让故事更加引人入胜。",
         "dialogue" => "让人物对话更生动立体，加入动作神态描写，避免干巴巴的对话。",
         "description" => "增加感官细节，让画面更具体可感，调动读者的五感。",
+        // v0.59.0：编辑审计闭环——按下述问题逐条修正，只改问题涉及处，
+        // 其余文字保持原样（避免整章重写把没问题的段落也改坏）。
+        "editor_qc" => {
+            "严格按下述「编辑审计问题」逐条修正：被点名的问题必须解决，未点名处保持原样，不得顺手扩写或改动无关段落。"
+        }
         _ => "综合以上所有方面进行全面修改，提升整体质量。",
     }
 }
@@ -362,23 +372,30 @@ fn build_revise_task_description(
     story_id: &str,
     chapter_id: Option<&str>,
     revision_type: &str,
+    extra_instruction: Option<&str>,
 ) -> String {
     let revision_instruction = get_revision_instruction(revision_type);
+    let extra = match extra_instruction.map(str::trim) {
+        Some(s) if !s.is_empty() => format!("\n【编辑审计问题（逐条修正）】\n{}\n", s),
+        _ => String::new(),
+    };
     if scope == "selection" {
         format!(
-            "请修订以下选中文本：\n{}\n该文本来自故事 {} 第 {} 章。修改要求：{}。请输出修改后的完整文本。",
+            "请修订以下选中文本：\n{}\n该文本来自故事 {} 第 {} 章。修改要求：{}。{}请输出修改后的完整文本。",
             target_text,
             story_id,
             chapter_id.unwrap_or("未知"),
-            revision_instruction
+            revision_instruction,
+            extra
         )
     } else {
         format!(
-            "请修订故事 {} 第 {} 章（scope={}）。修改要求：{}。请输出修改后的完整文本。",
+            "请修订故事 {} 第 {} 章（scope={}）。修改要求：{}。{}请输出修改后的完整文本。",
             story_id,
             chapter_id.unwrap_or("未知"),
             scope,
-            revision_instruction
+            revision_instruction,
+            extra
         )
     }
 }
@@ -432,6 +449,7 @@ pub async fn auto_revise(
     let scope = request.scope.clone();
     let selected_text = request.selected_text.clone();
     let revision_type = request.revision_type.clone();
+    let request_extra_instruction = request.extra_instruction.clone();
 
     // 在后台委托 agency coordinator 审阅/修订
     let handle = tokio::spawn(async move {
@@ -502,6 +520,7 @@ pub async fn auto_revise(
             &story_id,
             chapter_id.as_deref(),
             &revision_type,
+            request_extra_instruction.as_deref(),
         );
 
         let pool = app_handle_clone.state::<DbPool>();
@@ -907,8 +926,7 @@ mod tests {
             "chapter_id": "chapter-1",
             "scope": "selection",
             "selected_text": "选中段落",
-            "revision_type": "style"
-        });
+            "revision_type": "style"        });
         let req: AutoReviseRequest = serde_json::from_value(value).unwrap();
         assert_eq!(req.story_id, "story-1");
         assert_eq!(req.chapter_id, Some("chapter-1".to_string()));
@@ -953,6 +971,7 @@ mod tests {
             "story-1",
             Some("chapter-1"),
             "style",
+            None,
         );
         assert!(desc.contains("请修订以下选中文本"));
         assert!(desc.contains("选中段落"));
@@ -968,8 +987,57 @@ mod tests {
             "story-1",
             Some("chapter-1"),
             "plot",
+            None,
         );
         assert!(desc.contains("请修订故事 story-1 第 chapter-1 章"));
         assert!(desc.contains("scope=chapter"));
+        // 旧调用方（无 extra_instruction）不得出现审计问题段
+        assert!(!desc.contains("编辑审计问题"));
+    }
+
+    /// v0.59.0 续写质检闭环：editor_qc 类型必须逐条注入审计问题，且要求
+    /// 只改被点名处（避免整章重写把没问题的段落也改坏）。
+    #[test]
+    fn revise_task_description_injects_editor_qc_issues() {
+        let desc = build_revise_task_description(
+            "chapter",
+            "章节全文",
+            "story-1",
+            Some("scene-1"),
+            "editor_qc",
+            Some("1. 明成公主已死却再次开口\n2. 场景重复复述上一拍"),
+        );
+        assert!(desc.contains("未点名处保持原样"));
+        assert!(desc.contains("【编辑审计问题（逐条修正）】"));
+        assert!(desc.contains("明成公主已死却再次开口"));
+        assert!(desc.contains("场景重复复述上一拍"));
+    }
+
+    /// 空白 extra_instruction 视同未提供，不产生空标题段。
+    #[test]
+    fn revise_task_description_ignores_blank_extra_instruction() {
+        let desc = build_revise_task_description(
+            "chapter",
+            "章节全文",
+            "story-1",
+            Some("scene-1"),
+            "editor_qc",
+            Some("   \n  "),
+        );
+        // editor_qc 的指令本身提到「编辑审计问题」，这里断言的是问题段标题未生成
+        assert!(!desc.contains("【编辑审计问题（逐条修正）】"));
+    }
+
+    /// 旧前端（缺 extra_instruction 字段）反序列化必须成功且为 None。
+    #[test]
+    fn auto_revise_request_extra_instruction_defaults_to_none() {
+        let value = json!({
+            "story_id": "story-1",
+            "chapter_id": "scene-1",
+            "scope": "chapter",
+            "revision_type": "editor_qc"
+        });
+        let req: AutoReviseRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(req.extra_instruction, None);
     }
 }

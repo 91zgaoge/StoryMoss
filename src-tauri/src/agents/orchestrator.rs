@@ -4988,6 +4988,69 @@ mod tests {
         assert!(result.is_empty(), "大纲归纳规划应清空，实际: {}", result);
     }
 
+    // ===== 故障注入：真机网关 content 泄漏形态（v0.30.45 / v0.51.2）=====
+    //
+    // 下面的 raw 文本是历史真机日志里的 content 原文形态：适配器只负责取
+    // content，正文纪律由 sanitize_novel_output / detect_and_strip_bare_cot
+    // 兜底。测试锁定"泄漏内容不得进入正文"这条不变量。
+
+    #[test]
+    fn test_sanitize_novel_output_rejects_live_cot_dump_payload() {
+        // v0.30.45 真机原文：deepseek-v4 推理模型的 content 就是思维链。
+        let content = "这是一个小说续写任务，需要我以专业作者身份，根据给定的设定和指令，续写一部小说正文。\n\
+                       让我从设定中提取关键信息：主角三人被卷入能源与权力的争夺。\n\
+                       我需要落实的剧情推进方向是继续写，同时保证场景围绕故事大纲展开。\n\
+                       根据要求，剧情必须向前推进到故事大纲的下一节点，不得原地踏步。\n\
+                       叙事四元组要求主情绪是恐惧，冲突场类型是公开抉择。\n\
+                       让我检查一下人物关系是否写反了。";
+        let cleaned = sanitize_novel_output(content);
+        assert!(
+            cleaned.is_empty(),
+            "纯 CoT content 必须清空以触发重试，实际: {}",
+            cleaned
+        );
+    }
+
+    #[test]
+    fn test_sanitize_novel_output_keeps_prose_and_drops_trailing_thinking_payload() {
+        // 真机形态：正文 + 文末继续泄漏的分析内容（含 thinking 块与节拍卡）。
+        let prose = "血雾还没落尽。苏会山没有倒下去，断手抓住苏亦铁的衣领，往西跨院的方向踉跄。";
+        let content = format!(
+            "{}\n\n<thinking>我需要让这一拍有确定的改变：信息或关系。</thinking>\n\
+             本拍任务：阵容：曹元佩、苏亦铁。\n\
+             状态网：在场：曹元佩、苏亦铁、苏会山。",
+            prose
+        );
+        let cleaned = sanitize_novel_output(&content);
+        assert!(cleaned.contains("往西跨院的方向踉跄"), "正文必须保留");
+        assert!(!cleaned.contains("thinking"));
+        assert!(!cleaned.contains("本拍任务"));
+        assert!(!cleaned.contains("状态网"));
+    }
+
+    #[test]
+    fn test_sanitize_novel_output_truncated_tail_meta_marker_is_cut() {
+        // 真机形态：max_tokens=length 让尾部元评论标记本身被截断
+        //（"（第一幕结束" 没有右括号），仍必须按元评论强信号截断。
+        let content = format!(
+            "{}（第一幕结束",
+            "雨点打在刀背上，沈夜没有回头。".repeat(12)
+        );
+        let cleaned = sanitize_novel_output(&content);
+        assert!(!cleaned.contains("第一幕结束"));
+        assert!(cleaned.contains("雨点打在刀背上"));
+    }
+
+    #[test]
+    fn test_sanitize_novel_output_strips_fenced_json_dump_keeps_prose() {
+        // 真机形态：正文之后模型把"设定 JSON"连同 ``` 围栏一起吐出来。
+        let content = "雨点打在刀背上，沈夜没有回头。\n\n```json\n{\"story_outline\": \"第一幕：雨夜对决\"}\n```\n";
+        let cleaned = sanitize_novel_output(content);
+        assert!(cleaned.contains("沈夜没有回头"));
+        assert!(!cleaned.contains("```"));
+        assert!(!cleaned.contains("story_outline"));
+    }
+
     #[test]
     fn test_generate_inspection_summary() {
         let result = WorkflowResult {

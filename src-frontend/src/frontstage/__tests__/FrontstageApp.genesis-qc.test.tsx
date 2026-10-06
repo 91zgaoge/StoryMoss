@@ -134,4 +134,41 @@ describe('FrontstageApp genesis-qc-result 事件（v0.30.35 后台质检反馈�
     expect(msg).toContain('质检不合格');
     expect(msg).toContain('主角动机缺失');
   });
+
+  // v0.59.0 续写质检闭环：mode=continue 时不得再提示「重新创世」（那是创世动作），
+  // 而是把问题挂到可操作条，用户可以一键按审查意见修订本章。
+  it('续写质检不合格：不提示重新创世，出现可修订操作条', async () => {
+    const { container } = render(<FrontstageApp />, { wrapper });
+    await waitFor(() => {
+      expect(listenCallbacks.has('genesis-qc-result')).toBe(true);
+    });
+    const msg = await fireQc({
+      story_id: 's1',
+      passed: false,
+      salvaged: false,
+      issues: ['死人复活', '场景重复'],
+      mode: 'continue',
+      chapter_number: 7,
+    });
+    expect(msg).not.toContain('重新创世');
+    expect(msg).toContain('修订');
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="qc-revise-bar"]')).not.toBeNull();
+    });
+    expect(container.querySelector('[data-testid="qc-revise-button"]')).not.toBeNull();
+  });
+
+  it('续写质检通过：文案区分「本拍」而非创世首章', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => {
+      expect(listenCallbacks.has('genesis-qc-result')).toBe(true);
+    });
+    const msg = await fireQc({
+      story_id: 's1',
+      passed: true,
+      salvaged: false,
+      mode: 'continue',
+    });
+    expect(msg).toContain('本拍质检通过');
+  });
 });

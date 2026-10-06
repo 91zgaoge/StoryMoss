@@ -561,6 +561,26 @@ impl AgencyRepository {
         })?;
         rows.collect::<Result<Vec<_>, _>>()
     }
+
+    /// v0.59.0：活动日志保留策略——删除早于 `keep_days` 的行。
+    ///
+    /// 该表每次 run 写入十余行且此前零剪枝；前端 3s 轮询只取 `limit 200`，
+    /// 老旧数据只增不减。默认保留 30 天足够定位任何一次生成。
+    pub fn prune_activity_log(&self, keep_days: i64) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let deleted = conn.execute(
+            "DELETE FROM agency_activity_log WHERE created_at < datetime('now', ?1)",
+            params![format!("-{keep_days} days")],
+        )?;
+        if deleted > 0 {
+            log::info!(
+                "[agency] 活动日志保留策略：清理 {} 条早于 {} 天的记录",
+                deleted,
+                keep_days
+            );
+        }
+        Ok(deleted)
+    }
 }
 
 fn map_session(
@@ -1032,5 +1052,33 @@ mod tests {
         assert_eq!(run1_acts.len(), 5, "run-1 仍应只有 5 条");
         let run2_acts = repo.list_activities("run-2", 200).unwrap();
         assert_eq!(run2_acts.len(), 1, "run-2 应有 1 条");
+    }
+
+    /// v0.59.0：活动日志保留策略——超期行删除，保留期内不动。
+    #[test]
+    fn test_prune_activity_log_keeps_recent_rows() {
+        let (repo, pool) = repo();
+        repo.create_run(&sample_run()).unwrap();
+        repo.log_activity("run-1", "producer", "done", "首章")
+            .unwrap();
+
+        // 直接插入一条 40 天前的旧行（log_activity 固定用 datetime('now')）
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO agency_activity_log (run_id, event_type, role, action, detail, created_at)
+                 VALUES ('run-1', 'activity', 'producer', 'start', '远古记录', datetime('now', '-40 days'))",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(repo.list_activities("run-1", 200).unwrap().len(), 2);
+
+        let deleted = repo.prune_activity_log(30).unwrap();
+        assert_eq!(deleted, 1, "只应删除 1 条超期记录");
+
+        let remaining = repo.list_activities("run-1", 200).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].detail.as_deref(), Some("首章"));
     }
 }

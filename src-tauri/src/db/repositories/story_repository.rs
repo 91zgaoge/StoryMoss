@@ -281,6 +281,23 @@ impl StoryRepository {
         let _ = tx.execute("DELETE FROM text_annotations WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM ai_operations WHERE story_id = ?1", [id]);
 
+        // v0.59.0：agency_* / ingest_jobs / llm_calls 没有 story 外键，
+        // 此前删故事会留下永久孤儿行（黑板草稿含整章正文，体积可观）。
+        // 子查询按 run_id 定位的表必须先于 agency_runs 删除。
+        let _ = tx.execute("DELETE FROM agency_board_items WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM agency_checkpoints WHERE story_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM agency_messages WHERE run_id IN (SELECT id FROM agency_runs WHERE story_id = ?1)",
+            [id],
+        );
+        let _ = tx.execute(
+            "DELETE FROM agency_activity_log WHERE run_id IN (SELECT id FROM agency_runs WHERE story_id = ?1)",
+            [id],
+        );
+        let _ = tx.execute("DELETE FROM agency_runs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM ingest_jobs WHERE story_id = ?1", [id]);
+        let _ = tx.execute("DELETE FROM llm_calls WHERE story_id = ?1", [id]);
+
         // 执行删除操作 - 由于外键约束已启用，大部分相关数据会自动级联删除
         let count = tx.execute("DELETE FROM stories WHERE id = ?1", [id])?;
 
@@ -302,6 +319,12 @@ impl StoryRepository {
                 ("kg_relations", "story_id"),
                 ("character_relationships", "story_id"),
                 ("scene_annotations", "story_id"),
+                // v0.59.0：无外键的 story 级工作数据也必须随故事删除
+                ("agency_runs", "story_id"),
+                ("agency_board_items", "story_id"),
+                ("agency_checkpoints", "story_id"),
+                ("ingest_jobs", "story_id"),
+                ("llm_calls", "story_id"),
             ];
             for (table, col) in orphan_tables {
                 let orphan_count: i64 = check_conn

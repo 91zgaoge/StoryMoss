@@ -36,6 +36,10 @@ const RELEASE_FILES = [
   /^StoryMoss_.*\.app\.tar\.gz\.sig$/,
   /^StoryMoss_.*\.AppImage$/,
   /^StoryMoss_.*\.AppImage\.sig$/,
+  // v0.59.0：补 .deb——latest.json 含 linux-x86_64-deb 平台条目，
+  // 白名单漏掉会让 deb 用户的应用内更新拿到 404。
+  /^StoryMoss_.*\.deb$/,
+  /^StoryMoss_.*\.deb\.sig$/,
 ];
 
 function matchesReleaseFile(name) {

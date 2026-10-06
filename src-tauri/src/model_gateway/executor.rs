@@ -54,6 +54,18 @@ pub(crate) fn candidate_chain_stops_on(err: &AppError) -> bool {
     matches!(err, AppError::Cancellation { .. })
 }
 
+/// v0.30.51: 空正文（含仅空白）对调用方等同失败——网关视为候选失败并继续尝试
+/// 下一个候选模型。
+///
+/// 真机故障：推理模型 200 返回、usage 正常，但 token 全烧在
+/// `reasoning_content`（CoT）上，`content` 为空（适配器 v0.30.45 不会再拿
+/// 思维链顶替）。此前它被当作成功透传到 writer，计划「完成」却无正文，最终
+/// 报 Fatal。此处是候选循环的产出闸门（与 `candidate_fits_prompt` 的上下文
+/// 闸门互补）。
+pub(crate) fn gateway_content_is_empty(resp: &LlmGenerateResponse) -> bool {
+    resp.content.trim().is_empty()
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -1250,7 +1262,7 @@ impl<R: Runtime> GatewayExecutor<R> {
             )
             .await;
             match outcome.into_result() {
-                Ok(resp) if resp.content.trim().is_empty() => {
+                Ok(resp) if gateway_content_is_empty(&resp) => {
                     // v0.30.51: 推理模型可能返回 200 但 content 为空（token 全部
                     // 消耗在 reasoning_content/CoT 上，例如 max_tokens 在推理阶段
                     // 耗尽）。空正文对调用方等同失败——此前它被当作成功一路透传到
@@ -1600,6 +1612,42 @@ mod tests {
             message: "LLM call timed out after 300000ms".into(),
             elapsed_ms: 300000,
         }));
+    }
+
+    // ===== 故障注入：空正文候选回退（v0.30.51 真机故障）=====
+
+    fn gateway_response(content: &str) -> LlmGenerateResponse {
+        LlmGenerateResponse {
+            content: content.to_string(),
+            model: "deepseek-v4".into(),
+            tokens_used: 2048,
+            cost: 0.0,
+            tool_calls: vec![],
+        }
+    }
+
+    #[test]
+    fn empty_or_whitespace_content_counts_as_candidate_failure() {
+        assert!(gateway_content_is_empty(&gateway_response("")));
+        assert!(gateway_content_is_empty(&gateway_response("   \n\t ")));
+    }
+
+    #[test]
+    fn reasoning_only_empty_content_triggers_next_candidate() {
+        // 适配器 v0.30.45 已保证 reasoning_content 不会出现在 content 里；
+        // 网关据此把「只有思维链」的响应判为候选失败，继续下一个候选，
+        // 而不是把空正文透传给 writer。
+        let resp = gateway_response("");
+        assert!(gateway_content_is_empty(&resp));
+    }
+
+    #[test]
+    fn non_empty_prose_is_not_a_candidate_failure() {
+        assert!(!gateway_content_is_empty(&gateway_response(
+            "血雾还没落尽，苏会山向西跨院踉跄。"
+        )));
+        // 前后空白不影响判定（只有全空白才算失败）。
+        assert!(!gateway_content_is_empty(&gateway_response(" 正文 ")));
     }
 
     /// mock_app 共享同一 app_data_dir；写 config 的契约测试必须串行。

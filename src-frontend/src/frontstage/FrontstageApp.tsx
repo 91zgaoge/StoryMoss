@@ -31,6 +31,8 @@ import { trimSelfRepetition } from './utils/trimSelfRepetition';
 import { sanitizeContinuationOutput, stripInstructionEcho } from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
+import useScenePersistence from './hooks/useScenePersistence';
+import { autoRevise } from '@/services/api/writing';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
 import AuditReportModal from './components/AuditReportModal';
@@ -80,10 +82,6 @@ const logToBackend = (phase: string, message: string, details?: Record<string, u
     // ignore
   }
 };
-
-// v0.33.x: persistSceneContent 失败重试退避（2s/10s/30s），重试耗尽后置 saveError 可见态；
-// 重试出火时若 store sceneId 已切换（如自动分章）则 no-op，避免旧全文回写已截断的旧 scene
-const SAVE_RETRY_DELAYS_MS = [2000, 10000, 30000];
 
 // v0.23.89: 最近接受的生成内容指纹，用于屏蔽后台事件重复写入同一内容
 const useRecentAcceptGuard = () => {
@@ -884,6 +882,12 @@ const FrontstageApp: React.FC = () => {
   // v5.3.0: 大阶段实时提示 — 保存当前大阶段，避免底部状态栏闪烁
   const currentToastPhaseRef = useRef<string | null>(null);
   // asset_refresh 用 toast.success 写顶栏；smart_execute finally 不得立刻清掉
+  // v0.59.0：续写质检闭环——后台 review 结果挂起为可操作状态
+  const [qcIssues, setQcIssues] = useState<{
+    chapterNumber: number | null;
+    issues: string[];
+  } | null>(null);
+  const [qcRevising, setQcRevising] = useState(false);
   const preserveStatusAfterExecuteRef = useRef(false);
 
   // v0.11.1: 统一状态提示 — 用顶部状态栏替代黑色 toast
@@ -1351,163 +1355,17 @@ const FrontstageApp: React.FC = () => {
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
 
-  // v0.30.34: 序列化场景持久化链 - 确保 update_scene 调用串行执行，消除
-  // 并发全量覆写竞态（last-write-wins：较早的小内容覆写较晚的大内容）。
-  // 文思活跃连续续写时多次 appendAiContent 各自 fire-and-forget flushSceneSave，
-  // 若不序列化，spawn_blocking 线程池上 SQLite 写锁获取顺序非 FIFO，
-  // 较早的 flush（小内容）可能在较晚的 flush（大内容）之后提交，静默覆写。
-  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-
-  // v0.33.x: 保存失败可见态——重试耗尽后顶栏显示「保存失败，点击重试」，
-  // 此前失败后 isSaved=false 永远停在「保存中...」，用户无从感知正文未落库。
-  const [saveError, setSaveError] = useState<string | null>(null);
-  // 记录本轮是否发生过失败，用于成功后的恢复日志与 saveError 清理
-  const saveFailedRef = useRef(false);
-  // flushSceneSave 入口日志仅在 sceneId 变化时记录一次，避免每次 flush 刷量
-  const lastFlushLoggedSceneIdRef = useRef<string | null>(null);
-  // v0.33.x: 在途失败重试定时器——分章切换等场景可取消持有旧正文的在途重试
-  const saveRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // v0.33.x: 取消在途重试（分章自动切换时调用）——重试闭包持有分章前旧全文，
-  // 出火后会把旧全文回写到已截断的旧 scene，造成"旧全文 + 新章溢出副本"重复
-  const cancelPersistRetry = useCallback(() => {
-    if (saveRetryTimerRef.current) {
-      clearTimeout(saveRetryTimerRef.current);
-      saveRetryTimerRef.current = null;
-    }
-  }, []);
-
-  // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
-  const persistSceneContent = useCallback(
-    async (sceneId: string, content: string, title?: string, retryCount = 0): Promise<void> => {
-      if (!sceneId || !content) return;
-      const prev = saveChainRef.current;
-      let release!: () => void;
-      saveChainRef.current = new Promise<void>(r => {
-        release = r;
-      });
-      await prev;
-      try {
-        // v0.30.50: 读取影响行数——此前丢弃返回值，scene 不存在时后端
-        // 静默 0 行更新，UI 显示"已保存"但正文从未落库，重启即丢失。
-        const updated = await loggedInvoke<number>(
-          'update_scene',
-          buildUpdateSceneIpcArgs({ sceneId, title, content })
-        );
-        if (updated === 0) {
-          throw new Error(`update_scene 影响 0 行（scene ${sceneId.slice(0, 8)} 不存在）`);
-        }
-        setIsSaved(true);
-        justSavedRef.current = Date.now();
-        // v0.33.x: 失败后的成功写一次恢复日志并清除可见错误态
-        if (saveFailedRef.current) {
-          saveFailedRef.current = false;
-          setSaveError(null);
-          logToBackend('frontstage:persist_recovered', 'scene persist recovered after failure', {
-            sceneId,
-            contentLen: content.length,
-            retryCount,
-          });
-        }
-      } catch (e) {
-        // v0.33.x: 重试策略由"2s 后仅重试一次"改为封顶退避（2s/10s/30s，经
-        //   SAVE_RETRY_DELAYS_MS 配置，retryCount 防无限循环），瞬时 DB 错误可自愈；
-        //   重试耗尽后置 saveError 可见态（顶栏可点击重试）。
-        // v0.33.x: 失败必须走 log_frontend_event 通道——frontstageLogger 的
-        //   warn/error 历史版本从未落盘（见 src-tauri/src/logging.rs），仅 console 可见。
-        frontstageLogger.error('Persist scene content failed', {
-          error: e,
-          willRetry: retryCount < SAVE_RETRY_DELAYS_MS.length,
-          retryCount,
-        });
-        logToBackend('frontstage:persist_failed', 'persist scene content failed', {
-          sceneId,
-          contentLen: content.length,
-          error: String(e),
-          willRetry: retryCount < SAVE_RETRY_DELAYS_MS.length,
-          retryCount,
-        });
-        saveFailedRef.current = true;
-        setIsSaved(false);
-        if (retryCount < SAVE_RETRY_DELAYS_MS.length) {
-          const delay = SAVE_RETRY_DELAYS_MS[retryCount];
-          saveRetryTimerRef.current = setTimeout(() => {
-            saveRetryTimerRef.current = null;
-            // v0.33.x: 跨场景重试防护——重试闭包持有调度时的旧正文，若出火时
-            // store sceneId 已切换（如自动分章切到新章），继续重试会把旧全文
-            // 回写到已截断的旧 scene，造成重复；此处直接 no-op。
-            const currentSceneId = useFrontstageStore.getState().sceneId;
-            if (currentSceneId !== sceneId) {
-              logToBackend(
-                'frontstage:persist_retry_skipped',
-                'persist retry skipped: scene changed since schedule',
-                { sceneId, currentSceneId, retryCount: retryCount + 1 }
-              );
-              return;
-            }
-            void persistSceneContent(sceneId, content, title, retryCount + 1);
-          }, delay);
-        } else {
-          setSaveError(String(e));
-        }
-      } finally {
-        release();
-      }
-    },
-    []
-  );
-
-  // v0.30.33: flushSceneSave - 取消待执行的防抖保存，立即将 latestContentRef 落库。
-  // v0.30.34: 改用 persistSceneContent 序列化，消除并发覆写竞态。
-  // v0.30.43: 直接从编辑器读取实际 HTML，而非 latestContentRef。
-  //   RichTextEditor 的 onChange 有 200ms 防抖（htmlDebounceRef），latestContentRef
-  //   可能比编辑器实际内容滞后 200ms。关闭应用/切换章节时若读 latestContentRef，
-  //   最后 200ms 内的输入会丢失。直接读 editorRef.getHTML() 确保保存编辑器实际内容；
-  //   editorRef 不可用时回退 latestContentRef。同时回写 latestContentRef 保持一致。
-  const flushSceneSave = useCallback(async (): Promise<void> => {
-    cancelAutoSave();
-    const sceneId = useFrontstageStore.getState().sceneId;
-    // v0.33.x: 静默早退插桩——此前 sceneId 缺失/内容为空时无任何痕迹，
-    // 保存链路"假死"（正文不进库、日志为零）完全无法定位。
-    if (!sceneId) {
-      logToBackend('frontstage:flush_skip', 'flushSceneSave skipped: no scene id', {
-        reason: 'no_scene_id',
-      });
-      return;
-    }
-    const editorHtml = editorRef.current?.getHTML();
-    const content = editorHtml || latestContentRef.current;
-    if (!content) {
-      logToBackend('frontstage:flush_skip', 'flushSceneSave skipped: empty content', {
-        reason: 'empty_content',
-        sceneId,
-      });
-      return;
-    }
-    // 入口日志仅在 sceneId 变化时记录，避免每次 flush 刷量（文思活跃时 flush 约 90s 一次）
-    if (lastFlushLoggedSceneIdRef.current !== sceneId) {
-      lastFlushLoggedSceneIdRef.current = sceneId;
-      logToBackend('frontstage:flush_scene_save', 'flushSceneSave entered', {
-        sceneId,
-        contentLen: content.length,
-      });
-    }
-    // 同步 latestContentRef，使后续保存基准与编辑器一致
-    latestContentRef.current = content;
-    await persistSceneContent(
-      sceneId,
-      content,
-      useFrontstageStore.getState().sceneTitle ?? undefined
-    );
-  }, [persistSceneContent]);
-  const flushSceneSaveRef = useRef(flushSceneSave);
-  useEffect(() => {
-    flushSceneSaveRef.current = flushSceneSave;
-  }, [flushSceneSave]);
-  // v0.33.x: 顶栏「保存失败，点击重试」入口——清除错误态并立即重新 flush
-  const handleRetrySave = useCallback(() => {
-    setSaveError(null);
-    void flushSceneSaveRef.current();
-  }, []);
+  // 场景持久化链（序列化 saveChain / flushSceneSave / 失败退避重试 / 顶栏重试入口）
+  // 已抽取到 ./hooks/useScenePersistence——历史修复注释随实现一并迁移，行为不变。
+  // justSavedRef 因组件内 onChapterUpdated / ensureUntitledStory 也读写，保留在此传入。
+  const {
+    persistSceneContent,
+    flushSceneSave,
+    flushSceneSaveRef,
+    handleRetrySave,
+    saveError,
+    cancelPersistRetry,
+  } = useScenePersistence({ editorRef, latestContentRef, justSavedRef, setIsSaved });
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
   // A4-1.8: notify_backstage_content_changed 节流定时器
@@ -2479,6 +2337,9 @@ const FrontstageApp: React.FC = () => {
         salvaged: boolean;
         issues?: string[];
         reason?: string;
+        /** v0.59.0：'genesis' | 'continue' —— 续写质检不再误导为「重新创世」 */
+        mode?: string;
+        chapter_number?: number | null;
       }>('genesis-qc-result', event => {
         const p = event.payload;
         frontstageLogger.info('[genesis-qc-result]', {
@@ -2491,10 +2352,21 @@ const FrontstageApp: React.FC = () => {
           passed: p.passed,
           salvaged: p.salvaged,
         });
+        const isContinue = p.mode === 'continue';
         if (p.passed && !p.salvaged) {
-          toast.success('编辑审计质检通过');
+          toast.success(isContinue ? '本拍质检通过' : '编辑审计质检通过');
         } else if (p.passed && p.salvaged) {
-          toast.warning('质检降级放行（审计超时/失败，首章已保留）');
+          toast.warning(
+            isContinue
+              ? '本拍质检降级放行（审计超时/失败，正文已保留）'
+              : '质检降级放行（审计超时/失败，首章已保留）'
+          );
+        } else if (isContinue) {
+          // v0.59.0：续写质检闭环——不再提示「重新创世」（那是创世专属动作），
+          // 而是把问题挂到下方操作条，用户可一键按审查意见修订本章。
+          const issues = p.issues && p.issues.length > 0 ? p.issues : ['未提供具体问题'];
+          setQcIssues({ chapterNumber: p.chapter_number ?? null, issues });
+          toast.warning(`本拍质检发现 ${issues.length} 处问题，可一键修订`);
         } else {
           const issues = p.issues && p.issues.length > 0 ? p.issues.join('；') : '未提供具体问题';
           toast.warning(`质检不合格，建议重新创世。问题：${issues}`);
@@ -5262,6 +5134,51 @@ const FrontstageApp: React.FC = () => {
     }
   }, [currentStory, currentChapter]);
 
+  // v0.59.0：按编辑审计意见修订本章（续写质检闭环）。
+  // 复用既有 auto_revise 通路：revision_type=editor_qc 只改被点名的问题，
+  // 完成后经 auto-revise-complete-{task_id} 事件把整章修订稿写回编辑器。
+  const handleReviseByQcIssues = useCallback(async () => {
+    if (!qcIssues || qcIssues.issues.length === 0) return;
+    const storyId = currentStory?.id;
+    const targetSceneId = useFrontstageStore.getState().sceneId;
+    if (!storyId || !targetSceneId) {
+      toast.error('请先选择故事和章节');
+      return;
+    }
+    setQcRevising(true);
+    try {
+      const { task_id } = await autoRevise({
+        story_id: storyId,
+        chapter_id: targetSceneId,
+        scope: 'chapter',
+        revision_type: 'editor_qc',
+        extra_instruction: qcIssues.issues.join('\n'),
+      });
+      const unlisten = await listen<{ revised_text?: string }>(
+        `auto-revise-complete-${task_id}`,
+        event => {
+          const text = event.payload?.revised_text;
+          if (text && editorRef.current) {
+            const html = autoFormatText(text);
+            editorRef.current.setContent(html);
+            // setContent 抑制 onChange：显式同步 store/latestContentRef 并立即落库
+            const editorHtml = editorRef.current?.getHTML?.() || html;
+            useFrontstageStore.getState().setContent(editorHtml);
+            latestContentRef.current = editorHtml;
+            void flushSceneSave();
+            toast.success('已按审查意见修订本章');
+          }
+          setQcRevising(false);
+          setQcIssues(null);
+          void unlisten();
+        }
+      );
+    } catch (e) {
+      setQcRevising(false);
+      toast.error('修订失败：' + extractMessage(e));
+    }
+  }, [qcIssues, currentStory, flushSceneSave, toast]);
+
   const handlePipelineReview = useCallback(async () => {
     if (!currentStory?.id || !currentChapter) {
       toast.error('请先选择故事和章节');
@@ -5500,6 +5417,57 @@ const FrontstageApp: React.FC = () => {
               </ErrorBoundary>
             </main>
 
+            {qcIssues && (
+              <div
+                data-testid="qc-revise-bar"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  margin: '0 16px 8px',
+                  padding: '8px 12px',
+                  border:
+                    '1px solid color-mix(in oklch, var(--terracotta, #b4553a) 35%, transparent)',
+                  borderRadius: '6px',
+                  background: 'color-mix(in oklch, var(--terracotta, #b4553a) 8%, transparent)',
+                  fontSize: '13px',
+                }}
+              >
+                <span>
+                  编辑审计发现 {qcIssues.issues.length} 处问题
+                  {qcIssues.chapterNumber ? `（第 ${qcIssues.chapterNumber} 章）` : ''}
+                </span>
+                <button
+                  type="button"
+                  data-testid="qc-revise-button"
+                  onClick={handleReviseByQcIssues}
+                  disabled={qcRevising}
+                  style={{
+                    appearance: 'none',
+                    border: 0,
+                    cursor: qcRevising ? 'default' : 'pointer',
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    background: 'color-mix(in oklch, var(--terracotta, #b4553a) 18%, transparent)',
+                  }}
+                >
+                  {qcRevising ? '正在修订…' : '按审查意见修订本章'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="qc-revise-dismiss"
+                  onClick={() => setQcIssues(null)}
+                  style={{
+                    appearance: 'none',
+                    border: 0,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  忽略
+                </button>
+              </div>
+            )}
             <FrontstageBottomBar
               isZenMode={isZenMode}
               isGenerating={isGenerating}

@@ -772,6 +772,9 @@ pub fn run() {
                         [],
                     );
                 }
+                // v0.59.0：活动日志保留 30 天（此前零剪枝，只增不减）
+                let _ = agency::repository::AgencyRepository::new(pool_c.clone())
+                    .prune_activity_log(30);
             }
 
             // P2-19 修复: 初始化 pending vector indexes 队列，加载上次未处理的项并注入 State

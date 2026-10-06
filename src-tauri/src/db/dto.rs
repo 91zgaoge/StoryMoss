@@ -78,6 +78,10 @@ pub struct StudioExportRequest {
     pub include_llm_config: bool,
     pub include_ui_config: bool,
     pub include_agent_bots: bool,
+    /// v0.59.0：API 密钥默认不随导出包外流。导出 ZIP 常被分享/上传，
+    /// 只有显式传 true 才保留 `LlmProfile.api_key`；旧调用方缺字段即剔除。
+    #[serde(default)]
+    pub include_api_keys: bool,
 }
 
 #[derive(Debug, Serialize)]

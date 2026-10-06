@@ -279,7 +279,7 @@ async fn run_observe(
     )
     .await;
     let producer_exit =
-        run_asset_ingest(&app, &pool, &run_id, &story_id, &scene_id, &content).await;
+        run_asset_ingest(&app, &pool, &run_id, &story_id, &scene_id, &content, None).await;
     emit_logged_activity(
         &app,
         &pool,

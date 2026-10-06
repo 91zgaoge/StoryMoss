@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.58.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.59.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.59.0 变更说明
+
+- 新增：迁移 checksum/集合水位线、索引与级联、后台取消传播、质检闭环、提示词资产、导出与 server 加固的回归。
+- 新增：provider 故障注入测试（reasoning_content 空正文 / 围栏 JSON / 截断与空响应）。
+- 新增：golden 续写 harness（`#[ignore]`，需真机模型；`STORYMOSS_GOLDEN_MODEL` + `STORYMOSS_GOLDEN_OUT` 产出指标 JSON）。
+- E2E：新增 `e2e/frontstage-agency-append.spec.ts`（幕前续写落库 / 不重复 / 生成中重复提交）。
+- 全量基线：`cargo test --lib` 1624 passed / 3 ignored（+41）；`npx vitest run` 609 passed / 3 skipped（+2）；Playwright 39 passed / 5 skipped。
 
 ### v0.58.0 变更说明
 

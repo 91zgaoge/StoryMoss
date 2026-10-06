@@ -39,7 +39,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-storymoss}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-storymoss}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set（生成：openssl rand -hex 32）}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}

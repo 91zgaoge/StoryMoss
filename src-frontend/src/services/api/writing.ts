@@ -24,6 +24,8 @@ export const autoRevise = (params: {
   scope: string;
   selected_text?: string;
   revision_type: string;
+  /** v0.59.0：编辑审计闭环——质检问题清单，逐条注入修订要求 */
+  extra_instruction?: string;
 }) =>
   loggedInvoke<{ task_id: string; revised_text: string; status: string }>('auto_revise', {
     request: params,

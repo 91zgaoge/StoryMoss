@@ -33,4 +33,6 @@ pub mod tools;
 pub use models::*;
 
 #[cfg(test)]
+mod golden_harness;
+#[cfg(test)]
 mod tests;

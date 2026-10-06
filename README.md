@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.58.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.59.0 · 验收证据链、数据层治理与续写质检闭环
+
+- CI 的 `cargo test --lib` 恢复阻塞（不再 continue-on-error）；新增网关故障注入测试与 golden 续写 harness。
+- 迁移记录内容校验和、水位线改「已应用集合」（低于水位的补丁迁移不再被静默跳过）；补 6 处热查询索引；删故事级联清理 agency 工作数据。
+- 续写质检可行动：后台审计发现问题时，幕前给出「按审查意见修订本章」一键入口；取消生成会传播到后台资产回流与质检。
+- 安全与发布：server 无缺省 JWT 密钥、导出 ZIP 默认不含 API key、发布链补 `.deb`（修复 deb 渠道更新 404）。
 
 ### v0.58.0 · 每拍必须推进，可选竖屏短剧
 

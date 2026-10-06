@@ -39,19 +39,33 @@ test.describe('Frontstage 编辑器测试', () => {
     await editor.click();
     await editor.fill(TEST_CONTENT);
 
-    // 等待自动保存 debounce（2000ms）+ fallback 缓冲
-    await page.waitForTimeout(3500);
+    // v0.59.0：等待自动保存 debounce（2000ms）把**本次输入**落库——轮询 mock 记录的
+    // update_scene 调用且载荷包含本次文本（只看「有调用」会被开场的空内容 flush 骗过），
+    // 而不是固定 sleep（固定等待在并行负载下会偶发假失败）。
+    await expect
+      .poll(
+        expected =>
+          page.evaluate(text => {
+            const w = window as unknown as {
+              __calls?: { cmd: string; args?: unknown }[];
+            };
+            return (w.__calls ?? []).some(
+              c => c.cmd === 'update_scene' && JSON.stringify(c.args ?? {}).includes(text)
+            );
+          }, expected),
+        { timeout: 20000, message: '等待自动保存把本次输入写入 update_scene' }
+      )
+      .toBe(true);
 
     // 断言编辑器仍包含文本
     await expect(editor).toContainText(TEST_CONTENT);
 
-    // 刷新并验证持久化
+    // 刷新并验证持久化（用 expect 超时兜住重新挂载时间，不再固定 sleep）
     await page.reload();
-    await page.waitForTimeout(3000);
 
     const editorAfterReload = page.locator('.ProseMirror, [contenteditable="true"]').first();
     await expect(editorAfterReload).toBeVisible({ timeout: 10000 });
-    await expect(editorAfterReload).toContainText(TEST_CONTENT);
+    await expect(editorAfterReload).toContainText(TEST_CONTENT, { timeout: 15000 });
   });
 
   test('章节标题正确显示', async ({ page }) => {

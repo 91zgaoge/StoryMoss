@@ -74,11 +74,60 @@ pub fn cancel_agency_run(run_id: &str) -> bool {
     let flags = AGENCY_CANCEL_FLAGS
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    if let Some(flag) = flags.get(run_id) {
+    let hit = if let Some(flag) = flags.get(run_id) {
         flag.store(true, Ordering::SeqCst);
         true
     } else {
         false
+    };
+    drop(flags);
+    // v0.59.0：run 返回后仍可能挂着后台附属任务（资产回流/后台质检/管理补齐）。
+    // 它们注册在同一 run_id 的附属表里，取消该 run 时一并置位，否则「取消」
+    // 只能停主流程，后台还会继续烧 LLM（吃满唯一后台串行许可）。
+    if let Some(ancillary) = AGENCY_ANCILLARY_FLAGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(run_id)
+    {
+        for flag in ancillary {
+            flag.store(true, Ordering::SeqCst);
+        }
+        return true;
+    }
+    hit
+}
+
+// ---- 附属后台任务取消注册表（v0.59.0） ----
+//
+// 与 run 主标志分离：run 结束会
+// `unregister_agency_cancel`（主标志从表里移除）， 但 assemble/落库之后 spawn
+// 的资产回流与后台质检仍在跑。把它们的标志单独挂在 同一 run_id 下，
+// `cancel_agency_run` 才能覆盖到；任务自身结束即注销。
+
+static AGENCY_ANCILLARY_FLAGS: Lazy<Mutex<HashMap<String, Vec<Arc<AtomicBool>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn register_ancillary_cancel(run_id: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let mut registry = AGENCY_ANCILLARY_FLAGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    registry
+        .entry(run_id.to_string())
+        .or_default()
+        .push(flag.clone());
+    flag
+}
+
+fn unregister_ancillary_cancel(run_id: &str, flag: &Arc<AtomicBool>) {
+    let mut registry = AGENCY_ANCILLARY_FLAGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(flags) = registry.get_mut(run_id) {
+        flags.retain(|f| !Arc::ptr_eq(f, flag));
+        if flags.is_empty() {
+            registry.remove(run_id);
+        }
     }
 }
 
@@ -1796,7 +1845,7 @@ impl AgencyCoordinator {
         let (draft, scene_id) = self
             .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
-        self.spawn_editor_qc(run_id, &story_id, premise, &draft);
+        self.spawn_editor_qc(run_id, &story_id, premise, &draft, budget, "genesis", None);
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
@@ -2492,7 +2541,7 @@ impl AgencyCoordinator {
         let (draft, scene_id) = self
             .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
-        self.spawn_editor_qc(run_id, &story_id, premise, &draft);
+        self.spawn_editor_qc(run_id, &story_id, premise, &draft, budget, "genesis", None);
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
@@ -2631,7 +2680,16 @@ impl AgencyCoordinator {
     /// smart_execute 600s 整体超时限制；结果经 `genesis-qc-result` 事件
     /// （payload {story_id, passed, salvaged, issues}）反馈前端 toast。
     /// 不做修订（修订需主创 LLM 且可能再顶满超时，由用户据 toast 手动重试）。
-    fn spawn_editor_qc(&self, run_id: &str, story_id: &str, premise: &str, draft: &BoardItem) {
+    fn spawn_editor_qc(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        draft: &BoardItem,
+        budget: &Arc<AgencyBudget>,
+        source: &str,
+        chapter_number: Option<i32>,
+    ) {
         let Some(app) = self.app_handle.clone() else {
             // 测试环境无 app_handle，跳过后台质检
             log::info!("agency: 测试环境跳过后台编辑审计质检 (run={})", run_id);
@@ -2641,8 +2699,19 @@ impl AgencyCoordinator {
         let run_id = run_id.to_string();
         let story_id = story_id.to_string();
         let premise = premise.to_string();
+        let source = source.to_string();
         let draft = draft.clone();
+        // v0.59.0：附属取消标志——run 返回后用户仍可「取消」停掉这次后台审查；
+        // 预算沿用 run 自己的额度（此前每次 spawn 新建独立预算，质检 token
+        // 完全不进任何 run 的账）。
+        let cancel = register_ancillary_cancel(&run_id);
+        let budget = budget.clone();
         tauri::async_runtime::spawn(async move {
+            if cancel.load(Ordering::SeqCst) {
+                log::info!("agency: 后台编辑审计质检在启动前被取消 (run={})", run_id);
+                unregister_ancillary_cancel(&run_id, &cancel);
+                return;
+            }
             // 独立 deadline 300s（不受 smart_execute 整体超时限制）
             let deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(300));
             let llm: Arc<dyn LoopLlm> = Arc::new(AgencyLlm::new(
@@ -2651,7 +2720,6 @@ impl AgencyCoordinator {
                 AgentRole::EditorAuditor,
                 story_id.clone(),
             ));
-            let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
             let board = BlackboardService::with_events(pool.clone(), &app);
             let registry = Arc::new(ToolRegistry::agency_default());
             crate::agency::continue_loop::emit_logged_activity(
@@ -2668,6 +2736,12 @@ impl AgencyCoordinator {
                 deadline,
             )
             .await;
+            // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
+            if cancel.load(Ordering::SeqCst) {
+                log::info!("agency: 后台编辑审计质检被取消 (run={})", run_id);
+                unregister_ancillary_cancel(&run_id, &cancel);
+                return;
+            }
             let payload = match result {
                 Ok((GateOutcome::Passed { .. }, _)) => serde_json::json!({
                     "story_id": story_id,
@@ -2708,6 +2782,16 @@ impl AgencyCoordinator {
                     })
                 }
             };
+            // v0.59.0：带上来源（创世 / 续写）与章号，幕前才能给出正确文案与
+            // 可行动入口——此前续写质检失败也会提示「建议重新创世」。
+            let mut payload = payload;
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("mode".to_string(), serde_json::json!(source));
+                obj.insert(
+                    "chapter_number".to_string(),
+                    serde_json::json!(chapter_number),
+                );
+            }
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
             // 后台质检 fail-open：章节已落库。不合格走 toast，顶栏不得报「后台审查失败」
             // （否则 friendlyText 会拼成「编辑审计已完成后台审查失败」）。
@@ -2720,6 +2804,7 @@ impl AgencyCoordinator {
                 &crate::agency::continue_loop::editor_qc_done_detail(),
             )
             .await;
+            unregister_ancillary_cancel(&run_id, &cancel);
         });
     }
 
@@ -2739,10 +2824,18 @@ impl AgencyCoordinator {
         let story_id = story_id.to_string();
         let scene_id = scene_id.to_string();
         let content = content.to_string();
+        // v0.59.0：附属取消标志——资产回流此前自建 300s token，完全无视 run 取消，
+        // 用户取消后仍会继续跑（最长 300s 且占用唯一后台 LLM 串行许可）。
+        let cancel = register_ancillary_cancel(&run_id);
         tauri::async_runtime::spawn(async move {
             use crate::agency::continue_loop::{
                 bg_done_detail, emit_logged_activity, run_asset_ingest,
             };
+            if cancel.load(Ordering::SeqCst) {
+                log::info!("agency: 后台资产回流在启动前被取消 (run={})", run_id);
+                unregister_ancillary_cancel(&run_id, &cancel);
+                return;
+            }
             emit_logged_activity(
                 &app,
                 &pool,
@@ -2752,7 +2845,16 @@ impl AgencyCoordinator {
                 "资产回流",
             )
             .await;
-            let exit = run_asset_ingest(&app, &pool, &run_id, &story_id, &scene_id, &content).await;
+            let exit = run_asset_ingest(
+                &app,
+                &pool,
+                &run_id,
+                &story_id,
+                &scene_id,
+                &content,
+                Some(cancel.clone()),
+            )
+            .await;
             emit_logged_activity(
                 &app,
                 &pool,
@@ -2762,6 +2864,7 @@ impl AgencyCoordinator {
                 &bg_done_detail("资产回流", exit),
             )
             .await;
+            unregister_ancillary_cancel(&run_id, &cancel);
         });
     }
 
@@ -3233,7 +3336,15 @@ impl AgencyCoordinator {
                 budget,
             )
             .await;
-            self.spawn_editor_qc(run_id, story_id, &premise, &draft);
+            self.spawn_editor_qc(
+                run_id,
+                story_id,
+                &premise,
+                &draft,
+                budget,
+                "continue",
+                Some(chapter_number),
+            );
             return Ok(AgencyContinueResult {
                 run_id: run_id.to_string(),
                 story_id: story_id.to_string(),
@@ -3264,7 +3375,15 @@ impl AgencyCoordinator {
                 Some(&card),
             )
             .await?;
-        self.spawn_editor_qc(run_id, story_id, &premise, &draft);
+        self.spawn_editor_qc(
+            run_id,
+            story_id,
+            &premise,
+            &draft,
+            budget,
+            "continue",
+            Some(chapter_number),
+        );
         Ok(AgencyContinueResult {
             verdict: EditorVerdict::pending(),
             revised: false,

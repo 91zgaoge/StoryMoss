@@ -4,7 +4,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    extract_openai_tool_calls, openai_tools_payload, GenerateRequest, GenerateResponse, LlmAdapter,
+    adapter::ToolCall, extract_openai_tool_calls, openai_tools_payload, GenerateRequest,
+    GenerateResponse, LlmAdapter,
 };
 
 fn deserialize_null_content<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -136,6 +137,83 @@ fn resolve_content(content: &str, reasoning_content: &Option<String>) -> String 
         }
     }
     content.to_string()
+}
+
+/// 已解析的 chat completion（`resolve_content` 与 tool_calls 提取均已应用）。
+#[derive(Debug)]
+struct ParsedCompletion {
+    content: String,
+    model: String,
+    total_tokens: i32,
+    tool_calls: Vec<ToolCall>,
+}
+
+/// 解析 OpenAI 兼容网关 `/chat/completions` 的响应体。
+///
+/// 纯函数（无网络、无 &self）：`generate()` 与故障注入测试共用同一条解析
+/// 路径。测试直接喂网关真实返回形状的原始 JSON（`reasoning_content`、
+/// `content: null`、`finish_reason: "length"`、截断体、空体等），断言行为。
+///
+/// 关键不变量（v0.30.45）：`content` 为空时**不得**回退到
+/// `reasoning_content`——那是思维链（CoT）不是正文。
+fn parse_chat_completion_bytes(bytes: &[u8]) -> Result<ParsedCompletion, serde_json::Error> {
+    let resp: OpenAiResponse = serde_json::from_slice(bytes)?;
+    let first = resp.choices.first();
+    let content = first
+        .map(|c| resolve_content(&c.message.content, &c.message.reasoning_content))
+        .unwrap_or_default();
+    let tool_calls = first
+        .map(|c| {
+            extract_openai_tool_calls(&serde_json::json!({
+                "tool_calls": c.message.tool_calls,
+            }))
+        })
+        .unwrap_or_default();
+    Ok(ParsedCompletion {
+        content,
+        model: resp.model,
+        total_tokens: resp.usage.total_tokens,
+        tool_calls,
+    })
+}
+
+/// 单行 SSE 的分类（`generate_stream` 读取循环的纯函数核心）。
+#[derive(Debug, PartialEq, Eq)]
+enum SseLine<'a> {
+    /// 非数据行（空行、`event:`/`id:` 字段、注释）——跳过，不算错误。
+    Ignore,
+    /// `data: [DONE]`——流正常结束。
+    Done,
+    /// `data: {...}` JSON 负载。
+    Data(&'a str),
+}
+
+/// 判定单行 SSE 的语义。与网关约定一致：只认带空格前缀的 `data: `。
+fn classify_sse_line(line: &str) -> SseLine<'_> {
+    if line.is_empty() || !line.starts_with("data: ") {
+        return SseLine::Ignore;
+    }
+    let data = &line[6..];
+    if data == "[DONE]" {
+        return SseLine::Done;
+    }
+    SseLine::Data(data)
+}
+
+/// 从单个 SSE `data:` 负载提取正文增量。
+///
+/// - `Ok(Some(text))`：正文增量。
+/// - `Ok(None)`：无正文增量（空 delta、`choices` 为空、或**只有
+///   `reasoning_content`**——思维链不得当作正文转发）。
+/// - `Err`：负载不是合法 JSON（截断/半包）；调用方发错误并终止流。
+fn content_delta_from_sse_payload(data: &str) -> Result<Option<String>, serde_json::Error> {
+    let parsed: OpenAiStreamResponse = serde_json::from_str(data)?;
+    Ok(parsed
+        .choices
+        .first()
+        .and_then(|choice| choice.delta.content.as_ref())
+        .filter(|c| !c.is_empty())
+        .cloned())
 }
 
 impl OpenAiAdapter {
@@ -279,31 +357,19 @@ impl LlmAdapter for OpenAiAdapter {
         .await?;
 
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
-        let openai_resp: OpenAiResponse =
-            tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
-                .await
-                .map_err(|e| format!("deserialization task panicked: {}", e))?
-                .map_err(|e| format!("OpenAI response parse error: {}", e))?;
-        let first = openai_resp.choices.first();
-        let content = first
-            .map(|c| resolve_content(&c.message.content, &c.message.reasoning_content))
-            .unwrap_or_default();
-        let tool_calls = first
-            .map(|c| {
-                extract_openai_tool_calls(&serde_json::json!({
-                    "tool_calls": c.message.tool_calls,
-                }))
-            })
-            .unwrap_or_default();
+        let parsed = tokio::task::spawn_blocking(move || parse_chat_completion_bytes(&bytes))
+            .await
+            .map_err(|e| format!("deserialization task panicked: {}", e))?
+            .map_err(|e| format!("OpenAI response parse error: {}", e))?;
 
-        let cost = self.calculate_cost(&openai_resp.model, openai_resp.usage.total_tokens);
+        let cost = self.calculate_cost(&parsed.model, parsed.total_tokens);
 
         Ok(GenerateResponse {
-            content,
-            model: openai_resp.model,
-            tokens_used: openai_resp.usage.total_tokens,
+            content: parsed.content,
+            model: parsed.model,
+            tokens_used: parsed.total_tokens,
             cost,
-            tool_calls,
+            tool_calls: parsed.tool_calls,
         })
     }
 
@@ -367,30 +433,23 @@ impl LlmAdapter for OpenAiAdapter {
             let mut lines = reader.lines();
 
             while let Ok(Some(line)) = lines.next_line().await {
-                if line.is_empty() || !line.starts_with("data: ") {
-                    continue;
-                }
-                let data = &line[6..];
-                if data == "[DONE]" {
-                    break;
-                }
-                match serde_json::from_str::<OpenAiStreamResponse>(data) {
-                    Ok(parsed) => {
-                        if let Some(choice) = parsed.choices.first() {
-                            // v0.30.45: 只转发 content delta，不回退 reasoning_content。
-                            // reasoning_content 是思维链（CoT），不是正文。
-                            let text = choice.delta.content.as_ref().filter(|c| !c.is_empty());
-                            if let Some(content) = text {
-                                if tx.send(Ok(content.clone())).await.is_err() {
-                                    break;
-                                }
+                // v0.30.45: 只转发 content delta，不回退 reasoning_content。
+                // reasoning_content 是思维链（CoT），不是正文。
+                match classify_sse_line(&line) {
+                    SseLine::Ignore => continue,
+                    SseLine::Done => break,
+                    SseLine::Data(data) => match content_delta_from_sse_payload(data) {
+                        Ok(Some(content)) => {
+                            if tx.send(Ok(content)).await.is_err() {
+                                break;
                             }
                         }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("SSE parse error: {}", e).into())).await;
-                        break;
-                    }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("SSE parse error: {}", e).into())).await;
+                            break;
+                        }
+                    },
                 }
             }
         });
@@ -409,7 +468,10 @@ impl LlmAdapter for OpenAiAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_content, sanitize_top_p};
+    use super::{
+        classify_sse_line, content_delta_from_sse_payload, parse_chat_completion_bytes,
+        resolve_content, sanitize_top_p, SseLine,
+    };
 
     #[test]
     fn sanitize_top_p_keeps_valid_values() {
@@ -471,6 +533,210 @@ mod tests {
         let msg: Message = serde_json::from_str(json).unwrap();
         assert_eq!(msg.content, "");
         assert!(msg.tool_calls.as_ref().is_some_and(|c| !c.is_empty()));
+    }
+
+    // ===== 故障注入：真实网关 payload 形状（无网络，纯解析路径）=====
+    //
+    // 覆盖历史真机故障（AGENTS.md v0.30.45 / v0.51.3；executor v0.30.51）：
+    //   1) 推理模型把思维链放 `reasoning_content`，`content` 为空
+    //   2) markdown 围栏 JSON（严格 serde_json::from_str 会失败）
+    //   3) 截断/空响应体（200 但 body 不完整）
+    //   4) 空正文候选回退（网关层 `content.trim().is_empty()` 视为失败）
+
+    /// 组装与 OpenAI 兼容网关一致形状的响应体（含 `id`/`object`/`created`/
+    /// `finish_reason`/`usage.prompt_tokens` 等生产字段）。
+    fn gateway_payload(message_json: &str, finish_reason: &str) -> String {
+        format!(
+            r#"{{"id":"chatcmpl-9xYz","object":"chat.completion","created":1730000000,"model":"deepseek-v4","choices":[{{"index":0,"message":{message_json},"finish_reason":"{finish_reason}"}}],"usage":{{"prompt_tokens":1200,"completion_tokens":2048,"total_tokens":3248}}}}"#
+        )
+    }
+
+    #[test]
+    fn payload_reasoning_only_never_returns_cot_as_prose() {
+        // 真机故障 1：200 + usage 正常，但 content 为空、思维链在
+        // reasoning_content（token 全烧在推理上，finish_reason=length）。
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"","reasoning_content":"这是一个小说续写任务，需要我以专业作者身份完成。让我先梳理节拍卡与状态网……"}"#,
+            "length",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert!(
+            parsed.content.is_empty(),
+            "content 为空时不得回退思维链，实际: {}",
+            parsed.content
+        );
+        assert!(!parsed.content.contains("小说续写任务"));
+        // 元数据仍可用，调用方可据此归因（推理模型烧完 token）。
+        assert_eq!(parsed.model, "deepseek-v4");
+        assert_eq!(parsed.total_tokens, 3248);
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn payload_null_content_with_finish_reason_length_yields_empty() {
+        // 网关偶发把 content 序列化为 null（deserialize_null_content 归一空串）。
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":null,"reasoning_content":"先思考再输出正文"}"#,
+            "length",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.content, "");
+    }
+
+    #[test]
+    fn payload_whitespace_only_content_is_not_backfilled_with_reasoning() {
+        // 只有空白字符的 content 同样不得被思维链顶替；空白本身原样返回，
+        // 由网关层（executor: content.trim().is_empty()）判为候选失败。
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"  \n\t ","reasoning_content":"思维链正文"}"#,
+            "stop",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.content, "  \n\t ");
+        assert!(parsed.content.trim().is_empty());
+        assert!(!parsed.content.contains("思维链"));
+    }
+
+    #[test]
+    fn payload_content_wins_over_reasoning_when_both_present() {
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"血雾还没落尽，苏会山向西跨院踉跄。","reasoning_content":"我需要让读者感到压迫……"}"#,
+            "stop",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.content, "血雾还没落尽，苏会山向西跨院踉跄。");
+        assert!(!parsed.content.contains("我需要让读者"));
+    }
+
+    #[test]
+    fn payload_empty_choices_yields_empty_content_without_panic() {
+        let raw = r#"{"id":"c","object":"chat.completion","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}"#;
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.content, "");
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn payload_tool_calls_survive_null_content() {
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"board_read","arguments":"{\"zone\":\"asset\"}"}}]}"#,
+            "tool_calls",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.content, "");
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].name, "board_read");
+        assert_eq!(parsed.tool_calls[0].arguments["zone"], "asset");
+    }
+
+    #[test]
+    fn payload_truncated_json_fails_without_panic() {
+        // 真机故障 3：连接中断/超时导致响应体被截断（字符串中间截断）。
+        let full = gateway_payload(
+            r#"{"role":"assistant","content":"风声穿过回廊，烛火摇晃。"}"#,
+            "stop",
+        );
+        let cut = full.len() * 3 / 4;
+        let truncated = full[..cut].to_string();
+        let err = parse_chat_completion_bytes(truncated.as_bytes())
+            .expect_err("截断体必须返回 Err 而不是 panic");
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn payload_empty_body_fails_without_panic() {
+        assert!(parse_chat_completion_bytes(b"").is_err());
+        assert!(parse_chat_completion_bytes(b"   ").is_err());
+        assert!(parse_chat_completion_bytes(b"<html>502 Bad Gateway</html>").is_err());
+    }
+
+    #[test]
+    fn payload_fenced_json_content_is_recoverable_for_callers() {
+        // 真机故障 2：模型把 JSON 包在 ```json 围栏里、字符串值内裸换行。
+        // 适配器只负责取出 content（不解析业务 JSON）；调用方的
+        // extract_and_sanitize_json 必须能恢复（含 `, ]` / `, }` 同行尾随逗号）。
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"```json\n{\n  \"story_outline\": \"第一幕：雨夜对决\n第二幕：真相浮现\",\n  \"scene_outline\": \"钟楼对峙\",\n  \"characters\": [\"苏亦铁\",]\n}\n```\n以上是设定。"}"#,
+            "stop",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert!(parsed.content.contains("story_outline"));
+        let json = crate::narrative::extract_and_sanitize_json(&parsed.content)
+            .expect("围栏 JSON 必须能被 extract_and_sanitize_json 恢复");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["scene_outline"], "钟楼对峙");
+    }
+
+    #[test]
+    fn payload_truncated_fenced_json_fails_gracefully() {
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"```json\n{\"story_outline\": \"第一幕：雨夜对"}"#,
+            "length",
+        );
+        let parsed = parse_chat_completion_bytes(raw.as_bytes()).unwrap();
+        assert!(
+            crate::narrative::extract_and_sanitize_json(&parsed.content).is_err(),
+            "截断的围栏 JSON 必须返回 Err（调用方走 salvage/重试），不得 panic"
+        );
+    }
+
+    // ===== SSE 故障注入（generate_stream 的纯函数核心）=====
+
+    #[test]
+    fn sse_line_classification_pins_gateway_framing() {
+        assert_eq!(classify_sse_line(""), SseLine::Ignore);
+        assert_eq!(classify_sse_line(": keep-alive"), SseLine::Ignore);
+        assert_eq!(classify_sse_line("event: message"), SseLine::Ignore);
+        // 无空格前缀不是合法 data 行（与生产实现一致，不得被当成负载）。
+        assert_eq!(classify_sse_line("data:{\"choices\":[]}"), SseLine::Ignore);
+        assert_eq!(classify_sse_line("data: [DONE]"), SseLine::Done);
+        assert_eq!(
+            classify_sse_line("data: {\"choices\":[]}"),
+            SseLine::Data("{\"choices\":[]}")
+        );
+    }
+
+    #[test]
+    fn sse_reasoning_only_delta_is_not_forwarded() {
+        // 真机故障 1 的流式形态：reasoning_content delta 一个接一个，
+        // content delta 从不出现 → 零正文增量（调用方最终看到空内容）。
+        let line = r#"{"choices":[{"index":0,"delta":{"reasoning_content":"我需要先梳理剧情推进方向……"}}]}"#;
+        assert_eq!(content_delta_from_sse_payload(line).unwrap(), None);
+    }
+
+    #[test]
+    fn sse_content_delta_and_empty_delta() {
+        let line = r#"{"choices":[{"index":0,"delta":{"content":"血雾还没落尽"}}]}"#;
+        assert_eq!(
+            content_delta_from_sse_payload(line).unwrap(),
+            Some("血雾还没落尽".to_string())
+        );
+        // finish 帧：delta 为空对象，无正文增量。
+        assert_eq!(
+            content_delta_from_sse_payload(r#"{"choices":[{"index":0,"delta":{}}]}"#).unwrap(),
+            None
+        );
+        // 空 choices（部分网关的心跳帧）。
+        assert_eq!(
+            content_delta_from_sse_payload(r#"{"choices":[]}"#).unwrap(),
+            None
+        );
+        // 空字符串 delta 不得被转发（会污染拼装结果）。
+        assert_eq!(
+            content_delta_from_sse_payload(r#"{"choices":[{"index":0,"delta":{"content":""}}]}"#)
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn sse_partial_or_truncated_payload_is_error_not_panic() {
+        // 半包/截断的 SSE 负载：返回 Err，由调用方发 "SSE parse error" 并终止流。
+        assert!(
+            content_delta_from_sse_payload(r#"{"choices":[{"delta":{"content":"血雾"#).is_err()
+        );
+        assert!(content_delta_from_sse_payload("").is_err());
+        assert!(content_delta_from_sse_payload("<html>").is_err());
     }
 
     #[test]

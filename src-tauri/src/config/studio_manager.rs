@@ -125,7 +125,17 @@ impl StudioManager {
         }
 
         if req.include_llm_config || req.include_ui_config || req.include_agent_bots {
-            export_data.studio_config = studio_repo.get_by_story(&req.story_id)?;
+            let mut studio_config = studio_repo.get_by_story(&req.story_id)?;
+            // v0.59.0：默认剔除 API 密钥。导出包会被分享/上传，密钥不能
+            // 随包外流；需要迁移密钥的场景显式传 include_api_keys=true。
+            if !req.include_api_keys {
+                if let Some(config) = studio_config.as_mut() {
+                    for profile in config.llm_config.profiles.iter_mut() {
+                        profile.api_key = None;
+                    }
+                }
+            }
+            export_data.studio_config = studio_config;
         }
 
         // 打包为ZIP
@@ -595,5 +605,113 @@ impl Default for ImportOptions {
             skip_existing: false,
             merge_existing: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn export_request(story_id: &str, include_api_keys: bool) -> StudioExportRequest {
+        StudioExportRequest {
+            story_id: story_id.to_string(),
+            include_world_building: false,
+            include_characters: false,
+            include_writing_style: false,
+            include_scenes: false,
+            include_llm_config: true,
+            include_ui_config: false,
+            include_agent_bots: false,
+            include_api_keys,
+        }
+    }
+
+    fn read_zip_entry(bytes: &[u8], name: &str) -> String {
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).unwrap();
+        let mut file = archive.by_name(name).unwrap();
+        let mut out = String::new();
+        file.read_to_string(&mut out).unwrap();
+        out
+    }
+
+    /// 建一部故事并写入带 API key 的工作室 LLM 配置。
+    fn setup_story_with_key() -> (DbPool, String) {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "导出密钥测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let repo = StudioConfigRepository::new(pool.clone());
+        let config = repo.create(&story.id).unwrap();
+        let llm = LlmStudioConfig {
+            default_provider: "openai".to_string(),
+            default_model: "gpt-4o-mini".to_string(),
+            generation_temperature: 0.8,
+            max_tokens: 2048,
+            profiles: vec![LlmProfile {
+                id: "profile-1".to_string(),
+                name: "主力".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                api_key: Some("sk-should-not-leak-into-zip".to_string()),
+                base_url: None,
+                temperature: 0.8,
+                max_tokens: 2048,
+            }],
+        };
+        repo.update(&config.id, None, Some(&llm), None, None)
+            .unwrap();
+        (pool, story.id)
+    }
+
+    #[test]
+    fn export_strips_api_keys_by_default() {
+        let (pool, story_id) = setup_story_with_key();
+        let dir = tempfile::tempdir().unwrap();
+        let manager = StudioManager::new(pool, dir.path());
+        let bytes = manager
+            .export_studio(&export_request(&story_id, false))
+            .unwrap();
+        let json = read_zip_entry(&bytes, "studio_config.json");
+        assert!(
+            !json.contains("sk-should-not-leak-into-zip"),
+            "默认导出不得包含 API key：{json}"
+        );
+        // 其余配置仍完整导出
+        assert!(json.contains("gpt-4o-mini"));
+    }
+
+    #[test]
+    fn export_keeps_api_keys_only_when_explicitly_requested() {
+        let (pool, story_id) = setup_story_with_key();
+        let dir = tempfile::tempdir().unwrap();
+        let manager = StudioManager::new(pool, dir.path());
+        let bytes = manager
+            .export_studio(&export_request(&story_id, true))
+            .unwrap();
+        let json = read_zip_entry(&bytes, "studio_config.json");
+        assert!(json.contains("sk-should-not-leak-into-zip"));
+    }
+
+    #[test]
+    fn export_request_defaults_to_no_api_keys_when_field_absent() {
+        let req: StudioExportRequest = serde_json::from_str(
+            r#"{"story_id":"s","include_world_building":false,"include_characters":false,
+                "include_writing_style":false,"include_scenes":false,"include_llm_config":true,
+                "include_ui_config":false,"include_agent_bots":false}"#,
+        )
+        .unwrap();
+        assert!(
+            !req.include_api_keys,
+            "旧调用方缺字段时必须按「不含密钥」处理"
+        );
     }
 }

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.58.0 项目完成状态
+# StoryMoss (草苔) v0.59.0 项目完成状态
 
-> 最后更新: 2026-08-29（v0.58.0 戏剧工艺 / 短剧格式）
+> 最后更新: 2026-10-06（v0.59.0 验收证据链 / 数据层治理 / 续写质检闭环）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,16 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.59.0 - 验收证据链、数据层治理与续写质检闭环（2026-10-06）
+
+- **CI**：`cargo test --lib` 恢复阻塞；弃用「49 个 V092 基线失败」过时注释。新增 provider 故障注入测试 + golden 续写 harness（`#[ignore]`）。
+- **数据层**：`schema_migrations` 内容校验和（V132）+ 集合水位线（低版本补丁可执行）；迁移目录剔除构建产物路径；V133 六个热查询索引；删故事级联 agency_*/llm_calls；活动日志 30 天剪枝。
+- **续写质检闭环**：质检事件带 mode/chapter；幕前「按审查意见修订本章」（`revision_type=editor_qc`）；后台 ingest/QC 纳入 run 预算与取消传播。
+- **提示词**：补齐 4 个占位资产（writer/inspector/outline_planner/style_mimic）。
+- **安全/发布**：server JWT 无缺省密钥、DEV_UPGRADE 默认 false；导出 ZIP 默认剔除 API key；发布白名单补 .deb。
+- **工程**：AGENTS.md 1208→190 行；FrontstageApp 抽 `useScenePersistence`（−149 行）；新增全面检视报告 docs/audits/2026-10-06-*。
+- **未关闭**：真机续写未复跑（不得宣称质量已修复）；新发现载入期空保存竞态（E2E 门禁暂留非阻塞）；src-server 无 DB 不可编译、CI 未覆盖。
 
 ### v0.58.0 - 戏剧工艺 + 短剧格式（2026-08-29）
 

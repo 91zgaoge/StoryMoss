@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.58.0 架构文档
+# StoryMoss (草苔) v0.59.0 架构文档
+
+> **v0.59.0**：迁移框架记内容校验和 + 集合水位线（`schema_migrations.checksum`，V132）；迁移目录只在源码树取（构建产物路径被剔除）。后台资产回流/质检注册 run 级附属取消标志并入 run 预算（`AGENCY_ANCILLARY_FLAGS`）。续写质检结果事件带 `mode`/`chapter_number`，幕前可一键走 `auto_revise(revision_type=editor_qc)` 修订本章。删故事级联清理 `agency_*`/`ingest_jobs`/`llm_calls`；`agency_activity_log` 30 天保留。`FrontstageApp` 保存链抽为 `useScenePersistence`。v0.58.0 的戏剧工艺与短剧格式不变量不变。
 
 > **v0.58.0**：戏剧工艺来自 AI-drama-pound（MIT），不嵌对方进程。`SceneBeatCard.change_delta` 0 LLM 编译。`assemble_continue_beat_for` 按 `stories.story_format` 选 `CONTINUE_BEAT_SYSTEM` 或 `DRAMA_BEAT_SYSTEM`。`probe_increment_ex` 复述近文 + 未兑现改变项才 gap。`CreateStoryRequest` 不加字段；创世后 `update_story_format`。续写 `tools=None`、`scenes.content` 真相源不变。v0.56.2 孤引号 / fail-open 不变量不变。
 >

@@ -395,6 +395,71 @@ mod tests {
         assert_eq!(parsed["title"], "真");
     }
 
+    // ===== 故障注入：真实网关返回的业务 JSON 形状（markdown 围栏/裸换行）=====
+    //
+    // 历史真机故障（AGENTS.md v0.30.42 / v0.53.1 / v0.53.2）：模型把 JSON 包在
+    // ```json 围栏里、字符串值内直接换行、或尾部带说明文字，严格
+    // serde_json::from_str 会静默失败。本组用例锁死"能恢复"与"恢复不了要
+    // 优雅失败"两条边界。
+
+    #[test]
+    fn test_extract_fenced_producer_payload_with_literal_newlines() {
+        // 真机 Gemma 返回：围栏 + 字符串值内裸换行 + 尾随说明。
+        let content = "```json\n{\n  \"story_outline\": \"第一幕：雨夜对决\n第二幕：真相浮现\",\n  \"scene_outline\": \"钟楼对峙\",\n  \"characters\": []\n}\n```\n以上是大纲设定。";
+        let sanitized = extract_and_sanitize_json(content).expect("围栏 + 裸换行必须可恢复");
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert_eq!(value["scene_outline"], "钟楼对峙");
+        assert!(value["story_outline"]
+            .as_str()
+            .unwrap()
+            .contains("第一幕：雨夜对决"));
+    }
+
+    #[test]
+    fn test_extract_uppercase_fence_and_key_value_prose() {
+        // v0.53.2 真机变体：```JSON 大写围栏。
+        let content = "```JSON\n{\"story_outline\": \"核心冲突：皇权裂痕\"}\n```";
+        let sanitized = extract_and_sanitize_json(content).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert_eq!(value["story_outline"], "核心冲突：皇权裂痕");
+    }
+
+    #[test]
+    fn test_extract_truncated_json_fails_gracefully() {
+        // 截断（max_tokens=length / 连接中断）：未闭合对象必须返回 Err，
+        // 不得 panic，也不得把半截 JSON 当有效结果返回。
+        let truncated = "{\"story_outline\": \"第一幕：雨夜对";
+        assert!(extract_and_sanitize_json(truncated).is_err());
+        // 围栏里的截断体同样失败。
+        assert!(extract_and_sanitize_json("```json\n{\"scene_outline\": \"钟楼").is_err());
+    }
+
+    #[test]
+    fn test_extract_fenced_json_trailing_comma_same_line() {
+        // 尾随逗号（`,` 紧跟 `]`/`}`）是 LLM 常见语法错，必须被修复。
+        let content = "```json\n{\"title\": \"锈蚀纪元\", \"themes\": [\"生存\",], }\n```";
+        let sanitized = extract_and_sanitize_json(content).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert_eq!(value["themes"][0], "生存");
+    }
+
+    #[test]
+    fn test_extract_empty_or_whitespace_payload_fails() {
+        // 空响应体 / 只有空白（网关 200 空 body 的等价输入）。
+        assert!(extract_and_sanitize_json("").is_err());
+        assert!(extract_and_sanitize_json("   \n\t ").is_err());
+        assert!(extract_and_sanitize_json("```\n\n```").is_err());
+    }
+
+    #[test]
+    fn test_extract_fenced_json_with_cot_prefix_and_empty_object_draft() {
+        // 围栏 + 思维链前缀里的 {} 草稿 + 真正 JSON。
+        let content = "```json\n先想 {} 一下\n{\"title\": \"锈蚀纪元\", \"genre\": \"科幻\"}\n```";
+        let sanitized = extract_and_sanitize_json(content).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert_eq!(value["title"], "锈蚀纪元");
+    }
+
     #[test]
     fn story_meta_deserializes_without_author() {
         let json = r#"{

@@ -50,6 +50,14 @@ impl<'a> PendingMigration<'a> {
         }
     }
 
+    /// 迁移内容校验和：SQL 用内容哈希；Rust 迁移无内容可哈希，返回 None。
+    fn checksum(&self) -> Option<String> {
+        match self {
+            PendingMigration::Sql(m) => Some(migration_checksum(&m.sql)),
+            PendingMigration::Rust(_) => None,
+        }
+    }
+
     fn describe(&self) -> Migration {
         Migration {
             version: self.version(),
@@ -57,6 +65,28 @@ impl<'a> PendingMigration<'a> {
             sql: String::new(),
         }
     }
+}
+
+/// 迁移内容的稳定校验和（SHA-256，归一化 CRLF/LF）。
+///
+/// v0.59.0：`schema_migrations` 原先只记版本号，两份同版本但内容不同的迁移
+/// （历史上 `target/` 陈旧副本曾遮蔽源码目录）不会被任何机制发现。
+pub(crate) fn migration_checksum(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let normalized = content.replace("\r\n", "\n");
+    let mut hasher = Sha256::new();
+    hasher.update(normalized.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// `schema_migrations` 是否已有 `checksum` 列（V132 之前的老库没有）。
+fn schema_migrations_has_checksum(conn: &Connection) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare("PRAGMA table_info(schema_migrations)")?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+    Ok(names.iter().any(|n| n == "checksum"))
 }
 
 /// Lightweight migration runner compatible with rusqlite 0.39.
@@ -222,10 +252,52 @@ impl MigrationRunner {
             current_version
         );
 
+        // v0.59.0：待执行集合 = 迁移文件中所有「未记录在 schema_migrations 的版本」，
+        // 而非「版本号 > MAX(version)」。旧口径下任何低于当前水位的补丁迁移
+        // （历史空洞/后补迁移）永远不会被执行，也永远不会被告警。
+        let applied = Self::applied_migrations(conn)?;
+        let max_applied = applied.keys().copied().max().unwrap_or(0);
+
+        // 已应用迁移的内容一致性校验：同版本内容变了说明两份迁移副本分歧，
+        // 或已发布迁移被静默改动——两种都不该悄悄发生。
+        for migration in &migrations {
+            let version = migration.version();
+            let Some(Some(stored)) = applied.get(&version) else {
+                continue;
+            };
+            if let Some(computed) = migration.checksum() {
+                if stored != &computed {
+                    log::warn!(
+                        "[migrations] V{:03} 内容校验和不一致（库内 {}，当前文件 {}）：\
+                         该版本可能来自另一份迁移副本，或迁移文件在发布后被修改。",
+                        version,
+                        &stored[..stored.len().min(12)],
+                        &computed[..computed.len().min(12)]
+                    );
+                }
+            }
+        }
+
         let pending: Vec<_> = migrations
             .into_iter()
-            .filter(|m| m.version() > current_version)
+            .filter(|m| !applied.contains_key(&m.version()))
             .collect();
+
+        // 低于当前水位却未记录的版本：属于历史跳过（旧 MAX(version) 水位线的
+        // 遗留），显式告警后再补执行。
+        let holes: Vec<i32> = pending
+            .iter()
+            .map(|m| m.version())
+            .filter(|v| *v <= max_applied)
+            .collect();
+        if !holes.is_empty() {
+            log::warn!(
+                "[migrations] 检测到 {} 个低于当前水位（V{:03}）但未记录的迁移，将补执行：{:?}",
+                holes.len(),
+                max_applied,
+                holes
+            );
+        }
 
         if pending.is_empty() {
             log::info!("[migrations] Database is up to date.");
@@ -242,16 +314,17 @@ impl MigrationRunner {
             let description = migration.description();
             log::info!("[migrations] Applying V{:03}: {}", version, description);
 
+            let checksum = migration.checksum();
             match migration {
                 PendingMigration::Sql(m) => {
                     let tx = conn.transaction()?;
                     Self::execute_migration_sql(&tx, &m.sql)?;
-                    record_migration(&tx, version)?;
+                    record_migration(&tx, version, checksum.as_deref())?;
                     tx.commit()?;
                 }
                 PendingMigration::Rust(m) => {
                     m.apply(conn)?;
-                    record_migration(conn, version)?;
+                    record_migration(conn, version, checksum.as_deref())?;
                 }
             }
 
@@ -260,6 +333,25 @@ impl MigrationRunner {
 
         log::info!("[migrations] All pending migrations applied.");
         Ok(())
+    }
+
+    /// 已应用迁移集合：version -> 内容校验和（老库/V132 之前为 None）。
+    fn applied_migrations(
+        conn: &Connection,
+    ) -> Result<std::collections::HashMap<i32, Option<String>>, MigrationError> {
+        let has_checksum = schema_migrations_has_checksum(conn)?;
+        let sql = if has_checksum {
+            "SELECT version, checksum FROM schema_migrations"
+        } else {
+            "SELECT version, NULL FROM schema_migrations"
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i32>(0)?, row.get::<_, Option<String>>(1)?))
+            })?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+        Ok(rows)
     }
 
     /// Run SQL file migrations interleaved with a legacy inline migration
@@ -405,8 +497,24 @@ impl MigrationRunner {
 /// 在存在的候选目录中选 .sql 最高版本号最大者（修复"陈旧 target
 /// 副本遮蔽新迁移"）。 版本持平取候选序靠前者。多候选存在且最高版本不一致时
 /// warn 双方路径。
+///
+/// v0.59.0：候选先剔除构建产物路径（含 `target` 组件）。dev 下 exe_dir 即
+/// `src-tauri/target/debug`，`target/debug/db/migrations` 是历史遗留副本，
+/// 版本持平时会因候选序靠前而被选中；剔除后源码目录成为唯一事实源。
 pub(crate) fn pick_migrations_dir(candidates: &[PathBuf]) -> PathBuf {
-    let existing: Vec<&PathBuf> = candidates.iter().filter(|p| p.exists()).collect();
+    let existing_all: Vec<&PathBuf> = candidates.iter().filter(|p| p.exists()).collect();
+    let existing: Vec<&PathBuf> = existing_all
+        .iter()
+        .copied()
+        .filter(|p| !is_build_output_dir(p))
+        .collect();
+    // 极端情况（仓库本身位于名为 target 的目录下）回退到未过滤集合，
+    // 保证仍有目录可用。
+    let existing = if existing.is_empty() {
+        existing_all
+    } else {
+        existing
+    };
     let fallback = existing
         .first()
         .map(|p| (*p).clone())
@@ -443,6 +551,12 @@ pub(crate) fn pick_migrations_dir(candidates: &[PathBuf]) -> PathBuf {
     fallback
 }
 
+/// 路径是否位于构建产物目录（任一路径组件为 `target`）。
+fn is_build_output_dir(path: &Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, std::path::Component::Normal(s) if s == "target"))
+}
+
 /// 目录中最高的 V{num}__ 迁移版本号（无 .sql 返回 None）。
 pub(crate) fn max_sql_version(dir: &Path) -> Option<i32> {
     let entries = std::fs::read_dir(dir).ok()?;
@@ -472,16 +586,29 @@ fn get_current_version(conn: &Connection) -> i32 {
     .unwrap_or(0)
 }
 
-pub fn record_migration(conn: &Connection, version: i32) -> Result<(), rusqlite::Error> {
+pub fn record_migration(
+    conn: &Connection,
+    version: i32,
+    checksum: Option<&str>,
+) -> Result<(), rusqlite::Error> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
 
-    conn.execute(
-        "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-        rusqlite::params![version, now],
-    )?;
+    // V132 之前的库没有 checksum 列；迁移按版本顺序执行，V132 之前的
+    // 记录必须走旧语句。
+    if checksum.is_some() && schema_migrations_has_checksum(conn)? {
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at, checksum) VALUES (?1, ?2, ?3)",
+            rusqlite::params![version, now, checksum],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            rusqlite::params![version, now],
+        )?;
+    }
     Ok(())
 }
 
@@ -797,6 +924,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// v0.59.0：构建产物目录（含 `target` 组件）里的迁移副本永不选用，
+    /// 即使其最高版本号更大——源码目录是唯一事实源。
+    #[test]
+    fn test_pick_migrations_dir_ignores_build_output_copy_even_when_newer() {
+        let base = std::env::temp_dir().join(format!("mig-pick-target-{}", uuid::Uuid::new_v4()));
+        let shadow = base.join("target/debug/db/migrations");
+        let fresh = base.join("src-tauri/src/db/migrations");
+        std::fs::create_dir_all(&shadow).unwrap();
+        std::fs::create_dir_all(&fresh).unwrap();
+        std::fs::write(shadow.join("V140__bogus.sql"), "-- x").unwrap();
+        std::fs::write(fresh.join("V131__real.sql"), "-- y").unwrap();
+        let picked = pick_migrations_dir(&[shadow.clone(), fresh.clone()]);
+        assert_eq!(picked, fresh);
+        let picked2 = pick_migrations_dir(&[fresh.clone(), shadow.clone()]);
+        assert_eq!(picked2, fresh);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn test_pick_migrations_dir_falls_back_to_first_existing_when_no_sql() {
         let base = std::env::temp_dir().join(format!("mig-pick-empty-{}", uuid::Uuid::new_v4()));
@@ -823,6 +968,98 @@ mod tests {
         std::fs::write(base.join("notes.md"), "not a migration").unwrap();
         assert_eq!(max_sql_version(&base), Some(109));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// v0.59.0：迁移内容校验和必须与换行风格无关（Windows CRLF 检出不应误报）。
+    #[test]
+    fn test_migration_checksum_normalizes_line_endings() {
+        assert_eq!(migration_checksum("a\r\nb"), migration_checksum("a\nb"));
+        assert_ne!(migration_checksum("a\nb"), migration_checksum("a\nc"));
+        assert_eq!(migration_checksum("x").len(), 64);
+    }
+
+    /// v0.59.0：后补的低版本迁移（低于已应用水位）必须被补执行——
+    /// 旧口径 `version > MAX(version)` 会把它永久跳过且不告警。
+    #[test]
+    fn test_apply_pending_backfills_lower_versioned_migration() {
+        let dir = TempDir::new().unwrap();
+        let write = |name: &str, sql: &str| {
+            let mut f = fs::File::create(dir.path().join(name)).unwrap();
+            writeln!(f, "{sql}").unwrap();
+        };
+        write("V010__tenth.sql", "CREATE TABLE t10 (id INTEGER);");
+        write("V020__twentieth.sql", "CREATE TABLE t20 (id INTEGER);");
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL,
+                checksum TEXT
+            )",
+            [],
+        )
+        .unwrap();
+
+        MigrationRunner::new(dir.path()).run(&mut conn).unwrap();
+        assert_eq!(get_current_version(&conn), 20);
+
+        // 水位已到 V020，此时补一个 V015：集合水位线必须仍能执行它
+        write("V015__backfill.sql", "CREATE TABLE t15 (id INTEGER);");
+        MigrationRunner::new(dir.path()).run(&mut conn).unwrap();
+
+        let t15_exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='t15'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(t15_exists, "低于水位的补丁迁移必须被执行");
+        let applied = MigrationRunner::applied_migrations(&conn).unwrap();
+        assert!(applied.contains_key(&15));
+    }
+
+    /// v0.59.0：SQL 迁移落库时记录内容校验和，可读回并比对。
+    #[test]
+    fn test_record_migration_stores_content_checksum() {
+        let dir = TempDir::new().unwrap();
+        let sql = "CREATE TABLE a (id INTEGER);\n";
+        let mut f = fs::File::create(dir.path().join("V001__a.sql")).unwrap();
+        f.write_all(sql.as_bytes()).unwrap();
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL,
+                checksum TEXT
+            )",
+            [],
+        )
+        .unwrap();
+
+        MigrationRunner::new(dir.path()).run(&mut conn).unwrap();
+        let applied = MigrationRunner::applied_migrations(&conn).unwrap();
+        let stored = applied.get(&1).and_then(|c| c.clone()).unwrap();
+        assert_eq!(stored, migration_checksum(sql));
+    }
+
+    /// 老库（无 checksum 列）仍可落库：降级为旧 INSERT 语句，不报错。
+    #[test]
+    fn test_record_migration_works_without_checksum_column() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+        record_migration(&conn, 7, Some("deadbeef")).unwrap();
+        let applied = MigrationRunner::applied_migrations(&conn).unwrap();
+        assert_eq!(applied.get(&7), Some(&None));
     }
 }
 
