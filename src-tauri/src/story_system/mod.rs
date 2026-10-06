@@ -14,6 +14,7 @@
 pub mod auto_contract;
 pub mod chapter_service;
 pub mod chapter_splitter;
+pub mod chapter_summary;
 pub mod commit_service;
 pub mod contract_builder;
 pub mod contract_service;
@@ -23,6 +24,7 @@ pub mod mini_review;
 pub mod preflight;
 pub mod projection_writers;
 pub mod scene_service;
+pub mod segment_summary;
 
 // Re-export public types used by external code.
 #[allow(unused_imports)]

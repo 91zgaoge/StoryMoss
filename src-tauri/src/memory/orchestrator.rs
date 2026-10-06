@@ -87,6 +87,25 @@ impl MemoryBudget {
     }
 }
 
+/// 长篇阈值：超过该章数视为长篇，注入段摘要
+pub const LONG_BOOK_THRESHOLD: i32 = 50;
+/// 长篇注入的最近段摘要条数上限
+const MAX_SEGMENT_MEMORIES: usize = 3;
+
+/// 自适应章节摘要窗口（P1-C，v0.61.0）。
+///
+/// 替换写死的「近 3 章」：短篇给足近章细节，长篇收窄近章、改由段摘要/全书纲要
+/// 提供确定性的远期参照（不再只靠向量检索概率召回）。
+pub fn adaptive_summary_window(chapter_number: i32) -> usize {
+    if chapter_number <= 15 {
+        10
+    } else if chapter_number <= LONG_BOOK_THRESHOLD {
+        5
+    } else {
+        3
+    }
+}
+
 /// 记忆编排器
 pub struct MemoryOrchestrator {
     pool: DbPool,
@@ -240,14 +259,15 @@ impl MemoryOrchestrator {
             });
         }
 
-        // 添加近章摘要（最近3章）
+        // 添加近章摘要（窗口随书长自适应：10 / 5 / 3）
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
         let recent_commits = commit_repo.get_by_story(story_id)?;
 
+        let window = adaptive_summary_window(chapter_number);
         let recent_summaries: Vec<_> = recent_commits
             .into_iter()
             .filter(|c| c.chapter_number < chapter_number)
-            .take(3)
+            .take(window)
             .collect();
 
         for commit in recent_summaries {
@@ -259,6 +279,36 @@ impl MemoryOrchestrator {
                     content: serde_json::json!(summary),
                 });
             }
+        }
+
+        // 长篇（P1-B/C）：注入最近段摘要与全书纲要，提供确定性远期参照。
+        // 位置在近章摘要之后——预算截断时优先保留最贴近本章的细节。
+        if chapter_number > LONG_BOOK_THRESHOLD {
+            let segments =
+                crate::story_system::segment_summary::load_segment_summaries(&self.pool, story_id);
+            for segment in segments.into_iter().rev().take(MAX_SEGMENT_MEMORIES) {
+                result.push(MemoryEntry {
+                    layer: "working".to_string(),
+                    source: "segment_summary".to_string(),
+                    chapter: segment.end_chapter.unwrap_or(0),
+                    content: serde_json::json!(format!(
+                        "第{}-{}章：{}",
+                        segment.start_chapter.unwrap_or(0),
+                        segment.end_chapter.unwrap_or(0),
+                        segment.summary
+                    )),
+                });
+            }
+        }
+        if let Some(book) =
+            crate::story_system::segment_summary::load_book_summary(&self.pool, story_id)
+        {
+            result.push(MemoryEntry {
+                layer: "working".to_string(),
+                source: "book_summary".to_string(),
+                chapter: chapter_number,
+                content: serde_json::json!(book.summary),
+            });
         }
 
         Ok(result)
@@ -394,5 +444,23 @@ impl MemoryOrchestrator {
         });
 
         filtered
+    }
+}
+
+#[cfg(test)]
+mod adaptive_window_tests {
+    use super::*;
+
+    #[test]
+    fn adaptive_summary_window_shrinks_with_book_length() {
+        // 短篇给足近章细节
+        assert_eq!(adaptive_summary_window(1), 10);
+        assert_eq!(adaptive_summary_window(15), 10);
+        // 中篇收窄
+        assert_eq!(adaptive_summary_window(16), 5);
+        assert_eq!(adaptive_summary_window(50), 5);
+        // 长篇最窄，靠段摘要/全书纲要补远期
+        assert_eq!(adaptive_summary_window(51), 3);
+        assert_eq!(adaptive_summary_window(500), 3);
     }
 }

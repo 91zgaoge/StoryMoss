@@ -4522,10 +4522,23 @@ impl AgencyCoordinator {
                 let sid = story_id.to_string();
                 let names = admitted.clone();
                 let planned = planned_text_for_card(&card);
+                let chapter_for_seg = chapter_number;
                 self.db(move || {
-                    Ok(crate::memory::continuity::render_continuity_blocks(
+                    let mut blocks = crate::memory::continuity::render_continuity_blocks(
                         &pool, &sid, &names, &planned,
-                    ))
+                    );
+                    // P1-C：长篇注入「故事纲要」（段摘要 + 全书纲要），
+                    // 给续写一个确定性的远期参照。
+                    if let Some(block) =
+                        crate::story_system::segment_summary::render_story_so_far_block(
+                            &pool,
+                            &sid,
+                            chapter_for_seg,
+                        )
+                    {
+                        blocks.push(block);
+                    }
+                    Ok(blocks)
                 })
                 .await
                 .unwrap_or_default()

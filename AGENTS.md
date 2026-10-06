@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.60.0
+- **版本**: v0.61.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1643 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响）
+- `cargo test -p storymoss` ✅ 1653 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 590 passed / 3 skipped（+5 级联中心页面：渲染/去查看/忽略/触发改写/空态）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.61.0 - 分层记忆金字塔：语义摘要 + 段摘要 + 全书纲要 + 自适应窗口
+
+P1 阶段（docs/plans/2026-10-06-p0-p3-roadmap-implementation.md）。**P1-A**：`scene_commits.summary_text` 从「前 1000 字截断」升级为 LLM 语义摘要（100-150 字，资产 `chapter_summary`；`parse_summary_response` 拒绝 JSON/过短/过长，失败回退截断）。**P1-B**：V136 `story_segment_summaries`（segment/book 两级，UNIQUE(story_id,level,segment_index)）——每 10 章由逐章摘要压缩段摘要（数据不足一半跳过），段数 ≥3 生成全书纲要；commit 成功后 `spawn_refresh_after_commit` 后台补齐（后台闸门 + LLM 失败仅告警）。**P1-C**：`adaptive_summary_window`（≤15→10 / 16-50→5 / >50→3）替换写死的「近 3 章」，工作记忆注入最近段摘要 + 全书纲要；续写资产新增【故事纲要】（长篇带段摘要 + 全书纲要，禁止直接复述）。
+
+- **验证**：`cargo test --lib` 1653 passed / 3 ignored（+10）；前端无改动（vitest 590 / 3 skipped）；nightly fmt / architecture_guard 全绿。
+- **契约**：`adaptive_summary_window_shrinks_with_book_length`；`segment_math_covers_expected_ranges`；`upsert_segment_summary_is_idempotent_per_index`；`story_so_far_block_includes_segments_only_for_long_books`；`parse_rejects_json_too_short_and_too_long`。
+- **未关闭**：真机 10+ 章验证摘要质量；**不得宣称续写质量已修复**；网站发布待 Apple 公证解阻。
 
 ### v0.60.0 - 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
 
@@ -143,13 +151,6 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
 - **验证**：`cargo test --lib` 1626 passed / 3 ignored（+2）；`npx vitest run` 585 passed / 3 skipped（净 −24：删 27 孤儿测试 + 新增 3 项空文档判定）；Playwright 39 passed / 5 skipped（连续两轮）；landing 24 passed + build 通过。
 - **契约**：`isEmptyEditorHtml` 空文档判定；`test_extract_fenced_json_trailing_comma_newline`；`test_strip_whitespace_trailing_commas_keeps_string_literals`；`frontstage-editing` 自动保存持久化用例（3 轮稳定）。
 - **未关闭**：真机续写未复跑（**不得宣称续写质量已修复**）；src-server 无 DB 不可编译、CI 未覆盖；withGlobalTauri + 宽松 CSP、FTP 明文、`story_outlines` 机器覆盖手写大纲、Agency↔agents 环依赖与 coordinator 巨石拆分待办。
-
-### v0.59.1 - 构建修复：对齐新版 nightly rustfmt
-
-v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安装包未产出）：浮动 nightly 由 2026-07-17 升到 2026-10-05 后中文注释折行规则变化。已整仓按新规则格式化（106 文件，纯折行无逻辑改动）。
-
-- **验证**：`cargo +nightly fmt -- --check` 0 diff；`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（均不变）。
-- **复发处置**：CI 若在格式步失败 → `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。
 
 ## Always Do
 

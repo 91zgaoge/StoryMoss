@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.60.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.61.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.61.0 · 分层记忆金字塔：章节语义摘要 + 段摘要 + 全书纲要
+
+- 章节摘要从「正文前 1000 字截断」升级为 **LLM 语义摘要**（谁做了什么、状态/关系/物品归属变化、伏笔埋设与回收），失败回退截断保底。
+- 新增 **段摘要（每 10 章）/ 全书纲要** 两层滚动摘要（V136），由章摘要逐层压缩。
+- **自适应窗口**：≤15 章看近 10 章摘要、16–50 章看近 5 章、>50 章看近 3 章 + 段摘要；长篇续写上下文新增【故事纲要】——远期情节不再只靠向量检索概率召回。
 
 ### v0.60.0 · 三把尺子：知识边界 / 物品归属 / 改稿级联影响报告
 

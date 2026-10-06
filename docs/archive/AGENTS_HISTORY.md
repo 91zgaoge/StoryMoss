@@ -1854,3 +1854,14 @@ This project is indexed by GitNexus as **StoryMoss** (22262 symbols, 46734 relat
 - **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）；`tsc` / `architecture_guard.py` 全绿。
 - **契约**：`change_delta_from_hostile_cast`；`continue_system_has_stall_example`；`editor_issue_parses_impact_and_fix`；`probe_gaps_when_increment_is_tail_recap`；`probe_does_not_gap_literary_aside_when_not_recap`；`looks_like_short_drama_defaults_novel`；`continue_beat_complete_does_not_require_tools`；制作限制只在短剧显示。
 - **未关闭**：真机须再跑创世/续写/短剧；**不得宣称续写质量已修复**。不分镜、不自动删角色脏行。
+
+---
+
+*归档于 2026-10-06（v0.61.0）：v0.59.1 摘要。*
+
+### v0.59.1 - 构建修复：对齐新版 nightly rustfmt
+
+v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安装包未产出）：浮动 nightly 由 2026-07-17 升到 2026-10-05 后中文注释折行规则变化。已整仓按新规则格式化（106 文件，纯折行无逻辑改动）。
+
+- **验证**：`cargo +nightly fmt -- --check` 0 diff；`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（均不变）。
+- **复发处置**：CI 若在格式步失败 → `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。

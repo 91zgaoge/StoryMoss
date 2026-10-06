@@ -550,9 +550,12 @@ impl SceneService {
                     let scene_for_obs = scene_id_for_commit.clone();
                     let content_for_obs = scene_for_commit.content.clone().unwrap_or_default();
 
+                    let pool_for_seg = pool.clone();
+                    let app_for_seg = app_handle.clone();
+                    let story_for_seg = story_id_for_commit.clone();
                     let service = SceneCommitService::new(pool);
                     let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
-                    if let Err(e) = service
+                    match service
                         .auto_commit(
                             &story_id_for_commit,
                             Some(&scene_id_for_commit),
@@ -565,11 +568,24 @@ impl SceneService {
                         )
                         .await
                     {
-                        log::warn!(
-                            "[SceneCommit] auto_commit failed for scene {}: {}",
-                            scene_id_for_commit,
-                            e
-                        );
+                        Ok(_) => {
+                            // P1-B（v0.61.0）：分层摘要刷新——每 10
+                            // 章补一段段摘要，
+                            // 段数足够时重算全书纲要（后台，受全局闸门约束）。
+                            crate::story_system::segment_summary::spawn_refresh_after_commit(
+                                app_for_seg,
+                                pool_for_seg,
+                                story_for_seg,
+                                chapter_number,
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[SceneCommit] auto_commit failed for scene {}: {}",
+                                scene_id_for_commit,
+                                e
+                            );
+                        }
                     }
 
                     if content_changed_for_split {

@@ -46,7 +46,6 @@ impl SceneCommitService {
         vector_store: Option<&dyn crate::ports::VectorStore>,
     ) -> Result<(), String> {
         let commit = self.init_commit(story_id, scene_id, chapter_id, chapter_number)?;
-        let summary = content.unwrap_or("").chars().take(1000).collect::<String>();
 
         // 加载运行时合同；失败时使用空合同，保证 commit 不阻塞
         let engine = super::StorySystemEngine::new(self.pool.clone());
@@ -86,6 +85,16 @@ impl SceneCommitService {
         } else {
             llm_service
         };
+
+        // 章节语义摘要（P1-A，v0.61.0）：LLM 压缩 100-150 字；失败回退截断。
+        // 此前是「正文前 1000 字截断」，既不是摘要也不带状态变化。
+        let summary = super::chapter_summary::summarize_chapter(
+            Some(&self.pool),
+            content.unwrap_or(""),
+            chapter_number,
+            llm_ref,
+        )
+        .await;
 
         // Mini review（LLM 失败自动回退启发式）
         let review_result = mini_review::run_mini_review(content.unwrap_or(""), &contract, llm_ref)

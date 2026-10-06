@@ -2,6 +2,37 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.61.0（2026-10-06）
+
+**P1：记忆质量**——分层记忆金字塔（章 → 段 → 全书）+ 自适应窗口。此前章节摘要是「正文前 1000 字截断」，既不是摘要也不携带状态变化；长篇的中远期情节只能靠向量检索概率召回。本版给长篇一个**确定性的远期纲要**。
+
+### P1-A 章节语义摘要
+
+- `scene_commits.summary_text` 从截断升级为 LLM 语义摘要（100–150 字：谁做了什么、状态/关系/物品归属变化、伏笔埋设与回收），新增提示词资产 `chapter_summary`。
+- 解析器 `parse_summary_response` 拒绝 JSON / 过短 / 过长输出；LLM 或解析失败一律回退截断（保底不阻塞、不产生空摘要）。后台标签 `background-summary`（静默名单内）。
+
+### P1-B 分层金字塔（V136）
+
+- 新表 `story_segment_summaries`（level: segment / book，UNIQUE(story_id, level, segment_index)）。
+- **段摘要**：每 10 章一条（区间 [1,10]、[11,20]…），由区间内逐章摘要压缩；数据不足一半时跳过等待补齐。
+- **全书纲要**：段数 ≥ 3 时由段摘要再压缩，每次新增段摘要后重算。
+- 触发：章节 commit 成功后 `spawn_refresh_after_commit` 后台补齐（受全局后台 LLM 闸门约束；LLM 失败仅告警不写半成品）。提示词资产 `segment_summary` / `book_summary`。
+
+### P1-C 自适应窗口
+
+- 记忆包工作窗口不再写死「近 3 章」：`adaptive_summary_window` 按书长切换（≤15 章 → 10；16–50 → 5；>50 → 3 + 段摘要）。
+- 长篇续写上下文注入【故事纲要（前情提要，仅供一致性参照，禁止直接复述）】：最近 3 条段摘要 + 全书纲要（从旧到新）；中篇至少注入全书纲要。
+
+### 测试
+
+- `cargo test --lib` 1653 passed / 3 ignored（+10）；前端无改动（vitest 590 / 3 skipped 不变）；`cargo +nightly fmt`、`architecture_guard.py` 全绿。
+- 契约：`adaptive_summary_window_shrinks_with_book_length`、`segment_math_covers_expected_ranges`、`upsert_segment_summary_is_idempotent_per_index`、`book_summary_roundtrip`、`story_so_far_block_includes_segments_only_for_long_books`、`collect_chapter_summaries_filters_range_and_orders`、`parse_accepts_plain_summary_and_collapses_blank_lines`、`parse_strips_reasoning_and_fences`、`parse_rejects_json_too_short_and_too_long`、`fallback_is_head_truncation_and_never_empty`。
+
+### 未关闭
+
+- 真机验证待做：语义摘要与分层纲要的真实生成质量需要在真机跑 10+ 章确认；**不得宣称续写质量已修复**。
+- 网站发布仍待 Apple 公证解阻（landing 兜底维持 0.58.0）。
+
 ## v0.60.0（2026-10-06）
 
 **P0：三把尺子**——对照 `docs/audits/2026-10-06-ai-novel-landscape-comparison.md` 与 `docs/plans/2026-10-06-p0-p3-roadmap-implementation.md`（P0–P3 四阶段路线的第一阶段）。把「长篇写作防吃书」从提示词层面的叮嘱，落成三个可校验、可回归的机制：知识边界、物品归属、改稿级联影响报告。
