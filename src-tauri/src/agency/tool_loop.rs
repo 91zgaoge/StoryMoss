@@ -703,7 +703,8 @@ mod tests {
     #[tokio::test]
     async fn test_conversation_window_truncation() {
         let (ctx, registry) = setup();
-        let big_observation = "x".repeat(30_000); // 工具结果超长（observation 截断 4000 仍累计）
+        let big_observation = "x".repeat(30_000); // 工具结果超长（observation
+                                                  // 截断 4000 仍累计）
         let llm = MockLlm::scripted(vec![
             &format!(r#"{{"type":"tool","name":"story_info","args":{{}}}}"#),
             r#"{"type":"final","content":"done"}"#,
@@ -714,7 +715,8 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.aborted);
-        // 会话窗口逻辑存在性验证：EditorAuditor 预算 10000 字符，截断函数行为单测
+        // 会话窗口逻辑存在性验证：EditorAuditor 预算 10000
+        // 字符，截断函数行为单测
         let windowed = truncate_conversation("头部任务\n", &"中".repeat(20000), 10000);
         assert!(windowed.chars().count() <= 10050);
         assert!(windowed.contains("头部任务"));

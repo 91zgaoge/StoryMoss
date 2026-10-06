@@ -316,15 +316,17 @@ impl StoryContextBuilder {
         current_content: Option<String>,
         selected_text: Option<String>,
     ) -> Result<AgentContext, AppError> {
-        // v0.9.5: 优先命中上下文缓存，避免 Writer → Inspector → Rewrite 闭环内重复构建
+        // v0.9.5: 优先命中上下文缓存，避免 Writer → Inspector → Rewrite
+        // 闭环内重复构建
         if let Some(ref cache) = self.cache {
             if let Some(ctx) = cache.get(story_id, scene_number, &current_content, &selected_text) {
                 return Ok(ctx);
             }
         }
 
-        // v0.9.7: 将所有同步 DB 查询与格式化操作整体包裹在单个 spawn_blocking 中，
-        // 避免多个独立 blocking 任务争抢 tokio worker；个性化扩展仅依赖 story_id，
+        // v0.9.7: 将所有同步 DB 查询与格式化操作整体包裹在单个 spawn_blocking
+        // 中， 避免多个独立 blocking 任务争抢 tokio
+        // worker；个性化扩展仅依赖 story_id，
         // 保持异步并与上下文构建并行。
         let pool = self.pool.clone();
         let story_id_owned = story_id.to_string();
@@ -751,7 +753,8 @@ impl StoryContextBuilder {
             }
         }
 
-        // 6. 最终兜底：若整体仍超过总预算，从 current_content 与 selected_text 再截断
+        // 6. 最终兜底：若整体仍超过总预算，从 current_content 与 selected_text
+        //    再截断
         let final_total = count_tokens(&format_full_context(context), family);
         if self.budget.allocate(final_total).is_none() {
             log::warn!(

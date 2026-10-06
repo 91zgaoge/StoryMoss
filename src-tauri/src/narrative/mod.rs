@@ -122,7 +122,8 @@ fn extract_first_json_object(content: &str) -> Result<&str, String> {
         }
 
         if !closed {
-            // v0.23.53: 未闭合的对象（可能是思考链里的草稿片段），跳过继续找下一个。
+            // v0.23.53: 未闭合的对象（可能是思考链里的草稿片段），
+            // 跳过继续找下一个。
             search_from = start + 1;
             continue;
         }
@@ -161,7 +162,8 @@ pub fn extract_and_sanitize_json(content: &str) -> Result<String, String> {
     s = s.trim().to_string();
     s = s.replace('\u{feff}', "");
 
-    // 4. 修复字符串内的未转义换行符和回车符（LLM 经常在 JSON 字符串值中直接换行）
+    // 4. 修复字符串内的未转义换行符和回车符（LLM 经常在 JSON
+    //    字符串值中直接换行）
     // 使用状态机：仅在字符串内部替换实际换行符为 \n
     {
         let mut result = String::with_capacity(s.len());
@@ -372,7 +374,8 @@ mod tests {
 
     #[test]
     fn test_extract_json_inside_reasoning_block_fallback() {
-        // v0.23.53: 推理模型把 JSON 写在思考链内部，剥离后无 JSON → 回退到原始内容提取
+        // v0.23.53: 推理模型把 JSON 写在思考链内部，剥离后无 JSON →
+        // 回退到原始内容提取
         let think_open = std::str::from_utf8(b"\x3c\x74\x68\x69\x6e\x6b\x3e").unwrap();
         let think_close = std::str::from_utf8(b"\x3c\x2f\x74\x68\x69\x6e\x6b\x3e").unwrap();
         let content = format!(

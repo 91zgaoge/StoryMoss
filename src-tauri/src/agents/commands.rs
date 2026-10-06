@@ -180,7 +180,8 @@ pub async fn auto_write(
     let _user_id = identity::resolve_user_id(&app_handle, pool.inner());
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
-    // v0.8.0: 在调用 coordinator 前捕获当前场景内容，避免生成期间用户编辑导致竞态
+    // v0.8.0: 在调用 coordinator
+    // 前捕获当前场景内容，避免生成期间用户编辑导致竞态
     let current_content = scene_repo
         .get_by_id(&request.chapter_id)
         .map_err(AppError::from)?
@@ -1024,7 +1025,8 @@ mod tests {
             "editor_qc",
             Some("   \n  "),
         );
-        // editor_qc 的指令本身提到「编辑审计问题」，这里断言的是问题段标题未生成
+        // editor_qc 的指令本身提到「编辑审计问题」，
+        // 这里断言的是问题段标题未生成
         assert!(!desc.contains("【编辑审计问题（逐条修正）】"));
     }
 

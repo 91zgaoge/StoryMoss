@@ -248,7 +248,8 @@ impl AgentTool for BoardReadTool {
             if let Some(k) = key {
                 let items = board.list_zone_filtered(&run_id, zone)?;
                 if let Some(item) = items.into_iter().find(|i| i.key == k) {
-                    // 三档 detail：summary 只取前 500 字符；full（含默认）取全文
+                    // 三档 detail：summary 只取前 500
+                    // 字符；full（含默认）取全文
                     let body = match detail.as_str() {
                         "summary" => format!(
                             "{}…(summary 档，detail=full 取全文)",
@@ -941,8 +942,8 @@ mod tests {
         let pool = create_test_pool().unwrap();
         seed_run(&pool);
         let registry = ToolRegistry::agency_default();
-        // 编辑审计角色不允许 board_write（其审查经 ToolLoop final + 协调器落审查区，
-        // P1 白名单收紧到只读 + story_info）
+        // 编辑审计角色不允许 board_write（其审查经 ToolLoop final +
+        // 协调器落审查区， P1 白名单收紧到只读 + story_info）
         assert!(registry
             .get_for_role(AgentRole::EditorAuditor, "board_write")
             .is_none());
@@ -1193,7 +1194,8 @@ mod tests {
         let item = context.board.repo().get_item(&draft.id).unwrap().unwrap();
         assert_eq!(item.content, "修订稿");
         assert_eq!(item.version, 2);
-        // 版本冲突 → 错误回显（工具 Ok 但内容提示冲突，或 Err——以实现为准断言其一）
+        // 版本冲突 → 错误回显（工具 Ok 但内容提示冲突，或
+        // Err——以实现为准断言其一）
         let conflict = revise
             .execute(
                 &context,

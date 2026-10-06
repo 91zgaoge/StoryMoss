@@ -285,8 +285,8 @@ fn prompts_resource_dir() -> Option<PathBuf> {
         }
     }
 
-    // Dev / test fallback: project-root resources/prompts (CARGO_MANIFEST_DIR is
-    // src-tauri).
+    // Dev / test fallback: project-root resources/prompts (CARGO_MANIFEST_DIR
+    // is src-tauri).
     std::env::var("CARGO_MANIFEST_DIR")
         .ok()
         .map(PathBuf::from)

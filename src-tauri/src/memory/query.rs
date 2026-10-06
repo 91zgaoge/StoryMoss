@@ -704,7 +704,8 @@ mod tests {
 
         assert_eq!(fused.len(), 3);
         assert_eq!(fused[0].id, "doc1"); // 两边都有，分数最高
-                                         // doc1 score = 0.8*0.4 + 0.95*0.6 = 0.32 + 0.57 = 0.89
+                                         // doc1 score = 0.8*0.4 + 0.95*0.6 =
+                                         // 0.32 + 0.57 = 0.89
         assert!(
             (fused[0].score - 0.89).abs() < 0.01,
             "doc1 score should be ~0.89, got {}",

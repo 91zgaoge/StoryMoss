@@ -137,8 +137,8 @@ pub async fn execute_skill(
         ));
     }
 
-    // If LLM was already called (PromptRuntime with llm_service), return content
-    // directly
+    // If LLM was already called (PromptRuntime with llm_service), return
+    // content directly
     if let Some(content) = result.data.get("content").and_then(|v| v.as_str()) {
         return Ok(serde_json::json!({
             "success": true,

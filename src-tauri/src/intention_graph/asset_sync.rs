@@ -33,8 +33,9 @@ impl AssetSyncEngine {
 
             // 同步能力的 when_to_use 作为意图节点，并建立边
             // 注意：边必须引用资产节点 id（asset.id，由 AssetNode::new 生成），
-            // 而非 cap.id —— 二者不一致时外键约束失败，整个 full_initialize 中止
-            // （v0.30.48 之前即因此每次启动报 FK constraint failed 警告）。
+            // 而非 cap.id —— 二者不一致时外键约束失败，整个 full_initialize
+            // 中止 （v0.30.48 之前即因此每次启动报 FK constraint
+            // failed 警告）。
             self.sync_capability_intentions(cap, &asset)?;
         }
         log::info!("[AssetSyncEngine] Synced {} capabilities", count);
@@ -197,7 +198,8 @@ impl AssetSyncEngine {
                 intention.embedding = generate_embedding(&intention.description);
                 self.repo.create_intention(&intention)?;
 
-                // 建立意图 -> 资产边（asset_id 必须是资产节点 id，见调用处注释）
+                // 建立意图 -> 资产边（asset_id 必须是资产节点
+                // id，见调用处注释）
                 let edge = IntentionAssetEdge {
                     id: None,
                     intention_id: intention.id.clone(),
@@ -389,7 +391,8 @@ fn selectable_asset_to_asset_node(asset: &SelectableAsset) -> AssetNode {
         format!("{:?}", asset.kind).to_lowercase(),
         asset.name.to_lowercase().replace(' ', "_"),
     ];
-    // 对 GenreProfile，把 aliases 和 canonical_name 也作为 tags，便于复合题材发现
+    // 对 GenreProfile，把 aliases 和 canonical_name 也作为
+    // tags，便于复合题材发现
     if asset.kind == crate::strategy::AssetKind::GenreProfile {
         if let Some(aliases) = asset.payload.get("aliases").and_then(|v| v.as_array()) {
             for alias in aliases {

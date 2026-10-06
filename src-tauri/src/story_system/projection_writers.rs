@@ -148,7 +148,8 @@ impl ProjectionWriter for IndexProjectionWriter {
                 None => delta.action.clone(),
             };
 
-            // Prefer explicit entity_id from commit; else match by name (V106 link).
+            // Prefer explicit entity_id from commit; else match by name (V106
+            // link).
             let kg_entity_id = if !delta.entity_id.is_empty() {
                 Some(delta.entity_id.clone())
             } else {

@@ -376,7 +376,8 @@ mod tests {
 
     #[test]
     fn test_truncate_to_budget_respects_budget() {
-        // Use ASCII text where token boundaries are stable across encode/decode.
+        // Use ASCII text where token boundaries are stable across
+        // encode/decode.
         let text = "The quick brown fox jumps over the lazy dog. ".repeat(100);
         let budget = 16;
         let truncated = truncate_to_budget(&text, budget, "gpt-4");

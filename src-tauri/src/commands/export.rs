@@ -107,7 +107,8 @@ pub async fn export_story(
         )
         .map_err(AppError::from)?;
 
-    // 二进制格式（pdf/epub）不可 read_to_string；文本格式返回 UTF-8 内容供前端另存
+    // 二进制格式（pdf/epub）不可 read_to_string；文本格式返回 UTF-8
+    // 内容供前端另存
     let content = if is_binary {
         String::new()
     } else {

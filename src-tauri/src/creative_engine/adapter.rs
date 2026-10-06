@@ -144,9 +144,10 @@ impl CreativeEnginePort for CreativeEngineAdapter {
     }
 
     fn load_asset_snapshot(&self, story_id: &str, style_dna_id: Option<&str>) -> AssetSnapshot {
-        // 用同一个 CanonicalStateManager 同时实现 ForeshadowingPort / PayoffLedgerPort
-        // 并提供角色状态/活跃冲突快照。manager 内部不再依赖 creative_engine，
-        // 因此 creative_engine -> canonical_state 的单向依赖不再构成循环。
+        // 用同一个 CanonicalStateManager 同时实现 ForeshadowingPort /
+        // PayoffLedgerPort 并提供角色状态/活跃冲突快照。manager
+        // 内部不再依赖 creative_engine， 因此 creative_engine ->
+        // canonical_state 的单向依赖不再构成循环。
         let manager = Arc::new(crate::canonical_state::CanonicalStateManager::new(
             self.pool.clone(),
         ));

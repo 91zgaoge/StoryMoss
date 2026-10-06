@@ -331,9 +331,10 @@ impl LanceVectorStore {
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
         let table_guard = self.table().await?;
         let table = table_guard.as_ref().unwrap();
-        // Use a parameterized story_id filter and a prefix LIKE on text to avoid
-        // full table scans and SQL injection risks. Wildcard characters in the
-        // user query are escaped so they are treated as literal text.
+        // Use a parameterized story_id filter and a prefix LIKE on text to
+        // avoid full table scans and SQL injection risks. Wildcard
+        // characters in the user query are escaped so they are treated
+        // as literal text.
         let prefix = format!("{}%", escape_like_pattern(query));
         let filter = col("story_id")
             .eq(lit(story_id))
@@ -653,13 +654,13 @@ mod tests {
             assert_eq!(results.len(), 2);
         }
 
-        // Phase 2: Re-open with same URI (memory DB is fresh each time, so this just
-        // tests struct)
+        // Phase 2: Re-open with same URI (memory DB is fresh each time, so this
+        // just tests struct)
         {
             let store = LanceVectorStore::new(db_uri.clone());
             store.init().await.unwrap();
-            // Memory DB is not actually persisted across instances, so count is 0
-            // This test mainly verifies init() doesn't panic
+            // Memory DB is not actually persisted across instances, so count is
+            // 0 This test mainly verifies init() doesn't panic
             assert_eq!(store.count().await.unwrap(), 0);
         }
     }

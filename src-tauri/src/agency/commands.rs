@@ -658,8 +658,8 @@ fn learning_overview(
 ) -> Result<LearningOverview, AppError> {
     // 惰性周衰减（读取时生效，ECC 同参数）
     let _ = crate::agency::learning::apply_weekly_decay(logger, story_id);
-    // 惰性清理（先衰减后清理：衰减可能把 confidence 压到 PRUNE_CONFIDENCE 以下；
-    // promoted 晋升产物豁免清理）
+    // 惰性清理（先衰减后清理：衰减可能把 confidence 压到 PRUNE_CONFIDENCE
+    // 以下； promoted 晋升产物豁免清理）
     let _ = crate::agency::learning::prune_instincts(logger, story_id);
     let instincts = crate::agency::learning::list_instincts(logger, story_id)?;
     let candidates = crate::agency::learning::promotion_candidates(logger, story_id)?;
@@ -827,7 +827,8 @@ mod tests {
             repo.create_run(&crate::agency::models::AgencyRun::new(run_id, "前提"))
                 .unwrap();
             repo.set_run_story(run_id, story_id).unwrap();
-            // 同 story 仅允许一个活跃 run（V109 部分唯一索引）：置为终态再种下一个
+            // 同 story 仅允许一个活跃 run（V109
+            // 部分唯一索引）：置为终态再种下一个
             repo.finish_run(run_id, "completed", None, None).unwrap();
         }
         let cp = |run_id, story_id, milestone, tokens| {

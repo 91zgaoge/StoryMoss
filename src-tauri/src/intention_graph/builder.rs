@@ -103,7 +103,8 @@ impl IntentSynthesisPipeline {
         let raw = response.content.trim();
         let (verb_raw, object_raw, confidence) = Self::extract_intent_fields(raw, user_input)?;
 
-        // v0.20.1: 意图归一化--将 LLM 返回的动词映射到 AssetSync 注册的标准动词，
+        // v0.20.1: 意图归一化--将 LLM 返回的动词映射到 AssetSync
+        // 注册的标准动词，
         // 确保不同表达方式归一化到同一意图节点（修复审计报告 P2-3）
         let verb = Self::normalize_verb(&verb_raw);
         let object = Self::normalize_object(&object_raw);
@@ -325,7 +326,8 @@ impl IntentSynthesisPipeline {
         } else if is_outline_request {
             "plan structure"
         } else {
-            // v0.30.11: 兜底默认 generate prose（原 "analyze intent" 产出空链无效）。
+            // v0.30.11: 兜底默认 generate prose（原 "analyze intent"
+            // 产出空链无效）。
             // 写作应用中未识别的输入默认按散文生成处理，expand_chain 映射到
             // inspect+revise 安全链；误判代价远低于空链。
             "generate prose"

@@ -33,8 +33,8 @@ fn load_evolved_descriptions() -> HashMap<String, String> {
         Ok(content) => {
             let raw: HashMap<String, String> = serde_json::from_str(&content).unwrap_or_default();
             // v0.13.1: 防御性过滤 —— 旧版本可能已保存被污染的描述（LLM <think>
-            // 思考链、超长文本）。这些会注入 PlanGenerator prompt 拖慢智能创作，
-            // 必须在加载时丢弃。
+            // 思考链、超长文本）。这些会注入 PlanGenerator prompt
+            // 拖慢智能创作， 必须在加载时丢弃。
             let cleaned: HashMap<String, String> = raw
                 .into_iter()
                 .filter_map(|(id, desc)| {

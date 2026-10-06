@@ -280,7 +280,8 @@ mod tests {
             true
         });
 
-        // Simulate user cancelling the generation: the ingest task should observe it.
+        // Simulate user cancelling the generation: the ingest task should
+        // observe it.
         std::thread::sleep(Duration::from_millis(20));
         cancel_ingest_token(request_id);
 

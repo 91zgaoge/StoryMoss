@@ -361,7 +361,8 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
             }
             "foreshadowing" => {
                 // content 可能是纯文本（单条），也可能是 JSON 数组/对象
-                // （本地模型经 board_write 写入的变体），统一归一化为若干条文本。
+                // （本地模型经 board_write
+                // 写入的变体），统一归一化为若干条文本。
                 // 先试严格 JSON（覆盖数组形态），再退回 parse_lenient（花括号
                 // 截取只覆盖对象形态），最后按纯文本处理。
                 let trimmed = item.content.trim();

@@ -1,8 +1,12 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.59.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.59.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.59.1 变更说明
+
+- 无测试变更（整仓格式化修复，恢复 CI 格式门）。基线不变：`cargo test --lib` 1624 passed / 3 ignored；vitest 609 passed / 3 skipped。
 
 ### v0.59.0 变更说明
 

@@ -57,7 +57,8 @@ impl ExpansionDebt {
             }
         };
 
-        // 伏笔停滞：最近一次埋设/回收距当前的章数；表里无任何记录 → 0（旧书零干扰）
+        // 伏笔停滞：最近一次埋设/回收距当前的章数；表里无任何记录 →
+        // 0（旧书零干扰）
         let foreshadow_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM foreshadowing_tracker WHERE story_id = ?1",

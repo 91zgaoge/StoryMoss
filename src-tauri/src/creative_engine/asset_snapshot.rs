@@ -120,8 +120,8 @@ impl CreativeAssetSnapshot {
         let has_overdue = !overdue_payoffs.is_empty();
 
         // 获取未回收伏笔的重要性，用于判断"主要伏笔"
-        // 通过 story_system::ForeshadowingService 单一真源读取，避免 creative_engine
-        // 直接访问 foreshadowing_tracker 表。
+        // 通过 story_system::ForeshadowingService 单一真源读取，避免
+        // creative_engine 直接访问 foreshadowing_tracker 表。
         let service = ForeshadowingServiceImpl::new(pool.clone());
         let pending_importances: Vec<i32> = match service.get_unresolved(story_id) {
             Ok(records) => records.into_iter().map(|r| r.importance).collect(),
@@ -152,7 +152,8 @@ impl CreativeAssetSnapshot {
                 .to_string();
         }
 
-        // 高潮检测：最近 3 个场景都有 confidence_score > 0.8 且内容长度 > 1000 字
+        // 高潮检测：最近 3 个场景都有 confidence_score > 0.8 且内容长度 > 1000
+        // 字
         if total_scenes >= 30 && scenes.len() >= 3 {
             let recent_scenes: Vec<_> = scenes.iter().rev().take(3).collect();
             let all_high_confidence = recent_scenes.iter().all(|s| {
@@ -169,7 +170,8 @@ impl CreativeAssetSnapshot {
             }
         }
 
-        // 如果所有主要伏笔（importance >= 7）都已回收，且场景数足够多，进入收尾期
+        // 如果所有主要伏笔（importance >=
+        // 7）都已回收，且场景数足够多，进入收尾期
         let has_major_pending = pending_importances.iter().any(|i| *i >= 7);
         let has_any_payoff = !pending_importances.is_empty();
         if has_any_payoff && !has_major_pending && total_scenes >= 50 {
@@ -372,7 +374,8 @@ mod tests {
             Arc::new(MockPayoffLedgerPort),
         );
 
-        // 场景数 3 对应铺垫期；重点是 narrative phase guidance 成功通过服务读取。
+        // 场景数 3 对应铺垫期；重点是 narrative phase guidance
+        // 成功通过服务读取。
         let guidance = snapshot.narrative_phase_guidance().unwrap();
         assert!(
             guidance.contains("叙事阶段"),

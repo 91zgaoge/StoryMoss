@@ -200,7 +200,8 @@ mod tests {
         let status = svc.upgrade_subscription("u1", "pro", Some(30)).unwrap();
         assert_eq!(status.tier, "pro");
         assert!(status.expires_at.is_some());
-        // 注意：当前 has_feature_access 不校验 expires_at 是否过期，仅按 tier 判断
+        // 注意：当前 has_feature_access 不校验 expires_at 是否过期，仅按 tier
+        // 判断
         assert!(svc
             .has_feature_access("u1", "guidebook_distillation")
             .unwrap());

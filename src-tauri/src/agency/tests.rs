@@ -926,8 +926,9 @@ fn test_parse_lenient_json() {
 #[test]
 fn test_parse_lenient_strips_markdown_code_fence_with_trailing_brace() {
     // issue #14：JSON 被 ```json 代码块包裹，且代码块后有额外说明文本含 `}`。
-    // 旧 parse_lenient 用 rfind('}') 会截到尾部杂散 `}`，from_str 失败 -> None。
-    // 现 extract_and_sanitize_json 做括号深度匹配，只取首个完整对象。
+    // 旧 parse_lenient 用 rfind('}') 会截到尾部杂散 `}`，from_str 失败 ->
+    // None。 现 extract_and_sanitize_json
+    // 做括号深度匹配，只取首个完整对象。
     let raw = "好的，以下是世界观：\n```json\n{\"verdict\":\"pass\",\"blocking_issues\":[]}\n```\n注意：以上为 JSON}。";
     let v: EditorVerdict = parse_lenient(raw).expect("应剥离围栏并提取首个完整 JSON 对象");
     assert_eq!(v.verdict, "pass");
@@ -1772,7 +1773,8 @@ async fn test_logline_stored_after_genesis() {
 
 #[tokio::test]
 async fn test_continue_fails_without_assets_and_producer_aborts() {
-    // v0.49: 管理熔断不再以「资产补齐未完成」挡住续写；空书仍可能在写作阶段失败。
+    // v0.49: 管理熔断不再以「资产补齐未完成」挡住续写；
+    // 空书仍可能在写作阶段失败。
     let pool = create_test_pool().unwrap();
     let story = crate::db::repositories::StoryRepository::new(pool.clone())
         .create(crate::db::dto::CreateStoryRequest {
@@ -2408,12 +2410,14 @@ async fn test_resume_rejects_running_run() {
 #[test]
 fn test_request_guard_unregisters_on_drop() {
     let run = "run-guard-test";
-    // guard 存活期间 request_id 在注册表内（drain 取走 req-g1，证明 new 已注册）
+    // guard 存活期间 request_id 在注册表内（drain 取走 req-g1，证明 new
+    // 已注册）
     {
         let _guard = RequestGuard::new(run, "req-g1");
         assert_eq!(drain_requests(run), vec!["req-g1".to_string()]);
     }
-    // guard drop 后注册表已清理（上面 drain 提前取走会破坏语义——用另一 id 验证）
+    // guard drop 后注册表已清理（上面 drain 提前取走会破坏语义——用另一 id
+    // 验证）
     register_request(run, "req-g2");
     {
         let _guard = RequestGuard::new(run, "req-g3");
@@ -2699,7 +2703,8 @@ async fn test_checkpoints_written_at_milestones() {
     let gates = m["gate_scores"].as_array().unwrap();
     assert!(gates.is_empty(), "genesis 前台无 gate_scores: {:?}", gates);
 
-    // 单章续写：assets → chapter → run_final（质检后台化，chapter 无 gate_scores）
+    // 单章续写：assets → chapter → run_final（质检后台化，chapter 无
+    // gate_scores）
     let story_id = seed_story_with_assets(&pool);
     let chapter1 = pass_grade_content("第1章正文。");
     let llm = MockLlm::scripted(vec![
@@ -3545,7 +3550,8 @@ async fn test_continue_writer_maxturns_board_recovery() {
     );
     let editor_pass = r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#;
     // generate_chapter_outline（1 调用，因 story_outline 存在触发）+ 10 次
-    // board_write（writer tool_loop 跑满 max_turns=10 无 final -> MaxTurns 熔断）
+    // board_write（writer tool_loop 跑满 max_turns=10 无 final -> MaxTurns
+    // 熔断）
     // + editor（pass）。ensure_assets 因角色/世界/大纲齐备不消费任何 LLM 调用。
     let mut lines: Vec<String> =
         vec!["本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区。".into()];

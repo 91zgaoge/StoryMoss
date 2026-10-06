@@ -350,7 +350,8 @@ impl CreationWorkflowEngine {
                 let story_id = context.story.story_id.clone();
                 let content = input.to_string();
 
-                // 1. 保存内容到数据库（Scene）—— 统一创作流水线：Scene 为唯一提交粒度
+                // 1. 保存内容到数据库（Scene）—— 统一创作流水线：Scene
+                //    为唯一提交粒度
                 let scene_repo = SceneRepository::new(self.pool.clone());
                 let mut saved_info = String::new();
 
@@ -421,9 +422,11 @@ impl CreationWorkflowEngine {
                     }
                 }
 
-                // 3. 确保故事拥有基础要素占位（统一数据模型：快速创作与向导产出一致）
-                // 若用户通过向导模式创建，这些记录已由 create_story_with_wizard 创建；
-                // 若通过快速创作，此处创建占位，供后续后台 enrich 完善。
+                // 3. 确保故事拥有基础要素占位（统一数据模型：
+                //    快速创作与向导产出一致）
+                // 若用户通过向导模式创建，这些记录已由 create_story_with_wizard
+                // 创建； 若通过快速创作，此处创建占位，
+                // 供后续后台 enrich 完善。
                 let _ = WorldBuildingRepository::new(self.pool.clone())
                     .get_by_story(&story_id)
                     .and_then(|opt| {

@@ -319,7 +319,8 @@ mod ts_export_tests {
         // 确保目标目录存在
         std::fs::create_dir_all(&export_dir).expect("创建 generated 目录失败");
 
-        // 导出 SyncEvent（serde tag/content 模式会自动生成 discriminated union）
+        // 导出 SyncEvent（serde tag/content 模式会自动生成 discriminated
+        // union）
         SyncEvent::export_all_to(&export_dir).expect("导出 SyncEvent 失败");
 
         // 验证文件已生成
@@ -381,7 +382,8 @@ mod trishot_event_tests {
 
     #[test]
     fn test_chapter_committed_serialization() {
-        // v0.23.1: ChapterCommitted 序列化为 tag/content 模式并携带 projection_status
+        // v0.23.1: ChapterCommitted 序列化为 tag/content 模式并携带
+        // projection_status
         let mut projection_status = HashMap::new();
         projection_status.insert("vector".to_string(), "success".to_string());
         projection_status.insert("kg".to_string(), "success".to_string());

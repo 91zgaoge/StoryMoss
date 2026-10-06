@@ -316,13 +316,13 @@ impl SceneCommitService {
             }
         };
 
-        // 若 auto_commit 已经提供 entity_deltas_json（非占位符），则跳过重复 KG 提取，
-        // 但仍触发 knowledgeGraph 刷新与叙事分析流水线。
+        // 若 auto_commit 已经提供 entity_deltas_json（非占位符），则跳过重复 KG
+        // 提取， 但仍触发 knowledgeGraph 刷新与叙事分析流水线。
         let has_precomputed_deltas =
             !entity_deltas_json.trim().is_empty() && entity_deltas_json.trim() != "{}";
 
-        // 克隆 AppHandle 供 KG future 捕获，避免移动原始值（后续发射 ChapterCommitted
-        // 仍需使用）
+        // 克隆 AppHandle 供 KG future 捕获，避免移动原始值（后续发射
+        // ChapterCommitted 仍需使用）
         let app_handle_for_kg = app_handle.clone();
         let kg_future = async {
             if has_precomputed_deltas {
@@ -343,7 +343,8 @@ impl SceneCommitService {
                         .await
                     {
                         Ok(_) => {
-                            // P0 修复: KG 提取成功后发射同步事件，确保幕后知识图谱自动刷新
+                            // P0 修复: KG 提取成功后发射同步事件，
+                            // 确保幕后知识图谱自动刷新
                             let _ = crate::state_sync::StateSync::emit_data_refresh(
                                 &app,
                                 Some(&story_id),

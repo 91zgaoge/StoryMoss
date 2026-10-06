@@ -350,8 +350,9 @@ mod tests {
         );
     }
 
-    // ==================== 真实模型集成测试（需模型端点可达）====================
-    // 标记 #[ignore] 避免 CI 运行；本地验证用 `cargo test --lib -- --ignored`
+    // ====================
+    // 真实模型集成测试（需模型端点可达）==================== 标记 #[ignore]
+    // 避免 CI 运行；本地验证用 `cargo test --lib -- --ignored`
 
     use crate::intention_graph::builder::IntentSynthesisPipeline;
 

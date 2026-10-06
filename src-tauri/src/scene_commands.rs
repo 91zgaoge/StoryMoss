@@ -77,8 +77,8 @@ pub async fn create_scene(
         || confidence_score.is_some();
     let has_content = content.is_some(); // Phase 4: 记录后才 move
     if has_extra {
-        // v0.30.46 fix: create 时携带的 content 等字段若更新失败，必须显式报错，
-        // 避免首次粘贴的正文静默丢失。
+        // v0.30.46 fix: create 时携带的 content
+        // 等字段若更新失败，必须显式报错， 避免首次粘贴的正文静默丢失。
         repo.update(
             &scene.id,
             &SceneUpdate {
@@ -301,7 +301,8 @@ pub async fn update_scene(
     let (result, story_id_opt, had_content_before) =
         tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, bool), AppError> {
             let repo = SceneRepository::new(pool_clone);
-            // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+            // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default
+            // 导致空字符串）
             let prior_scene = repo.get_by_id(&scene_id_clone).ok().flatten();
             let story_id_opt = prior_scene.as_ref().map(|s| s.story_id.clone());
             // v0.31.0: 章节完成检测——正文（或草稿）从无到有视为本章完成

@@ -289,7 +289,8 @@ impl GuidebookDistiller {
             .ok_or_else(|| AnalysisError::LlmError("prompt distill_merge 未注册".into()))?;
         // max_tokens 8000：推理模型（deepseek 等）会把数千 token 烧在
         // reasoning_content/CoT 上，4000 预算曾导致 content 为空直接解析失败
-        // （v0.36.0 merge 卡死案）。失败重试一次与 generate_methodology 同模式。
+        // （v0.36.0 merge 卡死案）。失败重试一次与 generate_methodology
+        // 同模式。
         let attempt = || async {
             let resp = call_llm(
                 &self.llm_service,

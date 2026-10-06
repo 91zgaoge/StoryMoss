@@ -39,7 +39,8 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
         .with_rust_migrations(all_rust_migrations())
         .run(&mut conn)?;
 
-    // 测试环境：创建 scene_versions 表（被 change_tracks/comment_threads 外键引用）
+    // 测试环境：创建 scene_versions 表（被 change_tracks/comment_threads
+    // 外键引用）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS scene_versions (
             id TEXT PRIMARY KEY,
@@ -136,8 +137,9 @@ pub fn init_db(
         .run(&mut conn)?;
 
     // v0.26.30 hotfix: 兜底修复部分旧数据库在 inline migration → Rust migration
-    // 切换过程中可能跳过 V099，导致 characters/scenes/world_buildings/kg_entities
-    // 表缺失 source / is_auto_generated 列。该函数幂等，可多次执行。
+    // 切换过程中可能跳过 V099，导致
+    // characters/scenes/world_buildings/kg_entities 表缺失 source /
+    // is_auto_generated 列。该函数幂等，可多次执行。
     ensure_source_columns(&mut conn)?;
 
     log::info!("[init_db] Database initialized at {}", db_path.display());

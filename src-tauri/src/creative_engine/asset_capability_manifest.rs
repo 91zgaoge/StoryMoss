@@ -62,7 +62,8 @@ impl AssetTaskType {
             return h;
         }
         let s = instruction.to_lowercase();
-        // 「按正文重写」优先于「重写→改写」：否则「将故事大纲按照现有正文重新写过」
+        // 「按正文重写」优先于「重写→改写」：
+        // 否则「将故事大纲按照现有正文重新写过」
         // 会被当成润色正文。不引用 agency 以免 creative_engine→agency 环。
         let from_prose = s.contains("正文") || s.contains("已写章节");
         let rewrite_asset = s.contains("重写")

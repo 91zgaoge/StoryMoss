@@ -369,7 +369,8 @@ impl ChapterService {
             chapter.id.clone(),
         );
 
-        // 6. 新建章节后自动触发 chapter commit（无需 debounce，首次创建只执行一次）
+        // 6. 新建章节后自动触发 chapter commit（无需
+        //    debounce，首次创建只执行一次）
         let scene_id_for_commit = {
             let scene_repo = SceneRepository::new(self.pool.clone());
             scene_repo

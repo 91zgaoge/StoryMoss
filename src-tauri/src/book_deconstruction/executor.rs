@@ -240,7 +240,8 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 book_id
             );
 
-            // 1. 为每个 SceneElement 计算 narrative_intensity / sentiment / event_types
+            // 1. 为每个 SceneElement 计算 narrative_intensity / sentiment /
+            //    event_types
             for scene in &mut analysis_ctx.bundle.scenes {
                 if !scene.conflict_type.is_empty() {
                     scene.narrative_intensity =
@@ -414,7 +415,8 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 let _ = wb_repo.create(wb);
             }
 
-            // 伏笔写入 foreshadowing_tracker（story_id = book_id；转故事时再复制）
+            // 伏笔写入 foreshadowing_tracker（story_id =
+            // book_id；转故事时再复制）
             let fw_count = persist_bundle_foreshadowings(
                 &self.pool,
                 book_id,

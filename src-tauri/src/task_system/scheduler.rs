@@ -82,7 +82,8 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered weekly task: {}", task_id);
             }
             ScheduleType::Cron => {
-                // P1-13 修复: 使用 cron crate 解析标准 Cron 表达式，精确计算下次执行时间
+                // P1-13 修复: 使用 cron crate 解析标准 Cron
+                // 表达式，精确计算下次执行时间
                 let schedule = Self::parse_cron_schedule(task.cron_pattern.as_deref())?;
                 let handle = self.spawn_cron(task_id.clone(), schedule, lock, callback);
                 {

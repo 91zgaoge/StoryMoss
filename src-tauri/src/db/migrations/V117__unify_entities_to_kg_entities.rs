@@ -144,8 +144,8 @@ impl RustMigration for Migration {
             }
             drop(stmt);
 
-            // Backfill memory_items.kg_entity_id by subject-name match within the
-            // same story.
+            // Backfill memory_items.kg_entity_id by subject-name match within
+            // the same story.
             tx.execute(
                 "UPDATE memory_items
                  SET kg_entity_id = (

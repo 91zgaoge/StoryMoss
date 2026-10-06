@@ -244,7 +244,8 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
                 record_summary
             );
 
-            // v0.11.5-hotfix: 单次能力进化分析最多等待 60s，避免无响应模型拖垮整个流程
+            // v0.11.5-hotfix: 单次能力进化分析最多等待
+            // 60s，避免无响应模型拖垮整个流程
             let evolution_timeout = std::time::Duration::from_secs(60);
             let evolution_result = timeout(
                 evolution_timeout,
@@ -260,9 +261,12 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
 
             match evolution_result {
                 Ok(Ok(response)) => {
-                    // v0.13.1: 清洗 LLM 输出 —— 部分模型（如 qwen/deepseek）会在正文前
-                    // 输出 <think>...</think> 思考链。若不剥离，这段混乱文本会被当作
-                    // when_to_use 注入 PlanGenerator 的 prompt，污染计划生成、拖慢甚至
+                    // v0.13.1: 清洗 LLM 输出 —— 部分模型（如
+                    // qwen/deepseek）会在正文前
+                    // 输出 <think>...</think>
+                    // 思考链。若不剥离，这段混乱文本会被当作
+                    // when_to_use 注入 PlanGenerator 的
+                    // prompt，污染计划生成、拖慢甚至
                     // 卡死智能创作的「准备上下文」阶段。
                     let improved = sanitize_evolved_description(&response.content);
                     if let Some(clean) = improved {

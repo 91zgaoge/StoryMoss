@@ -593,8 +593,9 @@ impl AgentOrchestrator {
         // v0.8.0: 自动写入记忆（创作完成后）
         // v0.9.5: 同时触发完整采摘（IngestPipeline → KG + 向量索引）
         // v0.11.x (C2): 增加 Semaphore 背压与 CancellationToken 取消传播。
-        // v0.23.52: TriShot 已在 execute_trishot 内 emit "三击生成完成"(Completed)，
-        // 这里不再重复 emit SavingMemory/Completed，否则两个 Completed + 一个
+        // v0.23.52: TriShot 已在 execute_trishot 内 emit
+        // "三击生成完成"(Completed)， 这里不再重复 emit
+        // SavingMemory/Completed，否则两个 Completed + 一个
         // SavingMemory 会在前端与 execute_trishot
         // 的事件竞争，覆盖"已完成"状态，导致状态不一致。
         let trishot_already_completed = matches!(mode, GenerationMode::TriShot);
@@ -749,9 +750,10 @@ impl AgentOrchestrator {
             });
         }
 
-        // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore 正确结束活动
-        // v0.23.52: TriShot 路径已在 execute_trishot 内 emit Completed/Failed，
-        // 不再重复 emit，避免与前端"已完成"状态竞争。
+        // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore
+        // 正确结束活动 v0.23.52: TriShot 路径已在 execute_trishot 内
+        // emit Completed/Failed， 不再重复 emit，避免与前端"已完成"
+        // 状态竞争。
         match &result {
             Ok(r) => {
                 if !trishot_already_completed {
@@ -947,8 +949,9 @@ impl AgentOrchestrator {
         );
 
         // P1-1: 从 task.parameters 提取叙事四元组，注入 TimeSliced 路径。
-        // 此前 TimeSliced 绕过 build_writer_prompt，四元组虽已序列化进 parameters
-        // 却被忽略。现在接通，让 v0.17 核心资产在默认续写路径生效。
+        // 此前 TimeSliced 绕过 build_writer_prompt，四元组虽已序列化进
+        // parameters 却被忽略。现在接通，让 v0.17
+        // 核心资产在默认续写路径生效。
         let mut bundle = bundle;
         if let Some(quartet_val) = task.parameters.get("narrative_quartet") {
             if let Some(rendered) =
@@ -980,8 +983,8 @@ impl AgentOrchestrator {
                 bundle.methodology_extension = Some(ext);
             }
         }
-        // 推荐风格 DNA 兜底：story 未配置 style_dna_id（bundle 未加载出六维扩展）时，
-        // 用推荐的第一个 DNA 加载扩展。
+        // 推荐风格 DNA 兜底：story 未配置 style_dna_id（bundle
+        // 未加载出六维扩展）时， 用推荐的第一个 DNA 加载扩展。
         if bundle.style_dna_extension.is_none() {
             let recommended_dna: Option<String> = task
                 .parameters
@@ -1011,8 +1014,9 @@ impl AgentOrchestrator {
             }
         }
 
-        // 设计第一节：打通 executor 死注入——追读力债务/钩子类型/微兑现经共享渲染
-        // 函数进 bundle.chase_debt_text（复用 writer_chase_debt /
+        // 设计第一节：打通 executor
+        // 死注入——追读力债务/钩子类型/微兑现经共享渲染 函数进 bundle.
+        // chase_debt_text（复用 writer_chase_debt /
         // writer_reading_power_goal 模板）；风格混合 blend 文本透传到
         // bundle.style_blend_text（to_prompt 渲染时优先 blend、回退单 DNA）。
         if let Some(text) = crate::agents::writer_assets::render_chase_debt_and_reading_goal(
@@ -1191,8 +1195,9 @@ impl AgentOrchestrator {
                 // 续写目标字数范围上限 ×2 自动推导（下限 4096），>0 为显式覆盖。
                 Some(self.writer_max_tokens()),
                 {
-                    // v0.23.66: 续写温度——优先用 continuation_temperature 覆盖，
-                    // 回退到 profile 温度，最后默认 0.75
+                    // v0.23.66: 续写温度——优先用 continuation_temperature
+                    // 覆盖， 回退到 profile 温度，最后默认
+                    // 0.75
                     let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
                     crate::config::AppConfig::load(&app_dir)
                         .ok()
@@ -1216,7 +1221,8 @@ impl AgentOrchestrator {
             Some("time-sliced direct generate_for_task"),
         );
 
-        // v0.26.0: 将 LLM request_id 与 trace_id 关联，使后续进度事件可追溯到 trace
+        // v0.26.0: 将 LLM request_id 与 trace_id 关联，使后续进度事件可追溯到
+        // trace
         if let (Some(trace_id), Some(store)) = (trace_id.as_ref(), trace.trace_store()) {
             let _ = store.associate_request_id(trace_id, request_id.clone());
         }
@@ -1225,7 +1231,8 @@ impl AgentOrchestrator {
         let raw_content = gen_response.content;
         let request_id = request_id; // 保留真实 request_id
 
-        // v0.23.66: TimeSliced 路径也走 sanitize_novel_output（之前只有 TriShot 走），
+        // v0.23.66: TimeSliced 路径也走 sanitize_novel_output（之前只有 TriShot
+        // 走），
         // 确保全文重复检测（deduplicate_full_text）对所有生成路径生效。
         let content = sanitize_novel_output(&raw_content);
 
@@ -1299,7 +1306,8 @@ impl AgentOrchestrator {
         );
 
         // 时间线 2：后台异步审计（不阻塞返回）。
-        // 正文已生成，spawn AuditExecutor 跑 Inspector，问题以 annotation 回流。
+        // 正文已生成，spawn AuditExecutor 跑 Inspector，问题以 annotation
+        // 回流。
         let audit_content = content.clone();
         let audit_story_id = task.context.story.story_id.clone();
         let audit_pool = pool.inner().clone();
@@ -1436,9 +1444,11 @@ impl AgentOrchestrator {
         )
         .await;
         if !quick_check.ready {
-            // v0.23.21: Genesis 新故事角色表为空时，只创建一个最小占位角色（不调 LLM），
-            // 不再走 auto_fill 的 5 次 LLM 调用——那会耗尽 TriShot 预算导致 600s 超时。
-            // TriShot Call 1 本身会合成提示词，不需要预先补齐合同/大纲。
+            // v0.23.21: Genesis
+            // 新故事角色表为空时，只创建一个最小占位角色（不调 LLM），
+            // 不再走 auto_fill 的 5 次 LLM 调用——那会耗尽 TriShot 预算导致 600s
+            // 超时。 TriShot Call 1
+            // 本身会合成提示词，不需要预先补齐合同/大纲。
             log::info!(
                 "[TriShot] QuickPreflight failed for story {}: {:?}, creating minimal placeholder character",
                 task.context.story.story_id,
@@ -1446,7 +1456,8 @@ impl AgentOrchestrator {
             );
 
             // 同步创建占位角色，不调 LLM
-            // v0.26.44: 优先使用 Genesis 骨架/概念传入的主角名与目标，禁止写死「异星末世」
+            // v0.26.44: 优先使用 Genesis
+            // 骨架/概念传入的主角名与目标，禁止写死「异星末世」
             let pool_clone = pool.inner().clone();
             let story_id_clone = task.context.story.story_id.clone();
             let placeholder_name = task
@@ -1593,8 +1604,9 @@ impl AgentOrchestrator {
 
         // v0.23.9: 读取运行时创作资产能力清单，让 Call 1 知道系统有哪些可选资产
         // v0.26.0: 按任务类型渲染动态范围摘要，减少非当前内容 token
-        // v0.30.11: task_type 优先用 LLM 分类器 hint，None 时回退多字 pattern 启发式。
-        // hint 由 execute_writer 从 PlanContext.intent_classification.task_type 注入
+        // v0.30.11: task_type 优先用 LLM 分类器 hint，None 时回退多字 pattern
+        // 启发式。 hint 由 execute_writer 从
+        // PlanContext.intent_classification.task_type 注入
         // task.parameters，避免此处在用户指令上做子串匹配。
         let capability_manifest = self.app_handle.try_state::<Arc<AssetCapabilityManifest>>();
         let task_type_hint = task.parameters.get("task_type_hint").and_then(|v| {
@@ -1611,8 +1623,9 @@ impl AgentOrchestrator {
                 task_type_hint,
             )));
 
-        // v0.23.15: Call 1 预算守卫——用 total_start（含预检/auto-fill/bundle 加载）
-        // 计算已耗时间，而非 t_synth（刚创建，elapsed≈0 导致守卫永远不触发）。
+        // v0.23.15: Call 1 预算守卫——用 total_start（含预检/auto-fill/bundle
+        // 加载） 计算已耗时间，而非 t_synth（刚创建，elapsed≈0
+        // 导致守卫永远不触发）。
         let t_synth = std::time::Instant::now();
         let writer_min_estimate: u64 = 60;
         let call1_max_estimate: u64 = 90;
@@ -1700,9 +1713,11 @@ impl AgentOrchestrator {
         let is_genesis_first_chapter =
             chapter_number == 1 && current_content_preview.as_deref().unwrap_or("").is_empty();
 
-        // ===== Phase 2 / Call 2: 精修器（可选，仅 needs_refinement && 预算够）=====
+        // ===== Phase 2 / Call 2: 精修器（可选，仅 needs_refinement &&
+        // 预算够）=====
         if synthesis.needs_refinement && !synthesis.is_fallback && !is_genesis_first_chapter {
-            // v0.23.15: 预算守卫——用 total_start 计算已耗时间，读配置的 total_budget。
+            // v0.23.15: 预算守卫——用 total_start 计算已耗时间，读配置的
+            // total_budget。
             let elapsed = total_start.elapsed().as_secs();
             let writer_min_estimate: u64 = 60; // Call 3 最少预留
             if elapsed + 30 + writer_min_estimate > total_budget {
@@ -1746,18 +1761,20 @@ impl AgentOrchestrator {
         }
 
         // ===== Phase 3 / Call 3: Writer 生成 =====
-        // v0.23.64: 非创世第一章时注入前文回顾，让 Writer 能看到之前写过的正文。
-        // 此前 TriShot 路径的 current_content 只给 Call 1 做 600 字意图检测，
-        // Call 3 Writer 完全看不到原始正文 → 续写生成全新故事。
+        // v0.23.64: 非创世第一章时注入前文回顾，让 Writer
+        // 能看到之前写过的正文。 此前 TriShot 路径的 current_content
+        // 只给 Call 1 做 600 字意图检测， Call 3 Writer
+        // 完全看不到原始正文 → 续写生成全新故事。
         //
         // v0.26.49: 尾部预览仍注入中段作背景；末句硬锚点延后到输出纪律之后，
         // 保证模型最后读到的是「从哪一句接着写」。
-        // v0.30.31: 确定性注入剧情推进方向锚点（故事大纲/场景大纲/世界观/已推进进度）。
-        // 根因：TriShot 正常路径 final_prompt = Call1 LLM 合成的 synthesized_prompt，
-        // 而 manifest 不含 story_outline、synthesizer 不透传 bundle_prompt 关键段，
-        // 导致故事大纲/场景大纲 outline_content/world_buildings 三者均不到达 writer。
-        // 本锚点作为确定性兜底，!is_fallback 时注入（fallback 时 synthesized_prompt
-        // = to_prompt 已含这些段，避免重复）。
+        // v0.30.31: 确定性注入剧情推进方向锚点（故事大纲/场景大纲/世界观/
+        // 已推进进度）。 根因：TriShot 正常路径 final_prompt = Call1
+        // LLM 合成的 synthesized_prompt， 而 manifest 不含
+        // story_outline、synthesizer 不透传 bundle_prompt 关键段，
+        // 导致故事大纲/场景大纲 outline_content/world_buildings 三者均不到达
+        // writer。 本锚点作为确定性兜底，!is_fallback 时注入（fallback
+        // 时 synthesized_prompt = to_prompt 已含这些段，避免重复）。
         if !synthesis.is_fallback {
             let progression = build_progression_anchor(
                 &bundle,
@@ -1800,7 +1817,8 @@ impl AgentOrchestrator {
             .acquire_writer_permit(is_local)
             .await?;
 
-        // v0.23.9: 把 Call 1 选中的资产透传给 Call 3，让 ModelGateway 能按意图/资产路由
+        // v0.23.9: 把 Call 1 选中的资产透传给 Call 3，让 ModelGateway
+        // 能按意图/资产路由
         let selected_ids: Vec<String> = synthesis.selected_asset_ids.clone();
         let asset_tags: Vec<String> = capability_manifest
             .as_ref()
@@ -1819,7 +1837,8 @@ impl AgentOrchestrator {
             }
         }
         // 追加输出纪律段：约束模型只输出纯小说正文，禁止元评论/markdown/批注。
-        // 配合 sanitize_novel_output 后处理兜底，双重防线避免正文混入提示词泄漏。
+        // 配合 sanitize_novel_output
+        // 后处理兜底，双重防线避免正文混入提示词泄漏。
         final_prompt.push_str(NOVEL_OUTPUT_DISCIPLINE);
         // v0.26.49: 续写末句硬锚点必须在 prompt 最末尾（在输出纪律之后），
         // 覆盖 WriteTimeBundle 里「开场建立处境」等开篇指令，防止另起炉灶。
@@ -1841,10 +1860,12 @@ impl AgentOrchestrator {
         // v0.23.15: Call 3 超时覆盖——按剩余预算计算，最少 30s 最多 120s，
         // 避免跑满 profile.timeout_seconds（用户可能设 300s）导致前端先超时。
         let call3_elapsed = total_start.elapsed().as_secs();
-        // v0.26.22 Bug C: 续写（非创世首章）用更短超时上限（60s）使慢模型 fail-fast
-        // 回退到快模型。根因（creative_workflow.log 2026-07-07）：续写 trishot-writer
-        // 路由到 HeavyCreation（质量权重 0.8），优先选用户慢模型 MN-Oblivion（198s），
-        // 而快模型 Gemma4 仅需 10s。续写是交互式延迟敏感场景，60s 内未完成则回退。
+        // v0.26.22 Bug C: 续写（非创世首章）用更短超时上限（60s）使慢模型
+        // fail-fast 回退到快模型。根因（creative_workflow.log
+        // 2026-07-07）：续写 trishot-writer
+        // 路由到 HeavyCreation（质量权重 0.8），优先选用户慢模型
+        // MN-Oblivion（198s）， 而快模型 Gemma4 仅需
+        // 10s。续写是交互式延迟敏感场景，60s 内未完成则回退。
         let call3_cap = if is_genesis_first_chapter { 120 } else { 60 };
         let call3_timeout = total_budget
             .saturating_sub(call3_elapsed)
@@ -1891,7 +1912,8 @@ impl AgentOrchestrator {
             (None, Some(ag)) => Some(ag),
             (None, None) => None,
         };
-        // v0.26.24: 保留 Call 3 参数副本供自重复重试（首次 generate 会 move 原值）。
+        // v0.26.24: 保留 Call 3 参数副本供自重复重试（首次 generate 会 move
+        // 原值）。
         let call3_prompt_for_retry = final_prompt.clone();
         let call3_asset_tags_for_retry = asset_tags.clone();
         let call3_selected_ids_for_retry = selected_ids.clone();
@@ -1907,8 +1929,10 @@ impl AgentOrchestrator {
                 // 续写目标字数范围上限 ×2 自动推导（下限 4096），>0 为显式覆盖。
                 Some(self.writer_max_tokens()),
                 {
-                    // v0.23.66: 续写/生成温度——优先用 creative_temperature（创世首章）
-                    // 或 continuation_temperature（续写），回退到 profile 温度。
+                    // v0.23.66: 续写/生成温度——优先用
+                    // creative_temperature（创世首章）
+                    // 或 continuation_temperature（续写），回退到 profile
+                    // 温度。
                     let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
                     crate::config::AppConfig::load(&app_dir)
                         .ok()
@@ -1961,7 +1985,8 @@ impl AgentOrchestrator {
         // v0.23.15: 空内容检查——Call 3 返回空字符串时直接报错，不静默传递空
         // final_content。
         let raw_content = gen_response.content;
-        // 后处理清洗：剥离前导过渡语/尾部创作分析/markdown 标记（输出纪律的兜底）。
+        // 后处理清洗：剥离前导过渡语/尾部创作分析/markdown
+        // 标记（输出纪律的兜底）。
         // 部分模型即便有输出纪律约束仍会泄漏元评论与格式，此处做最后防线。
         let content = sanitize_novel_output(&raw_content);
         if content.trim().is_empty() {
@@ -1980,9 +2005,10 @@ impl AgentOrchestrator {
         // v0.26.24: 续写路径自重复闸门——对齐 Genesis 的 8% 重试机制。
         // 根因（creative_workflow.log 2026-07-07）：续写时 TriShot Writer 陷入
         // 意象循环（冥界/牢笼/苦楚块在单次生成内重复 2-3 次），Genesis 路径有
-        // 生成侧验证闸门 + anti-repeat 重试，但 TriShot 续写路径只有事后 sanitize，
-        // 没有主动检测/重试。此处补齐：检测 trim 裁掉量 ≥ 8% 且原文 > 100 字时，
-        // 用更强 anti-repeat 指令重试一次，取更干净者。创世首章已有独立闸门，跳过。
+        // 生成侧验证闸门 + anti-repeat 重试，但 TriShot 续写路径只有事后
+        // sanitize， 没有主动检测/重试。此处补齐：检测 trim 裁掉量 ≥ 8%
+        // 且原文 > 100 字时， 用更强 anti-repeat
+        // 指令重试一次，取更干净者。创世首章已有独立闸门，跳过。
         let mut content = content;
         if !is_genesis_first_chapter {
             let cleaned = crate::utils::text::TextUtils::trim_self_repetition(&content);
@@ -2122,8 +2148,9 @@ impl AgentOrchestrator {
             }
 
             // v0.26.24: 跨内容重叠剥离——续写生成开篇复述已有正文（非前缀全量匹配）。
-            // 根因（creative_workflow.log 2026-07-07 09:05）：Writer 把尾部预览中的
-            // 「恶魔的嘴唇…」段落重新输出，前端 startsWith 去重无法拦截。
+            // 根因（creative_workflow.log 2026-07-07 09:05）：Writer
+            // 把尾部预览中的 「恶魔的嘴唇…」段落重新输出，前端
+            // startsWith 去重无法拦截。
             if let Some(existing) = current_content_preview {
                 let before_overlap = content.chars().count();
                 content = crate::utils::text::TextUtils::strip_existing_overlap(&content, existing);
@@ -2146,7 +2173,8 @@ impl AgentOrchestrator {
                 }
             }
 
-            // v0.26.24: 裁掉 token/超时截断留下的极短末句（如「冥界的阴霾更。」）。
+            // v0.26.24: 裁掉
+            // token/超时截断留下的极短末句（如「冥界的阴霾更。」）。
             let before_dangling = content.chars().count();
             content = crate::utils::text::TextUtils::trim_dangling_tail(&content);
             if content.chars().count() < before_dangling {
@@ -2249,7 +2277,8 @@ impl AgentOrchestrator {
                 pool: audit_pool,
                 app_handle: audit_handle,
             };
-            // TODO: Phase 4 链式 spawn AutoRewriteExecutor（审计完成后按严重度分流）
+            // TODO: Phase 4 链式 spawn
+            // AutoRewriteExecutor（审计完成后按严重度分流）
             executor
                 .run_audit(crate::audit::executor::AuditPayload {
                     story_id: audit_story_id,
@@ -2263,8 +2292,8 @@ impl AgentOrchestrator {
                 .await;
         });
 
-        // BGP-3: 后台入库（v0.23.60: 受 crate::concurrency::BACKGROUND_LLM_SEMAPHORE
-        // 限流）
+        // BGP-3: 后台入库（v0.23.60: 受
+        // crate::concurrency::BACKGROUND_LLM_SEMAPHORE 限流）
         let ingest_content_text = content.clone();
         let ingest_story_id = task.context.story.story_id.clone();
         let ingest_app_handle = self.app_handle.clone();
@@ -2291,8 +2320,9 @@ impl AgentOrchestrator {
         // should_trigger， 而 should_trigger 的 DB 查询可能与 BGP-1/BGP-3
         // 的后台任务竞争 std::sync::Mutex （health_registry
         // 等），导致自死锁——execute_trishot 永远卡在这里不返回。
-        // 修复：改为 tokio::spawn（fire-and-forget），should_trigger + run_insight
-        // 全在后台， execute_trishot 立即返回，不再阻塞关键路径。
+        // 修复：改为 tokio::spawn（fire-and-forget），should_trigger +
+        // run_insight 全在后台， execute_trishot
+        // 立即返回，不再阻塞关键路径。
         let insight_pool = pool.inner().clone();
         let insight_story_id = task.context.story.story_id.clone();
         let insight_chapter = task.context.narrative.chapter_number as i32;
@@ -2308,7 +2338,8 @@ impl AgentOrchestrator {
             );
         }
         tokio::spawn(async move {
-            // should_trigger 是同步 DB 查询，用 spawn_blocking 避免阻塞 async 运行时
+            // should_trigger 是同步 DB 查询，用 spawn_blocking 避免阻塞 async
+            // 运行时
             let ipool = insight_pool.clone();
             let istory = insight_story_id.clone();
             let should = tokio::task::spawn_blocking(move || {
@@ -2322,7 +2353,8 @@ impl AgentOrchestrator {
             .await
             .unwrap_or(false);
             if should {
-                // v0.23.66: BGP-4 深度洞察加 crate::concurrency::BACKGROUND_LLM_SEMAPHORE
+                // v0.23.66: BGP-4 深度洞察加
+                // crate::concurrency::BACKGROUND_LLM_SEMAPHORE
                 // 保护， 防止与 Genesis 后台流水线（世界观/大纲/角色 3
                 // 路）同时打向同一本地模型， 导致模型过载 → 前端页面崩溃。
                 let _bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
@@ -2386,7 +2418,8 @@ impl AgentOrchestrator {
         trace: &GenerationTrace,
     ) -> Result<WorkflowResult, AppError> {
         // v0.13.4: 为 Full 模式设置整体时间预算（270 秒），避免多次 LLM 调用
-        //（候选 + Inspector + Rewrite）累积超过前端 330 秒超时，导致前端先超时。
+        //（候选 + Inspector + Rewrite）累积超过前端 330
+        //（候选   秒超时，导致前端先超时。
         const FULL_MODE_BUDGET_SECONDS: u64 = 270;
         let total_start = std::time::Instant::now();
         let remaining_budget_secs = || {
@@ -3039,8 +3072,8 @@ impl AgentOrchestrator {
                     }
                 });
 
-            // v0.9.6: 叙事分基于升级后的七维评分（logic/character/writing/scene/plot/
-            // pacing/world）
+            // v0.9.6: 叙事分基于升级后的七维评分（logic/character/writing/
+            // scene/plot/ pacing/world）
             let narrative_score = dimension_scores
                 .and_then(|d| {
                     let logic = d.get("logic").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -3322,7 +3355,8 @@ impl AgentOrchestrator {
         // 2. 候选阶段强制并行：无论用户旧配置是否保存了
         //    candidate_local_sequential=true，
         // 都不再走串行分支，避免候选 1 挂起时阻塞候选 2。
-        // 同时给单个候选超时加硬上限，防止旧配置里的 600s 等值让失败候选挂死 500s+。
+        // 同时给单个候选超时加硬上限，防止旧配置里的 600s 等值让失败候选挂死
+        // 500s+。
         const MAX_LOCAL_CANDIDATE_TIMEOUT: u64 = 60;
         const MAX_REMOTE_CANDIDATE_TIMEOUT: u64 = 120;
         let is_local = self.service.is_target_model_local(AgentType::Writer);
@@ -3970,7 +4004,8 @@ fn build_progression_anchor(
     }
 
     // v0.30.32: 显式调和指令与资产。资产=硬约束，指令=创作方向；
-    // 在硬约束内落实指令核心意图，冲突时调整指令具体表现以符合约束但保留核心意图。
+    // 在硬约束内落实指令核心意图，
+    // 冲突时调整指令具体表现以符合约束但保留核心意图。
     let closing = if !directive.is_empty() && has_assets {
         if bundle_already_rendered {
             "\n- 本次创作指令是你的创作方向；上方已注入的故事大纲/场景大纲/世界观是硬约束，已推进进度是承接指针。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"
@@ -4123,8 +4158,8 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
 
     // 0e. v0.30.45: 裸思维链（CoT）检测--推理模型（DeepSeek 等）可能把思维链
     //     直接输出在 content 字段（非 reasoning_content），表现为分析性散文而非
-    //     小说正文（"这是一个小说续写任务，需要我以专业作者身份..."）。此步骤检测
-    //     并剥离裸 CoT，提取其中可能包含的正文部分。
+    //     小说正文（"这是一个小说续写任务，需要我以专业作者身份..."）。
+    // 此步骤检测     并剥离裸 CoT，提取其中可能包含的正文部分。
     text = detect_and_strip_bare_cot(&text);
     if text.trim().is_empty() {
         // 全文都是 CoT，返回空让调用方处理（重试/报错）
@@ -4185,7 +4220,8 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
     text.truncate(cut);
     text = text.trim_end().to_string();
 
-    // 3. 去除前导元评论：跳过前导的空行和元评论行，第一个非元评论非空行作为正文起点
+    // 3. 去除前导元评论：跳过前导的空行和元评论行，
+    //    第一个非元评论非空行作为正文起点
     let lines: Vec<&str> = text.lines().collect();
     let mut start = 0usize;
     for (i, line) in lines.iter().enumerate() {
@@ -5098,8 +5134,9 @@ mod tests {
 
     #[test]
     fn test_candidate_total_timeout_never_exceeds_90s() {
-        // 复现 generate_candidates 中的超时计算逻辑，确保默认配置下总超时 ≤ 90s。
-        // 本地模型固定 1 候选、远端默认 1 候选；per-candidate 超时取硬上限。
+        // 复现 generate_candidates 中的超时计算逻辑，确保默认配置下总超时 ≤
+        // 90s。 本地模型固定 1 候选、远端默认 1 候选；per-candidate
+        // 超时取硬上限。
         let config = WorkflowConfig::default();
 
         let local_per = config.candidate_timeout_local_seconds.min(60);
@@ -5203,7 +5240,8 @@ mod tests {
 
     #[test]
     fn test_build_ending_anchor_contains_last_sentences_and_priority() {
-        // 复现 2026-07-09 续写脱节：章末是「继续前进找线索」，模型另起「黑暗中荧幕」
+        // 复现 2026-07-09
+        // 续写脱节：章末是「继续前进找线索」，模型另起「黑暗中荧幕」
         let body = "韩瑞醒来的时候，已经不知道自己姓甚名谁了。他只是知道自己身处一个陌生的宇宙空间。\
 显示着宇宙的景象，这让他感到震惊。他不知道自己是谁，也不知道自己身处何地，但他知道自己需要找到答案。\
 这个机体仿佛成了他的唯一依靠，只有通过它，他才能找到自己和拯救家人。\
@@ -5233,7 +5271,8 @@ mod tests {
 
     #[test]
     fn test_ending_anchor_appended_after_discipline_in_prompt_shape() {
-        // 契约：硬锚点必须出现在输出纪律之后（prompt 最末尾），否则 Lost-in-the-Middle
+        // 契约：硬锚点必须出现在输出纪律之后（prompt 最末尾），否则
+        // Lost-in-the-Middle
         let body = "他只能继续前进，希望找到一些线索。";
         let mut prompt = String::from("【场景大纲】开场建立处境\n");
         prompt.push_str("【前文回顾】\n尾部预览...\n");
@@ -5312,9 +5351,10 @@ mod tests {
 
     #[test]
     fn test_build_progression_anchor_injects_all_sections() {
-        // v0.30.31: TriShot 确定性注入--无论 Call1 合成质量如何，故事大纲/场景大纲/
-        // 世界观/已推进进度都必须到达 Call3 writer。
-        // v0.30.32: 用户本次创作指令也确定性注入，并与资产显式调和。
+        // v0.30.31: TriShot 确定性注入--无论 Call1
+        // 合成质量如何，故事大纲/场景大纲/ 世界观/已推进进度都必须到达
+        // Call3 writer。 v0.30.32: 用户本次创作指令也确定性注入，
+        // 并与资产显式调和。
         let pool = crate::db::create_test_pool().unwrap();
         use crate::db::{
             dto::CreateStoryRequest,
@@ -5384,7 +5424,8 @@ mod tests {
 
     #[test]
     fn test_build_progression_anchor_empty_returns_empty() {
-        // 空 bundle + 无前序场景 + 无指令：无任何可注入段，返回空串（调用方不追加）
+        // 空 bundle + 无前序场景 +
+        // 无指令：无任何可注入段，返回空串（调用方不追加）
         let pool = crate::db::create_test_pool().unwrap();
         let bundle = progression_bundle(None, None, None);
         let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1, "", false);
@@ -5393,8 +5434,9 @@ mod tests {
 
     #[test]
     fn test_build_progression_anchor_directive_only_no_assets() {
-        // v0.30.32: 仅有用户指令、无任何资产时，仍注入指令段 + 推进约束（不返回空）。
-        // 边界：无资产时不出现"硬约束调和"语句，仅推进剧情约束。
+        // v0.30.32: 仅有用户指令、无任何资产时，仍注入指令段 +
+        // 推进约束（不返回空）。 边界：无资产时不出现"硬约束调和"语句，
+        // 仅推进剧情约束。
         let pool = crate::db::create_test_pool().unwrap();
         let bundle = progression_bundle(None, None, None);
         let anchor = build_progression_anchor(

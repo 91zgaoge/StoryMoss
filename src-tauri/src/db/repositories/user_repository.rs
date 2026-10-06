@@ -11,8 +11,8 @@ impl UserRepository {
         Self { pool }
     }
 
-    // v0.34 起登录改走 server 中转（upsert_server_user），本地 OAuth 建号路径暂不被
-    // 命令引用，保留供后续复用。
+    // v0.34 起登录改走 server 中转（upsert_server_user），本地 OAuth
+    // 建号路径暂不被 命令引用，保留供后续复用。
     #[allow(dead_code)]
     pub fn create_user(
         &self,

@@ -195,7 +195,8 @@ impl ForeshadowingServiceImpl {
 
                     let ledger_key = ledger_key_opt.unwrap_or_else(|| id.clone());
                     // 按字符数（非字节数）截取 title 预览，避免 &content[..30]
-                    // 在中文字符中间切分导致 panic（byte index not a char boundary）。
+                    // 在中文字符中间切分导致 panic（byte index not a char
+                    // boundary）。
                     let title = if content.chars().count() > 30 {
                         format!("{}...", content.chars().take(30).collect::<String>())
                     } else {
@@ -845,13 +846,13 @@ mod tests {
         seed_story_and_scenes(&pool, "story-1");
         let service = ForeshadowingServiceImpl::new(pool);
 
-        // High importance with first_seen at s1 and current at s7 => threshold 5 =>
-        // overdue.
+        // High importance with first_seen at s1 and current at s7 => threshold
+        // 5 => overdue.
         let high = service
             .create("story-1", "关键伏笔", Some("s1"), 9)
             .unwrap();
-        // Low importance with first_seen at s1 and current at s7 => threshold 15 => not
-        // overdue.
+        // Low importance with first_seen at s1 and current at s7 => threshold
+        // 15 => not overdue.
         let _low = service
             .create("story-1", "次要伏笔", Some("s1"), 3)
             .unwrap();
@@ -955,17 +956,19 @@ mod tests {
 
     #[test]
     fn service_ledger_title_multibyte_no_panic() {
-        // 回归：伏笔 content 含多字节中文字符时，get_ledger 构造 title 预览不能 panic。
-        // 旧实现 &content[..30] 按**字节**切片，当 byte 30 落在某个三字节中文字符内部
-        // （如「指」bytes 29..32）时触发 "end byte index 30 is not a char boundary"
+        // 回归：伏笔 content 含多字节中文字符时，get_ledger 构造 title 预览不能
+        // panic。 旧实现 &content[..30] 按**字节**切片，当 byte 30
+        // 落在某个三字节中文字符内部 （如「指」bytes 29..32）时触发
+        // "end byte index 30 is not a char boundary"
         // panic，直接炸垮续写 bundle 加载（文思活跃模式连续续写会读伏笔账本）。
         let pool = in_memory_pool();
         seed_story_and_scenes(&pool, "story-1");
         let service = ForeshadowingServiceImpl::new(pool);
 
         // 场景一：content 字节数 > 30 但字符数 < 30。
-        // 「老王爷遗言'看草料'，指向草料车夹层中的血桉」共 22 字符、约 64 字节，
-        // byte 30 恰在「指」（bytes 29..32）内部 -> 旧代码 panic，新代码不截断。
+        // 「老王爷遗言'看草料'，指向草料车夹层中的血桉」共 22 字符、约 64
+        // 字节， byte 30 恰在「指」（bytes 29..32）内部 -> 旧代码
+        // panic，新代码不截断。
         let id_short = service
             .create(
                 "story-1",
@@ -982,7 +985,8 @@ mod tests {
             "老王爷遗言'看草料'，指向草料车夹层中的血桉"
         );
 
-        // 场景二：content 字符数 > 30（截断分支），验证按字符截取不 panic 且补省略号。
+        // 场景二：content 字符数 > 30（截断分支），验证按字符截取不 panic
+        // 且补省略号。
         let long_content = "这是一段超过三十个字符的伏笔内容用于验证按字符数截取标题预览不会在中文字符中间切断导致panic";
         let id_long = service
             .create("story-1", long_content, Some("s2"), 5)

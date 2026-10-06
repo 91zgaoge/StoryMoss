@@ -135,7 +135,8 @@ fn find_plot_split(content: &str, max_chars: usize) -> Option<usize> {
     let min_keep = (max_chars / 2).max(500);
     let min_byte = approx_char_index_for_word_budget(content, min_keep);
     let boundaries = detect_plot_boundaries(content);
-    // 选第一个落在 [min_byte, soft_end*1.5] 的边界；否则选 min_byte 之后最近边界
+    // 选第一个落在 [min_byte, soft_end*1.5] 的边界；否则选 min_byte
+    // 之后最近边界
     let soft_end = approx_char_index_for_word_budget(content, max_chars);
     let upper = approx_char_index_for_word_budget(content, max_chars.saturating_mul(3) / 2)
         .max(soft_end + 1);
@@ -448,8 +449,8 @@ pub(crate) fn split_chapter_in_tx(
     }
 
     // 2. 合约跟随内容（I-2）：chapter_number > N 的 CHAPTER 合约随其章 顺延
-    //    +1。chapter_number 存于 contract_json 内部而非独立列， 需读出 → 改字段 →
-    //    写回；解析失败的合约行不动。
+    //    +1。chapter_number 存于 contract_json 内部而非独立列， 需读出 → 改字段
+    //    → 写回；解析失败的合约行不动。
     let shifted_contracts: Vec<(String, ChapterContract)> = {
         let mut stmt = tx.prepare(
             "SELECT id, contract_json FROM story_contracts \

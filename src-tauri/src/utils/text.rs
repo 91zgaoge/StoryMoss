@@ -152,7 +152,8 @@ impl TextUtils {
             return generated.to_string();
         }
 
-        // 只取已有正文尾部 3000 字做比对（重叠几乎总发生在尾部，远端无需参与）。
+        // 只取已有正文尾部 3000
+        // 字做比对（重叠几乎总发生在尾部，远端无需参与）。
         let existing_tail: String = {
             let total = existing_trimmed.chars().count();
             if total > 3000 {
@@ -300,7 +301,8 @@ impl TextUtils {
         let mut out = String::with_capacity(html.len());
         let mut rest = html;
         loop {
-            // out 以 </p> 结尾且 rest 起始（跳过空白）是孤闭合标字段 → 并入上一段。
+            // out 以 </p> 结尾且 rest 起始（跳过空白）是孤闭合标字段 →
+            // 并入上一段。
             // 回到循环顶部可继续覆盖连续多个孤闭合标字段。
             let trimmed = rest.trim_start();
             if out.ends_with("</p>") && trimmed.starts_with("<p>") {
@@ -407,7 +409,8 @@ impl TextUtils {
                 if removed[j] {
                     continue;
                 }
-                // 计算从 i 与 j 起的最长公共句子块长度 L（完整扩展，不提前截断）
+                // 计算从 i 与 j 起的最长公共句子块长度
+                // L（完整扩展，不提前截断）
                 let mut l = 0usize;
                 while i + l < n && j + l < n && !removed[i + l] && !removed[j + l] {
                     if normalized[i + l] != normalized[j + l] {
@@ -797,8 +800,8 @@ mod tests {
         assert_eq!(TextUtils::trim_self_repetition(text), text);
     }
 
-    // v0.26.24: 续写跨内容重叠剥离——生成内容开篇复述已有正文段落时，剥离重叠前缀。
-    // 典型症状（creative_workflow.log 2026-07-07
+    // v0.26.24: 续写跨内容重叠剥离——生成内容开篇复述已有正文段落时，
+    // 剥离重叠前缀。 典型症状（creative_workflow.log 2026-07-07
     // 09:05）：续写生成以「恶魔的嘴唇弯曲 出一个苦涎的笑…」开头，而该段已在
     // 08:44:26 追加进已有正文 → 追加后重复。
     #[test]
@@ -854,7 +857,8 @@ mod tests {
         let far_head = "远古的契约已经签订，众神陨落于深渊。".repeat(120); // > 3000 字
         let tail = "尾声终于到来，主角站在冥界巅峰之前。";
         let existing = format!("{}{}", far_head, tail);
-        // 生成内容复述的是已有正文**头部**的段落（在尾部 3000 字窗口外）+ 新内容。
+        // 生成内容复述的是已有正文**头部**的段落（在尾部 3000 字窗口外）+
+        // 新内容。
         let generated = "远古的契约已经签订，众神陨落于深渊。全新的情节在这里展开。";
         let result = TextUtils::strip_existing_overlap(generated, &existing);
         // 头部重叠在尾部窗口外，不应剥离。
@@ -903,7 +907,8 @@ mod tests {
     // v0.26.19 Phase 3.3: 跨层共享 trim golden fixture。
     //   此测试加载仓库根 `tests/fixtures/trim_golden.json`，对每条用例断言
     //   Rust `trim_self_repetition` 输出与 expected 一致。同一 fixture 也由
-    //   前端 vitest `textCleanup.golden.test.ts` 加载并断言 TS `trimSelfRepetition`
+    //   前端 vitest `textCleanup.golden.test.ts` 加载并断言 TS
+    // `trimSelfRepetition`
     //   输出一致——双跑通过即证明两实现对同输入同输出（跨层一致性契约）。
     #[derive(serde::Deserialize)]
     struct TrimGoldenCase {

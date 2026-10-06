@@ -529,7 +529,8 @@ JSON Schema:
         // v0.30.23: 提示词去偏--不再注入"已有故事/已有正文"上下文。
         // LLM 应基于用户输入本身的表达判定意图，而非被 DB 状态偏差
         // （此前"已有故事=true"使 LLM 倾向续写，导致"写一部X小说"被误分类）。
-        // has_existing_story/has_current_content 参数保留（兜底用），但不进入提示词。
+        // has_existing_story/has_current_content
+        // 参数保留（兜底用），但不进入提示词。
         format!(
             r#"判定用户创作意图，仅输出 JSON。
 
@@ -1106,7 +1107,8 @@ mod tests {
         // v0.30.38 回归：LLM 遵循"继续写"示例省略 is_prose -> serde 默认 false
         // -> 后置不变量强制 is_prose_request=true（续写本质是 prose）。
         // 此前该场景导致 sanitize_plan_for_prose_request 跳过净化，
-        // 多步计划 [writer, inspector, style_enhancer] 未拦截 -> editor 元评论污染。
+        // 多步计划 [writer, inspector, style_enhancer] 未拦截 -> editor
+        // 元评论污染。
         let json = r#"{"is_new_novel":false,"is_continuation":true,"task_type":"continuation","input_clarity":"vague","detected_genre":null,"confidence":0.8}"#;
         let c = IntentParser::parse_classification_json(json).unwrap();
         assert!(c.is_continuation);
@@ -1124,8 +1126,8 @@ mod tests {
 
     #[test]
     fn test_parse_classification_json_rewrite_missing_prose_stays_false() {
-        // v0.30.38 回归：改写（非续写非创世）缺 is_prose -> 保持 false（改写可能非
-        // prose）。
+        // v0.30.38 回归：改写（非续写非创世）缺 is_prose -> 保持
+        // false（改写可能非 prose）。
         let json = r#"{"is_new_novel":false,"is_continuation":false,"task_type":"rewrite","input_clarity":"with_seed","detected_genre":null,"confidence":0.7}"#;
         let c = IntentParser::parse_classification_json(json).unwrap();
         assert!(!c.is_continuation);

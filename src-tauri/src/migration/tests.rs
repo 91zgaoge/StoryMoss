@@ -185,9 +185,10 @@ fn merge_sqlite_with_foreign_keys() {
 
     let t = Connection::open(&target).unwrap();
     t.execute("PRAGMA foreign_keys = ON;", []).unwrap();
-    // Create children before parents so sqlite_master enumerates children first.
-    // With foreign keys enabled on the merge connection, inserting the child
-    // row before its parent must fail unless we disable foreign keys during merge.
+    // Create children before parents so sqlite_master enumerates children
+    // first. With foreign keys enabled on the merge connection, inserting
+    // the child row before its parent must fail unless we disable foreign
+    // keys during merge.
     t.execute(
         "CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id), name TEXT);",
         [],

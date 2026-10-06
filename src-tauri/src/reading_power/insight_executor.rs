@@ -329,8 +329,8 @@ mod tests {
         assert_eq!(parsed.unresolved_annotations.ai_audit, 3);
     }
 
-    // ==================== 时间线 3：should_trigger 条件逻辑（从 task_system e2e
-    // 迁移） ====================
+    // ==================== 时间线 3：should_trigger 条件逻辑（从 task_system
+    // e2e 迁移） ====================
 
     #[test]
     fn timeline3_should_trigger_when_never_run() {

@@ -1117,7 +1117,8 @@ impl<R: Runtime> LlmService<R> {
             let pool = match app_handle.try_state::<crate::db::DbPool>() {
                 Some(p) => p.inner().clone(),
                 None => {
-                    // 此前静默 return，llm_calls 永远为空时无任何线索（issue #14）
+                    // 此前静默 return，llm_calls 永远为空时无任何线索（issue
+                    // #14）
                     log::warn!(
                         "[LLM] record llm_call 跳过：DbPool 未就绪（purpose={}）",
                         purpose
@@ -1145,8 +1146,9 @@ impl<R: Runtime> LlmService<R> {
                 audit_feedback: None,
             };
             // 按字符截取而非字节：prompt[..200] 在长中文 prompt 下会落在 UTF-8
-            // 字符中间直接 panic，spawn_blocking 的 JoinHandle 被 fire-and-forget
-            // 丢弃，panic 无任何日志、llm_calls 永远写不进（issue #14 根因）。
+            // 字符中间直接 panic，spawn_blocking 的 JoinHandle 被
+            // fire-and-forget 丢弃，panic 无任何日志、llm_calls
+            // 永远写不进（issue #14 根因）。
             let preview: String = prompt.chars().take(200).collect();
             let metadata = serde_json::json!({
                 "cached": cached,
@@ -1430,8 +1432,8 @@ impl<R: Runtime> LlmService<R> {
         }
 
         // v0.23.53: 状态提示使用用户定义的显示名称（profile.name），而非
-        // API 模型标识符（profile.model，通常是 .gguf 文件名或 API model 字段）。
-        // 若 name 为空则回退到 model。
+        // API 模型标识符（profile.model，通常是 .gguf 文件名或 API model
+        // 字段）。 若 name 为空则回退到 model。
         let model_name = if profile.name.trim().is_empty() {
             profile.model.clone()
         } else {
@@ -1475,7 +1477,8 @@ impl<R: Runtime> LlmService<R> {
         //
         // 优先级：LlmProfile.system_prompt_override（每模型）
         //       > AppConfig.writer_system_prompt_override（全局配置）
-        //       > 请求级 request_system_prompt（PromptRegistry writer_system 渲染）
+        //       > 请求级 request_system_prompt（PromptRegistry writer_system
+        //       > 渲染）
         //
         // 这补全了 v0.23.61 注释声称但未实现的三级链——此前网关路径只读
         // profile.system_prompt_override，AppConfig 和 registry writer_system
@@ -1497,7 +1500,8 @@ impl<R: Runtime> LlmService<R> {
                     }
                 })
             })
-            .or(request_system_prompt); // 3) 请求级（registry writer_system 渲染产物）
+            .or(request_system_prompt); // 3) 请求级（registry writer_system
+                                        //    渲染产物）
 
         let req = GenerateRequest {
             prompt,
@@ -1562,8 +1566,8 @@ impl<R: Runtime> LlmService<R> {
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
             .unwrap_or_default();
 
-        // v0.23.8: 进度文案带上具体模型 ID、提供商、提示词规模，让用户随时知道 backend
-        // 在做什么
+        // v0.23.8: 进度文案带上具体模型 ID、提供商、提示词规模，让用户随时知道
+        // backend 在做什么
         let provider_str = format!("{:?}", provider).to_lowercase();
         let connecting_msg = if label.is_empty() {
             format!(
@@ -1677,7 +1681,8 @@ impl<R: Runtime> LlmService<R> {
                             trace_id: trace_id_for_hb.clone(),
                         },
                     );
-                    // v0.13.2: 用 warn! 级别记录心跳，确保无论日志过滤设置如何都能输出
+                    // v0.13.2: 用 warn!
+                    // 级别记录心跳，确保无论日志过滤设置如何都能输出
                     // 如果 emit 失败（如序列化错误），同步记录错误原因
                     if let Err(e) = &emit_result {
                         log::warn!("[Heartbeat] emit FAILED after {}s: {}", elapsed, e);
@@ -1753,7 +1758,8 @@ impl<R: Runtime> LlmService<R> {
         }
 
         // v0.11.8: 超时与重试策略
-        // - adapter.generate 内部已拆分连接超时（10s）与生成超时（timeout_seconds），
+        // - adapter.generate
+        //   内部已拆分连接超时（10s）与生成超时（timeout_seconds），
         //   并在读取响应流时按 chunk 刷新计时器。
         // - 连接超时最多重试 1 次；生成超时/其他不可重试错误直接返回。
         let mut result: Result<GenerateResponse, AppError> =
@@ -1829,8 +1835,9 @@ impl<R: Runtime> LlmService<R> {
             );
         }
         heartbeat_handle.abort();
-        // v0.23.17: 带超时的心跳等待——若心跳 task 卡在 emit() 等同步阻塞操作中，
-        // tokio::task::abort() 无法立即终止。用 5s 超时防止主流程被无限阻塞。
+        // v0.23.17: 带超时的心跳等待——若心跳 task 卡在 emit()
+        // 等同步阻塞操作中， tokio::task::abort() 无法立即终止。用 5s
+        // 超时防止主流程被无限阻塞。
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), heartbeat_handle).await;
         if !is_silent_background {
             self.workflow_log(
@@ -1867,8 +1874,8 @@ impl<R: Runtime> LlmService<R> {
                         Some(serde_json::json!({"request_id": request_id})),
                     );
                 }
-                // v0.23.63: 探测调用跳过 llm_calls DB 写入，避免每 10s keepalive
-                // 产生大量噪声记录。
+                // v0.23.63: 探测调用跳过 llm_calls DB 写入，避免每 10s
+                // keepalive 产生大量噪声记录。
                 if !is_silent_background {
                     self.record_llm_call(LlmCallRecord {
                         model_id: &model_name,
@@ -2304,8 +2311,9 @@ impl<R: Runtime> LlmService<R> {
             tools: None,
         };
 
-        // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
-        // 最低 30 秒、最高 120 秒，避免硬编码 30 秒误杀本地大模型。
+        // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile
+        // 超时动态计算， 最低 30 秒、最高 120 秒，避免硬编码 30
+        // 秒误杀本地大模型。
         let startup_timeout_seconds = Self::effective_timeout_seconds(&profile).min(120).max(30);
         let mut rx = timeout(
             Duration::from_secs(startup_timeout_seconds),
@@ -3130,8 +3138,9 @@ mod tests {
         assert!(entered.load(Ordering::SeqCst));
 
         heartbeat.abort();
-        // abort 后 JoinHandle 应立即 resolve（即使任务在 std::thread::sleep 中），
-        // 因为 tokio 的 abort 会立即标记任务取消，JoinHandle.await 不会阻塞
+        // abort 后 JoinHandle 应立即 resolve（即使任务在 std::thread::sleep
+        // 中）， 因为 tokio 的 abort
+        // 会立即标记任务取消，JoinHandle.await 不会阻塞
         let result = tokio::time::timeout(std::time::Duration::from_millis(500), heartbeat).await;
 
         assert!(result.is_ok(), "abort 后 JoinHandle 应在 500ms 内 resolve");

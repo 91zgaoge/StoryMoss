@@ -258,8 +258,9 @@ impl BookDeconstructionService {
         repo.update_status(book_id, AnalysisStatus::Completed, 100)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
-        // W3-B3: 拆书结果统一写入 narrative_* 表，reference_characters/reference_scenes
-        // 表已在 Migration 99 中移除。
+        // W3-B3: 拆书结果统一写入 narrative_*
+        // 表，reference_characters/reference_scenes 表已在 Migration 99
+        // 中移除。
         {
             let narrative_chars: Vec<crate::narrative::elements::CharacterElement> = result
                 .characters

@@ -103,7 +103,8 @@ pub async fn run_rule_grader(
             None
         }
     };
-    // 追读力（纯规则特征：hook*0.4 + coolpoint*0.3 + micropayoff*0.3，无 debt 项）
+    // 追读力（纯规则特征：hook*0.4 + coolpoint*0.3 + micropayoff*0.3，无 debt
+    // 项）
     let reading_power_score = reading_power_score_of(content);
     let (contract_score, has_contract) = match &contract {
         Some(c) => (c.evaluate_fulfillment(content).score, true),

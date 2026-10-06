@@ -226,15 +226,17 @@ impl PlanExecutor {
         context: &PlanContext,
     ) -> Result<PlanExecutionResult, AppError> {
         log::info!("[PlanExecutor] execute_with_context START");
-        // v0.23 TriShot 快速路径：当 AppConfig.generation_mode == "tri_shot" 时，
-        // 跳过计划生成 LLM（Call 1 路由合成器替代），直接构造单步 writer plan。
+        // v0.23 TriShot 快速路径：当 AppConfig.generation_mode == "tri_shot"
+        // 时， 跳过计划生成 LLM（Call 1 路由合成器替代），直接构造单步
+        // writer plan。
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         let generation_mode = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.generation_mode.clone())
             .unwrap_or_else(|_| "auto".to_string());
         let is_trishot = generation_mode == "tri_shot" || generation_mode == "trishot";
 
-        // v0.30.11: 用 LLM 分类的 is_new_novel 替代 is_novel_creation_intent 子串匹配。
+        // v0.30.11: 用 LLM 分类的 is_new_novel 替代 is_novel_creation_intent
+        // 子串匹配。
         let is_new_novel = context
             .intent_classification
             .as_ref()
@@ -285,8 +287,9 @@ impl PlanExecutor {
                     );
 
                     // v0.20.1: 持久化执行图到意图图数据库，供前端诊断面板查询。
-                    // 修复审计报告 P0-3：此前 record_execution_graph 从未被调用，
-                    // 导致诊断面板"最近执行"永远为空。
+                    // 修复审计报告 P0-3：此前 record_execution_graph
+                    // 从未被调用， 导致诊断面板"最近执行"
+                    // 永远为空。
                     let request_id = Uuid::new_v4().to_string();
                     if let Err(e) = ig_planner
                         .record_execution_graph(
@@ -327,7 +330,8 @@ impl PlanExecutor {
                                 "[PlanExecutor] PlanGenerator also failed ({}), falling back to direct writer",
                                 e
                             );
-                            // Fallback: direct writer execution with user input as instruction
+                            // Fallback: direct writer execution with user input
+                            // as instruction
                             ExecutionPlan {
                                 understanding: format!(
                                     "Direct execution fallback for: {}",
@@ -385,7 +389,8 @@ impl PlanExecutor {
                         "[PlanExecutor] Plan generation failed ({}), falling back to direct writer",
                         e
                     );
-                    // Fallback: direct writer execution with user input as instruction
+                    // Fallback: direct writer execution with user input as
+                    // instruction
                     ExecutionPlan {
                         understanding: format!(
                             "Direct execution fallback for: {}",
@@ -419,23 +424,26 @@ impl PlanExecutor {
             }
         };
 
-        // v0.30.13 防线 2 咽喉点：所有 plan 来源（SING / PlanGenerator / fallback）
-        // 在执行前统一施加 force-correction。修补 SING 路径直接返回 plan、绕过
-        // PlanGenerator::generate_plan 内 force-correction 的漏洞--续写被 SING
-        // 路由到 builtin.style_enhancer 等会返回"请提供需要增强的原始文本"模板而非
-        // 正文。幂等：已为 writer 的首步不受影响，故与 generate_plan 内调用重复安全。
+        // v0.30.13 防线 2 咽喉点：所有 plan 来源（SING / PlanGenerator /
+        // fallback） 在执行前统一施加 force-correction。修补 SING
+        // 路径直接返回 plan、绕过 PlanGenerator::generate_plan 内
+        // force-correction 的漏洞--续写被 SING 路由到 builtin.
+        // style_enhancer 等会返回"请提供需要增强的原始文本"模板而非
+        // 正文。幂等：已为 writer 的首步不受影响，故与 generate_plan
+        // 内调用重复安全。
         PlanGenerator::force_correct_first_step_to_writer(
             &mut plan,
             context.intent_classification.as_ref(),
             &context.user_input,
         );
 
-        // v0.30.14 防线 3 咽喉点：prose 请求计划净化。force-correction 只修正首步，
-        // 无法拦截多步 plan 尾部的 style_enhancer/inspector 等非 writer 步骤--而
-        // execute_plan 用最后产出 content 的步骤作为 final_content，尾部非 writer
-        // 会用模板/报告覆盖 writer 正文（第 5 次复发根因）。净化保证末步为 writer。
-        // v0.31: plan_mode 开关（"beat" 默认 / "single_writer" 回退），
-        // 加载失败回退 "beat" 保持新默认。
+        // v0.30.14 防线 3 咽喉点：prose 请求计划净化。force-correction
+        // 只修正首步， 无法拦截多步 plan 尾部的
+        // style_enhancer/inspector 等非 writer 步骤--而 execute_plan
+        // 用最后产出 content 的步骤作为 final_content，尾部非 writer
+        // 会用模板/报告覆盖 writer 正文（第 5 次复发根因）。净化保证末步为
+        // writer。 v0.31: plan_mode 开关（"beat" 默认 / "single_writer"
+        // 回退）， 加载失败回退 "beat" 保持新默认。
         let plan_mode = {
             let app_dir = self
                 .app_handle
@@ -453,7 +461,8 @@ impl PlanExecutor {
             &plan_mode,
         );
 
-        // Inject PlanContext information into every step so agents get full context
+        // Inject PlanContext information into every step so agents get full
+        // context
         for step in &mut plan.steps {
             if let Some(ref preview) = context.current_content_preview {
                 step.parameters
@@ -579,7 +588,8 @@ impl PlanExecutor {
                     // 与 topological_sort 一致：非 plan 内 step_id 的依赖
                     // （LLM 偶发写入的上下文名，如 "Story Context"）跳过校验，
                     // 避免误杀整 plan；仅校验真实 step_id 依赖是否已产出。
-                    // 参数引用 {{step_id}} 由 resolve_parameters 兜底处理缺失键。
+                    // 参数引用 {{step_id}} 由 resolve_parameters
+                    // 兜底处理缺失键。
                     if !plan_step_ids.contains(dep.as_str()) {
                         log::warn!(
                             "[PlanExecutor] Step {} depends_on '{}' 不是 plan 内 step_id，跳过依赖校验",
@@ -808,7 +818,8 @@ impl PlanExecutor {
 
             let batch_results = futures::future::join_all(step_futures).await;
 
-            // 3) 合并本 batch 的执行结果（顺序处理，避免并发写 messages/records）
+            // 3) 合并本 batch 的执行结果（顺序处理，避免并发写
+            //    messages/records）
             for (step, result, step_duration) in batch_results {
                 // Record execution result
                 let record = ExecutionRecord {
@@ -844,8 +855,8 @@ impl PlanExecutor {
             }
         }
 
-        // Phase 4: Swarm 质量闭环 — 如果最终内容是 writer 产出且前面有 inspector，
-        // 尝试自动触发一轮轻量 inspector 检查
+        // Phase 4: Swarm 质量闭环 — 如果最终内容是 writer 产出且前面有
+        // inspector， 尝试自动触发一轮轻量 inspector 检查
         if let Some((_, ref writer_id)) = has_loop {
             let outputs = step_outputs.lock().await;
             if let Some(writer_output) = outputs.get(writer_id) {
@@ -897,7 +908,8 @@ impl PlanExecutor {
         );
 
         // v0.11.5-hotfix: 禁用计划执行后自动触发能力进化，避免每次创作完成后
-        // 在后台发起长时间 LLM 调用。能力进化改为通过 `evolve_capabilities` 手动触发。
+        // 在后台发起长时间 LLM 调用。能力进化改为通过 `evolve_capabilities`
+        // 手动触发。
 
         PlanExecutionResult {
             success,
@@ -1353,7 +1365,8 @@ impl PlanExecutor {
             "[PlanExecutor::execute_writer] build_agent_context done in {:?}",
             t_ctx.elapsed()
         );
-        // v0.8.0: 使用 PlanContext 中的章节号（用户当前编辑的场景），而非最新场景
+        // v0.8.0: 使用 PlanContext
+        // 中的章节号（用户当前编辑的场景），而非最新场景
         context.narrative.chapter_number = plan_context.chapter_number.max(1) as u32;
 
         // Phase 5: 将 PlanContext 中的结构信息注入到 AgentTask 参数
@@ -1363,7 +1376,8 @@ impl PlanExecutor {
             serde_json::Value::String(plan_context.story_progress.clone()),
         );
         // 设计第一节：风格混合 blend 文本经 writer 参数透传到 TimeSliced bundle
-        // （commands/orchestrator.rs:612-651 已拼好 blend 文本进 PlanContext）。
+        // （commands/orchestrator.rs:612-651 已拼好 blend 文本进
+        // PlanContext）。
         if let Some(blend) = crate::planner::style_blend_text_for_writer(plan_context) {
             enriched_params.insert(
                 "style_blend_text".to_string(),
@@ -1402,7 +1416,8 @@ impl PlanExecutor {
                 }
             }
 
-            // Phase 4: 将复合题材的次要 genre_profile_ids 透传给 TimeSliced 路径
+            // Phase 4: 将复合题材的次要 genre_profile_ids 透传给 TimeSliced
+            // 路径
             if let Some(secondary) = selected.parameters.get("secondary_genre_profile_ids") {
                 let ids: Vec<String> = secondary
                     .as_str()
@@ -1682,8 +1697,9 @@ impl PlanExecutor {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "无".to_string());
 
-        // v0.34.0 弹性扩张：轮换账本 + 扩张债务配额 + 资产菜单（纯 Rust，零额外 LLM）。
-        // 配额文案必须最先算出——下方所有降级分支以它为 content 兜底。
+        // v0.34.0 弹性扩张：轮换账本 + 扩张债务配额 + 资产菜单（纯 Rust，零额外
+        // LLM）。 配额文案必须最先算出——下方所有降级分支以它为 content
+        // 兜底。
         let chapter_number = plan_context.chapter_number.max(1);
         let ledger =
             crate::creative_engine::expansion::RotationLedger::load_sync(&self.pool, &story_id)
@@ -2715,7 +2731,8 @@ mod tests {
 
     #[test]
     fn test_result_kind_serialization_contract() {
-        // v0.31.x 前端契约：正文结果不序列化 result_kind（前端按追加手稿处理），
+        // v0.31.x 前端契约：正文结果不序列化
+        // result_kind（前端按追加手稿处理），
         // 审计报告序列化 result_kind="audit_report"（前端渲染为报告消息）。
         let prose = PlanExecutionResult {
             success: true,
@@ -2906,7 +2923,8 @@ mod tests {
         assert!(rp.get("draft").is_none());
     }
 
-    // v0.30.10: content 兜底注入测试（style_mimic / plot_analyzer / builtin 技能）
+    // v0.30.10: content 兜底注入测试（style_mimic / plot_analyzer / builtin
+    // 技能）
 
     #[test]
     fn test_content_fallback_injects_from_depends_on() {

@@ -295,9 +295,11 @@ impl SkillExecutor {
         if let Some(ref pool) = self.db_pool {
             if let Ok(content) = crate::prompts::registry::resolve_prompt(pool, &prompt_id) {
                 // 技能提示词在 registry 中是完整提示词（system + user 合并），
-                // 但 builtin.rs 中 skills 使用分开的 system_prompt / user_prompt_template
-                // 这里保持简单：如果 registry 中有覆盖，将覆盖内容作为 system_prompt
-                // 并将 user_prompt_template 保持原样（因为 registry 中的 skill 提示词是单条）
+                // 但 builtin.rs 中 skills 使用分开的 system_prompt /
+                // user_prompt_template
+                // 这里保持简单：如果 registry 中有覆盖，将覆盖内容作为
+                // system_prompt 并将 user_prompt_template
+                // 保持原样（因为 registry 中的 skill 提示词是单条）
                 // 实际上，我们需要更精细的区分...
                 // 为了兼容，我们采用：registry 覆盖 system_prompt，保留原始
                 // user_prompt_template

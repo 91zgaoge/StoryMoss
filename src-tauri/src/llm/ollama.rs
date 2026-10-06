@@ -267,7 +267,8 @@ impl LlmAdapter for OllamaAdapter {
         )
         .await?;
 
-        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
+        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async
+        // runtime。
         let ollama_resp: OllamaResponse =
             tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
                 .await

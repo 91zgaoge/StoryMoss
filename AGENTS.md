@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.59.0
+- **版本**: v0.59.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -110,6 +110,13 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.59.1 - 构建修复：对齐新版 nightly rustfmt
+
+v0.59.0 的 CI 卡在「Check Rust formatting」（tauri-build 被跳过，安装包未产出）：浮动 nightly 由 2026-07-17 升到 2026-10-05 后中文注释折行规则变化。已整仓按新规则格式化（106 文件，纯折行无逻辑改动）。
+
+- **验证**：`cargo +nightly fmt -- --check` 0 diff；`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（均不变）。
+- **复发处置**：CI 若在格式步失败 → `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。
 
 ### v0.59.0 - 验收证据链、数据层治理与续写质检闭环
 

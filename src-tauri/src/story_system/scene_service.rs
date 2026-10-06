@@ -132,7 +132,8 @@ impl SceneIngestor {
         vector_store: Arc<dyn VectorStore>,
     ) {
         tauri::async_runtime::spawn(async move {
-            // v0.26.50: 与创作路径串行化，避免打字/保存触发的 ingest 抢占本地模型。
+            // v0.26.50: 与创作路径串行化，避免打字/保存触发的 ingest
+            // 抢占本地模型。
             let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             if bg_permit.is_err() {
                 log::warn!(
@@ -373,8 +374,8 @@ impl SceneService {
         updates: &SceneUpdate,
         automation_service: &AutomationService,
     ) {
-        // 1. 自动 Ingest：仅元数据变更立刻防抖；正文变更交给 schedule_commit_and_split
-        //    同窗观察/ingest，避免双烧。
+        // 1. 自动 Ingest：仅元数据变更立刻防抖；正文变更交给
+        //    schedule_commit_and_split 同窗观察/ingest，避免双烧。
         if crate::agency::observe::should_spawn_ingest_on_update(
             updates.content.is_some(),
             SceneIngestor::should_ingest(updates),
@@ -470,14 +471,19 @@ impl SceneService {
                     if content_changed_for_split {
                         if let Some(ref cid) = chapter_id {
                             if let Ok(app_dir) = app_handle.path().app_data_dir() {
-                                // map_err 到 String：Box<dyn StdError> 非 Send，
-                                // if-let 临时 Result 会跨下方 spawn_blocking 的 await。
+                                // map_err 到 String：Box<dyn StdError> 非
+                                // Send， if-let
+                                // 临时 Result 会跨下方 spawn_blocking 的
+                                // await。
                                 if let Ok(config) = crate::config::AppConfig::load(&app_dir)
                                     .map_err(|e| e.to_string())
                                 {
-                                    // v0.33.x fix: maybe_split_latest_chapter 是重同步工作
-                                    // （最多 50 轮全量读写 + 多次 SQLite 事务），直接跑在
-                                    // tokio worker 线程上会饿死所有 IPC。挪到 blocking 线程池。
+                                    // v0.33.x fix: maybe_split_latest_chapter
+                                    // 是重同步工作
+                                    // （最多 50 轮全量读写 + 多次 SQLite
+                                    // 事务），直接跑在
+                                    // tokio worker 线程上会饿死所有 IPC。挪到
+                                    // blocking 线程池。
                                     let pool_for_split = pool.clone();
                                     let app_handle_for_split = app_handle.clone();
                                     let story_id_for_split = story_id_for_commit.clone();

@@ -206,7 +206,8 @@ mod tests {
 
     #[test]
     fn get_narrative_threads_returns_empty_on_error() {
-        // 空数据库缺少 foreshadowing_tracker 表，服务读取会失败，命令应返回空数组。
+        // 空数据库缺少 foreshadowing_tracker
+        // 表，服务读取会失败，命令应返回空数组。
         let pool = in_memory_pool();
         let result = get_narrative_threads_inner("story-1", &pool).unwrap();
         assert_eq!(result["threads"].as_array().unwrap().len(), 0);

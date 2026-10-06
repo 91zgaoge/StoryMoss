@@ -274,7 +274,8 @@ mod tests {
 
     fn insert_character(pool: &DbPool, char_id: &str, story_id: &str, name: &str) {
         let conn = pool.get().expect("Failed to get connection");
-        // dynamic_traits 必须给合法 JSON（get_by_story 会 serde_json::from_str 解析它）
+        // dynamic_traits 必须给合法 JSON（get_by_story 会 serde_json::from_str
+        // 解析它）
         conn.execute(
             "INSERT INTO characters (id, story_id, name, background, dynamic_traits, created_at, updated_at)
              VALUES (?1, ?2, ?3, 'bg', '[]', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
@@ -328,7 +329,8 @@ mod tests {
         insert_character(&pool, "char-x", "story-no-contract", "林知秋");
         // 故意不创建任何 story_contracts / scenes / outlines
         let result = QuickPreflightChecker::check(&pool, "story-no-contract").await;
-        // 即使没有合同/大纲/场景，只要角色存在就通过——这正是 TimeSliced 追求的速度
+        // 即使没有合同/大纲/场景，只要角色存在就通过——这正是 TimeSliced
+        // 追求的速度
         assert!(
             result.ready,
             "QuickCheck 应忽略合同/大纲缺失，实际: {:?}",

@@ -147,8 +147,9 @@ impl CharacterRepository {
             .filter_map(|e| Character::from_entity(&e))
             .collect();
 
-        // Compatibility fallback: rows that exist only in the legacy `characters`
-        // table (e.g. older code paths or tests that insert directly).
+        // Compatibility fallback: rows that exist only in the legacy
+        // `characters` table (e.g. older code paths or tests that
+        // insert directly).
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
              dynamic_traits, source, is_auto_generated, created_at, updated_at, \
@@ -274,7 +275,8 @@ impl CharacterRepository {
         let now = Local::now().to_rfc3339();
 
         // Perform both writes inside a single transaction so the canonical
-        // `kg_entities` table and the legacy `characters` table stay consistent.
+        // `kg_entities` table and the legacy `characters` table stay
+        // consistent.
         let mut conn = self
             .pool
             .get()
@@ -287,7 +289,8 @@ impl CharacterRepository {
             params![id, new_name, attrs.to_string(), now],
         )?;
 
-        // Keep the legacy `characters` table in sync inside the same transaction.
+        // Keep the legacy `characters` table in sync inside the same
+        // transaction.
         tx.execute(
             "UPDATE characters SET name = COALESCE(?2, name),
                  background = COALESCE(?3, background),
@@ -397,7 +400,8 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
-        // 先尝试更新已有行，保留其他列（如 current_location / secrets_known 等）。
+        // 先尝试更新已有行，保留其他列（如 current_location / secrets_known
+        // 等）。
         let count = conn.execute(
             "UPDATE character_states SET
                 location = COALESCE(?2, location),

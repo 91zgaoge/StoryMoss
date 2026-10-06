@@ -651,8 +651,9 @@ fn compute_metrics(
     let tokens = delta_tokens(&card.change_delta.summary);
     let change_delta_honored = tokens.is_empty() || tokens.iter().any(|t| increment.contains(t));
     let recap_gap = probe.gaps.iter().any(|g| g.contains("未兑现必须改变"));
-    // 推进 = 有实质增量（≥落库门槛 200 字）+ 不复述 + 探针未报「未兑现必须改变」。
-    // 空正文/过短正文（provider 失败后的降级）绝不算推进。
+    // 推进 = 有实质增量（≥落库门槛 200 字）+ 不复述 +
+    // 探针未报「未兑现必须改变」。 空正文/过短正文（provider
+    // 失败后的降级）绝不算推进。
     let advanced =
         output_chars >= 200 && !recap_gap && !prior_replay_detected && !opening_tail_replayed;
     GoldenMetrics {

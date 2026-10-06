@@ -27,8 +27,9 @@ impl RotationLedger {
             return Ok(Self::default());
         }
 
-        // 全量场景（seq, location, characters_present, has_conflict），按章升序。
-        // 章节量级百级，行数据小，内存聚合即可。
+        // 全量场景（seq, location, characters_present,
+        // has_conflict），按章升序。 章节量级百级，行数据小，
+        // 内存聚合即可。
         let mut stmt = conn
             .prepare(
                 "SELECT sequence_number, COALESCE(setting_location, ''), \

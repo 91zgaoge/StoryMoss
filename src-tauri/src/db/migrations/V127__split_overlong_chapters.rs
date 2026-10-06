@@ -51,7 +51,8 @@ impl RustMigration for Migration {
     /// `第{N}章`（切分后章号 N+1 必无合约，见 `split_chapter_in_tx`）。
     fn apply(&self, conn: &mut Connection) -> Result<(), rusqlite::Error> {
         const MAX_CHARS: usize = DEFAULT_CHAPTER_SPLIT_MAX_CHARS;
-        const MAX_ITER: usize = 50; // 与 chapter_splitter::MAX_SPLIT_ITERATIONS 对齐
+        const MAX_ITER: usize = 50; // 与 chapter_splitter::MAX_SPLIT_ITERATIONS
+                                    // 对齐
 
         let tx = conn.transaction()?;
         let chapters: Vec<(String, String)> = {

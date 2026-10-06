@@ -97,8 +97,8 @@ impl PromptSynthesizer {
             .unwrap_or_default();
 
         // v0.23.9: 把系统级可用创作资产目录也注入 Call 1，让路由合成器知道
-        // 除了当前故事的 WriteTimeBundle 约束外，还可以调用哪些 skill/beat_card/
-        // story_engine/methodology 等系统资产。
+        // 除了当前故事的 WriteTimeBundle 约束外，还可以调用哪些
+        // skill/beat_card/ story_engine/methodology 等系统资产。
         let capability_section = asset_capability_summary
             .filter(|s| !s.is_empty())
             .map(|s| format!("\n【系统可用创作资产目录】\n{s}\n\n【说明】上面的目录是系统当前注册的全部创作资产（按 kind 分组）。你可以从中挑选与本次指令相关的资产，把 asset id 放进 selected_asset_ids。"))

@@ -136,7 +136,8 @@ impl TaskExecutor for GuidebookDistillationExecutor {
         );
         let flag_for_check = cancel_flag.clone();
         // 心跳闭包：每个主要步骤回调一次，刷新任务系统心跳
-        // （与 book_deconstruction/executor.rs 传给 pipeline 的 heartbeat 同模式）
+        // （与 book_deconstruction/executor.rs 传给 pipeline 的 heartbeat
+        // 同模式）
         let hb_pool = self.pool.clone();
         let hb_app = self.app_handle.clone();
         let hb_task_id = task.id.clone();

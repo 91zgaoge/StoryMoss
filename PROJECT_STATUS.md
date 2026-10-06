@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.59.0 项目完成状态
+# StoryMoss (草苔) v0.59.1 项目完成状态
 
-> 最后更新: 2026-10-06（v0.59.0 验收证据链 / 数据层治理 / 续写质检闭环）
+> 最后更新: 2026-10-06（v0.59.1 构建修复：对齐新版 nightly rustfmt；含 v0.59.0 验收证据链 / 数据层治理 / 续写质检闭环）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,11 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.59.1 - 构建修复：对齐新版 nightly rustfmt（2026-10-06）
+
+- CI 浮动 nightly 升级后中文注释折行规则变化，106 个文件在格式步失败（v0.59.0 安装包因此未产出）；已整仓按新规则格式化，纯折行无逻辑改动。
+- 行为与测试基线不变：`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped。
 
 ### v0.59.0 - 验收证据链、数据层治理与续写质检闭环（2026-10-06）
 

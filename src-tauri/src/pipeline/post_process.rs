@@ -406,7 +406,8 @@ async fn run_character_cards(
     // 兜底：简单扫描内容中提到的角色名，为未更新的角色标记出场
     for character in &all_chars {
         if content_preview.contains(&character.name) {
-            // 原 LLM 调用在 Ok/Err 分支均返回 false，属于冗余调用，直接保留 false 语义
+            // 原 LLM 调用在 Ok/Err 分支均返回 false，属于冗余调用，直接保留
+            // false 语义
             let already_updated = false;
             if already_updated {
                 continue;

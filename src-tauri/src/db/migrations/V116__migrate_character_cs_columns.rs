@@ -18,8 +18,8 @@ impl RustMigration for Migration {
     fn apply(&self, conn: &mut Connection) -> Result<(), rusqlite::Error> {
         let tx = conn.transaction()?;
 
-        // 0. Ensure `character_states` table exists (defensive: some upgrade paths may
-        //    reach V116 without V014 having run).
+        // 0. Ensure `character_states` table exists (defensive: some upgrade
+        //    paths may reach V116 without V014 having run).
         tx.execute(
             "CREATE TABLE IF NOT EXISTS character_states (
                 id TEXT PRIMARY KEY,
@@ -45,8 +45,8 @@ impl RustMigration for Migration {
             [],
         )?;
 
-        // 1. Ensure `character_states` has columns that mirror the legacy `cs_*`
-        //    fields.
+        // 1. Ensure `character_states` has columns that mirror the legacy
+        //    `cs_*` fields.
         let cs_cols: Vec<String> = tx
             .prepare("PRAGMA table_info(character_states)")?
             .query_map([], |row| {
@@ -84,7 +84,8 @@ impl RustMigration for Migration {
             .collect::<Result<Vec<_>, _>>()?;
 
         if char_cols.iter().any(|c| c == "cs_location") {
-            // 2a. Create `character_states` rows for characters that do not have one yet.
+            // 2a. Create `character_states` rows for characters that do not
+            // have one yet.
             let mut stmt = tx.prepare(
                 "SELECT c.id, c.story_id, c.cs_location, c.cs_power_level, c.cs_physical_state, \
                  c.cs_mental_state, c.cs_key_items, c.cs_recent_events, \
@@ -158,8 +159,9 @@ impl RustMigration for Migration {
                 )?;
             }
 
-            // 2b. For characters that already have a `character_states` row, backfill
-            //     only empty legacy columns so we do not clobber newer canonical data.
+            // 2b. For characters that already have a `character_states` row,
+            // backfill     only empty legacy columns so we do not
+            // clobber newer canonical data.
             tx.execute(
                 "UPDATE character_states SET
                     location = COALESCE(location, (SELECT cs_location FROM characters WHERE id = character_states.character_id)),

@@ -860,7 +860,8 @@ mod tests {
             content.push('\n');
         }
         std::fs::write(&path, &content).unwrap();
-        let max = content.len() as u64 - 1; // 文件超阈值 1 字节 → keep_from=1（非 char 边界）
+        let max = content.len() as u64 - 1; // 文件超阈值 1 字节 →
+                                            // keep_from=1（非 char 边界）
         logger.rotate_if_needed(&path, max).unwrap();
         let after = std::fs::read_to_string(&path).unwrap();
         // 尾部完整 UTF-8、按行对齐（丢弃首行，保留 9 行完整行）
@@ -936,7 +937,8 @@ mod tests {
         let inst = &instincts[0];
         assert!(inst.trigger.contains("连续两轮"));
         assert!(inst.action.contains("复读"));
-        assert!((inst.confidence - 0.3).abs() < 0.001); // evidence_count=1 → 0.3
+        assert!((inst.confidence - 0.3).abs() < 0.001); // evidence_count=1 →
+                                                        // 0.3
         assert_eq!(inst.status, "pending");
         assert_eq!(inst.scope, "story");
     }
@@ -944,7 +946,8 @@ mod tests {
     #[tokio::test]
     async fn test_analyze_updates_existing_instinct() {
         let (logger, _tmp) = logger();
-        // 第一轮：≥ANALYZE_MIN_NEW 条观察触发分析，建立 instinct（evidence=1 → 0.3）
+        // 第一轮：≥ANALYZE_MIN_NEW 条观察触发分析，建立 instinct（evidence=1 →
+        // 0.3）
         for i in 0..3 {
             logger.log(
                 "s1",
@@ -954,8 +957,8 @@ mod tests {
             );
         }
         analyze_story(analyzer_mock(), &logger, "s1").await.unwrap();
-        // 同 trigger 再来一轮观察 + 分析 → 同 trigger instinct 的 evidence_count
-        // 递增、confidence 升档
+        // 同 trigger 再来一轮观察 + 分析 → 同 trigger instinct 的
+        // evidence_count 递增、confidence 升档
         for _ in 0..4 {
             logger.log(
                 "s1",
@@ -1034,8 +1037,9 @@ mod tests {
 
     #[test]
     fn test_render_instinct_roundtrip_special_chars() {
-        // trigger/action 含引号/换行/制表符等：serde_yaml 序列化保证 round-trip，
-        // 不产生非法 YAML（修复前 {:?} 调试转义遇控制字符可能断裂 frontmatter）
+        // trigger/action 含引号/换行/制表符等：serde_yaml 序列化保证
+        // round-trip， 不产生非法 YAML（修复前 {:?}
+        // 调试转义遇控制字符可能断裂 frontmatter）
         let inst = Instinct {
             id: "inst-special".to_string(),
             trigger: "含\"引号\"与\n换行、制表\t符".to_string(),
@@ -1133,7 +1137,8 @@ mod tests {
         // T4：promoted 晋升产物豁免衰减
         seed_promoted(&logger, "s1", "inst-promoted", 0.9, &old.to_rfc3339());
         let decayed = apply_weekly_decay(&logger, "s1").unwrap();
-        assert_eq!(decayed, 1); // 只有 14 天前的那条衰减（每满 7 天 -0.02，14 天 -0.04）
+        assert_eq!(decayed, 1); // 只有 14 天前的那条衰减（每满 7 天 -0.02，14
+                                // 天 -0.04）
         let instincts = list_instincts(&logger, "s1").unwrap();
         let old_inst = instincts.iter().find(|i| i.id == "inst-old").unwrap();
         assert!((old_inst.confidence - 0.46).abs() < 0.001);

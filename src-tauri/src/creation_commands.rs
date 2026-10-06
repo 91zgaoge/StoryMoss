@@ -661,7 +661,8 @@ pub async fn create_story_with_wizard(
         "create_story_with_wizard",
         title
     );
-    // A3: 提前组装 ingest 文本，原始 wizard 输入可随事务一起移入 spawn_blocking。
+    // A3: 提前组装 ingest 文本，原始 wizard 输入可随事务一起移入
+    // spawn_blocking。
     let ingest_text = format!(
         "世界观：{}\n\n历史背景：{}\n\n角色设定：\n{}\n\n文字风格：{}\n\n首个场景：{}\n\n{}",
         world_building.concept,
@@ -990,7 +991,8 @@ pub async fn run_creation_workflow(
                 .and_then(|scenes| scenes.into_iter().last())
                 .map(|s| s.id);
 
-            // AiOnly 模式：spawn 后台 enrich 任务，从正文生成完整 World/Character/Style
+            // AiOnly 模式：spawn 后台 enrich 任务，从正文生成完整
+            // World/Character/Style
             if mode == CreationMode::AiOnly {
                 let pool_clone = pool.inner().clone();
                 let story_id_clone = story_id.clone();
@@ -1505,7 +1507,8 @@ pub async fn generate_scene_outline(
     let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
 
     // v0.30.15: 注入完整故事大纲 + 场景序号，让场景大纲围绕故事大纲生成、复用已
-    // 登场角色，禁止幻觉新角色（修复"金敏秀"式偏离：场景大纲与故事大纲两张皮）。
+    // 登场角色，禁止幻觉新角色（修复"金敏秀"式偏离：
+    // 场景大纲与故事大纲两张皮）。
     let story_outline = StoryOutlineRepository::new(pool.inner().clone())
         .get_by_story(&scene.story_id)
         .ok()

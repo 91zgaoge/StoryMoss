@@ -48,8 +48,9 @@ pub(crate) fn select_first_chapter_content(
 mod first_chapter_retry_gate_tests {
     use super::*;
 
-    // v0.26.19 Phase 3.1 契约：compute_trim_ratio 在 raw 为空时返回 0.0（不除零），
-    //   在 cleaned == raw 时返回 0.0（无裁剪），在 cleaned = raw/2 时返回 0.5。
+    // v0.26.19 Phase 3.1 契约：compute_trim_ratio 在 raw 为空时返回
+    // 0.0（不除零），   在 cleaned == raw 时返回 0.0（无裁剪），在 cleaned
+    // = raw/2 时返回 0.5。
     #[test]
     fn compute_trim_ratio_handles_empty_and_half_trim() {
         assert_eq!(compute_trim_ratio(0, 0), 0.0);

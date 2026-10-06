@@ -1254,7 +1254,8 @@ mod tests {
 
     #[test]
     fn parse_refresh_payload_accepts_object_story_outline() {
-        // 真机 Gemma 4：82 字量级，story_outline 常是对象不是字符串（v0.30.29 同类）。
+        // 真机 Gemma 4：82 字量级，story_outline 常是对象不是字符串（v0.30.29
+        // 同类）。
         let raw = r#"{"story_outline":{"core_conflict":"韩雪在首尔雨夜把枪口对准李明"}}"#;
         let p = parse_refresh_payload(raw).expect("对象大纲应解析");
         let outline = p.story_outline.expect("应有故事大纲");

@@ -247,7 +247,8 @@ impl IntentionGraphPlanner {
         let max_results = 10;
         let mut results = discovery.discover(&synthesis.root_intention, graph_repo, max_results)?;
 
-        // Phase 2: 对用户输入做 GenreResolver 复合题材解析，补充相关 genre_profile 资产
+        // Phase 2: 对用户输入做 GenreResolver 复合题材解析，补充相关
+        // genre_profile 资产
         if let Some(pool) = self
             .app_handle
             .as_ref()
@@ -447,7 +448,8 @@ impl IntentionGraphPlanner {
             }
         }
 
-        // Phase 2/3: 把资产标签与资产 ID 单独注入，便于 AgentService 透传给模型网关
+        // Phase 2/3: 把资产标签与资产 ID 单独注入，便于 AgentService
+        // 透传给模型网关
         let tags: Vec<String> = asset.tags();
         if !tags.is_empty() {
             parameters.insert(

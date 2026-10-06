@@ -461,9 +461,10 @@ fn parse_strategy_response(content: &str) -> Result<SelectedStrategy, AppError> 
     };
 
     // v0.26.28 hotfix: 优先按标准 SelectedStrategy schema 解析；
-    // 失败时回退到旧版 schema（selected_strategy/reasoning/asset_combination），
-    // 避免 prompts 外部化过程中旧格式残留导致 Genesis 策略选择步骤失败。
-    // v0.31 起 SelectedStrategy 各字段带 serde(default)（strategy_json 部分
+    // 失败时回退到旧版 schema（selected_strategy/reasoning/
+    // asset_combination）， 避免 prompts 外部化过程中旧格式残留导致 Genesis
+    // 策略选择步骤失败。 v0.31 起 SelectedStrategy 各字段带
+    // serde(default)（strategy_json 部分
     // 反序列化），旧版文档也能被严格解析为全空策略，因此先按顶层特征键
     // 识别 legacy 文档并优先走 legacy 分支，行为与 v0.26.28 一致。
     let is_legacy = serde_json::from_str::<serde_json::Value>(json_str)
@@ -556,7 +557,8 @@ mod tests {
     use crate::strategy::asset_catalog::{genre_profile_assets, methodology_assets};
 
     fn sample_assets() -> Vec<SelectableAsset> {
-        // 使用与 templates/genres.json 一致的真实 aliases，避免测试数据与真实数据不一致
+        // 使用与 templates/genres.json 一致的真实
+        // aliases，避免测试数据与真实数据不一致
         let profile = crate::db::GenreProfile {
             id: "apocalyptic".to_string(),
             genre_name: "末世流".to_string(),

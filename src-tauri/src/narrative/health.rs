@@ -243,7 +243,8 @@ impl StoryHealthAnalyzer {
     }
 
     fn load_outline(&self, story_id: &str) -> Result<Option<OutlineElement>, rusqlite::Error> {
-        // P0-2 修复: narrative_outlines 表不存在，改为查询 story_outlines (v3 生产表)
+        // P0-2 修复: narrative_outlines 表不存在，改为查询 story_outlines (v3
+        // 生产表)
         let conn = self
             .pool
             .get()

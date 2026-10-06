@@ -192,7 +192,8 @@ impl<R: Runtime> GatewayExecutor<R> {
         // 2. 自动分配
         match role {
             crate::config::settings::ModelRole::Tool => {
-                // 工具模型：选 TTFB 最快的可用模型（≥2 可用时避让 active/creative）
+                // 工具模型：选 TTFB 最快的可用模型（≥2 可用时避让
+                // active/creative）
                 self.pick_fastest_for_role(&config)
             }
             crate::config::settings::ModelRole::Background => {
@@ -558,7 +559,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                         }
                     }
 
-                    // Phase 2/3: 标签重叠加分（最多 +10），让匹配到同类标签的模型优先
+                    // Phase 2/3: 标签重叠加分（最多
+                    // +10），让匹配到同类标签的模型优先
                     if !request_tag_set.is_empty() {
                         let overlap = m
                             .tags
@@ -575,7 +577,8 @@ impl<R: Runtime> GatewayExecutor<R> {
             result
         };
         re_scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        // ↑ health 锁已释放，is_model_available 可以安全地重新锁定 health_registry
+        // ↑ health 锁已释放，is_model_available 可以安全地重新锁定
+        // health_registry
 
         // 更新候选链顺序与 primary
         let candidates: Vec<crate::router::RankedCandidate> = re_scored
@@ -771,8 +774,9 @@ impl<R: Runtime> GatewayExecutor<R> {
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
-        // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates 已不强制置顶。
-        // v0.26.54: 再提升与 select_candidates 对齐——允许 Unknown；若活跃模型同时是
+        // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates
+        // 已不强制置顶。 v0.26.54: 再提升与 select_candidates
+        // 对齐——允许 Unknown；若活跃模型同时是
         // 用户指定的创作角色，忽略粘性降级（与角色置顶契约一致）。
         let Some(active) = self.llm_service.get_active_profile() else {
             return;
@@ -844,7 +848,8 @@ impl<R: Runtime> GatewayExecutor<R> {
     /// profile。
     pub fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
         // v0.23.66: 工具模型优先 — 若用户设置了工具模型且健康，优先使用。
-        // select_fastest_profile 主要用于 TriShot Call 1（路由合成），属于 Tool 角色。
+        // select_fastest_profile 主要用于 TriShot Call 1（路由合成），属于 Tool
+        // 角色。
         let app_dir = self
             .app_handle
             .path()
@@ -904,8 +909,9 @@ impl<R: Runtime> GatewayExecutor<R> {
                 let health = self.health_registry();
                 let health_guard = health.lock().ok();
 
-                // v0.23.14: 排序键改为 (ttfb_bucket, -capability_score, -success_rate, id)
-                // ttfb_bucket 将 TTFB 按 20% 宽度分桶，同桶内按能力分降序，
+                // v0.23.14: 排序键改为 (ttfb_bucket, -capability_score,
+                // -success_rate, id) ttfb_bucket 将 TTFB 按 20%
+                // 宽度分桶，同桶内按能力分降序，
                 // 避免"快 1ms 但质量差 10 倍"的模型被选中。
                 let mut ranked: Vec<(u64, f64, f64, String)> = profiles
                     .iter()
@@ -939,7 +945,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                 if let Some((fastest_ttfb, _, _, fastest_id)) = ranked.first() {
                     // v0.23.12: 用户当前设置的活跃模型优先使用：
                     // 1) 活跃模型无算力档案（用户刚添加或从未探测），直接用它；
-                    // 2) 活跃模型有档案且 TTFB 不比最快模型差太多（<= 3x 且至少 3000ms），用它；
+                    // 2) 活跃模型有档案且 TTFB 不比最快模型差太多（<= 3x 且至少
+                    //    3000ms），用它；
                     // 3) 否则才回退到全局最快模型。
                     if let Some(ref active_profile) = active {
                         let active_healthy = health_guard
@@ -1132,8 +1139,10 @@ impl<R: Runtime> GatewayExecutor<R> {
             }
 
             // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
-            // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过内联探测，
-            // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms 延迟。
+            // v0.23.60: 若后台 keepalive
+            // 已保持健康数据新鲜（<15s），跳过内联探测，
+            // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms
+            // 延迟。
             let health_fresh = self.is_health_fresh(&candidate.model_id);
             let probe_passed = if health_fresh {
                 log::debug!(
@@ -1209,8 +1218,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                 continue;
             }
 
-            // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
-            // 以支持 OpenAI/Ollama 的 JSON mode。
+            // 实际调用底层 LlmService 的按 profile 执行接口，透传
+            // response_format 以支持 OpenAI/Ollama 的 JSON mode。
             // v0.23.65: 透传请求级 system_prompt（writer_system 写作准则）。
             let max_retries = request.max_retries_override.unwrap_or(1);
             let candidate_idx = idx + 1;
@@ -1263,11 +1272,13 @@ impl<R: Runtime> GatewayExecutor<R> {
             .await;
             match outcome.into_result() {
                 Ok(resp) if gateway_content_is_empty(&resp) => {
-                    // v0.30.51: 推理模型可能返回 200 但 content 为空（token 全部
-                    // 消耗在 reasoning_content/CoT 上，例如 max_tokens 在推理阶段
+                    // v0.30.51: 推理模型可能返回 200 但 content 为空（token
+                    // 全部 消耗在 reasoning_content/CoT
+                    // 上，例如 max_tokens 在推理阶段
                     // 耗尽）。空正文对调用方等同失败——此前它被当作成功一路透传到
                     // writer 步骤，导致计划"完成"却无正文，最终报 Fatal。
-                    // 这里视为候选失败：标记 Degraded 并继续尝试下一个候选模型。
+                    // 这里视为候选失败：标记 Degraded
+                    // 并继续尝试下一个候选模型。
                     let e = AppError::Internal {
                         message: format!("模型 {} 返回了空内容", candidate.model_name),
                     };
@@ -1287,7 +1298,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                     continue;
                 }
                 Ok(resp) => {
-                    // v0.23.59: 真实调用成功，重置连续失败计数，恢复强制置顶资格
+                    // v0.23.59: 真实调用成功，重置连续失败计数，
+                    // 恢复强制置顶资格
                     self.record_gateway_success(&candidate.model_id, &candidate.model_name);
                     if let (Some(trace_id), Some(store)) =
                         (request.trace_id.as_ref(), trace_store.as_ref())
@@ -1311,8 +1323,9 @@ impl<R: Runtime> GatewayExecutor<R> {
                         candidate_idx,
                         e
                     );
-                    // v0.23.59: 真实调用失败标记 Degraded（保留在候选池受 -20 惩罚），
-                    // 递增连续失败计数。这是让"能说 OK 但无法生成正文"的模型
+                    // v0.23.59: 真实调用失败标记 Degraded（保留在候选池受 -20
+                    // 惩罚）， 递增连续失败计数。这是让"
+                    // 能说 OK 但无法生成正文"的模型
                     // 对调度器可见的关键——下次 generate 不再强制置顶它。
                     self.record_gateway_failure(
                         &candidate.model_id,
@@ -1361,7 +1374,8 @@ impl<R: Runtime> GatewayExecutor<R> {
             });
         }
 
-        // v0.17.1: 优先从 PromptRegistry 读取，回退到 AppConfig.probe_prompt_override，
+        // v0.17.1: 优先从 PromptRegistry 读取，回退到
+        // AppConfig.probe_prompt_override，
         // 最后回退到内置默认。让前端能在「提示词」面板编辑探测 prompt。
         let probe_prompt = {
             let from_registry = self
@@ -1417,7 +1431,9 @@ impl<R: Runtime> GatewayExecutor<R> {
             Ok(resp) => {
                 let duration_ms = start.elapsed().as_millis() as u64;
                 let total_tokens = resp.tokens_used.max(1);
-                let ttft_ms = duration_ms / 3; // v0.15.0: 粗略估计，真实TTFB由benchmark.rs流式基准提供
+                let ttft_ms = duration_ms / 3; // v0.15.0: 粗略估计，
+                                               // 真实TTFB由benchmark.
+                                               // rs流式基准提供
                 let tps = if duration_ms > ttft_ms {
                     total_tokens as f64 * 1000.0 / (duration_ms - ttft_ms).max(1) as f64
                 } else {
@@ -1583,7 +1599,8 @@ mod tests {
 
     #[test]
     fn candidate_fits_prompt_skips_8k_window_for_19k_token_continue() {
-        // 诊断：续写第26章 prompt ≈24559 字符 / 估算 12279 tokens，Gemma n_ctx=8192。
+        // 诊断：续写第26章 prompt ≈24559 字符 / 估算 12279 tokens，Gemma
+        // n_ctx=8192。
         assert!(
             !candidate_fits_prompt(8192, 24559),
             "8k 窗口不得接下约 12k token 的续写提示"

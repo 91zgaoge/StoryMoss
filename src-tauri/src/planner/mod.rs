@@ -287,11 +287,16 @@ impl PlanGenerator {
         context: &PlanContext,
         plan_mode: &str,
     ) {
-        let _ = plan_mode; // 续写不再区分 beat / single_writer；保留形参以免改签名
-                           // v0.30.38: 门控扩展--is_continuation 也触发净化（纵深防御）。
-                           // 此前门控仅检查 is_prose_request，但 LLM 可能省略 is_prose 字段
-                           // 导致 serde 默认 false（尽管 Fix 1 已在后置纠正，此处再加一道保险）。
-                           // 续写本质是 prose 请求，is_continuation=true 时净化必运行。
+        let _ = plan_mode; // 续写不再区分 beat /
+                           // single_writer；保留形参以免改签名
+                           // v0.30.38: 门控扩展--is_continuation
+                           // 也触发净化（纵深防御）。
+                           // 此前门控仅检查 is_prose_request，但 LLM 可能省略
+                           // is_prose 字段
+                           // 导致 serde 默认 false（尽管 Fix 1
+                           // 已在后置纠正，此处再加一道保险）。
+                           // 续写本质是 prose 请求，is_continuation=true
+                           // 时净化必运行。
         let cls = match classification {
             Some(c) if c.is_prose_request || c.is_continuation => c,
             _ => return,
@@ -310,8 +315,8 @@ impl PlanGenerator {
         }
 
         // 2. 续写：幕前已走 Agency Append。漏网进入 PlanExecutor 时塌缩为单
-        //    writer（不再插入 beat_planner）。execute_writer 会再拒绝续写/ 创世，避免
-        //    TimeSliced/TriShot。
+        //    writer（不再插入 beat_planner）。execute_writer 会再拒绝续写/
+        //    创世，避免 TimeSliced/TriShot。
         if cls.is_continuation {
             if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
                 log::warn!(
@@ -1008,8 +1013,9 @@ mod tests {
 
     #[test]
     fn test_force_correct_inspector_audit_with_prose_forced_to_writer() {
-        // v0.30.12 防误判：分类矛盾时（task_type=Audit 但 is_prose_request=true，
-        // 如本地模型把"继续写"误判为 Audit），强制 writer--续写绝不该返回审查报告。
+        // v0.30.12 防误判：分类矛盾时（task_type=Audit 但
+        // is_prose_request=true， 如本地模型把"继续写"误判为
+        // Audit），强制 writer--续写绝不该返回审查报告。
         let cls = WritingIntentClassification {
             is_continuation: false,
             task_type: AssetTaskType::Audit,
@@ -1090,7 +1096,8 @@ mod tests {
     #[test]
     fn test_audit_intent_with_prose_not_routed() {
         // 分类矛盾（Audit 但 is_prose_request=true，如本地模型误判"继续写"）
-        // 不路由——与防线 2 的 force-to-writer 决策一致，走 plan pipeline 产正文。
+        // 不路由——与防线 2 的 force-to-writer 决策一致，走 plan pipeline
+        // 产正文。
         let cls = WritingIntentClassification {
             is_new_novel: false,
             is_continuation: false,
@@ -1170,8 +1177,9 @@ mod tests {
     #[test]
     fn test_force_correct_method_sing_style_enhancer_corrected() {
         // v0.30.13 回归：SING 路径产生的 builtin.style_enhancer 首步经咽喉点
-        // force_correct_first_step_to_writer 修正为 writer（用户报告"继续写"得到
-        // "请提供需要增强的原始文本"模板，根因是 SING 绕过 generate_plan 内防线）。
+        // force_correct_first_step_to_writer 修正为
+        // writer（用户报告"继续写"得到 "请提供需要增强的原始文本"模板，
+        // 根因是 SING 绕过 generate_plan 内防线）。
         let mut plan = ExecutionPlan {
             understanding: "sing plan: enhance style".to_string(),
             steps: vec![PlanStep {
@@ -1229,7 +1237,8 @@ mod tests {
 
     #[test]
     fn test_force_correct_method_inspector_continuation_corrected() {
-        // v0.30.13：咽喉点也覆盖 inspector 误路由（v0.30.12 场景在 SING 路径复现）。
+        // v0.30.13：咽喉点也覆盖 inspector 误路由（v0.30.12 场景在 SING
+        // 路径复现）。
         let mut plan = ExecutionPlan {
             understanding: "sing plan: inspect".to_string(),
             steps: vec![PlanStep {
@@ -1370,9 +1379,9 @@ mod tests {
 
     #[test]
     fn test_sanitize_inspector_then_style_enhancer_prose() {
-        // v0.30.14 核心回归：用户报告"增强第二章"得到 [inspector, style_enhancer]
-        // 多步 plan，尾部 style_enhancer 用"请提供原始文本"模板覆盖正文。净化后末步
-        // 必须为 writer。
+        // v0.30.14 核心回归：用户报告"增强第二章"得到 [inspector,
+        // style_enhancer] 多步 plan，尾部 style_enhancer
+        // 用"请提供原始文本"模板覆盖正文。净化后末步 必须为 writer。
         let cls = WritingIntentClassification {
             is_continuation: false,
             is_prose_request: true,
@@ -1441,7 +1450,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_inspector_writer_rewrite_preserved() {
-        // Rule 9 合法流 [inspector, writer]（改写：先审后写，末步 writer）必须保留。
+        // Rule 9 合法流 [inspector, writer]（改写：先审后写，末步
+        // writer）必须保留。
         let cls = WritingIntentClassification {
             is_continuation: false,
             is_prose_request: true,
@@ -1531,7 +1541,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_audit_not_purged() {
-        // 显式审查（is_prose_request=false）保留 inspector--审查报告是用户想要的。
+        // 显式审查（is_prose_request=false）保留
+        // inspector--审查报告是用户想要的。
         let cls = WritingIntentClassification {
             is_continuation: false,
             is_prose_request: false,
@@ -1552,7 +1563,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_outline_writer_preserved() {
-        // [outline_planner, writer]：末步 writer，保留（outline 作为中间步合法）。
+        // [outline_planner, writer]：末步 writer，保留（outline
+        // 作为中间步合法）。
         let cls = WritingIntentClassification {
             is_continuation: false,
             is_prose_request: true,

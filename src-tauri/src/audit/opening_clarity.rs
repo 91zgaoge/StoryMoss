@@ -139,8 +139,8 @@ impl OpeningClarityGate {
             misses.push(OpeningElement::Puzzle);
         }
 
-        // 5. PhysicalAnchor —
-        //    至少有一个具体名词锚定（粗略：包含「：」「。」之外的句号且字数≥40）
+        // 5. PhysicalAnchor — 至少有一个具体名词锚定（粗略：包含「：」「。
+        //    」之外的句号且字数≥40）
         if snippet.chars().count() >= 40 {
             hits.push(OpeningElement::PhysicalAnchor);
         } else {

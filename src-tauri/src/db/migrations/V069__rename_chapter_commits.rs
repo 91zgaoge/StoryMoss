@@ -24,7 +24,8 @@ impl RustMigration for Migration {
             > 0;
 
         if has_old_table {
-            // 如果 Migration 48 已经创建了空的 scene_commits（旧数据库升级场景），先删除它
+            // 如果 Migration 48 已经创建了空的
+            // scene_commits（旧数据库升级场景），先删除它
             let has_new_table: bool = conn
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND \

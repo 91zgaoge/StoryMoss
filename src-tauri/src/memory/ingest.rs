@@ -461,10 +461,11 @@ impl IngestPipeline {
         let analysis = self.analyze_content(content, cancel).await?;
 
         // Step 1a: 资产回流 — 将分析出的写作资产 upsert 到生产资产表
-        // (characters/character_relationships/world_buildings/scenes.outline_content/
-        // story_outlines)。新角色在此先注册（source='ingest'），下游
-        // persist_character_states 才能按名匹配到。桥接内部逐条 log::warn，
-        // 失败不影响 ingest 主流程。
+        // (characters/character_relationships/world_buildings/scenes.
+        // outline_content/ story_outlines)。新角色在此先注册（source='
+        // ingest'），下游 persist_character_states
+        // 才能按名匹配到。桥接内部逐条 log::warn， 失败不影响 ingest
+        // 主流程。
         if let Some(pool) = &self.pool {
             let synced = crate::memory::asset_bridge::sync_assets_from_analysis(
                 pool,
@@ -1292,8 +1293,8 @@ impl IngestPipeline {
             return;
         }
 
-        // 按事件类型排序：introduction -> foreshadow_setup -> conflict_eruption ->
-        // turning_point -> climax -> resolution -> foreshadow_payoff
+        // 按事件类型排序：introduction -> foreshadow_setup -> conflict_eruption
+        // -> turning_point -> climax -> resolution -> foreshadow_payoff
         let type_order = |et: &EventType| match et {
             EventType::Introduction => 0,
             EventType::ForeshadowSetup => 1,

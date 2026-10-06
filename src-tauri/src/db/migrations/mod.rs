@@ -252,8 +252,9 @@ impl MigrationRunner {
             current_version
         );
 
-        // v0.59.0：待执行集合 = 迁移文件中所有「未记录在 schema_migrations 的版本」，
-        // 而非「版本号 > MAX(version)」。旧口径下任何低于当前水位的补丁迁移
+        // v0.59.0：待执行集合 = 迁移文件中所有「未记录在 schema_migrations
+        // 的版本」， 而非「版本号 > MAX(version)」。
+        // 旧口径下任何低于当前水位的补丁迁移
         // （历史空洞/后补迁移）永远不会被执行，也永远不会被告警。
         let applied = Self::applied_migrations(conn)?;
         let max_applied = applied.keys().copied().max().unwrap_or(0);
@@ -409,9 +410,10 @@ impl MigrationRunner {
     /// Execute a single migration's SQL, splitting on `;` into individual
     /// statements.
     fn execute_migration_sql(tx: &rusqlite::Transaction, sql: &str) -> Result<(), MigrationError> {
-        // Split by semicolons, but be careful with semicolons inside string literals.
-        // For simplicity, we split on `;\n` or `;` at end of line, which is safe
-        // for the project's DDL/DML patterns (no complex stored procedures).
+        // Split by semicolons, but be careful with semicolons inside string
+        // literals. For simplicity, we split on `;\n` or `;` at end of
+        // line, which is safe for the project's DDL/DML patterns (no
+        // complex stored procedures).
         let statements: Vec<&str> = sql
             .split(';')
             .map(|s| s.trim())
@@ -424,8 +426,9 @@ impl MigrationRunner {
                 continue;
             }
 
-            // Skip transaction control statements — MigrationRunner already wraps
-            // each migration in a transaction via `conn.transaction()`.
+            // Skip transaction control statements — MigrationRunner already
+            // wraps each migration in a transaction via
+            // `conn.transaction()`.
             let upper = stmt.to_uppercase();
             if upper == "BEGIN" || upper.starts_with("BEGIN ") {
                 log::debug!("[migrations] Skipping BEGIN (managed by runner)");
@@ -444,8 +447,9 @@ impl MigrationRunner {
             let stmt_with_semicolon = format!("{};", stmt);
 
             if let Err(e) = tx.execute(&stmt_with_semicolon, []) {
-                // If the error is "duplicate column name" or "table already exists",
-                // we may want to log and continue for idempotent safety.
+                // If the error is "duplicate column name" or "table already
+                // exists", we may want to log and continue for
+                // idempotent safety.
                 let err_msg = e.to_string().to_lowercase();
                 if err_msg.contains("duplicate column name") || err_msg.contains("already exists") {
                     log::warn!(
@@ -849,8 +853,8 @@ mod tests {
         runner2.run(&mut conn).unwrap();
     }
 
-    // v0.26.30 hotfix: 当旧数据库在 inline → Rust migration 切换过程中跳过 V099，
-    // schema_migrations 可能已到 102 但 characters 等表缺失 source /
+    // v0.26.30 hotfix: 当旧数据库在 inline → Rust migration 切换过程中跳过
+    // V099， schema_migrations 可能已到 102 但 characters 等表缺失 source /
     // is_auto_generated 列。 V103 必须能补回这些列。
     #[test]
     fn test_v103_repairs_missing_source_columns() {
@@ -870,7 +874,8 @@ mod tests {
         )
         .unwrap();
 
-        // Create characters/scenes/world_buildings/kg_entities without source columns.
+        // Create characters/scenes/world_buildings/kg_entities without source
+        // columns.
         conn.execute_batch(
             "CREATE TABLE characters (id TEXT PRIMARY KEY, name TEXT NOT NULL);
              CREATE TABLE scenes (id TEXT PRIMARY KEY, title TEXT);

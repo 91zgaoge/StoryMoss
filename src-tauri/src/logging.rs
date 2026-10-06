@@ -146,9 +146,9 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
     // 注意：tracing-subscriber 启用 tracing-log feature 时（Cargo.lock
     // 已确认启用）， 上面的 registry.
     // init()（SubscriberInitExt::init）会自动初始化 LogTracer，
-    // 此处的显式调用必然以 "already initialized" 失败——这是预期行为，仅记 debug，
-    // 不再输出误导性的 WARN。保留显式调用作为兜底：若未来该 feature 被移除，
-    // 此处仍能保证 log:: 记录被桥接，而不是静默丢失。
+    // 此处的显式调用必然以 "already initialized" 失败——这是预期行为，仅记
+    // debug， 不再输出误导性的 WARN。保留显式调用作为兜底：若未来该 feature
+    // 被移除， 此处仍能保证 log:: 记录被桥接，而不是静默丢失。
     if let Err(e) = tracing_log::LogTracer::init() {
         tracing::debug!(
             "[logging] LogTracer::init() skipped (already initialized by subscriber): {}",

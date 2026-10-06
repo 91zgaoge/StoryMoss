@@ -39,7 +39,8 @@ impl BootstrapConfig {
         let path = config_dir.join("config.json");
         if path.exists() {
             let content = fs::read_to_string(&path)?;
-            // 尝试解析为 BootstrapConfig；如果失败（旧格式完整 AppConfig），返回默认
+            // 尝试解析为 BootstrapConfig；如果失败（旧格式完整
+            // AppConfig），返回默认
             match serde_json::from_str::<BootstrapConfig>(&content) {
                 Ok(cfg) => Ok(cfg),
                 Err(e) => {
@@ -555,7 +556,8 @@ mod temperature_serde {
     {
         let normalized = ((temp * 100.0).round() / 100.0).clamp(0.0, 2.0);
         // 通过字符串 round-trip 确保序列化输出为干净的 2 位小数，
-        // 避免 f32 -> f64 精度扩展导致 serde_json 输出 0.8899999856948853 这类噪声
+        // 避免 f32 -> f64 精度扩展导致 serde_json 输出 0.8899999856948853
+        // 这类噪声
         let s = format!("{:.2}", normalized);
         let clean: f64 = s.parse().unwrap();
         serializer.serialize_f64(clean)
@@ -921,7 +923,8 @@ impl Default for AppConfig {
         let mut embedding_profiles = HashMap::new();
 
         // 1. 语言模型占位（用户需在设置中替换为真实 endpoint）
-        // 保留占位以避免首次启动无模型导致的空指针；标记 enabled=false 并在 UI 提示配置
+        // 保留占位以避免首次启动无模型导致的空指针；标记 enabled=false 并在 UI
+        // 提示配置
         let qwen35 = LlmProfile {
             id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
             name: "Qwen 3.5 语言模型（请检查配置）".to_string(),
@@ -1203,7 +1206,8 @@ impl AppConfig {
                 let config_path = config_dir.join("config.json");
                 let config = if config_path.exists() {
                     let content = fs::read_to_string(&config_path)?;
-                    // 尝试解析完整 AppConfig；若失败（可能是新的 BootstrapConfig），使用默认
+                    // 尝试解析完整 AppConfig；若失败（可能是新的
+                    // BootstrapConfig），使用默认
                     match serde_json::from_str::<AppConfig>(&content) {
                         Ok(mut cfg) => {
                             if cfg.llm_profiles.is_empty() {
@@ -1363,8 +1367,8 @@ impl AppConfig {
 
     /// 设置活跃的LLM配置
     pub fn set_active_llm_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
-        // v0.23.14: 拒绝将已禁用的模型设为活跃模型，防止 active 指针指向不可用模型
-        // 后静默跳过、回落到候选链死模型导致超时。
+        // v0.23.14: 拒绝将已禁用的模型设为活跃模型，防止 active
+        // 指针指向不可用模型 后静默跳过、回落到候选链死模型导致超时。
         match self.llm_profiles.get(profile_id) {
             Some(profile) if profile.enabled => {
                 self.active_llm_profile = Some(profile_id.to_string());

@@ -447,7 +447,8 @@ mod tests {
         let dnas = vec![proust(), hemingway(), marquez()];
 
         let sent_len = blend.weighted_sentence_length(&dnas);
-        // 普鲁斯特 80*0.65 + 海明威 15*0.20 + 马尔克斯 45*0.15 = 52 + 3 + 6.75 = 61.75
+        // 普鲁斯特 80*0.65 + 海明威 15*0.20 + 马尔克斯 45*0.15 = 52 + 3 + 6.75
+        // = 61.75
         assert!(sent_len > 55.0 && sent_len < 70.0);
 
         let dial_ratio = blend.weighted_dialogue_ratio(&dnas);

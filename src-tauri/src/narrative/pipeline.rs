@@ -204,7 +204,8 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
 
             let step_start = std::time::Instant::now();
 
-            // P1-16 修复: 步骤执行期间使用 tokio::select! 监听取消标志，实现运行中取消
+            // P1-16 修复: 步骤执行期间使用 tokio::select!
+            // 监听取消标志，实现运行中取消
             let progress_clone = progress_callback.clone();
             let result = if let Some(ref flag) = self.cancel_flag {
                 let flag_clone = flag.clone();
@@ -350,11 +351,11 @@ mod tests {
         let _ = executor.with_cancel_flag(flag);
     }
 
-    // v0.26.19 Phase 2.3 契约：lock_cancel_flags 在 mutex 中毒时必须返回守卫而非
-    // panic。   模拟方式：人为制造一次 poison（在持锁时 panic），验证后续
-    // lock_cancel_flags 仍可用。   注意：此测试会污染全局 PIPELINE_CANCEL_FLAGS
-    // 的锁状态（中毒），但 lock_cancel_flags   会恢复，后续测试仍可正常
-    // register/cancel。
+    // v0.26.19 Phase 2.3 契约：lock_cancel_flags 在 mutex
+    // 中毒时必须返回守卫而非 panic。   模拟方式：人为制造一次
+    // poison（在持锁时 panic），验证后续 lock_cancel_flags 仍可用。
+    // 注意：此测试会污染全局 PIPELINE_CANCEL_FLAGS 的锁状态（中毒），但
+    // lock_cancel_flags   会恢复，后续测试仍可正常 register/cancel。
     #[test]
     fn lock_cancel_flags_recovers_from_poison() {
         use std::panic::{catch_unwind, AssertUnwindSafe};

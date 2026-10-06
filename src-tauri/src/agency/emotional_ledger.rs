@@ -300,7 +300,8 @@ mod tests {
     fn test_compute_tension_low_intensity_neutral() {
         let tension = compute_interpersonal_tension("信任", 0.3, "信任", 0.3);
         // brief 原文断言 `pressure < 0.3`，但公式 (0.3+0.3)/2=0.3 恰为边界，
-        // 属 brief 自身测试与实现不一致；最小处理为放宽到 <= 0.3（实现按 brief 原样）。
+        // 属 brief 自身测试与实现不一致；最小处理为放宽到 <= 0.3（实现按 brief
+        // 原样）。
         assert!(tension.pressure <= 0.3);
     }
 

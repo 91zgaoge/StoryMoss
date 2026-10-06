@@ -37,8 +37,8 @@ impl LayeredDiscovery {
         graph_repo: &IntentionGraphRepository,
         max_results: usize,
     ) -> Result<ServerLevelResult, AppError> {
-        // 1. 构建异构图邻接表用于 PPR 传播 节点 ID 命名空间：intention 节点原样使用
-        //    ID，asset 节点原样使用 ID
+        // 1. 构建异构图邻接表用于 PPR 传播 节点 ID 命名空间：intention
+        //    节点原样使用 ID，asset 节点原样使用 ID
         let mut edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
 
         // 1a. intention → asset 边（TriggeredBy / HasIntention）

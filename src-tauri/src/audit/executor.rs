@@ -526,8 +526,8 @@ mod tests {
 
     #[test]
     fn new_dimensions_v17_priority_within_existing_range() {
-        // 新维度应介于既有 high/medium/low 之间，不破坏 memory > continuity > others
-        // 的总序
+        // 新维度应介于既有 high/medium/low 之间，不破坏 memory > continuity >
+        // others 的总序
         assert!(dimension_priority("memory") > dimension_priority("payoff"));
         assert!(dimension_priority("payoff") >= dimension_priority("character"));
         assert!(dimension_priority("aftertaste") >= dimension_priority("style"));
@@ -574,8 +574,8 @@ mod tests {
         assert_eq!(issues[1].dimension, "style");
     }
 
-    // ==================== 时间线 2：annotation 创建链路（从 task_system e2e 迁移）
-    // ====================
+    // ==================== 时间线 2：annotation 创建链路（从 task_system e2e
+    // 迁移） ====================
 
     #[test]
     fn timeline2_annotation_create_and_query_roundtrip() {

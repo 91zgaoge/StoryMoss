@@ -1751,8 +1751,9 @@ impl AgentService {
         emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story.story_title.clone());
-        // v0.30.11: 题材优先级：LLM 分类 detected_genre > 指令字面 extract_genre
-        // （否定+长度排序兜底）> 故事 genre。LLM 天然处理否定与语境，优于子串。
+        // v0.30.11: 题材优先级：LLM 分类 detected_genre > 指令字面
+        // extract_genre （否定+长度排序兜底）> 故事 genre。LLM
+        // 天然处理否定与语境，优于子串。
         let effective_genre = task
             .parameters
             .get("detected_genre")
@@ -2203,7 +2204,8 @@ impl AgentService {
         tokio::task::yield_now().await;
 
         // 注入个性化偏好（自适应学习，仅专业版）
-        // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
+        // v0.9.3: 优先使用 StoryContextBuilder
+        // 预计算的扩展，避免每个候选重复查库
         if is_pro {
             emit_and_yield("正在加载个性化偏好...", 0.18);
             let personalizer_extension =
@@ -2240,8 +2242,9 @@ impl AgentService {
         }
 
         // v0.7.8: 注入风格指纹（从参考文本提取的量化风格约束）
-        // 优先级：style_fingerprint > style_blend > style_dna_id > current_content
-        // 实时提取 fingerprint 提供基于实际文本的量化约束（句长分布、N-gram
+        // 优先级：style_fingerprint > style_blend > style_dna_id >
+        // current_content 实时提取 fingerprint
+        // 提供基于实际文本的量化约束（句长分布、N-gram
         // 白名单、锚点片段）， 比 StyleDNA
         // 的定性描述更精确，用于续写时严格保持语言风格一致。
         emit_and_yield("正在提取风格指纹...", 0.176);
@@ -2296,7 +2299,8 @@ impl AgentService {
 
             use crate::{canonical_state::CanonicalStateManager, db::DbPool};
 
-            // v0.9.7: CanonicalStateManager 内部为同步聚合，将其整体移入 spawn_blocking
+            // v0.9.7: CanonicalStateManager 内部为同步聚合，将其整体移入
+            // spawn_blocking
             let pool = self.pool.clone();
             let story_id = ctx.story.story_id.clone();
             tokio::task::spawn_blocking(move || {
@@ -2394,8 +2398,9 @@ impl AgentService {
         emit_and_yield("正在组装最终提示词...", 0.195);
 
         // v0.17.1: 注入智能后台预访谈推断出的中文叙事四元组（含桥段卡），
-        // 让 Writer 在生成时同时考虑「主情绪 + 高压关系 + 冲突场 + 引擎 + 桥段卡」。
-        // 数据来自 PlanExecutor::execute_writer 注入的 `narrative_quartet` 参数。
+        // 让 Writer 在生成时同时考虑「主情绪 + 高压关系 + 冲突场 + 引擎 +
+        // 桥段卡」。 数据来自 PlanExecutor::execute_writer 注入的
+        // `narrative_quartet` 参数。
         if let Some(quartet) = task.parameters.get("narrative_quartet") {
             if let Some(section) = render_narrative_quartet_section(quartet) {
                 system_chunks.push(ContextChunk::new(
@@ -2414,12 +2419,14 @@ impl AgentService {
             .unwrap_or_else(|| "cl100k".to_string());
         let prioritized = prioritize_system_prompt(base_prompt, system_chunks, &model_family);
 
-        // v0.25.0: 将上下文健康度指标写入诊断存储，供超时/失败时排查 Lost-in-the-Middle
+        // v0.25.0: 将上下文健康度指标写入诊断存储，供超时/失败时排查
+        // Lost-in-the-Middle
         if let Some(store) = self.app_handle.try_state::<Arc<DiagnosticStore>>() {
             store.set_context_health(prioritized.metrics.clone());
         }
 
-        // v0.17.1: Living Author Guard —— 在最终 prompt 组装后，扫描并替换在世作者
+        // v0.17.1: Living Author Guard —— 在最终 prompt
+        // 组装后，扫描并替换在世作者
         // 姓名为「具备相同手工艺特征的写作风格」+ 手工艺滑块描述。
         // 目的：1) 不直接对在世作者点名模仿；2) 把模仿型描述拆解为可量化维度。
         let mut system_prompt = prioritized.prompt;
@@ -2712,9 +2719,10 @@ impl AgentService {
 
         let ctx = &task.context;
 
-        // v0.30.15: 场景大纲模式（generate_scene_outline 注入了 story_outline）走
-        // 专用 scene_outline 提示词，围绕故事大纲 + 复用已登场角色，禁止幻觉新角色。
-        // 非场景模式（workflow 故事级大纲）仍用 outline_planner，行为不变。
+        // v0.30.15: 场景大纲模式（generate_scene_outline 注入了
+        // story_outline）走 专用 scene_outline 提示词，围绕故事大纲 +
+        // 复用已登场角色，禁止幻觉新角色。 非场景模式（workflow
+        // 故事级大纲）仍用 outline_planner，行为不变。
         if let Some(story_outline) = task
             .parameters
             .get("story_outline")
@@ -2732,8 +2740,9 @@ impl AgentService {
             );
             vars.insert("characters".to_string(), ctx.format_characters());
             vars.insert("scene_info".to_string(), task.input.clone());
-            // v0.30.31: 注入世界观与已推进进度（进度指针），让场景大纲承接进度、
-            // 锚定世界观规则，杜绝"按序号盲推"导致的剧情迷失。
+            // v0.30.31: 注入世界观与已推进进度（进度指针），
+            // 让场景大纲承接进度、 锚定世界观规则，杜绝"按序号盲推"
+            // 导致的剧情迷失。
             vars.insert(
                 "world".to_string(),
                 task.parameters
@@ -3301,7 +3310,8 @@ pub fn render_writer_system_from_bundle(
         "story_description".to_string(),
         bundle.story_meta.description.clone().unwrap_or_default(),
     );
-    // 以下变量在 system_prompt 准则层用空串/占位（上下文由 bundle.to_prompt 承载）
+    // 以下变量在 system_prompt 准则层用空串/占位（上下文由 bundle.to_prompt
+    // 承载）
     vars.insert("previous_chapters".to_string(), String::new());
     vars.insert("current_content".to_string(), String::new());
     vars.insert(

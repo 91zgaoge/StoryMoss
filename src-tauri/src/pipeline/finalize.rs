@@ -149,7 +149,8 @@ pub async fn finalize_draft(
 
     callbacks.progress("finalize", 0.2);
 
-    // 3. 同步到 scenes 表（优先显式/草稿 scene_id，否则 chapter→first-scene 兼容）
+    // 3. 同步到 scenes 表（优先显式/草稿 scene_id，否则 chapter→first-scene
+    //    兼容）
     if let Err(e) = write_draft_content_to_scene(
         pool,
         story_id,

@@ -148,7 +148,8 @@ impl ContinuityEngine {
             if current_scene.characters_present.contains(&state.name) {
                 if let Some(ref last_location) = state.current_location {
                     if !scene_location.is_empty() && last_location != &scene_location {
-                        // 这是一个潜在的一致性问题（但不一定是错误，角色可以移动）
+                        // 这是一个潜在的一致性问题（但不一定是错误，
+                        // 角色可以移动）
                         issues.push(ConsistencyIssue {
                             issue_type: IssueType::CharacterLocation,
                             severity: Severity::Info,

@@ -1148,7 +1148,8 @@ mod tests {
             })
             .unwrap();
 
-        // 章节 + 已关联 scene（sequence_number 与 chapter_number 相同，正如现网数据）
+        // 章节 + 已关联 scene（sequence_number 与 chapter_number
+        // 相同，正如现网数据）
         let chapter_id = uuid::Uuid::new_v4().to_string();
         let scene_id = uuid::Uuid::new_v4().to_string();
         {

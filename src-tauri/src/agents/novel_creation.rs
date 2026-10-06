@@ -660,8 +660,8 @@ mod tests {
 
     #[test]
     fn test_parse_character_roster_bad_item_no_panic() {
-        // 旧实现 from_value(...).unwrap() 会在缺字段时 panic（tokio task 内被吞），
-        // 现应返回可诊断错误。
+        // 旧实现 from_value(...).unwrap() 会在缺字段时 panic（tokio task
+        // 内被吞）， 现应返回可诊断错误。
         let raw = r#"{"character_sets":[[{"id":"char_1_1"}]]}"#;
         let err = NovelCreationAgent::parse_character_roster_response(raw).unwrap_err();
         assert!(err.contains("角色项反序列化失败"), "err={}", err);
@@ -735,7 +735,8 @@ mod tests {
 
     #[test]
     fn test_render_genre_profile_section_includes_assets() {
-        // 向导 prompt 必须含体裁画像的 core_tone / anti_patterns / typical_structure
+        // 向导 prompt 必须含体裁画像的 core_tone / anti_patterns /
+        // typical_structure
         let section = NovelCreationAgent::render_genre_profile_section(&sample_genre_profile());
         assert!(section.contains("末世流"));
         assert!(section.contains("压抑中见温情"), "应含 core_tone");

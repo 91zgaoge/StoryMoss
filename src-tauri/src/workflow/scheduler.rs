@@ -251,7 +251,8 @@ impl WorkflowScheduler {
                 node_clones.push(node.clone());
             }
 
-            // Phase 2: Execute nodes in parallel (each closure gets its own clone)
+            // Phase 2: Execute nodes in parallel (each closure gets its own
+            // clone)
             let mut node_futures = Vec::new();
             for node in &node_clones {
                 let app_handle_clone = app_handle.clone();
@@ -276,7 +277,8 @@ impl WorkflowScheduler {
             // Execute all nodes in parallel
             let node_results = futures::future::join_all(node_futures).await;
 
-            // Process results serially to avoid concurrent mutable access to instance
+            // Process results serially to avoid concurrent mutable access to
+            // instance
             for (node_id, _node_name, result) in node_results {
                 match result {
                     Ok(output) => {
@@ -307,7 +309,8 @@ impl WorkflowScheduler {
                             Some(e.clone()),
                         );
                         // P1-11 修复: 失败时自动重试（最多 3 次）
-                        // P2-18 修复: 重置失败节点状态为 Pending，以便重试时重新执行
+                        // P2-18 修复: 重置失败节点状态为
+                        // Pending，以便重试时重新执行
                         const MAX_RETRIES: u32 = 3;
                         let current_retries = instance.retry_count.unwrap_or(0);
                         if current_retries < MAX_RETRIES {
@@ -410,7 +413,8 @@ impl WorkflowScheduler {
                 Ok(serde_json::json!({ "condition_met": result }))
             }
             NodeType::Parallel => {
-                // Simplified: mark as completed, parallel branches are handled by DAG topology
+                // Simplified: mark as completed, parallel branches are handled
+                // by DAG topology
                 Ok(serde_json::json!({ "parallel": true }))
             }
             NodeType::End => Ok(serde_json::json!({ "completed": true })),

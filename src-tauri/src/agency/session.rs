@@ -96,7 +96,8 @@ impl SessionService {
             kind: kind.to_string(),
             created_at: chrono::Local::now().to_rfc3339(),
         };
-        // 入库委托 AgencyRepository::insert_session（消除与此处重复的内联 INSERT）
+        // 入库委托 AgencyRepository::insert_session（消除与此处重复的内联
+        // INSERT）
         AgencyRepository::new(self.pool.clone())
             .insert_session(&session)
             .map_err(AppError::from)?;

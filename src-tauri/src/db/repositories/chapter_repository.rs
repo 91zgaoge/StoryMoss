@@ -20,7 +20,8 @@ impl ChapterRepository {
         let tx = conn.transaction()?;
 
         // Scene 为唯一内容真相源，chapters 表不再存 content。
-        // 为了保持返回的 Chapter.word_count 与持久化值一致，先计算 content 长度。
+        // 为了保持返回的 Chapter.word_count 与持久化值一致，先计算 content
+        // 长度。
         let word_count = req.content.as_ref().map(|c| c.len() as i32);
 
         // 1. 插入 Chapter

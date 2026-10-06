@@ -510,8 +510,8 @@ mod tests {
         );
 
         let assets = load_all_assets(&repo, &[]).unwrap();
-        // v0.17.0 新增：beat_cards (>=30) + story_engines (21) + pressure_relationships
-        // (13)
+        // v0.17.0 新增：beat_cards (>=30) + story_engines (21) +
+        // pressure_relationships (13)
         assert!(assets.len() >= 5 + 1 + 52 + 30 + 21 + 13);
         assert!(assets.iter().any(|a| a.name == "测试体裁"));
     }

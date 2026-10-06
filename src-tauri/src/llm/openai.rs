@@ -356,7 +356,8 @@ impl LlmAdapter for OpenAiAdapter {
         )
         .await?;
 
-        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
+        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async
+        // runtime。
         let parsed = tokio::task::spawn_blocking(move || parse_chat_completion_bytes(&bytes))
             .await
             .map_err(|e| format!("deserialization task panicked: {}", e))?
@@ -574,7 +575,8 @@ mod tests {
 
     #[test]
     fn payload_null_content_with_finish_reason_length_yields_empty() {
-        // 网关偶发把 content 序列化为 null（deserialize_null_content 归一空串）。
+        // 网关偶发把 content 序列化为 null（deserialize_null_content
+        // 归一空串）。
         let raw = gateway_payload(
             r#"{"role":"assistant","content":null,"reasoning_content":"先思考再输出正文"}"#,
             "length",
@@ -654,7 +656,8 @@ mod tests {
     fn payload_fenced_json_content_is_recoverable_for_callers() {
         // 真机故障 2：模型把 JSON 包在 ```json 围栏里、字符串值内裸换行。
         // 适配器只负责取出 content（不解析业务 JSON）；调用方的
-        // extract_and_sanitize_json 必须能恢复（含 `, ]` / `, }` 同行尾随逗号）。
+        // extract_and_sanitize_json 必须能恢复（含 `, ]` / `, }`
+        // 同行尾随逗号）。
         let raw = gateway_payload(
             r#"{"role":"assistant","content":"```json\n{\n  \"story_outline\": \"第一幕：雨夜对决\n第二幕：真相浮现\",\n  \"scene_outline\": \"钟楼对峙\",\n  \"characters\": [\"苏亦铁\",]\n}\n```\n以上是设定。"}"#,
             "stop",
@@ -731,7 +734,8 @@ mod tests {
 
     #[test]
     fn sse_partial_or_truncated_payload_is_error_not_panic() {
-        // 半包/截断的 SSE 负载：返回 Err，由调用方发 "SSE parse error" 并终止流。
+        // 半包/截断的 SSE 负载：返回 Err，由调用方发 "SSE parse error"
+        // 并终止流。
         assert!(
             content_delta_from_sse_payload(r#"{"choices":[{"delta":{"content":"血雾"#).is_err()
         );

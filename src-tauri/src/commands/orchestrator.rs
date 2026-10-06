@@ -44,7 +44,8 @@ pub async fn smart_execute(
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
     // v0.15.5: 从 AppConfig 读取硬超时，默认 600s（与 serde 默认一致）
-    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()，确保读取到用户实际配置
+    // v0.18.1 修复：使用 app_data_dir() 而非
+    // current_dir()，确保读取到用户实际配置
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -146,8 +147,8 @@ async fn smart_execute_inner(
         move || {
             let pool = pool_for_loader.clone();
             async move {
-                // flatten Result<Result<...>, JoinError> into Result<SmartExecuteContext,
-                // AppError>
+                // flatten Result<Result<...>, JoinError> into
+                // Result<SmartExecuteContext, AppError>
                 let inner = tokio::task::spawn_blocking(
                     move || -> Result<SmartExecuteContext, AppError> {
                         let stories =
@@ -222,7 +223,8 @@ async fn smart_execute_inner(
         }
     };
 
-    // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的 Scene 聚合内容
+    // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的 Scene
+    // 聚合内容
     let current_content_full = current_content
         .filter(|c| !c.trim().is_empty())
         .or_else(|| {
@@ -247,9 +249,10 @@ async fn smart_execute_inner(
     });
 
     // v0.30.11: 用 LLM 写作意图分类替代 is_novel_creation_intent 朴素子串匹配
-    // （"讲一个 bookstore 的故事"会命中 "story" 误触发创世）。前端在 smart_execute
-    // 前调 classify_intent 取得分类并传入（避免重复 LLM）；未提供时后端兜底自调
-    // classify_writing_intent（8s 超时 + 保守兜底 is_new_novel=false）。
+    // （"讲一个 bookstore 的故事"会命中 "story" 误触发创世）。前端在
+    // smart_execute 前调 classify_intent 取得分类并传入（避免重复
+    // LLM）；未提供时后端兜底自调 classify_writing_intent（8s 超时 +
+    // 保守兜底 is_new_novel=false）。
     let has_existing_story = !stories.is_empty();
     let has_current_content = current_content_preview.is_some();
     let mut classification = match intent_classification.clone() {
@@ -279,8 +282,8 @@ async fn smart_execute_inner(
         // 创世 2.0 走 agency 多代理框架：进度镜像到 smart-execute-progress，
         // 返回形状满足前端兼容契约（见 P2 计划 Global Constraints）。
         // total_timeout
-        // 读取沿用函数顶部现有代码（config.smart_execute_total_timeout_secs，默认
-        // 600）。
+        // 读取沿用函数顶部现有代码（config.smart_execute_total_timeout_secs，
+        // 默认 600）。
         let app_dir = app_handle
             .path()
             .app_data_dir()
@@ -331,7 +334,8 @@ async fn smart_execute_inner(
         .await
         {
             Ok(Ok(result)) => {
-                // 取装配场景正文（final_content 契约：完整第一章正文，非摘要文案）
+                // 取装配场景正文（final_content
+                // 契约：完整第一章正文，非摘要文案）
                 let pool_c = pool.clone();
                 let scene_id = result.scene_id.clone();
                 let content = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
@@ -339,7 +343,8 @@ async fn smart_execute_inner(
                         .get_by_id(&scene_id)
                         .map_err(AppError::from)?
                         .ok_or_else(|| AppError::from("装配场景不存在"))?;
-                    // v0.30.46 fix: content 为空时返回错误而非静默吞掉，避免前端拿到空白正文。
+                    // v0.30.46 fix: content
+                    // 为空时返回错误而非静默吞掉，避免前端拿到空白正文。
                     let content = scene.content.unwrap_or_default();
                     if content.trim().is_empty() {
                         return Err(AppError::from(
@@ -351,16 +356,19 @@ async fn smart_execute_inner(
                 .await
                 .map_err(|e| AppError::from(format!("scene read join error: {}", e)))??;
 
-                // 与旧路径一致的通知：发射 story_created，让前端立即进入工作台（签名见原 :377）
+                // 与旧路径一致的通知：发射
+                // story_created，让前端立即进入工作台（签名见原 :377）
                 let _ = crate::state_sync::StateSync::emit_story_created(
                     &app_handle,
                     &result.story_id,
                     "新故事",
                 );
 
-                // record_ai_operation（沿用原 :561-586 代码，operation_type="bootstrap"，
-                // metadata 记 run_id/story_id）；同步 DB 写入移入 spawn_blocking，
-                // 避免阻塞 tokio worker 导致 invoke 延迟 resolve。
+                // record_ai_operation（沿用原 :561-586
+                // 代码，operation_type="bootstrap"，
+                // metadata 记 run_id/story_id）；同步 DB 写入移入
+                // spawn_blocking， 避免阻塞 tokio worker 导致
+                // invoke 延迟 resolve。
                 let pool_for_record = pool.clone();
                 let input_for_record = user_input.clone();
                 let sid_for_record = result.story_id.clone();
@@ -400,12 +408,13 @@ async fn smart_execute_inner(
                 return Err(e);
             }
             Err(_) => {
-                // 超时：定点取消本 run 在途 LLM 调用，保留 LLM_TIMEOUT 语义（用法见 :86）
+                // 超时：定点取消本 run 在途 LLM 调用，保留 LLM_TIMEOUT
+                // 语义（用法见 :86）
                 let llm = crate::llm::LlmService::new(app_handle.clone());
                 crate::agency::coordinator::cancel_requests_for_run(&llm, &run_id);
                 // 补落终态：超时臂直接 return，协调器的 finish_run 不一定执行，
-                // 不落 failed 会残留 running 僵尸 run 卡死该故事续写（finish_run
-                // 终态守护下幂等）。
+                // 不落 failed 会残留 running 僵尸 run
+                // 卡死该故事续写（finish_run 终态守护下幂等）。
                 let pool_t = pool.clone();
                 let rid_t = run_id.clone();
                 let _ =
@@ -847,8 +856,8 @@ async fn smart_execute_inner(
         intent_classification: Some(classification.clone()),
     };
 
-    // v0.31.x: 非散文审计意图自动路由——绕过 plan pipeline，直达 inspector 审计。
-    // 此前 inspector-only 审计计划成功但 final_content=None，被误报
+    // v0.31.x: 非散文审计意图自动路由——绕过 plan pipeline，直达 inspector
+    // 审计。 此前 inspector-only 审计计划成功但 final_content=None，被误报
     // "创作计划未能生成有效内容"；更早版本则把审查报告当正文返回、
     // 被前端追加进手稿。现在报告以 result_kind="audit_report" 返回，
     // 前端渲染为报告消息而非正文。专用审计 UI（audit_story / SceneAuditPanel）
@@ -1259,8 +1268,8 @@ fn build_logline_context_sync(
 
     // v0.30.32: 纳入世界观（concept + rules 前3 +
     // history），让增强后缀与世界观规则一致，
-    // 不再在不知世界规则下提出违反世界观的设定。与 build_continue_writer_context
-    // 同源但更精简。
+    // 不再在不知世界规则下提出违反世界观的设定。与
+    // build_continue_writer_context 同源但更精简。
     let world_setting = crate::db::repositories::WorldBuildingRepository::new(pool.clone())
         .get_by_story(story_id)
         .ok()
@@ -1324,7 +1333,8 @@ fn build_selected_strategy(
         && story.methodology_id.is_none()
         && story.style_dna_id.is_none()
     {
-        // 使用 GenreResolver 解析 story.genre，支持精确/别名/子串/同义词/复合题材
+        // 使用 GenreResolver 解析
+        // story.genre，支持精确/别名/子串/同义词/复合题材
         if let Some(ref genre) = story.genre {
             if !genre.trim().is_empty() {
                 let repo = crate::db::GenreProfileRepository::new(pool.clone());
@@ -1906,7 +1916,8 @@ mod tests {
         let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague)
             .expect("应匹配到题材画像");
         assert!(strategy.genre_profile_id.is_some());
-        // 启发式四元组仍生效（infer_narrative_quartet 从 reader_promise 等补齐）
+        // 启发式四元组仍生效（infer_narrative_quartet 从 reader_promise
+        // 等补齐）
         assert!(strategy.rationale.contains("体裁画像"));
     }
 

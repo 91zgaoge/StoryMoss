@@ -346,7 +346,8 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
 
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
-    // v0.11.0: 统一模型池 — 所有生成模型与嵌入模型合并到一个列表，前端按 type 分组
+    // v0.11.0: 统一模型池 — 所有生成模型与嵌入模型合并到一个列表，前端按 type
+    // 分组
     let mut all_models: Vec<serde_json::Value> = vec![];
 
     for p in config.llm_profiles.values() {
@@ -545,7 +546,8 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         } else {
             Some(creative_id.clone())
         };
-        // v0.26.52: 与 set_active_model(role=creative) 对齐，同步 active_llm_profile
+        // v0.26.52: 与 set_active_model(role=creative) 对齐，同步
+        // active_llm_profile
         if !creative_id.is_empty() {
             let _ = sync_creative_to_active_llm(&mut config, creative_id);
         }
@@ -839,7 +841,8 @@ pub fn create_model(
 
     app_config.save(&app_dir).map_err(AppError::from)?;
 
-    // v0.11.2: 刷新 LLM 服务内存配置，避免新增/修改模型后仍使用旧适配器或旧活跃模型
+    // v0.11.2: 刷新 LLM
+    // 服务内存配置，避免新增/修改模型后仍使用旧适配器或旧活跃模型
     crate::llm::LlmService::new(app_handle.clone()).reload_config();
     log::info!(
         "[create_model] reloaded LLM service config for {}",
@@ -934,7 +937,8 @@ pub fn update_model(
             profile.provider = parse_llm_provider(&config.provider);
             profile.model = config.model;
 
-            // API Key: 前端传了值就更新（包括空字符串表示清空）；None 表示未修改，保留旧值
+            // API Key: 前端传了值就更新（包括空字符串表示清空）；None
+            // 表示未修改，保留旧值
             if let Some(key) = config.api_key {
                 profile.api_key = key;
             }
@@ -954,7 +958,8 @@ pub fn update_model(
             if let Some(is_def) = config.is_default {
                 profile.is_default = is_def;
             }
-            // v0.26.54: 持久化启用开关（此前 update_model 漏写 enabled，列表切换无效）
+            // v0.26.54: 持久化启用开关（此前 update_model 漏写
+            // enabled，列表切换无效）
             if let Some(enabled) = config.enabled {
                 profile.enabled = enabled;
             }
@@ -1125,7 +1130,8 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
 
     let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
-    // v0.11.2: 删除成功后必须持久化，不能依赖条件变量；避免"toast 成功但刷新后仍在"
+    // v0.11.2: 删除成功后必须持久化，不能依赖条件变量；避免"toast
+    // 成功但刷新后仍在"
     let mut changed;
 
     // 尝试删除LLM配置
@@ -1183,7 +1189,8 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
     // v0.11.2: 只要走到这里说明删除成功，必须保存配置，不再受 changed 条件限制
     config.save(&app_dir).map_err(AppError::from)?;
 
-    // v0.11.2: 删除模型后立即刷新 LLM 服务内存配置，避免后续生成仍使用已删除模型
+    // v0.11.2: 删除模型后立即刷新 LLM
+    // 服务内存配置，避免后续生成仍使用已删除模型
     crate::llm::LlmService::new(app_handle.clone()).reload_config();
     log::info!(
         "[delete_model] reloaded LLM service config after removing {}",
@@ -1295,7 +1302,8 @@ pub fn set_active_model(
     if let Some(executor) =
         app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
     {
-        // v0.26.54: 用户显式重选时清除粘性降级，否则 creative/active 仍被跳过置顶
+        // v0.26.54: 用户显式重选时清除粘性降级，否则 creative/active
+        // 仍被跳过置顶
         executor.clear_model_demotion(&model_id);
         executor.refresh_registry();
     }

@@ -279,7 +279,8 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                 }
                             }
                             Ok(Some(existing)) => {
-                                // 对已有内置体裁，仅当 typical_structure_json 缺失时回填，
+                                // 对已有内置体裁，仅当 typical_structure_json
+                                // 缺失时回填，
                                 // 保证新字段能落地而不覆盖用户已有修改
                                 if existing.typical_structure_json.is_none()
                                     || existing.typical_structure_json.as_deref() == Some("")
@@ -296,7 +297,8 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                         typical_structure_json.as_deref(),
                                     );
                                 }
-                                // v0.17.0: 若 reader_promise 缺失则回填（不覆盖用户已设置的值）
+                                // v0.17.0: 若 reader_promise
+                                // 缺失则回填（不覆盖用户已设置的值）
                                 if existing.reader_promise.is_none()
                                     || existing.reader_promise.as_deref() == Some("")
                                 {

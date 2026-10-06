@@ -197,7 +197,8 @@ impl WriteTimeBundle {
         };
 
         // Phase 3.1: 加载参考场景 few-shots（若故事关联了参考书籍）。
-        // 当前 load_sync 为同步上下文，无法直接调用 LanceVectorStore 的异步向量搜索，
+        // 当前 load_sync 为同步上下文，无法直接调用 LanceVectorStore
+        // 的异步向量搜索，
         // 因此退化为基于场景大纲与参考场景文本的关键词重叠排序，取 top 3。
         let reference_scene_fewshots = match story.reference_book_id.as_deref() {
             Some(book_id) if !book_id.is_empty() => {
@@ -250,8 +251,8 @@ impl WriteTimeBundle {
 
         // v0.31.0: 加载方法论扩展——动态解析（Task 6）。
         // 先试 methodology_{id}_step{N}，再试 methodology_{id}，hdwb 旧命名
-        // 走兼容映射；未知 ID 在 resolve_methodology_extension 内 log::warn! 并返回
-        // None。自定义（指导书提炼）方法论从 DB 渲染当前步骤。
+        // 走兼容映射；未知 ID 在 resolve_methodology_extension 内 log::warn!
+        // 并返回 None。自定义（指导书提炼）方法论从 DB 渲染当前步骤。
         let methodology_extension = match story.methodology_id.as_deref() {
             Some(mid) if !mid.is_empty() => {
                 let step = story.methodology_step.unwrap_or(1);
@@ -267,8 +268,8 @@ impl WriteTimeBundle {
             _ => None,
         };
 
-        // v0.22.0: 加载 GenreProfile 完整策略（profile 取出后同时供 genre_reference
-        // 复用）
+        // v0.22.0: 加载 GenreProfile 完整策略（profile 取出后同时供
+        // genre_reference 复用）
         let primary_genre_profile = {
             let genre_name = story.genre.as_deref().unwrap_or("");
             if genre_name.is_empty() {
@@ -299,7 +300,8 @@ impl WriteTimeBundle {
                 }
             })
         };
-        // 设计第一节：体裁元素参考表 + 典型结构（复用 Task 1 共享函数，预算 ~800 字）
+        // 设计第一节：体裁元素参考表 + 典型结构（复用 Task 1 共享函数，预算
+        // ~800 字）
         let genre_reference = primary_genre_profile
             .as_ref()
             .and_then(|p| crate::agents::writer_assets::format_genre_reference_tables(p, 800));
@@ -342,7 +344,8 @@ impl WriteTimeBundle {
             }
         };
 
-        // v0.22.0: 加载写作策略约束（默认值；execute_time_sliced 会用 AppConfig 覆盖）
+        // v0.22.0: 加载写作策略约束（默认值；execute_time_sliced 会用 AppConfig
+        // 覆盖）
         let writing_strategy_constraints = Some(format_writing_strategy_constraints(
             &crate::config::settings::WritingStrategy::default(),
         ));
@@ -379,9 +382,10 @@ impl WriteTimeBundle {
             crate::memory::DEFAULT_RELATED_ENTITY_LIMIT,
         );
 
-        // 设计第一节：续写链路资产贯通——活跃冲突与角色目标复用 Task 1 共享函数，
-        // 补齐 TimeSliced 死注入（预算 ~600 字 / 每角色 ~200 字）。
-        // 规范状态快照在此一次性加载并传入，避免两段各自重复聚合；加载失败时
+        // 设计第一节：续写链路资产贯通——活跃冲突与角色目标复用 Task 1
+        // 共享函数， 补齐 TimeSliced 死注入（预算 ~600 字 / 每角色 ~200
+        // 字）。 规范状态快照在此一次性加载并传入，
+        // 避免两段各自重复聚合；加载失败时
         // 两段一并跳过（与原每段各自返回 None 的行为一致）。
         let cs_snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
             .get_snapshot_sync(story_id)
@@ -400,7 +404,8 @@ impl WriteTimeBundle {
             .as_ref()
             .and_then(|s| crate::agents::writer_assets::format_character_goals(s, 200));
 
-        // v0.30.15: 加载完整故事大纲，让 writer 围绕大纲展开（TimeSliced/TriShot 此前
+        // v0.30.15: 加载完整故事大纲，让 writer
+        // 围绕大纲展开（TimeSliced/TriShot 此前
         // 看不到故事大纲，导致续写偏离大纲自创情节/角色）。
         let story_outline = StoryOutlineRepository::new(pool.clone())
             .get_by_story(story_id)
@@ -416,8 +421,9 @@ impl WriteTimeBundle {
                 }
             });
 
-        // v0.30.31: 加载 world_buildings 表渲染世界观设定（concept/rules/history/
-        // cultures）。Legacy bundle 此前只读 MASTER_SETTING 合同红线，用户在世界观
+        // v0.30.31: 加载 world_buildings
+        // 表渲染世界观设定（concept/rules/history/ cultures）。Legacy
+        // bundle 此前只读 MASTER_SETTING 合同红线，用户在世界观
         // 面板填的设定从不到达 writer，导致"世界观没体现在续写中"。
         let world_setting = {
             use crate::db::repositories::WorldBuildingRepository;
@@ -472,7 +478,8 @@ impl WriteTimeBundle {
         };
 
         // v0.34.0 弹性扩张：轮换账本段（数据缺失/空书 → None，整段省略；
-        // 加载失败降级为 None 并 log::warn 留痕——非关键增强段，不得阻断创作主流程）
+        // 加载失败降级为 None 并 log::warn
+        // 留痕——非关键增强段，不得阻断创作主流程）
         let rotation_ledger_text =
             crate::creative_engine::expansion::RotationLedger::load_sync(pool, story_id)
                 .map_err(|e| log::warn!("[WriteTimeBundle] 轮换账本加载失败: {}", e))
@@ -638,7 +645,8 @@ impl WriteTimeBundle {
     pub fn to_prompt(&self) -> String {
         let mut sections: Vec<String> = vec![];
 
-        // ① 世界观红线——最前、最突出（Phase 0 S1 实证：资产多 ≠ 幻觉少，红线必须醒目）
+        // ① 世界观红线——最前、最突出（Phase 0 S1 实证：资产多 ≠
+        // 幻觉少，红线必须醒目）
         if let Some(ref redlines) = self.contract_redlines {
             // 尝试从 contract_json 提取核心约束文本；若解析失败，原文兜底
             let redline_text = extract_redline_text(redlines);
@@ -648,9 +656,9 @@ impl WriteTimeBundle {
             ));
         }
 
-        // ①b 故事大纲--writer 必须围绕展开（v0.30.15：TimeSliced/TriShot 此前看不到
-        // 故事大纲，导致续写偏离大纲自创情节/角色）。置于红线之后、角色之前，
-        // 醒目且不破坏 红线第一的不变量。
+        // ①b 故事大纲--writer 必须围绕展开（v0.30.15：TimeSliced/TriShot
+        // 此前看不到 故事大纲，导致续写偏离大纲自创情节/角色）。
+        // 置于红线之后、角色之前， 醒目且不破坏 红线第一的不变量。
         if let Some(ref outline) = self.story_outline {
             sections.push(format!(
                 "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}\n（若下方「本场景任务」与此大纲冲突，以本故事大纲为准。{}）",
@@ -1060,8 +1068,8 @@ pub fn resolve_methodology_extension(methodology_id: &str, step: i32) -> Option<
         return Some(format!("【创作方法论（{}）】\n{}", label, content));
     }
 
-    // 兼容旧命名：hdwb 的 4 个阶段文件（step 1=seed / 2=expansion / 3=convergence /
-    // 4=iteration）
+    // 兼容旧命名：hdwb 的 4 个阶段文件（step 1=seed / 2=expansion /
+    // 3=convergence / 4=iteration）
     if mid == "high_density_world_building" {
         let legacy_id = match step {
             2 => "methodology_hdwb_expansion",
@@ -1712,7 +1720,8 @@ mod tests {
 
     #[test]
     fn test_load_sync_unknown_methodology_warns_and_skips() {
-        // 未知 ID：log::warn! 记录（测试无法直接断言日志），行为断言为跳过注入返回 None
+        // 未知 ID：log::warn!
+        // 记录（测试无法直接断言日志），行为断言为跳过注入返回 None
         let pool = crate::db::create_test_pool().expect("test pool");
         let story = crate::db::StoryRepository::new(pool.clone())
             .create(crate::db::CreateStoryRequest {

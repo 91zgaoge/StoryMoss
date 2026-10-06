@@ -883,7 +883,8 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
             return Some(v);
         }
     }
-    // 回退：旧的首尾花括号截取（向后兼容 extract_and_sanitize_json 未覆盖的边角）
+    // 回退：旧的首尾花括号截取（向后兼容 extract_and_sanitize_json
+    // 未覆盖的边角）
     let start = raw.find('{')?;
     let end = raw.rfind('}')?;
     if end <= start {
@@ -1394,7 +1395,8 @@ impl AgencyCoordinator {
                 } else {
                     "failed"
                 };
-                // 失败/取消事件的 phase 取 run 当前落库阶段（不再硬编码 assembly）
+                // 失败/取消事件的 phase 取 run 当前落库阶段（不再硬编码
+                // assembly）
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let phase = self
@@ -1518,7 +1520,8 @@ impl AgencyCoordinator {
     fn log_observation(&self, story_id: &str, kind: &str, actor: &str, payload: serde_json::Value) {
         spawn_observation(&self.app_handle, story_id, kind, actor, payload);
         // 自动分析：未分析观察累计 ≥ANALYZE_THRESHOLD 触发后台 analyzer
-        //（best-effort：失败只 warn；防自观察 label 见 learning::ANALYZER_LABEL）
+        //（best-effort：失败只 warn；防自观察 label 见
+        //（best-effort：失败只 learning::ANALYZER_LABEL）
         let Some(app) = &self.app_handle else { return };
         let Ok(dir) = app.path().app_data_dir() else {
             return;
@@ -1595,7 +1598,8 @@ impl AgencyCoordinator {
         self.update_phase(repo, run_id, "concept").await?;
         self.emit_progress(run_id, "concept", "running", "正在构思故事概念");
 
-        // v0.30.22: PROBLEM logline 增强--简单前提（< 100 字符）生成强力 logline
+        // v0.30.22: PROBLEM logline 增强--简单前提（< 100 字符）生成强力
+        // logline
         let (effective_premise, generated_logline) = if premise.chars().count() < 100 {
             match self.generate_logline(run_id, premise, budget).await {
                 Ok(ll) if ll.chars().count() > 20 => {
@@ -1622,8 +1626,9 @@ impl AgencyCoordinator {
                 {
                     Ok(r) => Ok(r),
                     Err(e) => {
-                        // 取消不是快速路径失败：直接传播（外层 run_genesis 收敛为
-                        // cancelled），不产生 fallback 遥测、不进入 legacy
+                        // 取消不是快速路径失败：直接传播（外层 run_genesis
+                        // 收敛为 cancelled），不产生
+                        // fallback 遥测、不进入 legacy
                         if cancel.load(Ordering::SeqCst) {
                             return Err(e);
                         }
@@ -1646,7 +1651,8 @@ impl AgencyCoordinator {
                 }
             }
             Ok(pack) => {
-                // 无角色卡的概念包不足以驱动快速路径--legacy 六阶段（概念结果复用）
+                // 无角色卡的概念包不足以驱动快速路径--legacy
+                // 六阶段（概念结果复用）
                 log::warn!(
                     "agency genesis: concept pack 无角色卡，走串行流程 run={}",
                     run_id
@@ -1677,7 +1683,8 @@ impl AgencyCoordinator {
             }
         };
 
-        // v0.30.22: 持久化 PROBLEM logline（genesis 成功后写入 stories.logline）
+        // v0.30.22: 持久化 PROBLEM logline（genesis 成功后写入
+        // stories.logline）
         if let Some(ref logline) = generated_logline {
             if let Ok(ref r) = result {
                 let pool = self.pool.clone();
@@ -1739,7 +1746,8 @@ impl AgencyCoordinator {
             .await?;
         self.check_cancel(cancel)?;
 
-        // 角色卡写入资产区（coordinator 以 Producer 身份直写，zone owner 语义保持）
+        // 角色卡写入资产区（coordinator 以 Producer 身份直写，zone owner
+        // 语义保持）
         let board = self.board();
         for c in &pack.characters {
             let content = serde_json::to_string(c).unwrap_or_default();
@@ -1789,7 +1797,8 @@ impl AgencyCoordinator {
         self.emit_activity(run_id, AgentRole::Producer, "done", "概念");
 
         // Phase B 编排（v0.30.29）：producer 先生成深度资产（world/outline/
-        // foreshadowing 写入黑板 Asset 区），writer 再写首章--首章可读到世界观与
+        // foreshadowing 写入黑板 Asset 区），writer
+        // 再写首章--首章可读到世界观与
         // 故事大纲，不再脱节。此前多模型并行（tokio::join!）让首章在无大纲/无
         // 世界观上下文下写就，是首章剧情脱节的根因；现统一串行，producer 与
         // writer 仍各用各的模型档（Producer/LeadWriter），仅不并行。任一失败
@@ -1941,9 +1950,10 @@ impl AgencyCoordinator {
             AgentRole::Producer,
         );
         let concept_json = serde_json::to_string(concept).unwrap_or_default();
-        // v0.30.29：outline 改为结构化对象（core_conflict + three_act_structure +
-        // turning_points），要求覆盖整本书完整故事线（不只第一卷）。DepthAssets.outline
-        // 已宽松为 Value，经 normalize_outline 渲染为可读文本落库 story_outlines。
+        // v0.30.29：outline 改为结构化对象（core_conflict + three_act_structure
+        // + turning_points），要求覆盖整本书完整故事线（不只第一卷）。
+        // DepthAssets.outline 已宽松为 Value，经 normalize_outline
+        // 渲染为可读文本落库 story_outlines。
         let prompt = format!(
             "故事前提：{}\n\n{}概念设定：{}\n\n输出 JSON，outline 须覆盖整本书完整故事线（起因/发展/高潮结局 + ≥3 转折点），不要只写第一卷：\n{}",
             premise,
@@ -2442,7 +2452,8 @@ impl AgencyCoordinator {
         self.check_cancel(cancel)?;
         self.emit_activity(run_id, AgentRole::Producer, "done", "资产");
 
-        // producer 完成后落库（黑板资产区 → characters/world_buildings/story_outlines）
+        // producer 完成后落库（黑板资产区 →
+        // characters/world_buildings/story_outlines）
         {
             let board_c = board.clone();
             let rid = run_id.to_string();
@@ -2470,12 +2481,14 @@ impl AgencyCoordinator {
         self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
         // v0.30.4: 前置资产检索规划 + 预注入核心资产全文，消除 writer 多轮
         // board_read 轮询（此前 7-10 轮，本地模型连接超时时单轮 180s，易破
-        // 600s 整体超时）。资产已注入后 writer 倾向第一轮直接 board_write + final。
+        // 600s 整体超时）。资产已注入后 writer 倾向第一轮直接 board_write +
+        // final。
         let assets_ctx = self
             .build_writer_assets_context(run_id, &story_id, premise, budget)
             .await;
         let writer_task = if assets_ctx.is_empty() {
-            // 资产区为空或读取失败：退回原 task（让 writer 自行 board_read 探索）
+            // 资产区为空或读取失败：退回原 task（让 writer 自行 board_read
+            // 探索）
             "基于资产区创作第一章正文（1500-2500 字）。先用 board_read 读资产，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。".to_string()
         } else {
             format!(
@@ -2499,8 +2512,9 @@ impl AgencyCoordinator {
             .await
             .map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
         // v0.30.30：writer 熔断降级取稿。MaxTurns/Deadline 前可能已 board_write
-        // 产出草稿到黑板 Draft 区（LoopResult.output 是占位串不含正文，但黑板有）。
-        // 连续解析失败：模型写散文不遵从 JSON，黑板通常无稿 -> 直接散文回退。
+        // 产出草稿到黑板 Draft 区（LoopResult.output
+        // 是占位串不含正文，但黑板有）。 连续解析失败：模型写散文不遵从
+        // JSON，黑板通常无稿 -> 直接散文回退。
         let draft = if writer_out.aborted {
             let reason = circuit_break_reason(&writer_out);
             log::warn!(
@@ -2618,7 +2632,8 @@ impl AgencyCoordinator {
                 "装配内容为空（cleanup 后正文为空），拒绝落库，请检查生成质量",
             ));
         }
-        // v0.30.46 fix: create 与 update 合成单事务，避免 update 失败残留空场景。
+        // v0.30.46 fix: create 与 update 合成单事务，避免 update
+        // 失败残留空场景。
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = SceneRepository::new(pool.clone());
             let mut conn = pool
@@ -2793,8 +2808,9 @@ impl AgencyCoordinator {
                 );
             }
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
-            // 后台质检 fail-open：章节已落库。不合格走 toast，顶栏不得报「后台审查失败」
-            // （否则 friendlyText 会拼成「编辑审计已完成后台审查失败」）。
+            // 后台质检 fail-open：章节已落库。不合格走
+            // toast，顶栏不得报「后台审查失败」 （否则 friendlyText
+            // 会拼成「编辑审计已完成后台审查失败」）。
             crate::agency::continue_loop::emit_logged_activity(
                 &app,
                 &pool,
@@ -2824,8 +2840,9 @@ impl AgencyCoordinator {
         let story_id = story_id.to_string();
         let scene_id = scene_id.to_string();
         let content = content.to_string();
-        // v0.59.0：附属取消标志——资产回流此前自建 300s token，完全无视 run 取消，
-        // 用户取消后仍会继续跑（最长 300s 且占用唯一后台 LLM 串行许可）。
+        // v0.59.0：附属取消标志——资产回流此前自建 300s token，完全无视 run
+        // 取消， 用户取消后仍会继续跑（最长 300s 且占用唯一后台 LLM
+        // 串行许可）。
         let cancel = register_ancillary_cancel(&run_id);
         tauri::async_runtime::spawn(async move {
             use crate::agency::continue_loop::{
@@ -3027,8 +3044,9 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
-        // v0.30.20: 续写也设 run 级 deadline（与创世一致），tool_loop 每轮检查，
-        // 剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
+        // v0.30.20: 续写也设 run 级 deadline（与创世一致），tool_loop
+        // 每轮检查， 剩余 <30s 时熔断保产出。
+        // app_handle=None（测试环境）时 no-op。
         self.setup_run_deadline();
         let result = self
             .run_continue_inner(
@@ -3074,8 +3092,8 @@ impl AgencyCoordinator {
                 } else {
                     "failed"
                 };
-                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis 一致，不再硬编码
-                // assembly）
+                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis
+                // 一致，不再硬编码 assembly）
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let phase = self
@@ -3233,8 +3251,8 @@ impl AgencyCoordinator {
         } else {
             format!("续写《{}》第{}章（{}）", title, chapter_number, instruction)
         };
-        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
-        // run
+        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT
+        // 即拦截并发 run
         let mut run = AgencyRun::new(run_id, &premise);
         run.story_id = Some(story_id.to_string());
         let repo_c = repo.clone();
@@ -3505,7 +3523,8 @@ impl AgencyCoordinator {
                         .await;
                     self.spawn_producer_resume(run_id, story_id);
                 } else {
-                    // 空书：producer 现场补齐；熔断不挡住续写，salvage + 后台续跑
+                    // 空书：producer 现场补齐；熔断不挡住续写，salvage +
+                    // 后台续跑
                     self.emit_activity(run_id, AgentRole::Producer, "start", "资产补齐");
                     let board = self.board();
                     let registry = Arc::new(ToolRegistry::agency_default());
@@ -3806,8 +3825,9 @@ impl AgencyCoordinator {
             );
             return Ok(());
         }
-        // v0.30.31: concept 存全文（此前截 500 字，build_continue_writer_context
-        // 读 concept 时丢失规则/文化等关键信息）；history 不再单独重复存（concept
+        // v0.30.31: concept 存全文（此前截 500
+        // 字，build_continue_writer_context 读 concept 时丢失规则/
+        // 文化等关键信息）；history 不再单独重复存（concept
         // 全文已含历史背景，避免注入层 concept+history 重复）。best-effort 解析
         // 【核心规则】段为 rules 落库（失败则 rules 空，不阻断）。
         let concept = text.clone();
@@ -4155,7 +4175,8 @@ impl AgencyCoordinator {
         let key = format!("第{}章", chapter_number);
         // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
         // 大纲须服从故事大纲，无大纲则生成无意义且徒增一次 LLM 调用；有故事大纲
-        // 时注入 world+progress 生成锚定进度的章节大纲。短路恢复原 v0.30.21 行为。
+        // 时注入 world+progress 生成锚定进度的章节大纲。短路恢复原 v0.30.21
+        // 行为。
         if !assets_ctx.contains("【故事大纲") {
             return String::new();
         }
@@ -4323,8 +4344,8 @@ impl AgencyCoordinator {
         let outline_text = text.clone();
         let summary: String = text.chars().take(60).collect();
         // v0.30.46 fix: 章节大纲写入 Draft 区时必须使用 LeadWriter 身份，
-        // 否则被 BlackboardService 降级为 proposed，handle_gate 只取 active 导致
-        // scenes.outline_content 恒为 None。
+        // 否则被 BlackboardService 降级为 proposed，handle_gate 只取 active
+        // 导致 scenes.outline_content 恒为 None。
         let _ = self
             .db(move || {
                 board.write(
@@ -4830,8 +4851,9 @@ impl AgencyCoordinator {
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
             format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
-            // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+ 写作要求
-            // v0.30.31: 推进约束 + 点名世界观（assets_ctx 已含世界观全字段 + 进度指针）
+            // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+
+            // 写作要求 v0.30.31: 推进约束 + 点名世界观（assets_ctx
+            // 已含世界观全字段 + 进度指针）
             format!(
                 "续写{}（1500-2500 字）。\n\
                  【本章大纲（必须遵循的章节方向）】\n{}\n\
@@ -4970,7 +4992,8 @@ impl AgencyCoordinator {
                         circuit_break_reason(&revise_out),
                     )));
                 }
-                // 修订后按本章 key 取回草稿：并行循环中 draft 区可能已有后续章节草稿
+                // 修订后按本章 key 取回草稿：并行循环中 draft
+                // 区可能已有后续章节草稿
                 draft = self
                     .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
                     .await?;
@@ -4984,7 +5007,8 @@ impl AgencyCoordinator {
                     GateOutcome::Passed { verdict } => verdict,
                     GateOutcome::RevisionRequired { verdict, .. } => verdict,
                     GateOutcome::Failed { reason } => {
-                        // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
+                        // v0.30.30：editor 完全失败时降级放行 substantive
+                        // 草稿保产出
                         if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
                             v
                         } else {
@@ -5201,8 +5225,8 @@ impl AgencyCoordinator {
                 } else {
                     "failed"
                 };
-                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis 一致，不再硬编码
-                // assembly）
+                // 失败/取消事件的 phase 取 run 当前落库阶段（与 genesis
+                // 一致，不再硬编码 assembly）
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let phase = self
@@ -5253,10 +5277,11 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_else(|| "未命名".to_string());
         let premise = format!("续写《{}》第{}章起", title, start_chapter);
-        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
-        // run。
-        // resume_prepare 已把同 id 同 story 的 pending 行落库（resume 路径）——跳过
-        // INSERT，否则主键冲突会被 map_active_run_conflict 误报为并发 run。
+        // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT
+        // 即拦截并发 run。
+        // resume_prepare 已把同 id 同 story 的 pending 行落库（resume
+        // 路径）——跳过 INSERT，否则主键冲突会被 map_active_run_conflict
+        // 误报为并发 run。
         let repo_c = repo.clone();
         let rid = run_id.to_string();
         let existing = self
@@ -5264,8 +5289,9 @@ impl AgencyCoordinator {
             .await?;
         match existing {
             Some(r) if r.story_id.as_deref() == Some(story_id) => {
-                // prepare→batch 间隙到达的取消只落了 DB（内存 flag 此刻才注册）：
-                // 同步 flag 让外层按 cancelled 收尾，并提前退出
+                // prepare→batch 间隙到达的取消只落了 DB（内存 flag
+                // 此刻才注册）： 同步 flag 让外层按 cancelled
+                // 收尾，并提前退出
                 if r.status == "cancelled" {
                     cancel.store(true, Ordering::SeqCst);
                     return Err(AppError::from("创世已取消"));
@@ -5428,8 +5454,8 @@ impl AgencyCoordinator {
             // 末章 gate 处理完：自动会话快照（best-effort）
             self.snapshot_phase(run_id, "assembly", "auto").await;
         }
-        // 收尾再查一次：最后一章 handle_gate 内修订/装配耗时长，确保 cancelled 不被
-        // completed 覆盖
+        // 收尾再查一次：最后一章 handle_gate 内修订/装配耗时长，确保 cancelled
+        // 不被 completed 覆盖
         self.check_cancel(cancel)?;
 
         Ok(AgencyBatchResult {
@@ -5655,7 +5681,8 @@ impl AgencyCoordinator {
             deadline,
         )
         .await?;
-        // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted 元数据
+        // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted
+        // 元数据
         //（Failed 无评分，weighted 为 null——与 record_gate_impl 的
         // gate_score 语义一致）
         let (kind, issues_count) = gate_observation_meta(&outcome);
@@ -6130,7 +6157,8 @@ pub(crate) async fn evaluate_gate_impl(
     })
     .await
     .map_err(|e| AppError::from(format!("gate code grader join error: {}", e)))?;
-    // rule grader（async：内部含 DB 读取与规则子代理复检合并，取代 v1 独立复检）
+    // rule grader（async：内部含 DB 读取与规则子代理复检合并，取代 v1
+    // 独立复检）
     let rule_report = crate::agency::graders::run_rule_grader(
         pool,
         story_id,
@@ -6296,7 +6324,8 @@ impl GateRunner {
             self.deadline,
         )
         .await?;
-        // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate 同语义）
+        // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate
+        // 同语义）
         let (kind, issues_count) = gate_observation_meta(&outcome);
         spawn_observation(
             &self.app_handle,
@@ -6960,8 +6989,9 @@ mod depth_assets_outline_tests {
     #[test]
     fn structured_outline_object_parses_and_normalizes() {
         // v0.30.29 修复：强模型返回 outline 为嵌套对象（core_conflict +
-        // three_act_structure + turning_points）时，DepthAssets.outline 已宽松为
-        // Value，不再被 serde 丢弃。经 normalize_outline 渲染为可读文本落库。
+        // three_act_structure + turning_points）时，DepthAssets.outline
+        // 已宽松为 Value，不再被 serde 丢弃。经 normalize_outline
+        // 渲染为可读文本落库。
         let raw = r#"{
   "world": "五代十国末年，柳林集...",
   "outline": {

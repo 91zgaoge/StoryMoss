@@ -138,8 +138,8 @@ pub fn show_backstage(
         })();
     "#);
 
-    // 延迟发射 backstage-shown 事件，确保前端监听器已就绪 + WebView2 渲染表面已恢复
-    // 800ms 给 WebView2 足够时间从休眠状态恢复
+    // 延迟发射 backstage-shown 事件，确保前端监听器已就绪 + WebView2
+    // 渲染表面已恢复 800ms 给 WebView2 足够时间从休眠状态恢复
     let app_handle = app.clone();
     let story_id_clone = story_id.clone();
     tauri::async_runtime::spawn(async move {

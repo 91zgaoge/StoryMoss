@@ -1061,7 +1061,8 @@ pub fn get_character_by_name(
 ) -> Result<Option<CharacterQuickView>, AppError> {
     let conn = pool.get().map_err(AppError::from)?;
 
-    // 1. Find character by name in story (kg_entities is now the canonical store)
+    // 1. Find character by name in story (kg_entities is now the canonical
+    //    store)
     let character: Option<(String, String, Option<String>, Option<String>)> = conn
         .query_row(
             "SELECT id, name,

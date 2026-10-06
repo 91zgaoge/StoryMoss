@@ -971,8 +971,9 @@ mod tests {
         r1.story_id = Some("s1".into());
         repo.create_run(&r1).unwrap();
         repo.update_run_phase("u1", "running", "assets").unwrap();
-        // 同 story 第二个 run：story_id 先 NULL 写入（豁免），置 story 时触发冲突
-        // （AgencyRun::new 默认 status=pending，命中索引谓词）
+        // 同 story 第二个 run：story_id 先 NULL 写入（豁免），置 story
+        // 时触发冲突 （AgencyRun::new 默认
+        // status=pending，命中索引谓词）
         let r2 = AgencyRun::new("u2", "前提2");
         repo.create_run(&r2).unwrap();
         let err = repo.set_run_story("u2", "s1");

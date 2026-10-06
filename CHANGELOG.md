@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.59.1（2026-10-06）
+
+v0.59.0 的 CI 在「Check Rust formatting」一步失败（tauri-build 被跳过，全平台安装包未产出），本版为构建修复。
+
+### 修复
+
+- **对齐新版 nightly rustfmt**：CI 安装的浮动 `nightly` 由 2026-07-17 升到 2026-10-05 后中文注释折行规则变化，106 个既有文件不再满足 `cargo +nightly fmt -- --check`；已按新规则整仓格式化（纯折行/注释，无逻辑改动）。该步骤在 v0.59.0 新增的 `cargo test --lib` 阻塞门之前，故本次失败与测试门无关（测试步被跳过）。
+- 复发处置：浮动 nightly 会再次漂移；CI 若在格式步失败，执行 `rustup update nightly && (cd src-tauri && cargo +nightly fmt)` 后提交。
+
+### 测试
+
+- 行为无变化：`cargo test --lib` 1624 passed / 3 ignored；`npx vitest run` 609 passed / 3 skipped（本版仅格式化修复）。
+
 ## v0.59.0（2026-10-06）
 
 对 `docs/audits/2026-10-06-project-review-v0.58.0.md` 全面检视结论的三批实施：验收证据链、数据层治理、续写质检闭环。不改「主创单次 complete / 零工具」的续写架构，不改三档路由。

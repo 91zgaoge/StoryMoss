@@ -122,7 +122,8 @@ impl OpenAIEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for OpenAIEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
-        // Collect cached results first; only request embeddings for missing texts.
+        // Collect cached results first; only request embeddings for missing
+        // texts.
         let mut results: Vec<Option<Embedding>> = vec![None; texts.len()];
         let mut pending: Vec<(usize, String)> = Vec::new();
         for (i, text) in texts.iter().enumerate() {
@@ -289,7 +290,8 @@ struct OllamaEmbedBatchResponse {
 #[async_trait]
 impl EmbeddingProvider for OllamaEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
-        // Collect cached results first; only request embeddings for missing texts.
+        // Collect cached results first; only request embeddings for missing
+        // texts.
         let mut results: Vec<Option<Embedding>> = vec![None; texts.len()];
         let mut pending: Vec<(usize, String)> = Vec::new();
         for (i, text) in texts.iter().enumerate() {

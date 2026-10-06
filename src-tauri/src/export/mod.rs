@@ -55,7 +55,8 @@ impl StoryExporter {
         output_path: &Path,
         template_content: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // If a custom template is provided, use Tera rendering for text-based formats
+        // If a custom template is provided, use Tera rendering for text-based
+        // formats
         if let Some(template) = template_content {
             match config.format {
                 ExportFormat::Pdf | ExportFormat::Epub | ExportFormat::Json => {
@@ -186,7 +187,8 @@ impl StoryImporter {
             });
         }
 
-        // Fallback: if no chapters detected, treat the whole text as one chapter
+        // Fallback: if no chapters detected, treat the whole text as one
+        // chapter
         if chapters.is_empty() && !content.trim().is_empty() {
             chapters.push(ImportChapter {
                 chapter_number: 1,

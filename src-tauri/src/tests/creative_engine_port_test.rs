@@ -91,7 +91,8 @@ async fn creative_engine_port_e2e_with_fakes() -> Result<(), Box<dyn std::error:
     );
     assert!(!result.is_fallback, "should not fall back to bundle prompt");
 
-    // 5. The fake LLM should have been called at least once (probe + synthesis).
+    // 5. The fake LLM should have been called at least once (probe +
+    //    synthesis).
     assert!(
         !fake_llm.calls().is_empty(),
         "fake LLM should record at least one call"
