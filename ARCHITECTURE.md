@@ -1,4 +1,12 @@
-# StoryMoss (草苔) v0.59.0 架构文档
+# StoryMoss (草苔) v0.59.4 架构文档
+
+> **v0.59.4**：无架构变更，修正发布纪律：发布 tag 增加「必需文档已更新」门禁；landing 兜底版本回退到网站上真实存在的版本（Apple 公证协议未签署 → 0.59.x 尚未发布，兜底不得指向 404）。
+
+> **v0.59.3**：`story_outlines` 加 `source`（V134）。作者手写/确认（`user_created`）时：创世 `materialize` upsert 带 `WHERE source <> 'user_created'` 不覆盖；资产回流 `sync_story_delta` 跳过不追加；`StoryOutlineRepository::update` 仅在带内容时打标。存量行 `unknown`（机器仍可精炼）。删死模块 `memory/hybrid_search.rs` 与 capability 死权限 `http:default`。
+
+> **v0.59.2**：`useScenePersistence` 增加载入期空写保护（`markSceneContentLoaded` + `isEmptyEditorHtml`）：后端非空正文载入后，编辑器自带空文档（`<p></p>`）不得落库覆盖；首次非空保存自动解除。`narrative::strip_whitespace_trailing_commas` 修 `,` + 换行 + 闭合括号。E2E 提升为阻塞门。
+
+> **v0.59.1**：无架构变更（对齐新版 nightly rustfmt，106 文件纯折行）。
 
 > **v0.59.0**：迁移框架记内容校验和 + 集合水位线（`schema_migrations.checksum`，V132）；迁移目录只在源码树取（构建产物路径被剔除）。后台资产回流/质检注册 run 级附属取消标志并入 run 预算（`AGENCY_ANCILLARY_FLAGS`）。续写质检结果事件带 `mode`/`chapter_number`，幕前可一键走 `auto_revise(revision_type=editor_qc)` 修订本章。删故事级联清理 `agency_*`/`ingest_jobs`/`llm_calls`；`agency_activity_log` 30 天保留。`FrontstageApp` 保存链抽为 `useScenePersistence`。v0.58.0 的戏剧工艺与短剧格式不变量不变。
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.59.4-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.59.4 · 发布纪律门禁与网站链路修复
+
+- 新增 tag 推送时的 `docs-guard`：8 份必需文档未更新即失败（此前靠人工自觉，曾连续漏更三版 ARCHITECTURE.md）。
+- 补齐 ARCHITECTURE.md 的 v0.59.1–v0.59.3 记录；landing 兜底版本回退到线上真实存在的 0.58.0。
+- 网站 0.59.x 尚未上线：macOS 构建被 Apple 公证协议（`403 agreement missing`）拦截，签署后重跑即可发布。
 
 ### v0.59.3 · 手写大纲不再被机器改写
 

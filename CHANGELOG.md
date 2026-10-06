@@ -2,6 +2,30 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.59.4（2026-10-06）
+
+发布纪律与网站链路修复。起因：v0.59.1–v0.59.3 连续三个版本漏更 `ARCHITECTURE.md`（文档更新脚本未断言、静默失配），且线上 `latest.json` 仍停在 0.58.0 —— 根因是 macOS 构建被 Apple 公证拦截，`upload-to-website` 因此被跳过。
+
+### 发布纪律
+
+- 新增 `docs-guard` 作业（tag 推送时运行）：机械校验相对上一个 tag，8 份必需文档（README / CHANGELOG / AGENTS / PROJECT_STATUS / ROADMAP / ARCHITECTURE / TESTING / docs/USER_GUIDE）必须都有改动，缺失即失败并列出文件名。此前该规则只靠人工自觉，已连续漏更三版。
+- 补齐 `ARCHITECTURE.md`：补记 v0.59.1 / v0.59.2 / v0.59.3 的架构要点（此前仅更新到 v0.59.0）。
+
+### 网站链路
+
+- **线上现状（实测）**：`latest.json` = 0.58.0；`StoryMoss_0.59.x_*` 全部 404；0.58.0 的 `dmg/msi/AppImage` 为 200，**`.deb` 为 404**（deb 白名单修复只对后续上传生效）。
+- **阻塞点**：macOS `tauri-build` 失败于 Apple 公证 `403 A required agreement is missing or has expired`（需账号持有人在 App Store Connect / developer.apple.com 签署协议）。`upload-to-website` 依赖三平台全部成功，故网站未更新；Windows / Linux 构建本身成功。
+- landing 兜底版本由 0.59.x **回退到 0.58.0**：AGENTS.md 规则 7 的目的是避免兜底链接 404，而 0.59.x 尚未发布，指向它反而必然 404。待 0.59.x 真正上线后必须重新 bump。
+
+### 测试
+
+- 行为无变化：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing `tsc` + 24 tests 通过；`.github/workflows/build.yml` YAML 解析通过（jobs 含 docs-guard）。
+
+### 未关闭
+
+- **网站发布待人工解阻**：签署 Apple 协议后重跑失败作业（macOS 构建 → upload-to-website），线上才会出现 0.59.x 与补齐的 `.deb`。
+- 真机创世/续写仍未重跑；**不得宣称续写质量已修复**。
+
 ## v0.59.3（2026-10-06）
 
 补齐检视清单里「机器提取静默覆盖手写大纲」与两处死件。

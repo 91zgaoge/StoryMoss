@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.59.3
+- **版本**: v0.59.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -110,6 +110,15 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.59.4 - 发布纪律门禁与网站链路修复
+
+起因：v0.59.1–v0.59.3 连续三版漏更 `ARCHITECTURE.md`（文档更新脚本无断言、静默失配），且线上 `latest.json` 仍停在 0.58.0。新增 `docs-guard` 作业（tag 推送时机械校验 8 份必需文档都有改动，缺失即 fail）；补齐 ARCHITECTURE.md 的 v0.59.1–v0.59.3 记录；landing 兜底版本回退 0.58.0（0.59.x 线上 404，兜底不得指向不存在版本）。
+
+- **阻塞点（需人工）**：macOS `tauri-build` 失败于 Apple 公证 `403 A required agreement is missing or has expired`；`upload-to-website` 依赖三平台全成功 → 网站未更新（Windows/Linux 构建成功，但未上传）。
+- **验证**：`cargo test --lib` 1628 passed / 3 ignored；`npx vitest run` 585 passed / 3 skipped；landing tsc + 24 tests；build.yml YAML 解析通过；本地按 docs-guard 同款命令预演通过。
+- **契约**：`docs-guard`（发布必需文档门禁）。
+- **未关闭**：签署 Apple 协议后重跑 macOS 构建 → upload-to-website 才会发布 0.59.x（含 0.58.0 缺失的 `.deb`）；真机续写未复跑，**不得宣称续写质量已修复**。
 
 ### v0.59.3 - 手写大纲不再被机器改写
 

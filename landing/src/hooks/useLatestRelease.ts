@@ -15,7 +15,11 @@ const RELEASE_BASE = "https://storymoss.top/releases";
  * down, etc.). MUST be bumped alongside the release version in Cargo.toml /
  * package.json so a failed fetch still points to a valid, retained version.
  */
-export const FALLBACK_VERSION = "0.59.3";
+// v0.59.4：回退到网站上真实存在的版本。0.59.x 因 Apple 公证协议未签署、
+// macOS 构建失败 → upload-to-website 被跳过 → 线上仍是 0.58.0；此时若兜底
+// 指向 0.59.x，manifest 拉取失败（离线/服务器故障）时下载链接会 404。
+// 待 0.59.x 真正发布到 storymoss.top/releases 后，必须重新 bump 到该版本。
+export const FALLBACK_VERSION = "0.58.0";
 
 export type Platform = "mac" | "windows" | "linux";
 

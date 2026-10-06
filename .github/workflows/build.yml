@@ -17,6 +17,39 @@ permissions:
   checks: read
 
 jobs:
+  # v0.59.4：发布文档纪律门禁——AGENTS.md 规则 4 要求每次发布更新 8 份文档，
+  # 但此前靠人工自觉，v0.59.1–v0.59.3 连续三个版本漏更 ARCHITECTURE.md 而无人发现。
+  # 这里在 tag 推送时机械校验：相对上一个 tag，8 份必需文档必须都被改动。
+  docs-guard:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release docs were updated
+        run: |
+          set -euo pipefail
+          REQUIRED="README.md CHANGELOG.md AGENTS.md PROJECT_STATUS.md ROADMAP.md ARCHITECTURE.md TESTING.md docs/USER_GUIDE.md"
+          PREV=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -1 || true)
+          if [ -z "${PREV}" ]; then
+            echo "无上一个 tag，跳过（首次发布）"
+            exit 0
+          fi
+          echo "比对范围：${PREV}..${GITHUB_REF_NAME}"
+          CHANGED=$(git diff --name-only "${PREV}" "${GITHUB_REF_NAME}")
+          missing=""
+          for f in ${REQUIRED}; do
+            if ! echo "${CHANGED}" | grep -qx "${f}"; then
+              missing="${missing} ${f}"
+            fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::发布未更新必需文档（AGENTS.md 规则 4）：${missing}"
+            exit 1
+          fi
+          echo "✅ 8 份必需文档均已更新"
+
   # Rust backend checks
   rust-check:
     runs-on: ${{ matrix.os }}

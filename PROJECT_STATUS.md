@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.59.3 项目完成状态
+# StoryMoss (草苔) v0.59.4 项目完成状态
 
-> 最后更新: 2026-10-06（v0.59.3 手写大纲来源保护 / 死模块与死权限清理）
+> 最后更新: 2026-10-06（v0.59.4 发布纪律门禁 + 网站链路修复；0.59.x 因 Apple 公证未签署尚未上线）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.59.4 - 发布纪律门禁与网站链路修复（2026-10-06）
+
+- 新增 `docs-guard`（tag 推送校验 8 份必需文档都已更新）；补齐 ARCHITECTURE.md 的 v0.59.1–v0.59.3 记录。
+- landing 兜底版本回退 0.58.0（0.59.x 线上 404，兜底不得指向不存在版本）。
+- **线上现状**：latest.json=0.58.0；0.59.x 全 404；0.58.0 无 deb。阻塞点＝Apple 公证 403（协议未签署）。
+- 基线：Rust 1628 / 3 ignored；vitest 585 / 3 skipped；landing 24 tests；E2E 39 passed / 5 skipped。
 
 ### v0.59.3 - 手写大纲不再被机器改写（2026-10-06）
 

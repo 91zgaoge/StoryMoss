@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-06（v0.59.3 手写大纲来源保护 / 死件清理）
+> 最后更新: 2026-10-06（v0.59.4 发布纪律门禁 + 网站链路修复）
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.59.4 - 发布纪律门禁与网站链路修复 ✅ (2026-10-06)
+
+- [x] `docs-guard`：tag 推送机械校验 8 份必需文档（README/CHANGELOG/AGENTS/PROJECT_STATUS/ROADMAP/ARCHITECTURE/TESTING/USER_GUIDE）。
+- [x] 补齐 ARCHITECTURE.md v0.59.1–v0.59.3；landing 兜底回退 0.58.0。
+- **未关闭（需人工解阻）**：签署 Apple 开发者协议 → 重跑 macOS 构建 → upload-to-website，线上才会出现 0.59.x 与 `.deb`。
 
 ### ✨ v0.59.3 - 手写大纲不再被机器改写 ✅ (2026-10-06)
 
