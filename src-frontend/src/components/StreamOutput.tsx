@@ -16,6 +16,7 @@ import { cn } from '@/utils/cn';
 import { llmCancelGeneration } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+import { mergeHangingClosingPunct } from '@/utils/format';
 
 const streamLogger = createLogger('ui:StreamOutput');
 
@@ -51,7 +52,9 @@ export interface StreamOutputProps {
 function renderMarkdownToHtml(text: string): string {
   if (!text) return '';
 
-  let html = text
+  // 悬挂闭合标点：LLM 软换行把收尾引号单独成行，按 \n\n 分段后会出现只含引号
+  // 的孤段落（与 format.ts 同规则，只合并换行后紧跟的收尾符）。
+  let html = mergeHangingClosingPunct(text)
     // 转义 HTML 特殊字符
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

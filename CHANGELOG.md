@@ -20,6 +20,10 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - `cargo test --lib` 1704 passed / 3 ignored（+6）；`npx vitest run` 604 passed / 3 skipped（+10）；`cargo clippy` 0 error；fmt / prettier / guard / tsc 全绿。
 - 真机数据验收：本机《帝国的烟火》第 2 章库内正文有 2 处段首孤引号，修复后 `autoFormatText` 输出 0 处（`…还是你苏家的命。”</p><p>大堂内的空气…`）。
 
+### 同源第四处（随 master 提交，下一次打包生效）
+
+- **生成中的流式预览**（`components/StreamOutput.tsx`）：其轻量 Markdown 渲染按 `\n\n` 分段、单换行转 `<br/>`，同样会把「空行 + 收尾引号」落成孤引号段落。渲染前先跑文本级悬挂引号合并（与 `format.ts` 同规则）。该守卫在本版 tag 之后提交，需下一次打包进入安装包；正文编辑器、库内数据与导出三条持久路径均已在本版覆盖。
+
 ### 未关闭
 
 - 存量修复要等新版本启动时由 V139 迁移执行（旧版本打开再保存会把内存里的旧形态写回）。
