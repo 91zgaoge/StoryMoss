@@ -4542,6 +4542,8 @@ impl AgencyCoordinator {
         } else {
             instruction
         };
+        // 关系不变量拦下的行（锁 + 关系表两条注入路径共用一份报告）。
+        let mut relation_alerts: Vec<String> = Vec::new();
         let (user, admitted, l2, lock) = if let Some(ref mut p) = parts {
             let (mut admitted, mut l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let mut lock = compile_continue_director(
@@ -4561,11 +4563,16 @@ impl AgencyCoordinator {
                 )
                 .await;
             crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
-            p.bundle.relationship_lines =
-                crate::agency::continue_director::filter_table_rel_lines_for_lock(
-                    &p.bundle.relationship_lines,
-                    &lock,
-                );
+            let filtered = crate::agency::continue_director::filter_table_rel_lines_for_lock(
+                &p.bundle.relationship_lines,
+                &lock,
+            );
+            // 关系表这条注入路径也过一遍不变量（父子/
+            // 兄妹被写成夫妻的脏行不上屏）。
+            let (filtered, bundle_dropped) =
+                crate::agency::continue_director::sanitize_bundle_relations(&filtered, &lock);
+            p.bundle.relationship_lines = filtered;
+            relation_alerts.extend(bundle_dropped);
             let continuity_blocks = {
                 let pool = self.pool.clone();
                 let sid = story_id.to_string();
@@ -4672,6 +4679,40 @@ impl AgencyCoordinator {
             tokio::task::spawn_blocking(move || {
                 persist_inferred_relationships(&pool_persist, &sid_persist, &lock_persist);
             });
+        }
+        // 关系不变量拦下的行：既不进提示词，也不能悄悄消失。
+        let mut dropped_relations = frozen.lock.relations_dropped.clone();
+        dropped_relations.extend(relation_alerts);
+        if !dropped_relations.is_empty() {
+            let shown = dropped_relations
+                .iter()
+                .take(6)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("；");
+            let detail = format!(
+                "续写人物关系不变量拦下 {} 行（未进提示词）：{}",
+                dropped_relations.len(),
+                shown
+            );
+            log::warn!("agency: {detail} run={run_id}");
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let ch = Some(chapter_number);
+            let _ = self
+                .db(move || {
+                    crate::story_system::quality_debt::record_debt(
+                        &pool,
+                        &sid,
+                        None,
+                        ch,
+                        "continue_relations",
+                        "warning",
+                        &detail,
+                    )
+                    .map_err(|e| AppError::from(format!("记录关系质量债失败: {e}")))
+                })
+                .await;
         }
         let _thaw =
             crate::agency::continue_freeze::ThawGuard::new(self.continue_freeze.clone(), run_id);
@@ -4839,13 +4880,39 @@ impl AgencyCoordinator {
                     if better {
                         text = retry;
                     }
-                    let leftover = if better { &probe1.gaps } else { &probe0.gaps };
+                    let leftover: Vec<String> = if better {
+                        probe1.gaps.clone()
+                    } else {
+                        probe0.gaps.clone()
+                    };
                     if !leftover.is_empty() {
                         log::warn!(
                             "agency: write_beat_once 探针仍有缺口 run={} gaps={:?}",
                             run_id,
                             leftover
                         );
+                        // 缺口（拆人、场外角色开篇、死人行动、知识越界…
+                        // ）重试后仍在，
+                        // 就不该只留一行日志：入质量债，
+                        // 让运行维护页能看见并回收。
+                        let detail = format!("续写守卫缺口（重试后仍在）：{}", leftover.join("；"));
+                        let pool = self.pool.clone();
+                        let sid = story_id.to_string();
+                        let ch = Some(chapter_number);
+                        let _ = self
+                            .db(move || {
+                                crate::story_system::quality_debt::record_debt(
+                                    &pool,
+                                    &sid,
+                                    None,
+                                    ch,
+                                    "continue_probe",
+                                    "warning",
+                                    &detail,
+                                )
+                                .map_err(|e| AppError::from(format!("记录守卫缺口质量债失败: {e}")))
+                            })
+                            .await;
                     }
                 }
             }
@@ -6954,7 +7021,10 @@ fn persist_inferred_relationships(
             let dirty = old.relationship_type.contains("侄")
                 || old.relationship_type.contains("姑")
                 || old.relationship_type.contains("叔");
-            let should = dirty || old.relationship_type.trim() != ty;
+            // 只允许「修脏」或「填空」：既有类型一旦成立（父子/兄妹/同僚…），
+            // 近文推导一律不得覆盖。v0.64.1 真机事故：旧条件把「类型不同」
+            // 也当成覆盖理由，父子、手足、兄妹、同僚被逐条改成「夫妻」。
+            let should = dirty || old.relationship_type.trim().is_empty();
             if should {
                 if let Err(e) = repo.update(
                     &old.id,
@@ -6968,6 +7038,11 @@ fn persist_inferred_relationships(
                 ) {
                     log::warn!("continue director: 更新关系失败 {src}-{tgt}: {e}");
                 }
+            } else if old.relationship_type.trim() != ty {
+                log::warn!(
+                    "continue director: 推导关系 {src}-{tgt}={ty} 与既有「{}」冲突，保留既有",
+                    old.relationship_type
+                );
             }
             continue;
         }
@@ -7794,5 +7869,82 @@ mod writer_context_tests {
                 .map(|r| r.relationship_type.as_str())
                 .collect::<Vec<_>>()
         );
+        assert!(
+            !got.iter().any(|r| {
+                r.relationship_type == "夫妻"
+                    && ((r.source_character_id == cao.id && r.target_character_id == son.id)
+                        || (r.source_character_id == son.id && r.target_character_id == cao.id))
+            }),
+            "一处并坐不得把曹元佩与苏亦铁也写成夫妻 got={:?}",
+            got.iter()
+                .map(|r| format!(
+                    "{}:{}",
+                    r.relationship_type,
+                    r.description.as_deref().unwrap_or("")
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// v0.64.1 真机事故：既有父子被近文推导改写成「夫妻」。
+    #[test]
+    fn persist_does_not_overwrite_established_type_with_inferred() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("关系覆盖保护"))
+            .unwrap();
+        let char_repo = CharacterRepository::new(pool.clone());
+        let dad = char_repo.create(char_req(&story.id, "苏会山")).unwrap();
+        let cao = char_repo.create(char_req(&story.id, "曹元佩")).unwrap();
+        let son = char_repo.create(char_req(&story.id, "苏亦铁")).unwrap();
+        let rel_repo = CharacterRelationshipRepository::new(pool.clone());
+        // 既定关系：父子 + 同僚（都不是脏亲缘）
+        let father_row = rel_repo
+            .create(
+                &story.id,
+                &dad.id,
+                &son.id,
+                "父子",
+                Some("正经关系"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let peer_row = rel_repo
+            .create(
+                &story.id,
+                &dad.id,
+                &cao.id,
+                "同僚",
+                Some("正经关系"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let table = vec!["苏会山".into(), "曹元佩".into(), "苏亦铁".into()];
+        let tail = crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL;
+        let lock = crate::agency::continue_director::lock_from_continue_inputs(
+            &table,
+            &[],
+            &["苏会山".into()],
+            tail,
+            &[],
+        );
+        persist_inferred_relationships(&pool, &story.id, &lock);
+        let got = rel_repo.get_by_story(&story.id).unwrap();
+        let ty_of = |id: &str| {
+            got.iter()
+                .find(|r| r.id == id)
+                .map(|r| r.relationship_type.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(ty_of(&father_row.id), "父子", "父子不得被改写成夫妻");
+        assert_eq!(ty_of(&peer_row.id), "同僚", "既有类型不得被推导覆盖");
     }
 }

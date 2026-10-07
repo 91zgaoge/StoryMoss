@@ -44,6 +44,9 @@ pub struct DirectorLock {
     pub forbidden: Vec<String>,
     /// 本拍在场（含死者）两端都在锁内的关系，喂给主创。
     pub relations: Vec<String>,
+    /// 被关系不变量（`sanitize_relations`）拦下的原始行：只用于质量债与排查，
+    /// 不渲染进提示词。
+    pub relations_dropped: Vec<String>,
 }
 
 impl DirectorLock {
@@ -292,6 +295,23 @@ fn kin_spouse(a: &str, b: &str, tail: &str) -> bool {
     patterns.iter().any(|p| tail.contains(p))
 }
 
+/// `kin` 里是否明确把 `other` 写成配偶。
+///
+/// `kin` 由多段用 `；`
+/// 拼接，必须**逐段**判断「同段既出现对方姓名、又有配偶信号」。
+/// v0.64.1 真机事故：整串 `contains("配偶")` 让一处配偶信号扩散成与全部在场者的
+/// 夫妻边——《帝国的烟火》里曹元佩与苏家满门、王府大执事都被写成夫妻，并被落库。
+fn kin_pairs_with_spouse(kin: &str, other: &str) -> bool {
+    kin.split(['；', ';']).any(|seg| {
+        seg.contains(other)
+            && (seg.contains("并坐")
+                || seg.contains("配偶")
+                || seg.contains("夫妻")
+                || seg.contains("之妻")
+                || seg.contains("之夫"))
+    })
+}
+
 pub fn compile_director_lock_rust(
     clusters: &[IdentityCluster],
     dead: &[String],
@@ -370,7 +390,7 @@ pub fn compile_director_lock_rust(
                     .iter()
                     .any(|m| other.members.iter().any(|o| kin_spouse(m, o, tail)))
             {
-                kin_bits.push(format!("与{}并坐（配偶向）", other.canonical));
+                kin_bits.push(format!("与{}并坐", other.canonical));
             }
         }
         for (src, tgt, ty) in table_rels {
@@ -438,14 +458,179 @@ pub fn compile_director_lock_rust(
         forbidden.push(format!("禁止把{child}写成任何人的侄子；{parent}是其父"));
     }
 
-    let relations = appearing_relation_lines(&identities, table_rels, father_pair.as_ref());
+    let raw_relations = appearing_relation_lines(&identities, table_rels, father_pair.as_ref());
+    let (relations, relations_dropped) = sanitize_relations(&raw_relations);
+    if !relations_dropped.is_empty() {
+        log::warn!(
+            "continue director: 关系不变量拦下 {} 行：{:?}",
+            relations_dropped.len(),
+            relations_dropped
+        );
+    }
 
     DirectorLock {
         identities,
         beat_move,
         forbidden,
         relations,
+        relations_dropped,
     }
+}
+
+/// 解析人物锁关系行 `甲 — 乙：类型…`
+fn parse_lock_relation(line: &str) -> Option<(String, String, String)> {
+    let (left, right) = line.split_once(" — ")?;
+    let (right, ty) = right.split_once('：').or_else(|| right.split_once(':'))?;
+    let a = left.trim();
+    let b = right.trim();
+    if a.is_empty() || b.is_empty() || ty.trim().is_empty() {
+        return None;
+    }
+    Some((a.to_string(), b.to_string(), ty.trim().to_string()))
+}
+
+/// 关系类型的主体部分（去掉 `（近文并坐）`、`／仇敌`、`。禁止写成叔侄`
+/// 等后缀）。
+fn rel_head(ty: &str) -> &str {
+    ty.split(['。', '（', '(', '／', '/', '|', '｜', '，', ','])
+        .next()
+        .unwrap_or("")
+        .trim()
+}
+
+fn rel_is_spouse(ty: &str) -> bool {
+    let h = rel_head(ty);
+    h.starts_with("夫妻") || h.contains("配偶") || h.contains("之妻") || h.contains("之夫")
+}
+
+fn rel_is_kin(ty: &str) -> bool {
+    const KIN_CHARS: &[char] = &[
+        '父', '母', '子', '女', '兄', '弟', '姐', '妹', '祖', '孙', '叔', '姑', '侄', '甥', '舅',
+        '姨', '媳', '婿', '亲', '家', '伦',
+    ];
+    let h = rel_head(ty);
+    !rel_is_spouse(h) && h.chars().any(|c| KIN_CHARS.contains(&c))
+}
+
+/// 关系不变量自检：把「不可能同时成立」的关系行挡在提示词之外。
+///
+/// 1. 同一对人物既有血亲/亲属行又有夫妻行 → 丢弃夫妻行（真机事故形态：
+///    父子、兄妹被「一并坐下」这条启发式写成夫妻）；
+/// 2. 单人被写成 ≥3 人的配偶 → 丢弃其全部夫妻行（启发式发散的形状；
+///    继室这类合法双配偶不触发）。
+///
+/// 取舍是「宁缺勿错」：表亲通婚这类既像血亲又像夫妻的组合会被一并拦下并记债，
+/// 由人复核，而不是把矛盾喂给模型。返回 `(保留行,
+/// 丢弃原因)`，丢弃原因只进质量债。
+pub fn sanitize_relations(relations: &[String]) -> (Vec<String>, Vec<String>) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let parsed: Vec<Option<(String, String, String)>> = relations
+        .iter()
+        .map(|line| parse_lock_relation(line))
+        .collect();
+
+    let mut kin_pair: BTreeMap<(String, String), String> = BTreeMap::new();
+    let mut spouse_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for p in parsed.iter().flatten() {
+        let (a, b, ty) = p;
+        if rel_is_kin(ty) {
+            kin_pair
+                .entry(pair_key(a, b))
+                .or_insert_with(|| rel_head(ty).to_string());
+        }
+        if rel_is_spouse(ty) {
+            spouse_of.entry(a.clone()).or_default().insert(b.clone());
+            spouse_of.entry(b.clone()).or_default().insert(a.clone());
+        }
+    }
+    drop_conflicting_spouse_lines(relations, &parsed, &kin_pair, &spouse_of)
+}
+
+/// bundle 情感关系行的同规则过滤。
+///
+/// 同一份脏数据有两条注入路径：人物锁的【本拍人物关系】，以及直接来自关系表的
+/// 【角色情感关系】。后者只按「两端都准入」过滤，不吃锁的不变量，因此这里再跑
+/// 一遍同样的判定；血亲证据同时取自锁（含近文推导出的父子）与 bundle 自身，
+/// 避免只清一半。姓名先归一到规范名（`景亲王曹元寿` 与 `景亲王` 同对）。
+pub fn sanitize_bundle_relations(
+    lines: &[String],
+    lock: &DirectorLock,
+) -> (Vec<String>, Vec<String>) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let canon = |name: &str| -> String {
+        lock.canonical_of(name)
+            .map(str::to_string)
+            .unwrap_or_else(|| name.to_string())
+    };
+    let parsed: Vec<Option<(String, String, String)>> = lines
+        .iter()
+        .map(|line| parse_rel_triple(line).map(|(a, b, ty)| (canon(&a), canon(&b), ty)))
+        .collect();
+
+    let mut kin_pair: BTreeMap<(String, String), String> = BTreeMap::new();
+    let mut spouse_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for l in &lock.relations {
+        if let Some((a, b, ty)) = parse_lock_relation(l) {
+            if rel_is_kin(&ty) {
+                kin_pair
+                    .entry(pair_key(&a, &b))
+                    .or_insert_with(|| rel_head(&ty).to_string());
+            }
+        }
+    }
+    for p in parsed.iter().flatten() {
+        let (a, b, ty) = p;
+        if rel_is_kin(ty) {
+            kin_pair
+                .entry(pair_key(a, b))
+                .or_insert_with(|| rel_head(ty).to_string());
+        }
+        if rel_is_spouse(ty) {
+            spouse_of.entry(a.clone()).or_default().insert(b.clone());
+            spouse_of.entry(b.clone()).or_default().insert(a.clone());
+        }
+    }
+    drop_conflicting_spouse_lines(lines, &parsed, &kin_pair, &spouse_of)
+}
+
+/// 两条注入路径共用的判定：血亲对上的夫妻行、以及单人 ≥3 人的夫妻行整批拦下。
+fn drop_conflicting_spouse_lines(
+    lines: &[String],
+    parsed: &[Option<(String, String, String)>],
+    kin_pair: &std::collections::BTreeMap<(String, String), String>,
+    spouse_of: &std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+) -> (Vec<String>, Vec<String>) {
+    let mut kept = Vec::new();
+    let mut dropped = Vec::new();
+    for (line, p) in lines.iter().zip(parsed.iter()) {
+        let Some((a, b, ty)) = p else {
+            kept.push(line.clone());
+            continue;
+        };
+        if !rel_is_spouse(ty) {
+            kept.push(line.clone());
+            continue;
+        }
+        if let Some(kin_ty) = kin_pair.get(&pair_key(a, b)) {
+            dropped.push(format!("{a} — {b}：夫妻 与同对的「{kin_ty}」冲突"));
+            continue;
+        }
+        let pair_refs: [&String; 2] = [a, b];
+        let crowded = pair_refs
+            .iter()
+            .filter_map(|who| spouse_of.get(*who).map(|set| (who, set.len())))
+            .find(|(_, n)| *n >= 3);
+        if let Some((who, n)) = crowded {
+            dropped.push(format!(
+                "{a} — {b}：夫妻 超量（{who} 同时被写成 {n} 人配偶）"
+            ));
+            continue;
+        }
+        kept.push(line.clone());
+    }
+    (kept, dropped)
 }
 
 /// 解析 bundle 关系行 `■ 甲 -> 乙：社会关系=同僚 ｜ …`
@@ -511,17 +696,18 @@ pub fn appearing_relation_lines(
             if other.canonical == id.canonical {
                 continue;
             }
-            if kin.contains(&format!("与{}并坐", other.canonical)) || kin.contains("配偶") {
-                let k = pair_key(&id.canonical, &other.canonical);
-                if seen.iter().any(|s| s == &k) {
-                    continue;
-                }
-                seen.push(k);
-                out.push(format!(
-                    "{} — {}：夫妻（近文并坐）。禁止写成姑侄。",
-                    id.canonical, other.canonical
-                ));
+            if !kin_pairs_with_spouse(kin, &other.canonical) {
+                continue;
             }
+            let k = pair_key(&id.canonical, &other.canonical);
+            if seen.iter().any(|s| s == &k) {
+                continue;
+            }
+            seen.push(k);
+            out.push(format!(
+                "{} — {}：夫妻（近文并坐）。禁止写成姑侄。",
+                id.canonical, other.canonical
+            ));
         }
     }
     for (src, tgt, ty) in table_rels {
@@ -1113,6 +1299,7 @@ mod tests {
             beat_move: "写后果".into(),
             forbidden: vec![],
             relations: vec![],
+            relations_dropped: vec![],
         };
         let merged = merge_director_json(
             rust,
@@ -1142,5 +1329,152 @@ mod tests {
         );
         assert_eq!(merged.identities.len(), 1);
         assert_eq!(merged.identities[0].canonical, "曹元佩");
+    }
+
+    /// v0.64.1 真机事故：《帝国的烟火》一处「苏会山与曹元佩一并坐下」把
+    /// 曹元佩与全部在场者写成夫妻，随提示词喂给主创并落库。
+    #[test]
+    fn spouse_inference_stays_on_the_named_pair() {
+        let table = vec![
+            "苏会山".into(),
+            "曹元佩".into(),
+            "苏亦铁".into(),
+            "苏福贵".into(),
+            "苏宜茹".into(),
+            "江顾然".into(),
+        ];
+        let clusters = merge_identity_clusters(&table, WEDDING_TAIL);
+        let lock = compile_director_lock_rust(&clusters, &["苏会山".into()], WEDDING_TAIL, &[]);
+        let spouses: Vec<String> = lock
+            .relations
+            .iter()
+            .filter(|r| r.contains("夫妻"))
+            .cloned()
+            .collect();
+        assert_eq!(spouses.len(), 1, "只认「一并坐下」点名的两人：{spouses:?}");
+        assert!(spouses[0].contains("苏会山") && spouses[0].contains("曹元佩"));
+        for other in ["苏亦铁", "苏福贵", "苏宜茹", "江顾然"] {
+            assert!(
+                !lock
+                    .relations
+                    .iter()
+                    .any(|r| r.contains("夫妻") && r.contains(other)),
+                "{other} 不得被写成夫妻 relations={:?}",
+                lock.relations
+            );
+        }
+        assert!(lock.relations_dropped.is_empty(), "正常输入不该有丢弃");
+        // 内部标记不得进入任何渲染面
+        assert!(!lock.render().contains("配偶向"), "{}", lock.render());
+        assert!(lock
+            .identities
+            .iter()
+            .filter_map(|i| i.kin.as_deref())
+            .all(|k| !k.contains("配偶向")));
+    }
+
+    #[test]
+    fn sanitize_drops_spouse_on_kin_pair() {
+        let rels = vec![
+            "苏会山 — 苏亦铁：父子。禁止写成叔侄。".to_string(),
+            "苏会山 — 苏亦铁：夫妻（近文并坐）。禁止写成姑侄。".to_string(),
+            "苏会山 — 曹元佩：夫妻（近文并坐）。禁止写成姑侄。".to_string(),
+            "苏亦铁 — 江顾然：同门好友".to_string(),
+        ];
+        let (kept, dropped) = sanitize_relations(&rels);
+        assert!(
+            kept.iter().any(|l| l.contains("父子")),
+            "父子行须保留 {kept:?}"
+        );
+        assert!(
+            kept.iter()
+                .any(|l| l.contains("曹元佩") && l.contains("夫妻")),
+            "无冲突的夫妻行须保留 {kept:?}"
+        );
+        assert!(kept.iter().any(|l| l.contains("同门好友")));
+        assert_eq!(dropped.len(), 1, "dropped={dropped:?}");
+        assert!(dropped[0].contains("苏亦铁") && dropped[0].contains("父子"));
+    }
+
+    #[test]
+    fn sanitize_drops_person_with_three_spouses() {
+        let rels = vec![
+            "曹元佩 — 苏会山：夫妻（近文并坐）。".to_string(),
+            "曹元佩 — 苏福贵：夫妻（近文并坐）。".to_string(),
+            "曹元佩 — 苏宜茹：夫妻（近文并坐）。".to_string(),
+        ];
+        let (kept, dropped) = sanitize_relations(&rels);
+        assert!(kept.is_empty(), "超量夫妻须整批拦下 kept={kept:?}");
+        assert_eq!(dropped.len(), 3, "dropped={dropped:?}");
+    }
+
+    #[test]
+    fn sanitize_keeps_two_spouses_and_non_kin_lines() {
+        let rels = vec![
+            // 继室/续弦这类合法的双配偶不得被误伤
+            "苏会山 — 曹元佩：夫妻".to_string(),
+            "苏会山 — 元配王氏：夫妻".to_string(),
+            "景亲王 — 苏会山：政敌/清算者".to_string(),
+            "江顾然 — 裴立言：师徒".to_string(),
+            "苏福贵 — 苏会山：上下级".to_string(),
+        ];
+        let (kept, dropped) = sanitize_relations(&rels);
+        assert_eq!(kept.len(), rels.len(), "dropped={dropped:?}");
+        assert!(dropped.is_empty());
+    }
+
+    /// 关系表那条注入路径（【角色情感关系】）同样要过不变量。
+    #[test]
+    fn bundle_relations_drop_poisoned_spouse_rows() {
+        let lock = DirectorLock {
+            identities: vec![IdentityLock {
+                canonical: "曹元佩".into(),
+                aliases: vec!["琬公主曹元佩".into()],
+                status: LifeStatus::Living,
+                kin: None,
+            }],
+            relations: vec!["苏会山 — 苏亦铁：父子。禁止写成叔侄。".into()],
+            ..DirectorLock::default()
+        };
+        let lines = vec![
+            // 父子对上的夫妻行：与锁里的父子冲突
+            "■ 苏会山 -> 苏亦铁：社会关系=夫妻 ｜ 情感=父亲的期许与严教[0.8]".to_string(),
+            // 一人三配偶：真机事故里曹元佩与苏家满门成夫妻的形状
+            "■ 曹元佩 -> 苏会山：社会关系=夫妻 ｜ 情感=政治联姻[0.6]".to_string(),
+            "■ 曹元佩 -> 苏福贵：社会关系=夫妻 ｜ 情感=近文锁定[0.5]".to_string(),
+            "■ 曹元佩 -> 苏宜茹：社会关系=夫妻 ｜ 情感=近文锁定[0.5]".to_string(),
+            // 正常行必须原样保留
+            "■ 苏亦铁 -> 江顾然：社会关系=同门好友 ｜ 情感=同窗情谊[0.7]".to_string(),
+        ];
+        let (kept, dropped) = sanitize_bundle_relations(&lines, &lock);
+        assert!(
+            kept.iter().any(|l| l.contains("同门好友")),
+            "正常行须保留 kept={kept:?}"
+        );
+        assert!(!kept.iter().any(|l| l.contains("夫妻")), "kept={kept:?}");
+        assert_eq!(dropped.len(), 4, "dropped={dropped:?}");
+    }
+
+    /// 别名归一到规范名：`景亲王曹元寿 -> 曹元佩=家人` 能挡住 `景亲王 —
+    /// 曹元佩：夫妻`。
+    #[test]
+    fn bundle_relations_canonicalize_alias_pairs() {
+        let lock = DirectorLock {
+            identities: vec![IdentityLock {
+                canonical: "景亲王".into(),
+                aliases: vec!["景亲王曹元寿".into()],
+                status: LifeStatus::Living,
+                kin: None,
+            }],
+            ..DirectorLock::default()
+        };
+        let lines = vec![
+            "■ 景亲王曹元寿 -> 曹元佩：社会关系=家人 ｜ 情感=同胞手足之情[0.8]".to_string(),
+            "■ 景亲王 -> 曹元佩：社会关系=夫妻 ｜ 情感=同胞亲情[0.85]".to_string(),
+        ];
+        let (kept, dropped) = sanitize_bundle_relations(&lines, &lock);
+        assert!(kept.iter().any(|l| l.contains("家人")), "kept={kept:?}");
+        assert!(!kept.iter().any(|l| l.contains("夫妻")), "kept={kept:?}");
+        assert_eq!(dropped.len(), 1, "dropped={dropped:?}");
     }
 }

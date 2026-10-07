@@ -112,6 +112,7 @@ mod tests {
             beat_move: "写后果".into(),
             forbidden: vec!["禁止拆成两人".into()],
             relations: vec!["苏会山 — 苏亦铁：父子。禁止写成叔侄。".into()],
+            relations_dropped: vec![],
         };
         map.pin("run-lock", first.clone());
         let second = shot("金敏秀走进大堂", &[]);

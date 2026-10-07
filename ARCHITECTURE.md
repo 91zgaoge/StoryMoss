@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.64.1 架构文档
+# StoryMoss (草苔) v0.64.2 架构文档
+
+> **v0.64.2**：**关系不变量守卫**——`agency::continue_director::{sanitize_relations, sanitize_bundle_relations}` 在注入前拦下矛盾关系行（同一对人物既是血亲又判夫妻；单人被写成 ≥3 人配偶），人物锁【本拍人物关系】与关系表【角色情感关系】两条注入路径共用同一判定，`DirectorLock.relations_dropped` 承载被拦下的行并计入质量债（`continue_relations`）。配套修掉配偶启发式的整串匹配 bug（改为逐段匹配对方姓名 + 配偶信号）与落库覆盖策略（只允许修脏 / 填空，不覆盖既有的父子 / 兄妹 / 同僚）。探针遗留缺口改入质量债（`continue_probe`）。
 
 > **v0.64.1**：无架构变更（landing 兜底版本与测试加固；发布流程修正为 GitHub + Cursor 代理双 remote 推送）。
 

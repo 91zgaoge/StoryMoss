@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.2 变更说明
+
+- 新增 Rust 7 项：配偶推导不扩散（1）、关系不变量 4（血亲对上的夫妻行 / 单人 ≥3 配偶 / 继室双配偶不误伤 / 别名归一）、关系表路径（【角色情感关系】）去污（1）、落库覆盖保护（既有父子、同僚不被推导改写）（1）。
+- 关系守卫相关用例都带**真机事故 fixture**：`WEDDING_TAIL`（「苏会山与曹元佩一并坐下」）与 `WEDDING_ASSASSINATION_TAIL`（「将苏会山、曹元佩夫妇罩住」），复用《帝国的烟火》现场文本，避免再造合成样本。
+- 全量基线：`cargo test --lib` 1698 passed / 3 ignored；`npx vitest run` 594 passed / 3 skipped（前端无改动）；`cargo clippy` 0 error。
 
 ### v0.64.1 变更说明
 

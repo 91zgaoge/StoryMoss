@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.64.1
+- **版本**: v0.64.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1691 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由）
+- `cargo test -p storymoss` ✅ 1698 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 594 passed / 3 skipped（+5 级联中心页；+4 运行维护页）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.2 - 续写人物关系错乱修复（真机事故）+ 关系不变量守卫
+
+**事故**：《帝国的烟火》续写第二章台词角色错位（「景亲王江顾然」两人并成一体；景亲王对大执事说「苏爱卿，你儿子娶的是公主」）。根因两条、都在 `agency`：①`continue_director` 的配偶启发式用整串 `kin.contains("配偶")` 判定，一处「甲与乙一并坐下」把该角色与**全部在场者**写成夫妻（真机 15+12 行）；②`coordinator::persist_inferred_relationships` 的 `should = dirty || 旧类型 != 推导类型` 把「类型不同」也当覆盖理由，父子/手足/兄妹/同僚被逐条改写成夫妻。同一份 `lock.relations` 既进提示词（【本拍人物关系】+ 硬规则）又落库 → 模型被明确告知「父子是夫妻」。**修复**：逐段匹配对方姓名 + 配偶信号、去掉 `（配偶向）` 标记泄漏、落库只允许修脏/填空；新增不变量 `sanitize_relations` / `sanitize_bundle_relations`（血亲对上的夫妻行、单人 ≥3 配偶整批拦下，别名先归一），覆盖【本拍人物关系】与【角色情感关系】两条注入路径，拦下的行入质量债 `continue_relations`；探针遗留缺口入质量债 `continue_probe`（此前只 log）。**数据修复**：《帝国的烟火》32 行误写夫妻 → 回填 6（父子/兄弟/兄妹/同僚/母子）、删除 26，清除幻影人物「景亲王江顾然」（备份 `cinema_ai.db.bak-v0.64.2-*`）。
+
+- **验证**：`cargo test --lib` 1698 passed / 3 ignored（+7：推导不扩散 / 不变量 4 / 关系表路径去污 / 覆盖保护）；vitest 594 / 3 skipped（无前端改动）；clippy 0 error；fmt / prettier / guard / tsc 全绿。
+- **契约**：`spouse_inference_stays_on_the_named_pair`；`sanitize_drops_spouse_on_kin_pair`；`sanitize_drops_person_with_three_spouses`；`sanitize_keeps_two_spouses_and_non_kin_lines`；`bundle_relations_drop_poisoned_spouse_rows`；`bundle_relations_canonicalize_alias_pairs`；`persist_does_not_overwrite_established_type_with_inferred`。
+- **未关闭**：运行中的 0.64.1 需升级才生效（否则再续写会重新污染）；第二章正文错乱台词仍在正文里；`景亲王/景亲王曹元寿`、`奉乾帝/奉乾皇帝` 同名重复行未合并；真机端到端未复跑（**不得宣称续写质量已修复**）。
 
 ### v0.64.1 - 发布链路恢复：0.64.0 上线 + 兜底版本 + 用例加固
 
