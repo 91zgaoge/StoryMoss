@@ -54,6 +54,17 @@ pub(crate) fn candidate_chain_stops_on(err: &AppError) -> bool {
     matches!(err, AppError::Cancellation { .. })
 }
 
+/// 探测超时的候选是否仍要尝试：**最后一个候选不再跳过**。
+///
+/// 探测超时只说明端点忙（单槽推理服务在跑别的请求时，5s 探测会排在生成后面），
+/// 不等于不可用；跳过它却在后面还有候选时是合理的快速回退，而把它作为最后一个
+/// 候选跳过就等于整轮必然失败——真机 2026-10-07：三个端点里只有 10.62.x:17098
+/// 可用，它被 5s 探测跳过，续写报「过短（0
+/// 字符）」整轮失败（端点当时实际健康）。
+pub(crate) fn should_attempt_after_probe_timeout(idx: usize, total: usize) -> bool {
+    idx + 1 >= total
+}
+
 /// v0.30.51: 空正文（含仅空白）对调用方等同失败——网关视为候选失败并继续尝试
 /// 下一个候选模型。
 ///
@@ -1194,22 +1205,41 @@ impl<R: Runtime> GatewayExecutor<R> {
                         false
                     }
                     Err(_elapsed) => {
-                        log::warn!(
-                            "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），跳过",
-                            idx + 1,
-                            decision.candidates.len(),
-                            candidate.model_id
-                        );
-                        self.record_gateway_failure(
-                            &candidate.model_id,
-                            &candidate.model_name,
-                            super::types::HealthStatus::Unhealthy,
-                            Some("pre-call probe timeout (5s)".to_string()),
-                        );
-                        last_error = Some(AppError::Internal {
-                            message: format!("模型 {} 实时探测超时", candidate.model_name),
-                        });
-                        false
+                        if should_attempt_after_probe_timeout(idx, decision.candidates.len()) {
+                            // 探测超时只说明端点**忙**
+                            // （单槽推理服务在跑别的请求时，
+                            // 5s 探测会排在生成之后），不等于不可用；
+                            // 作为最后一个
+                            // 候选不再跳过，交给真实调用（自带 60s
+                            // 超时与重试）判定。
+                            // 真机 2026-10-07：唯一健康端点被 5s 探测跳过 →
+                            // 全部候选
+                            // 失败 → 续写整轮失败。
+                            log::warn!(
+                                "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），最后候选仍尝试一次",
+                                idx + 1,
+                                decision.candidates.len(),
+                                candidate.model_id
+                            );
+                            true
+                        } else {
+                            log::warn!(
+                                "[Gateway] 候选 [{}/{}] {} 实时探测超时（5s），跳过",
+                                idx + 1,
+                                decision.candidates.len(),
+                                candidate.model_id
+                            );
+                            self.record_gateway_failure(
+                                &candidate.model_id,
+                                &candidate.model_name,
+                                super::types::HealthStatus::Unhealthy,
+                                Some("pre-call probe timeout (5s)".to_string()),
+                            );
+                            last_error = Some(AppError::Internal {
+                                message: format!("模型 {} 实时探测超时", candidate.model_name),
+                            });
+                            false
+                        }
                     }
                 }
             }; // end probe_passed assignment
@@ -1615,6 +1645,17 @@ mod tests {
     fn candidate_fits_prompt_accepts_cloud_128k_and_short_local() {
         assert!(candidate_fits_prompt(128000, 24559));
         assert!(candidate_fits_prompt(8192, 100));
+    }
+
+    #[test]
+    fn probe_timeout_still_attempts_last_candidate() {
+        // 最后一个候选被探测超时 → 仍要真打一次（真机 2026-10-07 单一健康端点
+        // 被跳过导致整轮续写失败）
+        assert!(should_attempt_after_probe_timeout(0, 1));
+        assert!(should_attempt_after_probe_timeout(2, 3));
+        // 后面还有候选 → 保持快速回退，不浪费一次可能的 60s 等待
+        assert!(!should_attempt_after_probe_timeout(0, 3));
+        assert!(!should_attempt_after_probe_timeout(1, 3));
     }
 
     #[test]

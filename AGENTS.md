@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.64.3
+- **版本**: v0.64.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1704 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
+- `cargo test -p storymoss` ✅ 1705 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 604 passed / 3 skipped（+5 级联中心页；+4 运行维护页；+10 段落收尾符）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.4 - 模型失败可见性 + 探测超时韧性（含 v0.64.3 全部内容）
+
+**真机事故**：加正文后续写崩在 `write_beat_once 过短（0 字符），续写回退仍失败`。**环境**：四个端点里两个自建（`127.0.0.1:11500`、`10.62.239.13:17092`）不可达、远程 deepseek 401，只剩 `10.62.239.13:17098` 健康，而它在 5s 起跑探测里超时（单槽服务忙）被跳过 → 全候选失效。**两处产品缺陷**：①`write_beat_once` 把模型失败吞成空文本再由「过短」报错，真实原因（不可达/超时/鉴权）丢失且白跑一次回退；②唯一健康端点作为**最后一个候选**被探测超时跳过 = 整轮必失败。**修复**：模型失败立即带原因失败（`续写模型调用失败（未产出正文）：…`）；探测超时若已是最后一个候选则真打一次（`should_attempt_after_probe_timeout`，后面还有候选时保持快速回退）；`StreamOutput` 渲染前合并悬挂闭合引号。本版同时包含 v0.64.3（下引号孤行根除 + V139 迁移），v0.64.3 未上传安装包。
+
+- **验证**：`cargo test --lib` 1705 passed / 3 ignored（+1）；vitest 604 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。
+- **契约**：`probe_timeout_still_attempts_last_candidate`。
+- **未关闭**：模型端点需用户自行恢复（两个自建不可达 + 远程 key 401）；真机端到端未复跑。
 
 ### v0.64.3 - 下引号孤行根除（句读切分 + 段首收尾符）
 

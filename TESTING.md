@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.4 变更说明
+
+- 新增 Rust 1 项：`probe_timeout_still_attempts_last_candidate`（最后一个候选被探测超时仍要真打一次；后面还有候选时保持快速回退）。
+- 本版含 v0.64.3 全部用例（前端 +10 / Rust +6），构建直接取 master。
+- 全量基线：`cargo test --lib` 1705 passed / 3 ignored；`npx vitest run` 604 passed / 3 skipped；`cargo clippy` 0 error。
 
 ### v0.64.3 变更说明
 

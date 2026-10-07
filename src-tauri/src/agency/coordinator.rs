@@ -4743,12 +4743,19 @@ impl AgencyCoordinator {
         {
             Ok(t) => t.trim().to_string(),
             Err(e) => {
+                // 模型/网关失败必须带着原因失败：此前降级成空文本，会被后面的
+                // 「过短」分支接管，用户看到的是「文本过短（0
+                // 字符）」，真实原因 （模型服务不可达 / 超时 /
+                // 鉴权失败）被丢掉，还会白跑一次续写回退。 真机
+                // 2026-10-07：配置的端点全部不可用时即报此误导信息。
                 log::warn!(
                     "agency: write_beat_once complete 失败 run={} err={}",
                     run_id,
                     e
                 );
-                String::new()
+                return Err(AppError::from(format!(
+                    "续写模型调用失败（未产出正文）：{e}"
+                )));
             }
         };
         let mut text = crate::agents::orchestrator::sanitize_novel_output(&text);

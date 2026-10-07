@@ -1,6 +1,8 @@
-# StoryMoss (草苔) v0.64.3 架构文档
+# StoryMoss (草苔) v0.64.4 架构文档
 
-> **v0.64.3**：**段首收尾符修复**——`format.ts::splitChineseSentences` 让句末标点后紧跟的收尾符归属本句（段首孤引号的源头）；新增段落级 `mergeLeadingClosingPunctParagraphs`（前端）与 `TextUtils::merge_leading_closing_punct_paragraphs`（Rust，供 V139 迁移），把段首闭合标点并回上一段，只认有方向的收尾符（ASCII `"` `'` 可能是开引号，保持原样）。`autoFormatText` 三条路径与 `textToParagraphsHtml` 统一走「孤段 + 段首」合并。
+> **v0.64.4**：**模型失败可见性与探测韧性**——`agency::coordinator::write_beat_once` 的模型调用失败不再降级成空文本（此前被「过短」分支接管，真实原因丢失），改为立即带原因失败；`model_gateway::executor` 新增 `should_attempt_after_probe_timeout`——起跑前 5s 探测超时的候选若已是**最后一个**则不再跳过、真打一次（自带 60s 超时与重试），后面还有候选时保持快速回退（单槽推理服务在忙时探测会排在生成后面，超时≠不可用）。`components/StreamOutput.tsx` 渲染前合并悬挂闭合引号。
+
+> **v0.64.3**（未上传安装包，内容并入 v0.64.4）：**段首收尾符修复**——`format.ts::splitChineseSentences` 让句末标点后紧跟的收尾符归属本句（段首孤引号的源头）；新增段落级 `mergeLeadingClosingPunctParagraphs`（前端）与 `TextUtils::merge_leading_closing_punct_paragraphs`（Rust，供 V139 迁移），把段首闭合标点并回上一段，只认有方向的收尾符（ASCII `"` `'` 可能是开引号，保持原样）。`autoFormatText` 三条路径与 `textToParagraphsHtml` 统一走「孤段 + 段首」合并。
 
 > **v0.64.2**：**关系不变量守卫**——`agency::continue_director::{sanitize_relations, sanitize_bundle_relations}` 在注入前拦下矛盾关系行（同一对人物既是血亲又判夫妻；单人被写成 ≥3 人配偶），人物锁【本拍人物关系】与关系表【角色情感关系】两条注入路径共用同一判定，`DirectorLock.relations_dropped` 承载被拦下的行并计入质量债（`continue_relations`）。配套修掉配偶启发式的整串匹配 bug（改为逐段匹配对方姓名 + 配偶信号）与落库覆盖策略（只允许修脏 / 填空，不覆盖既有的父子 / 兄妹 / 同僚）。探针遗留缺口改入质量债（`continue_probe`）。
 
