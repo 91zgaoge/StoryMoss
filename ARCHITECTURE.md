@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.64.4 架构文档
+# StoryMoss (草苔) v0.64.5 架构文档
+
+> **v0.64.5**：**一章一条 commit 的 UPSERT**——`SceneCommitRepository::upsert_pending`（配 `get_by_story_chapter`）取代 `init_commit` 里的裸 INSERT：同章已有 commit 时复用该行（保留 id，投影按 story+chapter 幂等重跑）、重置 `pending`、`COALESCE` 刷新 scene/chapter 挂载、清空派生字段（摘要 / review / 状态增量 / 投影状态），避免重新提交窗口内旧摘要被下游当当前章事实。修复真机 `UNIQUE constraint failed: scene_commits.story_id, scene_commits.chapter_number`。
 
 > **v0.64.4**：**模型失败可见性与探测韧性**——`agency::coordinator::write_beat_once` 的模型调用失败不再降级成空文本（此前被「过短」分支接管，真实原因丢失），改为立即带原因失败；`model_gateway::executor` 新增 `should_attempt_after_probe_timeout`——起跑前 5s 探测超时的候选若已是**最后一个**则不再跳过、真打一次（自带 60s 超时与重试），后面还有候选时保持快速回退（单槽推理服务在忙时探测会排在生成后面，超时≠不可用）。`components/StreamOutput.tsx` 渲染前合并悬挂闭合引号。
 

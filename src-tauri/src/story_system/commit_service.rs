@@ -17,7 +17,14 @@ impl SceneCommitService {
         Self { pool }
     }
 
-    /// 初始化 commit（写作前）
+    /// 初始化 commit（写作前）。
+    ///
+    /// **一章一条**：已有该章 commit 时复用并重置为 pending，而不是再插一行——
+    /// `idx_scene_commits_number` 是 UNIQUE(story_id,
+    /// chapter_number)，重复插入会 让 auto_commit 第一步就失败（真机
+    /// 2026-10-07：第 2 章后续每次续写都报 `UNIQUE constraint failed:
+    /// scene_commits.story_id, scene_commits.chapter_number`，
+    /// review / 摘要 / 状态增量 / 投影全都不落）。
     pub fn init_commit(
         &self,
         story_id: &str,
@@ -26,7 +33,7 @@ impl SceneCommitService {
         chapter_number: i32,
     ) -> Result<crate::db::SceneCommit, String> {
         let repo = SceneCommitRepository::new(self.pool.clone());
-        repo.create(story_id, scene_id, chapter_id, chapter_number, "pending")
+        repo.upsert_pending(story_id, scene_id, chapter_id, chapter_number, "pending")
             .map_err(|e| format!("初始化 commit 失败: {}", e))
     }
 
@@ -608,5 +615,116 @@ impl SceneCommitService {
                 Err(e.to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{create_test_pool, CreateStoryRequest, StoryRepository};
+
+    fn seed_story(pool: &DbPool) -> String {
+        StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "同章重复提交".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id
+    }
+
+    /// 真机 2026-10-07《帝国的烟火》第 2 章：同一章第二次 init 撞
+    /// UNIQUE(story_id, chapter_number) → auto_commit 第一步失败，
+    /// review / 摘要 / 状态增量 / 投影全不落。
+    #[test]
+    fn init_commit_reuses_row_for_same_chapter() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let service = SceneCommitService::new(pool.clone());
+        let repo = SceneCommitRepository::new(pool.clone());
+
+        let first = service.init_commit(&story_id, None, None, 2).unwrap();
+        let second = service.init_commit(&story_id, None, None, 2).unwrap();
+
+        assert_eq!(first.id, second.id, "同章第二次 init 必须复用同一行");
+        assert_eq!(repo.get_by_story(&story_id).unwrap().len(), 1, "一章一条");
+
+        // 换章仍各占一行
+        let other = service.init_commit(&story_id, None, None, 3).unwrap();
+        assert_ne!(other.id, first.id);
+        assert_eq!(repo.get_by_story(&story_id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn recommit_resets_status_and_clears_derived_fields() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let service = SceneCommitService::new(pool.clone());
+        let repo = SceneCommitRepository::new(pool.clone());
+
+        let first = service.init_commit(&story_id, None, None, 1).unwrap();
+        repo.update_commit(
+            &first.id,
+            "accepted",
+            Some("{}"),
+            Some("{\"score\":0.9}"),
+            Some("{}"),
+            Some("[]"),
+            Some("[]"),
+            Some("[]"),
+            Some("第一版摘要"),
+            Some("main"),
+            Some("{\"kg\":\"success\"}"),
+        )
+        .unwrap();
+
+        let again = service.init_commit(&story_id, None, None, 1).unwrap();
+        assert_eq!(again.id, first.id);
+        let got = repo.get_by_id(&first.id).unwrap().unwrap();
+        assert_eq!(got.status, "pending", "重新提交同一章回到 pending");
+        assert!(
+            got.summary_text.is_none(),
+            "旧摘要必须清掉，避免重新提交期间被下游当当前章事实读走"
+        );
+        assert!(got.review_result_json.is_none());
+        assert!(got.projection_status_json.is_none());
+        assert_eq!(
+            repo.get_by_story(&story_id).unwrap().len(),
+            1,
+            "重置不得新增行"
+        );
+    }
+
+    /// 挂载点刷新：再次提交时带上新的 scene/chapter 应覆盖，缺省则保留原值。
+    #[test]
+    fn recommit_refreshes_scene_mount_when_provided() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let service = SceneCommitService::new(pool.clone());
+        let repo = SceneCommitRepository::new(pool.clone());
+        let scene_repo = crate::db::SceneRepository::new(pool.clone());
+        let old_scene = scene_repo.create(&story_id, 1, None).unwrap();
+        let new_scene = scene_repo.create(&story_id, 2, None).unwrap();
+
+        service
+            .init_commit(&story_id, Some(&old_scene.id), None, 1)
+            .unwrap();
+        let kept = service.init_commit(&story_id, None, None, 1).unwrap();
+        assert_eq!(
+            kept.scene_id.as_deref(),
+            Some(old_scene.id.as_str()),
+            "缺省保留原挂载"
+        );
+
+        let refreshed = service
+            .init_commit(&story_id, Some(&new_scene.id), None, 1)
+            .unwrap();
+        assert_eq!(refreshed.scene_id.as_deref(), Some(new_scene.id.as_str()));
+        assert_eq!(repo.get_by_story(&story_id).unwrap().len(), 1);
     }
 }

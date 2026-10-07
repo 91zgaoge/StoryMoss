@@ -2,6 +2,40 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.64.5（2026-10-07）
+
+**修复同章重复续写不落 commit**（真机《帝国的烟火》第 2 章：首次提交之后每次保存都报
+`UNIQUE constraint failed: scene_commits.story_id, scene_commits.chapter_number`）。
+
+### 根因
+
+`scene_commits` 带 `UNIQUE(story_id, chapter_number)`（一章一条是既定语义），而
+`SceneCommitService::init_commit` 一律 `INSERT`。第 2 章在 11:12 首次提交后，用户每次
+「续写下一段」并保存触发的自动提交（30s debounce）都在**第一步**撞唯一索引 →
+`auto_commit` 直接失败：那一轮的 mini review、章节语义摘要、合同履行度、KG 提取、
+状态/实体增量与全部投影 writer 都没有跑，记忆金字塔停在首次提交时的内容。
+
+### 修复
+
+- 仓库层新增 `SceneCommitRepository::{get_by_story_chapter, upsert_pending}`：同章已有
+  commit 时**复用该行**（保留 id → 投影按 story+chapter 幂等重跑，不堆重复章节摘要），
+  重置为 `pending`、刷新 scene/chapter 挂载，并清空派生字段（摘要 / review / 状态增量 /
+  投影状态）——避免「重新提交进行中」期间旧摘要被下游当成当前章事实读走。
+- `SceneCommitService::init_commit` 改走 `upsert_pending`；命令层 `init_commit`（前端可调）
+  一并变成幂等。
+
+### 测试
+
+- 新增 Rust 3 项：同章两次 init 复用同一行、不同章各占一行；重新提交回到 pending 且清空
+  派生字段；挂载点刷新（带 scene 覆盖、缺省保留）。
+- `cargo test --lib` 1708 passed / 3 ignored（+3）；`npx vitest run` 604 passed / 3 skipped；
+  `cargo clippy` 0 error；fmt / prettier / guard / tsc 全绿。
+
+### 未关闭
+
+- 本机第 2 章那条 commit（11:12 的摘要/增量）要等新版本安装后**下一次保存或续写**才会重算
+  ——升级后自动提交即可正常工作；真机端到端未复跑。
+
 ## v0.64.4（2026-10-07）
 
 **模型失败不再伪装成「文本过短」+ 探测超时不再跳过唯一健康端点**（真机事故：加了正文后

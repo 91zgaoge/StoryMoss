@@ -142,6 +142,29 @@ impl StoryContractRepository {
 
 // ==================== SceneCommit Repository ====================
 
+/// scene_commits 行 → 模型（列顺序与各查询的 SELECT 一致）。
+fn map_scene_commit_row(row: &rusqlite::Row<'_>) -> Result<SceneCommit, rusqlite::Error> {
+    let created_str: String = row.get(15)?;
+    Ok(SceneCommit {
+        id: row.get(0)?,
+        story_id: row.get(1)?,
+        scene_id: row.get(2)?,
+        chapter_id: row.get(3)?,
+        chapter_number: row.get(4)?,
+        status: row.get(5)?,
+        outline_snapshot_json: row.get(6)?,
+        review_result_json: row.get(7)?,
+        fulfillment_result_json: row.get(8)?,
+        accepted_events_json: row.get(9)?,
+        state_deltas_json: row.get(10)?,
+        entity_deltas_json: row.get(11)?,
+        summary_text: row.get(12)?,
+        dominant_strand: row.get(13)?,
+        projection_status_json: row.get(14)?,
+        created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+    })
+}
+
 pub struct SceneCommitRepository {
     pool: DbPool,
 }
@@ -402,6 +425,88 @@ impl SceneCommitRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(commits)
+    }
+
+    /// 读一章的 commit（一章一条：`idx_scene_commits_number` 是
+    /// UNIQUE(story_id, chapter_number)）。
+    pub fn get_by_story_chapter(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<Option<SceneCommit>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, scene_id, chapter_id, chapter_number, status, \
+             outline_snapshot_json, review_result_json, fulfillment_result_json, \
+             accepted_events_json, state_deltas_json, entity_deltas_json, summary_text, \
+             dominant_strand, projection_status_json, created_at FROM scene_commits WHERE \
+             story_id = ?1 AND chapter_number = ?2",
+        )?;
+
+        stmt.query_row(params![story_id, chapter_number], map_scene_commit_row)
+            .optional()
+    }
+
+    /// 初始化 commit（`status` 通常为
+    /// `pending`）：**一章一条，已存在则复用该行**。
+    ///
+    /// 同一章反复续写（append 到已有章）时不能再插新行：唯一索引会直接拒绝，
+    /// `auto_commit` 第一步就失败，review / 章节摘要 / 状态增量 /
+    /// 投影全都不落。 真机 2026-10-07《帝国的烟火》第 2 章：首次 commit
+    /// 之后每保存一次就报 `UNIQUE constraint failed:
+    /// scene_commits.story_id, scene_commits.chapter_number`。
+    ///
+    /// 复用 id 让下游投影按 (story, chapter) 幂等重跑，不会堆出重复章节摘要；
+    /// 同时清空派生字段（摘要 / 状态增量 / 投影状态等），避免「重新提交进行中」
+    /// 期间旧数据被当成当前章的事实读走——派生数据由紧随其后的 `apply_commit`
+    /// 重算。
+    pub fn upsert_pending(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_id: Option<&str>,
+        chapter_number: i32,
+        status: &str,
+    ) -> Result<SceneCommit, rusqlite::Error> {
+        let Some(mut existing) = self.get_by_story_chapter(story_id, chapter_number)? else {
+            return self.create(story_id, scene_id, chapter_id, chapter_number, status);
+        };
+
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE scene_commits SET status = ?2, scene_id = COALESCE(?3, scene_id), \
+             chapter_id = COALESCE(?4, chapter_id), outline_snapshot_json = NULL, \
+             review_result_json = NULL, fulfillment_result_json = NULL, \
+             accepted_events_json = NULL, state_deltas_json = NULL, entity_deltas_json = NULL, \
+             summary_text = NULL, dominant_strand = NULL, projection_status_json = NULL \
+             WHERE id = ?1",
+            params![&existing.id, status, scene_id, chapter_id],
+        )?;
+
+        existing.status = status.to_string();
+        if scene_id.is_some() {
+            existing.scene_id = scene_id.map(str::to_string);
+        }
+        if chapter_id.is_some() {
+            existing.chapter_id = chapter_id.map(str::to_string);
+        }
+        existing.outline_snapshot_json = None;
+        existing.review_result_json = None;
+        existing.fulfillment_result_json = None;
+        existing.accepted_events_json = None;
+        existing.state_deltas_json = None;
+        existing.entity_deltas_json = None;
+        existing.summary_text = None;
+        existing.dominant_strand = None;
+        existing.projection_status_json = None;
+        Ok(existing)
     }
 
     pub fn update_projection_status(

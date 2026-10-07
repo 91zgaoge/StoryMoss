@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.5)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.5 变更说明
+
+- 新增 Rust 3 项（`story_system::commit_service::tests`）：同章两次 `init_commit` 复用同一行 + 不同章各占一行；重新提交回到 `pending` 且清空派生字段；挂载点刷新（带 scene 覆盖、缺省保留原值）。
+- **经验**：带 `UNIQUE` 约束的「一章一条」表，初始化必须走 UPSERT；只测「第一次」会漏掉重复提交路径（真机就是这么漏的）。
+- 全量基线：`cargo test --lib` 1708 passed / 3 ignored；`npx vitest run` 604 passed / 3 skipped；`cargo clippy` 0 error。
 
 ### v0.64.4 变更说明
 
