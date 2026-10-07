@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.3 变更说明
+
+- 新增前端 10 项（`format.test.ts`）：段首收尾符并回 8 项（真机形态 / 实体 / 整段仅引号 / 全角缩进 / 8 个方向性字符逐字 / ASCII 直引号不动 / 开向字符不并 / 无上一段不动）+ 真机句子切分与透传路径回归 2 项。
+- 新增 Rust 6 项：`TextUtils::merge_leading_closing_punct_paragraphs` 基础 / 实体 / 方向性 3 项，V139 迁移 3 项（含「V128 结果重跑不动」）。
+- **经验**：句读切分与段落组装是两段独立逻辑，切分把收尾符切给下一句时，组装会把它变成段首孤引号；覆盖测试必须同时钉住「文本级切分」与「HTML 级合并」两个层次。
+- 全量基线：`cargo test --lib` 1704 passed / 3 ignored；`npx vitest run` 604 passed / 3 skipped；`cargo clippy` 0 error。
 
 ### v0.64.2 变更说明
 

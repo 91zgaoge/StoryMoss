@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.64.2
+- **版本**: v0.64.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1698 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量）
+- `cargo test -p storymoss` ✅ 1704 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 594 passed / 3 skipped（+5 级联中心页；+4 运行维护页）
+- `npx vitest run` ✅ 604 passed / 3 skipped（+5 级联中心页；+4 运行维护页；+10 段落收尾符）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.3 - 下引号孤行根除（句读切分 + 段首收尾符）
+
+**根因**：`format.ts::splitChineseSentences` 在句末标点（。！？）处断开，把紧随其后的收尾引号切给了下一句；段落组装（智能句子拆分）正好在那一处断段时，就落成 `<p>”\n正文…</p>`——孤引号独占一行（真机《帝国的烟火》第 2 章两处）。此前三次修复（文本级悬挂引号合并 / HTML 级「整段仅闭合标点」合并 / V128 存量迁移）都没覆盖这一形态：引号后面还跟着正文。**修复**：①句末标点后紧跟的收尾符归属本句（源头）；②新增 `mergeLeadingClosingPunctParagraphs`（前端）与 `TextUtils::merge_leading_closing_punct_paragraphs`（Rust），把**段首**闭合标点并回上一段、丢掉其后的空白换行，整段仅剩引号则并段——段首只认**有方向**的收尾符，ASCII `"` `'` 可能是开引号故保持原样；③`autoFormatText` 三条路径与 `textToParagraphsHtml` 统一走「孤段 + 段首」合并（此前只有孤段规则）；④**V139 存量迁移**对所有含 `<p>` 的 scene 跑同规则（幂等），已入库的章节下次启动自动修好。
+
+- **验证**：`cargo test --lib` 1704 passed / 3 ignored（+6：TextUtils 3 + V139 迁移 3）；`npx vitest run` 604 passed / 3 skipped（+10）；clippy 0 error；fmt / prettier / guard / tsc 全绿；真机数据验收：库内正文 2 处段首孤引号 → `autoFormatText` 输出 0 处。
+- **契约**：`test_merge_leading_closing_punct_paragraphs_basic`；`_entities`；`_directional_only`；`v139_merges_paragraph_leading_closing_punct`；`v139_is_noop_on_v128_result`；`mergeLeadingClosingPunctParagraphs` 8 项；`sentence-split path: 句末引号不被切到下一段`。
+- **未关闭**：存量修复依赖新版本启动时的 V139 迁移（旧版本打开再保存会把内存里的旧形态写回）；真机端到端未复跑（**不得宣称续写质量已修复**）。
 
 ### v0.64.2 - 续写人物关系错乱修复（真机事故）+ 关系不变量守卫
 

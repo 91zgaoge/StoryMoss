@@ -64,6 +64,17 @@ const LONE_CLOSING_PARA_RE = new RegExp(
 );
 
 /**
+ * 段首修复只认**有方向的**收尾符：`"` `'` 无方向信息，可能是开引号（英文式
+ * 对话每段以 " 开场），保持原样。
+ */
+const DIRECTIONAL_CLOSING = '(?:[”’」』）】》〉]|&(?:rdquo|rsquo|#x201[dD]|#x2019|#8221|#8217);)';
+/** 段首为闭合标点（可跟空白）的 <p>：`</p><p>”正文…</p>` */
+const LEADING_CLOSING_PARA_RE = new RegExp(
+  `</p>\\s*<p>(${DIRECTIONAL_CLOSING}+)(${LONE_WS}*)([\\s\\S]*?)</p>`,
+  'g'
+);
+
+/**
  * HTML 级：把「整段内容仅为闭合标点+空白」的 <p> 并入上一段。
  * 覆盖段落内是字符或 HTML 实体（&rdquo; &quot; &#x201D; &#8221; 等）与首尾空白；
  * 只有当前面存在可并入的段落（</p>）时才合并。
@@ -84,17 +95,50 @@ export function mergeLoneClosingPunctParagraphs(html: string): string {
 }
 
 /**
+ * HTML 级：把**段首**的闭合标点并回上一段末尾。
+ *
+ * 根因：句子切分在句末标点（。！？）处断开，把紧随其后的收尾引号切给了下一句；
+ * 段落组装若正好在那一处断段，就落成 `<p>”\n正文…</p>`——孤引号独占一行
+ * （真机《帝国的烟火》第 2 章即此形态，V128 的「整段仅闭合标点」规则覆盖不到，
+ * 因为引号后面还跟着正文）。
+ *
+ * 并回后：引号进入上一段末尾，正文去掉其后的空白/换行留在本段；整段仅剩引号时
+ * 直接并段。段首只认出有方向的收尾符（见 `DIRECTIONAL_CLOSING`）。
+ */
+export function mergeLeadingClosingPunctParagraphs(html: string): string {
+  if (!html || !html.includes('</p>')) return html;
+  let result = html;
+  for (;;) {
+    const next = result.replace(
+      LEADING_CLOSING_PARA_RE,
+      (_m, punct: string, _ws: string, body: string) => {
+        return body.trim().length > 0 ? `${punct}</p><p>${body}</p>` : `${punct}</p>`;
+      }
+    );
+    if (next === result) return result;
+    result = next;
+  }
+}
+
+/** 段落级收尾修复：孤闭合标字段 + 段首闭合标点两条规则。 */
+function repairClosingPunctParagraphs(html: string): string {
+  return mergeLeadingClosingPunctParagraphs(mergeLoneClosingPunctParagraphs(html));
+}
+
+/**
  * 纯文本 → 段落 HTML：先合并悬挂闭合标点，再按 \n+ 切行，非空行各包 <p>。
  * 替换 naive 的 `<p>${text.replace(/\n/g, '</p><p>')}</p>` 写法。
  */
 export function textToParagraphsHtml(text: string): string {
   if (!text) return '';
   const merged = mergeHangingClosingPunct(text);
-  return merged
-    .split(/\n+/)
-    .filter(line => line.trim().length > 0)
-    .map(line => `<p>${line}</p>`)
-    .join('');
+  return repairClosingPunctParagraphs(
+    merged
+      .split(/\n+/)
+      .filter(line => line.trim().length > 0)
+      .map(line => `<p>${line}</p>`)
+      .join('')
+  );
 }
 
 // ==================== 中文引号规范化（借鉴 heti _variables.scss）====================
@@ -147,7 +191,7 @@ export function autoFormatText(input: string): string {
     text = normalizeQuotes(text);
     // 已有段落结构，不需要重新分段，但替换回原有结构；
     // 顺带修复 DB 存量里的孤闭合标字段（<p>"</p>），并入上一段
-    return mergeLoneClosingPunctParagraphs(
+    return repairClosingPunctParagraphs(
       input.replace(/(?!<)[^\u003c]+(?=<)/g, match => {
         return normalizeQuotes(match);
       })
@@ -173,9 +217,7 @@ export function autoFormatText(input: string): string {
     .map(s => s.trim())
     .filter(s => s.length > 0);
   if (rawParagraphs.length >= 2) {
-    return mergeLoneClosingPunctParagraphs(
-      rawParagraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('')
-    );
+    return repairClosingPunctParagraphs(rawParagraphs.map(p => `<p>${escapeHtml(p)}</p>`).join(''));
   }
 
   // 5. 智能句子拆分（纯文本，无空行分隔）
@@ -247,13 +289,16 @@ export function autoFormatText(input: string): string {
   }
 
   if (merged.length === 0) return '';
-  return mergeLoneClosingPunctParagraphs(merged.map(p => `<p>${escapeHtml(p)}</p>`).join(''));
+  return repairClosingPunctParagraphs(merged.map(p => `<p>${escapeHtml(p)}</p>`).join(''));
 }
 
 /** 按中文句子边界拆分文本 */
 function splitChineseSentences(text: string): string[] {
-  // 匹配以句子结束标点结尾的片段（包含中英文标点）
-  const regex = /[^\u3002\uff01\uff1f.!?]*[\u3002\uff01\uff1f.!?]+/g;
+  // 匹配以句子结束标点结尾的片段（包含中英文标点）。
+  // 句末标点后紧跟的收尾符（” ’ 」 』 ） 】 》 〉 及 ASCII 直引号）属于**本句**：
+  // 不带上它们，句末引号会被切到下一句，段落正好在此断开时就成了段首孤引号
+  // （真机《帝国的烟火》第 2 章：`…还是你苏家的命。</p><p>”\n大堂内的空气…`）。
+  const regex = /[^\u3002\uff01\uff1f.!?]*[\u3002\uff01\uff1f.!?]+["'’”」』）】》〉]*/g;
   const matches: string[] = [];
   let lastEnd = 0;
   let m: RegExpExecArray | null;

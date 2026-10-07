@@ -7,6 +7,7 @@ import {
   truncateText,
   mergeHangingClosingPunct,
   mergeLoneClosingPunctParagraphs,
+  mergeLeadingClosingPunctParagraphs,
   textToParagraphsHtml,
 } from '../format';
 
@@ -125,6 +126,30 @@ describe('autoFormatText', () => {
     expect(result).not.toContain('<p>　　”</p>');
     expect(result).toContain('京城的禁军。”');
   });
+
+  // 真机《帝国的烟火》第 2 章：无空行的连续段落走「智能句子拆分」，
+  // 句末标点处的切分把收尾引号切成下一句 → 段落正好在那一处断开 → 段首孤引号
+  // （V128 的「整段仅闭合标点」规则覆盖不到，引号后面还跟着正文）。
+  it('sentence-split path: 句末引号不被切到下一段', () => {
+    const input =
+      '景亲王嘴角勾起一抹极淡的弧度，那笑容冰冷刺骨。\n' +
+      '“苏世子，本亲王给你一炷香的时间。”他身体前倾，压低了声音，只有苏亦铁能听见，“想清楚，你要保的，是苏家的名声，还是你苏家的命。”\n' +
+      '大堂内的空气仿佛凝固成了实质，沉重得让人窒息。苏亦铁攥紧了拳头，指甲深深嵌入掌心，鲜血渗出，却感觉不到疼痛。他看着景亲王那双毫无温度的眼睛，第一次真切地感受到了什么是权力的碾压。\n' +
+      '父亲的那一拳，打碎了公主，也打碎了苏家最后的屏障。\n' +
+      '而现在，猎手已经入场，猎物无路可退。';
+    const result = autoFormatText(input);
+    expect(result).not.toMatch(/<\/p><p>”/);
+    expect(result).toContain('还是你苏家的命。”</p>');
+    expect(result).toContain('<p>大堂内的空气仿佛凝固成了实质');
+  });
+
+  it('passthrough path: 段首孤引号（引号后带正文）并回上一段', () => {
+    const input = '<p>…还是你苏家的命。</p><p>”\n大堂内的空气仿佛凝固成了实质。</p>';
+    const result = autoFormatText(input);
+    expect(result).not.toMatch(/<\/p><p>”/);
+    expect(result).toContain('你苏家的命。”</p>');
+    expect(result).toContain('<p>大堂内的空气仿佛凝固成了实质。</p>');
+  });
 });
 
 describe('mergeHangingClosingPunct', () => {
@@ -212,6 +237,66 @@ describe('mergeLoneClosingPunctParagraphs', () => {
   it('returns input without <p> tags unchanged', () => {
     expect(mergeLoneClosingPunctParagraphs('纯文本\n"无段落')).toBe('纯文本\n"无段落');
     expect(mergeLoneClosingPunctParagraphs('')).toBe('');
+  });
+});
+
+describe('mergeLeadingClosingPunctParagraphs', () => {
+  // 真机《帝国的烟火》第 2 章形态：句末引号被切到下一段段首，独占一行
+  it('merges a paragraph-leading closing quote back to the previous paragraph', () => {
+    expect(
+      mergeLeadingClosingPunctParagraphs(
+        '<p>…还是你苏家的命。</p><p>”\n大堂内的空气仿佛凝固成了实质。</p>'
+      )
+    ).toBe('<p>…还是你苏家的命。”</p><p>大堂内的空气仿佛凝固成了实质。</p>');
+  });
+
+  it('merges entity-form leading closing punct', () => {
+    expect(mergeLeadingClosingPunctParagraphs('<p>甲。</p><p>&rdquo;\n乙。</p>')).toBe(
+      '<p>甲。&rdquo;</p><p>乙。</p>'
+    );
+    expect(mergeLeadingClosingPunctParagraphs('<p>甲。</p><p>&#x201D;乙。</p>')).toBe(
+      '<p>甲。&#x201D;</p><p>乙。</p>'
+    );
+  });
+
+  it('merges a paragraph that is only leading closing punct', () => {
+    expect(mergeLeadingClosingPunctParagraphs('<p>甲。</p><p>”</p>')).toBe('<p>甲。”</p>');
+    expect(mergeLeadingClosingPunctParagraphs('<p>甲。</p><p>”</p><p>’</p>')).toBe('<p>甲。”’</p>');
+  });
+
+  it('merges every directional closing punct in the set', () => {
+    for (const c of ['”', '’', '」', '』', '）', '】', '》', '〉']) {
+      expect(
+        mergeLeadingClosingPunctParagraphs(`<p>甲。</p><p>${c}\n乙。</p>`),
+        `closing ${c}`
+      ).toBe(`<p>甲。${c}</p><p>乙。</p>`);
+    }
+  });
+
+  it('does NOT move ASCII straight quotes (may be an opening quote)', () => {
+    expect(mergeLeadingClosingPunctParagraphs('<p>甲。</p><p>"\n他说。</p>')).toBe(
+      '<p>甲。</p><p>"\n他说。</p>'
+    );
+    expect(mergeLeadingClosingPunctParagraphs("<p>甲。</p><p>'\n他说。</p>")).toBe(
+      "<p>甲。</p><p>'\n他说。</p>"
+    );
+  });
+
+  it('does NOT move opening-direction punct', () => {
+    for (const c of ['「', '『', '（', '【', '《', '〈', '“', '‘']) {
+      expect(mergeLeadingClosingPunctParagraphs(`<p>甲。</p><p>${c}乙。</p>`), `opening ${c}`).toBe(
+        `<p>甲。</p><p>${c}乙。</p>`
+      );
+    }
+  });
+
+  it('does NOT merge when there is no previous paragraph', () => {
+    expect(mergeLeadingClosingPunctParagraphs('<p>”\n甲。</p>')).toBe('<p>”\n甲。</p>');
+  });
+
+  it('returns input without <p> tags unchanged', () => {
+    expect(mergeLeadingClosingPunctParagraphs('纯文本\n”无段落')).toBe('纯文本\n”无段落');
+    expect(mergeLeadingClosingPunctParagraphs('')).toBe('');
   });
 });
 

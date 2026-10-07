@@ -374,6 +374,97 @@ impl TextUtils {
             .collect()
     }
 
+    /// HTML 级：把**段首**的闭合标点并回上一段末尾。
+    ///
+    /// 与前端 `format.ts::mergeLeadingClosingPunctParagraphs`
+    /// 同规则。根因：句子切分 在句末标点（。！？）处断开，
+    /// 把紧随其后的收尾引号切给了下一句；段落组装正好在
+    /// 那一处断段时，就落成
+    /// `<p>”\n正文…</p>`——孤引号独占一行（真机《帝国的烟火》
+    /// 第 2 章）。V128
+    /// 只覆盖「整段仅闭合标点」的形态，引号后面还跟着正文的漏掉了。
+    ///
+    /// 段首只认**有方向的**收尾符（” ’ 」 』 ） 】 》 〉 及其实体形态）：ASCII
+    /// 直引号 `"` `'` 可能是开引号（英文式对话每段以 "
+    /// 开场），保持原样。收尾符与正文之间的
+    /// 空白/换行一并丢掉（只是孤引号的排版残留）。供 V139
+    /// 迁移复用；手写扫描，不引入 新 crate；仅匹配小写 <p>/</p>。
+    pub fn merge_leading_closing_punct_paragraphs(html: &str) -> String {
+        if !html.contains("</p>") {
+            return html.to_string();
+        }
+        let mut out = String::with_capacity(html.len());
+        let mut rest = html;
+        loop {
+            let trimmed = rest.trim_start();
+            if out.ends_with("</p>") && trimmed.starts_with("<p>") {
+                if let Some(inner_end) = trimmed[3..].find("</p>") {
+                    let inner = &trimmed[3..3 + inner_end];
+                    if let Some((marks, body)) = Self::split_leading_closing_punct(inner) {
+                        out.truncate(out.len() - 4);
+                        out.push_str(&marks);
+                        out.push_str("</p>");
+                        if !body.is_empty() {
+                            out.push_str("<p>");
+                            out.push_str(body);
+                            out.push_str("</p>");
+                        }
+                        rest = &trimmed[3 + inner_end + 4..];
+                        continue;
+                    }
+                }
+            }
+            match rest.find("</p>") {
+                Some(idx) => {
+                    out.push_str(&rest[..idx + 4]);
+                    rest = &rest[idx + 4..];
+                }
+                None => {
+                    out.push_str(rest);
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// 段内以有方向的收尾符开头时返回 `(收尾符串, 其余正文)`。
+    /// 收尾符与正文之间的空白/零宽字符丢掉；整段只有收尾符时正文为空串。
+    fn split_leading_closing_punct(inner: &str) -> Option<(String, &str)> {
+        const DIRECTIONAL: &[char] = &['\u{201D}', '\u{2019}', '」', '』', '）', '】', '》', '〉'];
+        const ENTITIES: &[&str] = &[
+            "&rdquo;", "&#x201D;", "&#x201d;", "&#8221;", "&rsquo;", "&#x2019;", "&#8217;",
+        ];
+        let mut marks = String::new();
+        let mut rest = inner;
+        loop {
+            let Some(c) = rest.chars().next() else { break };
+            if DIRECTIONAL.contains(&c) {
+                marks.push(c);
+                rest = &rest[c.len_utf8()..];
+                continue;
+            }
+            if let Some(e) = ENTITIES.iter().find(|e| rest.starts_with(**e)) {
+                marks.push_str(e);
+                rest = &rest[e.len()..];
+                continue;
+            }
+            if c.is_whitespace() || c == '\u{200b}' {
+                rest = rest.trim_start_matches(|ch: char| ch.is_whitespace() || ch == '\u{200b}');
+                if rest.is_empty() {
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
+        if marks.is_empty() {
+            None
+        } else {
+            Some((marks, rest))
+        }
+    }
+
     /// v0.26.24: 检测并裁剪散布式句子块重复。
     ///
     /// 把文本按句末标点（。！？\n）切成句子序列，归一化后查找在文中出现 ≥2 次
@@ -1060,5 +1151,76 @@ mod tests {
         // 无 <p> → 原样返回
         let input = "纯文本\n\"无段落";
         assert_eq!(TextUtils::merge_lone_closing_punct_paragraphs(input), input);
+    }
+
+    #[test]
+    fn test_merge_leading_closing_punct_paragraphs_basic() {
+        // 真机《帝国的烟火》第 2 章形态：段首孤引号 + 换行 + 正文
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs(
+                "<p>…还是你苏家的命。</p><p>”\n大堂内的空气仿佛凝固成了实质。</p>"
+            ),
+            "<p>…还是你苏家的命。”</p><p>大堂内的空气仿佛凝固成了实质。</p>"
+        );
+        // 整段只有闭合标点 → 并段
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs("<p>甲。</p><p>”</p>"),
+            "<p>甲。”</p>"
+        );
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs("<p>甲。</p><p>”</p><p>’</p>"),
+            "<p>甲。”’</p>"
+        );
+        // 段首全角缩进 + 换行 + 正文
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs("<p>甲。</p><p>　　”\n乙。</p>"),
+            "<p>甲。”</p><p>乙。</p>"
+        );
+    }
+
+    #[test]
+    fn test_merge_leading_closing_punct_paragraphs_entities() {
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs("<p>甲。</p><p>&rdquo;\n乙。</p>"),
+            "<p>甲。&rdquo;</p><p>乙。</p>"
+        );
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs("<p>甲。</p><p>&#x201D;乙。</p>"),
+            "<p>甲。&#x201D;</p><p>乙。</p>"
+        );
+    }
+
+    #[test]
+    fn test_merge_leading_closing_punct_paragraphs_directional_only() {
+        // ASCII 直引号可能是开引号（英文式对话）→ 不动
+        for c in ['"', '\''] {
+            let input = format!("<p>甲。</p><p>{c}\n乙。</p>");
+            assert_eq!(
+                TextUtils::merge_leading_closing_punct_paragraphs(&input),
+                input,
+                "ascii {c}"
+            );
+        }
+        // 开向字符 → 不动
+        for c in ['「', '『', '（', '【', '《', '“', '‘'] {
+            let input = format!("<p>甲。</p><p>{c}乙。</p>");
+            assert_eq!(
+                TextUtils::merge_leading_closing_punct_paragraphs(&input),
+                input,
+                "opening {c}"
+            );
+        }
+        // 没有上一段 → 不动
+        let input = "<p>”\n甲。</p>";
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs(input),
+            input
+        );
+        // 无 <p> → 原样返回
+        let input = "纯文本\n”无段落";
+        assert_eq!(
+            TextUtils::merge_leading_closing_punct_paragraphs(input),
+            input
+        );
     }
 }
