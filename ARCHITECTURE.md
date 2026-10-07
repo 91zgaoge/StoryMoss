@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.64.5 架构文档
+# StoryMoss (草苔) v0.64.6 架构文档
+
+> **v0.64.6**：**人物称呼归一**——V140 `character_aliases`（UNIQUE(story_id, alias)）登记「称呼 → 人物」；`db::character_identity::{resolve_character_id, record_aliases, merge_characters}` 提供建行前解析（精确名 → 别称 → 称号形态）、同名幻影行自愈与合并（改线 character_states / character_relationships / scene_characters / scene_character_actions / character_knowledge_log / item_holdings，关系与场景关联去重，改写 scenes/scene_versions 的 `characters_present`/`character_conflicts` 名字 token，补齐保留行空字段）；`continue_director` 称号词表扩充 + `same_person` 新增「称号+名」形态；抽取 prompt 增「人物称呼归并」段与 `aliases`（`AnalyzedEntity.aliases`）；V141 迁移按形态合并存量。模块置于 `db` 层（架构守卫：db 不得引 memory）。
 
 > **v0.64.5**：**一章一条 commit 的 UPSERT**——`SceneCommitRepository::upsert_pending`（配 `get_by_story_chapter`）取代 `init_commit` 里的裸 INSERT：同章已有 commit 时复用该行（保留 id，投影按 story+chapter 幂等重跑）、重置 `pending`、`COALESCE` 刷新 scene/chapter 挂载、清空派生字段（摘要 / review / 状态增量 / 投影状态），避免重新提交窗口内旧摘要被下游当当前章事实。修复真机 `UNIQUE constraint failed: scene_commits.story_id, scene_commits.chapter_number`。
 

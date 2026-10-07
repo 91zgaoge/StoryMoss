@@ -52,6 +52,8 @@ pub mod story_repository;
 pub use story_repository::StoryRepository;
 pub mod character_repository;
 pub use character_repository::CharacterRepository;
+pub mod character_alias_repository;
+pub use character_alias_repository::CharacterAliasRepository;
 pub mod chapter_repository;
 pub use chapter_repository::ChapterRepository;
 pub mod user_repository;

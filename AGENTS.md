@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.64.5
+- **版本**: v0.64.6
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1709 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
+- `cargo test -p storymoss` ✅ 1717 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 604 passed / 3 skipped（+5 级联中心页；+4 运行维护页；+10 段落收尾符）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.6 - 人物称呼归一（称呼不再长出幻影人物）
+
+**真机**：《帝国的烟火》里 `景亲王` 与 `景亲王曹元寿`、`苏世子` 与 `苏亦铁`、`奉乾帝` 与 `奉乾皇帝` 各占一行。**根因是数据层缺「称呼 → 人物」**：抽取 prompt 要求 `name` 取文本中出现的名字，`asset_bridge` 又按名精确匹配建行——中文小说「称人不说名」，每个新称呼都长一行；`characters` 无别称层，`same_person` 只认「称号+本名」不认「称号+名」与纯称号，称号词表仅 11 个硬编码词。**修复**：V140 别称表 + 建行前解析（精确名→别称→称号形态）+ 命中即合并（改线状态/关系/场景关联/行为/知情/持有，关系与场景关联去重，改写正文名字 token，补齐保留行空字段）+ 抽取 prompt 新增 `aliases` 与「称呼归并」段 + 称号词表扩充与「称号在前」形态 + V141 启动迁移。**本机数据已修**（苏世子→苏亦铁、奉乾皇帝→奉乾帝、景亲王→景亲王曹元寿，别称已登记，备份 `cinema_ai.db.bak-v0.64.6-*`）。
+
+- **验证**：`cargo test --lib` 1717 passed / 3 ignored（+8）；vitest 604 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。
+- **契约**：`resolve_by_title_form`；`resolve_by_alias_and_absorb_phantom`；`resolve_returns_none_for_unknown`；`merge_dedups_scene_links_and_relations`；`v141_merges_title_form_rows`；`v141_keeps_distinct_people`；`same_person_title_first_form`；`test_sync_character_appellation_merges_into_person`。
+- **未关闭**：字/号/官职靠 LLM 的 aliases 归并（抽取质量决定归并质量）；同名候选多于一个时不猜（宁可新建）。
 
 ### v0.64.5 - 同章重复续写不落 commit（一章一条的 UPSERT）
 

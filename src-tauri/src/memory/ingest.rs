@@ -168,6 +168,11 @@ pub struct AnalyzedEntity {
     pub name: String,
     #[serde(default = "default_entity_type")]
     pub entity_type: String,
+    /// 同一人物的其他称呼（姓+称号「苏世子」、称号+名「景亲王曹元寿」、字、号、
+    /// 官职、小名）。 中文小说「称人不说名」，这些称呼必须并入同一实体；
+    /// 漏掉就会长出幻影人物。
+    #[serde(default)]
+    pub aliases: Vec<String>,
     #[serde(default)]
     pub mentions: Vec<serde_json::Value>,
     #[serde(default)]

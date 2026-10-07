@@ -5,20 +5,65 @@ use serde::Deserialize;
 
 const TITLE_TOKENS: &[&str] = &[
     "镇北王",
+    // 封号/身份（含古代小说常见称谓：称人不说名时靠这些词识别）
     "亲王",
-    "公主",
-    "王妃",
-    "郡主",
+    "郡王",
+    "王爷",
+    "国公",
+    "侯爷",
+    "伯爷",
     "太子",
+    "世子",
+    "殿下",
+    "公主",
+    "郡主",
+    "王妃",
+    "驸马",
     "娘娘",
+    "皇后",
+    "太后",
+    "贵妃",
     "皇上",
+    "皇帝",
     "陛下",
     "钦差",
+    // 官称
+    "大人",
+    "将军",
+    "都统",
+    "大帅",
+    "军师",
+    "尚书",
+    "侍郎",
+    "中书令",
+    "参军",
+    "参事",
+    "知县",
+    "知府",
+    "巡抚",
+    // 民间称谓
+    "公子",
+    "少爷",
+    "小姐",
+    "老爷",
+    "夫人",
+    "掌柜",
+    "掌门",
+    "长老",
+    "帮主",
+    "教主",
+    "神医",
+    "太医",
+    "道长",
+    "方丈",
+    "先生",
     "王",
 ];
 
 const PURE_TITLES: &[&str] = &[
-    "公主", "亲王", "王妃", "郡主", "太子", "娘娘", "皇上", "陛下", "钦差", "王",
+    "亲王", "郡王", "王爷", "国公", "侯爷", "伯爷", "太子", "世子", "殿下", "公主", "郡主", "王妃",
+    "驸马", "娘娘", "皇后", "太后", "贵妃", "皇上", "皇帝", "陛下", "钦差", "大人", "将军", "公子",
+    "少爷", "小姐", "老爷", "夫人", "王",
 ];
 
 const KIN_INVERSION_WORDS: &[&str] = &["侄子", "侄女", "姑姑", "叔父"];
@@ -128,11 +173,35 @@ pub fn same_person(a: &str, b: &str) -> bool {
         return false;
     }
     if !long.ends_with(short) {
-        return false;
+        // 称号在前的形态：`景亲王` ≡ `景亲王曹元寿`（中文封号+名，与
+        // 「称号+本名」的 `镇北王苏会山`
+        // 互为镜像；真机同一个人被拆成两行的主因）
+        return same_person_title_first(short, long);
     }
     let prefix_len = long.len() - short.len();
     let prefix = &long[..prefix_len];
     prefix_has_title(prefix)
+}
+
+/// 称号在前的形态：`base`（如 `景亲王`）以称号结尾，`longer` 是 `base` +
+/// 像人名的后缀 （如 `曹元寿`）。后缀必须是 2–4
+/// 字、不含称号词、且不以「之/的/与/和/及」开头——
+/// 避免把「明成公主之母」这类短语当成同一个人。
+fn same_person_title_first(base: &str, longer: &str) -> bool {
+    let Some(suffix) = longer.strip_prefix(base) else {
+        return false;
+    };
+    let n = suffix.chars().count();
+    if !(2..=4).contains(&n) {
+        return false;
+    }
+    if suffix.starts_with(['之', '的', '与', '和', '及']) {
+        return false;
+    }
+    if TITLE_TOKENS.iter().any(|t| suffix.contains(t)) {
+        return false;
+    }
+    TITLE_TOKENS.iter().any(|t| base.ends_with(t))
 }
 
 #[derive(Debug, Clone)]
@@ -1042,6 +1111,18 @@ mod tests {
     #[test]
     fn same_person_does_not_merge_unrelated() {
         assert!(!same_person("明成公主", "曹元佩"));
+    }
+
+    /// 称号在前的形态：`景亲王` ≡ `景亲王曹元寿`（真机同一人被拆成两行）。
+    /// 后缀必须像人名：短语（明成公主之母）与含称号词的后缀都不算同一人。
+    #[test]
+    fn same_person_title_first_form() {
+        assert!(same_person("景亲王", "景亲王曹元寿"));
+        assert!(same_person("苏世子", "苏世子苏亦铁"));
+        assert!(!same_person("明成公主", "明成公主之母"));
+        assert!(!same_person("苏会山", "苏会山之父"));
+        assert!(!same_person("景亲王", "景亲王钦差"));
+        assert!(!same_person("苏亦铁", "苏亦铁某人某"));
     }
 
     #[test]

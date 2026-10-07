@@ -155,6 +155,19 @@ fn sync_characters(
         if name.is_empty() {
             continue;
         }
+        // 称呼归一（v0.64.6）：抽到的名字先按 精确名 → 别称表 → 称号形态 解析，
+        // 命中既有角色就改用它的规范名——中文小说「称人不说名」，否则「苏世子」
+        // 「景亲王」这类称呼各自长出一个幻影人物行（真机《帝国的烟火》）。
+        let resolved_name =
+            match crate::db::character_identity::resolve_character_id(conn, story_id, name) {
+                Ok(Some(id)) => conn
+                    .query_row("SELECT name FROM characters WHERE id = ?1", [&id], |r| {
+                        r.get::<_, String>(0)
+                    })
+                    .unwrap_or_else(|_| name.to_string()),
+                _ => name.to_string(),
+            };
+        let name = resolved_name.as_str();
         // 读取既有行（含 source，决定合并策略）
         let existing = conn
             .query_row(
@@ -277,6 +290,28 @@ fn sync_characters(
                 ) {
                     Ok(_) => count += 1,
                     Err(e) => log::warn!("[AssetBridge] 注册新角色 {} 失败: {}", name, e),
+                }
+            }
+        }
+        // 别称登记 + 幻影行自愈：LLM 一旦给出「苏世子 = 苏亦铁」，此前误建的
+        // 「苏世子」行会被并回本人（改线关系/状态/场景关联后删除该行）。
+        if !e.aliases.is_empty() {
+            if let Ok(Some(cid)) =
+                crate::db::character_identity::resolve_character_id(conn, story_id, name)
+            {
+                match crate::db::character_identity::record_aliases(
+                    conn, story_id, &cid, &e.aliases, "ingest",
+                ) {
+                    Ok(reports) => {
+                        for r in reports {
+                            if r.any_change() {
+                                count += 1;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("[AssetBridge] 登记角色 {} 别称失败: {}", name, err)
+                    }
                 }
             }
         }
@@ -932,6 +967,62 @@ mod tests {
     }
 
     // ---------- 角色 ----------
+
+    /// 真机形态（v0.64.6）：正文「称人不说名」——同一人物的称呼不得各长一行。
+    /// 抽取给出 `苏亦铁` 并声明别称 `苏世子` 时，此前误建的 `苏世子`
+    /// 行必须并回本人； 之后按 `苏世子` 再抽一次也不会新建行。
+    #[test]
+    fn test_sync_character_appellation_merges_into_person() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        insert_character(&pool, "s1", "苏亦铁", "ingest");
+        insert_character(&pool, "s1", "苏世子", "ingest");
+
+        sync_assets_from_analysis(
+            &pool,
+            "s1",
+            None,
+            &analysis_with_entities(vec![character_entity(
+                "苏亦铁",
+                serde_json::json!({
+                    "aliases": ["苏世子"],
+                    "background": "苏会山长子"
+                }),
+            )]),
+        );
+
+        let conn = pool.get().unwrap();
+        let rows: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT name FROM characters WHERE story_id = 's1' ORDER BY name")
+                .unwrap();
+            let it = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            it.collect::<Result<Vec<_>, _>>().unwrap()
+        };
+        assert_eq!(
+            rows,
+            vec!["苏亦铁".to_string()],
+            "称呼行应并回本人 rows={rows:?}"
+        );
+        // 别称已登记：再次抽取「苏世子」不会新建行
+        sync_assets_from_analysis(
+            &pool,
+            "s1",
+            None,
+            &analysis_with_entities(vec![character_entity(
+                "苏世子",
+                serde_json::json!({"background": "景亲王当面称呼"}),
+            )]),
+        );
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM characters WHERE story_id = 's1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "按别称抽到的新称呼不得再建行");
+    }
 
     #[test]
     fn test_sync_registers_new_character() {
