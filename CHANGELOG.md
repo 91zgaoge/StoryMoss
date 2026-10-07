@@ -28,6 +28,9 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 - 新增 Rust 3 项：同章两次 init 复用同一行、不同章各占一行；重新提交回到 pending 且清空
   派生字段；挂载点刷新（带 scene 覆盖、缺省保留）。
+- 另有 1 项端到端探针（同章已有 commit 时跑**完整** `auto_commit`，无 LLM / 无 app_handle
+  走启发式回退，断言复用同一行且摘要重算）在 v0.64.5 tag **之后**提交，随下一次打包进入
+  安装包；它复现的正是真机失败路径。
 - `cargo test --lib` 1708 passed / 3 ignored（+3）；`npx vitest run` 604 passed / 3 skipped；
   `cargo clippy` 0 error；fmt / prettier / guard / tsc 全绿。
 

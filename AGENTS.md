@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1708 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
+- `cargo test -p storymoss` ✅ 1709 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 604 passed / 3 skipped（+5 级联中心页；+4 运行维护页；+10 段落收尾符）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -115,7 +115,7 @@ type:
 
 **真机事故**：《帝国的烟火》第 2 章首次提交后，每次「续写下一段」保存都报 `[SceneCommit] auto_commit failed … UNIQUE constraint failed: scene_commits.story_id, scene_commits.chapter_number`。**根因**：`scene_commits` 有 `UNIQUE(story_id, chapter_number)`（一章一条），而 `SceneCommitService::init_commit` 一律 INSERT → 自动提交第一步就失败，那一轮的 review / 章节摘要 / 合同履行度 / KG 提取 / 状态增量 / 全部投影 writer 都不跑（记忆金字塔停在首次提交）。**修复**：新增 `SceneCommitRepository::{get_by_story_chapter, upsert_pending}`——同章复用既有行（保留 id，投影幂等重跑）、重置 pending、刷新 scene/chapter 挂载、清空派生字段（避免重新提交期间旧摘要被当当前事实）；`init_commit` 与前端可调命令一并幂等。
 
-- **验证**：`cargo test --lib` 1708 passed / 3 ignored（+3）；vitest 604 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。
+- **验证**：`cargo test --lib` 1709 passed / 3 ignored（+4：3 项单元 + 1 项端到端探针，后者随 master 提交、下次打包生效）；vitest 604 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。
 - **契约**：`init_commit_reuses_row_for_same_chapter`；`recommit_resets_status_and_clears_derived_fields`；`recommit_refreshes_scene_mount_when_provided`。
 - **未关闭**：本机第 2 章 commit 需新版本安装后下一次保存/续写才重算；真机端到端未复跑。
 

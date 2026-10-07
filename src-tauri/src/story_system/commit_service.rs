@@ -727,4 +727,41 @@ mod tests {
         assert_eq!(refreshed.scene_id.as_deref(), Some(new_scene.id.as_str()));
         assert_eq!(repo.get_by_story(&story_id).unwrap().len(), 1);
     }
+
+    /// 端到端复现真机路径：同章已有 commit 时再跑一次完整 auto_commit
+    /// （无 LLM / 无 app_handle，走启发式与截断回退）必须成功，
+    /// 并且更新既有行而不是新增行、重新算出摘要。
+    #[tokio::test]
+    async fn auto_commit_succeeds_for_already_committed_chapter() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let service = SceneCommitService::new(pool.clone());
+        let repo = SceneCommitRepository::new(pool.clone());
+
+        // 真机 11:12 的那条首次提交
+        service.init_commit(&story_id, None, None, 2).unwrap();
+        // 真机后续每次「续写下一段」保存触发的自动提交
+        service
+            .auto_commit(
+                &story_id,
+                None,
+                None,
+                2,
+                Some("大堂内死一般的寂静持续了半息，随即被撕心裂肺的惨叫撕裂。"),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("同章重复提交必须成功（此前在第一步撞 UNIQUE 索引）");
+
+        let all = repo.get_by_story(&story_id).unwrap();
+        assert_eq!(all.len(), 1, "一章一条 commit");
+        let row = repo.get_by_id(&all[0].id).unwrap().unwrap();
+        assert_eq!(row.status, "accepted", "重算后回到 accepted");
+        assert!(
+            !row.summary_text.unwrap_or_default().trim().is_empty(),
+            "摘要必须按新内容重算"
+        );
+    }
 }

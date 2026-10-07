@@ -6,9 +6,9 @@
 
 ### v0.64.5 变更说明
 
-- 新增 Rust 3 项（`story_system::commit_service::tests`）：同章两次 `init_commit` 复用同一行 + 不同章各占一行；重新提交回到 `pending` 且清空派生字段；挂载点刷新（带 scene 覆盖、缺省保留原值）。
+- 新增 Rust 4 项（`story_system::commit_service::tests`）：同章两次 `init_commit` 复用同一行 + 不同章各占一行；重新提交回到 `pending` 且清空派生字段；挂载点刷新（带 scene 覆盖、缺省保留原值）；**端到端探针**——同章已有 commit 时跑完整 `auto_commit`（无 LLM 走启发式回退）必须成功、复用同一行且摘要重算（该项随 master 提交，下次打包生效）。
 - **经验**：带 `UNIQUE` 约束的「一章一条」表，初始化必须走 UPSERT；只测「第一次」会漏掉重复提交路径（真机就是这么漏的）。
-- 全量基线：`cargo test --lib` 1708 passed / 3 ignored；`npx vitest run` 604 passed / 3 skipped；`cargo clippy` 0 error。
+- 全量基线：`cargo test --lib` 1709 passed / 3 ignored；`npx vitest run` 604 passed / 3 skipped；`cargo clippy` 0 error。
 
 ### v0.64.4 变更说明
 
