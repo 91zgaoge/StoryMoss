@@ -1,5 +1,14 @@
 *归档于 2026-10-06（v0.59.3）：v0.56.2 摘要。*
 
+### v0.64.9 - 续写重演修复 + 投影 writer 恢复落库
+
+**真机**：《帝国的烟火》第 11 章整场重演第 10 章（同样的穿堂、门板、名册对峙逐章再来）；`state` / `index` 两个投影 writer 从上线起一直报 schema 错，状态类记忆一条都没进 `memory_items`。**重演四段根因**：①节拍卡块（在场/冲突/情感/下一拍）写进 `scenes.outline_content` 后又被当「本章大纲」回灌（幕前 Append 永不生成章纲）；②`scene_fields_from_facts` 的 `_existing_outline` 参数**从未使用**，新建章刚生成的章纲被卡块覆盖丢弃；③方法论兜底句被写进「下一拍：」槽位并被 `next_node_from_scene_outline` 当计划逐拍复制；④自动分章出的新章从不触发章纲生成，只有近文阵容 + 静态敌对关系（`compile_conflict` 命中第一条即同一句「正面对峙」）。**修复**：F1 章纲合并（卡块并入、前缀保留）；F2 `is_generic_next_node`——兜底句不落库不采信；F3 `chapter_plan_from_scene_outline` 只剥卡块形态（手写/刷新出的真实场景大纲整段保留）；F4 `needs_plan` 时 Append 也补生成章纲并落库为前缀（`set_chapter_plan_prefix`，下一拍不重复生成）。**投影修复**：`normalize_delta_items` 兼容四种 delta 形态（键值/实体事件/KG 关系/KG 实体），关系与实体解析名字后落库；`MemoryItemRepository::lookup_kg_entity_name_by_id`。
+
+- **验证**：`cargo test --lib` 1738 passed / 4 ignored（+7，改造既有 1）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）扩展：真机 commit 产物跑两个 writer 全部成功，落 250 行记忆。
+- **契约**：`generic_next_node_is_recognized_but_real_plan_is_not`；`generic_next_node_is_neither_persisted_nor_adopted`；`chapter_plan_ignores_beat_card_block`；`set_chapter_plan_prefix_keeps_card_block`；`card_write_keeps_chapter_plan_prefix`；`state_and_index_writers_accept_real_kg_delta_shapes`；`legacy_key_value_delta_shape_still_supported`。
+- **未关闭**：已写的第 10–13 章重演段落仍在正文（需作者重写）；`compile_conflict` 冲突升级/衰减留待后续。
+
+
 ### v0.64.8 - 称号幻影行随死者一并排除（v0.64.7 收尾）
 
 **真机**：KG 里除 `明成公主` 外还有只有称号的角色行 `公主`、`镇北王`（无 `characters` 行、不在生死列），只按行名排除时它们会以「活人」进 cast——症状与死人复活一样。**修复**：`life_status::dead_names` 按 v0.64.6 的解析策略（`resolve_character_id`：精确名 → 别称表 → 唯一同人形态命中）把归到死者名下的称呼一并算已死，解析不出来不猜。

@@ -2,6 +2,40 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.65.1（2026-10-08）
+
+**v0.65.0 收尾：叙事架构层写进章纲，改写纪律写进润色。**
+
+v0.65.0 的 tag 已先行推送并开始构建（安装包内容与当时的 master 一致，未包含本版内容）；
+按仓库规则不覆盖已有 tag，故本版单独发tag，把余下改动补齐。
+
+### 叙事架构层（sepia 三层协议里最深、也最易被识别的一层）
+
+`agency_outline_planner_system` 增加「叙事架构准则」：**回声测试**（规划每个转折前先问——
+同一前提下重新生成二十次，这个转折还会出现吗？「乐于助人的陌生人」「干净解决的问题」
+「按期而至的和解」都会出现，属于机器手笔，要换成需要本故事特有人物与细节才成立的转折）、
+**允许因果松动一次**（不必每件事都由上一件事引出）、**不要预支答案**（该章最要紧的信息
+放在靠后的节点揭示）、**不做「主角理解了、接受了、成长了」的收束**（结局可部分/开放/
+来自他人或时势）、**关系网要稀疏**（不是所有角色都互相认识、都彼此有戏）、**主题不直说**，
+以及「至多加一条与主线斜向呼应的次要线索」。
+
+### 改写纪律（删优于加）
+
+`writer_rewrite` 增加：能删就删、能换就换，加字是最后手段；改完不得比原文更长（除非
+指令明确要求扩写）；不得把平直命名改成身体反应，不得把「说/道」改成低语/咕哝/嗤笑；
+不得写得比原文更华丽更抒情；保留原文的具体细节（名字、物件、数目）。
+
+### 契约
+
+新增 `test_v0650_human_voice_doctrine_in_prompts`：六个写作/规划/审查提示词
+（writer_system / writer_rewrite / agency_writer_system / agency_lead_writer_system /
+agency_editor_auditor_system / agency_outline_planner_system）必须分别携带人类文笔基线
+要素，防止后续编辑把准则悄悄改掉。
+
+### 测试
+
+`cargo test --lib` **1778 passed / 5 ignored**（+1）；fmt / 格式守卫通过。
+
 ## v0.65.0（2026-10-08）
 
 **人类文笔基线：把「AI 写多了、人写少了」的分布偏移变成可核查的规则与提示词**
@@ -46,11 +80,6 @@ sepia 的核心结论有两层。其一，**修复要按层来**：叙事架构�
 - **常驻准则**：`writer_system` 组装处（`render_writer_system_from_bundle`）追加同一份
   准则——模板可被用户在提示词页覆盖，这段追加不受覆盖影响；`agency_lead_writer_system`
   / `agency_writer_system` 同步补「文笔准则」段。
-- **叙事架构层**（sepia 三层协议里最深、也最易被识别的一层）写进 `agency_outline_planner_system`：
-  回声测试（同一前提重生成二十次还会出现的转折 = 机器手笔）、允许因果松动一次、不要预支答案
-  （最要紧的信息后置揭示）、不做「主角理解+接受+成长」的收束、关系网稀疏、主题不直说、可加一条
-  与主线斜向呼应的次要线索（只加一条）。`writer_rewrite` 补改写纪律（删优于加：能删就删、改完不得
-  比原文更长、不得改得更华丽、保留具体细节）。
 - **编辑器审查**：editor 上下文新增【人类文笔基线】机器检出块（与 prose_lint 并列），
   并在 `agency_editor_auditor_system` 写入 sepia 的**诊断纪律**——按两组逐条核查（一次
   通读只会看见最扎眼的一两项）、每条阻断引用一处原文、**白名单**（语法干净、单个
@@ -74,8 +103,8 @@ sepia 的核心结论有两层。其一，**修复要按层来**：叙事架构�
 
 ### 测试与验证
 
-- 新增 Rust 15 项（human_voice 9 + anti_ai 校准 3 + 写作提示词注入契约 2 + prose_lint 校准改写 1），
-  合计 **1778 passed / 5 ignored**。
+- 新增 Rust 14 项（human_voice 9 + anti_ai 校准 3 + 写作提示词注入契约 1 + prose_lint 校准改写 1），
+  合计 **1777 passed / 5 ignored**。
 - **设计验收探针**（`human_voice::machine_probe::voice_baseline_acceptance_probe`，ignored
   手动跑）：机器腔样本命中 5 条（embodied-only / fancy-speech-tags / connective-stack /
   disyllabic-padding / abstract-wrapper），人类腔样本 **0 误报**；句长标准差 6.24 对 14.97、

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.65.0
+- **版本**: v0.65.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -111,9 +111,17 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.65.1 - v0.65.0 收尾（叙事架构层 + 改写纪律）
+
+**v0.65.0 的 tag 先推、构建已启动**（安装包内容与当时的 master 一致），按「不覆盖已有 tag」的规则单独发版本补齐余下改动。**叙事架构层**（sepia 三层协议最深、也最易被识别的一层）写进 `agency_outline_planner_system`：回声测试（同一前提重生成二十次还会出现的转折 = 机器手笔，换成需要本故事特有人物与细节才成立的转折）、允许因果松动一次、不要预支答案（最要紧的信息后置揭示）、不做「主角理解+接受+成长」的收束、关系网稀疏、主题不直说、至多加一条与主线斜向呼应的次要线索。**改写纪律**写进 `writer_rewrite`：删优于加（能删就删、能换就换），改完不得比原文更长/更华丽，不得把平直命名改成身体反应或把「说」改成低语/咕哝/嗤笑，保留原文具体细节（名字/物件/数目）。
+
+- **验证**：`cargo test --lib` 1778 passed / 5 ignored（+1，v0.65.0 基线 1777）；fmt / 格式守卫通过。
+- **契约**：`test_v0650_human_voice_doctrine_in_prompts`（六个写作/规划/审查提示词必须分别携带人类文笔基线要素，防后续编辑悄悄改掉）。
+- **未关闭**：同 v0.65.0（叙事架构层无确定性检查；真机端到端未复跑）。
+
 ### v0.65.0 - 人类文笔基线（sepia / StoryScope 方法落地）
 
-**为什么**：主创的文笔「明显是 AI 写的」不是词句问题，而是**分布偏移**——把公认的 AI 特征反向拉满会造出新的机器感（sepia：时间非线性人类中位 2.4/5，不是 5/5；中文人类语料 30% 的文章含「不是…而是」，单例是正常语域）。**做法**：`story_system::human_voice`（纯函数，0 LLM）只收**跨语言/跨模型世代方向一致**的形态——句长离散度（唯一方向一致的句法指标）、语气词缺失（中文人类密度 5 倍）、情绪具身化独大（机器 81% 用身体反应承载情绪，人类 38%，人类反而更常直说「她害怕」）、连词堆叠、双音节填充、花式对话标签轮换、抽象包装、段落过匀；**方向矛盾项一律不入规则**（标点密度、平均句长、段落数、词汇多样性）。写作端 `agency::beat_card::render_writer_user_prompt` 注入 7 条固定准则 + **8 条手法池按已写篇幅轮换**（Select, don't accumulate：多样性来自每篇选 3–5 个手法，不是堆满；置于末句锚点之前，锚点保持最后的高显著位）；`render_writer_system_from_bundle` 追加常驻准则（用户覆盖模板也生效）；`agency_outline_planner_system` 写入叙事架构层（回声测试 / 因果松动一次 / 不要预支答案 / 不做「理解+接受+成长」收束 / 关系稀疏 / 主题不直说），`writer_rewrite` 写入删优于加的改写纪律；editor 资产加【人类文笔基线】块 + 诊断纪律（按两组逐条核查——一次通读只看得到最扎眼的一两项；每条阻断引用一处原文；白名单：语法干净/单个破折号/单个「不是…而是」/正式语域都不是 AI 证据；修正优先删换其次加）；commit 把发现并入 `review_result`。**校准既有模块**：`prose_lint` 的「不是…而是」改聚集（≥2）才报；`anti_ai` 三处方向错误的判定修正（平直命名情绪不是缺陷、重复「说」是常态、感官密度低不是 AI 指纹），并修复对话提取只认弯引号导致「」体例下整块漏检。
+**为什么**：主创的文笔「明显是 AI 写的」不是词句问题，而是**分布偏移**——把公认的 AI 特征反向拉满会造出新的机器感（sepia：时间非线性人类中位 2.4/5，不是 5/5；中文人类语料 30% 的文章含「不是…而是」，单例是正常语域）。**做法**：`story_system::human_voice`（纯函数，0 LLM）只收**跨语言/跨模型世代方向一致**的形态——句长离散度（唯一方向一致的句法指标）、语气词缺失（中文人类密度 5 倍）、情绪具身化独大（机器 81% 用身体反应承载情绪，人类 38%，人类反而更常直说「她害怕」）、连词堆叠、双音节填充、花式对话标签轮换、抽象包装、段落过匀；**方向矛盾项一律不入规则**（标点密度、平均句长、段落数、词汇多样性）。写作端 `agency::beat_card::render_writer_user_prompt` 注入 7 条固定准则 + **8 条手法池按已写篇幅轮换**（Select, don't accumulate：多样性来自每篇选 3–5 个手法，不是堆满；置于末句锚点之前，锚点保持最后的高显著位）；`render_writer_system_from_bundle` 追加常驻准则（用户覆盖模板也生效）；editor 资产加【人类文笔基线】块 + 诊断纪律（按两组逐条核查——一次通读只看得到最扎眼的一两项；每条阻断引用一处原文；白名单：语法干净/单个破折号/单个「不是…而是」/正式语域都不是 AI 证据；修正优先删换其次加）；commit 把发现并入 `review_result`。**校准既有模块**：`prose_lint` 的「不是…而是」改聚集（≥2）才报；`anti_ai` 三处方向错误的判定修正（平直命名情绪不是缺陷、重复「说」是常态、感官密度低不是 AI 指纹），并修复对话提取只认弯引号导致「」体例下整块漏检。
 
 - **验证**：`cargo test --lib` 1778 passed / 5 ignored（+15）；vitest 609 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。**验收探针**（ignored 手动跑）：机器腔样本命中 5 条（embodied-only / fancy-speech-tags / connective-stack / disyllabic-padding / abstract-wrapper），人类腔样本 **0 误报**；句长 SD 6.24 对 14.97、语气词 0 对 4、平直命名 0 对 2。
 - **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`；`embodied_only_is_a_deficit_not_plain_naming`；`mood_particle_absence_only_with_dialogue`；`fancy_tags_flagged_only_when_plain_said_is_absent`；`connective_stack_and_disyllabic_padding_are_detected`；`abstract_wrapper_needs_cluster`；`clean_literary_text_produces_no_findings`；`technique_rotates_by_chapter_and_guidance_is_compact`；`audit_block_is_bounded_and_empty_when_clean`；`writer_prompt_carries_human_voice_guidance_before_ending_anchor`；`plain_emotion_naming_is_not_flagged_but_embodied_only_is`；`repeated_plain_speech_tag_is_not_flagged_but_fancy_rotation_is`；`sentence_rhythm_uses_dispersion_not_mean_length`；`flags_not_x_but_y_only_when_clustered`；`test_v0650_human_voice_doctrine_in_prompts`。
@@ -142,14 +150,6 @@ type:
 - **验证**：`cargo test --lib` 1745 passed / 4 ignored（+7）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：真机第 10 章正文连编译两拍 = Press → Escalate，文本不同、阶梯推进。
 - **契约**：`conflict_ladder_advances_and_never_repeats_consecutive_line`；`previous_conflict_line_reads_card_block`；`conflict_line_rungs_are_distinct`；`escalate_stage_flags_confrontation_without_outcome`；`press_stage_does_not_demand_outcome`；`conflict_repeat_against_prior_tail_is_flagged`；`char_bigram_similarity_flags_near_repeat_but_not_new_scene`。
 - **未关闭**：阶梯状态存在卡块里（一拍一格），作者手删对峙不会自动回退；已写的第 10–13 章重演段落仍在正文（需作者重写）。
-
-### v0.64.9 - 续写重演修复 + 投影 writer 恢复落库
-
-**真机**：《帝国的烟火》第 11 章整场重演第 10 章（同样的穿堂、门板、名册对峙逐章再来）；`state` / `index` 两个投影 writer 从上线起一直报 schema 错，状态类记忆一条都没进 `memory_items`。**重演四段根因**：①节拍卡块（在场/冲突/情感/下一拍）写进 `scenes.outline_content` 后又被当「本章大纲」回灌（幕前 Append 永不生成章纲）；②`scene_fields_from_facts` 的 `_existing_outline` 参数**从未使用**，新建章刚生成的章纲被卡块覆盖丢弃；③方法论兜底句被写进「下一拍：」槽位并被 `next_node_from_scene_outline` 当计划逐拍复制；④自动分章出的新章从不触发章纲生成，只有近文阵容 + 静态敌对关系（`compile_conflict` 命中第一条即同一句「正面对峙」）。**修复**：F1 章纲合并（卡块并入、前缀保留）；F2 `is_generic_next_node`——兜底句不落库不采信；F3 `chapter_plan_from_scene_outline` 只剥卡块形态（手写/刷新出的真实场景大纲整段保留）；F4 `needs_plan` 时 Append 也补生成章纲并落库为前缀（`set_chapter_plan_prefix`，下一拍不重复生成）。**投影修复**：`normalize_delta_items` 兼容四种 delta 形态（键值/实体事件/KG 关系/KG 实体），关系与实体解析名字后落库；`MemoryItemRepository::lookup_kg_entity_name_by_id`。
-
-- **验证**：`cargo test --lib` 1738 passed / 4 ignored（+7，改造既有 1）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）扩展：真机 commit 产物跑两个 writer 全部成功，落 250 行记忆。
-- **契约**：`generic_next_node_is_recognized_but_real_plan_is_not`；`generic_next_node_is_neither_persisted_nor_adopted`；`chapter_plan_ignores_beat_card_block`；`set_chapter_plan_prefix_keeps_card_block`；`card_write_keeps_chapter_plan_prefix`；`state_and_index_writers_accept_real_kg_delta_shapes`；`legacy_key_value_delta_shape_still_supported`。
-- **未关闭**：已写的第 10–13 章重演段落仍在正文（需作者重写）；`compile_conflict` 冲突升级/衰减留待后续。
 
 ## Always Do
 
