@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1730 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
+- `cargo test -p storymoss` ✅ 1731 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 607 passed / 3 skipped（+3 人物页生死徽标与改判）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.8 - 称号幻影行随死者一并排除（v0.64.7 收尾）
+
+**真机**：KG 里除 `明成公主` 外还有只有称号的角色行 `公主`、`镇北王`（无 `characters` 行、不在生死列），只按行名排除时它们会以「活人」进 cast——症状与死人复活一样。**修复**：`life_status::dead_names` 按 v0.64.6 的解析策略（`resolve_character_id`：精确名 → 别称表 → 唯一同人形态命中）把归到死者名下的称呼一并算已死，解析不出来不猜。
+
+- **验证**：`cargo test --lib` 1731 passed / 4 ignored（+14）；vitest 607 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。真机探针 dead 名单：`[公主, 明成公主, 苏会山, 镇北王]`。
+- **契约**：`dead_names_expand_to_registered_aliases`。
+- **未关闭**：同 v0.64.7（历史段落里活着的明成公主仍在正文；state/index 投影 writer schema 不匹配）。
 
 ### v0.64.7 - 死人不得复活（角色生死状态持久化）
 

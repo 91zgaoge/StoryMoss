@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.7)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.8)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.8 变更说明
+
+- **Rust +1**：`dead_names_expand_to_registered_aliases`（别称表命中的称号幻影行
+  随死者一并排除，活人不连坐）→ 全量 1731 passed / 4 ignored。
 
 ### v0.64.7 变更说明
 

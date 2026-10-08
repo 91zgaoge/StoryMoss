@@ -35,9 +35,76 @@ pub fn dead_marker_map(pool: &DbPool, story_id: &str) -> HashMap<String, Option<
     })
 }
 
+/// 已死名单（注入用）：死者本人 + 归到死者名下的其他称呼。
+///
+/// 真机《帝国的烟火》里 `公主` 是一条只有称号的幻影角色行（KG 实体，无
+/// `characters` 行），若只按行名排除，它会带着「活人」身份进 cast。这里沿用
+/// v0.64.6 的解析策略（`resolve_character_id`：精确名 → 别称表 → 唯一同人
+/// 形态命中），把同一故事中解析到死者身上的称呼一并算已死；解析不出来就**不猜**
+/// （宁可漏，不误伤）。
 pub fn dead_names(pool: &DbPool, story_id: &str) -> Vec<String> {
-    let mut names: Vec<String> = dead_marker_map(pool, story_id).keys().cloned().collect();
+    let dead_map = dead_marker_map(pool, story_id);
+    if dead_map.is_empty() {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = dead_map.keys().cloned().collect();
+
+    let Ok(conn) = pool.get() else {
+        names.sort();
+        return names;
+    };
+    let dead_ids: std::collections::HashSet<String> = match conn
+        .prepare("SELECT id FROM characters WHERE story_id = ?1 AND life_status = 'dead'")
+    {
+        Ok(mut stmt) => match stmt.query_map([story_id], |r| r.get::<_, String>(0)) {
+            Ok(rows) => rows.filter_map(Result::ok).collect(),
+            Err(e) => {
+                log::warn!("[life_status] 已死角色 id 查询失败: {e}");
+                names.sort();
+                return names;
+            }
+        },
+        Err(e) => {
+            log::warn!("[life_status] 已死角色 id 语句失败: {e}");
+            names.sort();
+            return names;
+        }
+    };
+
+    for candidate in story_character_names(&conn, story_id) {
+        if candidate.is_empty() || names.iter().any(|n| n == &candidate) {
+            continue;
+        }
+        if let Ok(Some(id)) =
+            crate::db::character_identity::resolve_character_id(&conn, story_id, &candidate)
+        {
+            if dead_ids.contains(&id) {
+                names.push(candidate);
+            }
+        }
+    }
+
     names.sort();
+    names.dedup();
+    names
+}
+
+/// 故事里出现过的全部角色名（`characters` 行 ∪ KG `Character` 实体名，
+/// 后者含只有称号的幻影行）。
+fn story_character_names(conn: &rusqlite::Connection, story_id: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for sql in [
+        "SELECT name FROM characters WHERE story_id = ?1",
+        "SELECT name FROM kg_entities WHERE story_id = ?1 AND entity_type = 'Character'",
+    ] {
+        let Ok(mut stmt) = conn.prepare(sql) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map([story_id], |r| r.get::<_, String>(0)) else {
+            continue;
+        };
+        names.extend(rows.filter_map(Result::ok));
+    }
     names
 }
 
@@ -223,6 +290,44 @@ mod tests {
         assert_eq!(
             dead_marker_map(&pool, &story_id).get("明成公主"),
             Some(&Some(7))
+        );
+    }
+
+    /// 称号幻影行（KG 实体「公主」，无 `characters` 行）随死者一并排除：
+    /// 别称表把「公主」登记在明成公主名下后，`dead_names` 必须含这两条。
+    #[test]
+    fn dead_names_expand_to_registered_aliases() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let char_id = seed_character(&pool, &story_id, "明成公主");
+        // 幻影行：只有 KG 实体，没有 characters 行（真机就长这样）
+        crate::db::KnowledgeGraphRepository::new(pool.clone())
+            .create_entity(
+                &story_id,
+                "公主",
+                "Character",
+                &serde_json::json!({"mood": "（已故）"}),
+                None,
+            )
+            .unwrap();
+        crate::db::repositories::CharacterAliasRepository::new(pool.clone())
+            .upsert(&story_id, &char_id, "公主", "ingest")
+            .unwrap();
+
+        mark_dead(&pool, &story_id, "明成公主", Some(2)).unwrap();
+        let dead = dead_names(&pool, &story_id);
+        assert!(dead.contains(&"明成公主".to_string()), "dead={dead:?}");
+        assert!(
+            dead.contains(&"公主".to_string()),
+            "称号幻影行必须一并算已死 dead={dead:?}"
+        );
+
+        // 解析不到死者的称呼不得连坐
+        seed_character(&pool, &story_id, "苏亦铁");
+        let dead = dead_names(&pool, &story_id);
+        assert!(
+            !dead.contains(&"苏亦铁".to_string()),
+            "活人不得连坐 dead={dead:?}"
         );
     }
 
