@@ -87,6 +87,9 @@ pub const CONTINUE_BEAT_SYSTEM: &str = "你是小说主创。只输出本章正�
 4. 禁止复述已有正文，禁止同一段出现两次。\n\
 5. 一人一号；在场者可不出声；禁止点名式每人一段。\n\
 6. 本拍必须兑现节拍卡「必须改变」；禁止只复述末句或全员表态。\n\
+7. 文笔（人类文笔基线）：情绪四模式混用——行为为主，可直说「她害怕」，身体反应只留峰值；\n\
+   句长参差，不连续三句以上长度相近；不解释主题、不写「她终于明白」与格言收尾；\n\
+   对话标签重复「说」即可；用写得出名字的实物替代「一股说不清的感觉」。\n\
 Wrong：大堂里再写一遍飞身扑上、刀刺苏会山。\n\
 Right：苏会山已死，写现场后果与在场活人的反应。\n\
 Wrong：先输出节拍任务、状态网或约束清单。\n\
@@ -96,7 +99,9 @@ Right：只用阵容里的名字。\n\
 Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。琬公主曹元佩抱着曹元佩的衣角。\n\
 Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。\n\
 Wrong：众人依次震惊，场面停在原地。\n\
-Right：一件不可逆新信息或选择落地，其余人可沉默。";
+Right：一件不可逆新信息或选择落地，其余人可沉默。\n\
+Wrong：她心里一紧，背脊发凉，喉咙发紧。（每个情绪都写成身体反应）\n\
+Right：她害怕。他把灯芯剪短了一截，没说话。";
 
 pub const DRAMA_BEAT_SYSTEM: &str = "你是短剧编剧。只输出可拍剧本，不要分析或清单。\n\
 1. 按节拍任务写下一场；人设与世界以资产区为准。\n\
@@ -104,10 +109,14 @@ pub const DRAMA_BEAT_SYSTEM: &str = "你是短剧编剧。只输出可拍剧本�
 3. 动作写正在发生的可见可听内容；禁止镜号、景别、运镜或影片模型参数。\n\
 4. 台词推进冲突，不解说背景；本拍必须兑现「必须改变」。\n\
 5. 只用本拍名单；一人一号；禁止复述已有场次。\n\
+6. 情绪用可见动作与台词演（剧本语域）——不要用「心里一紧、背脊发凉」类内心描写代替可拍内容；\n\
+   台词允许语气词（啊/吧/呢/嘛），允许重复「说」，不必轮换低语/咕哝/嗤笑。\n\
 Wrong：【场景】夜里便利店，众人轮流说话。\n\
 Right：1. 内景・便利商店・夜\n\
 Wrong：加入镜头推进与 Sora 提示词。\n\
 Right：只写动作、角色名与台词。\n\
+Wrong：她心里一紧，背脊发凉。（不可拍）\n\
+Right：她把手里的袋子捏皱了，往后退了半步。「你别过来。」\n\
 Wrong：众人依次震惊，场面停在原地。\n\
 Right：一件不可逆新信息落地，切黑留下下一步问题。";
 
@@ -388,6 +397,36 @@ mod tests {
         );
     }
 
+    /// v0.65.1 契约：主续写路径的 system 提示词必须携带人类文笔基线准则
+    /// （它是内联常量、用户不可覆盖，是准则送达的最后一道保证）。
+    #[test]
+    fn continue_beat_system_carries_human_voice_doctrine() {
+        for needle in [
+            "人类文笔基线",
+            "情绪四模式混用",
+            "句长参差",
+            "不解释主题",
+            "对话标签重复「说」",
+        ] {
+            assert!(
+                CONTINUE_BEAT_SYSTEM.contains(needle),
+                "CONTINUE_BEAT_SYSTEM 缺少「{needle}」"
+            );
+        }
+    }
+
+    /// v0.65.2 契约：短剧路径的 system 提示词携带剧本语域的文笔约束
+    /// （情绪要靠可拍的动作与台词，不用内心身体描写替代）。
+    #[test]
+    fn drama_beat_system_bans_unfilmable_interiority() {
+        for needle in ["可见动作与台词", "不可拍", "语气词"] {
+            assert!(
+                DRAMA_BEAT_SYSTEM.contains(needle),
+                "DRAMA_BEAT_SYSTEM 缺少「{needle}」"
+            );
+        }
+    }
+
     #[test]
     fn continue_beat_keeps_user_opaque_and_locks_system() {
         let user = "【节拍任务】\n去码头";
@@ -402,9 +441,12 @@ mod tests {
             .lines()
             .filter(|l| !l.is_empty())
             .collect();
+        // v0.65.2：加入人类文笔基线条款（1 条文笔准则 + 1 组「别把情绪都写成
+        // 身体反应」示例），上界相应上调；仍设上界，防止这个 system
+        // 提示词无界膨胀。
         assert!(
-            (11..=19).contains(&lines.len()),
-            "合同应为 11–19 行，实际 {} 行: {CONTINUE_BEAT_SYSTEM}",
+            (11..=24).contains(&lines.len()),
+            "合同应为 11–24 行，实际 {} 行: {CONTINUE_BEAT_SYSTEM}",
             lines.len()
         );
         assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：大堂里再写一遍飞身扑上"));

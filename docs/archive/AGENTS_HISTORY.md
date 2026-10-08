@@ -1,5 +1,14 @@
 *归档于 2026-10-06（v0.59.3）：v0.56.2 摘要。*
 
+### v0.64.10 - 冲突升级/衰减（同一对峙不得连拍复述）
+
+**真机**：`compile_conflict` 每拍从静态敌意关系返回同一句「加压：甲 与 乙 正面对峙」，模型因此每拍都写同一场对峙（v0.64.9 修掉自注入后剩下的最后一条）。**修复**：`ConflictStage` 四阶梯（加压→升级→结账→余波），位置从**上一拍卡块**的 `冲突：` 行关键词推进；新增 `compile_beat_card_located_prev` 并接线 Append / observe / 批量三条路径；上一对写到余波则轮换到别的对峙对；探针两条缺口入质量债——「冲突未升级」（要求升级/结账却只再对峙一次，`conflict_outcome_landed` 检查代价/不可逆结果）与「冲突原地复述」（涉事句子与前文 bigram 相似度 ≥0.62，新增 `TextUtils::char_bigram_similarity`）；必须改变项随阶梯（Risk/Relationship/Goal）。
+
+- **验证**：`cargo test --lib` 1745 passed / 4 ignored（+7）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：真机第 10 章正文连编译两拍 = Press → Escalate，文本不同、阶梯推进。
+- **契约**：`conflict_ladder_advances_and_never_repeats_consecutive_line`；`previous_conflict_line_reads_card_block`；`conflict_line_rungs_are_distinct`；`escalate_stage_flags_confrontation_without_outcome`；`press_stage_does_not_demand_outcome`；`conflict_repeat_against_prior_tail_is_flagged`；`char_bigram_similarity_flags_near_repeat_but_not_new_scene`。
+- **未关闭**：阶梯状态存在卡块里（一拍一格），作者手删对峙不会自动回退；已写的第 10–13 章重演段落仍在正文（需作者重写）。
+
+
 ### v0.64.9 - 续写重演修复 + 投影 writer 恢复落库
 
 **真机**：《帝国的烟火》第 11 章整场重演第 10 章（同样的穿堂、门板、名册对峙逐章再来）；`state` / `index` 两个投影 writer 从上线起一直报 schema 错，状态类记忆一条都没进 `memory_items`。**重演四段根因**：①节拍卡块（在场/冲突/情感/下一拍）写进 `scenes.outline_content` 后又被当「本章大纲」回灌（幕前 Append 永不生成章纲）；②`scene_fields_from_facts` 的 `_existing_outline` 参数**从未使用**，新建章刚生成的章纲被卡块覆盖丢弃；③方法论兜底句被写进「下一拍：」槽位并被 `next_node_from_scene_outline` 当计划逐拍复制；④自动分章出的新章从不触发章纲生成，只有近文阵容 + 静态敌对关系（`compile_conflict` 命中第一条即同一句「正面对峙」）。**修复**：F1 章纲合并（卡块并入、前缀保留）；F2 `is_generic_next_node`——兜底句不落库不采信；F3 `chapter_plan_from_scene_outline` 只剥卡块形态（手写/刷新出的真实场景大纲整段保留）；F4 `needs_plan` 时 Append 也补生成章纲并落库为前缀（`set_chapter_plan_prefix`，下一拍不重复生成）。**投影修复**：`normalize_delta_items` 兼容四种 delta 形态（键值/实体事件/KG 关系/KG 实体），关系与实体解析名字后落库；`MemoryItemRepository::lookup_kg_entity_name_by_id`。

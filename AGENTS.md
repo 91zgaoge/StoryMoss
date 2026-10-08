@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.65.1
+- **版本**: v0.65.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1778 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线）
+- `cargo test -p storymoss` ✅ 1780 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 609 passed / 3 skipped（+2 物料重算页签）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.65.2 - 主续写路径 system 提示词补文笔准则
+
+**为什么还要一版**：v0.65.0 注入的是**用户**提示词（每拍组装），核对链路时发现主续写路径的 **system** 提示词其实是 `CONTINUE_BEAT_SYSTEM`（`prompts/assembly.rs` 内联常量），**不是** `agency_lead_writer_system`——它是用户无法覆盖的常量，是准则送达最可靠的一条渠道，此前没有文笔条款。**改动**：`CONTINUE_BEAT_SYSTEM` 新增第 7 条文笔（人类文笔基线）+ 一组对照示例（Wrong：她心里一紧，背脊发凉，喉咙发紧／Right：她害怕。他把灯芯剪短了一截，没说话）；`DRAMA_BEAT_SYSTEM` 按**剧本语域**补第 6 条（情绪用可见动作与台词演，不用内心身体描写代替可拍内容；台词允许语气词与重复「说」）——sepia「按体裁校准，别把不同体裁改成一个声音」的落地。
+
+- **验证**：`cargo test --lib` 1780 passed / 5 ignored（+2）；clippy 0 error；fmt / guard / tsc / vitest 全绿。
+- **契约**：`continue_beat_system_carries_human_voice_doctrine`；`drama_beat_system_bans_unfilmable_interiority`；`continue_beat_operational_contract_has_three_examples`（行数上界 19→24，仍设界防膨胀）。
+- **未关闭**：同 v0.65.1（叙事架构层无确定性检查；真机端到端未复跑，**不得宣称续写质量已修复**）。
 
 ### v0.65.1 - v0.65.0 收尾（叙事架构层 + 改写纪律）
 
@@ -142,14 +150,6 @@ type:
 - **验证**：`cargo test --lib` 1759 passed / 4 ignored（+14）；vitest 609 / 3 skipped（+2）；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：46 行关系全归一（11 种复合写法正确）、失去支撑审计 0 行、`mark_stale(9)` → 重算（4 条章节摘要重写 / 段摘要待模型 / 1 条快照重写）。
 - **契约**：`quality_reports_debt_for_every_fallback_path`；`refresh_report_debt_details_cover_all_failure_paths`；`summarize_chapter_quality_marks_empty_and_no_llm`；`mark_stale_keeps_earliest_chapter_per_kind`；`recompute_rewrites_chapter_summaries_and_clears_flags`；`recompute_deletes_stale_segments_only_when_llm_available`；`v143_creates_staleness_table_idempotently`；`classifies_real_machine_compound_types`；`hostile_flag_matches_legacy_keyword_scan_for_old_cases`；`flags_roundtrip_and_kind_vocabulary`；`v144_backfills_kind_and_flags_idempotently`；`retract_drops_rows_whose_only_evidence_is_the_edited_chapter`；`retract_clears_evidence_but_keeps_multi_evidence_rows`；`audit_reports_only_relations_without_prose_support`。
 - **未关闭**：分层摘要重算需可用模型（否则保留旧值并提示待模型）；自动后台重算未做（编辑只记零成本失效标记）；手工关系的失去支撑只报告不自动删。
-
-### v0.64.10 - 冲突升级/衰减（同一对峙不得连拍复述）
-
-**真机**：`compile_conflict` 每拍从静态敌意关系返回同一句「加压：甲 与 乙 正面对峙」，模型因此每拍都写同一场对峙（v0.64.9 修掉自注入后剩下的最后一条）。**修复**：`ConflictStage` 四阶梯（加压→升级→结账→余波），位置从**上一拍卡块**的 `冲突：` 行关键词推进；新增 `compile_beat_card_located_prev` 并接线 Append / observe / 批量三条路径；上一对写到余波则轮换到别的对峙对；探针两条缺口入质量债——「冲突未升级」（要求升级/结账却只再对峙一次，`conflict_outcome_landed` 检查代价/不可逆结果）与「冲突原地复述」（涉事句子与前文 bigram 相似度 ≥0.62，新增 `TextUtils::char_bigram_similarity`）；必须改变项随阶梯（Risk/Relationship/Goal）。
-
-- **验证**：`cargo test --lib` 1745 passed / 4 ignored（+7）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：真机第 10 章正文连编译两拍 = Press → Escalate，文本不同、阶梯推进。
-- **契约**：`conflict_ladder_advances_and_never_repeats_consecutive_line`；`previous_conflict_line_reads_card_block`；`conflict_line_rungs_are_distinct`；`escalate_stage_flags_confrontation_without_outcome`；`press_stage_does_not_demand_outcome`；`conflict_repeat_against_prior_tail_is_flagged`；`char_bigram_similarity_flags_near_repeat_but_not_new_scene`。
-- **未关闭**：阶梯状态存在卡块里（一拍一格），作者手删对峙不会自动回退；已写的第 10–13 章重演段落仍在正文（需作者重写）。
 
 ## Always Do
 

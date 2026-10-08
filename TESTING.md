@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.65.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.65.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.65.2 变更说明
+
+- **Rust +2（1780 passed / 5 ignored）**：`continue_beat_system_carries_human_voice_doctrine`
+  （主续写 system 必须携带文笔基线）、`drama_beat_system_bans_unfilmable_interiority`
+  （短剧 system 必须要求可拍性）；行数上界契约 19→24。
 
 ### v0.65.1 变更说明
 

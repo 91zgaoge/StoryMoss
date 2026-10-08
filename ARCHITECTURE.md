@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.65.1 架构文档
+# StoryMoss (草苔) v0.65.2 架构文档
 
+> **v0.65.2**：**主续写 system 提示词的文笔准则**——主续写路径的 system prompt 是 `prompts::assembly::CONTINUE_BEAT_SYSTEM`（内联常量，用户不可覆盖），非 `agency_lead_writer_system`；补第 7 条「文笔（人类文笔基线）」与对照示例，`DRAMA_BEAT_SYSTEM` 按剧本语域补「情绪用可见动作与台词演、台词允许语气词与重复『说』」（sepia 的按体裁校准）；契约 `continue_beat_system_carries_human_voice_doctrine` / `drama_beat_system_bans_unfilmable_interiority`。
+>
 > **v0.65.1**：**v0.65.0 收尾**——叙事架构层写入 `agency_outline_planner_system`（回声测试 / 因果松动一次 / 不要预支答案 / 不做「理解+接受+成长」三脚架收束 / 关系网稀疏 / 主题不直说 / 至多一条斜向次线），改写纪律写入 `writer_rewrite`（删优于加：不得更长更华丽、保留具体细节）；契约测试 `test_v0650_human_voice_doctrine_in_prompts` 锁定六个提示词的文笔基线要素。
 >
 > **v0.65.0**：**人类文笔基线**——`story_system::human_voice`（纯函数、0 LLM）把「AI 写多了 / 人写少了」的分布偏移量化为 `VoiceMetrics` + `VoiceFinding`（excess/deficit 两组）：`flat-rhythm`（段内连续 ≥3 句近等长，唯一跨语言方向一致的句法指标）、`mood-particle-absent`（有对话零语气词，中文人类密度 5 倍）、`embodied-only`（具身化 ≥3 且零平直命名）、`connective-stack` / `disyllabic-padding` / `fancy-speech-tags` / `abstract-wrapper` / `uniform-paragraphs`；**方向矛盾项不入规则**（标点密度、平均句长、段落数、词汇多样性）。注入三处：`agency::beat_card::render_writer_user_prompt`（`render_guidance_block_for_progress`：7 条固定准则 + 8 条手法池按已写篇幅轮换，置于末句锚点之前）、`agents::service::render_writer_system_from_bundle`（常驻准则追加，不受用户模板覆盖影响）、`agency::coordinator` 编辑器资产（`render_audit_block`，与 `prose_lint` 并列）。叙事架构层写入 `agency_outline_planner_system`（回声测试 / 不要预支答案 / 不做三脚架收束 / 关系稀疏 / 主题不直说），改写纪律写入 `writer_rewrite`（删优于加）。记录：`story_system::commit_service::auto_commit` 把发现并入 `review_result.issues`。校准：`prose_lint::lint_text` 的 `not-x-but-y` 改为聚集（≥2 处）才 blocking；`anti_ai::{check_emotion, check_dialogue, check_syntax, check_narrative}` 按实测方向重写（平直命名情绪不是缺陷、重复「说/道」是常态、感官密度低不是 AI 指纹、句法看离散度），并修复对话提取只认弯引号导致「」体例失效。

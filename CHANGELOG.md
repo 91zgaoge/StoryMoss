@@ -2,6 +2,32 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.65.2（2026-10-08）
+
+**主续写路径的 system 提示词补上文笔准则（v0.65.0 收尾之二）。**
+
+v0.65.0 把文笔基线注入的是**用户提示词**（每拍组装）；核对链路时发现主续写路径的
+**system** 提示词其实是 `CONTINUE_BEAT_SYSTEM`（`prompts/assembly.rs` 内联常量），
+不是 `agency_lead_writer_system`——它是用户**无法覆盖**的常量，是准则送达最可靠的
+一条渠道，此前没有文笔条款。本版补上。
+
+### 变更
+
+- `CONTINUE_BEAT_SYSTEM` 新增第 7 条「文笔（人类文笔基线）」：情绪四模式混用（行为为主、
+  可直说「她害怕」、身体反应只留峰值）、句长参差、不解释主题、对话标签重复「说」即可、
+  具体实物替代抽象包装；并补一组对照示例（Wrong：她心里一紧，背脊发凉，喉咙发紧／
+  Right：她害怕。他把灯芯剪短了一截，没说话）。
+- `DRAMA_BEAT_SYSTEM`（短剧）按**剧本语域**补第 6 条：情绪用可见动作与台词演，不用
+  「心里一紧」类内心身体描写代替可拍内容；台词允许语气词与重复「说」。这是 sepia
+  「按体裁校准、不要把不同体裁改成一个声音」的落地——短剧不该被写成小说的散文腔。
+- 契约测试 2 项：`continue_beat_system_carries_human_voice_doctrine`、
+  `drama_beat_system_bans_unfilmable_interiority`；`continue_beat_operational_contract_has_three_examples`
+  的行数上界由 19 调到 24（仍设上界，防止 system 提示词无界膨胀），并写明上调原因。
+
+### 测试
+
+`cargo test --lib` **1780 passed / 5 ignored**（+2）；clippy 0 error；fmt / guard 全绿。
+
 ## v0.65.1（2026-10-08）
 
 **v0.65.0 收尾：叙事架构层写进章纲，改写纪律写进润色。**
