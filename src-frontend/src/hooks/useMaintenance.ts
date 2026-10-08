@@ -169,3 +169,51 @@ export function useStoryCost(storyId?: string) {
     refetchInterval: 30000,
   });
 }
+
+// ---------- 物料失效与重算（v0.64.11） ----------
+
+export interface StaleMaterial {
+  kind: string;
+  from_chapter: number;
+  reason?: string | null;
+  updated_at: string;
+}
+
+export interface RecomputeReport {
+  from_chapter: number;
+  chapter_summaries: number;
+  summary_debts: string[];
+  segment_summaries_deleted: number;
+  book_summary_deleted: boolean;
+  checkpoints_rewritten: number;
+  segment_pending_llm: boolean;
+}
+
+/** 编辑旧章后失效的跨章物料（章节摘要 / 分层摘要与全书纲要 / 连续性快照）。 */
+export function useStaleMaterials(storyId?: string) {
+  return useQuery({
+    queryKey: ['stale_materials', storyId],
+    queryFn: async () => {
+      if (!storyId) return [] as StaleMaterial[];
+      return loggedInvoke<StaleMaterial[]>('list_stale_materials', { story_id: storyId });
+    },
+    enabled: !!storyId,
+    refetchInterval: 30000,
+  });
+}
+
+/** 一键重算第 N 章及以后的物料；缺省取最小失效章。 */
+export function useRecomputeMaterial() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ storyId, fromChapter }: { storyId: string; fromChapter?: number }) =>
+      loggedInvoke<RecomputeReport>('recompute_story_material', {
+        story_id: storyId,
+        from_chapter: fromChapter ?? null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stale_materials'] });
+      queryClient.invalidateQueries({ queryKey: ['quality_debts'] });
+    },
+  });
+}

@@ -31,12 +31,15 @@ impl CharacterRelationshipRepository {
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        // v0.64.11：写入归一列（受控 kind + 标志位），自由标签原样保留
+        let class =
+            crate::db::relation_kind::RelationClass::classify(relationship_type, emotional_bond);
         conn.execute(
             "INSERT INTO character_relationships (id, story_id, source_character_id, \
              target_character_id, relationship_type, description, dynamic, \
              emotional_bond, emotional_intensity, reverse_emotional_bond, \
-             reverse_emotional_intensity, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             reverse_emotional_intensity, created_at, relation_kind, relation_flags)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 &id,
                 story_id,
@@ -49,7 +52,9 @@ impl CharacterRelationshipRepository {
                 emotional_intensity,
                 reverse_emotional_bond,
                 reverse_emotional_intensity,
-                now.to_rfc3339()
+                now.to_rfc3339(),
+                class.kind,
+                class.flags()
             ],
         )?;
 
@@ -180,6 +185,13 @@ impl CharacterRelationshipRepository {
         if let Some(rt) = relationship_type {
             updates.push("relationship_type = ?");
             params.push(Box::new(rt.to_string()));
+            // v0.64.11：改了自由标签就同步重算归一列（供确定性消费者使用）
+            let class = crate::db::relation_kind::RelationClass::classify(rt, emotional_bond);
+            let flags = class.flags();
+            updates.push("relation_kind = ?");
+            params.push(Box::new(class.kind));
+            updates.push("relation_flags = ?");
+            params.push(Box::new(flags));
         }
         if let Some(desc) = description {
             updates.push("description = ?");

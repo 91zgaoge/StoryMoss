@@ -568,6 +568,11 @@ fn rel_head(ty: &str) -> &str {
 }
 
 fn rel_is_spouse(ty: &str) -> bool {
+    // v0.64.11：先走归一分类（认得出「夫妻（名分）／仇敌」这类复合写法），
+    // 关键词判定保留为兜底
+    if crate::db::relation_kind::RelationClass::classify(ty, None).spouse {
+        return true;
+    }
     let h = rel_head(ty);
     h.starts_with("夫妻") || h.contains("配偶") || h.contains("之妻") || h.contains("之夫")
 }
@@ -578,6 +583,9 @@ fn rel_is_kin(ty: &str) -> bool {
         '姨', '媳', '婿', '亲', '家', '伦',
     ];
     let h = rel_head(ty);
+    if crate::db::relation_kind::RelationClass::classify(h, None).kin {
+        return true;
+    }
     !rel_is_spouse(h) && h.chars().any(|c| KIN_CHARS.contains(&c))
 }
 

@@ -278,3 +278,54 @@ pub async fn set_style_preference_status(
     .await
     .map_err(|e| AppError::internal(format!("更新文风偏好失败: {}", e)))?
 }
+
+// ==================== v0.64.11：物料失效与重算
+// ====================
+
+/// 列出「自第 N 章起失效」的跨章物料（章节摘要 / 分层摘要与全书纲要 /
+/// 连续性快照）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_stale_materials(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::story_system::recompute::StaleMaterial>, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::recompute::list_stale(&pool, &story_id).map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("查询物料失效失败: {}", e)))?
+}
+
+/// 重算第 `from_chapter` 章及以后的物料（章节摘要按当前正文重算；分层摘要与全书
+/// 纲要删旧重建；连续性快照按当前数据重写）。`from_chapter` 缺省取最小失效章。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn recompute_story_material(
+    story_id: String,
+    from_chapter: Option<i32>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::story_system::recompute::RecomputeReport, AppError> {
+    let pool = pool.inner().clone();
+    let from = match from_chapter {
+        Some(n) if n > 0 => n,
+        _ => {
+            let pool_probe = pool.clone();
+            let sid = story_id.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::story_system::recompute::list_stale(&pool_probe, &sid)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| s.from_chapter)
+                    .min()
+                    .unwrap_or(1)
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("查询物料失效失败: {}", e)))?
+        }
+    };
+    let llm = crate::llm::LlmService::new(app_handle);
+    crate::story_system::recompute::recompute_from(&pool, &story_id, from, Some(&llm))
+        .await
+        .map_err(AppError::from)
+}

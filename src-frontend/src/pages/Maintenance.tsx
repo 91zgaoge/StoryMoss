@@ -18,6 +18,8 @@ import { useAppStore } from '@/stores/appStore';
 import {
   usePendingReviews,
   useQualityDebts,
+  useRecomputeMaterial,
+  useStaleMaterials,
   useResolvePendingReview,
   useResolveQualityDebt,
   useSetStylePreferenceStatus,
@@ -36,7 +38,7 @@ import toast from 'react-hot-toast';
  *  4. 成本：按故事聚合的调用与 token + 计费盲区告警
  * 全部为「只呈现与决策」——不会自动改写正文。
  */
-type TabKey = 'debts' | 'pending' | 'style' | 'cost';
+type TabKey = 'debts' | 'pending' | 'style' | 'cost' | 'stale';
 
 export function Maintenance() {
   const currentStory = useAppStore(s => s.currentStory);
@@ -47,6 +49,7 @@ export function Maintenance() {
   const pending = usePendingReviews(storyId);
   const style = useStylePreferences(storyId);
   const cost = useStoryCost(storyId);
+  const stale = useStaleMaterials(storyId);
 
   const resolveDebt = useResolveQualityDebt();
   const resolvePending = useResolvePendingReview();
@@ -60,12 +63,18 @@ export function Maintenance() {
     );
   }
 
-  const refreshing = debts.isFetching || pending.isFetching || style.isFetching || cost.isFetching;
+  const refreshing =
+    debts.isFetching ||
+    pending.isFetching ||
+    style.isFetching ||
+    cost.isFetching ||
+    stale.isFetching;
   const refreshAll = () => {
     debts.refetch();
     pending.refetch();
     style.refetch();
     cost.refetch();
+    stale.refetch();
   };
 
   const handleResolveDebt = async (id: string, status: 'resolved' | 'dismissed') => {
@@ -100,6 +109,7 @@ export function Maintenance() {
     { key: 'pending', label: '待确认', count: pending.data?.length ?? 0 },
     { key: 'style', label: '文风偏好', count: style.data?.length ?? 0 },
     { key: 'cost', label: '成本', count: undefined },
+    { key: 'stale', label: '物料重算', count: stale.data?.length ?? 0 },
   ];
 
   return (
@@ -136,6 +146,82 @@ export function Maintenance() {
       {tab === 'pending' && <PendingSection storyId={storyId} onResolve={handleResolvePending} />}
       {tab === 'style' && <StyleSection storyId={storyId} onToggle={handleToggleStyle} />}
       {tab === 'cost' && <CostSection storyId={storyId} />}
+      {tab === 'stale' && <StaleSection storyId={storyId} />}
+    </div>
+  );
+}
+
+/**
+ * 物料重算（v0.64.11）：编辑旧章后，从旧正文推出来的跨章物料（后续章节摘要、
+ * 分层摘要与全书纲要、连续性快照）会在这里显示「自第几章起失效」，一键重算。
+ */
+function StaleSection({ storyId }: SectionProps) {
+  const { data: stale = [], isLoading } = useStaleMaterials(storyId);
+  const recompute = useRecomputeMaterial();
+  const [busy, setBusy] = useState(false);
+  if (isLoading) return <Loading />;
+  if (stale.length === 0) {
+    return <EmptyHint>暂无失效物料。编辑较早章节后，受影响的跨章物料会出现在这里</EmptyHint>;
+  }
+  const fromChapter = Math.min(...stale.map(s => s.from_chapter));
+  const handleRecompute = async () => {
+    if (!storyId) return;
+    setBusy(true);
+    try {
+      const report = await recompute.mutateAsync({ storyId, fromChapter });
+      const parts = [
+        `章节摘要 ${report.chapter_summaries} 条`,
+        report.segment_summaries_deleted > 0
+          ? `分层摘要重建 ${report.segment_summaries_deleted} 条`
+          : null,
+        report.checkpoints_rewritten > 0 ? `连续性快照 ${report.checkpoints_rewritten} 条` : null,
+        report.segment_pending_llm ? '分层摘要待模型可用时后台补齐' : null,
+      ].filter(Boolean);
+      toast.success(`已重算第 ${report.from_chapter} 章及以后：${parts.join('、')}`);
+    } catch (e) {
+      toast.error(`重算失败: ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2" data-testid="maintenance-stale">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-cinema-700 bg-cinema-800/40 p-3">
+        <div className="text-xs text-ai-ink-2 leading-relaxed">
+          下列物料是从旧正文推出来的，编辑后不会自动重算。重算会按当前正文重写第 {fromChapter}{' '}
+          章及以后的章节摘要、分层摘要与全书纲要、连续性快照。
+        </div>
+        <ActionButton
+          onClick={handleRecompute}
+          disabled={busy || !storyId}
+          testId="maintenance-recompute"
+        >
+          {busy ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="w-3.5 h-3.5" />
+          )}
+          重算第 {fromChapter} 章起
+        </ActionButton>
+      </div>
+      {stale.map(item => (
+        <div
+          key={item.kind}
+          className="rounded-lg border border-cinema-700 bg-cinema-800/40 p-3"
+          data-testid={`stale-${item.kind}`}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-ai-accent-tint text-ai-accent-ink">
+              {item.kind}
+            </span>
+            <span className="text-xs text-ai-ink-2">自第 {item.from_chapter} 章起失效</span>
+            <span className="text-[11px] text-ai-ink-3">{item.updated_at.slice(0, 16)}</span>
+          </div>
+          {item.reason && (
+            <p className="mt-1.5 text-xs text-ai-ink-2 leading-relaxed">{item.reason}</p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

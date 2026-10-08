@@ -80,6 +80,31 @@ const cost = {
   anomalies: [{ kind: 'zero_token_streak', detail: '最近连续 5 次调用记账为 0 token' }],
 };
 
+const staleRows = [
+  {
+    kind: 'chapter_summary',
+    from_chapter: 9,
+    reason: '第9章正文被编辑',
+    updated_at: '2026-10-08T09:00:00Z',
+  },
+  {
+    kind: 'segment_summary',
+    from_chapter: 9,
+    reason: '第9章正文被编辑',
+    updated_at: '2026-10-08T09:00:00Z',
+  },
+];
+
+const recomputeReport = {
+  from_chapter: 9,
+  chapter_summaries: 3,
+  summary_debts: [],
+  segment_summaries_deleted: 1,
+  book_summary_deleted: false,
+  checkpoints_rewritten: 1,
+  segment_pending_llm: false,
+};
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
@@ -96,6 +121,10 @@ function mockCommands() {
         return Promise.resolve([preference]);
       case 'get_story_cost_summary':
         return Promise.resolve(cost);
+      case 'list_stale_materials':
+        return Promise.resolve(staleRows);
+      case 'recompute_story_material':
+        return Promise.resolve(recomputeReport);
       case 'resolve_quality_debt':
       case 'resolve_pending_review':
       case 'set_style_preference_status':
@@ -169,5 +198,35 @@ describe('Maintenance', () => {
     expect(await screen.findByText('600,000')).toBeInTheDocument();
     expect(screen.getByTestId('maintenance-cost-anomaly')).toBeInTheDocument();
     expect(screen.getByText(/不会触发|0 token/)).toBeInTheDocument();
+  });
+
+  it('物料重算页展示失效物料并可一键重算', async () => {
+    render(<Maintenance />, { wrapper });
+    await userEvent.click(await screen.findByText('物料重算'));
+
+    expect(await screen.findByTestId('stale-chapter_summary')).toBeInTheDocument();
+    expect(screen.getAllByText(/自第 9 章起失效/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('第9章正文被编辑').length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByTestId('maintenance-recompute'));
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('recompute_story_material', {
+        story_id: 'story-1',
+        from_chapter: 9,
+      });
+    });
+  });
+
+  it('无失效物料时给出空态提示', async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'list_stale_materials') return Promise.resolve([]);
+      if (cmd === 'list_quality_debts') return Promise.resolve([]);
+      if (cmd === 'list_pending_reviews') return Promise.resolve([]);
+      if (cmd === 'list_style_preferences') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    render(<Maintenance />, { wrapper });
+    await userEvent.click(await screen.findByText('物料重算'));
+    expect(await screen.findByText(/暂无失效物料/)).toBeInTheDocument();
   });
 });

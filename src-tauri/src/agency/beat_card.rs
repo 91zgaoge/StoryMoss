@@ -491,7 +491,13 @@ pub(crate) fn compile_conflict(
     for r in &rels {
         let ty = r.relationship_type.to_lowercase();
         let bond = r.emotional_bond.as_deref().unwrap_or("");
-        let hostile = HOSTILE.iter().any(|k| ty.contains(k) || bond.contains(k));
+        // v0.64.11：优先用归一分类（认得出「翁媳/敌对」「夫妻（名分）／
+        // 仇敌」这类 复合写法），旧关键词表保留为兜底
+        let class = crate::db::relation_kind::RelationClass::classify(
+            &r.relationship_type,
+            r.emotional_bond.as_deref(),
+        );
+        let hostile = class.hostile || HOSTILE.iter().any(|k| ty.contains(k) || bond.contains(k));
         if !hostile {
             continue;
         }

@@ -112,13 +112,30 @@ impl SceneCommitService {
 
         // 章节语义摘要（P1-A，v0.61.0）：LLM 压缩 100-150 字；失败回退截断。
         // 此前是「正文前 1000 字截断」，既不是摘要也不带状态变化。
-        let summary = super::chapter_summary::summarize_chapter(
+        let (summary, summary_quality) = super::chapter_summary::summarize_chapter_with_quality(
             Some(&self.pool),
             content.unwrap_or(""),
             chapter_number,
             llm_ref,
         )
         .await;
+        // v0.64.11：摘要回退（无 LLM / 调用失败 / 输出不合格 /
+        // 正文为空）不再静默—— 记质量债，运行维护页可见（真机第 9
+        // 章摘要为空、段摘要 0 行此前无人察觉）。
+        if let Some(detail) = summary_quality.debt_detail(chapter_number) {
+            log::warn!("[SceneCommitService] {detail}");
+            if let Err(e) = super::quality_debt::record_debt(
+                &self.pool,
+                story_id,
+                scene_id,
+                Some(chapter_number),
+                "chapter_summary",
+                "warning",
+                &detail,
+            ) {
+                log::warn!("[SceneCommitService] 记录摘要质量债失败（非阻塞）: {e}");
+            }
+        }
 
         // Mini review（LLM 失败自动回退启发式）
         let mut review_result =

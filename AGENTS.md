@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1745 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
+- `cargo test -p storymoss` ✅ 1759 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 607 passed / 3 skipped（+3 人物页生死徽标与改判）
+- `npx vitest run` ✅ 609 passed / 3 skipped（+2 物料重算页签）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.11 - 物料失效重算 + 关系归一 + 摘要失败可见
+
+**三件（真机问答落点）**：①改旧章后跨章物料无声漂移；②关系类型 46 行 28 种写法；③段摘要 0 行/第 9 章摘要为空都没人知道。**修复**：**V143** `story_material_staleness`（编辑正文即记「自第 N 章失效」）+ `story_system::recompute`（章节摘要按当前正文重算、分层摘要与全书纲要删旧重建、快照重写、关系失去支撑审计）；运行维护页新增「物料重算」页签 + 命令 `list_stale_materials`/`recompute_story_material`。**V144** 关系归一列（`relation_kind` 受控词表 + `relation_flags` 位标志，`db::relation_kind::RelationClass` 纯函数分类）并接消费点（冲突阶梯敌意判定、关系不变量血亲/配偶判定——此前漏判「翁媳/敌对」「夫妻（名分）／仇敌」）；`story_system::relation_retract` 按 `kg_relations.evidence`（`chapter:<故事>:<n>`/`scene:<id>`/`agency:scene:<id>`）摘证据、摘空即删行，编辑路径已接入。`chapter_summary::summarize_chapter_with_quality` + `SegmentRefreshReport`：所有回退/失败路径入质量债。
+
+- **验证**：`cargo test --lib` 1759 passed / 4 ignored（+14）；vitest 609 / 3 skipped（+2）；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：46 行关系全归一（11 种复合写法正确）、失去支撑审计 0 行、`mark_stale(9)` → 重算（4 条章节摘要重写 / 段摘要待模型 / 1 条快照重写）。
+- **契约**：`quality_reports_debt_for_every_fallback_path`；`refresh_report_debt_details_cover_all_failure_paths`；`summarize_chapter_quality_marks_empty_and_no_llm`；`mark_stale_keeps_earliest_chapter_per_kind`；`recompute_rewrites_chapter_summaries_and_clears_flags`；`recompute_deletes_stale_segments_only_when_llm_available`；`v143_creates_staleness_table_idempotently`；`classifies_real_machine_compound_types`；`hostile_flag_matches_legacy_keyword_scan_for_old_cases`；`flags_roundtrip_and_kind_vocabulary`；`v144_backfills_kind_and_flags_idempotently`；`retract_drops_rows_whose_only_evidence_is_the_edited_chapter`；`retract_clears_evidence_but_keeps_multi_evidence_rows`；`audit_reports_only_relations_without_prose_support`。
+- **未关闭**：分层摘要重算需可用模型（否则保留旧值并提示待模型）；自动后台重算未做（编辑只记零成本失效标记）；手工关系的失去支撑只报告不自动删。
 
 ### v0.64.10 - 冲突升级/衰减（同一对峙不得连拍复述）
 

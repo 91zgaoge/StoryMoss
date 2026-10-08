@@ -1151,6 +1151,8 @@ pub mod V130__retitle_generic_chapter_numbers;
 pub mod V139__merge_leading_closing_punct_paragraphs;
 pub mod V141__merge_same_person_characters;
 pub mod V142__character_life_status;
+pub mod V143__story_material_staleness;
+pub mod V144__relationship_kind_normalization;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1239,5 +1241,7 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V139__merge_leading_closing_punct_paragraphs::Migration),
         Box::new(V141__merge_same_person_characters::Migration),
         Box::new(V142__character_life_status::Migration),
+        Box::new(V143__story_material_staleness::Migration),
+        Box::new(V144__relationship_kind_normalization::Migration),
     ]
 }

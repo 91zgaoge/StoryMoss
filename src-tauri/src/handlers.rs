@@ -277,6 +277,7 @@ tauri::generate_handler! {
     // Logging commands
     // Story System commands
     commands::story_system::create_master_setting,
+    commands::story_system::list_stale_materials, commands::story_system::recompute_story_material,
     commands::story_system::create_chapter_contract,
     commands::story_system::get_contract_tree,
     commands::story_system::get_runtime_contract,

@@ -252,21 +252,65 @@ async fn call_summary_llm(llm: &LlmService, prompt: String, max_tokens: i32) -> 
 ///
 /// 判定规则（幂等）：第 `chapter_number` 章提交后，凡 `[1, chapter_number]` 内
 /// 已写满且尚无摘要的段都会被生成。LLM 或数据不足时跳过该段。
+/// 分层摘要刷新结果（v0.64.11：此前只回 usize，失败静默——真机段摘要 0
+/// 行没人知道）。
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SegmentRefreshReport {
+    /// 本次新写入的段摘要数
+    pub written: usize,
+    /// 数据不足跳过的段：(index, 已有章数, 需要章数)
+    pub insufficient: Vec<(i32, usize, usize)>,
+    /// 模型调用失败的段 index
+    pub llm_failed: Vec<i32>,
+    /// 本次是否写入/更新了全书纲要
+    pub book_written: bool,
+    /// 全书纲要模型调用是否失败
+    pub book_llm_failed: bool,
+}
+
+impl SegmentRefreshReport {
+    /// 需要记质量债的说明（无失败时为空）。
+    pub fn debt_details(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (index, have, need) in &self.insufficient {
+            let (start, end) = segment_bounds(*index);
+            out.push(format!(
+                "分层摘要第{index}段（第{start}-{end}章）数据不足（{have}/{need} 章有摘要），暂无法生成"
+            ));
+        }
+        for index in &self.llm_failed {
+            let (start, end) = segment_bounds(*index);
+            out.push(format!(
+                "分层摘要第{}段（第{start}-{end}章）模型调用失败，段摘要未生成",
+                index
+            ));
+        }
+        if self.book_llm_failed {
+            out.push("全书纲要模型调用失败，未生成".to_string());
+        }
+        out
+    }
+
+    pub fn is_clean(&self) -> bool {
+        self.insufficient.is_empty() && self.llm_failed.is_empty() && !self.book_llm_failed
+    }
+}
+
 pub async fn refresh_summaries(
     pool: &DbPool,
     llm: &LlmService,
     story_id: &str,
     chapter_number: i32,
-) -> usize {
+) -> SegmentRefreshReport {
+    let mut report = SegmentRefreshReport::default();
     let completed = completed_segment_count(chapter_number);
     if completed <= 0 {
-        return 0;
+        return report;
     }
     let existing: Vec<i32> = load_segment_summaries(pool, story_id)
         .into_iter()
         .map(|s| s.segment_index)
         .collect();
-    let mut written = 0usize;
 
     for index in 0..completed {
         if existing.contains(&index) {
@@ -277,16 +321,19 @@ pub async fn refresh_summaries(
         // 数据不足（少于一半章节有摘要）时跳过，等待后续章节补齐后再生成
         let expected = (end - start + 1) as usize;
         if chapters.len() * 2 < expected {
-            log::info!(
+            log::warn!(
                 "[segment_summary] 第{}段数据不足（{}/{}），跳过",
                 index,
                 chapters.len(),
                 expected
             );
+            report.insufficient.push((index, chapters.len(), expected));
             continue;
         }
         let prompt = build_segment_prompt(pool, start, end, &chapters);
         let Some(summary) = call_summary_llm(llm, prompt, 600).await else {
+            log::warn!("[segment_summary] 第{}段模型调用失败，段摘要未生成", index);
+            report.llm_failed.push(index);
             continue;
         };
         if let Err(e) = upsert_summary(
@@ -299,24 +346,32 @@ pub async fn refresh_summaries(
             &summary,
         ) {
             log::warn!("[segment_summary] 写入段摘要失败: {}", e);
+            report.llm_failed.push(index);
             continue;
         }
-        written += 1;
+        report.written += 1;
     }
 
     // 全书纲要：段数达到门槛时重算（段摘要变化后需要刷新）
     let segments = load_segment_summaries(pool, story_id);
     if segments.len() >= BOOK_SUMMARY_MIN_SEGMENTS {
         let prompt = build_book_prompt(pool, &segments);
-        if let Some(summary) = call_summary_llm(llm, prompt, 800).await {
-            if let Err(e) = upsert_summary(pool, story_id, "book", 0, None, None, &summary) {
-                log::warn!("[segment_summary] 写入全书纲要失败: {}", e);
-            } else {
-                written += 1;
+        match call_summary_llm(llm, prompt, 800).await {
+            Some(summary) => {
+                if let Err(e) = upsert_summary(pool, story_id, "book", 0, None, None, &summary) {
+                    log::warn!("[segment_summary] 写入全书纲要失败: {}", e);
+                    report.book_llm_failed = true;
+                } else {
+                    report.book_written = true;
+                }
+            }
+            None => {
+                log::warn!("[segment_summary] 全书纲要模型调用失败，未生成");
+                report.book_llm_failed = true;
             }
         }
     }
-    written
+    report
 }
 
 /// 渲染续写注入用的「故事纲要」块（P1-C）。
@@ -375,19 +430,43 @@ pub fn spawn_refresh_after_commit(
         }
         let _bg_permit = bg_permit.unwrap();
         let llm = LlmService::new(app);
-        let written = refresh_summaries(&pool, &llm, &story_id, chapter_number).await;
+        let report = refresh_summaries(&pool, &llm, &story_id, chapter_number).await;
+        // v0.64.11：分层摘要的所有失败路径入质量债（此前只
+        // log，运行维护页看不到）
+        for detail in report.debt_details() {
+            if let Err(e) = crate::story_system::quality_debt::record_debt(
+                &pool,
+                &story_id,
+                None,
+                Some(chapter_number),
+                "segment_summary",
+                "warning",
+                &detail,
+            ) {
+                log::warn!("[segment_summary] 记录质量债失败（非阻塞）: {e}");
+            }
+        }
         // P3-C：段边界（每 SEGMENT_SIZE 章）写一份连续性快照，支撑回溯与恢复。
         if chapter_number % SEGMENT_SIZE == 0 {
             if let Err(e) =
                 crate::story_system::checkpoint::write_checkpoint(&pool, &story_id, chapter_number)
             {
                 log::warn!("[checkpoint] 写入检查点失败（非阻塞）: {}", e);
+                let _ = crate::story_system::quality_debt::record_debt(
+                    &pool,
+                    &story_id,
+                    None,
+                    Some(chapter_number),
+                    "checkpoint",
+                    "warning",
+                    &format!("第{chapter_number}章连续性快照写入失败：{e}"),
+                );
             }
         }
-        if written > 0 {
+        if report.written > 0 {
             log::info!(
                 "[segment_summary] 分层摘要刷新完成：{} 条（story_id={}）",
-                written,
+                report.written,
                 story_id
             );
         }
@@ -512,5 +591,41 @@ mod tests {
         let pos_first = long.find("第1段摘要").unwrap();
         let pos_third = long.find("第3段摘要").unwrap();
         assert!(pos_first < pos_third, "段摘要应按时间从旧到新");
+    }
+
+    /// v0.64.11：分层摘要的失败路径必须给出可入质量债的说明（真机段摘要 0 行
+    /// 此前完全静默）。
+    #[test]
+    fn refresh_report_debt_details_cover_all_failure_paths() {
+        let mut report = SegmentRefreshReport::default();
+        assert!(report.is_clean());
+        assert!(report.debt_details().is_empty());
+
+        report.insufficient.push((0, 3, 10));
+        report.llm_failed.push(1);
+        report.book_llm_failed = true;
+        let details = report.debt_details();
+        assert_eq!(details.len(), 3, "{details:?}");
+        assert!(details[0].contains("第1-10章"), "{details:?}");
+        assert!(details[0].contains("3/10"), "{details:?}");
+        assert!(details[1].contains("第11-20章"), "{details:?}");
+        assert!(details[2].contains("全书纲要"), "{details:?}");
+        assert!(!report.is_clean());
+    }
+
+    #[tokio::test]
+    async fn summarize_chapter_quality_marks_empty_and_no_llm() {
+        use crate::story_system::chapter_summary::{
+            summarize_chapter_with_quality, SummaryQuality,
+        };
+        let (text, quality) = summarize_chapter_with_quality(None, "   ", 9, None).await;
+        assert!(text.is_empty());
+        assert_eq!(quality, SummaryQuality::EmptyContent);
+        assert!(quality.debt_detail(9).unwrap().contains("正文为空"));
+
+        let (text, quality) =
+            summarize_chapter_with_quality(None, "正文一段。还有第二段。", 9, None).await;
+        assert!(!text.is_empty(), "无 LLM 时应回退截断而不是空");
+        assert_eq!(quality, SummaryQuality::NoLlm);
     }
 }

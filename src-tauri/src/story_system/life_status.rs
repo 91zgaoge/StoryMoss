@@ -338,9 +338,9 @@ mod tests {
     /// STORYMOSS_DB="$HOME/Library/Application Support/com.storymoss.app/cinema_ai.db" \
     ///   cargo test --lib life_status::tests::real_machine_probe -- --ignored --nocapture
     /// ```
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn real_machine_probe_resurrect_is_blocked() {
+    async fn real_machine_probe_resurrect_is_blocked() {
         let src = std::env::var("STORYMOSS_DB").unwrap_or_else(|_| {
             let home = std::env::var("HOME").unwrap_or_default();
             format!("{home}/Library/Application Support/com.storymoss.app/cinema_ai.db")
@@ -495,6 +495,73 @@ mod tests {
             second.conflict_move.stage,
             crate::agency::beat_card::default_conflict_stage(),
             "第二拍必须已在阶梯上推进"
+        );
+
+        // ── v0.64.11：关系归一（V144 回填）+ 撤回审计 + 物料失效/重算 ──
+        let (kind_rows, raw_compound): (i64, Vec<(String, String, Option<i64>)>) = {
+            let conn = pool.get().unwrap();
+            let unclassified: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM character_relationships WHERE story_id = ?1 \
+                     AND relation_kind IS NULL",
+                    [&story_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT relationship_type, COALESCE(relation_kind,''), relation_flags \
+                     FROM character_relationships WHERE story_id = ?1 \
+                     AND (relationship_type LIKE '%／%' OR relationship_type LIKE '%/%' \
+                          OR relationship_type LIKE '%（%')",
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map([&story_id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                })
+                .unwrap();
+            (unclassified, rows.filter_map(Result::ok).collect())
+        };
+        println!("[探针] 关系：未归一列 {kind_rows} 行；复合写法样例 {raw_compound:?}");
+        assert_eq!(kind_rows, 0, "V144 必须把所有关系行补上 relation_kind");
+
+        let unsupported =
+            crate::story_system::relation_retract::audit_unsupported_relations(&pool, &story_id)
+                .unwrap();
+        println!(
+            "[探针] 正文已无支撑的关系行（只报告不删）：{} 行 {:?}",
+            unsupported.len(),
+            unsupported.iter().take(3).collect::<Vec<_>>()
+        );
+
+        crate::story_system::recompute::mark_stale(&pool, &story_id, 9, "探针：模拟编辑第9章")
+            .unwrap();
+        let stale = crate::story_system::recompute::list_stale(&pool, &story_id).unwrap();
+        assert_eq!(stale.len(), 3, "三类物料都应标记失效：{stale:?}");
+        assert!(stale.iter().all(|s| s.from_chapter == 9));
+        let report = crate::story_system::recompute::recompute_from(&pool, &story_id, 9, None)
+            .await
+            .unwrap();
+        println!(
+            "[探针] 物料重算（无模型）：章节摘要 {} 条、段摘要删 {}、快照重写 {}、待模型 {}",
+            report.chapter_summaries,
+            report.segment_summaries_deleted,
+            report.checkpoints_rewritten,
+            report.segment_pending_llm
+        );
+        assert!(
+            report.chapter_summaries > 0,
+            "第9章及以后应有章节摘要被重算"
+        );
+        let left = crate::story_system::recompute::list_stale(&pool, &story_id).unwrap();
+        assert!(
+            left.iter().all(|s| s.kind == "segment_summary"),
+            "无模型时只应剩分层摘要待重算：{left:?}"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

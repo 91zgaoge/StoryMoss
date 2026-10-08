@@ -345,6 +345,30 @@ pub async fn update_scene(
                         marked
                     );
                 }
+                // v0.64.11：编辑旧章 → 从旧正文推出来的跨章物料（后续章节摘要、
+                // 分层摘要/全书纲要、连续性快照）标记失效，
+                // 运行维护页可见并可一键重算
+                if let Some(n) = chapter_number {
+                    if let Err(e) = crate::story_system::recompute::mark_stale(
+                        &pool_for_life,
+                        story_id,
+                        n,
+                        &format!("第{n}章正文被编辑"),
+                    ) {
+                        log::warn!("[story_commands] 记录物料失效失败（非阻塞）: {e}");
+                    }
+                }
+                // v0.64.11：撤回「指向本次改动正文」的关系证据——旧文本支撑的关系
+                // 不再以幽灵行留在图谱里（新正文支撑的会由随后的 ingest
+                // 重新抽到）
+                if let Err(e) = crate::story_system::relation_retract::retract_relations_for_scene(
+                    &pool_for_life,
+                    story_id,
+                    &scene_id_clone,
+                    chapter_number,
+                ) {
+                    log::warn!("[story_commands] 撤回关系证据失败（非阻塞）: {e}");
+                }
             }
             Ok((result, story_id_opt, had_content_before, prior_content))
         },

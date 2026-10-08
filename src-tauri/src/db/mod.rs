@@ -5,6 +5,7 @@ pub mod connection;
 pub mod dto;
 pub mod migrations;
 pub mod models;
+pub mod relation_kind;
 pub mod repositories;
 pub mod repositories_export;
 pub mod repositories_narrative;

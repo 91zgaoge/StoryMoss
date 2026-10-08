@@ -97,20 +97,61 @@ pub fn build_prompt(pool: Option<&DbPool>, chapter_number: i32, content: &str) -
     })
 }
 
-/// 生成章节语义摘要；LLM 不可用或输出不合格时回退为截断摘要。
-pub async fn summarize_chapter(
+/// 摘要产出质量：决定要不要把「这段摘要其实是截断」记进质量债
+/// （v0.64.11：此前回退是静默的，真机第 9 章摘要为空、段摘要 0 行都没人知道）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SummaryQuality {
+    /// LLM 产出的语义摘要
+    Llm,
+    /// LLM 不可用（未配置/未传入）
+    NoLlm,
+    /// LLM 调用失败
+    LlmError(String),
+    /// LLM 输出不合格（JSON/过短/过长）
+    InvalidOutput(usize),
+    /// 正文为空，无可摘要
+    EmptyContent,
+}
+
+impl SummaryQuality {
+    pub fn is_fallback(&self) -> bool {
+        !matches!(self, Self::Llm)
+    }
+
+    /// 质量债/日志用的中文说明（Llm 级返回 None）。
+    pub fn debt_detail(&self, chapter_number: i32) -> Option<String> {
+        match self {
+            Self::Llm => None,
+            Self::NoLlm => Some(format!(
+                "第{chapter_number}章摘要未走模型（无可用 LLM），当前存的是正文截断"
+            )),
+            Self::LlmError(e) => Some(format!(
+                "第{chapter_number}章摘要模型调用失败，回退为正文截断：{e}"
+            )),
+            Self::InvalidOutput(len) => Some(format!(
+                "第{chapter_number}章摘要模型输出不合格（{len} 字符），回退为正文截断"
+            )),
+            Self::EmptyContent => Some(format!(
+                "第{chapter_number}章正文为空，摘要未生成——先确认该章是否真的没有内容"
+            )),
+        }
+    }
+}
+
+/// 生成章节语义摘要 + 质量；LLM 不可用或输出不合格时回退为截断摘要。
+pub async fn summarize_chapter_with_quality(
     pool: Option<&DbPool>,
     content: &str,
     chapter_number: i32,
     llm: Option<&LlmService>,
-) -> String {
+) -> (String, SummaryQuality) {
     let trimmed = content.trim();
     if trimmed.is_empty() {
-        return String::new();
+        return (String::new(), SummaryQuality::EmptyContent);
     }
     let fallback = fallback_summary(trimmed);
     let Some(llm) = llm else {
-        return fallback;
+        return (fallback, SummaryQuality::NoLlm);
     };
     let prompt = build_prompt(pool, chapter_number, trimmed);
     match llm
@@ -124,14 +165,15 @@ pub async fn summarize_chapter(
         .await
     {
         Ok(response) => match parse_summary_response(&response.content) {
-            Some(summary) => summary,
+            Some(summary) => (summary, SummaryQuality::Llm),
             None => {
+                let len = response.content.chars().count();
                 log::warn!(
                     "[chapter_summary] 第{}章摘要输出不合格（{} 字符），回退截断",
                     chapter_number,
-                    response.content.chars().count()
+                    len
                 );
-                fallback
+                (fallback, SummaryQuality::InvalidOutput(len))
             }
         },
         Err(e) => {
@@ -140,9 +182,21 @@ pub async fn summarize_chapter(
                 chapter_number,
                 e
             );
-            fallback
+            (fallback, SummaryQuality::LlmError(e.to_string()))
         }
     }
+}
+
+/// 生成章节语义摘要；LLM 不可用或输出不合格时回退为截断摘要。
+pub async fn summarize_chapter(
+    pool: Option<&DbPool>,
+    content: &str,
+    chapter_number: i32,
+    llm: Option<&LlmService>,
+) -> String {
+    summarize_chapter_with_quality(pool, content, chapter_number, llm)
+        .await
+        .0
 }
 
 #[cfg(test)]
@@ -181,5 +235,24 @@ mod tests {
         assert!(parse_summary_response("太短").is_none());
         assert!(parse_summary_response(&"字".repeat(600)).is_none());
         assert!(parse_summary_response("").is_none());
+    }
+
+    #[test]
+    fn quality_reports_debt_for_every_fallback_path() {
+        assert!(!SummaryQuality::Llm.is_fallback());
+        assert!(SummaryQuality::Llm.debt_detail(9).is_none());
+        for q in [
+            SummaryQuality::NoLlm,
+            SummaryQuality::LlmError("超时".into()),
+            SummaryQuality::InvalidOutput(12),
+            SummaryQuality::EmptyContent,
+        ] {
+            let detail = q.debt_detail(9).expect("回退路径必须给出说明");
+            assert!(detail.contains("第9章"), "{detail}");
+        }
+        assert!(SummaryQuality::InvalidOutput(12)
+            .debt_detail(9)
+            .unwrap()
+            .contains("12 字符"));
     }
 }

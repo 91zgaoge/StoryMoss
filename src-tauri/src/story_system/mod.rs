@@ -29,6 +29,8 @@ pub mod preflight;
 pub mod projection_writers;
 pub mod prose_lint;
 pub mod quality_debt;
+pub mod recompute;
+pub mod relation_retract;
 pub mod scene_service;
 pub mod segment_summary;
 pub mod style_learning;
