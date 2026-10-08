@@ -1,5 +1,7 @@
 # StoryMoss (草苔) v0.64.7 架构文档
 
+> **v0.64.12**：**自动后台重算 + 指纹感知**——V145 `scene_commits.summary_source_hash` + `chapter_summary::content_fingerprint`（剥标记后的 FNV-1a）；`recompute::{recompute_scoped, recompute_after_commit, should_auto_recompute, spawn_auto_recompute_if_stale}`（后台闸门 + 同故事并发去重 + 单轮章数上限 + `AppConfig::auto_recompute_after_edit` 开关），挂载点 `story_system::scene_service::schedule_commit_and_split` 的 auto_commit 成功分支；`SceneCommitRepository::set_summary_source_hash` 在 `auto_commit` 落库。
+>
 > **v0.64.11**：**物料失效重算 / 关系归一 / 摘要可见**——V143 `story_material_staleness` + `story_system::recompute::{mark_stale, list_stale, recompute_from}`（章节摘要按当前正文、分层摘要与全书纲要删旧重建、快照重写、`relation_retract::audit_unsupported_relations` 入质量债），`update_scene` 编辑即标记；`db::relation_kind::RelationClass`（受控词表 + 位标志）+ V144 两列回填，接入 `beat_card::compile_conflict` 与 `continue_director::{rel_is_kin, rel_is_spouse}`；`story_system::relation_retract::retract_relations_for_scene` 按 `kg_relations.evidence` 摘证据/删行；`chapter_summary::summarize_chapter_with_quality` 与 `segment_summary::SegmentRefreshReport` 把总结类失败并入质量债。
 >
 > **v0.64.10**：**冲突阶梯**——`agency::beat_card::{ConflictStage, conflict_line, previous_conflict_line}` 四阶梯（加压→升级→结账→余波），`compile_beat_card_located_prev(pool, story_id, content, loc, previous_outline)` 以当前场景的 `outline_content`（上一拍卡块）为阶梯依据，Append / observe / 批量三条路径接入；`ConflictMove.stage` 驱动 `compile_change_delta` 的必须改变项；`agency::beat_state::{conflict_outcome_landed, conflict_repeats_prior}` 两条探针缺口（升级未兑现 / 对峙原地复述，后者用新增的 `utils::text::TextUtils::char_bigram_similarity`）。

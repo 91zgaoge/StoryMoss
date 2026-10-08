@@ -97,6 +97,19 @@ pub fn build_prompt(pool: Option<&DbPool>, chapter_number: i32, content: &str) -
     })
 }
 
+/// 正文指纹（FNV-1a 64 位，十六进制）：用于判断「这条摘要对应的正文有没有变」。
+///
+/// 比对的是**剥离编辑器标记后的文本**，避免只改 HTML 包裹导致误判重算。
+pub fn content_fingerprint(content: &str) -> String {
+    let plain = crate::utils::death_text::strip_editor_markup(content);
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in plain.trim().as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
 /// 摘要产出质量：决定要不要把「这段摘要其实是截断」记进质量债
 /// （v0.64.11：此前回退是静默的，真机第 9 章摘要为空、段摘要 0 行都没人知道）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,5 +267,19 @@ mod tests {
             .debt_detail(9)
             .unwrap()
             .contains("12 字符"));
+    }
+
+    #[test]
+    fn fingerprint_ignores_markup_but_detects_prose_change() {
+        let a = "<p>苏亦铁按住棺沿。</p><p>指节发白。</p>";
+        let b = "苏亦铁按住棺沿。\n\n指节发白。";
+        assert_eq!(
+            content_fingerprint(a),
+            content_fingerprint(b),
+            "只改 HTML 包裹不应算变"
+        );
+        let c = "<p>苏亦铁按住棺沿。</p><p>指节雪白。</p>";
+        assert_ne!(content_fingerprint(a), content_fingerprint(c));
+        assert_eq!(content_fingerprint("").len(), 16);
     }
 }

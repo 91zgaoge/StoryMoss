@@ -564,6 +564,22 @@ mod tests {
             "无模型时只应剩分层摘要待重算：{left:?}"
         );
 
+        // v0.64.12：指纹感知——第二轮重算不应再改任何摘要（正文没变）
+        let again = crate::story_system::recompute::recompute_from(&pool, &story_id, 9, None)
+            .await
+            .unwrap();
+        println!(
+            "[探针] 二轮重算（指纹感知）：重算 {} 条 / 未变 {} 条",
+            again.chapter_summaries, again.summaries_unchanged
+        );
+        assert_eq!(again.chapter_summaries, 0, "正文没变就不该再写摘要");
+        assert!(again.summaries_unchanged > 0);
+
+        // 自动触发判定：失效标记还在（分层摘要），刚提交第 12 章 → 应触发
+        let target = crate::story_system::recompute::should_auto_recompute(&pool, &story_id, 12);
+        println!("[探针] 自动重算判定（提交第12章）：{target:?}");
+        assert_eq!(target, Some(9), "应判定从第 9 章起重算");
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

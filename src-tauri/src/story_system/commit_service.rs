@@ -225,6 +225,14 @@ impl SceneCommitService {
         let entity_deltas_json =
             serde_json::to_string(&entity_deltas).unwrap_or_else(|_| "[]".to_string());
 
+        // v0.64.12：记下摘要对应的正文指纹——后续重算只处理指纹变了的章
+        let fingerprint = super::chapter_summary::content_fingerprint(content.unwrap_or(""));
+        let repo_commit = SceneCommitRepository::new(self.pool.clone());
+        if let Err(e) = repo_commit.set_summary_source_hash(story_id, chapter_number, &fingerprint)
+        {
+            log::warn!("[SceneCommitService] 记录摘要指纹失败（非阻塞）: {e}");
+        }
+
         self.apply_commit(
             &commit.id,
             &outline_snapshot_json,

@@ -1153,6 +1153,7 @@ pub mod V141__merge_same_person_characters;
 pub mod V142__character_life_status;
 pub mod V143__story_material_staleness;
 pub mod V144__relationship_kind_normalization;
+pub mod V145__summary_source_hash;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1243,5 +1244,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V142__character_life_status::Migration),
         Box::new(V143__story_material_staleness::Migration),
         Box::new(V144__relationship_kind_normalization::Migration),
+        Box::new(V145__summary_source_hash::Migration),
     ]
 }

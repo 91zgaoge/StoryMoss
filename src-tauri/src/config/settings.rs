@@ -226,6 +226,10 @@ pub struct AppConfig {
     pub tool_temperature: Option<f32>,
     #[serde(default)]
     pub agent_mappings: HashMap<String, AgentMapping>,
+    /// v0.64.12：编辑旧章后自动后台重算受影响物料（默认开）。
+    /// 关掉则只记失效标记，作者在运行维护页手动重算。
+    #[serde(default = "default_auto_recompute_after_edit")]
+    pub auto_recompute_after_edit: bool,
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
     #[serde(default = "default_concurrency")]
     pub book_deconstruction_concurrency: usize,
@@ -430,6 +434,10 @@ fn default_rewrite_threshold() -> f32 {
 
 fn default_max_feedback_loops() -> u32 {
     2
+}
+
+fn default_auto_recompute_after_edit() -> bool {
+    true
 }
 
 fn default_concurrency() -> usize {
@@ -1078,6 +1086,7 @@ impl Default for AppConfig {
             continuation_temperature: None,
             tool_temperature: None,
             agent_mappings,
+            auto_recompute_after_edit: true,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,

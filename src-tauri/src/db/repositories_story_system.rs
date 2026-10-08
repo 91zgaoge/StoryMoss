@@ -264,6 +264,24 @@ impl SceneCommitRepository {
         )
     }
 
+    /// v0.64.12：记录「这条摘要对应的正文指纹」，重算时据此只重算真正改过的章。
+    pub fn set_summary_source_hash(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        hash: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE scene_commits SET summary_source_hash = ?3 \
+             WHERE story_id = ?1 AND chapter_number = ?2",
+            params![story_id, chapter_number, hash],
+        )
+    }
+
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<SceneCommit>, rusqlite::Error> {
         let conn = self
             .pool

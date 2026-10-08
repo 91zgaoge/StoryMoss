@@ -573,6 +573,15 @@ impl SceneService {
                             // 章补一段段摘要，
                             // 段数足够时重算全书纲要（后台，受全局闸门约束）。
                             crate::story_system::segment_summary::spawn_refresh_after_commit(
+                                app_for_seg.clone(),
+                                pool_for_seg.clone(),
+                                story_for_seg.clone(),
+                                chapter_number,
+                            );
+                            // v0.64.12：本故事若有「自第 N 章起失效」的物料，
+                            // 提交防抖之后自动后台重算（指纹感知：
+                            // 只重算真改过的章）
+                            crate::story_system::recompute::spawn_auto_recompute_if_stale(
                                 app_for_seg,
                                 pool_for_seg,
                                 story_for_seg,

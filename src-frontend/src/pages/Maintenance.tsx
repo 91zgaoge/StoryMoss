@@ -188,8 +188,9 @@ function StaleSection({ storyId }: SectionProps) {
     <div className="space-y-2" data-testid="maintenance-stale">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-cinema-700 bg-cinema-800/40 p-3">
         <div className="text-xs text-ai-ink-2 leading-relaxed">
-          下列物料是从旧正文推出来的，编辑后不会自动重算。重算会按当前正文重写第 {fromChapter}{' '}
-          章及以后的章节摘要、分层摘要与全书纲要、连续性快照。
+          下列物料是从旧正文推出来的。编辑章节后系统会在保存（防抖 30 秒）后自动重算，
+          且只重写正文真正变过的章；这里也可以在需要时手动重算第 {fromChapter} 章及以后的
+          章节摘要、分层摘要与全书纲要、连续性快照。
         </div>
         <ActionButton
           onClick={handleRecompute}
