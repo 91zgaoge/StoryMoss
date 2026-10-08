@@ -161,6 +161,14 @@ pub fn probe_increment_ex(
             ));
         }
     }
+    // v0.64.10：卡要求升级/结账时，不得把上一次交锋换个说法再演一遍
+    if card.conflict_move.stage.requires_advance()
+        && conflict_repeats_prior(increment, prior_tail, &card.conflict_move.parties)
+    {
+        probe
+            .gaps
+            .push("冲突原地复述：本拍必须推进或结账，不得重演上一次交锋".into());
+    }
     if story_format == "short_drama" {
         let has_heading = increment.contains("内景") || increment.contains("外景");
         if !has_heading {
@@ -168,6 +176,90 @@ pub fn probe_increment_ex(
         }
     }
     probe
+}
+
+/// 增量里是否有句子与「前文」高度相似（同一场对峙换个说法重写）。
+///
+/// 只比涉及冲突当事人或对抗动词的句子；相似度用字符 bigram Jaccard，
+/// 阈值 0.62（真机重演段落实测 0.6+，正常续写在 0.2 以下）。
+pub fn conflict_repeats_prior(increment: &str, prior_tail: &str, parties: &[String]) -> bool {
+    if increment.trim().is_empty() || prior_tail.trim().is_empty() {
+        return false;
+    }
+    const CONFRONT_VERBS: &[&str] = &[
+        "对峙", "对撞", "逼", "拦", "抓住", "扣住", "按住", "盯着", "迎上", "拔", "出手", "动手",
+        "挡住", "横在", "顶", "质问", "冷笑", "退后", "上前",
+    ];
+    let relevant = |sent: &str| -> bool {
+        parties
+            .iter()
+            .any(|p| !p.is_empty() && sent.contains(p.as_str()))
+            || CONFRONT_VERBS.iter().any(|v| sent.contains(v))
+    };
+    let sentences = |text: &str| -> Vec<String> {
+        text.split(['。', '！', '？', '\n'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.chars().count() >= 12 && relevant(s))
+            .collect()
+    };
+    let inc = sentences(increment);
+    if inc.is_empty() {
+        return false;
+    }
+    let prior = sentences(prior_tail);
+    if prior.is_empty() {
+        return false;
+    }
+    inc.iter().any(|a| {
+        prior
+            .iter()
+            .any(|b| crate::utils::text::TextUtils::char_bigram_similarity(a, b) >= 0.62)
+    })
+}
+
+/// 该级要求升级/结账时，增量是否写出了可见代价或不可逆结果。
+pub fn conflict_outcome_landed(increment: &str) -> bool {
+    const OUTCOMES: &[&str] = &[
+        "失去",
+        "丢掉",
+        "失了",
+        "让出",
+        "交出",
+        "押上",
+        "抵押",
+        "撕破",
+        "决裂",
+        "翻脸",
+        "离场",
+        "离开",
+        "退走",
+        "出城",
+        "逐出",
+        "赶出",
+        "擒",
+        "押下",
+        "关进",
+        "锁上",
+        "公开",
+        "摊开",
+        "亮出",
+        "认输",
+        "让步",
+        "跪下",
+        "卸下",
+        "夺走",
+        "拿走",
+        "带走",
+        "拔刀",
+        "见血",
+        "死了",
+        "断气",
+        "落定",
+        "收网",
+        "尘埃落定",
+        "无可挽回",
+    ];
+    OUTCOMES.iter().any(|m| increment.contains(m))
 }
 
 fn probe_increment_core(
@@ -194,6 +286,22 @@ fn probe_increment_core(
         let verb = crate::agency::continue_assets::has_conflict_verb(increment);
         if !living_parties.is_empty() && !one_living && !verb {
             gaps.push("未落实冲突加压".into());
+        }
+    }
+    // v0.64.10：卡已要求升级/结账时，「又一次同席对峙」不算推进——必须有
+    // 可见代价或不可逆结果（否则重试；重试后仍在则入质量债）。
+    if card.conflict_move.stage.requires_advance() {
+        let living_parties: Vec<&String> = card
+            .conflict_move
+            .parties
+            .iter()
+            .filter(|p| !card.dead.iter().any(|d| d == *p))
+            .collect();
+        let involved = living_parties
+            .iter()
+            .any(|p| matched.iter().any(|n| n == *p));
+        if involved && !conflict_outcome_landed(increment) {
+            gaps.push("冲突未升级：本拍必须写出可见代价或不可逆结果，不得只再对峙一次".into());
         }
     }
     if quota.contains(&QuotaItem::NewScene) {
@@ -313,6 +421,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["阿岩".into(), "林雪".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "怒".into(),
@@ -358,6 +467,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["苏亦铁".into(), "曹元佩".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "惊".into(),
@@ -406,6 +516,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["苏亦铁".into(), "景亲王".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "悲愤".into(),
@@ -456,6 +567,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["苏亦铁".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "悲".into(),
@@ -497,6 +609,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["阿岩".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "怒".into(),
@@ -588,5 +701,126 @@ mod tests {
             "gaps={:?}",
             headed.gaps
         );
+    }
+
+    fn staged_card(stage: crate::agency::beat_card::ConflictStage) -> SceneBeatCard {
+        SceneBeatCard {
+            cast: vec![CastMember {
+                name: "阿岩".into(),
+                purpose: "末段已在场".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: crate::agency::beat_card::conflict_line(stage, "阿岩", Some("林雪"), ""),
+                parties: vec!["阿岩".into(), "林雪".into()],
+                stage,
+            },
+            emotion_beat: EmotionBeat {
+                summary: "怒".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("夜宴厅".into()),
+            open_review_issues: vec![],
+            dead: vec![],
+            change_delta: ChangeDelta {
+                kind: ChangeKind::Risk,
+                summary: "加压".into(),
+            },
+        }
+    }
+
+    /// v0.64.10：卡要求升级时，「又一次同席对峙」不算推进 → 探针出缺口
+    #[test]
+    fn escalate_stage_flags_confrontation_without_outcome() {
+        let card = staged_card(crate::agency::beat_card::ConflictStage::Escalate);
+        let state = BeatState {
+            present: vec!["阿岩".into(), "林雪".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let increment =
+            "阿岩与林雪在廊下再次对峙，两人谁也不肯先开口。阿岩攥紧了拳头，林雪冷冷看着他。";
+        let probe = probe_increment_ex(increment, &card, &state, &[], None, "", "novel");
+        assert!(
+            probe.gaps.iter().any(|g| g.contains("冲突未升级")),
+            "gaps={:?}",
+            probe.gaps
+        );
+
+        // 写出可见代价/不可逆结果 → 不再报
+        let landed = "阿岩把铜印按进火里，失去右手虎口；林雪当场撕破脸，宣布断交退走。";
+        let probe = probe_increment_ex(landed, &card, &state, &[], None, "", "novel");
+        assert!(
+            !probe.gaps.iter().any(|g| g.contains("冲突未升级")),
+            "gaps={:?}",
+            probe.gaps
+        );
+    }
+
+    /// 加压级不要求代价（首拍就是摊牌，别把正常开场判成缺口）
+    #[test]
+    fn press_stage_does_not_demand_outcome() {
+        let card = staged_card(crate::agency::beat_card::ConflictStage::Press);
+        let state = BeatState {
+            present: vec!["阿岩".into(), "林雪".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let probe = probe_increment_ex(
+            "阿岩与林雪在廊下正面对峙，两人谁也不肯先开口。",
+            &card,
+            &state,
+            &[],
+            None,
+            "",
+            "novel",
+        );
+        assert!(
+            !probe.gaps.iter().any(|g| g.contains("冲突未升级")),
+            "gaps={:?}",
+            probe.gaps
+        );
+    }
+
+    /// v0.64.10：卡要求升级时，把上一次交锋换个说法再演 → 判「冲突原地复述」
+    #[test]
+    fn conflict_repeat_against_prior_tail_is_flagged() {
+        let prior = "明成公主往前迈了一步，苏亦铁转过身，两人的目光在穿堂里撞上。\
+                     苏亦铁按住棺沿，指节发白。";
+        let repeat = "明成公主往前迈了一步，苏亦铁转过身，两人目光在穿堂中撞上。";
+        assert!(conflict_repeats_prior(
+            repeat,
+            prior,
+            &["明成公主".to_string(), "苏亦铁".to_string()]
+        ));
+
+        let card = staged_card(crate::agency::beat_card::ConflictStage::Settle);
+        let state = BeatState {
+            present: vec!["阿岩".into(), "林雪".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        // 探针按卡上的当事人判定（阿岩/林雪）
+        let prior_own = "阿岩往前迈了一步，林雪转过身，两人的目光在穿堂里撞上。\
+                         林雪按住棺沿，指节发白。";
+        let repeat_own = "阿岩往前迈了一步，林雪转过身，两人目光在穿堂中撞上。";
+        let probe = probe_increment_ex(repeat_own, &card, &state, &[], None, prior_own, "novel");
+        assert!(
+            probe.gaps.iter().any(|g| g.contains("冲突原地复述")),
+            "gaps={:?}",
+            probe.gaps
+        );
+
+        // 全新的推进不会误报
+        let fresh = "苏福贵把名册塞进棺缝，曹元佩扣死棺盖，船队顺水下滩，两人再无话。";
+        assert!(!conflict_repeats_prior(
+            fresh,
+            prior,
+            &["明成公主".to_string(), "苏亦铁".to_string()]
+        ));
     }
 }

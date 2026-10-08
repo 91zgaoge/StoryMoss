@@ -759,6 +759,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["阿岩".into(), "林雪".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "怒".into(),
@@ -846,6 +847,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["阿岩".into(), "林雪".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "怒".into(),

@@ -101,6 +101,7 @@ fn minimal_card() -> SceneBeatCard {
         conflict_move: ConflictMove {
             action: "加压".into(),
             parties: vec!["苏亦铁".into()],
+            stage: crate::agency::beat_card::default_conflict_stage(),
         },
         emotion_beat: EmotionBeat {
             summary: "怒".into(),

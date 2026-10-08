@@ -11,7 +11,7 @@ use tauri::AppHandle;
 
 use crate::{
     agency::{
-        beat_card::{compile_beat_card_located, SceneBeatCard, CURRENT_SCENE_OUTLINE_MARK},
+        beat_card::{SceneBeatCard, CURRENT_SCENE_OUTLINE_MARK},
         board::BlackboardService,
         budget::{AgencyBudget, DEFAULT_RUN_TOKEN_BUDGET},
         continue_loop::{
@@ -168,7 +168,14 @@ pub fn apply_observe_writer(
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::from("观察：场景不存在"))?;
     let loc = scene.setting_location.clone();
-    let card = compile_beat_card_located(pool, story_id, content, loc.as_deref())?;
+    // v0.64.10：把上一拍的卡块交给冲突阶梯（同一对峙不得连拍复述）
+    let card = crate::agency::beat_card::compile_beat_card_located_prev(
+        pool,
+        story_id,
+        content,
+        loc.as_deref(),
+        scene.outline_content.as_deref(),
+    )?;
     let outline = merge_current_scene_outline(
         scene.outline_content.as_deref(),
         &card.render_scene_outline(),

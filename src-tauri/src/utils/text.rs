@@ -74,6 +74,35 @@ impl TextUtils {
         dialogues
     }
 
+    /// 中文字符 bigram Jaccard 相似度（0.0-1.0）。
+    ///
+    /// `similarity` 是按空白切词的，中文整句会退化成「一个词 → 0/1」；
+    /// 判「同一场对峙是不是换个说法又写了一遍」需要字符级度量。
+    /// 句长不足 2 字时退化为字符集合比较。
+    pub fn char_bigram_similarity(a: &str, b: &str) -> f32 {
+        fn bigrams(text: &str) -> std::collections::HashSet<(char, char)> {
+            let chars: Vec<char> = text
+                .chars()
+                .filter(|c| !c.is_whitespace() && !"．，。！？；：、「」（）".contains(*c))
+                .collect();
+            if chars.len() < 2 {
+                return chars.into_iter().map(|c| (c, '\0')).collect();
+            }
+            chars.windows(2).map(|w| (w[0], w[1])).collect()
+        }
+        let (ga, gb) = (bigrams(a), bigrams(b));
+        if ga.is_empty() || gb.is_empty() {
+            return 0.0;
+        }
+        let inter = ga.intersection(&gb).count() as f32;
+        let union = ga.union(&gb).count() as f32;
+        if union == 0.0 {
+            0.0
+        } else {
+            inter / union
+        }
+    }
+
     pub fn similarity(a: &str, b: &str) -> f32 {
         let a_words: std::collections::HashSet<&str> = a.split_whitespace().collect();
         let b_words: std::collections::HashSet<&str> = b.split_whitespace().collect();
@@ -1222,5 +1251,23 @@ mod tests {
             TextUtils::merge_leading_closing_punct_paragraphs(input),
             input
         );
+    }
+
+    #[test]
+    fn char_bigram_similarity_flags_near_repeat_but_not_new_scene() {
+        // 换一种说法重演同一场对峙 → 相似度高
+        let a = "明成公主往前迈了一步，苏亦铁转过身，两人的目光在穿堂里撞上。";
+        let b = "明成公主往前迈了一步，苏亦铁转过身，两人目光在穿堂中撞上。";
+        assert!(
+            TextUtils::char_bigram_similarity(a, b) > 0.6,
+            "{}",
+            TextUtils::char_bigram_similarity(a, b)
+        );
+        // 另一场戏 → 相似度低
+        let c = "苏福贵把名册塞进棺缝，曹元佩扣死棺盖，船队顺水下滩。";
+        assert!(TextUtils::char_bigram_similarity(a, c) < 0.2);
+        // 空/单字不 panic
+        assert_eq!(TextUtils::char_bigram_similarity("", a), 0.0);
+        assert_eq!(TextUtils::char_bigram_similarity("甲", "甲"), 1.0);
     }
 }

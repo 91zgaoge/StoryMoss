@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1738 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
+- `cargo test -p storymoss` ✅ 1745 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 607 passed / 3 skipped（+3 人物页生死徽标与改判）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.10 - 冲突升级/衰减（同一对峙不得连拍复述）
+
+**真机**：`compile_conflict` 每拍从静态敌意关系返回同一句「加压：甲 与 乙 正面对峙」，模型因此每拍都写同一场对峙（v0.64.9 修掉自注入后剩下的最后一条）。**修复**：`ConflictStage` 四阶梯（加压→升级→结账→余波），位置从**上一拍卡块**的 `冲突：` 行关键词推进；新增 `compile_beat_card_located_prev` 并接线 Append / observe / 批量三条路径；上一对写到余波则轮换到别的对峙对；探针两条缺口入质量债——「冲突未升级」（要求升级/结账却只再对峙一次，`conflict_outcome_landed` 检查代价/不可逆结果）与「冲突原地复述」（涉事句子与前文 bigram 相似度 ≥0.62，新增 `TextUtils::char_bigram_similarity`）；必须改变项随阶梯（Risk/Relationship/Goal）。
+
+- **验证**：`cargo test --lib` 1745 passed / 4 ignored（+7）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：真机第 10 章正文连编译两拍 = Press → Escalate，文本不同、阶梯推进。
+- **契约**：`conflict_ladder_advances_and_never_repeats_consecutive_line`；`previous_conflict_line_reads_card_block`；`conflict_line_rungs_are_distinct`；`escalate_stage_flags_confrontation_without_outcome`；`press_stage_does_not_demand_outcome`；`conflict_repeat_against_prior_tail_is_flagged`；`char_bigram_similarity_flags_near_repeat_but_not_new_scene`。
+- **未关闭**：阶梯状态存在卡块里（一拍一格），作者手删对峙不会自动回退；已写的第 10–13 章重演段落仍在正文（需作者重写）。
 
 ### v0.64.9 - 续写重演修复 + 投影 writer 恢复落库
 

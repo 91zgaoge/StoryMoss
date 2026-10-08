@@ -411,6 +411,10 @@ mod tests {
             !card.cast.iter().any(|c| c.name == "明成公主"),
             "已死的明成公主不得进 cast"
         );
+        // 冲突阶梯：先留住第一拍的信息（card 变量后面会被角色卡复用）
+        let first_line = card.conflict_move.action.clone();
+        let first_stage = card.conflict_move.stage;
+        let first_block = card.render_scene_outline();
 
         let bundle = crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
             &pool, &story_id, 11, None, None, None,
@@ -468,6 +472,30 @@ mod tests {
             .unwrap();
         println!("[探针] 投影后 memory_items（state+entity）行数: {rows}");
         assert!(rows > 0, "投影必须真的落下记忆行");
+
+        // v0.64.10：冲突阶梯——把第一拍的卡块当上一拍再编译，第二拍必须换级
+        // （不得是同一句「加压：甲 与 乙 正面对峙」）
+        let second = crate::agency::beat_card::compile_beat_card_located_prev(
+            &pool,
+            &story_id,
+            &content,
+            None,
+            Some(&first_block),
+        )
+        .expect("第二次编译本拍卡");
+        println!(
+            "[探针] 冲突阶梯：第1拍({:?}) {} → 第2拍({:?}) {}",
+            first_stage, first_line, second.conflict_move.stage, second.conflict_move.action
+        );
+        assert_ne!(
+            second.conflict_move.action, first_line,
+            "同一对峙不得连拍同一句"
+        );
+        assert_ne!(
+            second.conflict_move.stage,
+            crate::agency::beat_card::default_conflict_stage(),
+            "第二拍必须已在阶梯上推进"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

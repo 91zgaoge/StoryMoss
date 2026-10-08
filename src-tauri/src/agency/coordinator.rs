@@ -4489,18 +4489,23 @@ impl AgencyCoordinator {
                 let content_for_card = content_for_card.clone();
                 let scene_id_owned = scene_id_owned.clone();
                 move || {
-                    let loc = scene_id_owned.as_ref().and_then(|id| {
+                    // v0.64.10：同一行读出 location 与 outline_content——
+                    // 后者即上一拍卡块，冲突阶梯据此升级/衰减
+                    let scene_row = scene_id_owned.as_ref().and_then(|id| {
                         SceneRepository::new(pool.clone())
                             .get_by_id(id)
                             .ok()
                             .flatten()
-                            .and_then(|s| s.setting_location)
                     });
-                    let card = crate::agency::beat_card::compile_beat_card_located(
+                    let loc = scene_row.as_ref().and_then(|s| s.setting_location.clone());
+                    let card = crate::agency::beat_card::compile_beat_card_located_prev(
                         &pool,
                         &sid,
                         &content_for_card,
                         loc.as_deref(),
+                        scene_row
+                            .as_ref()
+                            .and_then(|s| s.outline_content.as_deref()),
                     )?;
                     Ok((load_continue_context_parts(&pool, &sid), card))
                 }
@@ -5017,17 +5022,19 @@ impl AgencyCoordinator {
                 let sid = sid.clone();
                 move || {
                     let parts = load_continue_context_parts(&pool, &sid);
-                    let latest = parts
+                    let latest_scene = parts
                         .as_ref()
-                        .and_then(|p| {
-                            p.scenes
-                                .iter()
-                                .max_by_key(|s| s.sequence_number)
-                                .and_then(|s| s.content.clone())
-                        })
+                        .and_then(|p| p.scenes.iter().max_by_key(|s| s.sequence_number));
+                    let latest = latest_scene
+                        .and_then(|s| s.content.clone())
                         .unwrap_or_default();
-                    let card = crate::agency::beat_card::compile_beat_card_located(
-                        &pool, &sid, &latest, None,
+                    // v0.64.10：批量续写同样按上一拍卡块推进冲突阶梯
+                    let card = crate::agency::beat_card::compile_beat_card_located_prev(
+                        &pool,
+                        &sid,
+                        &latest,
+                        None,
+                        latest_scene.and_then(|s| s.outline_content.as_deref()),
                     )?;
                     Ok((parts, card, latest))
                 }

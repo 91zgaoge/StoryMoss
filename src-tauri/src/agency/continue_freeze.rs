@@ -74,6 +74,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: String::new(),
                 parties: vec![],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: String::new(),

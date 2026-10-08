@@ -23,6 +23,119 @@ pub struct CastMember {
 pub struct ConflictMove {
     pub action: String,
     pub parties: Vec<String>,
+    /// v0.64.10：本拍在对峙阶梯上的位置（同一对峙不得连拍复述，
+    /// 逐拍升级后转余波）
+    pub stage: ConflictStage,
+}
+
+/// 冲突推进阶梯：连续两拍不得是同一条对峙指令。
+///
+/// 真机《帝国的烟火》第 11-13 章重演的另一个成因：`compile_conflict` 每拍都
+/// 从静态敌意关系里返回同一句「加压：甲 与 乙
+/// 正面对峙」，模型于是每拍都写同一场 对峙。阶梯按上一拍的卡块（`冲突：`
+/// 行的关键词）推进： 加压 → 升级（必须付出代价）→ 结账（不可逆结果）→
+/// 余波（只写后果与新目标）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictStage {
+    /// 首次对峙：压力上场
+    Press,
+    /// 升级：必须付出可见代价，禁止换说法复述上一次交锋
+    Escalate,
+    /// 结账：必须出现不可逆结果
+    Settle,
+    /// 余波：交锋已落定，只写后果与新目标
+    Aftermath,
+}
+
+impl ConflictStage {
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::Press => "加压",
+            Self::Escalate => "升级",
+            Self::Settle => "结账",
+            Self::Aftermath => "余波",
+        }
+    }
+
+    /// 从关键词（上一拍 `冲突：` 行的前缀）还原阶梯位置；认不出视为首次。
+    pub fn from_keyword(line: &str) -> Self {
+        let t = line.trim();
+        if t.starts_with("余波") {
+            Self::Aftermath
+        } else if t.starts_with("结账") {
+            Self::Settle
+        } else if t.starts_with("升级") {
+            Self::Escalate
+        } else {
+            Self::Press
+        }
+    }
+
+    /// 下一拍应推进到哪一级（余波封顶，不再升级）。
+    pub fn next(self) -> Self {
+        match self {
+            Self::Press => Self::Escalate,
+            Self::Escalate => Self::Settle,
+            Self::Settle | Self::Aftermath => Self::Aftermath,
+        }
+    }
+
+    /// 该级要求本拍出现实质推进（探针据此检查增量是否只在对峙）。
+    pub fn requires_advance(self) -> bool {
+        matches!(self, Self::Escalate | Self::Settle)
+    }
+}
+
+pub fn default_conflict_stage() -> ConflictStage {
+    ConflictStage::Press
+}
+
+/// 生成某一级的对峙指令。`pair` 为 None 时用「本场仍在场者」的泛化句式。
+pub fn conflict_line(stage: ConflictStage, a: &str, b: Option<&str>, names: &str) -> String {
+    match (stage, b) {
+        (ConflictStage::Press, Some(b)) => {
+            format!("加压：{a} 与 {b} 正面对峙，赌注未解，不得只靠对话过渡。")
+        }
+        (ConflictStage::Escalate, Some(b)) => format!(
+            "升级：{a} 与 {b} 的对峙必须付出可见代价（失去筹码、撕破脸或第三方介入），\
+             不得再同席复述上一次交锋。"
+        ),
+        (ConflictStage::Settle, Some(b)) => format!(
+            "结账：{a} 与 {b} 的对峙本拍必须出现不可逆结果（决裂、一方离场或真相公开），\
+             不得换一种说法重演。"
+        ),
+        (ConflictStage::Aftermath, Some(b)) => {
+            format!("余波：{a} 与 {b} 的交锋已经落定，本拍只写后果与新目标，禁止再写两人对峙。")
+        }
+        (ConflictStage::Press, None) => {
+            format!("{names} 必须在本拍与阻力正面对峙，不得只靠对话过渡。")
+        }
+        (ConflictStage::Escalate, None) => {
+            format!(
+                "{names} 本拍要改变力量格局（筹码易手、有人被迫让步），不得重复上一拍的对抗形式。"
+            )
+        }
+        (ConflictStage::Settle, None) => {
+            format!("{names} 本拍必须出现不可逆结果（决裂、离场或公开摊牌），不得换一种说法重演。")
+        }
+        (ConflictStage::Aftermath, None) => {
+            "余波：上一场冲突已经落定，本拍写后果与新目标，不得再写正面顶撞。".to_string()
+        }
+    }
+}
+
+/// 从上一拍的卡块（`scenes.outline_content`）取「冲突：」行。
+pub fn previous_conflict_line(outline: Option<&str>) -> Option<String> {
+    let text = outline?;
+    if !text.contains(CURRENT_SCENE_OUTLINE_MARK) {
+        return None;
+    }
+    text.lines().find_map(|l| {
+        l.trim()
+            .strip_prefix("冲突：")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +337,25 @@ pub fn compile_beat_card_located(
     current_content: &str,
     current_scene_location: Option<&str>,
 ) -> Result<SceneBeatCard, AppError> {
+    compile_beat_card_located_prev(
+        pool,
+        story_id,
+        current_content,
+        current_scene_location,
+        None,
+    )
+}
+
+/// v0.64.10：带**上一拍卡块**的编译入口。`previous_outline` = 当前场景保存着的
+/// `scenes.outline_content`（即上一拍的卡块），冲突阶梯据此推进——同一对峙不得
+/// 连拍复述，逐级升级后转余波。
+pub fn compile_beat_card_located_prev(
+    pool: &DbPool,
+    story_id: &str,
+    current_content: &str,
+    current_scene_location: Option<&str>,
+    previous_outline: Option<&str>,
+) -> Result<SceneBeatCard, AppError> {
     let chars = CharacterRepository::new(pool.clone())
         .get_by_story(story_id)
         .map_err(AppError::from)?;
@@ -297,7 +429,14 @@ pub fn compile_beat_card_located(
         });
     }
     cast.truncate(8);
-    let conflict_move = compile_conflict(&chars, &cast, pool, story_id, protagonist);
+    let conflict_move = compile_conflict(
+        &chars,
+        &cast,
+        pool,
+        story_id,
+        protagonist,
+        previous_conflict_line(previous_outline).as_deref(),
+    );
     let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist);
     let next_outline_node = compile_next_node(pool, story_id, current_content);
     let change_delta = compile_change_delta(&conflict_move, &next_outline_node, &emotion_beat);
@@ -339,6 +478,7 @@ pub(crate) fn compile_conflict(
     pool: &DbPool,
     story_id: &str,
     protagonist: &str,
+    previous_conflict: Option<&str>,
 ) -> ConflictMove {
     let cast_names: Vec<&str> = cast.iter().map(|c| c.name.as_str()).collect();
     let rels = CharacterRelationshipRepository::new(pool.clone())
@@ -347,6 +487,7 @@ pub(crate) fn compile_conflict(
     const HOSTILE: &[&str] = &[
         "仇", "敌", "对立", "背叛", "欺骗", "复仇", "恨", "enemy", "rival", "conflict",
     ];
+    let mut pairs: Vec<(String, String)> = Vec::new();
     for r in &rels {
         let ty = r.relationship_type.to_lowercase();
         let bond = r.emotional_bond.as_deref().unwrap_or("");
@@ -363,20 +504,70 @@ pub(crate) fn compile_conflict(
         if !cast_names.contains(&src) || !cast_names.contains(&tgt) {
             continue;
         }
+        let pair = (src.to_string(), tgt.to_string());
+        if !pairs.iter().any(|p| p == &pair) {
+            pairs.push(pair);
+        }
+    }
+
+    // v0.64.10：同一对峙不得连拍复述。上一拍 `冲突：` 行点到的对峙对继续推进
+    // 一级（加压 → 升级 → 结账 → 余波）；到顶则轮换到别的对峙对（从「加压」
+    // 重新起步，避免换汤不换药地重演同一场）。
+    let prev = previous_conflict.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(pair) = pairs.iter().find(|(a, b)| {
+        prev.map(|p| p.contains(a.as_str()) && p.contains(b.as_str()))
+            .unwrap_or(false)
+    }) {
+        let stage = prev
+            .map(ConflictStage::from_keyword)
+            .unwrap_or(ConflictStage::Press);
+        if stage != ConflictStage::Aftermath {
+            let next = stage.next();
+            return ConflictMove {
+                action: conflict_line(next, &pair.0, Some(&pair.1), ""),
+                parties: vec![pair.0.clone(), pair.1.clone()],
+                stage: next,
+            };
+        }
+        // 该对峙已写到余波：换一对（若有）重新起冲突
+        if let Some(other) = pairs.iter().find(|(a, b)| !(*a == pair.0 && *b == pair.1)) {
+            return ConflictMove {
+                action: conflict_line(ConflictStage::Press, &other.0, Some(&other.1), ""),
+                parties: vec![other.0.clone(), other.1.clone()],
+                stage: ConflictStage::Press,
+            };
+        }
         return ConflictMove {
-            action: format!("加压：{src} 与 {tgt} 正面对峙，赌注未解，不得只靠对话过渡。"),
-            parties: vec![src.to_string(), tgt.to_string()],
+            action: conflict_line(ConflictStage::Aftermath, &pair.0, Some(&pair.1), ""),
+            parties: vec![pair.0.clone(), pair.1.clone()],
+            stage: ConflictStage::Aftermath,
         };
     }
+    if let Some((a, b)) = pairs.first() {
+        return ConflictMove {
+            action: conflict_line(ConflictStage::Press, a, Some(b), ""),
+            parties: vec![a.clone(), b.clone()],
+            stage: ConflictStage::Press,
+        };
+    }
+
     let parties: Vec<String> = cast.iter().take(2).map(|c| c.name.clone()).collect();
     let names = if parties.is_empty() {
         protagonist.to_string()
     } else {
         parties.join("、")
     };
+    // 泛化句式同样逐级推进：上一拍就是同一批人的对峙 → 升级
+    let stage = match prev {
+        Some(p) if parties.iter().all(|n| p.contains(n.as_str())) => {
+            ConflictStage::from_keyword(p).next()
+        }
+        _ => ConflictStage::Press,
+    };
     ConflictMove {
-        action: format!("{names} 必须在本拍与阻力正面对峙，不得只靠对话过渡。"),
+        action: conflict_line(stage, "", None, &names),
         parties,
+        stage,
     }
 }
 
@@ -386,11 +577,24 @@ pub(crate) fn compile_change_delta(
     emotion: &EmotionBeat,
 ) -> ChangeDelta {
     let action = conflict.action.as_str();
-    if action.contains("加压") || action.contains("对峙") || action.contains("赌注") {
-        let kind = if conflict.parties.len() >= 2 || action.contains("对峙") {
-            ChangeKind::Risk
-        } else {
-            ChangeKind::Relationship
+    // v0.64.10：必须改变项随冲突阶梯走——加压/升级是风险，结账改关系，
+    // 余波转目标（模型据此知道本拍该动哪根轴）。不是对峙指令时维持原语义：
+    // 依次回落到下一节点 / 情绪。
+    let is_conflict_line = conflict.parties.len() >= 2
+        || ["加压", "升级", "结账", "余波", "对峙", "赌注"]
+            .iter()
+            .any(|k| action.contains(k));
+    if is_conflict_line {
+        let kind = match conflict.stage {
+            ConflictStage::Press | ConflictStage::Escalate => {
+                if conflict.parties.len() >= 2 || action.contains("对峙") {
+                    ChangeKind::Risk
+                } else {
+                    ChangeKind::Relationship
+                }
+            }
+            ConflictStage::Settle => ChangeKind::Relationship,
+            ConflictStage::Aftermath => ChangeKind::Goal,
         };
         return ChangeDelta {
             kind,
@@ -889,6 +1093,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压：当众揭穿".into(),
                 parties: vec!["林雪".into(), "阿岩".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "林雪伤口=被抛弃".into(),
@@ -1137,7 +1342,7 @@ mod tests {
             name: "林雪".into(),
             purpose: "可沉默".into(),
         }];
-        let mv = compile_conflict(&chars, &cast, &pool, &sid, "林雪");
+        let mv = compile_conflict(&chars, &cast, &pool, &sid, "林雪", None);
         assert!(!mv.parties.iter().any(|p| p == "顾长夜"));
         assert!(!mv.action.contains("顾长夜"));
     }
@@ -1226,6 +1431,7 @@ mod tests {
             conflict_move: ConflictMove {
                 action: "加压".into(),
                 parties: vec!["林雪".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
             },
             emotion_beat: EmotionBeat {
                 summary: "怒".into(),
@@ -1498,5 +1704,94 @@ mod tests {
             next_node_from_scene_outline(&outline).as_deref(),
             Some("阿岩把断灯绳交给林雪，禁区的门开了")
         );
+    }
+
+    /// v0.64.10 真机契约：同一对峙不得连拍复述——阶梯逐拍推进
+    /// （加压 → 升级 → 结账 → 余波），相邻两拍文本不同。
+    #[test]
+    fn conflict_ladder_advances_and_never_repeats_consecutive_line() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        let chars = CharacterRepository::new(pool.clone())
+            .get_by_story(&sid)
+            .unwrap();
+        let cast = vec![
+            CastMember {
+                name: "阿岩".into(),
+                purpose: "可沉默".into(),
+            },
+            CastMember {
+                name: "顾长夜".into(),
+                purpose: "可沉默".into(),
+            },
+        ];
+
+        let first = compile_conflict(&chars, &cast, &pool, &sid, "阿岩", None);
+        assert_eq!(first.stage, ConflictStage::Press, "{}", first.action);
+        assert!(first.action.starts_with("加压："), "{}", first.action);
+
+        let mut prev = first.action.clone();
+        for expect in [
+            ConflictStage::Escalate,
+            ConflictStage::Settle,
+            ConflictStage::Aftermath,
+        ] {
+            let mv = compile_conflict(&chars, &cast, &pool, &sid, "阿岩", Some(&prev));
+            assert_eq!(mv.stage, expect, "prev={prev} got={}", mv.action);
+            assert_ne!(mv.action, prev, "相邻两拍不得同一句");
+            assert!(mv.action.starts_with(expect.keyword()), "{}", mv.action);
+            prev = mv.action.clone();
+        }
+        // 余波封顶：继续写也只是「禁止再写两人对峙」，不回退成加压
+        let again = compile_conflict(&chars, &cast, &pool, &sid, "阿岩", Some(&prev));
+        assert_eq!(again.stage, ConflictStage::Aftermath);
+        assert!(!again.action.starts_with("加压"), "{}", again.action);
+    }
+
+    /// 上一拍的卡块能被解析出「冲突：」行（阶梯据此推进）
+    #[test]
+    fn previous_conflict_line_reads_card_block() {
+        let block = "【当前场大纲】\n在场：阿岩、顾长夜\n冲突：升级：阿岩 与 顾长夜 的对峙必须付出可见代价（失去筹码、撕破脸或第三方介入），不得再同席复述上一次交锋。\n情感：怒\n";
+        let line = previous_conflict_line(Some(block)).expect("应解析出冲突行");
+        assert!(line.starts_with("升级"), "{line}");
+        assert_eq!(ConflictStage::from_keyword(&line), ConflictStage::Escalate);
+        assert!(previous_conflict_line(Some("无卡块")).is_none());
+        assert!(previous_conflict_line(None).is_none());
+    }
+
+    /// 四级指令文本互不相同（不换说法复述自己）
+    #[test]
+    fn conflict_line_rungs_are_distinct() {
+        let rungs: Vec<String> = [
+            ConflictStage::Press,
+            ConflictStage::Escalate,
+            ConflictStage::Settle,
+            ConflictStage::Aftermath,
+        ]
+        .iter()
+        .map(|s| conflict_line(*s, "甲", Some("乙"), ""))
+        .collect();
+        for i in 0..rungs.len() {
+            for j in (i + 1)..rungs.len() {
+                assert_ne!(rungs[i], rungs[j], "第{i}级与第{j}级不得同句");
+            }
+        }
+        // 泛化句式同样分四级
+        let generic: Vec<String> = [
+            ConflictStage::Press,
+            ConflictStage::Escalate,
+            ConflictStage::Settle,
+            ConflictStage::Aftermath,
+        ]
+        .iter()
+        .map(|s| conflict_line(*s, "", None, "甲、乙"))
+        .collect();
+        assert!(
+            generic[0].starts_with("甲、乙 必须在本拍"),
+            "{}",
+            generic[0]
+        );
+        assert!(generic[3].starts_with("余波"), "{}", generic[3]);
+        assert_ne!(generic[0], generic[1]);
     }
 }
