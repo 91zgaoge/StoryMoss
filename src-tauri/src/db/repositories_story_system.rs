@@ -575,6 +575,25 @@ impl MemoryItemRepository {
         .optional()
     }
 
+    /// Resolve an active KG entity name by id（关系类产物只有
+    /// id，落库时要有名字）。
+    pub fn lookup_kg_entity_name_by_id(
+        &self,
+        story_id: &str,
+        id: &str,
+    ) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.query_row(
+            "SELECT name FROM kg_entities WHERE story_id = ?1 AND id = ?2 LIMIT 1",
+            params![story_id, id],
+            |row| row.get(0),
+        )
+        .optional()
+    }
+
     pub fn create(
         &self,
         story_id: &str,

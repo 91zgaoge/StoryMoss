@@ -18,7 +18,7 @@ const RELEASE_BASE = "https://storymoss.top/releases";
 // v0.64.2：v0.64.0 于 2026-10-06 完整发布到 storymoss.top/releases
 // （latest.json=0.64.0，dmg/msi/AppImage/deb 全部 200）；兜底版本随发版同步
 // bump，保留策略保留最近 5 个版本。
-export const FALLBACK_VERSION = "0.64.8";
+export const FALLBACK_VERSION = "0.64.9";
 
 export type Platform = "mac" | "windows" | "linux";
 

@@ -426,6 +426,49 @@ mod tests {
             card.physical_state.as_deref().unwrap_or("")
         ));
 
+        // v0.64.9：投影 writer 必须吃得下真机 commit 产物（此前 state/index
+        // 一直报 missing field subject / entity_id，状态类记忆一条不落）。
+        use crate::story_system::projection_writers::{get_projection_writers, ProjectionWriter};
+        let commits: Vec<(i32, String)> = {
+            let conn = pool.get().unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT chapter_number, \
+                     json_object('state_deltas_json', COALESCE(state_deltas_json,''), \
+                                 'entity_deltas_json', COALESCE(entity_deltas_json,'')) \
+                     FROM scene_commits WHERE story_id = ?1 AND state_deltas_json IS NOT NULL \
+                     AND state_deltas_json NOT IN ('', '[]')",
+                )
+                .unwrap();
+            let rows = stmt.query_map([&story_id], |r| {
+                Ok((r.get::<_, i32>(0)?, r.get::<_, String>(1)?))
+            });
+            rows.unwrap().filter_map(Result::ok).collect()
+        };
+        assert!(!commits.is_empty(), "真机应有带状态增量的 commit");
+        let writers = get_projection_writers(pool.clone());
+        for (chapter, commit_json) in &commits {
+            for w in &writers {
+                if w.name() == "state" || w.name() == "index" {
+                    w.apply(&story_id, *chapter, commit_json)
+                        .unwrap_or_else(|e| {
+                            panic!("[探针] writer {} 第{}章仍失败: {e}", w.name(), chapter)
+                        });
+                }
+            }
+        }
+        let rows: i64 = pool
+            .get()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM memory_items WHERE story_id = ?1 AND category IN ('state','entity')",
+                [&story_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        println!("[探针] 投影后 memory_items（state+entity）行数: {rows}");
+        assert!(rows > 0, "投影必须真的落下记忆行");
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

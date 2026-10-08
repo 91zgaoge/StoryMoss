@@ -281,31 +281,17 @@ impl ProjectionWriter for StateProjectionWriter {
             _ => return Ok(true), // 无状态变更
         };
 
-        #[derive(Deserialize)]
-        struct StateDelta {
-            subject: String,
-            field: String,
-            old_value: Option<String>,
-            new_value: String,
-        }
-
-        let deltas: Vec<StateDelta> = serde_json::from_str(&deltas_str)?;
-
         let repo = MemoryItemRepository::new(self.pool.clone());
-        for delta in deltas {
-            let value = format!(
-                "{} -> {}",
-                delta.old_value.unwrap_or_else(|| "(无)".to_string()),
-                delta.new_value
-            );
-            repo.create(
+        for delta in normalize_delta_items(&deltas_str, &repo, story_id)? {
+            repo.create_with_kg_entity(
                 story_id,
                 "state",
                 Some(&delta.subject),
                 Some(&delta.field),
-                Some(&value),
+                Some(&delta.value),
                 Some(chapter_number),
                 0.95,
+                delta.kg_entity_id.as_deref(),
             )?;
         }
 
@@ -347,48 +333,185 @@ impl ProjectionWriter for IndexProjectionWriter {
             _ => return Ok(true),
         };
 
-        #[derive(Deserialize)]
-        struct EntityDelta {
-            entity_id: String,
-            entity_name: String,
-            action: String, // create | update | delete | appear
-            changes: Option<Vec<(String, String)>>,
-        }
-
-        let deltas: Vec<EntityDelta> = serde_json::from_str(&deltas_str)?;
-
         let repo = MemoryItemRepository::new(self.pool.clone());
-        for delta in deltas {
-            let value = match &delta.changes {
-                Some(changes) => changes
-                    .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                None => delta.action.clone(),
-            };
-
-            // Prefer explicit entity_id from commit; else match by name (V106
-            // link).
-            let kg_entity_id = if !delta.entity_id.is_empty() {
-                Some(delta.entity_id.clone())
-            } else {
-                repo.lookup_kg_entity_id_by_name(story_id, &delta.entity_name)?
-            };
-
+        for delta in normalize_delta_items(&deltas_str, &repo, story_id)? {
             repo.create_with_kg_entity(
                 story_id,
                 "entity",
-                Some(&delta.entity_name),
-                Some(&delta.action),
-                Some(&value),
+                Some(&delta.subject),
+                Some(&delta.field),
+                Some(&delta.value),
                 Some(chapter_number),
                 0.9,
-                kg_entity_id.as_deref(),
+                delta.kg_entity_id.as_deref(),
             )?;
         }
 
         Ok(true)
+    }
+}
+
+/// 归一后的 delta 项：任何形态都落成 (subject, field, value[, kg_entity_id])。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedDelta {
+    subject: String,
+    field: String,
+    value: String,
+    kg_entity_id: Option<String>,
+}
+
+/// 把提交产物里的 delta 项归一。
+///
+/// v0.64.9 真机事故：`state` / `index` 两个 writer 从上线起就一直报
+/// `missing field subject` / `missing field entity_id`（真机 projection 状态里
+/// 两条 error），因为它们的反序列化目标是**没有生产者**的历史形态；而
+/// `auto_commit` 实际写的是 KG 视图：
+/// - `state_deltas_json`：`[{id, name, entity_type, attributes}]`
+/// - `entity_deltas_json`：`[{id, source_id, target_id, relation_type,
+///   strength}]`
+/// 结果状态类记忆一条都没落进 `memory_items`（`category='state'` 计数为 0）。
+///
+/// 现在按字段识别形态，四种都收：
+/// 1. 键值形态 `{subject, field, old_value, new_value}`（历史形态，保留兼容）
+/// 2. 实体事件形态 `{entity_id, entity_name, action, changes}`（历史形态）
+/// 3. KG 关系视图 `{source_id, target_id, relation_type, strength}` →
+///    名字解析后落库
+/// 4. KG 实体视图 `{id, name, entity_type, attributes}` → 属性压成一行摘要
+fn normalize_delta_items(
+    deltas_str: &str,
+    repo: &MemoryItemRepository,
+    story_id: &str,
+) -> Result<Vec<NormalizedDelta>, AppError> {
+    let items: Vec<serde_json::Value> = serde_json::from_str(deltas_str)?;
+    let mut out = Vec::new();
+    for item in items {
+        if let Some(d) = normalize_one(&item, repo, story_id) {
+            out.push(d);
+        }
+    }
+    Ok(out)
+}
+
+fn normalize_one(
+    item: &serde_json::Value,
+    repo: &MemoryItemRepository,
+    story_id: &str,
+) -> Option<NormalizedDelta> {
+    let s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let name_of = |id: &str| {
+        repo.lookup_kg_entity_name_by_id(story_id, id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| id.to_string())
+    };
+
+    // 1) 键值形态
+    if let (Some(subject), Some(field)) = (s("subject"), s("field")) {
+        let new_value = s("new_value").unwrap_or_default();
+        let value = match s("old_value").filter(|v| !v.is_empty()) {
+            Some(old) => format!("{old} -> {new_value}"),
+            None => new_value,
+        };
+        return Some(NormalizedDelta {
+            subject,
+            field,
+            value,
+            kg_entity_id: None,
+        });
+    }
+
+    // 2) 实体事件形态
+    if let Some(entity_name) = s("entity_name") {
+        let action = s("action").unwrap_or_else(|| "update".into());
+        let value = item
+            .get("changes")
+            .and_then(|v| v.as_array())
+            .map(|rows| {
+                rows.iter()
+                    .map(|r| match r.as_array().filter(|a| a.len() >= 2) {
+                        Some(kv) => format!(
+                            "{}: {}",
+                            kv[0].as_str().unwrap_or(""),
+                            kv[1].as_str().unwrap_or("")
+                        ),
+                        None => String::new(),
+                    })
+                    .filter(|x| !x.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("；")
+            })
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| action.clone());
+        let kg_entity_id = s("entity_id").filter(|x| !x.is_empty()).or_else(|| {
+            repo.lookup_kg_entity_id_by_name(story_id, &entity_name)
+                .ok()
+                .flatten()
+        });
+        return Some(NormalizedDelta {
+            subject: entity_name,
+            field: action,
+            value,
+            kg_entity_id,
+        });
+    }
+
+    // 3) KG 关系视图（真机 entity_deltas_json 的实际形态）
+    if let (Some(source_id), Some(target_id)) = (s("source_id"), s("target_id")) {
+        let source = name_of(&source_id);
+        let target = name_of(&target_id);
+        let relation = s("relation_type").unwrap_or_else(|| "关系".into());
+        let strength = item.get("strength").and_then(|v| v.as_f64());
+        let value = match strength {
+            Some(x) => format!("→ {target}（强度 {x:.2}）"),
+            None => format!("→ {target}"),
+        };
+        return Some(NormalizedDelta {
+            subject: source,
+            field: relation,
+            value,
+            kg_entity_id: Some(source_id),
+        });
+    }
+
+    // 4) KG 实体视图（真机 state_deltas_json 的实际形态）
+    if let Some(name) = s("name") {
+        let entity_type = s("entity_type").unwrap_or_else(|| "entity".into());
+        let value = item
+            .get("attributes")
+            .map(compact_attributes)
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| entity_type.clone());
+        return Some(NormalizedDelta {
+            subject: name,
+            field: entity_type,
+            value,
+            kg_entity_id: s("id"),
+        });
+    }
+
+    None
+}
+
+/// 属性 JSON 压成一行「k=v；k=v」（跳过空值，按需截断）。
+fn compact_attributes(attrs: &serde_json::Value) -> String {
+    let Some(map) = attrs.as_object() else {
+        return attrs.to_string();
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for (k, v) in map {
+        let text = match v {
+            serde_json::Value::Null => continue,
+            serde_json::Value::String(s) if s.trim().is_empty() => continue,
+            serde_json::Value::String(s) => s.trim().to_string(),
+            other => other.to_string(),
+        };
+        parts.push(format!("{k}={text}"));
+    }
+    let joined = parts.join("；");
+    if joined.chars().count() > 800 {
+        joined.chars().take(800).collect::<String>()
+    } else {
+        joined
     }
 }
 
@@ -692,5 +815,138 @@ mod projection_routing_tests {
             "{summary}"
         );
         assert!(summary.contains("(chapter_content):off→[kg]"), "{summary}");
+    }
+
+    /// v0.64.9 真机契约：`state` / `index` 必须吃得下 `auto_commit` 实际写入的
+    /// KG 视图（此前报 missing field subject /
+    /// entity_id，状态类记忆一条不落）。
+    #[test]
+    fn state_and_index_writers_accept_real_kg_delta_shapes() {
+        let pool = create_test_pool().unwrap();
+        let story_id = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "投影形态".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id;
+        let (lady, man) = {
+            let repo = crate::db::CharacterRepository::new(pool.clone());
+            let a = repo
+                .create(crate::db::CreateCharacterRequest {
+                    story_id: story_id.clone(),
+                    name: "明成公主".into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            let b = repo
+                .create(crate::db::CreateCharacterRequest {
+                    story_id: story_id.clone(),
+                    name: "苏亦铁".into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            (a.id, b.id)
+        };
+
+        // 真机形态：state_deltas = KG 实体视图；entity_deltas = KG 关系视图
+        let commit = serde_json::json!({
+            "state_deltas_json": serde_json::json!([{
+                "id": lady,
+                "name": "明成公主",
+                "entity_type": "Character",
+                "attributes": {"status": "Dead", "location": "棺中", "mood": null},
+            }]).to_string(),
+            "entity_deltas_json": serde_json::json!([{
+                "id": "rel-1",
+                "source_id": lady,
+                "target_id": man,
+                "relation_type": "敌对",
+                "strength": 0.9,
+            }]).to_string(),
+        })
+        .to_string();
+
+        let state = StateProjectionWriter::new(pool.clone())
+            .apply(&story_id, 2, &commit)
+            .expect("state writer 必须吃得下 KG 实体视图");
+        assert!(state);
+        let index = IndexProjectionWriter::new(pool.clone())
+            .apply(&story_id, 2, &commit)
+            .expect("index writer 必须吃得下 KG 关系视图");
+        assert!(index);
+
+        let conn = pool.get().unwrap();
+        let state_rows: Vec<(String, String, String)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT COALESCE(subject,''), COALESCE(field,''), COALESCE(value,'') \
+                     FROM memory_items WHERE story_id = ?1 AND category = 'state'",
+                )
+                .unwrap();
+            let rows = stmt.query_map([&story_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)));
+            rows.unwrap().filter_map(Result::ok).collect()
+        };
+        assert_eq!(state_rows.len(), 1, "{state_rows:?}");
+        assert_eq!(state_rows[0].0, "明成公主");
+        assert!(state_rows[0].2.contains("status=Dead"), "{state_rows:?}");
+        assert!(
+            !state_rows[0].2.contains("mood"),
+            "空属性不得落库: {:?}",
+            state_rows[0]
+        );
+
+        let index_rows: Vec<(String, String, String)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT COALESCE(subject,''), COALESCE(field,''), COALESCE(value,'') \
+                     FROM memory_items WHERE story_id = ?1 AND category = 'entity'",
+                )
+                .unwrap();
+            let rows = stmt.query_map([&story_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)));
+            rows.unwrap().filter_map(Result::ok).collect()
+        };
+        assert_eq!(index_rows.len(), 1, "{index_rows:?}");
+        assert_eq!(index_rows[0].0, "明成公主");
+        assert_eq!(index_rows[0].1, "敌对");
+        assert!(index_rows[0].2.contains("苏亦铁"), "{index_rows:?}");
+    }
+
+    #[test]
+    fn legacy_key_value_delta_shape_still_supported() {
+        let pool = create_test_pool().unwrap();
+        let story_id = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "历史形态".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id;
+        let commit = serde_json::json!({
+            "state_deltas_json": "[{\"subject\":\"苏亦铁\",\"field\":\"location\",\"old_value\":\"大堂\",\"new_value\":\"古道\"}]",
+        })
+        .to_string();
+        StateProjectionWriter::new(pool.clone())
+            .apply(&story_id, 3, &commit)
+            .expect("键值形态继续兼容");
+        let conn = pool.get().unwrap();
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM memory_items WHERE story_id = ?1 AND category = 'state'",
+                [&story_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "大堂 -> 古道");
     }
 }

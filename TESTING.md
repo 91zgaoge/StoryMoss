@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.8)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.9)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.9 变更说明
+
+- **Rust +7（1738 passed / 4 ignored）**：`is_generic_next_node`、卡块不落库/不采信、
+  `chapter_plan_from_scene_outline`（卡块剥离 + 手写大纲保留）、`set_chapter_plan_prefix`、
+  章纲保留（`scene_fields_from_facts`）、投影形态 2（真机 KG + 历史键值）、探针扩展
+  （真机 commit 产物跑 state/index writer）。
+- **改造既有 1**：`test_run_continue_append_keeps_scene_and_releases_run` —— Append 首拍
+  多一次「新章补章纲」调用并落库，第二拍不再生成（断言 2 → 3 次调用 + 章纲前缀存在）。
 
 ### v0.64.8 变更说明
 

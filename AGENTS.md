@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1731 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
+- `cargo test -p storymoss` ✅ 1738 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 607 passed / 3 skipped（+3 人物页生死徽标与改判）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.9 - 续写重演修复 + 投影 writer 恢复落库
+
+**真机**：《帝国的烟火》第 11 章整场重演第 10 章（同样的穿堂、门板、名册对峙逐章再来）；`state` / `index` 两个投影 writer 从上线起一直报 schema 错，状态类记忆一条都没进 `memory_items`。**重演四段根因**：①节拍卡块（在场/冲突/情感/下一拍）写进 `scenes.outline_content` 后又被当「本章大纲」回灌（幕前 Append 永不生成章纲）；②`scene_fields_from_facts` 的 `_existing_outline` 参数**从未使用**，新建章刚生成的章纲被卡块覆盖丢弃；③方法论兜底句被写进「下一拍：」槽位并被 `next_node_from_scene_outline` 当计划逐拍复制；④自动分章出的新章从不触发章纲生成，只有近文阵容 + 静态敌对关系（`compile_conflict` 命中第一条即同一句「正面对峙」）。**修复**：F1 章纲合并（卡块并入、前缀保留）；F2 `is_generic_next_node`——兜底句不落库不采信；F3 `chapter_plan_from_scene_outline` 只剥卡块形态（手写/刷新出的真实场景大纲整段保留）；F4 `needs_plan` 时 Append 也补生成章纲并落库为前缀（`set_chapter_plan_prefix`，下一拍不重复生成）。**投影修复**：`normalize_delta_items` 兼容四种 delta 形态（键值/实体事件/KG 关系/KG 实体），关系与实体解析名字后落库；`MemoryItemRepository::lookup_kg_entity_name_by_id`。
+
+- **验证**：`cargo test --lib` 1738 passed / 4 ignored（+7，改造既有 1）；vitest 607 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）扩展：真机 commit 产物跑两个 writer 全部成功，落 250 行记忆。
+- **契约**：`generic_next_node_is_recognized_but_real_plan_is_not`；`generic_next_node_is_neither_persisted_nor_adopted`；`chapter_plan_ignores_beat_card_block`；`set_chapter_plan_prefix_keeps_card_block`；`card_write_keeps_chapter_plan_prefix`；`state_and_index_writers_accept_real_kg_delta_shapes`；`legacy_key_value_delta_shape_still_supported`。
+- **未关闭**：已写的第 10–13 章重演段落仍在正文（需作者重写）；`compile_conflict` 冲突升级/衰减留待后续。
 
 ### v0.64.8 - 称号幻影行随死者一并排除（v0.64.7 收尾）
 

@@ -1203,7 +1203,11 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
 
     let beat1 = pass_grade_content("第一拍增量：雨巷对峙。");
     let beat2 = pass_grade_content("第二拍增量：林雪归来。");
-    let mock = MockLlm::scripted(vec![beat1.as_str(), beat2.as_str()]);
+    // v0.64.9：本章此前没有章纲 → 第一拍顺带生成章纲（一次 Analysis 调用），
+    // 落库为「章纲前缀」后第二拍不再生成。
+    let chapter_plan = "本章大纲：阿苔在雨巷逼问断灯绳的下落，林雪归来揭开星环坐标；\
+                        中段让阿苔付出代价交出一枚铜钱，结尾以陆离退走、星环方向确认收束本章。";
+    let mock = MockLlm::scripted(vec![chapter_plan, beat1.as_str(), beat2.as_str()]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
     let r1 = coordinator
         .run_continue(
@@ -1238,8 +1242,23 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
     );
     assert_eq!(
         mock.calls.lock().unwrap().len(),
-        1,
-        "主创默认单次 complete；测试环境不得再抽 mock 做收尾摘要"
+        2,
+        "第一拍 = 章纲（v0.64.9 新章补方向）+ 本拍正文；不得再抽 mock 做收尾摘要"
+    );
+    // 章纲必须落库为前缀（卡块保留），否则下一拍又会重新生成
+    let saved_outline = scene_repo
+        .get_by_id(&ch1.id)
+        .unwrap()
+        .unwrap()
+        .outline_content
+        .unwrap_or_default();
+    assert!(
+        saved_outline.contains("本章大纲：阿苔在雨巷"),
+        "{saved_outline}"
+    );
+    assert!(
+        saved_outline.contains(crate::agency::beat_card::CURRENT_SCENE_OUTLINE_MARK),
+        "{saved_outline}"
     );
 
     let r2 = coordinator
@@ -1262,6 +1281,11 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
         .unwrap()
         .unwrap();
     assert_eq!(run2.status, "completed");
+    assert_eq!(
+        mock.calls.lock().unwrap().len(),
+        3,
+        "第二拍只花一次主创调用（章纲已在库，不再重生成）"
+    );
 }
 
 #[test]

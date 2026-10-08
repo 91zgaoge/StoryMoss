@@ -41,6 +41,22 @@ pub fn outline_is_grounded(
     mentioned.iter().all(|n| name_in_prose(n, prose))
 }
 
+/// 通用兜底「下一拍」句（方法论模板，不含本故事的具体节点）。
+///
+/// v0.64.9 真机事故：这类兜底句被写进 `scenes.outline_content` 的「下一拍：」
+/// 槽位后又被 `next_node_from_scene_outline` 当作计划采纳，逐拍滚动复制——
+/// 章节方向永远停在「按场景结构推进」，模型只能原地重演（第 11 章整场重演
+/// 第 10 章）。兜底句只允许当**本拍**提示，不得落库、不得被下一拍采信。
+pub fn is_generic_next_node(node: &str) -> bool {
+    const GENERIC_PREFIXES: &[&str] = &[
+        "按场景结构推进",
+        "末句已是灾难。用场景结构写本场",
+        "在硬约束内把当前冲突推进一步",
+    ];
+    let t = node.trim();
+    !t.is_empty() && GENERIC_PREFIXES.iter().any(|p| t.starts_with(p))
+}
+
 pub fn methodology_next_node(
     methodology_id: &str,
     shot: &str,
@@ -132,5 +148,23 @@ mod tests {
             !node.contains("费迪南"),
             "不得把书名发明的 POV 写进下一拍, got={node}"
         );
+    }
+
+    #[test]
+    fn generic_next_node_is_recognized_but_real_plan_is_not() {
+        // v0.64.9：方法论兜底句不得被当成计划（真机第 11-13 章逐章同句）
+        assert!(is_generic_next_node(
+            "按场景结构推进：目标→冲突→灾难或反应→困境→决定。只写本场甲、乙，不得另起开篇。"
+        ));
+        assert!(is_generic_next_node(
+            "末句已是灾难。用场景结构写本场甲的反应、困境与决定，不得换场、不得换主角。"
+        ));
+        assert!(is_generic_next_node(
+            "在硬约束内把当前冲突推进一步，只写本场甲，不得原地复述末句。"
+        ));
+        assert!(!is_generic_next_node(
+            "名册交到御使行辕，曹元佩当众烧掉三分之二"
+        ));
+        assert!(!is_generic_next_node(""));
     }
 }

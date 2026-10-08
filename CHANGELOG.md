@@ -2,6 +2,74 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.64.9（2026-10-08）
+
+**续写重演修复 + 投影 writer 恢复落库**（真机《帝国的烟火》：第 11 章整场重演第 10 章——
+同样的穿堂、门板、名册对峙，逐章再来一遍；同时 `state` / `index` 两个投影 writer 从上线
+起一直报 schema 错，状态类记忆一条都没进 `memory_items`）。
+
+### 重演根因：节拍卡自我回灌 + 章纲被丢弃 + 通用兜底粘住
+
+1. **卡块被当章纲喂回**：每拍编译出的节拍卡（`【当前场大纲】在场／冲突／情感／下一拍`）
+   写进 `scenes.outline_content`；幕前是 Append（`generate_outline=false`），
+   「【本章大纲】」缺失时回落读同一字段 → 模型每拍都收到
+   「在场：明成公主…／冲突：加压：明成公主 与 苏亦铁 正面对峙／下一拍：按场景结构推进…」，
+   于是把同一场对峙再演一遍。
+2. **章纲被节拍卡覆盖丢弃**：`scene_fields_from_facts` 的 `_existing_outline` 参数
+   **写了但从未使用**，落库时用卡块覆盖 `outline_content`——新建章时刚生成的章纲
+   （`handle_gate` 从黑板读出的 `outline-第N章`）当场被冲掉。
+3. **通用兜底「下一拍」粘住**：`methodology_next_node` 的模板句（「按场景结构推进：目标→
+   冲突→灾难…」）被写进「下一拍：」槽位，又被 `next_node_from_scene_outline` 当计划采纳并
+   逐拍复制——真机第 11/12/13 章的「下一拍」全是同一句。
+4. **幕前新章没有章纲**：自动分章出来的新章从不走 NextChapter，`generate_chapter_outline`
+   永不触发，新章只有从上一章近文窗口扫出来的阵容和静态敌对关系（`compile_conflict`
+   命中第一条敌意关系就返回同一句「正面对峙」）。
+
+### 修复（全部确定性，0 新增 LLM 成本除「新章补章纲」一次 Analysis）
+
+- **F1 章纲合并**：`scene_fields_from_facts` 改为 `merge_current_scene_outline`——
+  卡块并入既有 `outline_content`，章纲前缀保留（`_existing_outline` 终于被用上）。
+- **F2 兜底不落库/不采信**：新增 `prose_ground::is_generic_next_node`；
+  `render_scene_outline` 不写通用兜底「下一拍」，`next_node_from_scene_outline`
+  也不采纳它。
+- **F3 卡块不当章纲**：新增 `chapter_plan_from_scene_outline`——只剥离**卡块形态**
+  （标记后有 `在场：`/`冲突：` 槽位行）；人手写或按正文刷新的真实场景大纲整段保留。
+  该函数同时用于「本章大纲」回落与「新章是否有方向」判定。
+- **F4 新章补章纲**：`needs_plan`（场景没有章纲）时，Append 也生成章纲并落库为
+  `scenes.outline_content` 前缀（`observe::set_chapter_plan_prefix`），下一拍不再重复生成。
+
+### 投影 writer 修复（真机 projection 两条 error 的根因）
+
+两个 writer 的反序列化目标是**没有生产者**的历史形态，而 `auto_commit` 实际写的是 KG 视图
+（`state_deltas_json`：`[{id,name,entity_type,attributes}]`；`entity_deltas_json`：
+`[{id,source_id,target_id,relation_type,strength}]`），于是
+`missing field subject` / `missing field entity_id` 从上线起就报错（`memory_items` 里
+`category='state'` 计数为 0）。新增 `normalize_delta_items` 兼容四种形态（键值 / 实体事件 /
+KG 关系 / KG 实体），关系与实体解析出名字后落库；`MemoryItemRepository` 增
+`lookup_kg_entity_name_by_id`。
+
+### 真机验收（库副本，未触碰原库）
+
+探针 `life_status::tests::real_machine_probe_resurrect_is_blocked` 扩展：拿**真机
+`scene_commits` 的 state/entity 产物**跑两个 writer，全部成功并落下记忆行
+（`memory_items` state+entity 共 250 行）。
+
+### 测试
+
+- 新增 Rust 8 项：`is_generic_next_node` 1、`render_scene_outline`/`next_node_from_scene_outline`
+  1、`chapter_plan_from_scene_outline`（卡块剥离 + 手写大纲保留）1、
+  `set_chapter_plan_prefix` 1、`scene_fields_from_facts` 章纲保留 1、
+  投影形态 2（真机 KG 形态 + 历史键值形态）、探针扩展 1。
+- `cargo test --lib` 1738 passed / 4 ignored；改造既有用例 1（Append 首拍现在多一次「补章纲」
+  调用，第二拍不再生成）。
+
+### 未关闭
+
+- 已写下的第 10–13 章正文里的重演段落与「活着的明成公主」仍在正文中（需作者重写或删除）；
+  升级后新写的一拍起生效。
+- `compile_conflict` 仍是「命中第一条敌意关系即返回同一句」，本版用章纲 + 兜底修复压住
+  重演；冲突升级/衰减（同一对峙不得连拍复述）留待后续。
+
 ## v0.64.8（2026-10-08）
 
 **称号幻影行随死者一并排除**（v0.64.7 收尾）：真机《帝国的烟火》的 KG 里除

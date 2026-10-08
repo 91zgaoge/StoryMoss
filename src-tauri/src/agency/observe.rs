@@ -133,6 +133,28 @@ pub fn merge_current_scene_outline(existing: Option<&str>, block: &str) -> Strin
     }
 }
 
+/// v0.64.9：写入/替换「章纲前缀」，保留既有节拍卡块。
+///
+/// 幕前 Append 路径没有装配步骤（NextChapter 才有），生成的章纲此前无处落库，
+/// 于是每一拍都在无章纲状态下续写。这里把它落到 `scenes.outline_content`
+/// 前缀位（卡块之后由 `merge_current_scene_outline` 常规维护）。
+pub fn set_chapter_plan_prefix(existing: Option<&str>, plan: &str) -> String {
+    let plan = plan.trim();
+    if plan.is_empty() {
+        return existing.map(str::trim).unwrap_or("").to_string();
+    }
+    let block = existing
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|e| e.find(CURRENT_SCENE_OUTLINE_MARK).map(|i| e[i..].trim()))
+        .unwrap_or("");
+    if block.is_empty() {
+        plan.to_string()
+    } else {
+        format!("{plan}\n\n{block}")
+    }
+}
+
 pub fn apply_observe_writer(
     pool: &DbPool,
     run_id: &str,
@@ -583,5 +605,23 @@ mod tests {
         gen.status = "pending".into();
         repo.create_run(&gen).unwrap();
         assert!(repo.has_blocking_creative_run(&story_id).unwrap());
+    }
+
+    /// v0.64.9：章纲写入前缀位，既有卡块保留（Append 路径没有装配步骤）。
+    #[test]
+    fn set_chapter_plan_prefix_keeps_card_block() {
+        let block = format!("{CURRENT_SCENE_OUTLINE_MARK}\n在场：甲\n下一拍：夜宴破裂");
+        let merged = set_chapter_plan_prefix(Some(&block), "本章：甲与乙决裂。");
+        assert!(merged.starts_with("本章：甲与乙决裂。"), "{merged}");
+        assert!(merged.contains(CURRENT_SCENE_OUTLINE_MARK), "{merged}");
+        assert!(merged.contains("下一拍：夜宴破裂"), "{merged}");
+
+        // 已有章纲 → 替换为新章纲，不重复堆叠
+        let twice = set_chapter_plan_prefix(Some(&merged), "本章：新的方向。");
+        assert!(twice.starts_with("本章：新的方向。"), "{twice}");
+        assert_eq!(twice.matches("本章：").count(), 1, "{twice}");
+
+        // 空计划：原样返回
+        assert_eq!(set_chapter_plan_prefix(Some(&block), "  "), block);
     }
 }

@@ -171,7 +171,13 @@ impl SceneBeatCard {
         ));
         lines.push(format!("冲突：{}", self.conflict_move.action));
         lines.push(format!("情感：{}", self.emotion_beat.summary));
-        lines.push(format!("下一拍：{}", self.next_outline_node));
+        // v0.64.9：通用兜底句（方法论模板）不落库——落了会被下一拍当计划采纳，
+        // 章节方向永远停在模板上（真机逐章重演同一场面）。
+        if !self.next_outline_node.trim().is_empty()
+            && !crate::agency::prose_ground::is_generic_next_node(&self.next_outline_node)
+        {
+            lines.push(format!("下一拍：{}", self.next_outline_node));
+        }
         if let Some(ref loc) = self.setting_location {
             if !loc.is_empty() {
                 lines.push(format!("地点：{}", loc));
@@ -481,7 +487,9 @@ pub fn next_node_from_scene_outline(outline: &str) -> Option<String> {
     for line in outline.lines() {
         if let Some(rest) = line.trim().strip_prefix("下一拍：") {
             let n = rest.trim();
-            if n.chars().count() >= 2 {
+            // v0.64.9：通用兜底句不是计划——它没有本故事的方向，采信它等于
+            // 让每一拍都停在同一句模板上（真机第 11-13 章的「下一拍」全同）。
+            if n.chars().count() >= 2 && !crate::agency::prose_ground::is_generic_next_node(n) {
                 return Some(n.chars().take(200).collect());
             }
         }
@@ -1459,6 +1467,36 @@ mod tests {
         assert!(
             !node.contains("明成公主"),
             "下一拍不得再派已死角色上场 node={node}"
+        );
+    }
+
+    /// v0.64.9 真机契约：通用兜底「下一拍」不落库（否则逐拍滚动复制），
+    /// 落库的兜底句也不再被当计划采纳。
+    #[test]
+    fn generic_next_node_is_neither_persisted_nor_adopted() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        let mut card = compile_beat_card(&pool, &sid, "阿岩站在雨里。").unwrap();
+        card.next_outline_node =
+            "按场景结构推进：目标→冲突→灾难或反应→困境→决定。只写本场阿岩，不得另起开篇。".into();
+        let outline = card.render_scene_outline();
+        assert!(outline.contains(CURRENT_SCENE_OUTLINE_MARK), "{outline}");
+        assert!(!outline.contains("下一拍："), "兜底句不得落库: {outline}");
+        assert!(
+            next_node_from_scene_outline(&outline).is_none(),
+            "兜底句不得被采纳: {outline}"
+        );
+
+        // 真实计划节点照常落库并采纳
+        card.next_outline_node = "阿岩把断灯绳交给林雪，禁区的门开了".into();
+        let outline = card.render_scene_outline();
+        assert!(
+            outline.contains("下一拍：阿岩把断灯绳交给林雪"),
+            "{outline}"
+        );
+        assert_eq!(
+            next_node_from_scene_outline(&outline).as_deref(),
+            Some("阿岩把断灯绳交给林雪，禁区的门开了")
         );
     }
 }

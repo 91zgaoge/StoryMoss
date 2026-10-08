@@ -280,6 +280,47 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
 
 pub use crate::utils::death_text::{prose_has_completed_death, strip_editor_markup};
 
+/// 从 `scenes.outline_content` 取「章纲」——只丢掉**节拍卡块**形态的部分
+/// （`【当前场大纲】` 后的 在场／冲突／情感／下一拍 槽位），其余原样保留。
+///
+/// v0.64.9 真机事故：卡块被回灌成【本章大纲】后，模型每拍都收到
+/// 「在场：…／冲突：加压：甲 与 乙 正面对峙／下一拍：按场景结构推进…」，
+/// 于是逐章重演同一个场面（第 11 章整场重演第 10 章）。
+/// 但同一标记下也可能是人手写或按正文刷新的**真实场景大纲**（无槽位结构），
+/// 那种必须保留——否则误伤手工大纲。
+pub fn chapter_plan_from_scene_outline(outline: &str) -> String {
+    match outline.find(crate::agency::beat_card::CURRENT_SCENE_OUTLINE_MARK) {
+        Some(idx) if looks_like_beat_card_block(&outline[idx..]) => {
+            outline[..idx].trim_end().to_string()
+        }
+        _ => outline.trim_end().to_string(),
+    }
+}
+
+/// 标记之后是否就是节拍卡块（有 `在场：` 与 `冲突：` 槽位行）。
+fn looks_like_beat_card_block(text: &str) -> bool {
+    let mut has_present = false;
+    let mut has_conflict = false;
+    for line in text.lines() {
+        let t = line.trim();
+        has_present |= t.starts_with("在场：");
+        has_conflict |= t.starts_with("冲突：");
+        if has_present && has_conflict {
+            return true;
+        }
+    }
+    false
+}
+
+/// 该场景是否**没有章纲**（只有卡块或为空）——真机里自动分章出来的新章
+/// 全是这种状态，续写因此没有章节方向（v0.64.9）。
+pub fn chapter_plan_missing(scene_outline: Option<&str>) -> bool {
+    scene_outline
+        .map(chapter_plan_from_scene_outline)
+        .map(|p| p.trim().is_empty())
+        .unwrap_or(true)
+}
+
 /// 节拍卡「末段已在场」只看本拍镜头，避免开篇/章中人物被当成还在场。
 pub fn prior_tail_for_cast(text: &str) -> String {
     let plain = strip_editor_markup(text);
@@ -828,11 +869,16 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
             .scene_outline
             .as_ref()
             .and_then(|o| o.outline_content.as_deref())
-            .filter(|s| !s.trim().is_empty())
+            // v0.64.9：只认「章纲前缀」，节拍卡块（【当前场大纲】在场/冲突/情感/
+            // 下一拍）不得当章纲喂回——那是本拍自己的任务卡，回灌等于命令模型
+            // 把上一拍原样再演一遍（真机第 11 章重演第 10 章）。
+            .map(chapter_plan_from_scene_outline)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
             .map(|s| {
                 format!(
                     "【本章大纲（必须遵循的章节方向）】\n{}",
-                    truncate_chars(s, CHAPTER_OUTLINE_CHAR_CAP)
+                    truncate_chars(&s, CHAPTER_OUTLINE_CHAR_CAP)
                 )
             })
             .unwrap_or_default()
@@ -1438,5 +1484,31 @@ mod tests {
             super::WEDDING_ASSASSINATION_TAIL,
             &names
         ));
+    }
+
+    /// v0.64.9 真机契约：卡块不得当章纲喂回；只有卡块的场景视为「无章纲」。
+    #[test]
+    fn chapter_plan_ignores_beat_card_block() {
+        let card_block = "【当前场大纲】\n在场：明成公主、苏亦铁\n冲突：加压：明成公主 与 苏亦铁 正面对峙，赌注未解，不得只靠对话过渡。\n情感：明成公主：内核=另一桩死亡的引线\n下一拍：按场景结构推进：目标→冲突→灾难或反应→困境→决定。";
+        assert_eq!(chapter_plan_from_scene_outline(card_block), "");
+        assert!(chapter_plan_missing(Some(card_block)));
+        assert!(chapter_plan_missing(None));
+        assert!(chapter_plan_missing(Some("   ")));
+
+        let with_plan = format!("本章：曹元佩烧名册换取苏家脱身。\n\n{card_block}");
+        assert_eq!(
+            chapter_plan_from_scene_outline(&with_plan),
+            "本章：曹元佩烧名册换取苏家脱身。"
+        );
+        assert!(!chapter_plan_missing(Some(&with_plan)));
+
+        // 标记之后是真实场景大纲（无槽位结构）→ 整段保留，不得误伤
+        let hand_written = "【当前场大纲】沈砚与阿苔在钟楼底层核对断灯绳与七枚铜钱，\
+                            陆离持封文书闯入，三人围绕谁先出手僵持。";
+        assert_eq!(
+            chapter_plan_from_scene_outline(hand_written),
+            hand_written.trim_end()
+        );
+        assert!(!chapter_plan_missing(Some(hand_written)));
     }
 }

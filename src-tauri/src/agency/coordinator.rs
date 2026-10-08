@@ -4523,6 +4523,17 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
+        // v0.64.9：章纲缺失也要生成——幕前是 Append + 自动分章，新建的章从不走
+        // NextChapter，此前永远没有章纲；没有章节方向时模型只能照抄上一拍
+        // （真机第 11-13 章逐章重演同一场面）。
+        let needs_plan = !generate_outline
+            && crate::agency::continue_assets::chapter_plan_missing(
+                parts
+                    .as_ref()
+                    .and_then(|p| p.bundle.scene_outline.as_ref())
+                    .and_then(|o| o.outline_content.as_deref()),
+            );
+        let generate_outline = generate_outline || needs_plan;
         let chapter_outline = if generate_outline {
             self.generate_chapter_outline(
                 run_id,
@@ -4537,6 +4548,44 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
+        // Append 没有装配步骤，生成的章纲在此落库为「章纲前缀」（卡块保留）
+        if needs_plan && !chapter_outline.trim().is_empty() {
+            if let Some(sid) = scene_id {
+                // 场景可能还没有 outline_content（新章）——从库里现读，别用可能
+                // 过期的包内快照
+                let pool_read = self.pool.clone();
+                let sid_read = sid.to_string();
+                let existing = self
+                    .db(move || {
+                        crate::db::repositories::SceneRepository::new(pool_read.clone())
+                            .get_by_id(&sid_read)
+                            .map_err(AppError::from)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.outline_content);
+                let merged = crate::agency::observe::set_chapter_plan_prefix(
+                    existing.as_deref(),
+                    &chapter_outline,
+                );
+                let pool = self.pool.clone();
+                let sid = sid.to_string();
+                let _ = self
+                    .db(move || {
+                        crate::db::repositories::SceneRepository::new(pool.clone())
+                            .update(
+                                &sid,
+                                &crate::db::repositories::SceneUpdate {
+                                    outline_content: Some(merged),
+                                    ..Default::default()
+                                },
+                            )
+                            .map_err(AppError::from)
+                    })
+                    .await;
+            }
+        }
         let instr = if instruction.trim().is_empty() {
             "续写"
         } else {

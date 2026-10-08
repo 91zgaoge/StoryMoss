@@ -289,7 +289,7 @@ fn scene_fields_from_facts(
     story_id: &str,
     card: &crate::agency::beat_card::SceneBeatCard,
     increment: &str,
-    _existing_outline: Option<&str>,
+    existing_outline: Option<&str>,
     prev_present: &[String],
     prev_location: Option<&str>,
 ) -> (crate::db::repositories::SceneUpdate, RefreshFlags) {
@@ -324,7 +324,14 @@ fn scene_fields_from_facts(
         },
         character_conflicts: conflicts,
         setting_location: shift.clone(),
-        outline_content: Some(card.render_scene_outline()),
+        // v0.64.9：卡块（【当前场大纲】在场/冲突/情感/下一拍）**合并**进既有
+        // outline_content，而不是覆盖——此前 `_existing_outline` 被忽略，新建章
+        // 时刚生成的章纲（handle_gate 从黑板读出的 outline-第N章）当场被卡块
+        // 冲掉，章节从此失去方向，只能照抄上一拍。
+        outline_content: Some(crate::agency::observe::merge_current_scene_outline(
+            existing_outline,
+            &card.render_scene_outline(),
+        )),
         ..Default::default()
     };
     (update, flags)
@@ -1064,5 +1071,39 @@ mod tests {
         persist_append_with_card(&pool, &scene_id, "旧文。", &inc, &card).unwrap();
         let state = char_repo.get_character_state(&ch.id).unwrap().unwrap();
         assert_eq!(state.location.as_deref(), Some("钟楼"));
+    }
+
+    /// v0.64.9 真机契约：写入节拍卡时，章纲前缀必须保留（此前被覆盖丢弃，
+    /// 真机新建章当场失去方向）。
+    #[test]
+    fn card_write_keeps_chapter_plan_prefix() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let story_id = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "章纲保留".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id;
+        crate::db::repositories::CharacterRepository::new(pool.clone())
+            .create(crate::db::CreateCharacterRequest {
+                story_id: story_id.clone(),
+                name: "阿岩".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let card = crate::agency::beat_card::compile_beat_card(&pool, &story_id, "阿岩站在雨里。")
+            .unwrap();
+        let plan = "本章：阿岩必须在天亮前交出断灯绳。";
+        let update =
+            scene_update_from_card(&pool, &story_id, &card, "阿岩站在雨里。".into(), Some(plan));
+        let outline = update.outline_content.unwrap_or_default();
+        assert!(outline.starts_with(plan), "{outline}");
+        assert!(outline.contains(crate::agency::beat_card::CURRENT_SCENE_OUTLINE_MARK));
     }
 }
