@@ -42,6 +42,10 @@ export const updateCharacter = (id: string, updates: Partial<Character>) =>
 
 export const deleteCharacter = (id: string) => loggedInvoke<void>('delete_character', { id });
 
+// v0.64.7：作者改判生死（alive=true 复活/假死改判；false 手动标记身故）
+export const setCharacterLifeStatus = (storyId: string, name: string, alive: boolean) =>
+  loggedInvoke<number>('set_character_life_status', { story_id: storyId, name, alive });
+
 export interface CharacterQuickView {
   id: string;
   name: string;

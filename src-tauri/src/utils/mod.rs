@@ -1,3 +1,4 @@
+pub mod death_text;
 pub mod file;
 pub mod style_align;
 pub mod text;

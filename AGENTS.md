@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1717 passed / 3 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符）
+- `cargo test -p storymoss` ✅ 1730 passed / 4 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 604 passed / 3 skipped（+5 级联中心页；+4 运行维护页；+10 段落收尾符）
+- `npx vitest run` ✅ 607 passed / 3 skipped（+3 人物页生死徽标与改判）
 - `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.64.7 - 死人不得复活（角色生死状态持久化）
+
+**真机**：《帝国的烟火》第 2 章明成公主被一拳打死（「七窍喷血……登时气绝」「明成公主的尸体躺在原处」），自动续写到第 10、11 章又让她走路、说话、夺印、抓人手腕——同一场景里她的尸体还停在门板上。**根因是死亡从来没落库**：生死唯一来源是 `dead_names_in_text` 对**当前章末 1500 字**（`PRIOR_CAST_CHAR_CAP`）的扫描，第 2 章的死亡到第 9 章早已滑出窗口；抽取的死亡信号只落在 `kg_entities.attributes.status`（不进任何注入路径），`characters` 无生死列，她的 `character_states.physical_state` 为空。**修复**：V142 加 `characters.life_status` / `death_chapter` 并回填存量（章序扫描正文 + KG `status=Dead` 兜底）；文本判定下沉 `utils::death_text`、列读写与回填在 `db::character_life`、策略在 `story_system::life_status`（架构守卫「db 不得依赖 story_system」继续通过）；`auto_commit` 与 `update_scene` 按整章正文即时落库；`beat_card` dead 名单与「下一拍」并入持久化已死，`WriteTimeBundle` 给已死角色卡注入「已死（第 N 章），不得作为活人行动」，导演锁渲染「已死」+ 禁重演；单调写回（post_process 不得改回活人）+ 人物页「已死」徽标与一键改回存活（假死情节，命令 `set_character_life_status`）。
+
+- **验证**：`cargo test --lib` 1730 passed / 4 ignored（+13）；vitest 607 / 3 skipped（+3）；clippy 0 error；fmt / prettier / guard / tsc 全绿。**真机验收探针**（对真实库副本，未触碰原库）：V142 把 `苏会山`、`明成公主` 标为第 2 章已死；用真机第 10 章正文编译节拍卡，她不在 cast 且在 dead 名单；写作包角色卡为「已死（第2章），不得作为活人行动」。
+- **契约**：`refresh_marks_written_death_and_stays_monotone`；`refresh_skips_negated_death_sentences`；`dead_marker_annotates_state_and_revive_strips_it`；`mark_dead_is_monotone_and_keeps_first_chapter`；`annotate_and_strip_roundtrip`；`backfill_scans_chapters_in_order_and_uses_kg_signal`；`revive_clears_marker_and_allows_second_death`；`v142_backfills_dead_character_with_death_chapter`；`v142_marks_physical_state_for_character_card`；`v142_is_idempotent`；`v142_keeps_distinct_people_alive`；`persisted_dead_beats_local_window_for_cast_and_next_node`；`load_sync_marks_persisted_dead_character_in_card`；`real_machine_probe_resurrect_is_blocked`（ignored，手动跑）。
+- **未关闭**：已写的第 10、11 章正文里「活着的明成公主」仍在正文里（升级后续写会把她当已死，历史段落需作者重写或删除）；本机库标记依赖升级后 V142 迁移自动完成；`state` / `index` 投影 writer 长期 schema 不匹配报 error（本次未动）。
 
 ### v0.64.6 - 人物称呼归一（称呼不再长出幻影人物）
 
@@ -134,14 +142,6 @@ type:
 - **验证**：`cargo test --lib` 1705 passed / 3 ignored（+1）；vitest 604 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。
 - **契约**：`probe_timeout_still_attempts_last_candidate`。
 - **未关闭**：模型端点需用户自行恢复（两个自建不可达 + 远程 key 401）；真机端到端未复跑。
-
-### v0.64.3 - 下引号孤行根除（句读切分 + 段首收尾符）
-
-**根因**：`format.ts::splitChineseSentences` 在句末标点（。！？）处断开，把紧随其后的收尾引号切给了下一句；段落组装（智能句子拆分）正好在那一处断段时，就落成 `<p>”\n正文…</p>`——孤引号独占一行（真机《帝国的烟火》第 2 章两处）。此前三次修复（文本级悬挂引号合并 / HTML 级「整段仅闭合标点」合并 / V128 存量迁移）都没覆盖这一形态：引号后面还跟着正文。**修复**：①句末标点后紧跟的收尾符归属本句（源头）；②新增 `mergeLeadingClosingPunctParagraphs`（前端）与 `TextUtils::merge_leading_closing_punct_paragraphs`（Rust），把**段首**闭合标点并回上一段、丢掉其后的空白换行，整段仅剩引号则并段——段首只认**有方向**的收尾符，ASCII `"` `'` 可能是开引号故保持原样；③`autoFormatText` 三条路径与 `textToParagraphsHtml` 统一走「孤段 + 段首」合并（此前只有孤段规则）；④**V139 存量迁移**对所有含 `<p>` 的 scene 跑同规则（幂等），已入库的章节下次启动自动修好。
-
-- **验证**：`cargo test --lib` 1704 passed / 3 ignored（+6：TextUtils 3 + V139 迁移 3）；`npx vitest run` 604 passed / 3 skipped（+10）；clippy 0 error；fmt / prettier / guard / tsc 全绿；真机数据验收：库内正文 2 处段首孤引号 → `autoFormatText` 输出 0 处。
-- **契约**：`test_merge_leading_closing_punct_paragraphs_basic`；`_entities`；`_directional_only`；`v139_merges_paragraph_leading_closing_punct`；`v139_is_noop_on_v128_result`；`mergeLeadingClosingPunctParagraphs` 8 项；`sentence-split path: 句末引号不被切到下一段`。
-- **未关闭**：存量修复依赖新版本启动时的 V139 迁移（旧版本打开再保存会把内存里的旧形态写回）；真机端到端未复跑（**不得宣称续写质量已修复**）。
 
 ### v0.64.2 - 续写人物关系错乱修复（真机事故）+ 关系不变量守卫
 

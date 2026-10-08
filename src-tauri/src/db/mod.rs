@@ -1,5 +1,6 @@
 pub mod chapter_split;
 pub mod character_identity;
+pub mod character_life;
 pub mod connection;
 pub mod dto;
 pub mod migrations;

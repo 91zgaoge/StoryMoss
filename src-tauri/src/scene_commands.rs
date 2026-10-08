@@ -300,6 +300,7 @@ pub async fn update_scene(
     let updates_clone = updates.clone();
     let (result, story_id_opt, had_content_before, prior_content) = tokio::task::spawn_blocking(
         move || -> Result<(usize, Option<String>, bool, Option<String>), AppError> {
+            let pool_for_life = pool_clone.clone();
             let repo = SceneRepository::new(pool_clone);
             // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default
             // 导致空字符串）
@@ -317,6 +318,34 @@ pub async fn update_scene(
                 log::error!("[story_commands] {} failed: {}", "update_scene", e);
                 AppError::from(e)
             })?;
+            // v0.64.7：续写/保存途中写成的死亡立即持久化——不必等 30s 后的
+            // 章提交（真机第 10 章就是在一章之内把已死的公主写成活人的）。
+            if let (Some(story_id), Some(content)) =
+                (story_id_opt.as_deref(), updates_clone.content.as_deref())
+            {
+                let chapter_number = prior_scene
+                    .as_ref()
+                    .and_then(|s| s.chapter_id.clone())
+                    .and_then(|cid| {
+                        ChapterRepository::new(pool_for_life.clone())
+                            .get_by_id(&cid)
+                            .ok()
+                            .flatten()
+                    })
+                    .map(|c| c.chapter_number);
+                let marked = crate::story_system::life_status::refresh_after_text(
+                    &pool_for_life,
+                    story_id,
+                    chapter_number,
+                    content,
+                );
+                if !marked.is_empty() {
+                    log::warn!(
+                        "[story_commands] update_scene 检出死亡并标记已死：{:?}",
+                        marked
+                    );
+                }
+            }
             Ok((result, story_id_opt, had_content_before, prior_content))
         },
     )

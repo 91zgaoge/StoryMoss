@@ -13,9 +13,37 @@ pub fn get_story_characters(
     story_id: String,
     pool: State<'_, DbPool>,
 ) -> Result<Vec<crate::db::Character>, AppError> {
-    CharacterRepository::new(pool.inner().clone())
-        .get_by_story(&story_id)
-        .map_err(AppError::from)
+    let repo = CharacterRepository::new(pool.inner().clone());
+    let mut chars = repo.get_by_story(&story_id).map_err(AppError::from)?;
+    // v0.64.7：生死状态以 `characters` 列为准（kg 属性可能被 ingest 改写）
+    if let Ok(statuses) = repo.list_life_statuses(&story_id) {
+        for c in chars.iter_mut() {
+            if let Some((status, chapter)) = statuses.get(&c.name) {
+                c.life_status = Some(status.clone());
+                c.death_chapter = *chapter;
+            }
+        }
+    }
+    Ok(chars)
+}
+
+/// v0.64.7 作者改判生死：`alive=true` 复活（假死/诈死情节），
+/// `alive=false` 手动标记身故。自动判定是单调的，这里是人写回的唯一出口。
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_character_life_status(
+    story_id: String,
+    name: String,
+    alive: bool,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    if alive {
+        crate::story_system::life_status::revive(pool.inner(), &story_id, &name)
+            .map_err(AppError::from)
+    } else {
+        crate::story_system::life_status::mark_dead(pool.inner(), &story_id, &name, None)
+            .map(|marked| marked as usize)
+            .map_err(AppError::from)
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]

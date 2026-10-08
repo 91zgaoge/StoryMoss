@@ -225,7 +225,14 @@ pub fn compile_beat_card_located(
 
     let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
     let table_names: Vec<String> = chars.iter().map(|c| c.name.clone()).collect();
-    let dead = crate::agency::continue_assets::dead_names_in_text(&table_names, &tail);
+    let mut dead = crate::agency::continue_assets::dead_names_in_text(&table_names, &tail);
+    // v0.64.7：近文窗口（章末 1500 字）滑过的死亡由持久化生死状态兜底——
+    // 真机第 2 章写死的明成公主在第 10 章被当成活人上场，就是窗口丢的。
+    for name in crate::story_system::life_status::dead_names(pool, story_id) {
+        if !dead.iter().any(|d| d == &name) {
+            dead.push(name);
+        }
+    }
     let mut cast: Vec<CastMember> = present_in_text(&chars, &tail)
         .into_iter()
         .filter(|c| !dead.iter().any(|d| d == &c.name))
@@ -491,7 +498,13 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
         .map(|c| c.name)
         .collect();
     let mentioned = crate::agency::continue_assets::match_character_names(&names, &shot);
-    let dead = crate::agency::continue_assets::dead_names_in_text(&names, &shot);
+    let mut dead = crate::agency::continue_assets::dead_names_in_text(&names, &shot);
+    // v0.64.7：已写入库的死亡不因近文窗口滑过而失效（下一拍不得再派死人上场）
+    for name in crate::story_system::life_status::dead_names(pool, story_id) {
+        if !dead.iter().any(|d| d == &name) {
+            dead.push(name);
+        }
+    }
     let living: Vec<String> = mentioned
         .into_iter()
         .filter(|n| !dead.iter().any(|d| d == n))
@@ -1405,5 +1418,47 @@ mod tests {
         let a = ending_anchor(crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL);
         assert!(a.contains("禁止重演行刺"), "{a}");
         assert!(a.contains("飞身扑上"), "{a}");
+    }
+
+    /// v0.64.7 真机契约（《帝国的烟火》第 10 章）：死亡写上在第 2 章，
+    /// 近文 1500 字窗口早已滑过；只要近文把她当活人写，旧逻辑就会把她
+    /// 重新列入 cast。持久化生死状态必须压过局部窗口。
+    #[test]
+    fn persisted_dead_beats_local_window_for_cast_and_next_node() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("死人不得复活"))
+            .unwrap();
+        let repo = CharacterRepository::new(pool.clone());
+        repo.create(char_req(&story.id, "苏亦铁")).unwrap();
+        repo.create(char_req(&story.id, "明成公主")).unwrap();
+        crate::story_system::life_status::mark_dead(&pool, &story.id, "明成公主", Some(2)).unwrap();
+
+        // 近文里她"活了"：走动、说话、抓手腕（真机第 10 章的形态）
+        let content = "明成公主往前走了一步，抓住苏亦铁的手腕。\
+                       苏亦铁没有动。明成公主笑了，说：把印给我。";
+        let card = compile_beat_card(&pool, &story.id, content).unwrap();
+
+        assert!(
+            card.dead.iter().any(|d| d == "明成公主"),
+            "持久化已死必须在 card.dead 里 dead={:?}",
+            card.dead
+        );
+        assert!(
+            !card.cast.iter().any(|c| c.name == "明成公主"),
+            "已死角色不得进 cast cast={:?}",
+            card.cast
+        );
+        assert!(
+            card.cast.iter().any(|c| c.name == "苏亦铁"),
+            "活着的在场者仍在 cast cast={:?}",
+            card.cast
+        );
+
+        let node = compile_next_node(&pool, &story.id, content);
+        assert!(
+            !node.contains("明成公主"),
+            "下一拍不得再派已死角色上场 node={node}"
+        );
     }
 }

@@ -15,6 +15,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 const deleteMutate = vi.fn();
+const setLifeStatusMutate = vi.fn();
 
 vi.mock('@/services/api/wizard', () => ({
   generateCharacterProfiles: vi.fn(),
@@ -34,13 +35,21 @@ vi.mock('@/stores/appStore', () => ({
 vi.mock('@/hooks/useCharacters', () => ({
   useCharacters: () => ({
     data: [
-      { id: 'char-1', name: 'Alice', is_auto_generated: false },
-      { id: 'char-2', name: 'Bob', is_auto_generated: false },
+      { id: 'char-1', name: 'Alice', is_auto_generated: false, life_status: 'alive' },
+      // v0.64.7：第 2 章写成死亡的角色
+      {
+        id: 'char-2',
+        name: 'Bob',
+        is_auto_generated: false,
+        life_status: 'dead',
+        death_chapter: 2,
+      },
     ],
     isLoading: false,
   }),
   useCreateCharacter: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteCharacter: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetCharacterLifeStatus: () => ({ mutate: setLifeStatusMutate, isPending: false }),
 }));
 
 vi.mock('@/hooks/useCharacterRelationships', () => ({
@@ -162,5 +171,46 @@ describe('Characters', () => {
     expect(screen.getByText(/Bob → 当前角色的情感/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('如：信任/憎恨（留空则保持不变）')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('如：崇拜/冷漠（留空则保持不变）')).toBeInTheDocument();
+  });
+
+  // v0.64.7：正文写死的角色在人物页有「已死（第N章）」徽标，
+  // 作者可一键改回存活（假死/诈死情节）
+  it('已死角色显示徽标，存活角色不显示', async () => {
+    render(<Characters />, { wrapper });
+
+    const badge = await screen.findByTestId('dead-badge-char-2');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toContain('已死');
+    expect(badge.textContent).toContain('第2章');
+    expect(screen.queryByTestId('dead-badge-char-1')).not.toBeInTheDocument();
+  });
+
+  it('点击「改回存活」经确认后提交 alive=true', async () => {
+    render(<Characters />, { wrapper });
+
+    await userEvent.click(await screen.findByTestId('toggle-life-char-2'));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('改回存活'));
+    expect(setLifeStatusMutate).toHaveBeenCalledWith({
+      storyId: 'story-1',
+      name: 'Bob',
+      alive: true,
+    });
+  });
+
+  it('存活角色可标记身故（alive=false），取消确认则不提交', async () => {
+    render(<Characters />, { wrapper });
+
+    await userEvent.click(await screen.findByTestId('toggle-life-char-1'));
+    expect(setLifeStatusMutate).toHaveBeenCalledWith({
+      storyId: 'story-1',
+      name: 'Alice',
+      alive: false,
+    });
+
+    setLifeStatusMutate.mockClear();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await userEvent.click(await screen.findByTestId('toggle-life-char-2'));
+    expect(setLifeStatusMutate).not.toHaveBeenCalled();
   });
 });

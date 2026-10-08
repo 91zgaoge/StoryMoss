@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useCharacters, useCreateCharacter, useDeleteCharacter } from '@/hooks/useCharacters';
+import {
+  useCharacters,
+  useCreateCharacter,
+  useDeleteCharacter,
+  useSetCharacterLifeStatus,
+} from '@/hooks/useCharacters';
 import { useScenes } from '@/hooks/useScenes';
 import {
   useCharacterRelationships,
@@ -30,6 +35,7 @@ import {
   Check,
   Sparkles,
   Clapperboard,
+  Skull,
 } from 'lucide-react';
 import type {
   Character,
@@ -281,6 +287,22 @@ export function Characters() {
   const { data: worldBuilding } = useWorldBuilding(currentStory?.id || null);
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();
+  const setLifeStatus = useSetCharacterLifeStatus();
+
+  // v0.64.7：正文判定死亡即持久化（续写不得复活）；此处是作者的改判出口
+  const handleToggleLifeStatus = (char: Character) => {
+    if (!currentStory) return;
+    const isDead = char.life_status === 'dead';
+    const ok = isDead
+      ? confirm(
+          `把「${char.name}」改回存活？\n\n用于假死/诈死情节：改回后，续写不再把他/她当作已死人物。`
+        )
+      : confirm(
+          `把「${char.name}」标记为身故？\n\n标记后，续写会把他/她当作已死人物——不得说话、行动，只能作为尸体/回忆出现。`
+        );
+    if (!ok) return;
+    setLifeStatus.mutate({ storyId: currentStory.id, name: char.name, alive: isDead });
+  };
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -449,6 +471,16 @@ export function Characters() {
                         <h3 className="font-display text-lg font-semibold text-white truncate">
                           {char.name}
                         </h3>
+                        {char.life_status === 'dead' && (
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 flex items-center gap-1 shrink-0"
+                            title="正文已判定死亡；续写不得当作活人（可在右侧改回存活）"
+                            data-testid={`dead-badge-${char.id}`}
+                          >
+                            <Skull className="w-3 h-3" />
+                            已死{char.death_chapter ? `（第${char.death_chapter}章）` : ''}
+                          </span>
+                        )}
                         {char.is_auto_generated && (
                           <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 shrink-0">
                             <Star className="w-3 h-3" />
@@ -463,6 +495,18 @@ export function Characters() {
                       )}
                     </div>
                     <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleToggleLifeStatus(char)}
+                        className={`p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all ${
+                          char.life_status === 'dead'
+                            ? 'hover:bg-emerald-500/20 text-emerald-300'
+                            : 'hover:bg-red-500/20 text-red-400'
+                        }`}
+                        title={char.life_status === 'dead' ? '改回存活（假死情节）' : '标记身故'}
+                        data-testid={`toggle-life-${char.id}`}
+                      >
+                        <Skull className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => setEditingCharacter(char)}
                         className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-cinema-gold/20 text-cinema-gold transition-all"

@@ -110,7 +110,7 @@ impl WriteTimeBundle {
                 e
             })
             .unwrap_or_default();
-        let core_characters: Vec<CoreCharacter> = chars
+        let mut core_characters: Vec<CoreCharacter> = chars
             .iter()
             .map(|c: &Character| {
                 let state = states.get(&c.id);
@@ -136,6 +136,20 @@ impl WriteTimeBundle {
                 }
             })
             .collect();
+
+        // v0.64.7：已死角色（持久判定）在角色卡「身体：」一行带标记——
+        // 角色卡渲染只认 physical_state，不改结构体即可覆盖全部注入路径。
+        let dead_cards = crate::story_system::life_status::dead_marker_map(pool, story_id);
+        if !dead_cards.is_empty() {
+            for c in core_characters.iter_mut() {
+                if let Some(chapter) = dead_cards.get(&c.name) {
+                    c.physical_state = Some(crate::db::character_life::annotate_physical_state(
+                        c.physical_state.as_deref(),
+                        *chapter,
+                    ));
+                }
+            }
+        }
 
         let relationship_lines: Vec<String> =
             match CharacterRelationshipRepository::new(pool.clone()).get_by_story(story_id) {
@@ -1740,6 +1754,50 @@ mod tests {
         assert!(
             bundle.methodology_extension.is_none(),
             "未知方法论 ID 应跳过注入"
+        );
+    }
+
+    /// v0.64.7 真机契约：第 2 章写死的角色，第 10 章再加载写作包时
+    /// 角色卡必须带「已死」标记（此前卡片只有位置，模型当活人写）。
+    #[test]
+    fn load_sync_marks_persisted_dead_character_in_card() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "已死角色卡".to_string(),
+                description: None,
+                genre: Some("历史".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .expect("create story");
+        crate::db::CharacterRepository::new(pool.clone())
+            .create(crate::db::CreateCharacterRequest {
+                story_id: story.id.clone(),
+                name: "明成公主".to_string(),
+                ..Default::default()
+            })
+            .expect("create character");
+        assert!(
+            crate::story_system::life_status::mark_dead(&pool, &story.id, "明成公主", Some(2))
+                .unwrap()
+        );
+
+        let bundle = WriteTimeBundle::load_sync(&pool, &story.id, 10, None, None, None)
+            .expect("load_sync 应成功");
+        let card = bundle
+            .core_characters
+            .iter()
+            .find(|c| c.name == "明成公主")
+            .expect("角色卡应在包里");
+        let phys = card.physical_state.clone().unwrap_or_default();
+        assert!(phys.contains("已死"), "phys={phys}");
+        assert!(phys.contains("第2章"), "phys={phys}");
+        assert!(
+            bundle.to_prompt().contains("已死"),
+            "提示词必须带上死亡标记"
         );
     }
 }

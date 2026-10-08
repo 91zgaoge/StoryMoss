@@ -1,8 +1,21 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.64.6)
+# 🧪 StoryMoss 自动化测试环境 (v0.64.7)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.64.7 变更说明
+
+- **Rust +13**（1730 passed / 4 ignored）：`db::character_life`（单调标记 / 标记往返 / 章序回填 + KG 兜底 / 改判后可再次判死）、
+  `story_system::life_status`（判定与单调 / 否定句豁免 / 标记与改判 / **真机验收探针 ignored**）、
+  `V142` 4 项（回填章次 / 状态标记 / 幂等 / 不连坐）、接入契约 2 项
+  （`persisted_dead_beats_local_window_for_cast_and_next_node`、
+  `load_sync_marks_persisted_dead_character_in_card`）。
+- **前端 +3（vitest）**：人物页「已死（第 N 章）」徽标、改回存活提交 `alive=true`、
+  标记身故 `alive=false` 与取消确认不提交。
+- **真机探针（手动）**：
+  `STORYMOSS_DB=<真机库> cargo test --lib life_status::tests::real_machine_probe_resurrect_is_blocked -- --ignored --nocapture`
+  ——复制库副本跑 V142 回填与续写准入，断言已死角色被排除出 cast 且角色卡带标记。
 
 ### v0.64.6 变更说明
 

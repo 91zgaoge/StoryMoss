@@ -1,6 +1,6 @@
 tauri::generate_handler! {
     commands::core::health_check, commands::core::check_model_status, commands::core::chat_completion, commands::story::list_stories, commands::story::create_story, commands::story::update_story, commands::story::delete_story,
-    commands::character::get_story_characters, commands::character::create_character, commands::character::update_character, commands::character::delete_character,
+    commands::character::get_story_characters, commands::character::create_character, commands::character::update_character, commands::character::delete_character, commands::character::set_character_life_status,
     commands::chapter::get_story_chapters, commands::chapter::get_story_chapters_paged, commands::chapter::get_chapter, commands::chapter::get_chapter_aggregated_content, commands::chapter::create_chapter, commands::chapter::update_chapter, commands::chapter::delete_chapter,
     commands::skill::get_skills, commands::skill::get_skill,
     commands::skill::import_skill, commands::skill::enable_skill, commands::skill::disable_skill, commands::skill::uninstall_skill, commands::skill::execute_skill, commands::skill::update_skill, commands::skill::format_text,

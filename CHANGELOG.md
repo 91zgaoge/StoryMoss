@@ -2,6 +2,63 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.64.7（2026-10-08）
+
+**死人不得复活：角色生死状态持久化**（真机《帝国的烟火》：第 2 章被一拳打死的
+明成公主——「七窍喷血，抽搐几下，登时气绝」「明成公主的尸体躺在原处」——自动续写
+到第 10、11 章又让她走路、说话、夺印、抓人手腕；同一场景里她的尸体还停在门板上）。
+
+### 根因：死亡从来没有落库，只按「章末 1500 字」窗口临时推断
+
+- 生死的唯一来源是 `continue_assets::dead_names_in_text` 对**当前章末 1500 字**
+  （`PRIOR_CAST_CHAR_CAP`）的扫描；第 2 章的死亡到第 9 章早已滑出窗口，于是她在
+  节拍卡 cast、导演锁（渲染成「活人」）、角色卡（只有位置、没有身体状态）里都是
+  活人。第 10 章的续写正是卡在窗口边界上——模型一边写「明成公主的尸体停在门板上」，
+  一边写她走路说话。
+- 抽取侧的死亡信号只落在 `kg_entities.attributes.status`（非结构化、不进任何注入
+  路径），`characters` 表没有生死列，`character_states.physical_state` 对她为空。
+
+### 修复（确定性，0 LLM）
+
+- **V142 持久化两列**：`characters.life_status`（alive/dead）与 `death_chapter`，
+  并回填存量：按章序扫描 `scenes.content` 判死（沿用 `name_is_dead_in_text`，
+  含「未气绝/假死/诈死」否定句豁免），正文扫描漏掉的再并入 KG `status=Dead` 信号。
+- **判定与注入分层**：文本判定下沉到叶子模块 `utils::death_text`（db 与
+  story_system 共用一份，架构守卫不再报 db→story_system）；列读写与回填在
+  `db::character_life`；策略在 `story_system::life_status`。
+- **即时落库**：章节提交（`auto_commit`）与场景保存（`update_scene`，续写途中
+  每次自动保存）都按**整章正文**刷新——死亡写在章中也能立刻标记。
+- **进注入路径**：`beat_card` 的 dead 名单与「下一拍」候选并入持久化已死（压过局部
+  窗口）；`WriteTimeBundle` 给已死角色卡「身体：」注入「已死（第 N 章），不得作为
+  活人行动」；导演锁渲染「已死」+ 禁重演行刺；探针把「已死仍在行动」重试后仍存
+  的缺口记入质量债。
+- **单调**：alive → dead 只走一次；`post_process` 的 LLM 状态写回不得把标记改回
+  活人。**作者改判**：人物页新增「已死」徽标与一键改回存活（假死/诈死情节），
+  命令 `set_character_life_status`。
+
+### 真机验收（对真实库副本，未触碰原库）
+
+探针 `life_status::tests::real_machine_probe_resurrect_is_blocked`：V142 回填把
+`苏会山`、`明成公主` 标为第 2 章已死；用真机第 10 章正文编译节拍卡，明成公主
+**不在 cast、在 dead 名单**；写作包里她的角色卡为「已死（第2章），不得作为活人行动」。
+
+### 测试
+
+- 新增 Rust 12 项：数据层 4（单调/标记往返/回填章序+KG 兜底/改判后可再次判死）、
+  策略 4（判定与单调/否定句豁免/标记与改判/真机探针 ignored）、V142 4（回填章次/
+  状态标记/幂等/不连坐）、接入契约 2（持久化已死压过局部窗口的 cast 与下一拍；
+  `load_sync` 角色卡带已死标记）。
+- `cargo test --lib` 1730 passed / 4 ignored（+13）；`npx vitest run` 607 passed /
+  3 skipped（+3：徽标/改回存活/标记身故与取消）；clippy / fmt / prettier / guard /
+  tsc 全绿。
+
+### 未关闭
+
+- 已写的第 10、11 章正文里的「活着的明成公主」仍在正文中（升级后续写会把她当已死，
+  但历史段落需作者重写或删除）；本机库的标记由升级后 V142 迁移自动完成。
+- `state` / `index` 投影 writer 长期报 schema 不匹配（`missing field subject` /
+  `entity_id`，真机 projection_status 里两条 error），本次未动。
+
 ## v0.64.6（2026-10-07）
 
 **人物称呼归一：同一角色不再因为称呼不同被拆成多个**（真机《帝国的烟火》：`景亲王` 与

@@ -22,6 +22,7 @@ pub mod contract_builder;
 pub mod contract_service;
 pub mod foreshadowing_service;
 pub mod fulfillment_checker;
+pub mod life_status;
 pub mod mini_review;
 pub mod pending_review;
 pub mod preflight;

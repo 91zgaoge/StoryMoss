@@ -54,6 +54,23 @@ impl SceneCommitService {
     ) -> Result<(), String> {
         let commit = self.init_commit(story_id, scene_id, chapter_id, chapter_number)?;
 
+        // v0.64.7：正文写成死亡 → 生死状态持久化（确定性，0 LLM）。
+        // 真机第 2 章写死的明成公主在第 10 章被续写成活人：死亡此前只由章末
+        // 1500 字窗口临时推断，窗口一滑过就复活。这里在提交时按整章落库。
+        let marked = crate::story_system::life_status::refresh_after_text(
+            &self.pool,
+            story_id,
+            Some(chapter_number),
+            content.unwrap_or(""),
+        );
+        if !marked.is_empty() {
+            log::warn!(
+                "[SceneCommitService] 第{}章正文写成死亡，已标记已死：{:?}",
+                chapter_number,
+                marked
+            );
+        }
+
         // 加载运行时合同；失败时使用空合同，保证 commit 不阻塞
         let engine = super::StorySystemEngine::new(self.pool.clone());
         let contract = engine

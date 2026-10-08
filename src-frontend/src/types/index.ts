@@ -93,6 +93,10 @@ export interface Character {
   // v7.0.0: 溯源字段
   source?: string;
   is_auto_generated?: boolean;
+  // v0.64.7: 生死状态（'alive' | 'dead'）。死亡由正文判定持久化，
+  // 续写不得复活；作者可在人物页改判（假死/诈死情节）。
+  life_status?: string;
+  death_chapter?: number;
   created_at: string;
   updated_at: string;
 }

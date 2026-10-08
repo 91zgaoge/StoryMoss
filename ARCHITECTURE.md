@@ -1,6 +1,8 @@
-# StoryMoss (草苔) v0.64.6 架构文档
+# StoryMoss (草苔) v0.64.7 架构文档
 
-> **v0.64.6**：**人物称呼归一**——V140 `character_aliases`（UNIQUE(story_id, alias)）登记「称呼 → 人物」；`db::character_identity::{resolve_character_id, record_aliases, merge_characters}` 提供建行前解析（精确名 → 别称 → 称号形态）、同名幻影行自愈与合并（改线 character_states / character_relationships / scene_characters / scene_character_actions / character_knowledge_log / item_holdings，关系与场景关联去重，改写 scenes/scene_versions 的 `characters_present`/`character_conflicts` 名字 token，补齐保留行空字段）；`continue_director` 称号词表扩充 + `same_person` 新增「称号+名」形态；抽取 prompt 增「人物称呼归并」段与 `aliases`（`AnalyzedEntity.aliases`）；V141 迁移按形态合并存量。模块置于 `db` 层（架构守卫：db 不得引 memory）。
+> **v0.64.7**：**角色生死状态持久化（死人不复活）**——`utils::death_text`（纯文本判定，`name_is_dead_in_text`/`dead_names_in_text`，含否定句豁免；从 agency 下沉为叶子模块，db 与 story_system 共用）+ `db::character_life`（`characters.life_status`/`death_chapter` 列读写、`mark_dead_on`/`revive_on`、`backfill_story` 存量回填、`annotate_physical_state` 标记）+ `story_system::life_status`（`refresh_after_text` 整章扫描、`dead_names`/`dead_marker_map` 供注入路径、`revive` 作者改判）。接入点：`commit_service::auto_commit` 与 `scene_commands::update_scene` 即时刷新；`agency::beat_card`（cast 排除 + 下一拍候选）与 `creative_engine::write_time_bundle`（角色卡「已死」标记）消费；`post_process` 单调守卫。V142 迁移加列并回填。
+>
+> **v0.64.6**：**人物称呼归一**——V140 `character_aliases`（UNIQUE(story_id, alias)）登记「称呼 → 人物」；`db::character_identity::{resolve_character_id, record_aliases, merge_characters}` 提供建行前解析（精确名 → 别称 → 称号形态）、同名幻影行自愈与合并（改线 character_states / character_relationships / scene_characters / scene_character_actions / character_knowledge_log / item_holdings，关系与场景关联去重，改写 scenes/scene_versions 的 `characters_present`/`character_conflicts` 名字 token，补齐保留行空字段）；`continue_director` 称号词表扩充 + `same_person` 新增「称号+名」形态；抽取 prompt 增「人物称呼归并」段与 `aliases`；V141 迁移按形态合并存量。
 
 > **v0.64.5**：**一章一条 commit 的 UPSERT**——`SceneCommitRepository::upsert_pending`（配 `get_by_story_chapter`）取代 `init_commit` 里的裸 INSERT：同章已有 commit 时复用该行（保留 id，投影按 story+chapter 幂等重跑）、重置 `pending`、`COALESCE` 刷新 scene/chapter 挂载、清空派生字段（摘要 / review / 状态增量 / 投影状态），避免重新提交窗口内旧摘要被下游当当前章事实。修复真机 `UNIQUE constraint failed: scene_commits.story_id, scene_commits.chapter_number`。
 

@@ -153,7 +153,8 @@ impl CharacterRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
              dynamic_traits, source, is_auto_generated, created_at, updated_at, \
-             emotional_core, emotional_trigger, emotional_wound, emotional_need
+             emotional_core, emotional_trigger, emotional_wound, emotional_need, \
+             life_status, death_chapter
              FROM characters
              WHERE story_id = ?1 AND id NOT IN (
                  SELECT id FROM kg_entities WHERE story_id = ?1 AND entity_type = 'Character'
@@ -181,11 +182,39 @@ impl CharacterRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
              dynamic_traits, source, is_auto_generated, created_at, updated_at, \
-             emotional_core, emotional_trigger, emotional_wound, emotional_need
+             emotional_core, emotional_trigger, emotional_wound, emotional_need, \
+             life_status, death_chapter
              FROM characters WHERE id = ?1",
         )?;
         let character = stmt.query_row([id], Self::row_to_character).optional()?;
         Ok(character)
+    }
+
+    /// v0.64.7：生死状态权威列（`characters`）——name → (life_status,
+    /// death_chapter)。
+    ///
+    /// `get_by_story` 的角色来自 `kg_entities`（ingest 可能改写属性），
+    /// 生死以这里为准，读侧由 `commands::character::get_story_characters`
+    /// 合并回 `Character`。
+    pub fn list_life_statuses(
+        &self,
+        story_id: &str,
+    ) -> Result<HashMap<String, (String, Option<i32>)>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT name, COALESCE(life_status, 'alive'), death_chapter \
+             FROM characters WHERE story_id = ?1",
+        )?;
+        let rows = stmt.query_map([story_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                (r.get::<_, String>(1)?, r.get::<_, Option<i32>>(2)?),
+            ))
+        })?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
     }
 
     /// Parse a legacy `characters`-shaped row into a `Character`.
@@ -195,7 +224,7 @@ impl CharacterRepository {
     ///   6 appearance, 7 gender, 8 age, 9 dynamic_traits, 10 source,
     ///   11 is_auto_generated, 12 created_at, 13 updated_at,
     ///   14 emotional_core, 15 emotional_trigger, 16 emotional_wound, 17
-    /// emotional_need
+    /// emotional_need, 18 life_status (v0.64.7), 19 death_chapter (v0.64.7)
     fn row_to_character(row: &Row) -> Result<Character, rusqlite::Error> {
         let traits_json: String = row
             .get::<_, Option<String>>(9)?
@@ -225,6 +254,8 @@ impl CharacterRepository {
             emotional_trigger: row.get(15).ok(),
             emotional_wound: row.get(16).ok(),
             emotional_need: row.get(17).ok(),
+            life_status: row.get(18).ok().flatten(),
+            death_chapter: row.get(19).ok().flatten(),
         })
     }
 

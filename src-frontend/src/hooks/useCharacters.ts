@@ -4,6 +4,7 @@ import {
   createCharacter,
   updateCharacter,
   deleteCharacter,
+  setCharacterLifeStatus,
   notifyFrontstageDataRefresh,
 } from '@/services/tauri';
 import type { CreateCharacterRequest, Character } from '@/types/index';
@@ -65,6 +66,28 @@ export function useDeleteCharacter() {
     },
     onError: (error: Error) => {
       toast.error('删除失败: ' + error.message);
+    },
+  });
+}
+
+/**
+ * v0.64.7：作者改判生死。
+ * 正文判定是单调的（写成死亡即持久化），这里是唯一回写口——
+ * 用于假死/诈死情节「其实没死」，或手动把角色标记身故。
+ */
+export function useSetCharacterLifeStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ storyId, name, alive }: { storyId: string; name: string; alive: boolean }) =>
+      setCharacterLifeStatus(storyId, name, alive),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY, variables.storyId] });
+      toast.success(variables.alive ? '已改回存活（假死情节）' : '已标记身故');
+    },
+    onError: (error: Error) => {
+      toast.error('生死状态更新失败: ' + error.message);
     },
   });
 }

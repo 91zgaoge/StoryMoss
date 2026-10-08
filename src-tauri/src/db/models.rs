@@ -1422,6 +1422,23 @@ pub struct Character {
     pub emotional_wound: Option<String>,
     /// 情感需求：角色内心真正渴望什么
     pub emotional_need: Option<String>,
+    /// v0.64.7 生死状态：'alive' | 'dead'（权威列在 `characters`，见
+    /// `story_system::life_status`）。一旦写成尸体/气绝即 dead，续写不得复活。
+    #[serde(default)]
+    pub life_status: Option<String>,
+    /// v0.64.7 死亡章（正文首次写成死亡的章号；未知为 None）
+    #[serde(default)]
+    pub death_chapter: Option<i32>,
+}
+
+impl Character {
+    /// 是否已写入死亡（'dead'；未设置视为存活）。
+    pub fn is_dead(&self) -> bool {
+        matches!(
+            self.life_status.as_deref().map(str::trim),
+            Some("dead") | Some("Dead") | Some("已死")
+        )
+    }
 }
 
 impl Character {
@@ -1459,6 +1476,21 @@ impl Character {
             emotional_trigger: attr_string(attrs, "emotional_trigger"),
             emotional_wound: attr_string(attrs, "emotional_wound"),
             emotional_need: attr_string(attrs, "emotional_need"),
+            // v0.64.7：KG 属性里的死亡信号（ingest 抽到的 status=Dead /
+            // life_status=dead）
+            life_status: attr_string(attrs, "life_status").or_else(|| {
+                let s = attr_string(attrs, "status")?;
+                let t = s.trim().to_ascii_lowercase();
+                if t == "dead" || t == "已死" || t == "死亡" {
+                    Some("dead".to_string())
+                } else {
+                    None
+                }
+            }),
+            death_chapter: attrs
+                .get("death_chapter")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32),
         })
     }
 
@@ -1476,6 +1508,8 @@ impl Character {
             "emotional_trigger": self.emotional_trigger,
             "emotional_wound": self.emotional_wound,
             "emotional_need": self.emotional_need,
+            "life_status": self.life_status,
+            "death_chapter": self.death_chapter,
         })
     }
 }

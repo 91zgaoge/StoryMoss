@@ -242,6 +242,9 @@ async fn run_character_cards(
             recoverable: true,
         })?;
 
+    // v0.64.7：已死角色的身体状态不得被 LLM 改回活人——标记与持久列单调。
+    let dead_cards = crate::story_system::life_status::dead_marker_map(pool, story_id);
+
     if all_chars.is_empty() {
         log::info!("[post_process] character_cards: 故事无角色，跳过");
         return Ok(());
@@ -362,12 +365,21 @@ async fn run_character_cards(
                                 .map(|s| s.to_string());
 
                             let existing = states.get(&character.id);
+                            let composed_physical =
+                                new_physical.or(existing.and_then(|s| s.physical_state.clone()));
                             let state = CharacterState {
                                 location: new_location
                                     .or(existing.and_then(|s| s.location.clone())),
                                 power_level: existing.and_then(|s| s.power_level.clone()),
-                                physical_state: new_physical
-                                    .or(existing.and_then(|s| s.physical_state.clone())),
+                                physical_state: match dead_cards.get(&character.name) {
+                                    Some(chapter) => {
+                                        Some(crate::db::character_life::annotate_physical_state(
+                                            composed_physical.as_deref(),
+                                            *chapter,
+                                        ))
+                                    }
+                                    None => composed_physical,
+                                },
                                 mental_state: new_mental
                                     .or(existing.and_then(|s| s.mental_state.clone())),
                                 key_items: new_items.or(existing.and_then(|s| s.key_items.clone())),
@@ -415,10 +427,17 @@ async fn run_character_cards(
 
             // 如果角色没有被 LLM 更新过，至少标记出场
             let existing = states.get(&character.id);
+            let carried_physical = existing.and_then(|s| s.physical_state.clone());
             let state = CharacterState {
                 location: existing.and_then(|s| s.location.clone()),
                 power_level: existing.and_then(|s| s.power_level.clone()),
-                physical_state: existing.and_then(|s| s.physical_state.clone()),
+                physical_state: match dead_cards.get(&character.name) {
+                    Some(chapter) => Some(crate::db::character_life::annotate_physical_state(
+                        carried_physical.as_deref(),
+                        *chapter,
+                    )),
+                    None => carried_physical,
+                },
                 mental_state: existing.and_then(|s| s.mental_state.clone()),
                 key_items: existing.and_then(|s| s.key_items.clone()),
                 recent_events: Some(format!("[第{}章] 出场", chapter_number)),
