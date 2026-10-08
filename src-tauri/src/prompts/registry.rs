@@ -861,6 +861,39 @@ mod tests {
         );
     }
 
+    /// v0.65.0 契约：人类文笔基线准则必须落在四个写作/规划提示词里
+    /// （sepia/StoryScope 方法落地，见 `story_system::human_voice`）。
+    #[test]
+    fn test_v0650_human_voice_doctrine_in_prompts() {
+        let cases: &[(&str, &[&str])] = &[
+            (
+                "writer_system",
+                &["情绪四模式混用", "句长参差", "不解释主题"],
+            ),
+            ("writer_rewrite", &["删优于加", "不得比原文更长"]),
+            ("agency_writer_system", &["文笔准则", "情绪四模式混用"]),
+            ("agency_lead_writer_system", &["文笔准则", "情绪四模式混用"]),
+            (
+                "agency_editor_auditor_system",
+                &["机器过量", "白名单", "不是…而是"],
+            ),
+            (
+                "agency_outline_planner_system",
+                &["回声测试", "不要预支答案"],
+            ),
+        ];
+        for (id, needles) in cases {
+            let content =
+                resolve_prompt_default(id).unwrap_or_else(|| panic!("{id} 提示词应已注册"));
+            for needle in *needles {
+                assert!(
+                    content.contains(needle),
+                    "{id} 缺少人类文笔基线要素「{needle}」"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_v03015_scene_outline_prompt_registered() {
         let content = resolve_prompt_default("scene_outline");

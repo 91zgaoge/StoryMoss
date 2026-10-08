@@ -46,6 +46,11 @@ sepia 的核心结论有两层。其一，**修复要按层来**：叙事架构�
 - **常驻准则**：`writer_system` 组装处（`render_writer_system_from_bundle`）追加同一份
   准则——模板可被用户在提示词页覆盖，这段追加不受覆盖影响；`agency_lead_writer_system`
   / `agency_writer_system` 同步补「文笔准则」段。
+- **叙事架构层**（sepia 三层协议里最深、也最易被识别的一层）写进 `agency_outline_planner_system`：
+  回声测试（同一前提重生成二十次还会出现的转折 = 机器手笔）、允许因果松动一次、不要预支答案
+  （最要紧的信息后置揭示）、不做「主角理解+接受+成长」的收束、关系网稀疏、主题不直说、可加一条
+  与主线斜向呼应的次要线索（只加一条）。`writer_rewrite` 补改写纪律（删优于加：能删就删、改完不得
+  比原文更长、不得改得更华丽、保留具体细节）。
 - **编辑器审查**：editor 上下文新增【人类文笔基线】机器检出块（与 prose_lint 并列），
   并在 `agency_editor_auditor_system` 写入 sepia 的**诊断纪律**——按两组逐条核查（一次
   通读只会看见最扎眼的一两项）、每条阻断引用一处原文、**白名单**（语法干净、单个
@@ -69,8 +74,8 @@ sepia 的核心结论有两层。其一，**修复要按层来**：叙事架构�
 
 ### 测试与验证
 
-- 新增 Rust 14 项（human_voice 9 + anti_ai 校准 3 + 写作提示词注入契约 1 + prose_lint 校准改写 1），
-  合计 **1777 passed / 5 ignored**。
+- 新增 Rust 15 项（human_voice 9 + anti_ai 校准 3 + 写作提示词注入契约 2 + prose_lint 校准改写 1），
+  合计 **1778 passed / 5 ignored**。
 - **设计验收探针**（`human_voice::machine_probe::voice_baseline_acceptance_probe`，ignored
   手动跑）：机器腔样本命中 5 条（embodied-only / fancy-speech-tags / connective-stack /
   disyllabic-padding / abstract-wrapper），人类腔样本 **0 误报**；句长标准差 6.24 对 14.97、
