@@ -260,60 +260,35 @@ impl AntiAiReviewer {
     fn check_syntax(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let flagged = Vec::new();
-        let suggestions = Vec::new();
+        let mut suggestions = Vec::new();
 
+        // v0.65.0 校准（sepia 汇总 16 篇句法研究）：平均句长不是信号——同语料换
+        // 计数单位（词/字）方向就翻转；短句/
+        // 长句的绝对占比同样随语料与体裁矛盾。
+        // **唯一跨语言、跨模型世代方向一致的是「句长离散度」**：人类段内句长
+        // 方差更大。所以此处不再按 ≤10 字 / >50 字的占比打分，改为「连续近等长
+        // 句」检查（与 human_voice::flat-rhythm 同一形态）。
+        let report = crate::story_system::human_voice::analyze_human_voice(text);
+        if report.metrics.flat_run_max >= 3 {
+            issues.push(ReviewIssue {
+                dimension: "语法".to_string(),
+                severity: "medium".to_string(),
+                description: format!(
+                    "连续 {} 句长度趋同，句式节奏平板（人类段内句长方差显著大于机器）",
+                    report.metrics.flat_run_max
+                ),
+                example: String::new(),
+                suggestion: "拆一句、并两句或删一个子句来打破连串；只搬字，不加字".to_string(),
+            });
+        }
+
+        // 被动句式偏多（低置信度提示，保留）
         let sentences: Vec<&str> = text
             .split(|c| c == '。' || c == '！' || c == '？')
+            .filter(|s| !s.trim().is_empty())
             .collect();
-
-        // 检查句式多样性
-        let mut short_sentences = 0;
-        let mut long_sentences = 0;
-        for s in &sentences {
-            let len = s.chars().count();
-            if len > 0 && len < 10 {
-                short_sentences += 1;
-            }
-            if len > 50 {
-                long_sentences += 1;
-            }
-        }
-
-        let short_ratio = short_sentences as f64 / sentences.len().max(1) as f64;
-        let long_ratio = long_sentences as f64 / sentences.len().max(1) as f64;
-
-        if short_ratio > 0.5 {
-            issues.push(ReviewIssue {
-                dimension: "语法".to_string(),
-                severity: "medium".to_string(),
-                description: "短句过多，节奏过于碎片化".to_string(),
-                example: sentences
-                    .iter()
-                    .find(|s| s.chars().count() < 10)
-                    .unwrap_or(&"")
-                    .to_string(),
-                suggestion: "适当使用复合句，增强句子间的逻辑关联".to_string(),
-            });
-        }
-
-        if long_ratio > 0.3 {
-            issues.push(ReviewIssue {
-                dimension: "语法".to_string(),
-                severity: "medium".to_string(),
-                description: "长句过多，阅读负担重".to_string(),
-                example: sentences
-                    .iter()
-                    .find(|s| s.chars().count() > 50)
-                    .unwrap_or(&"")
-                    .to_string(),
-                suggestion: "拆分超长句，用节奏变化调节阅读体验".to_string(),
-            });
-        }
-
-        // 检查被动语态倾向（中文中的"被"字句）
         let passive_count = text.matches('被').count();
         let passive_ratio = passive_count as f64 / sentences.len().max(1) as f64;
-
         if passive_ratio > 0.15 {
             issues.push(ReviewIssue {
                 dimension: "语法".to_string(),
@@ -324,10 +299,10 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if short_ratio > 0.5 || long_ratio > 0.3 {
-            0.6
+        let score = if report.metrics.flat_run_max >= 3 {
+            0.65
         } else if passive_ratio > 0.15 {
-            0.75
+            0.8
         } else {
             0.9
         };
@@ -349,7 +324,8 @@ impl AntiAiReviewer {
 
         let paragraphs: Vec<&str> = text.split('\n').filter(|s| !s.trim().is_empty()).collect();
 
-        // 检查流水账倾向（段落长度过于均匀）
+        // 段落长度过于均匀（sepia discourse-pass §3：同篇内长度一致是信号，
+        // 段落数/平均段长本身不是——跨语料方向矛盾，故只看一致性）
         let mut lengths: Vec<usize> = paragraphs.iter().map(|p| p.chars().count()).collect();
         let uniform_ratio = if lengths.len() >= 3 {
             lengths.sort();
@@ -379,11 +355,13 @@ impl AntiAiReviewer {
                     .first()
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
-                suggestion: "打破均匀节奏，用长短段落制造呼吸感".to_string(),
+                suggestion: "打破均匀节奏，用长短段落制造呼吸感；允许一句话成段".to_string(),
             });
         }
 
-        // 检查叙事密度（每百字的动作/描写词比例）
+        // 感官/动作密度：v0.65.0 降级为 advisory——sepia 实测机器感官密度反而
+        // **高于**人类（3.93 对 3.66），低密度不是 AI
+        // 指纹，只是画面感弱的提示。
         let sensory_words = vec!["看", "听", "闻", "摸", "感", "视", "见", "触", "嗅", "尝"];
         let action_words = vec!["走", "跑", "跳", "打", "抓", "挥", "冲", "退", "闪", "跃"];
 
@@ -397,18 +375,18 @@ impl AntiAiReviewer {
         if sensory_density < 1.0 && action_density < 1.0 {
             issues.push(ReviewIssue {
                 dimension: "叙事".to_string(),
-                severity: "high".to_string(),
-                description: "叙事密度过低，缺乏感官描写和动作细节".to_string(),
+                severity: "low".to_string(),
+                description: "感官与动作密度偏低，画面感可能不足（仅作提示，非 AI 指纹）"
+                    .to_string(),
                 example: text.chars().take(50).collect(),
-                suggestion: "增加五感描写和具体动作，让读者身临其境".to_string(),
+                suggestion: "补一处具体动作或实物细节即可，不必堆砌五感".to_string(),
             });
-            suggestions.push("每段至少包含一个感官细节或具体动作".to_string());
         }
 
-        let score = if sensory_density < 1.0 && action_density < 1.0 {
-            0.4
-        } else if uniform_ratio > 0.7 {
-            0.6
+        let score = if uniform_ratio > 0.7 {
+            0.65
+        } else if sensory_density < 1.0 && action_density < 1.0 {
+            0.8
         } else {
             0.85
         };
@@ -423,56 +401,77 @@ impl AntiAiReviewer {
 
     // ==================== 情感维度 ====================
 
+    /// v0.65.0 校准（sepia / StoryScope 实测）：
+    ///
+    /// 旧版把「情感标签化」（他很生气、她很高兴）当缺陷、要求一律改成动作与
+    /// 神态——这与实测方向**相反**：人类 29% 的场景用显式标签命名情绪，机器只有
+    /// 8%（模型几乎不写「她害怕」）；而机器 81% 的场景用身体感受承载情绪
+    /// （心口一紧、背脊发凉），人类只有 38%。即「每段情绪都写成身体反应」才是
+    /// 机器指纹，直说情绪是人类常态。
+    ///
+    /// 现在只报两类：①具身化独大而零平直命名（缺模式）；②廉价副词化强调
+    /// （由衷地／情不自禁地／无比……），后者是真正的填充词。
     fn check_emotion(&self, text: &str) -> DimensionResult {
         let mut issues = Vec::new();
         let mut flagged = Vec::new();
         let mut suggestions = Vec::new();
 
-        // 情感标签词检测
-        let emotion_labels = vec![
-            "他很生气",
-            "她很高兴",
-            "非常愤怒",
-            "极其开心",
-            "感到悲伤",
-            "十分恐惧",
-            "无比激动",
-            "深感欣慰",
+        let report = crate::story_system::human_voice::analyze_human_voice(text);
+        let embodied_count = report.metrics.embodied_count;
+        let plain_count = report.metrics.plain_emotion_count;
+
+        if embodied_count >= 3 && plain_count == 0 {
+            issues.push(ReviewIssue {
+                dimension: "情感".to_string(),
+                severity: "medium".to_string(),
+                description: format!(
+                    "情绪全靠身体反应承载（{embodied_count} 处），无一处平直命名；机器 81% 的场景如此，人类只有 38%"
+                ),
+                example: "心口一紧 / 背脊发凉 / 喉咙发紧".to_string(),
+                suggestion:
+                    "四模式混用：以行为为主，平直命名次之（「她害怕」是正常的人类句式），具身化只留峰值"
+                        .to_string(),
+            });
+            suggestions.push("把多数身体反应换成她做了什么，或直接说出情绪".to_string());
+        }
+
+        // 廉价副词化强调（真正的填充词，非「直说情绪」）
+        let padding = vec![
             "由衷地",
             "发自内心地",
             "情不自禁地",
+            "无比激动",
+            "十分恐惧",
+            "极其开心",
+            "深感欣慰",
+            "不禁感到",
+            "忍不住感到",
         ];
-
-        let mut label_count = 0;
-        for label in &emotion_labels {
-            if text.contains(label) {
-                label_count += 1;
-                if label_count <= 2 {
+        let mut padding_count = 0;
+        for phrase in &padding {
+            if let Some(pos) = text.find(phrase) {
+                padding_count += 1;
+                if padding_count <= 2 {
                     flagged.push(FlaggedPassage {
-                        text: label.to_string(),
+                        text: phrase.to_string(),
                         dimension: "情感".to_string(),
-                        reason: "情感标签化，直接告诉读者情绪而非展示".to_string(),
-                        position: text.find(label).unwrap_or(0),
+                        reason: "副词化情绪填充，删掉后句子更干净".to_string(),
+                        position: pos,
                     });
                 }
             }
         }
-
-        if label_count > 0 {
+        if padding_count > 0 {
             issues.push(ReviewIssue {
                 dimension: "情感".to_string(),
-                severity: if label_count > 3 { "high" } else { "medium" }.to_string(),
-                description: format!("检测到 {} 处情感标签化表达", label_count),
-                example: emotion_labels
-                    .first()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
-                suggestion: "用动作、神态、环境反应来暗示情绪，而非直接标签".to_string(),
+                severity: "low".to_string(),
+                description: format!("{padding_count} 处副词化情绪填充（由衷地/情不自禁地…）"),
+                example: padding.first().map(|s| s.to_string()).unwrap_or_default(),
+                suggestion: "删掉副词，保留情绪本身".to_string(),
             });
-            suggestions.push("遵循'展示而非告知'原则描写情感".to_string());
         }
 
-        // 检查情感细腻度（内心独白 vs 外部描写）
+        // 内心独白占比（低置信度提示，保留）
         let inner_monologue_markers = vec!["想", "觉得", "认为", "感到", "感觉"];
         let inner_count: usize = inner_monologue_markers
             .iter()
@@ -492,12 +491,10 @@ impl AntiAiReviewer {
             });
         }
 
-        let score = if label_count > 3 {
-            0.3
-        } else if label_count > 0 {
+        let score = if embodied_count >= 3 && plain_count == 0 {
             0.6
-        } else if inner_ratio > 3.0 {
-            0.75
+        } else if padding_count > 0 || inner_ratio > 3.0 {
+            0.8
         } else {
             0.9
         };
@@ -517,21 +514,42 @@ impl AntiAiReviewer {
         let flagged = Vec::new();
         let suggestions = Vec::new();
 
-        // 提取对话内容（简化处理：引号内的内容）
+        // 提取对话内容。v0.65.0：原先只认弯引号（“ ” ‘ ’），中文直角引号
+        // （「」『』）里的对话整块漏检，导致本维度在「」体例的正文上直接失效；
+        // 现按深度配对两种引号（『』可嵌套在「」内）。
         let mut dialogues = Vec::new();
-        let chars: Vec<char> = text.chars().collect();
-        let mut in_quote = false;
+        let mut depth = 0usize;
         let mut current_quote = String::new();
 
-        for c in &chars {
-            if *c == '\u{201C}' || *c == '\u{201D}' || *c == '\u{2018}' || *c == '\u{2019}' {
-                if in_quote {
-                    dialogues.push(current_quote.clone());
-                    current_quote.clear();
+        for c in text.chars() {
+            match c {
+                '“' | '「' | '『' => {
+                    depth += 1;
+                    if depth == 1 {
+                        current_quote.clear();
+                    } else {
+                        current_quote.push(c);
+                    }
                 }
-                in_quote = !in_quote;
-            } else if in_quote {
-                current_quote.push(*c);
+                '”' | '」' | '』' => {
+                    if depth > 0 {
+                        depth -= 1;
+                        if depth == 0 {
+                            let trimmed = current_quote.trim().to_string();
+                            if !trimmed.is_empty() {
+                                dialogues.push(trimmed);
+                            }
+                            current_quote.clear();
+                        } else {
+                            current_quote.push(c);
+                        }
+                    }
+                }
+                _ => {
+                    if depth > 0 {
+                        current_quote.push(c);
+                    }
+                }
             }
         }
 
@@ -569,21 +587,38 @@ impl AntiAiReviewer {
             });
         }
 
-        // 检查对话标签单调
-        let dialogue_tags = vec!["他说", "她说", "说道", "回答", "问道"];
-        let mut tag_count = 0;
-        for tag in &dialogue_tags {
-            tag_count += text.matches(tag).count();
-        }
+        // 对话标签：v0.65.0 校准——旧版把「标签单调（几乎全是说/道）」当缺陷并
+        // 建议换成动作标签，方向相反：重复「说」是人类常态，**轮换低语/咕哝/
+        // 嗤笑 才是机器优雅**（sepia style-pass
+        // §4）。现在只在「花式标签轮换且几乎不用 说/道」时提示。
+        let plain_tags = vec!["说道", "问道", "回答", "说", "道"];
+        let plain_tag_count: usize = plain_tags.iter().map(|t| text.matches(t).count()).sum();
+        let report_tags = crate::story_system::human_voice::analyze_human_voice(text);
+        let fancy_tag_count = report_tags.metrics.fancy_tag_distinct;
 
-        let tag_ratio = tag_count as f64 / dialogues.len().max(1) as f64;
-        if tag_ratio > 0.8 {
+        if fancy_tag_count >= 3 && plain_tag_count == 0 {
             issues.push(ReviewIssue {
                 dimension: "对话".to_string(),
                 severity: "low".to_string(),
-                description: "对话标签单调，缺乏变化".to_string(),
-                example: "他说".to_string(),
-                suggestion: "用动作标签替代部分'说'，如'他揉了揉眉心''她放下茶杯'".to_string(),
+                description: format!(
+                    "轮换使用 {fancy_tag_count} 种花式对话标签（低语/咕哝/嗤笑…）且无一处「说/道」"
+                ),
+                example: "他低语／她嗤笑／他咕哝".to_string(),
+                suggestion: "对话标签重复「说」即可，不必轮换；花式标签留给关键处".to_string(),
+            });
+        }
+
+        // 语气词缺失：中文人类语料的语气词密度是机器的 5 倍（sepia zh.md §1），
+        // 对话里一个「啊/吧/呢/嘛」都没有是中文最强的机器指纹之一。仅作提示——
+        // 冷硬角色或正式场合确实可以不用，由编辑器裁决。
+        let dialogue_chars: usize = dialogues.iter().map(|d| d.chars().count()).sum();
+        if dialogue_chars >= 60 && report_tags.metrics.mood_particle_count == 0 {
+            issues.push(ReviewIssue {
+                dimension: "对话".to_string(),
+                severity: "low".to_string(),
+                description: "对话无一处语气词（啊/吧/呢/嘛/啦），书面腔偏重".to_string(),
+                example: dialogues.first().cloned().unwrap_or_default(),
+                suggestion: "在符合角色口吻的对话里放一两个语气词，中文口语里这是常态".to_string(),
             });
         }
 
@@ -591,8 +626,10 @@ impl AntiAiReviewer {
             0.4
         } else if exposition_ratio > 0.3 {
             0.6
-        } else if tag_ratio > 0.8 {
-            0.75
+        } else if (fancy_tag_count >= 3 && plain_tag_count == 0)
+            || (dialogue_chars >= 60 && report_tags.metrics.mood_particle_count == 0)
+        {
+            0.8
         } else {
             0.9
         };
@@ -617,5 +654,90 @@ struct DimensionResult {
 impl Default for AntiAiReviewer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v0.65.0 校准契约：人类更常**平直命名**情绪（29% vs 8%），「她害怕」不是
+    /// 缺陷；缺陷是「每个情绪都写成身体反应、零平直命名」。
+    #[test]
+    fn plain_emotion_naming_is_not_flagged_but_embodied_only_is() {
+        let reviewer = AntiAiReviewer::new();
+
+        let plain = "她害怕。他恨她。她坐在门槛上，没有动。";
+        let plain_issues = reviewer.check_emotion(plain).issues;
+        assert!(
+            !plain_issues
+                .iter()
+                .any(|i| i.description.contains("身体反应")),
+            "平直命名不应被判缺陷: {plain_issues:?}"
+        );
+
+        let embodied = "她心里一紧。他背脊发凉。她喉咙发紧。";
+        let embodied_issues = reviewer.check_emotion(embodied).issues;
+        assert!(
+            embodied_issues
+                .iter()
+                .any(|i| i.description.contains("身体反应")),
+            "{embodied_issues:?}"
+        );
+    }
+
+    /// v0.65.0 校准契约：重复「说/道」是人类常态，轮换花式标签才是机器优雅。
+    #[test]
+    fn repeated_plain_speech_tag_is_not_flagged_but_fancy_rotation_is() {
+        let reviewer = AntiAiReviewer::new();
+
+        let repeated = "「你来了。」他说。「我知道了。」他说。「坐。」他说。\
+「这茶是今早新沏的，你尝尝温度。」他说。「路上还顺利。」他说。「还行，只是雨大。」他说。";
+        let repeated_issues = reviewer.check_dialogue(repeated).issues;
+        assert!(
+            !repeated_issues
+                .iter()
+                .any(|i| i.description.contains("花式对话标签")),
+            "重复「说」不应被判缺陷: {repeated_issues:?}"
+        );
+
+        let fancy = "「你来了。」他低语。「我明白。」她嗤笑。「坐。」他咕哝。\
+「这茶是今早新沏的，你尝尝温度。」她嘟囔。「路上还顺利。」他呢喃。「还行，只是雨大。」她嘶吼。";
+        let fancy_issues = reviewer.check_dialogue(fancy).issues;
+        assert!(
+            fancy_issues
+                .iter()
+                .any(|i| i.description.contains("花式对话标签")),
+            "{fancy_issues:?}"
+        );
+    }
+
+    /// 语法维度按「句长离散度」而非平均句长判定（sepia 汇总 16 篇研究的唯一
+    /// 方向一致指标）：连续近等长句要报，长短参差不得报。
+    #[test]
+    fn sentence_rhythm_uses_dispersion_not_mean_length() {
+        let reviewer = AntiAiReviewer::new();
+
+        let flat =
+            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。";
+        assert!(
+            reviewer
+                .check_syntax(flat)
+                .issues
+                .iter()
+                .any(|i| i.description.contains("长度趋同")),
+            "连续近等长句应报"
+        );
+
+        let varied =
+            "他推开门。里面很暗，只有窗台上一盏灯亮着，灯芯烧得歪歪扭扭，像随时要灭。她抬头。";
+        assert!(
+            !reviewer
+                .check_syntax(varied)
+                .issues
+                .iter()
+                .any(|i| i.description.contains("长度趋同")),
+            "长短参差不应报"
+        );
     }
 }

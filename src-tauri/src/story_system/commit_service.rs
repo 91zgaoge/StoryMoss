@@ -163,6 +163,22 @@ impl SceneCommitService {
                 .extend(super::prose_lint::summarize_findings(&lint_findings));
         }
 
+        // v0.65.0：人类文笔基线——机器写多了 / 人写少了（句长趋同、语气词缺失、
+        // 具身化独大、花式对话标签…）。这些是分布偏移不是硬伤，只入 review 记录
+        // 供作者审计，不阻断提交。
+        let voice_report = super::human_voice::analyze_human_voice(content.unwrap_or(""));
+        if !voice_report.findings.is_empty() {
+            log::info!(
+                "[human_voice] 第{}章文笔基线：{} 条提示（metrics={:?}）",
+                chapter_number,
+                voice_report.findings.len(),
+                voice_report.metrics
+            );
+            review_result
+                .issues
+                .extend(super::human_voice::summarize_findings(&voice_report));
+        }
+
         // 合同履行度检查
         let fulfillment_result = contract.evaluate_fulfillment(content.unwrap_or(""));
 

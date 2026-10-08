@@ -6331,6 +6331,18 @@ pub(crate) async fn evaluate_gate_impl(
                     ctx.push_str("\n\n");
                 }
             }
+            // v0.65.0：人类文笔基线（机器写多了 / 人写少了）。与硬伤不同，这些
+            // 是分布偏移：编辑器逐条判断「是否值得改」，过度纠正本身是新的指纹。
+            {
+                let report =
+                    crate::story_system::human_voice::analyze_human_voice(&draft_content);
+                if let Some(block) =
+                    crate::story_system::human_voice::render_audit_block(&report, 6)
+                {
+                    ctx.push_str(&block);
+                    ctx.push_str("\n\n");
+                }
+            }
             ctx
         })
         .await

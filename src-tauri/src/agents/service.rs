@@ -3339,13 +3339,17 @@ pub fn render_writer_system_from_bundle(
 
     // v0.23.65 P1-3: 反 AI cliché 避免指令——把已知的 AI 高频陈词滥调列表
     // 注入 system_prompt，让 Writer 在生成时主动避开这些表达。
+    // v0.65.0：追加人类文笔基线准则（sepia/StoryScope 实测方向）。放在此处
+    // 而非模板内，是为了让**用户在提示词页覆盖过 writer_system 的场景**也拿到
+    // 这份准则——模板可被覆盖，这段追加不受覆盖影响。
     result.push_str("\n\n【反 AI 味写作指令】\n");
     result.push_str("请避免使用以下 AI 高频陈词滥调，用角色视角的独特表达替代：\n");
     result.push_str("不言而喻、显而易见、毫无疑问、众所周知、不可否认、值得一提的是、");
     result.push_str("从某种意义上说、总的来说、归根结底、总而言之、突然之间、刹那间、");
     result.push_str("说时迟那时快、嘴角微微上扬、眼中闪过一丝、心中涌起一股、");
     result.push_str("关键在于、值得注意的是、综上所述、让我们、在某种程度上、");
-    result.push_str("与此同时、这一切的背后。\n");
+    result.push_str("与此同时、这一切的背后。\n\n");
+    result.push_str(&crate::story_system::human_voice::render_guidance_rules());
 
     Some(result)
 }

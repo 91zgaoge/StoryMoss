@@ -171,19 +171,26 @@ pub fn lint_text(text: &str) -> Vec<LintFinding> {
         }
     }
 
-    // 2) 「不是 A 而是 B」否定排比（blocking）
+    // 2) 「不是 A 而是 B」否定排比（聚集才报，v0.65.0 校准）
+    //
+    // sepia 汇总的中文实测：人类语料 30% 的文章含该形态（6.3/10 万字），
+    // 机器是 2.9–7.5 倍率——**单例是正常语域，聚集才是信号**。旧版命中即
+    // blocking 会误伤正常行文，且「过度纠正本身是新的指纹」。
     let sentences = split_sentences(text);
-    for sentence in &sentences {
-        let has_not = sentence.contains("不是") || sentence.contains("并非");
-        if has_not && sentence.contains("而是") {
-            findings.push(LintFinding::new(
-                "not-x-but-y",
-                "blocking",
-                "「不是…而是…」否定排比句式（AI 腔高发形态）",
-                sentence,
-            ));
-            break;
-        }
+    let not_x_but_y: Vec<&String> = sentences
+        .iter()
+        .filter(|s| (s.contains("不是") || s.contains("并非")) && s.contains("而是"))
+        .collect();
+    if not_x_but_y.len() >= 2 {
+        findings.push(LintFinding::new(
+            "not-x-but-y",
+            "blocking",
+            &format!(
+                "「不是…而是…」否定排比 {} 处（单例属正常语域，聚集即为 AI 腔高发形态）",
+                not_x_but_y.len()
+            ),
+            not_x_but_y[1],
+        ));
     }
 
     // 3) 章尾总结/预告腔（blocking）
@@ -333,9 +340,22 @@ mod tests {
     }
 
     #[test]
-    fn flags_not_x_but_y_but_not_plain_negation() {
-        let flagged = lint_text("他不是害怕，而是终于明白了。");
-        assert!(flagged.iter().any(|f| f.rule == "not-x-but-y"));
+    fn flags_not_x_but_y_only_when_clustered() {
+        // v0.65.0 校准：单例是人类语料的正常语域（人类 30% 的文章含此形态）
+        let single = lint_text("他不是害怕，而是终于明白了。");
+        assert!(
+            !single.iter().any(|f| f.rule == "not-x-but-y"),
+            "单例不得报: {single:?}"
+        );
+
+        // 聚集（≥2 处）才是信号
+        let clustered = lint_text("他不是害怕，而是终于明白了。这不是偶然，而是必然。");
+        assert!(
+            clustered
+                .iter()
+                .any(|f| f.rule == "not-x-but-y" && f.severity == "blocking"),
+            "{clustered:?}"
+        );
 
         let clean = lint_text("他不是害怕。他只是累了。");
         assert!(!clean.iter().any(|f| f.rule == "not-x-but-y"));

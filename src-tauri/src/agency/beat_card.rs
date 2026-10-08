@@ -872,7 +872,7 @@ pub fn ending_anchor(current_content: &str) -> String {
 }
 
 /// 主创 user prompt：卡全文 → 人物锁 → 状态网 → Bundle → 指令 → 卡摘要 →
-/// 状态摘要 → 末句锚点。
+/// 状态摘要 → 人类文笔基线 → 末句锚点。
 pub fn render_writer_user_prompt(
     bundle_prompt: &str,
     card: &SceneBeatCard,
@@ -905,13 +905,19 @@ pub fn render_writer_user_prompt(
             card.dead.join("、")
         )
     };
+    // v0.65.0：人类文笔基线（固定准则 + 按已写篇幅轮换的本章手法），放在末句
+    // 锚点之前——锚点必须保持最后的高显著位置（v0.64.9 续写重演的修复依赖它）。
+    let voice = crate::story_system::human_voice::render_guidance_block_for_progress(
+        current_content.chars().count(),
+    );
     format!(
         "{card_full}{lock_block}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
-         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{ending}{facts}",
+         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{voice}\n\n{ending}{facts}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
         instruction = instruction,
         card_tail = card.render_tail_summary(),
+        voice = voice,
         ending = ending_anchor(current_content),
     )
 }
@@ -1129,6 +1135,29 @@ mod tests {
         assert!(i_sum < i_end);
         assert!(prompt.contains("林雪"));
         assert!(!prompt.contains("最高优先级"));
+    }
+
+    #[test]
+    fn writer_prompt_carries_human_voice_guidance_before_ending_anchor() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_minimal(&pool);
+        let card = compile_beat_card(&pool, &story_id, "他推开门走了进去。").unwrap();
+        let prompt = render_writer_user_prompt(
+            "【红线】不可飞天",
+            &card,
+            "往下写",
+            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。",
+            None,
+            None,
+        );
+        let i_voice = prompt.find("【人类文笔基线").expect("应注入文笔基线");
+        let i_tech = prompt.find("本章手法").expect("应注入本章手法");
+        let i_end = prompt.find("【续写硬锚点】").expect("应有末句锚点");
+        assert!(
+            i_voice < i_tech && i_tech < i_end,
+            "文笔基线须在末句锚点之前（锚点保持最后的高显著位置）"
+        );
+        assert!(prompt.contains("情绪四模式混用"));
     }
 
     #[test]
