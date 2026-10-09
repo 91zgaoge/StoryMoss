@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.65.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.65.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.65.4 变更说明
+
+- **用例隔离修复（仅测试）**：幕前 `useFrontstageStore` 为模块级单例，同文件上一个用例的
+  正文会污染下一个用例（`captured.content` 断言在应用加载完成前通过，CI Linux 上表现为
+  `Unable to find a label with the text of: 展开章节列表`）。`FrontstageApp.latest-chapter.test.tsx`
+  的 `beforeEach` 增加 store 复位 + 首次交互等候选出。计数不变：620 passed / 3 skipped。
 
 ### v0.65.3 变更说明
 

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.65.3
+- **版本**: v0.65.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -111,6 +111,23 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.65.4 - v0.65.3 的 CI 收尾（用例隔离）
+
+**为什么还要一版**：v0.65.3 的 tag 构建挂在 `frontend-check`——新增用例在本机（macOS）绿、
+CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFrontstageStore` 是模块级单例，
+同文件上一个用例留下的正文让新用例的 `captured.content` 断言在应用加载完成前就通过
+（CI 报 `Unable to find a label with the text of: 展开章节列表`，章下拉尚未渲染）。
+按「不覆盖已有 tag」的规则单独发版补齐。
+
+**改动（仅测试）**：`FrontstageApp.latest-chapter.test.tsx` 的 `beforeEach` 增加 store 复位
+（`setContent('')` / `setSceneInfo('', '', undefined)` / `setSaveStatus(true, null)`），
+每个用例从「无故事、空正文」冷启动；首次交互改用 `findByLabelText('展开章节列表')` 等候选出。
+
+- **验证**：`npx vitest run` 620 passed / 3 skipped；tsc ✅；聚焦重复跑 3 次稳定绿；
+  把 pre-fix 的 `FrontstageApp.tsx` 换回去该用例仍为红（`Already attempted lazy-load for chapter`），
+  回归语义不变。未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）。
+- **未关闭**：同 v0.65.3（真机端到端未复跑，**不得宣称症状已在真机消失**）。
+
 ### v0.65.3 - 幕前「续写后正文消失 / 章节点不开」真机缺陷修复
 
 **三条症状一条链路**：真机《帝国的烟火》第 2 章续写 → 自动分章出第 3 章 → 幕前自动切换，
@@ -164,14 +181,6 @@ type:
 - **验证**：`cargo test --lib` 1778 passed / 5 ignored（+15）；vitest 609 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。**验收探针**（ignored 手动跑）：机器腔样本命中 5 条（embodied-only / fancy-speech-tags / connective-stack / disyllabic-padding / abstract-wrapper），人类腔样本 **0 误报**；句长 SD 6.24 对 14.97、语气词 0 对 4、平直命名 0 对 2。
 - **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`；`embodied_only_is_a_deficit_not_plain_naming`；`mood_particle_absence_only_with_dialogue`；`fancy_tags_flagged_only_when_plain_said_is_absent`；`connective_stack_and_disyllabic_padding_are_detected`；`abstract_wrapper_needs_cluster`；`clean_literary_text_produces_no_findings`；`technique_rotates_by_chapter_and_guidance_is_compact`；`audit_block_is_bounded_and_empty_when_clean`；`writer_prompt_carries_human_voice_guidance_before_ending_anchor`；`plain_emotion_naming_is_not_flagged_but_embodied_only_is`；`repeated_plain_speech_tag_is_not_flagged_but_fancy_rotation_is`；`sentence_rhythm_uses_dispersion_not_mean_length`；`flags_not_x_but_y_only_when_clustered`；`test_v0650_human_voice_doctrine_in_prompts`。
 - **未关闭**：叙事架构层（主题不解释 / 结局非「主角选择+接纳+成长」三脚架 / 配角不互识）只落在提示词与审查清单，无确定性检查（需跨章语义，确定性规则做不了，单次 LLM 自评天然盲——sepia 实测自评塌缩到一两个维度，留待分组多次诊断）；真机端到端未复跑（本机库无章节正文），**不得宣称续写质量已修复**。
-
-### v0.64.12 - 自动后台重算 + 指纹感知
-
-**为什么**：v0.64.11 的手动重算会把「第 N 章以后每一章」都重算（长书=几十次调用），自动跑不可接受。**修复**：**V145** `scene_commits.summary_source_hash`（正文剥标记后的 FNV-1a 指纹，`auto_commit` 写）+ `recompute_scoped(summary_from, material_from, cap)` 指纹感知（只重算正文变过的章；段摘要只重建摘要变过的段）；`recompute_after_commit`（章节摘要从 committed+1、材料从 committed）；`spawn_auto_recompute_if_stale` 挂在 `schedule_commit_and_split` 的 auto_commit 成功分支——后台闸门 + 同故事并发去重 + 单轮 12 章上限（超出保留标记续算）+ `AppConfig::auto_recompute_after_edit`（默认开）开关；`should_auto_recompute` 判定「有失效且起点 ≤ 刚提交章」。
-
-- **验证**：`cargo test --lib` 1764 passed / 4 ignored（+5）；vitest 609 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：`mark_stale(9)` → 一轮重算（4 条重写/段摘要待模型/1 条快照）→ **二轮 0 条重写、4 条未变**；`should_auto_recompute(12)` = `Some(9)`。
-- **契约**：`fingerprint_ignores_markup_but_detects_prose_change`；`recompute_skips_chapters_whose_prose_unchanged`；`recompute_cap_defers_rest_and_keeps_flag`；`should_auto_recompute_only_when_stale_at_or_before_committed`；`v145_adds_hash_column_idempotently`。
-- **未关闭**：自动重算只在提交防抖后触发；分层摘要仍需可用模型。
 
 ## Always Do
 

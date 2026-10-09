@@ -2,6 +2,32 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.65.4（2026-10-09）
+
+**v0.65.3 的 CI 收尾：幕前用例隔离（store 单例跨用例污染）。**
+
+v0.65.3 的 tag 已推送（安装包内容与当时的 master 一致，不含本版）；该次 tag 构建的
+`frontend-check` 挂在新增用例上——本机（macOS）绿、CI（Linux）红，根因不是产品代码而是
+**测试用例隔离**：幕前 `useFrontstageStore` 是模块级单例，同一测试文件里上一个用例留下的
+正文会让新用例的 `captured.content` 断言在应用真正加载完成之前就通过（CI 上表现为
+`Unable to find a label with the text of: 展开章节列表`——章节下拉还没渲染）。按仓库
+「不覆盖已有 tag」的规则，本版单独发版补齐。
+
+### 变更（仅测试）
+
+- `FrontstageApp.latest-chapter.test.tsx`：`beforeEach` 增加 store 复位
+  （`setContent('')` + `setSceneInfo('', '', undefined)` + `setSaveStatus(true, null)`），
+  每个用例从「无故事、空正文」冷启动；首次交互改用 `findByLabelText('展开章节列表')`
+  等候选出，不再依赖断言时序。产品代码与本版用例的**回归语义不变**（把 pre-fix 的
+  `FrontstageApp.tsx` 换回去，该用例仍为红：日志 `Already attempted lazy-load for chapter`）。
+
+### 测试
+
+`npx vitest run` **620 passed / 3 skipped**；`npx tsc --noEmit` ✅；聚焦重复跑 3 次稳定绿。
+未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）。
+
+- **未关闭**：同 v0.65.3（真机端到端未复跑，**不得宣称症状已在真机消失**）。
+
 ## v0.65.3（2026-10-09）
 
 **幕前「续写后正文凭空消失 / 章节点不开」的两处真机缺陷修复（真机《帝国的烟火》）。**

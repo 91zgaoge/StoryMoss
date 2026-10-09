@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from '../FrontstageApp';
+import { useFrontstageStore } from '../store/frontstageStore';
 import { loggedInvoke } from '@/services/tauri';
 
 const queryClient = new QueryClient({
@@ -152,6 +153,12 @@ describe('启动定位最新章节（v0.33.7）', () => {
   beforeEach(() => {
     captured.content = '';
     invokeCalls.length = 0;
+    // v0.65.3: 幕前 store 是模块级单例，用例之间会互相污染——残留正文会让
+    // captured.content 断言在应用真正加载完之前就通过（CI 上表现为找不到章节下拉），
+    // 每个用例都从「无故事、空正文」冷启动。
+    useFrontstageStore.getState().setContent('');
+    useFrontstageStore.getState().setSceneInfo('', '', undefined);
+    useFrontstageStore.getState().setSaveStatus(true, null);
   });
 
   it('selectStory 应选中 chapter_number 最大的章节并加载其正文', async () => {
@@ -190,8 +197,8 @@ describe('启动定位最新章节（v0.33.7）', () => {
     // 启动即懒加载最新章（第 3 章）
     await waitFor(() => expect(captured.content).toContain('第三章正文'));
 
-    // 切到第 2 章
-    await user.click(screen.getByLabelText('展开章节列表'));
+    // 切到第 2 章（先等章节下拉就绪，避免与加载竞态）
+    await user.click(await screen.findByLabelText('展开章节列表'));
     await user.click(await screen.findByRole('option', { name: '第2章' }));
     await waitFor(() => expect(captured.content).toContain('第二章正文'));
 

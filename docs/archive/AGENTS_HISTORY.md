@@ -1,5 +1,15 @@
 *归档于 2026-10-06（v0.59.3）：v0.56.2 摘要。*
 
+*归档于 2026-10-09（v0.65.4）：v0.64.12 摘要。*
+
+### v0.64.12 - 自动后台重算 + 指纹感知
+
+**为什么**：v0.64.11 的手动重算会把「第 N 章以后每一章」都重算（长书=几十次调用），自动跑不可接受。**修复**：**V145** `scene_commits.summary_source_hash`（正文剥标记后的 FNV-1a 指纹，`auto_commit` 写）+ `recompute_scoped(summary_from, material_from, cap)` 指纹感知（只重算正文变过的章；段摘要只重建摘要变过的段）；`recompute_after_commit`（章节摘要从 committed+1、材料从 committed）；`spawn_auto_recompute_if_stale` 挂在 `schedule_commit_and_split` 的 auto_commit 成功分支——后台闸门 + 同故事并发去重 + 单轮 12 章上限（超出保留标记续算）+ `AppConfig::auto_recompute_after_edit`（默认开）开关；`should_auto_recompute` 判定「有失效且起点 ≤ 刚提交章」。
+
+- **验证**：`cargo test --lib` 1764 passed / 4 ignored（+5）；vitest 609 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：`mark_stale(9)` → 一轮重算（4 条重写/段摘要待模型/1 条快照）→ **二轮 0 条重写、4 条未变**；`should_auto_recompute(12)` = `Some(9)`。
+- **契约**：`fingerprint_ignores_markup_but_detects_prose_change`；`recompute_skips_chapters_whose_prose_unchanged`；`recompute_cap_defers_rest_and_keeps_flag`；`should_auto_recompute_only_when_stale_at_or_before_committed`；`v145_adds_hash_column_idempotently`。
+- **未关闭**：自动重算只在提交防抖后触发；分层摘要仍需可用模型。
+
 *归档于 2026-10-09（v0.65.3）：v0.64.11 摘要。*
 
 ### v0.64.11 - 物料失效重算 + 关系归一 + 摘要失败可见
