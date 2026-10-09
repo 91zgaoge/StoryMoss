@@ -215,6 +215,35 @@ export function stripInstructionEcho(generated: string, userInput: string): stri
 }
 
 /**
+ * v0.65.3: 切章时判定「未确认的幽灵续文是否已随新章正文呈现」。
+ *
+ * 幽灵文本（generatedText）是尚未 Tab 确认的 AI 续写。Agency 续写在生成时即已
+ * 落库，自动分章会把溢出正文搬进新章，此时幽灵内容已在新章正文里，切章丢弃它
+ * 不算丢正文；但若新章正文既不含幽灵开头（幽灵整体/前缀已是正文片段），也不含
+ * 幽灵结尾（幽灵 = 旧文尾部重演 + 新续写的常见形态），说明幽灵里有新章没有的
+ * 文字，切章时必须保留。
+ *
+ * @returns true 表示幽灵内容已在新章正文中（可安全丢弃）；false 表示需保留
+ */
+export function isGhostDeliveredInContent(ghost: string, content: string): boolean {
+  const trimmedGhost = ghost.trim();
+  const trimmedContent = content.trim();
+  if (!trimmedGhost || !trimmedContent) return false;
+
+  // 幽灵整体（或前缀指纹）已在新章正文中——覆盖幽灵是新章正文子串的情况
+  if (isTextDuplicate(trimmedContent, trimmedGhost)) return true;
+
+  // 幽灵结尾已在新章正文中——覆盖「重演旧文尾部 + 新续写」的分章形态
+  const normGhost = normalizeForDuplicateCheck(trimmedGhost);
+  const normContent = normalizeForDuplicateCheck(trimmedContent);
+  const tailLen = Math.min(120, normGhost.length);
+  // 尾部过短无法判断时按「未呈现」处理：宁可多保留一个可见幽灵，也不静默丢字
+  // （accept 路径自带 stripExistingPrefix + 去重，误保留不会造成正文重复）
+  if (tailLen < 24) return false;
+  return normContent.includes(normGhost.slice(-tailLen));
+}
+
+/**
  * v0.26.24: 检测并裁剪散布式句子块重复。
  *
  * 把文本按句末标点（。！？.?!）切成句子序列，归一化后查找在文中出现 ≥2 次

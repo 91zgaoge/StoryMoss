@@ -6,6 +6,7 @@ import {
   trimDanglingTail,
   sanitizeContinuationOutput,
   stripInstructionEcho,
+  isGhostDeliveredInContent,
 } from '../textCleanup';
 
 describe('trimSelfRepetition', () => {
@@ -218,5 +219,44 @@ describe('stripInstructionEcho', () => {
     const generated = '继续写下一章\n\n黑暗笼罩了整个世界，没有一丝光亮。';
     const result = stripInstructionEcho(generated, '继续写下一章');
     expect(result.startsWith('黑暗笼罩')).toBe(true);
+  });
+});
+
+describe('isGhostDeliveredInContent（v0.65.3 切章保留未确认幽灵续文）', () => {
+  // 模拟真机《帝国的烟火》分章形态：幽灵 = 旧文尾部重演 + 新续写，新章正文 = 新续写
+  const REPLAY_TAIL =
+    '黄衣太监收了明黄缎卷，拢进袖中，尖细的嗓音又在堂中荡开：“镇北兵符——请苏大执事速交。”他微微侧身，让出身后半步的位置。';
+  const CONTINUATION =
+    '苏福贵没有动。他仍跪在门边，一只手按着地上的门闩，指节泛白。“兵符在后堂。”他的声音沉得像压着一层碎石，“先王尸骨未寒，恕卑职不能交。”' +
+    '黄衣太监嘴角那点似有似无的笑凝了一瞬。他收回拢着袖子的手，眼角往景亲王方向飞快一瞥，随即拔高了声调：“不交？苏大执事，这可是景亲王令旨——抗旨不遵，你是想让满堂苏氏男女一并担罪？”' +
+    '门外檐下传来甲叶碰撞的脆响。送亲队伍中那三百铁甲卫终于动了，黑压压的甲影在暮色里泛着冷光，刀鞘碰着石阶，一声接一声，不急不缓地碾过来。';
+
+  it('幽灵整体已在新章正文中 → 视为已呈现，可安全丢弃', () => {
+    expect(isGhostDeliveredInContent(CONTINUATION, `开头段落。${CONTINUATION}结尾段落。`)).toBe(
+      true
+    );
+  });
+
+  it('幽灵 = 旧文尾部重演 + 新续写，新章正文即新续写 → 视为已呈现', () => {
+    expect(isGhostDeliveredInContent(`${REPLAY_TAIL}${CONTINUATION}`, CONTINUATION)).toBe(true);
+  });
+
+  it('幽灵结尾有新章没有的文字 → 必须保留，不得静默丢弃', () => {
+    const ghost = `${REPLAY_TAIL}${CONTINUATION}${'苏福贵闭了闭眼。他松开按在门闩上的手，慢慢站起来，朝景亲王深躬一礼，声音哑得几乎碎了：“卑职……领命。”'}`;
+    expect(isGhostDeliveredInContent(ghost, CONTINUATION)).toBe(false);
+  });
+
+  it('新章正文与幽灵完全不同 → 保留', () => {
+    expect(
+      isGhostDeliveredInContent(
+        CONTINUATION,
+        '大雪初晴。一条用红毡铺就的长道蜿蜒地从城门直达城中心的镇北王府。'
+      )
+    ).toBe(false);
+  });
+
+  it('空幽灵或空正文不做「已呈现」判定（保留优先）', () => {
+    expect(isGhostDeliveredInContent('', CONTINUATION)).toBe(false);
+    expect(isGhostDeliveredInContent(CONTINUATION, '')).toBe(false);
   });
 });

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.65.2 架构文档
+# StoryMoss (草苔) v0.65.3 架构文档
 
+> **v0.65.3**：**幕前切章链路三处缺陷修复**（真机《帝国的烟火》第 2→3 章自动分章）——①`FrontstageApp.selectChapter` 的懒加载守卫 `lazyLoadingChapterIdsRef` 语义由「已尝试即永久封锁」改为「在途去重 + 可重试」（`finally` 释放；`opts.lazyLoadRetried` 仅用于中止递归重入，v0.26.6 防死循环契约不变）；②`RichTextEditor` 外部内容同步引入**文档身份（章 id）**：`chapterId` 变化时优先于「编辑器有焦点不强制 setContent」（W2-F1）与「Tab 接受后 30s 禁外部 setContent」（v0.24.9）两道守卫，并豁免 1s/3 次同步熔断计数——同章后台同步仍照旧让位于守卫；③`selectChapter` 不再无条件 `setGeneratedText('')`，改用纯函数 `isGhostDeliveredInContent`（`utils/textCleanup`）判定未确认幽灵续文是否已随新章正文呈现（整体/前缀或幽灵结尾），未呈现则保留 + 顶栏提示。契约：`RichTextEditor 切章正文同步` / 懒加载可重开 / 分章幽灵保留与清空 / `isGhostDeliveredInContent` 5 用例。
+>
 > **v0.65.2**：**主续写 system 提示词的文笔准则**——主续写路径的 system prompt 是 `prompts::assembly::CONTINUE_BEAT_SYSTEM`（内联常量，用户不可覆盖），非 `agency_lead_writer_system`；补第 7 条「文笔（人类文笔基线）」与对照示例，`DRAMA_BEAT_SYSTEM` 按剧本语域补「情绪用可见动作与台词演、台词允许语气词与重复『说』」（sepia 的按体裁校准）；契约 `continue_beat_system_carries_human_voice_doctrine` / `drama_beat_system_bans_unfilmable_interiority`。
 >
 > **v0.65.1**：**v0.65.0 收尾**——叙事架构层写入 `agency_outline_planner_system`（回声测试 / 因果松动一次 / 不要预支答案 / 不做「理解+接受+成长」三脚架收束 / 关系网稀疏 / 主题不直说 / 至多一条斜向次线），改写纪律写入 `writer_rewrite`（删优于加：不得更长更华丽、保留具体细节）；契约测试 `test_v0650_human_voice_doctrine_in_prompts` 锁定六个提示词的文笔基线要素。

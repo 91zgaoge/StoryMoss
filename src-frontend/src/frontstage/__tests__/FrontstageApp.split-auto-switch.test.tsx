@@ -18,7 +18,11 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 // 分章前旧章全文（编辑器中持有的内容）：独有开头 + 溢出段落
 const FULL_TEXT = '旧章独有开头段落，分章后仍留在旧章。\n\n溢出段落，分章后应出现在新章。';
 // 新章（ch-2）内容 = 溢出部分
-const OVERFLOW_TEXT = '溢出段落，分章后应出现在新章。';
+// v0.65.3: 追加续写正文，使「幽灵是否已随新章正文呈现」的判定有足够归一化长度
+const OVERFLOW_TEXT =
+  '溢出段落，分章后应出现在新章。' +
+  '苏福贵没有动。他仍跪在门边，一只手按着地上的门闩，指节泛白。“兵符在后堂。”他的声音沉得像压着一层碎石，“先王尸骨未寒，恕卑职不能交。”' +
+  '黄衣太监嘴角那点似有似无的笑凝了一瞬，随即拔高了声调：“不交？苏大执事，这可是景亲王令旨。”';
 
 const { listenCallbacks, captured, editorHtml, syncStoreOptions, splitState } = vi.hoisted(() => ({
   listenCallbacks: {} as Record<string, (e: { payload: unknown }) => void>,
@@ -395,6 +399,54 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     expect(getChapterCallsFor('ch-2')).toHaveLength(0);
     expect(captured.content).toContain('旧章独有开头段落');
     expect(mockCancelAutoSave).not.toHaveBeenCalled();
+  });
+
+  it('分章切换：未确认幽灵续文已随新章正文呈现时清空（不重复显示）', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(captured.content).toContain('旧章独有开头段落'));
+
+    // AI 续写结果（尚未 Tab 确认）——内容与新章正文一致
+    await act(async () => {
+      listenCallbacks['frontstage-update']?.({
+        payload: { type: 'contentUpdate', payload: { text: OVERFLOW_TEXT } },
+      });
+    });
+    await waitFor(() => expect(captured.generatedText).toContain('苏福贵没有动'));
+
+    splitState.done = true;
+    await act(async () => {
+      syncStoreOptions.current!.onChapterCreated!('story-1', 'ch-2', '第二章', 'ch-1');
+    });
+
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
+      timeout: 5000,
+    });
+    // 新章正文已含该续写 → 幽灵清空，避免「幽灵段落 + 正文」两份重复
+    expect(captured.generatedText).toBe('');
+  });
+
+  it('分章切换：幽灵续文有新章正文没有的文字时必须保留（不得静默丢失）', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(captured.content).toContain('旧章独有开头段落'));
+
+    const novelGhost = `${'他抬起头，鲜血与尘土糊满的面孔上，一双眼睛亮得骇人。'}${OVERFLOW_TEXT}${'而这一段是新章正文里也没有的结尾。'}`;
+    await act(async () => {
+      listenCallbacks['frontstage-update']?.({
+        payload: { type: 'contentUpdate', payload: { text: novelGhost } },
+      });
+    });
+    await waitFor(() => expect(captured.generatedText).toContain('亮得骇人'));
+
+    splitState.done = true;
+    await act(async () => {
+      syncStoreOptions.current!.onChapterCreated!('story-1', 'ch-2', '第二章', 'ch-1');
+    });
+
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
+      timeout: 5000,
+    });
+    // 修复前：selectChapter 无条件 setGeneratedText('')，用户刚看到、尚未确认的续文凭空消失
+    expect(captured.generatedText).toContain('新章正文里也没有的结尾');
   });
 
   it('split_from_chapter_id 不是当前章：不切换章节', async () => {

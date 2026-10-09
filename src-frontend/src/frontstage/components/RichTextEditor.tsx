@@ -101,6 +101,13 @@ interface RichTextEditorProps {
   isZenMode?: boolean;
   onZenModeChange?: (zen: boolean) => void;
   storyId?: string;
+  /**
+   * 当前章 id —— 同时充当「文档身份」。
+   * v0.65.3: 章 id 变化（切章/自动分章切换到新章）时，即使编辑器有焦点或处于
+   * 幽灵隐藏窗口，也必须把新章正文写进编辑器；否则幕前正文停在旧章、章标题已
+   * 切走，用户看到「刚续写的正文不见了」（真机《帝国的烟火》第 2→3 章）。
+   * 同一章内的后台同步仍走原有守卫（不抢焦点、不盖掉刚接受的正文）。
+   */
   chapterId?: string;
   chapterNumber?: number;
   /** 请求 AI 生成（供 Ctrl+Enter / 自动续写 等明确续写调用） */
@@ -601,27 +608,39 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const lastExternalContentRef = useRef(content);
     const syncAttemptsRef = useRef(0);
     const lastSyncAtRef = useRef(0);
+    // v0.65.3: 文档身份快照（章 id）。用于区分「同章后台同步」与「切章硬切换」：
+    // 前者必须让位于焦点/幽灵隐藏窗口守卫，后者必须无条件把新章正文写进编辑器。
+    const lastDocumentKeyRef = useRef<string | undefined>(chapterId);
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;
+      const documentChanged = chapterId !== lastDocumentKeyRef.current;
       logRenderDiagnostics('setContent_effect_entry', {
         contentLen: content?.length ?? 0,
         lastExternalContentLen: lastExternalContentRef.current?.length ?? 0,
         isFocused: editor.isFocused,
         hideGhostUntilRemaining: hideGhostUntil - Date.now(),
+        documentChanged,
       });
-      if (editor.isFocused) {
+      // v0.65.3 fix: 切章（章 id 变化）优先于下面两道守卫——它们的本意是「同文档的
+      // 后台同步不要抢焦点 / 不要盖掉刚 Tab 接受的正文」。切章时编辑器若仍持有焦点
+      // （用户刚在编辑器里 Ctrl+Enter 续写，全程没离开编辑器），旧实现会跳过同步，
+      // 屏幕上留着旧章正文而章标题已切到新章——用户看到「续文丢了」。真实故障见
+      // creative_workflow.log：分章自动切换 setContent(ch3) 后无任何 setContent 执行日志。
+      if (editor.isFocused && !documentChanged) {
         logRenderDiagnostics('setContent_effect_skipped_focused');
         return;
       }
       // v0.24.9: Tab 接受后 30s 内禁止外部 setContent，避免后台同步/保存回写与
       // 刚追加的 AI 正文冲突，导致内容重复或 TipTap 渲染异常。
-      if (Date.now() < hideGhostUntil) {
+      if (Date.now() < hideGhostUntil && !documentChanged) {
         logRenderDiagnostics('setContent_effect_blocked_hideGhostUntil', {
           remainingMs: hideGhostUntil - Date.now(),
           content_preview: content.slice(0, 80),
         });
         return;
       }
+      // 记账文档身份：本次 effect 已看到新章，后续同章渲染不再走强制路径
+      lastDocumentKeyRef.current = chapterId;
       // 如果当前要同步的内容就是我们最近一次外部设置的内容，说明是 TipTap 规范化
       // 回写的 onUpdate，不需要再次 setContent，防止 React error #185 无限循环。
       if (content === lastExternalContentRef.current) {
@@ -630,8 +649,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
 
       // 熔断：1 秒内同步超过 3 次则停止，避免极端情况下的无限循环
+      // v0.65.3: 切章是一次合法同步，不受熔断计数影响（否则快速切章可能被挡）
       const now = Date.now();
-      if (now - lastSyncAtRef.current > 1000) {
+      if (documentChanged || now - lastSyncAtRef.current > 1000) {
         syncAttemptsRef.current = 0;
       }
       syncAttemptsRef.current += 1;
@@ -676,7 +696,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           content_length: content.length,
         });
       }
-    }, [content, editor]);
+    }, [content, editor, chapterId]);
 
     // 处理角色名点击
     useEffect(() => {

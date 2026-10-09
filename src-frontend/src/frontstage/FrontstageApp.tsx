@@ -28,7 +28,11 @@ import { modelService } from '@/services/modelService';
 import { autoFormatText, textToParagraphsHtml } from '@/utils/format';
 import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
 import { trimSelfRepetition } from './utils/trimSelfRepetition';
-import { sanitizeContinuationOutput, stripInstructionEcho } from '@/utils/textCleanup';
+import {
+  isGhostDeliveredInContent,
+  sanitizeContinuationOutput,
+  stripInstructionEcho,
+} from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
 import useScenePersistence from './hooks/useScenePersistence';
@@ -265,7 +269,12 @@ const FrontstageApp: React.FC = () => {
   // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
-  // v0.26.6 fix: 防止 selectChapter 对缺少 content 的 chapter 无限递归懒加载
+  // v0.26.6: 防止 selectChapter 对缺少 content 的 chapter 无限递归懒加载。
+  // v0.65.3 fix: 语义从「尝试过就永久封锁」改为「在途去重 + 可重试」——旧实现只 add
+  // 不 delete，一章在本次会话懒加载过一次后（启动选最新章/分章自动切换/上次点击）
+  // 再点它必然命中守卫直接 return，该章在本次会话内永久打不开（真机《帝国的烟火》
+  // 第 3 章；creative_workflow.log 两条 Already attempted lazy-load）。现在只拦
+  // 并发重复点击，加载结束（含失败）立即释放，再次点击重新拉取。
   const lazyLoadingChapterIdsRef = useRef<Set<string>>(new Set());
   // v0.26.16: Genesis 内容投递状态机——单写者契约。
   // 三态：'idle'（无创世）→ 'generating'（创世已开始，内容尚未投递）→ 'delivered'（正文已写入编辑器一次）
@@ -2719,7 +2728,13 @@ const FrontstageApp: React.FC = () => {
   const selectChapter = useCallback(
     (
       chapter: Chapter,
-      opts?: { skipContent?: boolean; markDeliveredOnLoad?: boolean; scenes?: Scene[] }
+      opts?: {
+        skipContent?: boolean;
+        markDeliveredOnLoad?: boolean;
+        scenes?: Scene[];
+        /** v0.65.3: 内部标记——本次调用是懒加载拿到完整章节后的递归重入 */
+        lazyLoadRetried?: boolean;
+      }
     ) => {
       // v0.26.16: skipContent 由调用方按场景传入——不同调用方有不同意图：
       //   story_created → skipContent=true（创世期间不加载 DB 正文）
@@ -2744,8 +2759,18 @@ const FrontstageApp: React.FC = () => {
 
       // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
       if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
+        // v0.65.3 fix: 见 lazyLoadingChapterIdsRef 注释。懒加载完成后释放锁，
+        // 下次点击重新拉取（正文可能已被幕后/自动分章改写，重取比缓存旧正文更正确）。
+        if (opts?.lazyLoadRetried) {
+          // 递归重入仍无正文（get_chapter / get_chapter_aggregated_content 都失败）：
+          // 放弃本次切换，避免死循环。锁已在 finally 中释放，用户再点会重新拉取。
+          frontstageLogger.warn('[selectChapter] Lazy-loaded chapter still has no content', {
+            chapter_id: chapter.id,
+          });
+          return;
+        }
         if (lazyLoadingChapterIdsRef.current.has(chapter.id)) {
-          frontstageLogger.warn('[selectChapter] Already attempted lazy-load for chapter', {
+          frontstageLogger.warn('[selectChapter] Lazy-load already in flight for chapter', {
             chapter_id: chapter.id,
           });
           return;
@@ -2759,10 +2784,12 @@ const FrontstageApp: React.FC = () => {
                 chapter_id: full.id,
                 content_length: full.content?.length ?? 0,
               });
-              selectChapter(full, opts);
+              selectChapter(full, { ...opts, lazyLoadRetried: true });
             }
           } catch (e) {
             frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
+          } finally {
+            lazyLoadingChapterIdsRef.current.delete(chapter.id);
           }
         })();
         return;
@@ -2883,7 +2910,35 @@ const FrontstageApp: React.FC = () => {
           // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
           // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
           // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
-          setGeneratedText('');
+          // v0.65.3 fix: 例外——未确认的幽灵续文若不在新章正文里，保留而不是静默
+          // 丢弃。真机《帝国的烟火》：自动分章把用户刚看到、尚未 Tab 确认的续文
+          // 连同幽灵一起吞掉（幽灵 1432 字，日志 set_generated_text clearing）。
+          // Agency 续写在生成时已落库、分章会把溢出正文搬进新章，此时幽灵内容已在
+          // 新章正文中，照旧清空（避免"幽灵段落 + 正文"两份重复）。
+          const pendingGhost = generatedTextRef.current;
+          if (
+            pendingGhost.trim().length >= 10 &&
+            !isGhostDeliveredInContent(pendingGhost, formattedContent)
+          ) {
+            logToBackend(
+              'frontstage:select_chapter_keep_ghost',
+              'kept unconfirmed ghost across chapter switch (not in new chapter)',
+              {
+                chapterId: chapter.id,
+                ghostLen: pendingGhost.length,
+                formattedLen: formattedContent.length,
+              }
+            );
+            // 直接写底层 setter：此刻编辑器 DOM 还是旧章正文（新章 setContent 由
+            // RichTextEditor 的 effect 稍后应用），走 setGeneratedText 的
+            // 「编辑器已包含」守卫会误判为重复而丢弃。
+            generatedTextRef.current = pendingGhost;
+            setHideGhostUntil(0);
+            _setGeneratedText(pendingGhost);
+            showTransientStatus('已切换章节：未确认的续写内容保留在文末（Tab 接受 / Esc 放弃）');
+          } else {
+            setGeneratedText('');
+          }
           // v0.23.23: 同步 latestContentRef，使 handleContentChange 的内容比较基准正确
           latestContentRef.current = formattedContent;
           setIsSaved(true);
@@ -2978,6 +3033,7 @@ const FrontstageApp: React.FC = () => {
       setIsSaved,
       setSceneInfo,
       setGeneratedText,
+      showTransientStatus,
     ]
   );
 

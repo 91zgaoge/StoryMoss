@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.65.2
+- **版本**: v0.65.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -99,8 +99,8 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1780 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 609 passed / 3 skipped（+2 物料重算页签）
-- `npx playwright test` ✅ 39 passed / 5 skipped（新增幕前续写 spec 3 用例；门禁仍非阻塞，见未关闭）
+- `npx vitest run` ✅ 620 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开）
+- `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
@@ -110,6 +110,36 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.65.3 - 幕前「续写后正文消失 / 章节点不开」真机缺陷修复
+
+**三条症状一条链路**：真机《帝国的烟火》第 2 章续写 → 自动分章出第 3 章 → 幕前自动切换，
+用户看到 ①续文突然消失 ②重启后进第 3 章续文又在 ③点第 2 章再点第 3 章打不开。
+本机日志（`storymoss.2026-10-08` + `creative_workflow.log`）留痕三处独立缺陷，逐条修：
+
+- **懒加载守卫永久封锁**（症状③，日志两条 `Already attempted lazy-load for chapter`）：
+  `lazyLoadingChapterIdsRef` 只 add 不 delete——懒加载过一次的章在本次会话内再也点不开。
+  改为**在途去重 + 可重试**（结束即释放，重取而非缓存），递归重入仍无正文时用
+  `opts.lazyLoadRetried` 中止，防死循环契约不变。
+- **切章正文被焦点守卫吞掉**（症状②）：`RichTextEditor` 的「有焦点不强制 setContent（W2-F1）」
+  与「Tab 接受后 30s 禁外部 setContent（v0.24.9）」在**无交互的分章自动切换**下把新章正文挡掉，
+  屏幕停在旧章、章标题已切走。改成**以章 id 为文档身份**：章 id 变化优先于两道守卫（也不再
+  受 1s/3 次熔断计数影响）；同章后台同步照旧让位于守卫。
+- **切章丢弃未确认幽灵续文**（症状①）：`selectChapter` 无条件 `setGeneratedText('')` 吞掉用户
+  刚看到、未 Tab 确认的续文。新增纯函数 `isGhostDeliveredInContent`：新章正文已含幽灵（整体/
+  前缀或幽灵结尾——「重演旧文尾部 + 新续写」的分章形态）则照旧清空，否则保留并顶栏提示
+  「未确认的续写内容保留在文末（Tab 接受 / Esc 放弃）」。
+
+- **验证**：`npx vitest run` **620 passed / 3 skipped**（+11，含 3 章切换正文同步 / 2 分章幽灵保留 /
+  1 懒加载可重开 / 5 纯函数）；`npx tsc --noEmit` ✅；`npx playwright test` 39 passed / 5 skipped ✅；
+  prettier ✅。未改 Rust（沿用 v0.65.2 基线 `cargo test --lib` 1780 passed / 5 ignored）。
+  **回归探针修复前逐条复跑为红**。
+- **契约**：`RichTextEditor 切章正文同步`（3 用例）；「懒加载过的章节再次点击应能重新打开」；
+  「分章切换：幽灵已随新章正文呈现时清空」/「幽灵有新章正文没有的文字时必须保留」；
+  `isGhostDeliveredInContent`（5 用例，含真机分章形态文本样本）。
+- **未关闭**：真机端到端未复跑（**不得宣称症状已在真机消失**）；自动分章仍可能在续写生成中触发
+  （后端判据是场景落库后 30s 空闲，不知道幕前在途生成）——本版只保证切换后正文/幽灵不丢、
+  该章可再次打开。
 
 ### v0.65.2 - 主续写路径 system 提示词补文笔准则
 
@@ -142,14 +172,6 @@ type:
 - **验证**：`cargo test --lib` 1764 passed / 4 ignored（+5）；vitest 609 / 3 skipped；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：`mark_stale(9)` → 一轮重算（4 条重写/段摘要待模型/1 条快照）→ **二轮 0 条重写、4 条未变**；`should_auto_recompute(12)` = `Some(9)`。
 - **契约**：`fingerprint_ignores_markup_but_detects_prose_change`；`recompute_skips_chapters_whose_prose_unchanged`；`recompute_cap_defers_rest_and_keeps_flag`；`should_auto_recompute_only_when_stale_at_or_before_committed`；`v145_adds_hash_column_idempotently`。
 - **未关闭**：自动重算只在提交防抖后触发；分层摘要仍需可用模型。
-
-### v0.64.11 - 物料失效重算 + 关系归一 + 摘要失败可见
-
-**三件（真机问答落点）**：①改旧章后跨章物料无声漂移；②关系类型 46 行 28 种写法；③段摘要 0 行/第 9 章摘要为空都没人知道。**修复**：**V143** `story_material_staleness`（编辑正文即记「自第 N 章失效」）+ `story_system::recompute`（章节摘要按当前正文重算、分层摘要与全书纲要删旧重建、快照重写、关系失去支撑审计）；运行维护页新增「物料重算」页签 + 命令 `list_stale_materials`/`recompute_story_material`。**V144** 关系归一列（`relation_kind` 受控词表 + `relation_flags` 位标志，`db::relation_kind::RelationClass` 纯函数分类）并接消费点（冲突阶梯敌意判定、关系不变量血亲/配偶判定——此前漏判「翁媳/敌对」「夫妻（名分）／仇敌」）；`story_system::relation_retract` 按 `kg_relations.evidence`（`chapter:<故事>:<n>`/`scene:<id>`/`agency:scene:<id>`）摘证据、摘空即删行，编辑路径已接入。`chapter_summary::summarize_chapter_with_quality` + `SegmentRefreshReport`：所有回退/失败路径入质量债。
-
-- **验证**：`cargo test --lib` 1759 passed / 4 ignored（+14）；vitest 609 / 3 skipped（+2）；clippy / fmt / prettier / guard / tsc 全绿。**真机探针**（库副本）：46 行关系全归一（11 种复合写法正确）、失去支撑审计 0 行、`mark_stale(9)` → 重算（4 条章节摘要重写 / 段摘要待模型 / 1 条快照重写）。
-- **契约**：`quality_reports_debt_for_every_fallback_path`；`refresh_report_debt_details_cover_all_failure_paths`；`summarize_chapter_quality_marks_empty_and_no_llm`；`mark_stale_keeps_earliest_chapter_per_kind`；`recompute_rewrites_chapter_summaries_and_clears_flags`；`recompute_deletes_stale_segments_only_when_llm_available`；`v143_creates_staleness_table_idempotently`；`classifies_real_machine_compound_types`；`hostile_flag_matches_legacy_keyword_scan_for_old_cases`；`flags_roundtrip_and_kind_vocabulary`；`v144_backfills_kind_and_flags_idempotently`；`retract_drops_rows_whose_only_evidence_is_the_edited_chapter`；`retract_clears_evidence_but_keeps_multi_evidence_rows`；`audit_reports_only_relations_without_prose_support`。
-- **未关闭**：分层摘要重算需可用模型（否则保留旧值并提示待模型）；自动后台重算未做（编辑只记零成本失效标记）；手工关系的失去支撑只报告不自动删。
 
 ## Always Do
 

@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.65.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.65.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.65.3 变更说明
+
+- **前端 +11（620 passed / 3 skipped）**：幕前切章链路回归探针——`RichTextEditor 切章正文同步`
+  3 用例（章 id 变化必须写新章正文 / 幽灵隐藏窗口内也写 / 同章后台同步仍让位于焦点守卫）；
+  「懒加载过的章节再次点击应能重新打开」（修复前命中 `Already attempted lazy-load` 为红）；
+  「分章切换：未随新章正文呈现的幽灵续文必须保留」（修复前被无条件清空为红）+ 保序契约
+  「已随新章正文呈现时清空」；`isGhostDeliveredInContent` 5 用例（含真机分章形态文本样本）。
+  本次未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）；playwright 39 passed / 5 skipped。
 
 ### v0.65.2 变更说明
 
