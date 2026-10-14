@@ -278,6 +278,9 @@ tauri::generate_handler! {
     // Story System commands
     commands::story_system::create_master_setting,
     commands::story_system::list_stale_materials, commands::story_system::recompute_story_material,
+    commands::story_system::preview_chapter_outline_replans,
+    commands::story_system::apply_chapter_outline_replans,
+    commands::story_system::dismiss_stale_material,
     commands::story_system::create_chapter_contract,
     commands::story_system::get_contract_tree,
     commands::story_system::get_runtime_contract,

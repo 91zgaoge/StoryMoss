@@ -229,4 +229,118 @@ describe('Maintenance', () => {
     await userEvent.click(await screen.findByText('物料重算'));
     expect(await screen.findByText(/暂无失效物料/)).toBeInTheDocument();
   });
+
+  it('章纲待重规划：预览后勾选应用，未勾选不落库（v0.67.0）', async () => {
+    const outlineRow = {
+      kind: 'chapter_outline',
+      from_chapter: 4,
+      reason: '第3章正文被编辑，下游 2 章章纲可能过期（待按当前正文重规划）',
+      updated_at: '2026-10-14T10:00:00Z',
+    };
+    const previewReport = {
+      total: 2,
+      items: [
+        {
+          chapter_number: 4,
+          scene_id: 'scene-4',
+          old_plan: '本章：旧纲（甲与乙对峙）。',
+          new_plan: '本章大纲：按当前正文重规划后的第 4 章章纲（甲在集市付出代价）。',
+          skipped: null,
+        },
+        {
+          chapter_number: 5,
+          scene_id: 'scene-5',
+          old_plan: '本章：旧纲（丙登场）。',
+          new_plan: null,
+          skipped: '生成失败或产出过短，本轮跳过',
+        },
+      ],
+    };
+    invokeMock.mockImplementation((cmd: string) => {
+      switch (cmd) {
+        case 'list_quality_debts':
+          return Promise.resolve([]);
+        case 'list_pending_reviews':
+          return Promise.resolve([]);
+        case 'list_style_preferences':
+          return Promise.resolve([]);
+        case 'list_stale_materials':
+          return Promise.resolve([...staleRows, outlineRow]);
+        case 'preview_chapter_outline_replans':
+          return Promise.resolve(previewReport);
+        case 'apply_chapter_outline_replans':
+          return Promise.resolve({ applied: 1, remaining: 1 });
+        default:
+          return Promise.resolve(null);
+      }
+    });
+    render(<Maintenance />, { wrapper });
+    await userEvent.click(await screen.findByText('物料重算'));
+
+    // 中文标签与动作入口。
+    expect(await screen.findByTestId('stale-chapter_outline')).toBeInTheDocument();
+    expect(screen.getByText('章纲待重规划')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('maintenance-replan-outline'));
+
+    // 预览对话框：默认不勾选 → 应用按钮禁用；勾选第 4 章后启用。
+    expect(await screen.findByTestId('outline-replan-dialog')).toBeInTheDocument();
+    expect(await screen.findByTestId('outline-replan-item-4')).toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith('preview_chapter_outline_replans', {
+      story_id: 'story-1',
+      from_chapter: null,
+      max_chapters: null,
+    });
+    expect(screen.getByTestId('outline-replan-apply')).toBeDisabled();
+    await userEvent.click(screen.getByTestId('outline-replan-check-4'));
+    expect(screen.getByTestId('outline-replan-apply')).not.toBeDisabled();
+
+    // 应用：只提交勾选的第 4 章（第 5 章无新纲、不可勾选）。
+    await userEvent.click(screen.getByTestId('outline-replan-apply'));
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('apply_chapter_outline_replans', {
+        story_id: 'story-1',
+        items: [
+          {
+            scene_id: 'scene-4',
+            chapter_number: 4,
+            plan: previewReport.items[0].new_plan,
+          },
+        ],
+      });
+    });
+  });
+
+  it('章纲待重规划：忽略清掉标记（v0.67.0）', async () => {
+    const outlineRow = {
+      kind: 'chapter_outline',
+      from_chapter: 4,
+      reason: '第3章正文被编辑，下游 1 章章纲可能过期（待按当前正文重规划）',
+      updated_at: '2026-10-14T10:00:00Z',
+    };
+    invokeMock.mockImplementation((cmd: string) => {
+      switch (cmd) {
+        case 'list_quality_debts':
+          return Promise.resolve([]);
+        case 'list_pending_reviews':
+          return Promise.resolve([]);
+        case 'list_style_preferences':
+          return Promise.resolve([]);
+        case 'list_stale_materials':
+          return Promise.resolve([outlineRow]);
+        case 'dismiss_stale_material':
+          return Promise.resolve(1);
+        default:
+          return Promise.resolve(null);
+      }
+    });
+    render(<Maintenance />, { wrapper });
+    await userEvent.click(await screen.findByText('物料重算'));
+    await userEvent.click(await screen.findByTestId('maintenance-dismiss-outline'));
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('dismiss_stale_material', {
+        story_id: 'story-1',
+        kind: 'chapter_outline',
+      });
+    });
+  });
 });

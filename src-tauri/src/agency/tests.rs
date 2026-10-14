@@ -27,7 +27,7 @@ const LONG_PREMISE: &str = "在一个被双星辐射笼罩的废土世界，孤�
     坐标碎片。为了拯救日渐衰败的家园，他必须穿越致命的辐射区、躲避掠夺者的追杀，在遗迹中找到\
     改变命运的力量。这是一个关于生存、勇气、牺牲和希望的科幻故事，讲述人性的光辉与黑暗。";
 
-struct MockLlm {
+pub(crate) struct MockLlm {
     responses: Mutex<VecDeque<String>>,
     /// 已收调用记录（user_prompt 原文），供调用顺序断言。
     calls: Mutex<Vec<String>>,
@@ -38,7 +38,7 @@ struct MockLlm {
 }
 
 impl MockLlm {
-    fn scripted(lines: Vec<&str>) -> Arc<Self> {
+    pub(crate) fn scripted(lines: Vec<&str>) -> Arc<Self> {
         Arc::new(Self {
             responses: Mutex::new(lines.into_iter().map(String::from).collect()),
             calls: Mutex::new(Vec::new()),

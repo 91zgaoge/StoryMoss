@@ -1,8 +1,22 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.66.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.67.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.67.0 变更说明
+
+- **Rust +4（1792 passed / 5 ignored）**：章纲重规划（P0-2）——
+  `mark_outline_stale_only_when_downstream_plans_exist`（无下游不标 / 有下游标 from=n+1 /
+  MIN 取最早 / 中文标签）、`outline_kind_is_excluded_from_auto_recompute`（只有计划标记时
+  自动重算不触发空转；物料标记照常触发）、`preview_and_apply_round_trip`（预览不落库 →
+  应用一章保留标记并推进到下一章 → 全部完成清除；卡块保留）、
+  `apply_skips_mismatched_scene_and_empty_plan`。跑法：`cargo test --lib outline_replan`。
+- **前端 +2（622 passed / 3 skipped）**：`Maintenance.test.tsx`——「章纲待重规划：预览后勾选应用
+  （默认不勾选 / 只提交勾选项 / skipped 章不可勾选）」与「忽略清掉标记」；
+  `npx tsc --noEmit` / `playwright 39 passed / 5 skipped` 全绿。
+- **真机探针（手动，未跑）**：编辑旧章 → 维护页出现「章纲待重规划」→ 预览/勾选应用 →
+  标记推进或清除；**未跑通前不得宣称计划漂移已在真机闭环**。
 
 ### v0.66.0 变更说明
 

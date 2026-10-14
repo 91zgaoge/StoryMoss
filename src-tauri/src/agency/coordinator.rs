@@ -5937,7 +5937,7 @@ impl AgencyCoordinator {
         }
     }
 
-    async fn story_title(&self, story_id: &str) -> Option<String> {
+    pub(crate) async fn story_title(&self, story_id: &str) -> Option<String> {
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         tokio::task::spawn_blocking(move || {

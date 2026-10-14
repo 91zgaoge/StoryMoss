@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Loader2,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   Sparkles,
   XCircle,
@@ -14,8 +15,10 @@ import { cn } from '@/utils/cn';
 import { EmptyHint } from '@/components/ui/EmptyHint';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
+import { ChapterOutlineReplanDialog } from '@/components/ChapterOutlineReplanDialog';
 import { useAppStore } from '@/stores/appStore';
 import {
+  useDismissStaleMaterial,
   usePendingReviews,
   useQualityDebts,
   useRecomputeMaterial,
@@ -151,21 +154,36 @@ export function Maintenance() {
   );
 }
 
+/** 失效类别中文标签（v0.67.0：权威文案在 Rust `StaleMaterial::label`，此处用于徽标）。 */
+const STALE_KIND_LABELS: Record<string, string> = {
+  chapter_summary: '章节摘要',
+  segment_summary: '分层摘要与全书纲要',
+  checkpoint: '连续性快照',
+  chapter_outline: '章纲待重规划',
+};
+
 /**
  * 物料重算（v0.64.11）：编辑旧章后，从旧正文推出来的跨章物料（后续章节摘要、
  * 分层摘要与全书纲要、连续性快照）会在这里显示「自第几章起失效」，一键重算。
+ * v0.67.0：新增「章纲待重规划」——计划层，由作者在预览框里逐条勾选后才落库。
  */
 function StaleSection({ storyId }: SectionProps) {
   const { data: stale = [], isLoading } = useStaleMaterials(storyId);
   const recompute = useRecomputeMaterial();
+  const dismiss = useDismissStaleMaterial();
   const [busy, setBusy] = useState(false);
+  const [replanOpen, setReplanOpen] = useState(false);
   if (isLoading) return <Loading />;
   if (stale.length === 0) {
     return <EmptyHint>暂无失效物料。编辑较早章节后，受影响的跨章物料会出现在这里</EmptyHint>;
   }
-  const fromChapter = Math.min(...stale.map(s => s.from_chapter));
+  const materialKinds = stale.filter(s => s.kind !== 'chapter_outline');
+  const hasOutlineStale = stale.some(s => s.kind === 'chapter_outline');
+  const fromChapter = materialKinds.length
+    ? Math.min(...materialKinds.map(s => s.from_chapter))
+    : null;
   const handleRecompute = async () => {
-    if (!storyId) return;
+    if (!storyId || fromChapter === null) return;
     setBusy(true);
     try {
       const report = await recompute.mutateAsync({ storyId, fromChapter });
@@ -184,17 +202,27 @@ function StaleSection({ storyId }: SectionProps) {
       setBusy(false);
     }
   };
+  const handleDismissOutline = async () => {
+    if (!storyId) return;
+    try {
+      await dismiss.mutateAsync({ storyId, kind: 'chapter_outline' });
+      toast.success('已忽略「章纲待重规划」提示');
+    } catch (e) {
+      toast.error(`忽略失败: ${e}`);
+    }
+  };
   return (
     <div className="space-y-2" data-testid="maintenance-stale">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-cinema-700 bg-cinema-800/40 p-3">
         <div className="text-xs text-ai-ink-2 leading-relaxed">
           下列物料是从旧正文推出来的。编辑章节后系统会在保存（防抖 30 秒）后自动重算，
-          且只重写正文真正变过的章；这里也可以在需要时手动重算第 {fromChapter} 章及以后的
-          章节摘要、分层摘要与全书纲要、连续性快照。
+          且只重写正文真正变过的章；这里也可以在需要时手动重算
+          {fromChapter !== null ? `第 ${fromChapter} 章及以后` : '相关章节'}的章节摘要、
+          分层摘要与全书纲要、连续性快照。
         </div>
         <ActionButton
           onClick={handleRecompute}
-          disabled={busy || !storyId}
+          disabled={busy || !storyId || fromChapter === null}
           testId="maintenance-recompute"
         >
           {busy ? (
@@ -202,7 +230,7 @@ function StaleSection({ storyId }: SectionProps) {
           ) : (
             <RefreshCw className="w-3.5 h-3.5" />
           )}
-          重算第 {fromChapter} 章起
+          重算{fromChapter !== null ? `第 ${fromChapter} 章起` : ''}
         </ActionButton>
       </div>
       {stale.map(item => (
@@ -213,16 +241,42 @@ function StaleSection({ storyId }: SectionProps) {
         >
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] px-1.5 py-0.5 rounded bg-ai-accent-tint text-ai-accent-ink">
-              {item.kind}
+              {STALE_KIND_LABELS[item.kind] ?? item.kind}
             </span>
             <span className="text-xs text-ai-ink-2">自第 {item.from_chapter} 章起失效</span>
             <span className="text-[11px] text-ai-ink-3">{item.updated_at.slice(0, 16)}</span>
+            {item.kind === 'chapter_outline' && (
+              <span className="ml-auto flex items-center gap-2">
+                <ActionButton
+                  onClick={() => setReplanOpen(true)}
+                  disabled={!storyId}
+                  testId="maintenance-replan-outline"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  重规划章纲
+                </ActionButton>
+                <ActionButton
+                  onClick={handleDismissOutline}
+                  disabled={!storyId}
+                  testId="maintenance-dismiss-outline"
+                >
+                  忽略
+                </ActionButton>
+              </span>
+            )}
           </div>
           {item.reason && (
             <p className="mt-1.5 text-xs text-ai-ink-2 leading-relaxed">{item.reason}</p>
           )}
         </div>
       ))}
+      {hasOutlineStale && storyId && (
+        <ChapterOutlineReplanDialog
+          isOpen={replanOpen}
+          storyId={storyId}
+          onClose={() => setReplanOpen(false)}
+        />
+      )}
     </div>
   );
 }

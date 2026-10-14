@@ -2,6 +2,51 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.67.0（2026-10-14）
+
+**P0-2 纲层失效与局部重规划：编辑旧章后，下游章纲不再默默过期（Sherpa 借鉴第二版）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 的层级规划器
+「识别变化、追踪下游影响、仅重规划受影响的部分」。StoryMoss 的失效重算（v0.64.11/12）覆盖
+物料层（章摘要 / 分层摘要 / 快照 / 关系审计），但**章纲（计划层）不在失效范围内**：改了
+第 3 章，第 4 章以后的章纲不受任何影响——改稿后的计划漂移是长篇工作流里真实存在的静默缺口。
+
+### 变更
+
+- `recompute`：新增 `KIND_CHAPTER_OUTLINE`（**刻意不入 `ALL_KINDS`**：计划不是物料，不参与
+  后台自动重算）+ `mark_stale_kind` / `clear_stale_kind`（单类 MIN 合并与清除）+
+  `should_auto_recompute` 过滤非物料类（防「永不自动清除的计划标记」每轮提交空转触发重算）。
+- 新模块 `agency::outline_replan`：`chapter_outline_candidates`（复用
+  `chapter_plan_from_scene_outline` 判「有章纲」，手写大纲不误伤）+
+  `mark_outline_stale_for_edit`（确有下游章纲才标记，from = 编辑章 + 1，MIN 取最早）+
+  `preview`（按当前正文/资产重生成 ≤3 章新纲，**不落库**，每轮 LLM 成本有界）+
+  `apply`（只落库作者勾选条目；`set_chapter_plan_prefix` 保留【当前场大纲】卡块；确认到
+  第 M 章后标记前移至 M+1，全部处理完才清除——标记取 MIN 不能自行后移，故清理后重标）。
+- `update_scene`：覆盖已有正文（`had_content_before`）且确有下游章纲时标记「章纲待重规划」
+  （新章首次落笔不标）。
+- 命令与前端：`preview_chapter_outline_replans` / `apply_chapter_outline_replans` /
+  `dismiss_stale_material`；运行维护「物料重算」页新增中文标签、**新旧章纲对照对话框
+  （默认全部不勾选——手写/手调章纲天然受保护）**与「忽略」；维护页「重算」按钮的起始章
+  不再被 chapter_outline 行拉低（计划层与物料层分开）。
+
+### 测试与验收
+
+- `cargo test --lib` **1792 passed / 5 ignored**（+4）：`mark_outline_stale_only_when_downstream_plans_exist`
+  （无下游不标 / 有下游标 from=n+1 / MIN 取最早 + 中文标签）、
+  `outline_kind_is_excluded_from_auto_recompute`（只有计划标记时自动重算不触发；物料标记照常）、
+  `preview_and_apply_round_trip`（预览不落库 → 应用一章保留标记并推进到下一章 → 全部完成清除
+  标记；卡块保留）、`apply_skips_mismatched_scene_and_empty_plan`。
+- 前端 `npx vitest run` **622 passed / 3 skipped**（+2）：章纲待重规划预览/勾选/应用
+  （默认不勾选、只提交勾选项、skipped 章不可勾选）与「忽略」清标记。
+- clippy 0 error / fmt / guard / tsc / playwright 39 passed / 5 skipped 全绿。
+
+### 未关闭
+
+- 真机端到端未复跑（编辑旧章 → 维护页出现「章纲待重规划」→ 预览/应用 → 标记推进或清除），
+  **不得宣称改稿后的计划漂移已在真机闭环**。
+- 重规划不自动（需作者在维护页显式触发，与「报告不改写」一致）；每轮预览上限 3 章，长书
+  需多轮；`apply` 用最新生成的纲覆盖卡块之前的章纲前缀（勾选即代表接受替换）。
+
 ## v0.66.0（2026-10-14）
 
 **P0-1 检索接线：把「按需取精确上下文」接进续写路径（Sherpa 借鉴第一版）。**

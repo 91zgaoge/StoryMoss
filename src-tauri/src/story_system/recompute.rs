@@ -22,6 +22,13 @@ pub const KIND_SEGMENT_SUMMARY: &str = "segment_summary";
 pub const KIND_CHECKPOINT: &str = "checkpoint";
 pub const ALL_KINDS: &[&str] = &[KIND_CHAPTER_SUMMARY, KIND_SEGMENT_SUMMARY, KIND_CHECKPOINT];
 
+/// v0.67.0：下游章纲失效（计划层，不是物料层）。**刻意不入 `ALL_KINDS`**——
+/// 它不参与后台自动重算（重规划需要作者确认），`should_auto_recompute` 必须
+/// 过滤掉它，否则该标记会永久触发后台重算空转。标记与清除见
+/// `agency::outline_replan::mark_outline_stale_for_edit` 与
+/// `clear_stale_kind`。
+pub const KIND_CHAPTER_OUTLINE: &str = "chapter_outline";
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct StaleMaterial {
     pub kind: String,
@@ -37,6 +44,7 @@ impl StaleMaterial {
             KIND_CHAPTER_SUMMARY => "章节摘要（第 N 章及以后）",
             KIND_SEGMENT_SUMMARY => "分层摘要与全书纲要",
             KIND_CHECKPOINT => "连续性快照",
+            KIND_CHAPTER_OUTLINE => "章纲（第 N 章及以后，需按当前正文重规划）",
             other => other,
         };
         format!("{}：自第 {} 章起失效", what, self.from_chapter)
@@ -66,12 +74,41 @@ pub fn mark_stale(
     from_chapter: i32,
     reason: &str,
 ) -> Result<(), String> {
+    mark_stale_kinds(pool, story_id, ALL_KINDS, from_chapter, reason)
+}
+
+/// v0.67.0：单类失效标记（`chapter_outline` 等不在 `ALL_KINDS` 的类别用）。
+pub fn mark_stale_kind(
+    pool: &DbPool,
+    story_id: &str,
+    kind: &str,
+    from_chapter: i32,
+    reason: &str,
+) -> Result<(), String> {
+    mark_stale_kinds(
+        pool,
+        story_id,
+        std::slice::from_ref(&kind),
+        from_chapter,
+        reason,
+    )
+}
+
+/// 记一笔失效标记：同一故事同一类取**最早**失效章（编辑第 9 章后又编辑第 12
+/// 章， 仍从第 9 章起算）。
+fn mark_stale_kinds(
+    pool: &DbPool,
+    story_id: &str,
+    kinds: &[&str],
+    from_chapter: i32,
+    reason: &str,
+) -> Result<(), String> {
     if story_id.trim().is_empty() || from_chapter <= 0 {
         return Ok(());
     }
     let conn = pool.get().map_err(|e| e.to_string())?;
     let now = chrono::Local::now().to_rfc3339();
-    for kind in ALL_KINDS {
+    for kind in kinds {
         conn.execute(
             "INSERT INTO story_material_staleness \
              (id, story_id, kind, from_chapter, reason, created_at, updated_at) \
@@ -92,6 +129,11 @@ pub fn mark_stale(
         .map_err(|e| format!("记录物料失效失败: {e}"))?;
     }
     Ok(())
+}
+
+/// v0.67.0：清除单类失效标记（重规划完成后调用）。
+pub fn clear_stale_kind(pool: &DbPool, story_id: &str, kind: &str) -> Result<usize, String> {
+    clear_stale_kinds(pool, story_id, std::slice::from_ref(&kind)).map_err(|e| e.to_string())
 }
 
 pub fn list_stale(pool: &DbPool, story_id: &str) -> Result<Vec<StaleMaterial>, String> {
@@ -725,7 +767,13 @@ fn release_inflight(story_id: &str) {
 /// 由后面某一章的编辑引起的，等那一章提交时再算）。返回应使用的材料起点。
 pub fn should_auto_recompute(pool: &DbPool, story_id: &str, committed_chapter: i32) -> Option<i32> {
     let stale = list_stale(pool, story_id).ok()?;
-    let from = stale.iter().map(|s| s.from_chapter).min()?;
+    // v0.67.0：只看物料类（ALL_KINDS）。`chapter_outline` 是计划层、需作者确认
+    // 重规划，若参与判定会因永不自动清除而每轮提交都空转触发后台重算。
+    let from = stale
+        .iter()
+        .filter(|s| ALL_KINDS.contains(&s.kind.as_str()))
+        .map(|s| s.from_chapter)
+        .min()?;
     if from <= committed_chapter.max(1) {
         Some(from)
     } else {

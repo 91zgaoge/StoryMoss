@@ -357,6 +357,24 @@ pub async fn update_scene(
                     ) {
                         log::warn!("[story_commands] 记录物料失效失败（非阻塞）: {e}");
                     }
+                    // v0.67.0：覆盖已有正文且确有下游章纲 → 计划层（下游章纲）
+                    // 也标记待重规划（新章首次落笔不标；重规划需作者在运行维护
+                    // 页显式确认，不自动改写）。
+                    if had_content_before {
+                        match crate::agency::outline_replan::mark_outline_stale_for_edit(
+                            &pool_for_life,
+                            story_id,
+                            n,
+                        ) {
+                            Ok(Some(from)) => log::info!(
+                                "[story_commands] 下游章纲待重规划：自第 {from} 章起（story={story_id}）"
+                            ),
+                            Ok(None) => {}
+                            Err(e) => {
+                                log::warn!("[story_commands] 标记下游章纲失效失败（非阻塞）: {e}")
+                            }
+                        }
+                    }
                 }
                 // v0.64.11：撤回「指向本次改动正文」的关系证据——旧文本支撑的关系
                 // 不再以幽灵行留在图谱里（新正文支撑的会由随后的 ingest

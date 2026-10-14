@@ -329,3 +329,77 @@ pub async fn recompute_story_material(
         .await
         .map_err(AppError::from)
 }
+
+// ==================== 章纲重规划（P0-2，v0.67.0） ====================
+
+/// 预览「受影响下游章纲」的重规划：按当前正文与资产重生成章纲对照
+/// （不落库），作者在返回的新旧对照里逐条勾选后再调
+/// `apply_chapter_outline_replans`。每轮上限 `max_chapters`（默认 3）章，
+/// 超出部分保留失效标记下轮继续。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn preview_chapter_outline_replans(
+    story_id: String,
+    from_chapter: Option<i32>,
+    max_chapters: Option<usize>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::agency::outline_replan::PreviewReport, AppError> {
+    let pool = pool.inner().clone();
+    let from = match from_chapter {
+        Some(n) if n > 0 => n,
+        _ => {
+            let pool_probe = pool.clone();
+            let sid = story_id.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::story_system::recompute::list_stale(&pool_probe, &sid)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|s| s.kind == crate::story_system::recompute::KIND_CHAPTER_OUTLINE)
+                    .map(|s| s.from_chapter)
+                    .unwrap_or(1)
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("查询章纲失效失败: {}", e)))?
+        }
+    };
+    let coordinator = crate::agency::coordinator::AgencyCoordinator::new(app_handle, pool.clone());
+    crate::agency::outline_replan::preview(
+        &coordinator,
+        &pool,
+        &story_id,
+        from,
+        max_chapters.unwrap_or(crate::agency::outline_replan::REPLAN_MAX_CHAPTERS),
+    )
+    .await
+}
+
+/// 落库作者勾选的章纲重规划条目（只写勾选项；手写/手调章纲默认不勾选）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn apply_chapter_outline_replans(
+    story_id: String,
+    items: Vec<crate::agency::outline_replan::ApplyOutlineItem>,
+    pool: State<'_, DbPool>,
+) -> Result<crate::agency::outline_replan::ApplyReport, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agency::outline_replan::apply(&pool, &story_id, &items)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("章纲重规划落库失败: {}", e)))?
+}
+
+/// 忽略某类失效提示（当前用于「章纲待重规划」——作者决定不处理时清掉标记）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn dismiss_stale_material(
+    story_id: String,
+    kind: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::recompute::clear_stale_kind(&pool, &story_id, &kind)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("清除失效标记失败: {}", e)))?
+    .map_err(AppError::from)
+}

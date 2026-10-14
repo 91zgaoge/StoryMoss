@@ -217,3 +217,71 @@ export function useRecomputeMaterial() {
     },
   });
 }
+
+// ---------- 章纲重规划（P0-2，v0.67.0） ----------
+
+export interface OutlineReplanItem {
+  chapter_number: number;
+  scene_id: string;
+  old_plan: string;
+  new_plan?: string | null;
+  skipped?: string | null;
+}
+
+export interface OutlineReplanPreview {
+  total: number;
+  items: OutlineReplanItem[];
+}
+
+export interface OutlineReplanApplyReport {
+  applied: number;
+  remaining: number;
+}
+
+export interface ApplyOutlineItem {
+  scene_id: string;
+  chapter_number: number;
+  plan: string;
+}
+
+/**
+ * 预览受影响下游章纲的重规划（不落库；每轮上限 3 章，超出部分保留失效标记
+ * 下轮继续）。
+ */
+export function usePreviewOutlineReplans() {
+  return useMutation({
+    mutationFn: async ({ storyId, fromChapter }: { storyId: string; fromChapter?: number }) =>
+      loggedInvoke<OutlineReplanPreview>('preview_chapter_outline_replans', {
+        story_id: storyId,
+        from_chapter: fromChapter ?? null,
+        max_chapters: null,
+      }),
+  });
+}
+
+/** 落库作者勾选的章纲重规划条目（手写/手调章纲默认不勾选，天然受保护）。 */
+export function useApplyOutlineReplans() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ storyId, items }: { storyId: string; items: ApplyOutlineItem[] }) =>
+      loggedInvoke<OutlineReplanApplyReport>('apply_chapter_outline_replans', {
+        story_id: storyId,
+        items,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stale_materials'] });
+    },
+  });
+}
+
+/** 忽略某类失效提示（当前用于「章纲待重规划」——作者决定不处理时清掉标记）。 */
+export function useDismissStaleMaterial() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ storyId, kind }: { storyId: string; kind: string }) =>
+      loggedInvoke<number>('dismiss_stale_material', { story_id: storyId, kind }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stale_materials'] });
+    },
+  });
+}

@@ -22,6 +22,7 @@ pub mod learning;
 pub mod materialize;
 pub mod models;
 pub mod observe;
+pub mod outline_replan;
 pub mod persist;
 pub mod prose_ground;
 pub mod repository;

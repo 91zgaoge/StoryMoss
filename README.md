@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.66.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.67.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.67.0 · 改了旧章，下游章纲会提醒你（P0-2）
+
+编辑早期章节后，「运行维护 → 物料重算」除物料外还会多一条**「章纲待重规划」**：下游章节的
+计划可能已和新正文脱节。点「重规划章纲」会按当前正文重新生成受影响章节的章纲，并列出
+**新旧对照**——默认全部不勾选，你勾选哪条才落库哪条（自己手写的章纲保持不勾选即可）。
+每轮最多 3 章，可多轮继续；不处理就点「忽略」。系统永不自动改写你的章纲。
 
 ### v0.66.0 · 续写会去翻前文了：检索接线（P0-1）
 
