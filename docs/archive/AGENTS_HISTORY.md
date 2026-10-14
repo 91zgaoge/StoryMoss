@@ -1,3 +1,28 @@
+*归档于 2026-10-14（v0.72.2）：v0.69.0 摘要。*
+
+### v0.69.0 - 作者裁决回灌每拍手法池（Sherpa 借鉴 P1-5）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用行为数据
+训练散文引擎；StoryMoss 的对位是把作者裁决变成每拍决策的权重。v0.65.0 起每拍注入一条写作
+手法（8 条池按已写篇幅轮换），但作者的 Tab 接受 / Esc 放弃从未影响下一拍用哪条。
+
+**改动**：手法池加稳定 id（`Technique{id,label,text}`）；**V147 `beat_technique_log`** 每拍
+落一行；新模块 `agency::technique_feedback` 按**时间窗**归因反馈（幕前反馈不带 scene_id →
+取「反馈时刻之前最近一拍」且 ≤1 小时、`agent_type` 为 writer），产出统计并可重置；
+`human_voice::choose_technique_index`（纯函数）：样本 <5 走基准轮换、有「质量 ≥0.5 且近期
+未用」的手法则优选、基准位质量 ≤0 则前移避开；`write_beat_once` 选招传入 prompt
+（`render_writer_user_prompt_with_technique`，旧函数保留为 `None` 包装，顺序契约测试不动）、
+Append/NextChapter 两条落库路径写日志、学习中心新增「章法偏好」区块 + 重置命令。纪律：
+只影响一条写作手段，不参与门限。
+
+- **验证**：`cargo test --lib` **1807 passed / 5 ignored（+10）**；vitest **623 passed / 3
+  skipped（+1）**；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`choose_technique_prefers_proven_good_and_avoids_proven_bad`；
+  `stats_attribute_feedback_by_time_window`；`test_continue_logs_beat_technique_and_replays_author_verdict`；
+  `v147_creates_beat_technique_log_idempotently` 等 11 项（详见 CHANGELOG）。
+- **未关闭**：真机未复跑（**不得宣称作者偏好已真正改善续写**）；归因是时间窗近似；
+  「modify」类反馈前端尚未产生。
+
 *归档于 2026-10-14（v0.72.1）：v0.68.1 摘要。*
 
 ### v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）

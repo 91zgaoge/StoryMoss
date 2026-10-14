@@ -1,8 +1,23 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.72.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.72.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.72.2 变更说明
+
+- **真机功能探针（+3 ignored，1816 passed / 9 ignored）**：`agency::real_machine_probes`——
+  真机库/向量库副本 + 真机模型（写作档/编辑档按 `TaskType` 路由）：
+  ①`real_machine_probe_continue_retrieval_technique_agreement`（检索块注入 + 手法落库 + 同步质量门）；
+  ②`real_machine_probe_volume_plan_and_outline_injection`（卷纲生成 + 章纲 prompt 注入契约）；
+  ③`real_machine_probe_outline_replan_preview`（候选识别 + 预览不落库）。
+  跑法：`cargo test --lib real_machine_probe -- --ignored --nocapture`
+  （可选 `STORYMOSS_DB` / `STORYMOSS_PROBE_MODEL` / `STORYMOSS_PROBE_CONFIG_DIR`）。
+- `life_status::tests::real_machine_probe_resurrect_is_blocked` 加数据形态守卫（真机故事已重写为 3 章，
+  第 10 章不存在时打印跳过而非误红）。
+- 真机结论与四个发现（推理模型 content 空 / 编辑档不产出裁决 / 仪表盘窄屏竖排 / 图谱画布不渲染）：
+  `docs/audits/2026-10-14-real-machine-probe-report.md`。
+- 官网截图换真机实拍；landing 25 passed / tsc / prettier / build 全绿。
 
 ### v0.72.1 变更说明
 

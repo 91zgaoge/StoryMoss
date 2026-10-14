@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1816 passed / 6 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准）
+- `cargo test -p storymoss` ✅ 1816 passed / 9 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针·共 9 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
@@ -110,6 +110,24 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.72.2 - 真机功能探针（v0.66.0–v0.72.0 首次真机验收）+ 官网换实拍
+
+**新增（测试基建，全 `#[ignore]`）**：`agency::real_machine_probes`——真机库/向量库副本 + 真机
+AppConfig 构造真实适配器（写作档 `creative_model_id`、编辑档 `background_model_id`，按 `TaskType`
+路由），三项探针：①续写（检索块注入 + 手法落库 + 同步质量门 → 判官裁决落库）；②卷纲生成 +
+章纲 prompt 注入契约；③重规划预览与「预览不落库」。`life_status` 真机探针加数据形态守卫。
+
+**真机结论**：✅ v0.66 检索（第 1/2 章原文按细节召回，增量 1510 字/100s）；✅ v0.69 手法落库；
+✅ v0.70 卷纲 + 章纲注入契约；✅ v0.67 预览不落库；✅ v0.72 语料校准对真机 3 章 0 误报；
+⚠️ v0.68 链路可达但编辑档模型不产出裁决。**发现**：①deepseek-flash 是推理模型（长输出 content
+空 → 章纲类任务不可用）；②真机质量门编辑档达最大轮数熔断（审查打折，建议换遵循 JSON 的模型）；
+③仪表盘「创作路径」面板 ≤1115pt 文字竖排；④知识图谱画布真机不渲染（待复现）。
+**官网**：三张截图换真机实拍（旧图实为连接错误态截图）。
+
+- **验证**：`cargo test --lib` 1816 passed / 9 ignored（+3 ignored）；clippy/fmt/guard ✅；
+  官网 25 passed / tsc / prettier / build ✅。
+- **未关闭**：发现 a/b 需换模型后复跑；c/d 未修；后台质检链路真机手动续写观察。
 
 ### v0.72.1 - 文档与官网同步（无代码变更）
 
@@ -181,29 +199,6 @@ laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 
   `save_list_and_current_round_trip`；`compass_scale_links_to_volume_plan` 等（详见 CHANGELOG）。
 - **未关闭**：真机未复跑（**不得宣称中观计划已在真机生效**）；卷纲 v1 不可手改；章号顺延
   不重编号卷范围；短剧未接卷纲。
-
-### v0.69.0 - 作者裁决回灌每拍手法池（Sherpa 借鉴 P1-5）
-
-**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用行为数据
-训练散文引擎；StoryMoss 的对位是把作者裁决变成每拍决策的权重。v0.65.0 起每拍注入一条写作
-手法（8 条池按已写篇幅轮换），但作者的 Tab 接受 / Esc 放弃从未影响下一拍用哪条。
-
-**改动**：手法池加稳定 id（`Technique{id,label,text}`）；**V147 `beat_technique_log`** 每拍
-落一行；新模块 `agency::technique_feedback` 按**时间窗**归因反馈（幕前反馈不带 scene_id →
-取「反馈时刻之前最近一拍」且 ≤1 小时、`agent_type` 为 writer），产出统计并可重置；
-`human_voice::choose_technique_index`（纯函数）：样本 <5 走基准轮换、有「质量 ≥0.5 且近期
-未用」的手法则优选、基准位质量 ≤0 则前移避开；`write_beat_once` 选招传入 prompt
-（`render_writer_user_prompt_with_technique`，旧函数保留为 `None` 包装，顺序契约测试不动）、
-Append/NextChapter 两条落库路径写日志、学习中心新增「章法偏好」区块 + 重置命令。纪律：
-只影响一条写作手段，不参与门限。
-
-- **验证**：`cargo test --lib` **1807 passed / 5 ignored（+10）**；vitest **623 passed / 3
-  skipped（+1）**；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
-- **契约**：`choose_technique_prefers_proven_good_and_avoids_proven_bad`；
-  `stats_attribute_feedback_by_time_window`；`test_continue_logs_beat_technique_and_replays_author_verdict`；
-  `v147_creates_beat_technique_log_idempotently` 等 11 项（详见 CHANGELOG）。
-- **未关闭**：真机未复跑（**不得宣称作者偏好已真正改善续写**）；归因是时间窗近似；
-  「modify」类反馈前端尚未产生。
 
 ## Always Do
 

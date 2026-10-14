@@ -9,13 +9,13 @@ const SHOTS = [
   },
   {
     src: "/screenshots/dashboard.png",
-    alt: "幕后仪表盘：故事资产一览",
-    caption: "幕后 · 创作资产总控",
+    alt: "幕后故事库：当前编辑、创作入口与故事资产一览",
+    caption: "幕后 · 故事库与创作入口",
   },
   {
     src: "/screenshots/knowledge-graph.png",
-    alt: "知识图谱：角色与事件关系网络",
-    caption: "知识图谱 · 关系一目了然",
+    alt: "知识图谱页的记忆健康：实体数、优先级与归档建议",
+    caption: "知识图谱 · 实体与关系健康",
   },
 ];
 

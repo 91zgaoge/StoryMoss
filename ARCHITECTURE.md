@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.72.1 架构文档
+# StoryMoss (草苔) v0.72.2 架构文档
 
+> **v0.72.2**：**无架构变更**——新增真机功能探针 `agency::real_machine_probes`（`#[cfg(test)]`，全 `#[ignore]`）：真机库/向量库副本 + 真机 AppConfig 构造真实适配器（写作档 `creative_model_id` / 编辑档 `background_model_id`，按 `TaskType` 路由，与生产 `llm_for_run(role)` 同构），三项探针覆盖续写检索/手法/质量门、卷纲 + 章纲注入、重规划预览；`life_status` 真机探针加数据形态守卫。结论与四个发现见 `docs/audits/2026-10-14-real-machine-probe-report.md`；官网三张截图换真机实拍。
+>
 > **v0.72.1**：**无架构变更**——文档与官网同步：新增/更新专题文档（`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md` 增补与更正、`docs/MODULE_CHARTER.md` 关键子模块登记、`docs/TROUBLESHOOTING.md` 新功能排查、`docs/audits/*` 落地状态补记与历史快照横幅）；官网 `landing/` 新增「长篇」区块（按需检索 / 卷纲 / 改稿不漂 / 跨拍守卫），并修正「五维审查→八维」「模式卡→已学模式」「四级评分者→三级加权 + 修改率独立信号」等过时文案。
 >
 > **v0.72.0**：**人类语料校准**——`resources/voice_corpus/`（6 部 Project Gutenberg 公版中文小说，各取正文前 2 万字符）+ `human_voice::corpus_calibration` 探针（`#[ignore]`，`STORYMOSS_VOICE_CORPUS`/`STORYMOSS_VOICE_OUT`）；据证据把 `FLAT_RUN_LEN` 3→4（人类语料 5/6 篇命中「恰好 3 句」、机器腔样本该规则零命中），并把句长离散度指标与发现门解耦（新增 `SD_MIN_PARAGRAPH_SENTENCES`，防指标随门漂移）；报告 `docs/audits/2026-10-14-human-voice-corpus-calibration.md`。

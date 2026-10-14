@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.72.2 · 真机验收 + 官网换真机实拍
+
+Sherpa 借鉴八项功能第一次在真机上跑通（真机库副本 + 真机模型）：续写前的检索在真机召回第 1/2 章
+原文、卷纲在真实故事上产出并注入章纲、重规划预览不落库、语料校准对真机正文 0 误报——完整证据与
+四个发现见 [真机探针报告](docs/audits/2026-10-14-real-machine-probe-report.md)。官网三张截图同步换成
+真机实拍（旧图原来是「无法连接到本地服务」的错误态截图）。
 
 ### v0.72.0 · 文笔基线阈值第一次有数据支撑
 

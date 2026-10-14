@@ -39,6 +39,8 @@ pub use models::*;
 #[cfg(test)]
 mod golden_harness;
 #[cfg(test)]
+mod real_machine_probes;
+#[cfg(test)]
 mod serial_harness;
 #[cfg(test)]
 mod tests;
