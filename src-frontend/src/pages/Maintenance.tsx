@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardCheck,
+  Compass,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -19,6 +20,7 @@ import { ChapterOutlineReplanDialog } from '@/components/ChapterOutlineReplanDia
 import { useAppStore } from '@/stores/appStore';
 import {
   useDismissStaleMaterial,
+  useGenerateVolumePlan,
   usePendingReviews,
   useQualityDebts,
   useRecomputeMaterial,
@@ -28,6 +30,7 @@ import {
   useSetStylePreferenceStatus,
   useStoryCost,
   useStylePreferences,
+  useVolumePlanOverview,
 } from '@/hooks/useMaintenance';
 import toast from 'react-hot-toast';
 
@@ -41,7 +44,7 @@ import toast from 'react-hot-toast';
  *  4. 成本：按故事聚合的调用与 token + 计费盲区告警
  * 全部为「只呈现与决策」——不会自动改写正文。
  */
-type TabKey = 'debts' | 'pending' | 'style' | 'cost' | 'stale';
+type TabKey = 'debts' | 'pending' | 'style' | 'cost' | 'stale' | 'volume';
 
 export function Maintenance() {
   const currentStory = useAppStore(s => s.currentStory);
@@ -113,6 +116,7 @@ export function Maintenance() {
     { key: 'style', label: '文风偏好', count: style.data?.length ?? 0 },
     { key: 'cost', label: '成本', count: undefined },
     { key: 'stale', label: '物料重算', count: stale.data?.length ?? 0 },
+    { key: 'volume', label: '卷纲', count: undefined },
   ];
 
   return (
@@ -150,6 +154,7 @@ export function Maintenance() {
       {tab === 'style' && <StyleSection storyId={storyId} onToggle={handleToggleStyle} />}
       {tab === 'cost' && <CostSection storyId={storyId} />}
       {tab === 'stale' && <StaleSection storyId={storyId} />}
+      {tab === 'volume' && <VolumeSection storyId={storyId} />}
     </div>
   );
 }
@@ -276,6 +281,106 @@ function StaleSection({ storyId }: SectionProps) {
           storyId={storyId}
           onClose={() => setReplanOpen(false)}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 卷纲（P1-3，v0.70.0）：长篇的中观计划层。展示已规划各卷与卷内进度；尚无卷纲
+ * 或已越过最后一卷卷末时，由作者点按钮生成（系统不自动改写计划）。规划后，
+ * 章纲生成会带上「卷目标 / 卷末高潮 / 须兑现伏笔 / 线索预算」。
+ */
+function VolumeSection({ storyId }: SectionProps) {
+  const { data, isLoading } = useVolumePlanOverview(storyId);
+  const generate = useGenerateVolumePlan();
+  const [busy, setBusy] = useState(false);
+  const [instruction, setInstruction] = useState('');
+  if (isLoading) return <Loading />;
+  if (!data) return <EmptyHint>请先在左上角选择一部作品</EmptyHint>;
+  const nextVolume = data.next_volume_number ?? 1;
+  const nextStart = data.next_start_chapter ?? 1;
+  const stateText =
+    data.state === 'no_plan'
+      ? '尚未规划卷纲——长篇建议先规划第一卷：章纲会按「卷目标」展开，卷内进度也会注入写作上下文。'
+      : data.state === 'past_end'
+        ? `已写到第 ${data.latest_chapter} 章，越过了最后一卷的卷末——该规划下一卷了。`
+        : `当前第 ${data.current_volume_number} 卷（写到第 ${data.latest_chapter} 章），余 ${data.current_volume_remaining ?? 0} 章到卷末。`;
+  const handleGenerate = async () => {
+    if (!storyId) return;
+    setBusy(true);
+    try {
+      const plan = await generate.mutateAsync({
+        storyId,
+        instruction: instruction.trim() || undefined,
+      });
+      toast.success(
+        `已生成第 ${plan.volume_number} 卷卷纲（第 ${plan.start_chapter}–${plan.end_chapter} 章）：${plan.goal}`
+      );
+      setInstruction('');
+    } catch (e) {
+      toast.error(`生成卷纲失败: ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2" data-testid="maintenance-volume">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-cinema-700 bg-cinema-800/40 p-3">
+        <div className="text-xs text-ai-ink-2 leading-relaxed">{stateText}</div>
+        <div className="flex items-center gap-2">
+          <input
+            value={instruction}
+            onChange={e => setInstruction(e.target.value)}
+            placeholder="补充要求（可选）"
+            data-testid="volume-instruction"
+            className="w-40 px-2 py-1 text-xs rounded border border-ai-line bg-ai-inset text-ai-ink placeholder:text-ai-ink-3 focus:outline-none"
+          />
+          <ActionButton
+            onClick={handleGenerate}
+            disabled={busy || !storyId}
+            testId="generate-volume-plan"
+          >
+            {busy ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Compass className="w-3.5 h-3.5" />
+            )}
+            规划第 {nextVolume} 卷（第 {nextStart} 章起）
+          </ActionButton>
+        </div>
+      </div>
+      {data.plans.length === 0 ? (
+        <EmptyHint>尚无卷纲。规划后，章纲生成会带上「卷目标 / 卷末高潮 / 须兑现伏笔」。</EmptyHint>
+      ) : (
+        data.plans.map(p => (
+          <div
+            key={p.volume_number}
+            className="rounded-lg border border-cinema-700 bg-cinema-800/40 p-3"
+            data-testid={`volume-plan-${p.volume_number}`}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-ai-accent-tint text-ai-accent-ink">
+                第 {p.volume_number} 卷
+              </span>
+              <span className="text-xs text-ai-ink-2">
+                第 {p.start_chapter}–{p.end_chapter} 章
+              </span>
+              {p.scale_estimate && (
+                <span className="text-[11px] text-ai-ink-3">{p.scale_estimate}</span>
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-ai-ink-2 leading-relaxed">卷目标：{p.goal}</p>
+            {p.climax && (
+              <p className="mt-1 text-xs text-ai-ink-2 leading-relaxed">卷末高潮：{p.climax}</p>
+            )}
+            {p.foreshadowing_due.length > 0 && (
+              <p className="mt-1 text-xs text-ai-ink-3 leading-relaxed">
+                须兑现：{p.foreshadowing_due.join('；')}
+              </p>
+            )}
+          </div>
+        ))
       )}
     </div>
   );

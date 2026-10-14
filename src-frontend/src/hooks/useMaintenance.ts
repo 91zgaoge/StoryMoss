@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { loggedInvoke } from '@/services/tauri';
+import type { VolumeOverview, VolumePlan } from '@/services/api/storySystem';
 
 /**
  * v0.64.0 「运行维护」页数据源：
@@ -270,6 +271,47 @@ export function useApplyOutlineReplans() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stale_materials'] });
+    },
+  });
+}
+
+// ---------- 卷纲（P1-3，v0.70.0） ----------
+
+/** 卷纲总览（状态：no_plan / in_volume / past_end）。 */
+export function fetchVolumePlanOverview(storyId: string) {
+  return loggedInvoke<VolumeOverview>('volume_plan_overview', { story_id: storyId });
+}
+
+/** 生成一卷卷纲（缺省取总览里的「下一个卷」；成功后落库）。 */
+export function generateVolumePlan(storyId: string, instruction?: string) {
+  return loggedInvoke<VolumePlan>('generate_volume_plan', {
+    story_id: storyId,
+    volume_number: null,
+    start_chapter: null,
+    instruction: instruction ?? null,
+  });
+}
+
+/** 卷纲总览（状态：no_plan / in_volume / past_end）。 */
+export function useVolumePlanOverview(storyId?: string) {
+  return useQuery({
+    queryKey: ['volume_plans', storyId],
+    queryFn: async () => {
+      if (!storyId) return null;
+      return fetchVolumePlanOverview(storyId);
+    },
+    enabled: !!storyId,
+  });
+}
+
+/** 生成一卷卷纲（作者显式触发；成功后刷新总览）。 */
+export function useGenerateVolumePlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ storyId, instruction }: { storyId: string; instruction?: string }) =>
+      generateVolumePlan(storyId, instruction),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['volume_plans'] });
     },
   });
 }

@@ -2,6 +2,56 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.70.0（2026-10-14）
+
+**P1-3 卷/弧中层计划：把「季→弧」这一层补上（Sherpa 借鉴第五版）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 的层级规划器是
+「季→弧→序列→剧集→场景」；StoryMoss 的规划链是三幕书纲 → 逐章章纲 → 节拍卡，章与书之间
+没有**正向计划层**（段摘要每 10 章是回顾不是计划），而 `story_contracts` 的 `VOLUME` 类型
+早已定义、读路径已实现、全库无写入方——一个预留的空位。
+
+### 变更
+
+- 新模块 `story_system/volume_plan`：卷纲结构（卷号/章范围/卷目标/卷末高潮/须兑现伏笔/
+  线索预算/规模估计）存 `story_contracts`（contract_type='VOLUME'，不新增表）；`save` 同卷号
+  原地更新（`version` 递增，与 CHAPTER 合同同语义）；`volume_overview` 状态机（`no_plan` /
+  `in_volume` 含卷内余量 / `past_end` 建议下一卷）；`render_volume_block_for_chapter` 渲染
+  注入块（无卷纲返回 None——短篇行为逐字不变）。
+- 生成：`AgencyCoordinator::generate_volume_plan`（Producer 档一次 JSON 调用；上下文 = 全书
+  大纲 + 世界观 + 角色 + 已有卷纲 + 最近章纲 + 未回收伏笔 + 已写进度）+ 新提示词资产
+  `resources/prompts/agency/agency_volume_planner_system.md`；卷号/起始章以请求为准（防模型
+  改号），目标非空与章范围校验；**由作者在运行维护页显式触发**（不自动改写计划）。
+- 注入：章纲生成（`generate_chapter_outline`）新增 `volume` 变量，`scene_outline.md` 用
+  `{{#if volume}}` 条件块插入「本卷计划 + 卷内进度」。
+- 指南针：有卷纲时规模接到卷（`已提交 X 章 / 第 V 卷（第 A–B 章）/ N 段摘要`）。
+- 前端：运行维护新增「卷纲」页签（状态提示 + 补充要求输入 + 「规划第 N 卷」按钮 + 已规划
+  各卷卡片）；故事系统「合同」页展示 VOLUME 合同。
+- 命令：`volume_plan_overview` / `generate_volume_plan`。
+
+### 测试与验收
+
+- `cargo test --lib` **1813 passed / 5 ignored（+6）**：存取往返（同卷号原地更新且 version
+  递增）、状态机三态与卷内余量、注入块内容/卷外无块/无卷纲无块、宽松解析与校验、**章纲
+  prompt 携带本卷计划与进度且卷外不注入**、合同树可见 VOLUME、指南针规模接卷。
+- 前端 vitest **625 passed / 3 skipped（+3）**：维护页卷纲页签（状态文案/卡片/补充要求/
+  生成命令参数）、合同页卷纲展示；clippy 0 error / fmt / guard / tsc / playwright 39
+  passed / 5 skipped 全绿。
+
+### 契约
+
+`save_list_and_current_round_trip`；`overview_states_progressively`；
+`render_block_carries_goal_climax_and_progress`；`parse_is_lenient_and_validation_rejects_empty_goal`；
+`test_chapter_outline_prompt_carries_volume_goal`；`compass_scale_links_to_volume_plan`；
+前端「卷纲页签：展示已规划卷并触发规划」/「卷纲（VOLUME 合同）在合同树卡里展示」。
+
+### 未关闭
+
+- 真机端到端未复跑（规划第一卷 → 章纲带卷目标 → 越过卷末提示规划下一卷）——
+  **不得宣称中观计划已在真机生效**。
+- 卷纲 v1 不可手改（只能重新生成）；章号顺延（自动分章/插章）不重编号卷范围——跨卷错位
+  时会显示 `past_end`，需重新生成该卷；短剧路径未接卷纲。
+
 ## v0.69.0（2026-10-14）
 
 **P1-5 作者裁决回灌每拍手法池（Sherpa 借鉴第四版）。**

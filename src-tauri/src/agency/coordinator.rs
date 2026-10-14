@@ -4270,6 +4270,67 @@ impl AgencyCoordinator {
             .unwrap_or_default()
     }
 
+    /// P1-3（v0.70.0）：为长篇生成单卷卷纲——Producer 档一次 JSON 调用（不跑
+    /// tool_loop、不抢主创 LLM）。调用方（命令层）负责把结果交作者确认后落库；
+    /// 本方法只产出结构化结果并做基本校验。
+    pub(crate) async fn generate_volume_plan(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        budget: &Arc<AgencyBudget>,
+        volume_number: i32,
+        start_chapter: i32,
+        instruction: Option<&str>,
+    ) -> Result<crate::story_system::volume_plan::VolumePlan, AppError> {
+        use crate::story_system::volume_plan::{VolumePlan, DEFAULT_VOLUME_CHAPTERS};
+        let context = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Ok(build_volume_plan_context(&pool, &sid, start_chapter)))
+                .await
+                .unwrap_or_default()
+        };
+        let title = self
+            .story_title(story_id)
+            .await
+            .unwrap_or_else(|| "未命名".to_string());
+        let end_suggestion = start_chapter + DEFAULT_VOLUME_CHAPTERS - 1;
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let system =
+            crate::prompts::registry::resolve_prompt_default("agency_volume_planner_system")
+                .unwrap_or_else(|| {
+                    "你是卷纲规划师。为单卷规划目标/卷末高潮/须兑现伏笔/线索预算，只输出 JSON。"
+                        .to_string()
+                });
+        let extra = instruction
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("\n作者补充要求：{s}\n"))
+            .unwrap_or_default();
+        let user = format!(
+            "作品：《{title}》\n规划：第 {volume_number} 卷（建议第 {start_chapter}–{end_suggestion} 章）\n{extra}{context}\n\
+             请输出 JSON：{{\"volume_number\":{volume_number},\"start_chapter\":{start_chapter},\
+             \"end_chapter\":建议范围内的整数,\"goal\":\"卷目标一句话\",\"climax\":\"卷末高潮一句话（不可逆）\",\
+             \"foreshadowing_due\":[\"从【未回收伏笔】中选\"],\"new_thread_budget\":0-3,\
+             \"scale_estimate\":\"预计规模\"}}"
+        );
+        let raw = llm
+            .complete_json(&system, &user, TaskType::WorldBuilding, 2048)
+            .await?;
+        let mut plan: VolumePlan =
+            parse_lenient(&raw).ok_or_else(|| AppError::from("卷纲解析失败（模型未返回 JSON）"))?;
+        // 卷号与起始章以请求为准（防模型改号），范围与目标做校验。
+        plan.volume_number = volume_number;
+        plan.start_chapter = start_chapter;
+        plan.normalize();
+        plan.validate().map_err(AppError::from)?;
+        Ok(plan)
+    }
+
     /// v0.30.21: 生成本章详细大纲（服从故事大纲推进方向）。
     /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM。
     /// 大纲写入黑板 Draft 区 key="outline-{chapter_key}"（供 handle_gate
@@ -4306,6 +4367,7 @@ impl AgencyCoordinator {
         let premise_c = premise.to_string();
         let key_c = key.clone();
         let scene_number = chapter_number.to_string();
+        let chapter_for_outline = chapter_number;
         let characters_override = characters_override.to_string();
         let prompt_text = tokio::task::spawn_blocking(move || -> String {
             use crate::agency::continue_assets::condense_story_outline;
@@ -4407,6 +4469,14 @@ impl AgencyCoordinator {
             vars.insert("scene_number".to_string(), scene_number);
             vars.insert("characters".to_string(), characters);
             vars.insert("scene_info".to_string(), scene_info);
+            // P1-3（v0.70.0）：本卷计划（中观方向）——有卷纲才注入（短篇行为不变）。
+            vars.insert(
+                "volume".to_string(),
+                crate::story_system::volume_plan::render_volume_block_for_chapter(
+                    &pool, &sid, chapter_for_outline,
+                )
+                .unwrap_or_default(),
+            );
             crate::prompts::registry::resolve_prompt_with_vars(&pool, "scene_outline", &vars)
                 .unwrap_or_else(|_| {
                     format!(
@@ -7495,6 +7565,130 @@ pub(crate) fn assemble_continue_user_prompt(
 
 /// 从 DB 构建 writer 上下文（纯函数，可测试）。
 /// 无 BeatCard 时录取角色表前 8 人（设计 §5）。
+/// 卷纲规划上下文（P1-3，v0.70.0）：全书大纲（压缩）+ 世界观 + 角色 + 既有卷纲
+/// + 最近章纲 + 未回收伏笔 + 已写进度。纯 DB 读取、确定性。
+pub(crate) fn build_volume_plan_context(
+    pool: &DbPool,
+    story_id: &str,
+    start_chapter: i32,
+) -> String {
+    use crate::{
+        agency::continue_assets::condense_story_outline,
+        db::repositories::{
+            CharacterRepository, SceneRepository, StoryOutlineRepository, WorldBuildingRepository,
+        },
+    };
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Ok(Some(outline)) = StoryOutlineRepository::new(pool.clone()).get_by_story(story_id) {
+        if !outline.content.trim().is_empty() {
+            parts.push(format!(
+                "【全书大纲】\n{}",
+                condense_story_outline(&outline.content, "")
+            ));
+        }
+    }
+    if let Ok(Some(world)) = WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+        let mut lines = vec![format!("世界概念：{}", world.concept)];
+        for rule in world.rules.iter().take(3) {
+            lines.push(format!(
+                "规则：{}：{}",
+                rule.name,
+                rule.description.as_deref().unwrap_or("-")
+            ));
+        }
+        parts.push(format!("【世界观】\n{}", lines.join("\n")));
+    }
+    let characters = CharacterRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    if !characters.is_empty() {
+        let lines: Vec<String> = characters
+            .iter()
+            .take(8)
+            .map(|c| {
+                format!(
+                    "- {}：性格{}｜目标{}",
+                    c.name,
+                    c.personality.as_deref().unwrap_or("-"),
+                    c.goals.as_deref().unwrap_or("-")
+                )
+            })
+            .collect();
+        parts.push(format!("【角色】\n{}", lines.join("\n")));
+    }
+    let plans =
+        crate::story_system::volume_plan::list_volume_plans(pool, story_id).unwrap_or_default();
+    if !plans.is_empty() {
+        let lines: Vec<String> = plans
+            .iter()
+            .map(|p| {
+                format!(
+                    "- 第 {} 卷（第 {}–{} 章）：目标 {}｜卷末 {}",
+                    p.volume_number, p.start_chapter, p.end_chapter, p.goal, p.climax
+                )
+            })
+            .collect();
+        parts.push(format!("【已有卷纲】\n{}", lines.join("\n")));
+    }
+    let scenes = SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    let mut recent: Vec<(i32, String)> = scenes
+        .iter()
+        .filter(|s| s.sequence_number < start_chapter)
+        .filter_map(|s| {
+            let plan = crate::agency::continue_assets::chapter_plan_from_scene_outline(
+                s.outline_content.as_deref().unwrap_or(""),
+            );
+            let plan = plan.trim();
+            if plan.is_empty() {
+                None
+            } else {
+                Some((
+                    s.sequence_number,
+                    plan.chars().take(200).collect::<String>(),
+                ))
+            }
+        })
+        .collect();
+    recent.sort_by_key(|(n, _)| *n);
+    let tail: Vec<String> = recent
+        .iter()
+        .rev()
+        .take(3)
+        .rev()
+        .map(|(n, plan)| format!("- 第{n}章：{plan}"))
+        .collect();
+    if !tail.is_empty() {
+        parts.push(format!("【最近章纲】\n{}", tail.join("\n")));
+    }
+    if let Ok(conn) = pool.get() {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT content FROM foreshadowing_tracker \
+             WHERE story_id = ?1 AND status = 'setup' \
+             ORDER BY importance DESC, created_at ASC LIMIT 6",
+        ) {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![story_id], |r| r.get::<_, String>(0))
+            {
+                let items: Vec<String> = rows.filter_map(Result::ok).collect();
+                if !items.is_empty() {
+                    let lines: Vec<String> = items.iter().map(|c| format!("- {c}")).collect();
+                    parts.push(format!(
+                        "【未回收伏笔（须本卷兑现的候选）】\n{}",
+                        lines.join("\n")
+                    ));
+                }
+            }
+        }
+    }
+    let latest = crate::story_system::volume_plan::latest_chapter(pool, story_id);
+    if latest > 0 {
+        parts.push(format!("【已写进度】最新写到第 {latest} 章"));
+    }
+    parts.join("\n\n")
+}
+
 pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
     use crate::agency::continue_assets::ADMITTED_CAP;
     let Some(parts) = load_continue_context_parts(pool, story_id) else {

@@ -82,7 +82,15 @@ pub fn build_compass(pool: &DbPool, story_id: &str) -> StoryCompass {
     let segments =
         crate::story_system::segment_summary::load_segment_summaries(pool, story_id).len();
     if let Some(chapter) = max_chapter.filter(|c| *c > 0) {
-        compass.scale = Some(format!("已提交 {chapter} 章 / {segments} 段摘要"));
+        // P1-3（v0.70.0）：有卷纲时规模接到卷（中观计划锚）；无卷纲保持原样。
+        compass.scale =
+            match crate::story_system::volume_plan::current_volume_plan(pool, story_id, chapter) {
+                Some(plan) => Some(format!(
+                    "已提交 {chapter} 章 / 第 {} 卷（第 {}–{} 章）/ {segments} 段摘要",
+                    plan.volume_number, plan.start_chapter, plan.end_chapter
+                )),
+                None => Some(format!("已提交 {chapter} 章 / {segments} 段摘要")),
+            };
     }
 
     compass

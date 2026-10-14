@@ -93,6 +93,32 @@ export const createChapterContract = (params: {
 export const getContractTree = (storyId: string) =>
   loggedInvoke<ContractTree>('get_contract_tree', { story_id: storyId });
 
+/** P1-3（v0.70.0）：卷纲（VOLUME 合同的结构化形态）。 */
+export interface VolumePlan {
+  schema_version: string;
+  contract_type: string;
+  generator_version: string;
+  volume_number: number;
+  start_chapter: number;
+  end_chapter: number;
+  goal: string;
+  climax: string;
+  foreshadowing_due: string[];
+  new_thread_budget: number;
+  scale_estimate: string;
+}
+
+/** 卷纲总览：状态 no_plan / in_volume / past_end + 下一个建议卷。 */
+export interface VolumeOverview {
+  plans: VolumePlan[];
+  latest_chapter: number;
+  state: string;
+  current_volume_number: number | null;
+  current_volume_remaining: number | null;
+  next_volume_number: number | null;
+  next_start_chapter: number | null;
+}
+
 export const getRuntimeContract = (storyId: string, chapterNumber: number) =>
   loggedInvoke<RuntimeContract>('get_runtime_contract', {
     story_id: storyId,

@@ -1,3 +1,37 @@
+*归档于 2026-10-14（v0.70.0）：v0.66.0 摘要。*
+
+### v0.66.0 - 续写检索接线（Sherpa 借鉴 P0-1）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 指出——Sherpa 的「叙事
+世界模型」是「状态跟踪 + 按需检索」一对，StoryMoss 的状态侧（KG/知识边界/物品账本/分层摘要）
+在生产路径，检索侧（LanceDB 向量检索）实现完整却**零生成调用**：`QueryPipeline` 模块级
+`#![allow(dead_code)]`（`memory/query.rs:1`）、写时 Bundle 的参考场景退化为关键词重叠 top 3
+（`write_time_bundle.rs:213-226`）。本版把「按需取精确上下文」接进续写主路径。
+
+**改动**：新增 `src-tauri/src/agency/retrieval.rs`（纯函数 + fetch）——`build_retrieval_query`
+以节拍卡为查询源（在场角色名 ≤4 / 地点 / 冲突双方 ≤2 / 下一节点 / 指令 ≤40 字，总 ≤200 字）；
+`render_retrieval_block` 排除当前章及以后、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、
+摘录「【】」降级「「」」防段落标记混淆；`fetch_retrieval_block` 走 `embed_text_async`（全局
+provider，缺省哈希回退）+ `ports::VectorStore::search`（`text_search` 是前缀 LIKE，中文多词
+召回不了，弃用；RRF 在此场景等价向量路），任何失败静默降级。`AgencyCoordinator` 生产从 Tauri
+State `try_state` 取库（拿不到即跳过）、`#[cfg(test)] for_test_with_store` 注入；注入点在
+`write_beat_once` 的 `continuity_blocks` 生成后、`render_parts` 前（受保护段，位于 Bundle 区，
+prompt 顺序契约不变）；开关 `AppConfig::continue_retrieval_enabled`（默认开，配置文件项）。
+
+- **验证**：`cargo test --lib` **1788 passed / 5 ignored（+8）**：7 项单测（query 组装/截断/去重、
+  块渲染排除当前章/上限/同章去重/括号清洗/空结果、章号前缀剥离）+ **召回探针**（FakeVectorStore
+  埋「第 2 章 玉佩交给苏会山」→ 写第 40 章召回到）+ coordinator 集成（检索块进 prompt、当前章
+  记录排除、无库整块缺席降级）。clippy 0 error / fmt / guard ✅；前端未改动（vitest 620 / 3
+  skipped、playwright 39 / 5 skipped 沿用 v0.65.4 基线）。
+- **契约**：`retrieval_recall_probe_finds_distant_detail`；
+  `test_continue_injects_retrieval_block_and_degrades_without_store`；
+  `block_excludes_current_and_future_chapters`；`block_caps_items_chars_and_dedupes_chapters`；
+  `block_sanitizes_prompt_markers_and_returns_none_when_empty`；`query_collects_card_slots_and_instruction_with_caps`；
+  `query_ignores_empty_slots_and_truncates_long_instruction`；`excerpt_strips_redundant_chapter_prefix`。
+- **未关闭**：真机端到端未复跑（**不得宣称检索已改善续写质量**；真机探针=≥10 章的书+远距离
+  细节关键词，观察命中与 token/延迟增量）；本地哈希 embedding 召回有限；无相关性阈值过滤
+  （噪声靠块头约束 + 1200 字上限控制）。
+
 *归档于 2026-10-14（v0.69.0）：v0.65.4 摘要。*
 
 ### v0.65.4 - v0.65.3 的 CI 收尾（用例隔离）

@@ -1288,6 +1288,163 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
     );
 }
 
+/// P1-3（v0.70.0）：章纲 prompt 携带本卷计划与卷内进度（无卷纲时不出现）。
+#[tokio::test]
+async fn test_chapter_outline_prompt_carries_volume_goal() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "卷纲".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    // 存一份覆盖第 1–60 章的卷纲。
+    let mut plan = crate::story_system::volume_plan::VolumePlan {
+        schema_version: "story-system/v1".into(),
+        contract_type: "VOLUME".into(),
+        generator_version: String::new(),
+        volume_number: 1,
+        start_chapter: 1,
+        end_chapter: 60,
+        goal: "站稳柳林集".into(),
+        climax: "渡口易主".into(),
+        foreshadowing_due: vec!["断灯绳的来历".into()],
+        new_thread_budget: 2,
+        scale_estimate: "约 60 章".into(),
+    };
+    plan.normalize();
+    crate::story_system::volume_plan::save_volume_plan(&pool, &story.id, &plan).unwrap();
+    // 合同树可见（验收：写入 VOLUME → get_contract_tree 可见）。
+    let tree = crate::story_system::contract_service::StorySystemEngine::new(pool.clone())
+        .get_contract_tree(&story.id)
+        .unwrap();
+    assert_eq!(tree.volumes.len(), 1, "VOLUME 合同应出现在合同树里");
+
+    let outline_text = "本章大纲：阿苔在渡口拿到玉佩，却失去留在渡口的资格；\
+                        曹元佩的手下当众搜船，她必须交出一样贴身之物换取苏会山退走，\
+                        本章以她独自走进风雪、断灯绳在渡口旗杆上晃着收束。";
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+
+    // 第 30 章（卷内）→ prompt 带本卷计划与进度。
+    let mock = MockLlm::scripted(vec![outline_text]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let out = coordinator
+        .generate_chapter_outline(
+            "r-vol-1",
+            &story.id,
+            "续写《卷纲》第30章",
+            &budget,
+            30,
+            "【故事大纲】",
+            "",
+        )
+        .await;
+    assert!(out.contains("渡口"), "章纲应正常产出: {out}");
+    let prompt = mock.calls.lock().unwrap()[0].clone();
+    assert!(
+        prompt.contains("【本卷计划（第 1 卷：第 1–60 章）】"),
+        "应注入卷块"
+    );
+    assert!(prompt.contains("卷目标：站稳柳林集"));
+    assert!(prompt.contains("卷末高潮：渡口易主"));
+    assert!(prompt.contains("须在本卷兑现：断灯绳的来历"));
+    assert!(prompt.contains("卷内进度：第 30 章 / 共 60 章"));
+
+    // 第 61 章（卷外）→ 不注入（短篇/无卷纲行为不变）。
+    let mock2 = MockLlm::scripted(vec![outline_text]);
+    let coordinator2 = AgencyCoordinator::for_test(pool.clone(), mock2.clone());
+    let _ = coordinator2
+        .generate_chapter_outline(
+            "r-vol-2",
+            &story.id,
+            "续写《卷纲》第61章",
+            &budget,
+            61,
+            "【故事大纲】",
+            "",
+        )
+        .await;
+    let prompt2 = mock2.calls.lock().unwrap()[0].clone();
+    assert!(!prompt2.contains("【本卷计划"), "卷外章节不得注入卷块");
+}
+
+/// P1-3（v0.70.0）：指南针规模接卷纲（有卷时显示「第 V 卷（第 A–B 章）」）。
+#[test]
+fn compass_scale_links_to_volume_plan() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "卷纲".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, title, content, source, is_auto_generated, created_at, updated_at)
+             VALUES ('sc30', ?1, 30, '第30章', '<p>正文</p>', 'user_created', 0, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scene_commits (id, story_id, scene_id, chapter_number, status, created_at)
+             VALUES ('cm30', ?1, 'sc30', 30, 'accepted', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    // 无卷纲：原样。
+    let before = crate::story_system::compass::build_compass(&pool, &story.id);
+    assert_eq!(before.scale.as_deref(), Some("已提交 30 章 / 0 段摘要"));
+    // 有卷纲：接到卷。
+    let mut plan = crate::story_system::volume_plan::VolumePlan {
+        schema_version: "story-system/v1".into(),
+        contract_type: "VOLUME".into(),
+        generator_version: String::new(),
+        volume_number: 1,
+        start_chapter: 1,
+        end_chapter: 60,
+        goal: "站稳柳林集".into(),
+        climax: "渡口易主".into(),
+        foreshadowing_due: vec![],
+        new_thread_budget: 1,
+        scale_estimate: String::new(),
+    };
+    plan.normalize();
+    crate::story_system::volume_plan::save_volume_plan(&pool, &story.id, &plan).unwrap();
+    let after = crate::story_system::compass::build_compass(&pool, &story.id);
+    let scale = after.scale.unwrap_or_default();
+    assert!(
+        scale.contains("第 1 卷（第 1–60 章）"),
+        "规模应接卷: {scale}"
+    );
+}
+
 /// P1-5（v0.69.0）：每拍手法落库 + 作者裁决回灌（避开被反复放弃的手法）。
 #[tokio::test]
 async fn test_continue_logs_beat_technique_and_replays_author_verdict() {

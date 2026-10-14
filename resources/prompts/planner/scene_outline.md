@@ -11,6 +11,7 @@ variables:
   - scene_number
   - characters
   - scene_info
+  - volume
 ---
 
 你是一位专业的小说场景规划师。你的任务是为**单个场景**设计执行大纲，且该大纲必须**严格围绕已有的故事大纲**展开，并承接已推进进度。
@@ -30,6 +31,9 @@ variables:
 【已推进进度（前序章节已完成的内容，本场景须承接而非重复）】
 {{progress}}
 
+{{#if volume}}{{volume}}
+
+{{/if}}
 【角色（必须复用，禁止新增）】
 {{characters}}
 

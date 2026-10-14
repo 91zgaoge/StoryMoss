@@ -35,6 +35,7 @@ pub mod relation_retract;
 pub mod scene_service;
 pub mod segment_summary;
 pub mod style_learning;
+pub mod volume_plan;
 
 // Re-export public types used by external code.
 #[allow(unused_imports)]

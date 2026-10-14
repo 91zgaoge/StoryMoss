@@ -282,6 +282,8 @@ tauri::generate_handler! {
     commands::story_system::preview_chapter_outline_replans,
     commands::story_system::apply_chapter_outline_replans,
     commands::story_system::dismiss_stale_material,
+    commands::story_system::volume_plan_overview,
+    commands::story_system::generate_volume_plan,
     commands::story_system::create_chapter_contract,
     commands::story_system::get_contract_tree,
     commands::story_system::get_runtime_contract,

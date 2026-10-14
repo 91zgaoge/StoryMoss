@@ -310,6 +310,72 @@ describe('Maintenance', () => {
     });
   });
 
+  it('卷纲页签：展示已规划卷并触发规划（v0.70.0）', async () => {
+    const overview = {
+      plans: [
+        {
+          schema_version: 'story-system/v1',
+          contract_type: 'VOLUME',
+          generator_version: 'v0.70.0',
+          volume_number: 1,
+          start_chapter: 1,
+          end_chapter: 60,
+          goal: '站稳柳林集',
+          climax: '渡口易主',
+          foreshadowing_due: ['断灯绳的来历'],
+          new_thread_budget: 2,
+          scale_estimate: '约 60 章',
+        },
+      ],
+      latest_chapter: 30,
+      state: 'in_volume',
+      current_volume_number: 1,
+      current_volume_remaining: 30,
+      next_volume_number: 2,
+      next_start_chapter: 61,
+    };
+    const generated = {
+      ...overview.plans[0],
+      volume_number: 2,
+      start_chapter: 61,
+      end_chapter: 120,
+      goal: '进京',
+    };
+    invokeMock.mockImplementation((cmd: string) => {
+      switch (cmd) {
+        case 'list_quality_debts':
+        case 'list_pending_reviews':
+        case 'list_style_preferences':
+        case 'list_stale_materials':
+          return Promise.resolve([]);
+        case 'volume_plan_overview':
+          return Promise.resolve(overview);
+        case 'generate_volume_plan':
+          return Promise.resolve(generated);
+        default:
+          return Promise.resolve(null);
+      }
+    });
+    render(<Maintenance />, { wrapper });
+    await userEvent.click(await screen.findByText('卷纲'));
+
+    expect(await screen.findByTestId('maintenance-volume')).toBeInTheDocument();
+    expect(await screen.findByTestId('volume-plan-1')).toBeInTheDocument();
+    expect(screen.getByText(/卷目标：站稳柳林集/)).toBeInTheDocument();
+    expect(screen.getByText(/当前第 1 卷（写到第 30 章），余 30 章到卷末/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByTestId('volume-instruction'), '本卷结局落在渡口');
+    await userEvent.click(screen.getByTestId('generate-volume-plan'));
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('generate_volume_plan', {
+        story_id: 'story-1',
+        volume_number: null,
+        start_chapter: null,
+        instruction: '本卷结局落在渡口',
+      });
+    });
+  });
+
   it('章纲待重规划：忽略清掉标记（v0.67.0）', async () => {
     const outlineRow = {
       kind: 'chapter_outline',

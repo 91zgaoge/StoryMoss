@@ -229,6 +229,47 @@ export function ContractsTab({ storyId, selectedChapter, onChapterChange }: Cont
                 <p className="text-sm text-gray-400">
                   章节合同: {Object.keys(contractTree.chapters).length} 个
                 </p>
+                {(() => {
+                  // P1-3（v0.70.0）：卷纲（VOLUME 合同）展示——在「运行维护 → 卷纲」里规划。
+                  const volumes = Object.values(contractTree.volumes ?? {})
+                    .map(c => {
+                      try {
+                        return JSON.parse(c.contract_json) as {
+                          volume_number?: number;
+                          start_chapter?: number;
+                          end_chapter?: number;
+                          goal?: string;
+                        };
+                      } catch {
+                        return null;
+                      }
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => (a!.volume_number ?? 0) - (b!.volume_number ?? 0));
+                  if (volumes.length === 0) {
+                    return (
+                      <p className="text-sm text-gray-500">
+                        卷纲: 未规划（可在「运行维护 → 卷纲」规划）
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="space-y-2" data-testid="contracts-volumes">
+                      {volumes.map(v => (
+                        <div
+                          key={v!.volume_number}
+                          className="p-2 bg-cinema-800 rounded"
+                          data-testid={`contracts-volume-${v!.volume_number}`}
+                        >
+                          <p className="text-xs text-gray-400">
+                            第 {v!.volume_number} 卷 · 第 {v!.start_chapter}–{v!.end_chapter} 章
+                          </p>
+                          <p className="text-white text-sm mt-1">{v!.goal}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <p className="text-gray-500 text-sm">暂无合同，请先创建 MASTER_SETTING</p>

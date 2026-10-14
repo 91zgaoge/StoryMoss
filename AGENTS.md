@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1807 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌）
+- `cargo test -p storymoss` ✅ 1813 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 623 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,26 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.70.0 - 卷/弧中层计划：VOLUME 合同（Sherpa 借鉴 P1-3）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 的层级规划器
+是「季→弧→序列→剧集→场景」；StoryMoss 的三幕书纲与逐章章纲之间没有正向计划层（段摘要每
+10 章是回顾不是计划），而 `story_contracts` 的 `VOLUME` 类型早已定义、读路径已实现、全库无
+写入方。
+
+**改动**：新模块 `story_system/volume_plan`（卷纲存 VOLUME 合同；同卷号原地更新、version
+递增；状态机 no_plan/in_volume/past_end；渲染注入块）；`AgencyCoordinator::generate_volume_plan`
+（Producer JSON 调用 + 新资产 `agency_volume_planner_system.md`；作者显式触发）；章纲生成
+注入 `volume` 变量（`scene_outline.md` 的 `{{#if volume}}` 条件块——无卷纲时 prompt 逐字不变）；
+指南针规模接卷；运行维护「卷纲」页签 + 合同页展示；命令两件。
+
+- **验证**：`cargo test --lib` **1813 passed / 5 ignored（+6）**；vitest **625 passed / 3
+  skipped（+3）**；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`test_chapter_outline_prompt_carries_volume_goal`；`overview_states_progressively`；
+  `save_list_and_current_round_trip`；`compass_scale_links_to_volume_plan` 等（详见 CHANGELOG）。
+- **未关闭**：真机未复跑（**不得宣称中观计划已在真机生效**）；卷纲 v1 不可手改；章号顺延
+  不重编号卷范围；短剧未接卷纲。
 
 ### v0.69.0 - 作者裁决回灌每拍手法池（Sherpa 借鉴 P1-5）
 
@@ -201,38 +221,6 @@ gate 记录，配 `human_signals`（修改率）对照。`agency_eval_overview` 
   「忽略清掉标记」。
 - **未关闭**：真机端到端未复跑（编辑旧章 → 维护页 → 预览/应用 → 标记推进或清除），
   **不得宣称计划漂移已在真机闭环**；重规划手动触发（不自动改写）；每轮上限 3 章。
-
-### v0.66.0 - 续写检索接线（Sherpa 借鉴 P0-1）
-
-**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 指出——Sherpa 的「叙事
-世界模型」是「状态跟踪 + 按需检索」一对，StoryMoss 的状态侧（KG/知识边界/物品账本/分层摘要）
-在生产路径，检索侧（LanceDB 向量检索）实现完整却**零生成调用**：`QueryPipeline` 模块级
-`#![allow(dead_code)]`（`memory/query.rs:1`）、写时 Bundle 的参考场景退化为关键词重叠 top 3
-（`write_time_bundle.rs:213-226`）。本版把「按需取精确上下文」接进续写主路径。
-
-**改动**：新增 `src-tauri/src/agency/retrieval.rs`（纯函数 + fetch）——`build_retrieval_query`
-以节拍卡为查询源（在场角色名 ≤4 / 地点 / 冲突双方 ≤2 / 下一节点 / 指令 ≤40 字，总 ≤200 字）；
-`render_retrieval_block` 排除当前章及以后、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、
-摘录「【】」降级「「」」防段落标记混淆；`fetch_retrieval_block` 走 `embed_text_async`（全局
-provider，缺省哈希回退）+ `ports::VectorStore::search`（`text_search` 是前缀 LIKE，中文多词
-召回不了，弃用；RRF 在此场景等价向量路），任何失败静默降级。`AgencyCoordinator` 生产从 Tauri
-State `try_state` 取库（拿不到即跳过）、`#[cfg(test)] for_test_with_store` 注入；注入点在
-`write_beat_once` 的 `continuity_blocks` 生成后、`render_parts` 前（受保护段，位于 Bundle 区，
-prompt 顺序契约不变）；开关 `AppConfig::continue_retrieval_enabled`（默认开，配置文件项）。
-
-- **验证**：`cargo test --lib` **1788 passed / 5 ignored（+8）**：7 项单测（query 组装/截断/去重、
-  块渲染排除当前章/上限/同章去重/括号清洗/空结果、章号前缀剥离）+ **召回探针**（FakeVectorStore
-  埋「第 2 章 玉佩交给苏会山」→ 写第 40 章召回到）+ coordinator 集成（检索块进 prompt、当前章
-  记录排除、无库整块缺席降级）。clippy 0 error / fmt / guard ✅；前端未改动（vitest 620 / 3
-  skipped、playwright 39 / 5 skipped 沿用 v0.65.4 基线）。
-- **契约**：`retrieval_recall_probe_finds_distant_detail`；
-  `test_continue_injects_retrieval_block_and_degrades_without_store`；
-  `block_excludes_current_and_future_chapters`；`block_caps_items_chars_and_dedupes_chapters`；
-  `block_sanitizes_prompt_markers_and_returns_none_when_empty`；`query_collects_card_slots_and_instruction_with_caps`；
-  `query_ignores_empty_slots_and_truncates_long_instruction`；`excerpt_strips_redundant_chapter_prefix`。
-- **未关闭**：真机端到端未复跑（**不得宣称检索已改善续写质量**；真机探针=≥10 章的书+远距离
-  细节关键词，观察命中与 token/延迟增量）；本地哈希 embedding 召回有限；无相关性阈值过滤
-  （噪声靠块头约束 + 1200 字上限控制）。
 
 ## Always Do
 

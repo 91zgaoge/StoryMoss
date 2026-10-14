@@ -1,8 +1,20 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.69.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.70.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.70.0 变更说明
+
+- **Rust +6（1813 passed / 5 ignored）**：卷/弧中层计划（P1-3）——存取往返（同卷号原地更新且
+  version 递增）、`volume_overview` 三态与卷内余量、注入块内容/卷外无块/无卷纲无块、宽松解析
+  与校验、`test_chapter_outline_prompt_carries_volume_goal`（章纲 prompt 携带本卷计划与进度、
+  卷外不注入）、合同树可见 VOLUME、`compass_scale_links_to_volume_plan`。跑法：
+  `cargo test --lib volume`。
+- **前端 +3（625 passed / 3 skipped）**：维护页「卷纲」页签（状态文案 / 卷卡片 / 补充要求 /
+  生成命令参数）与合同页卷纲展示；tsc / playwright 39 passed / 5 skipped 全绿。
+- **真机探针（手动，未跑）**：规划第一卷 → 续写时章纲 prompt 带卷目标 → 写到卷末出现
+  「该规划下一卷」；**未跑通前不得宣称中观计划已在真机生效**。
 
 ### v0.69.0 变更说明
 

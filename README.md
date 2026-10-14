@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.69.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.70.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.70.0 · 长篇补上「卷」这一层（P1-3）
+
+三幕书纲和逐章章纲之间原本没有中间层。现在可以在「运行维护 → 卷纲」为长篇规划**每一卷**：
+卷目标、卷末高潮（须不可逆）、须在本卷兑现的伏笔、允许新开的线索条数。规划后，章纲生成会
+自动带上「本卷计划 + 卷内进度」，终局指南针的规模显示也接到卷（「第 2 卷（第 61–120 章）」）；
+写到卷末会提示「该规划下一卷了」。每卷约 60 章，由你点按钮生成——系统不自动改写计划。
 
 ### v0.69.0 · 你的取舍会教会它选章法（P1-5）
 

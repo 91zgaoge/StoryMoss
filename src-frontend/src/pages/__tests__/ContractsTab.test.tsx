@@ -38,7 +38,22 @@ const treeWithChapter1 = {
     created_at: '2026-01-01',
     updated_at: '2026-01-01',
   },
-  volumes: {},
+  volumes: {
+    'uuid-vol-1': {
+      id: 'uuid-vol-1',
+      story_id: 'story-1',
+      contract_type: 'VOLUME',
+      contract_json: JSON.stringify({
+        volume_number: 1,
+        start_chapter: 1,
+        end_chapter: 60,
+        goal: '站稳柳林集',
+      }),
+      version: 1,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    },
+  },
   chapters: {
     'uuid-ch-1': {
       id: 'uuid-ch-1',
@@ -95,6 +110,17 @@ describe('ContractsTab', () => {
     expect(await screen.findByText(/核心基调: 热血/)).toBeInTheDocument();
     expect(screen.getByText(/体裁: 奇幻/)).toBeInTheDocument();
     expect(screen.getByText(/章节目标: 完成第1章的情节推进/)).toBeInTheDocument();
+  });
+
+  it('卷纲（VOLUME 合同）在合同树卡里展示（v0.70.0）', async () => {
+    getContractTree.mockResolvedValue(treeWithChapter1);
+    getRuntimeContract.mockResolvedValue(runtimeParsedShape);
+
+    render(<ContractsTab storyId="story-1" selectedChapter={1} onChapterChange={vi.fn()} />);
+
+    expect(await screen.findByTestId('contracts-volume-1')).toBeInTheDocument();
+    expect(screen.getByText(/第 1 卷 · 第 1–60 章/)).toBeInTheDocument();
+    expect(screen.getByText('站稳柳林集')).toBeInTheDocument();
   });
 
   it('CHAPTER_1 播种状态按 contract_json 的 chapter_number 识别（而非 UUID key）', async () => {

@@ -403,3 +403,75 @@ pub async fn dismiss_stale_material(
     .map_err(|e| AppError::internal(format!("清除失效标记失败: {}", e)))?
     .map_err(AppError::from)
 }
+
+// ==================== 卷纲（P1-3，v0.70.0） ====================
+
+/// 卷纲总览：全部卷纲 + 最新进度 + 状态（no_plan / in_volume / past_end）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn volume_plan_overview(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<crate::story_system::volume_plan::VolumeOverview, AppError> {
+    let pool = pool.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::volume_plan::volume_overview(&pool, &story_id).map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("查询卷纲失败: {}", e)))?
+}
+
+/// 生成一卷卷纲（Producer 档一次 JSON 调用，成功后落库）。卷号/起始章缺省取
+/// 总览里的「下一个卷」；由作者在运行维护页显式触发（不自动改写计划）。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn generate_volume_plan(
+    story_id: String,
+    volume_number: Option<i32>,
+    start_chapter: Option<i32>,
+    instruction: Option<String>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::story_system::volume_plan::VolumePlan, AppError> {
+    let pool = pool.inner().clone();
+    let (volume_number, start_chapter) = match (volume_number, start_chapter) {
+        (Some(v), Some(s)) if v >= 1 && s >= 1 => (v, s),
+        _ => {
+            let pool_probe = pool.clone();
+            let sid = story_id.clone();
+            tauri::async_runtime::spawn_blocking(move || -> Result<(i32, i32), AppError> {
+                let overview = crate::story_system::volume_plan::volume_overview(&pool_probe, &sid)
+                    .map_err(AppError::from)?;
+                Ok((
+                    overview.next_volume_number.unwrap_or(1),
+                    overview.next_start_chapter.unwrap_or(1),
+                ))
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("查询卷纲状态失败: {}", e)))??
+        }
+    };
+    let coordinator = crate::agency::coordinator::AgencyCoordinator::new(app_handle, pool.clone());
+    let budget = std::sync::Arc::new(crate::agency::budget::AgencyBudget::new(
+        crate::agency::budget::DEFAULT_RUN_TOKEN_BUDGET,
+    ));
+    let run_id = format!("volume-plan-{}", uuid::Uuid::new_v4());
+    let plan = coordinator
+        .generate_volume_plan(
+            &run_id,
+            &story_id,
+            &budget,
+            volume_number,
+            start_chapter,
+            instruction.as_deref(),
+        )
+        .await?;
+    let plan_save = plan.clone();
+    let pool_save = pool.clone();
+    let sid = story_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::story_system::volume_plan::save_volume_plan(&pool_save, &sid, &plan_save)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("卷纲落库 join error: {}", e)))??;
+    Ok(plan)
+}
