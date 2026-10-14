@@ -1,8 +1,21 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.67.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.68.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.68.0 变更说明
+
+- **Rust +5（1797 passed / 5 ignored）**：判官一致率（P1-4）——
+  `quote_survival_three_states`（引用留存/改写/删除三态 + 短引用不可判）、
+  `normalize_strips_markup_and_whitespace`、
+  `compute_agreement_joins_records_and_final_text`（每章取最新 gate 记录、采纳计分、
+  修改率对照、空数据不报错）、`short_evidence_and_missing_final_are_not_judgeable`、
+  `v146_creates_editor_gate_records_idempotently`。跑法：`cargo test --lib editor_agreement`。
+- **前端**：`AgencyEval.test.tsx` 增加「判官一致率」卡断言（总采纳率 / 可判条数 / 每章修改率）；
+  vitest 622 passed / 3 skipped、tsc、playwright 39 passed / 5 skipped 全绿。
+- **真机探针（手动，未跑）**：真机跑 ≥3 章后在「创作评估 → 判官一致率」人工核对 1 个样本
+  （引用是否确被作者改动）；**未跑通前不得宣称判官质量已可量化到可信**。
 
 ### v0.67.0 变更说明
 

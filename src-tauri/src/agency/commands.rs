@@ -347,6 +347,9 @@ pub struct EvalOverview {
     pub pass_rate: f64,
     pub checkpoints: Vec<crate::agency::coordinator::AgencyCheckpoint>,
     pub human_signals: Vec<crate::agency::graders::HumanSignal>,
+    /// P1-4（v0.68.0）：判官一致率——编辑 blocking 的原文引用在成稿里是否幸存
+    /// （被删/被改写 = 采纳），配合作者修改率对照。
+    pub editor_agreement: crate::agency::editor_agreement::EditorAgreementReport,
     pub token_usage: Vec<PurposeUsage>,
     pub story_tokens: StoryTokens,
 }
@@ -423,6 +426,10 @@ fn eval_overview(pool: &DbPool, story_id: &str) -> Result<EvalOverview, AppError
         .list_checkpoints(story_id)
         .map_err(AppError::from)?;
     let human_signals = crate::agency::graders::human_signals(pool, story_id);
+    // P1-4（v0.68.0）：判官一致率（引用幸存判定；空数据全零不报错）。
+    let editor_agreement =
+        crate::agency::editor_agreement::compute_editor_agreement(pool, story_id)
+            .unwrap_or_default();
     // story 级 token 聚合：每 run 取 MAX(tokens_used)（累计快照），跨 run 求和
     let story_tokens = conn
         .query_row(
@@ -444,6 +451,7 @@ fn eval_overview(pool: &DbPool, story_id: &str) -> Result<EvalOverview, AppError
         pass_rate,
         checkpoints,
         human_signals,
+        editor_agreement,
         token_usage,
         story_tokens,
     })

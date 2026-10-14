@@ -6593,6 +6593,51 @@ pub(crate) async fn evaluate_gate_impl(
         Some(&gate_score),
     )
     .await?;
+    // P1-4（v0.68.0）：落一行 gate 裁决记录（判官一致率的数据源；best-effort，
+    // 失败只告警）。findings 原样保留含 evidence 原文引用的结构，供
+    // `editor_agreement` 做「引用是否在作者改后的成稿里幸存」的确定性判定。
+    {
+        let verdict_ref = match &outcome {
+            GateOutcome::Passed { verdict } => Some(verdict),
+            GateOutcome::RevisionRequired { verdict, .. } => Some(verdict),
+            GateOutcome::Failed { .. } => None,
+        };
+        if let Some(chapter_number) = crate::agency::graders::parse_chapter_number(&draft.key) {
+            let outcome_kind = match &outcome {
+                GateOutcome::Passed { .. } => "pass",
+                GateOutcome::RevisionRequired { .. } => "revise",
+                GateOutcome::Failed { .. } => "failed",
+            }
+            .to_string();
+            let findings = verdict_ref
+                .map(crate::agency::editor_agreement::findings_from_verdict)
+                .unwrap_or_default();
+            let dimension_scores_json = verdict_ref
+                .and_then(|v| v.dimension_scores.as_ref())
+                .and_then(|d| serde_json::to_string(d).ok());
+            let verdict_str = verdict_ref.map(|v| v.verdict.clone());
+            let score = verdict_ref.and_then(|v| v.score);
+            let weighted = gate_score.weighted;
+            let pool = pool.clone();
+            let story_id_owned = story_id.to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(e) = crate::agency::editor_agreement::persist_gate_record(
+                    &pool,
+                    &story_id_owned,
+                    chapter_number,
+                    round,
+                    &outcome_kind,
+                    verdict_str.as_deref(),
+                    score,
+                    Some(weighted),
+                    dimension_scores_json,
+                    &findings,
+                ) {
+                    log::warn!("[editor_agreement] gate 裁决记录落库失败（非阻塞）: {e}");
+                }
+            });
+        }
+    }
     Ok((outcome, Some(gate_score)))
 }
 

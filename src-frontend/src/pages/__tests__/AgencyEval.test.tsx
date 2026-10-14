@@ -27,6 +27,23 @@ vi.mock('@/services/api/agency', () => ({
     pass_rate: 0.5,
     checkpoints: [],
     human_signals: [],
+    editor_agreement: {
+      chapters: [
+        {
+          chapter_number: 2,
+          findings: 5,
+          judgeable: 4,
+          adopted: 1,
+          adoption_rate: 0.25,
+          modification_ratio: 0.32,
+        },
+      ],
+      total_findings: 5,
+      total_judgeable: 4,
+      total_adopted: 1,
+      adoption_rate: 0.25,
+      per_kilo_chars: 12.5,
+    },
     token_usage: [
       { purpose: 'agency_writer', calls: 4, total_tokens: 8000, total_duration_ms: 3000 },
     ],
@@ -57,5 +74,12 @@ describe('AgencyEval', () => {
     expect(
       await screen.findByText(/本故事累计（检查点）：42000 tokens \/ 2 runs/)
     ).toBeInTheDocument();
+    // P1-4：判官一致率卡（总采纳率 + 每章对照）。
+    expect(await screen.findByText('判官一致率')).toBeInTheDocument();
+    expect(await screen.findByTestId('editor-agreement')).toBeInTheDocument();
+    expect(screen.getByText('1/4 条可判')).toBeInTheDocument();
+    // 总采纳率卡 + 每章行都会出现 25%（同一数据两处呈现）。
+    expect(screen.getAllByText('25%').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('32%')).toBeInTheDocument();
   });
 });

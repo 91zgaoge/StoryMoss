@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.67.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.68.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.68.0 · 编辑判得准不准，有数字了（P1-4）
+
+「创作评估」页新增**判官一致率**：编辑判 blocking 时会引用草稿原文，那段引用在你的成稿里
+被删除或改写 = 你采纳了它。总采纳率、阻断命中密度、每章明细（含你对该章的修改率对照）
+一目了然——参考平台级产品用「与人类审阅者匹配率」衡量判官质量的思路，这里的地面真值就是
+你自己的手改。只报不改：不参与任何门限。
 
 ### v0.67.0 · 改了旧章，下游章纲会提醒你（P0-2）
 

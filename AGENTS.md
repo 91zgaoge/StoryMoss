@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1792 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划）
+- `cargo test -p storymoss` ✅ 1797 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 622 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略）
+- `npx vitest run` ✅ 622 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡断言）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,30 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用「评估器与
+人类审阅者 80–90% 匹配率」证明判官可用；StoryMoss 的 editor 判 blocking 时必须引用草稿原文
+（`blocking_issues[].evidence`），但这条材料此前被压平成字符串、从未落库，没有指标回答
+「编辑判的问题，作者后来改了吗」。
+
+**改动**：**V146 `editor_gate_records`**（每次 gate 判定落一行；findings_json 原样保留含
+evidence 的结构；写入点在 `evaluate_gate_impl` 三条调用路径共用，best-effort）。新模块
+`agency::editor_agreement`：**引用幸存判定**（确定性）——引用的原文在作者改后成稿里近逐字
+留存（char-bigram 包含率 ≥0.8；引用 ≥6 字才可判）= 未采纳，被删/被改写 = 采纳；每章取最新
+gate 记录，配 `human_signals`（修改率）对照。`agency_eval_overview` 新增 `editor_agreement`
+段；AgencyEval 页新增「判官一致率」卡（总采纳率 / 阻断命中 / 命中密度 + 每章
+阻断·可判·采纳率·修改率对照表）。**只报不改**：不参与门限、不自动调权重；评审模型档位
+（editor 默认落 Background，`llm/service.rs:267-280`）仅在文档说明。
+
+- **验证**：`cargo test --lib` **1797 passed / 5 ignored（+5）**（引用三态 / 归一 / 记录取舍与
+  计分 / 短引用与无成稿不可判 / V146 幂等）；vitest 622（AgencyEval 卡渲染断言）；
+  clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`quote_survival_three_states`；`compute_agreement_joins_records_and_final_text`；
+  `short_evidence_and_missing_final_are_not_judgeable`；`v146_creates_editor_gate_records_idempotently`。
+- **未关闭**：真机未复跑（需 ≥3 章后人工核对 1 个样本），**不得宣称判官质量已可量化到可信**；
+  未覆盖「误报」维度（需作者显式忽略/回退信号）；一致率只报不改。
 
 ### v0.67.0 - 纲层失效与局部重规划（Sherpa 借鉴 P0-2）
 
@@ -218,14 +242,6 @@ CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFron
 - **未关闭**：真机端到端未复跑（**不得宣称症状已在真机消失**）；自动分章仍可能在续写生成中触发
   （后端判据是场景落库后 30s 空闲，不知道幕前在途生成）——本版只保证切换后正文/幽灵不丢、
   该章可再次打开。
-
-### v0.65.2 - 主续写路径 system 提示词补文笔准则
-
-**为什么还要一版**：v0.65.0 注入的是**用户**提示词（每拍组装），核对链路时发现主续写路径的 **system** 提示词其实是 `CONTINUE_BEAT_SYSTEM`（`prompts/assembly.rs` 内联常量），**不是** `agency_lead_writer_system`——它是用户无法覆盖的常量，是准则送达最可靠的一条渠道，此前没有文笔条款。**改动**：`CONTINUE_BEAT_SYSTEM` 新增第 7 条文笔（人类文笔基线）+ 一组对照示例（Wrong：她心里一紧，背脊发凉，喉咙发紧／Right：她害怕。他把灯芯剪短了一截，没说话）；`DRAMA_BEAT_SYSTEM` 按**剧本语域**补第 6 条（情绪用可见动作与台词演，不用内心身体描写代替可拍内容；台词允许语气词与重复「说」）——sepia「按体裁校准，别把不同体裁改成一个声音」的落地。
-
-- **验证**：`cargo test --lib` 1780 passed / 5 ignored（+2）；clippy 0 error；fmt / guard / tsc / vitest 全绿。
-- **契约**：`continue_beat_system_carries_human_voice_doctrine`；`drama_beat_system_bans_unfilmable_interiority`；`continue_beat_operational_contract_has_three_examples`（行数上界 19→24，仍设界防膨胀）。
-- **未关闭**：同 v0.65.1（叙事架构层无确定性检查；真机端到端未复跑，**不得宣称续写质量已修复**）。
 
 ## Always Do
 

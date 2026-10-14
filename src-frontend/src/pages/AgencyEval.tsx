@@ -362,6 +362,98 @@ export default function AgencyEval() {
         />
       </section>
 
+      <section data-testid="editor-agreement">
+        <h2 className="mb-2 font-medium">判官一致率</h2>
+        {data.editor_agreement.total_findings === 0 ? (
+          <p className="text-sm text-ai-ink-3">暂无编辑裁决记录（章节经质量门后会产生）</p>
+        ) : (
+          <>
+            <p className="mb-2 text-xs text-ai-ink-2 leading-relaxed">
+              编辑判 blocking 时会引用草稿原文；那段引用在成稿里被删除或改写 = 你采纳了它
+              （「你的修改率」是同一章的整体改动幅度，可用来对照漏报）。只报不改：不参与 任何门限。
+            </p>
+            <AiInsightCards
+              columns={3}
+              items={[
+                {
+                  key: 'agreement-adoption',
+                  label: '总采纳率',
+                  value: `${(data.editor_agreement.adoption_rate * 100).toFixed(0)}%`,
+                  tone: 'orange',
+                  sub: `${data.editor_agreement.total_adopted}/${data.editor_agreement.total_judgeable} 条可判`,
+                },
+                {
+                  key: 'agreement-findings',
+                  label: '阻断命中',
+                  value: String(data.editor_agreement.total_findings),
+                  tone: 'neutral',
+                  sub: '编辑判 blocking 条数',
+                },
+                {
+                  key: 'agreement-density',
+                  label: '命中密度',
+                  value: data.editor_agreement.per_kilo_chars.toFixed(1),
+                  tone: 'neutral',
+                  sub: '每千字条数',
+                },
+              ]}
+            />
+            <AiRecordsTable
+              ariaLabel="每章判官一致率"
+              rows={data.editor_agreement.chapters}
+              rowKey={c => String(c.chapter_number)}
+              emptyText="暂无数据"
+              columns={[
+                {
+                  key: 'chapter_number',
+                  label: '章',
+                  width: '14%',
+                  render: c => (
+                    <span className="font-medium text-ai-ink">第 {c.chapter_number} 章</span>
+                  ),
+                },
+                {
+                  key: 'findings',
+                  label: '阻断',
+                  align: 'right',
+                  render: c => <span className="tabular-nums">{c.findings}</span>,
+                },
+                {
+                  key: 'judgeable',
+                  label: '可判',
+                  align: 'right',
+                  render: c => <span className="tabular-nums">{c.judgeable}</span>,
+                },
+                {
+                  key: 'adoption_rate',
+                  label: '采纳率',
+                  align: 'right',
+                  render: c =>
+                    c.judgeable === 0 ? (
+                      <span className="text-ai-ink-3">—</span>
+                    ) : (
+                      <span className="tabular-nums">{(c.adoption_rate * 100).toFixed(0)}%</span>
+                    ),
+                },
+                {
+                  key: 'modification_ratio',
+                  label: '你的修改率',
+                  align: 'right',
+                  render: c =>
+                    c.modification_ratio == null ? (
+                      <span className="text-ai-ink-3">—</span>
+                    ) : (
+                      <span className="tabular-nums">
+                        {(c.modification_ratio * 100).toFixed(0)}%
+                      </span>
+                    ),
+                },
+              ]}
+            />
+          </>
+        )}
+      </section>
+
       <CheckpointCompare storyId={storyId} />
     </div>
   );

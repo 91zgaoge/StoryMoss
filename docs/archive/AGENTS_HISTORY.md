@@ -1,3 +1,13 @@
+*归档于 2026-10-14（v0.68.0）：v0.65.2 摘要。*
+
+### v0.65.2 - 主续写路径 system 提示词补文笔准则
+
+**为什么还要一版**：v0.65.0 注入的是**用户**提示词（每拍组装），核对链路时发现主续写路径的 **system** 提示词其实是 `CONTINUE_BEAT_SYSTEM`（`prompts/assembly.rs` 内联常量），**不是** `agency_lead_writer_system`——它是用户无法覆盖的常量，是准则送达最可靠的一条渠道，此前没有文笔条款。**改动**：`CONTINUE_BEAT_SYSTEM` 新增第 7 条文笔（人类文笔基线）+ 一组对照示例（Wrong：她心里一紧，背脊发凉，喉咙发紧／Right：她害怕。他把灯芯剪短了一截，没说话）；`DRAMA_BEAT_SYSTEM` 按**剧本语域**补第 6 条（情绪用可见动作与台词演，不用内心身体描写代替可拍内容；台词允许语气词与重复「说」）——sepia「按体裁校准，别把不同体裁改成一个声音」的落地。
+
+- **验证**：`cargo test --lib` 1780 passed / 5 ignored（+2）；clippy 0 error；fmt / guard / tsc / vitest 全绿。
+- **契约**：`continue_beat_system_carries_human_voice_doctrine`；`drama_beat_system_bans_unfilmable_interiority`；`continue_beat_operational_contract_has_three_examples`（行数上界 19→24，仍设界防膨胀）。
+- **未关闭**：同 v0.65.1（叙事架构层无确定性检查；真机端到端未复跑，**不得宣称续写质量已修复**）。
+
 *归档于 2026-10-14（v0.67.0）：v0.65.1 摘要。*
 
 ### v0.65.1 - v0.65.0 收尾（叙事架构层 + 改写纪律）

@@ -14,6 +14,7 @@ pub mod continue_director;
 pub mod continue_freeze;
 pub mod continue_loop;
 pub mod coordinator;
+pub mod editor_agreement;
 pub mod emotional_ledger;
 pub mod eval_harness;
 pub mod gate;

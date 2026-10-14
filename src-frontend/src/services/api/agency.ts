@@ -41,11 +41,37 @@ export interface StoryTokens {
   run_count: number;
 }
 
+/** P1-4（v0.68.0）：每章判官一致率（以该章最新一条 gate 记录为准）。 */
+export interface ChapterAgreement {
+  chapter_number: number;
+  /** 该章 blocking 问题总条数。 */
+  findings: number;
+  /** 可判定条数（引用 ≥6 字且有成稿可比）。 */
+  judgeable: number;
+  /** 被采纳条数（引用未在成稿中留存）。 */
+  adopted: number;
+  /** 采纳率 = adopted / judgeable。 */
+  adoption_rate: number;
+  /** 作者修改率（human_signals 口径；无配对为 null）。 */
+  modification_ratio: number | null;
+}
+
+export interface EditorAgreementReport {
+  chapters: ChapterAgreement[];
+  total_findings: number;
+  total_judgeable: number;
+  total_adopted: number;
+  adoption_rate: number;
+  /** 命中密度 = total_findings / (成稿总字数 / 1000)。 */
+  per_kilo_chars: number;
+}
+
 export interface EvalOverview {
   gate_history: GateHistoryItem[];
   pass_rate: number;
   checkpoints: AgencyCheckpoint[];
   human_signals: HumanSignal[];
+  editor_agreement: EditorAgreementReport;
   token_usage: PurposeUsage[];
   story_tokens: StoryTokens;
 }
