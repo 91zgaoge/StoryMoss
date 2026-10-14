@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.68.1（2026-10-14）
+
+**v0.68.0 的 CI 收尾：分章切换用例的 CI 超时加固（仅测试）。**
+
+v0.68.0 的 tag 构建挂在 `frontend-check`：`FrontstageApp.split-auto-switch.test.tsx` 在 Linux
+CI 上先后有两条用例因 `waitFor` 超时失败——一条用的是默认 1s 上界（`chapterListReloadCalls()
+.length` 在负载下 0>0 失败），一条的 5s 上界在 5015ms 处超时。**v0.67.0 的 tag 构建同内容全绿、
+本机重复跑全绿、且 v0.66.0（未改前端）同样红**——纯时序抖动，不是产品逻辑缺陷。按仓库
+「不覆盖已有 tag」的规则单独发版，并趁这次把该文件的异步上界统一收紧到与 v0.64.0 教训一致。
+
+### 变更（仅测试）
+
+- `FrontstageApp.split-auto-switch.test.tsx`：`configure({ asyncUtilTimeout: 5000 })` 统一本
+  文件的 `waitFor` 默认上界（该文件链路要过「重载章节列表 → 拉新章 → 取 scene」多段异步）；
+  三处曾观测超时的显式 5s（含曾 5015ms 失败的切换等待）提到 10s。产品代码零改动。
+
+### 验证
+
+- `npx vitest run` **622 passed / 3 skipped**；该文件连续重复跑 3 次全绿；tsc / prettier ✅。
+- 未改 Rust（沿用 v0.68.0 基线 1797 passed / 5 ignored）。
+- **未关闭**：CI 侧 v0.66.0 / v0.68.0 的 `frontend-check` 失败属时序抖动（其 `tauri-build` 与
+  上传步骤随即跳过，不会污染 `latest.json`）；本版构建通过后以本版为发布版本。
+
 ## v0.68.0（2026-10-14）
 
 **P1-4 判官一致率：编辑判得准不准，现在有数字了（Sherpa 借鉴第三版）。**

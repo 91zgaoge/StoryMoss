@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-14（v0.68.0：判官一致率（Sherpa 借鉴 P1-4）——V146 `editor_gate_records` + `agency::editor_agreement` 引用幸存判定（包含率 ≥0.8/引用 ≥6 字，被删被改写=采纳）+ `agency_eval_overview` 新段 + AgencyEval「判官一致率」卡（总采纳率/阻断命中/命中密度 + 每章对照，含作者修改率）。只报不改。测试 +5 → 1797 passed / 5 ignored；**未关闭**：真机未复跑（不得宣称判官质量已可量化到可信）。v0.67.0：纲层失效与局部重规划——Sherpa 借鉴 P0-2：`recompute` 新增 `KIND_CHAPTER_OUTLINE`（不入 `ALL_KINDS`，`should_auto_recompute` 过滤）+ `agency::outline_replan`（候选/标记/预览 ≤3 章不落库/只落库勾选条目并推进标记）；`update_scene` 覆盖已有正文且确有下游章纲时标记；维护页新旧章纲对照对话框（默认全不勾选）+「忽略」。测试 +4 → 1792 passed / 5 ignored；vitest +2 → 622。**未关闭**：真机端到端未复跑。v0.66.0：续写检索接线——Sherpa 借鉴 P0-1，见 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`：新增 `agency::retrieval` 检索门，续写前以节拍卡为查询源（在场角色/地点/冲突双方/下一节点/指令）做一次向量检索，把前文相关原文摘录作为**只读块**注入 writer prompt（排除当前章、≤4 条×≤240 字、块 ≤1200 字、摘录「【】」降级防段落标记混淆）；生产从 Tauri State `try_state` 取库、失败静默降级；开关 `continue_retrieval_enabled`（默认开）。召回探针（第 2 章玉佩 → 写第 40 章召回到）+ coordinator 注入/降级测试，`cargo test --lib` 1788 passed / 5 ignored（+8）。**未关闭**：真机端到端未复跑，不得宣称检索已改善续写质量。v0.65.4：v0.65.3 的 CI 收尾（用例隔离）；v0.65.3：幕前「续写后正文消失 / 章节点不开」真机缺陷修复（懒加载守卫可重试 / 切章以章 id 为文档身份 / 幽灵不静默丢弃）；v0.65.2：主续写 system 补文笔准则；v0.65.1：叙事架构层入章纲规划 + 删优于加改写纪律；v0.65.0：人类文笔基线（sepia 方法落地））
+> 最后更新: 2026-10-14（v0.68.1：v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）——`FrontstageApp.split-auto-switch.test.tsx` Linux CI `waitFor` 超时偶发失败（v0.67.0 同内容全绿 / 本机重复全绿 / v0.66.0 未改前端同样红 → 纯时序抖动）：`asyncUtilTimeout` 统一 5s、三处显式等待 10s。产品零改动。v0.68.0：判官一致率（Sherpa 借鉴 P1-4）——V146 `editor_gate_records` + `agency::editor_agreement` 引用幸存判定（包含率 ≥0.8/引用 ≥6 字，被删被改写=采纳）+ `agency_eval_overview` 新段 + AgencyEval「判官一致率」卡（总采纳率/阻断命中/命中密度 + 每章对照，含作者修改率）。只报不改。测试 +5 → 1797 passed / 5 ignored；**未关闭**：真机未复跑（不得宣称判官质量已可量化到可信）。v0.67.0：纲层失效与局部重规划——Sherpa 借鉴 P0-2：`recompute` 新增 `KIND_CHAPTER_OUTLINE`（不入 `ALL_KINDS`，`should_auto_recompute` 过滤）+ `agency::outline_replan`（候选/标记/预览 ≤3 章不落库/只落库勾选条目并推进标记）；`update_scene` 覆盖已有正文且确有下游章纲时标记；维护页新旧章纲对照对话框（默认全不勾选）+「忽略」。测试 +4 → 1792 passed / 5 ignored；vitest +2 → 622。**未关闭**：真机端到端未复跑。v0.66.0：续写检索接线——Sherpa 借鉴 P0-1，见 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`：新增 `agency::retrieval` 检索门，续写前以节拍卡为查询源（在场角色/地点/冲突双方/下一节点/指令）做一次向量检索，把前文相关原文摘录作为**只读块**注入 writer prompt（排除当前章、≤4 条×≤240 字、块 ≤1200 字、摘录「【】」降级防段落标记混淆）；生产从 Tauri State `try_state` 取库、失败静默降级；开关 `continue_retrieval_enabled`（默认开）。召回探针（第 2 章玉佩 → 写第 40 章召回到）+ coordinator 注入/降级测试，`cargo test --lib` 1788 passed / 5 ignored（+8）。**未关闭**：真机端到端未复跑，不得宣称检索已改善续写质量。v0.65.4：v0.65.3 的 CI 收尾（用例隔离）；v0.65.3：幕前「续写后正文消失 / 章节点不开」真机缺陷修复（懒加载守卫可重试 / 切章以章 id 为文档身份 / 幽灵不静默丢弃）；v0.65.2：主续写 system 补文笔准则；v0.65.1：叙事架构层入章纲规划 + 删优于加改写纪律；v0.65.0：人类文笔基线（sepia 方法落地））
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试） ✅ (2026-10-14)
+
+- `FrontstageApp.split-auto-switch.test.tsx`：`configure({ asyncUtilTimeout: 5000 })` +
+  三处随例等待 5s → 10s（Linux CI 时序抖动；v0.67.0 构建与本地重复跑均全绿）
+- 验证：vitest 622 passed / 3 skipped；重复跑 3 次全绿；tsc / prettier ✅；未改 Rust
+- **未关闭**：v0.66.0 / v0.68.0 的 tag 构建未产出安装包（不污染 latest.json）；以本版为发布版本
 
 ### ✨ v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4） ✅ (2026-10-14)
 

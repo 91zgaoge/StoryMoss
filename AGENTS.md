@@ -99,7 +99,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1797 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 622 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡断言）
+- `npx vitest run` ✅ 622 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡断言；v0.68.1 分章切换用例 CI 超时加固：本文件 `asyncUtilTimeout` 5s、三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,21 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）
+
+**为什么**：v0.68.0 的 tag 构建挂在 `frontend-check`——`FrontstageApp.split-auto-switch.test.tsx`
+在 Linux CI 上有两条用例先后因 `waitFor` 超时失败（默认 1s 上界下 `chapterListReloadCalls()
+.length` 0>0；另一条 5s 上界在 5015ms 超时）。同内容在 **v0.67.0 的 tag 构建全绿、本机重复跑
+全绿、v0.66.0（未改前端）同样红**——纯时序抖动，非产品缺陷。按「不覆盖已有 tag」规则单独发版。
+
+**改动（仅测试）**：`configure({ asyncUtilTimeout: 5000 })` 统一该文件等待上界；三处曾超时的
+显式等待 5s → 10s。产品代码零改动。
+
+- **验证**：vitest 622 passed / 3 skipped；该文件连续重复跑 3 次全绿；tsc / prettier ✅；
+  未改 Rust（沿用 v0.68.0 基线 1797 passed / 5 ignored）。
+- **未关闭**：v0.66.0 / v0.68.0 的 tag 构建因超时未产出安装包（其 `tauri-build`/上传步骤随之
+  跳过，不污染 `latest.json`）；本版构建通过后以本版为发布版本。
 
 ### v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4）
 
@@ -212,36 +227,6 @@ CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFron
   把 pre-fix 的 `FrontstageApp.tsx` 换回去该用例仍为红（`Already attempted lazy-load for chapter`），
   回归语义不变。未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）。
 - **未关闭**：同 v0.65.3（真机端到端未复跑，**不得宣称症状已在真机消失**）。
-
-### v0.65.3 - 幕前「续写后正文消失 / 章节点不开」真机缺陷修复
-
-**三条症状一条链路**：真机《帝国的烟火》第 2 章续写 → 自动分章出第 3 章 → 幕前自动切换，
-用户看到 ①续文突然消失 ②重启后进第 3 章续文又在 ③点第 2 章再点第 3 章打不开。
-本机日志（`storymoss.2026-10-08` + `creative_workflow.log`）留痕三处独立缺陷，逐条修：
-
-- **懒加载守卫永久封锁**（症状③，日志两条 `Already attempted lazy-load for chapter`）：
-  `lazyLoadingChapterIdsRef` 只 add 不 delete——懒加载过一次的章在本次会话内再也点不开。
-  改为**在途去重 + 可重试**（结束即释放，重取而非缓存），递归重入仍无正文时用
-  `opts.lazyLoadRetried` 中止，防死循环契约不变。
-- **切章正文被焦点守卫吞掉**（症状②）：`RichTextEditor` 的「有焦点不强制 setContent（W2-F1）」
-  与「Tab 接受后 30s 禁外部 setContent（v0.24.9）」在**无交互的分章自动切换**下把新章正文挡掉，
-  屏幕停在旧章、章标题已切走。改成**以章 id 为文档身份**：章 id 变化优先于两道守卫（也不再
-  受 1s/3 次熔断计数影响）；同章后台同步照旧让位于守卫。
-- **切章丢弃未确认幽灵续文**（症状①）：`selectChapter` 无条件 `setGeneratedText('')` 吞掉用户
-  刚看到、未 Tab 确认的续文。新增纯函数 `isGhostDeliveredInContent`：新章正文已含幽灵（整体/
-  前缀或幽灵结尾——「重演旧文尾部 + 新续写」的分章形态）则照旧清空，否则保留并顶栏提示
-  「未确认的续写内容保留在文末（Tab 接受 / Esc 放弃）」。
-
-- **验证**：`npx vitest run` **620 passed / 3 skipped**（+11，含 3 章切换正文同步 / 2 分章幽灵保留 /
-  1 懒加载可重开 / 5 纯函数）；`npx tsc --noEmit` ✅；`npx playwright test` 39 passed / 5 skipped ✅；
-  prettier ✅。未改 Rust（沿用 v0.65.2 基线 `cargo test --lib` 1780 passed / 5 ignored）。
-  **回归探针修复前逐条复跑为红**。
-- **契约**：`RichTextEditor 切章正文同步`（3 用例）；「懒加载过的章节再次点击应能重新打开」；
-  「分章切换：幽灵已随新章正文呈现时清空」/「幽灵有新章正文没有的文字时必须保留」；
-  `isGhostDeliveredInContent`（5 用例，含真机分章形态文本样本）。
-- **未关闭**：真机端到端未复跑（**不得宣称症状已在真机消失**）；自动分章仍可能在续写生成中触发
-  （后端判据是场景落库后 30s 空闲，不知道幕前在途生成）——本版只保证切换后正文/幽灵不丢、
-  该章可再次打开。
 
 ## Always Do
 

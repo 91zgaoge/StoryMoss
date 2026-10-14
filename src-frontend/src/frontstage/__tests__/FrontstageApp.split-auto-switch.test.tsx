@@ -1,11 +1,17 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor, act } from '@testing-library/react';
+import { render, waitFor, act, configure } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from '../FrontstageApp';
 import { useFrontstageStore } from '../store/frontstageStore';
 import { loggedInvoke } from '@/services/tauri';
 import { cancelAutoSave } from '../autoSave';
+
+// v0.68.1：本文件的分章切换链路要经过「重载章节列表 → 拉新章 → 取 scene」多段异步，
+// CI 高负载下默认 1s 的 waitFor 上界会偶发超时（v0.66.0/v0.68.0 的 tag 构建先后
+// 在同一文件的两条用例上因超时失败，v0.67.0 同内容全绿——纯时序抖动）。
+// 统一把本文件的异步上界提到 5s（纯测试时序，不改产品逻辑）。
+configure({ asyncUtilTimeout: 5000 });
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -329,10 +335,10 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     // 切换链路是异步的（重载章节列表 → 拉新章 → 取 scene）：CI 抖动下默认
     // 1000ms 会超时（v0.64.0 首轮发布即因此失败），统一给 5s 上界。
     await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
-      timeout: 5000,
+      timeout: 10000,
     });
     await waitFor(() => expect(captured.content).not.toContain('旧章独有开头段落'), {
-      timeout: 5000,
+      timeout: 10000,
     });
     // 切换后编辑器显示新章溢出内容
     expect(captured.content).toContain('溢出段落');
@@ -443,7 +449,7 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     });
 
     await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'), {
-      timeout: 5000,
+      timeout: 10000,
     });
     // 修复前：selectChapter 无条件 setGeneratedText('')，用户刚看到、尚未确认的续文凭空消失
     expect(captured.generatedText).toContain('新章正文里也没有的结尾');

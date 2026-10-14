@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.68.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.68.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.68.1 · CI 收尾：分章切换用例的超时加固（仅测试）
+
+v0.68.0 的 tag 构建里，幕前「分章自动切换」用例在 Linux CI 上因 `waitFor` 超时偶发失败
+（同内容在 v0.67.0 构建与本机重复跑均全绿——纯时序抖动）。本版把该文件的异步默认上界统一到
+5s、曾超时的三处显式等待提到 10s。产品代码零改动。
 
 ### v0.68.0 · 编辑判得准不准，有数字了（P1-4）
 

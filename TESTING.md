@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.68.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.68.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.68.1 变更说明
+
+- **仅测试（CI 超时加固）**：`FrontstageApp.split-auto-switch.test.tsx` 增加
+  `configure({ asyncUtilTimeout: 5000 })`（该文件链路含「重载章节列表 → 拉新章 → 取 scene」
+  多段异步；Linux CI 上默认 1s 上界曾 0>0 失败），三处显式等待 5s → 10s（曾 5015ms 超时）。
+  证据链：v0.67.0 同内容 tag 构建全绿 + 本机重复跑全绿 + v0.66.0（未改前端）同样红 → 纯时序抖动。
+- 验证：vitest 622 passed / 3 skipped；该文件连续重复跑 3 次全绿；tsc / prettier ✅；
+  未改 Rust（1797 passed / 5 ignored 基线）。
 
 ### v0.68.0 变更说明
 

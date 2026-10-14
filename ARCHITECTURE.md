@@ -1406,6 +1406,10 @@ cd src-tauri && cargo tauri build
 
 ### 测试
 
+> v0.68.1：`FrontstageApp.split-auto-switch.test.tsx` 统一 `asyncUtilTimeout: 5000` 并把三处
+> 显式等待提到 10s——该文件链路（重载章节列表 → 拉新章 → 取 scene）在 CI 高负载下默认 1s
+> 上界会偶发抖动（纯测试时序，产品逻辑不变）。
+
 ```bash
 # Rust 单元测试
 cd src-tauri && cargo test
