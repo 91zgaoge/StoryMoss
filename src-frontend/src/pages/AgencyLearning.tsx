@@ -8,6 +8,7 @@ import {
   confirmPromotion,
   rejectPromotion,
   instinctFeedback,
+  resetTechniqueStats,
 } from '@/services/api/agency';
 import type { Instinct } from '@/services/api/agency';
 import { AiRecordsTable } from '@/components/ui/ai/AiRecordsTable';
@@ -159,6 +160,46 @@ export default function AgencyLearning() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section data-testid="technique-stats">
+        <h2 className="mb-2 font-medium">
+          章法偏好（每拍手法 · 作者裁决回灌）
+          <button
+            onClick={() =>
+              runAction(() => resetTechniqueStats(storyId), '重置手法统计失败，请重试')
+            }
+            className="ml-3 text-xs underline"
+            data-testid="reset-technique-stats"
+          >
+            重置统计
+          </button>
+        </h2>
+        <p className="mb-2 text-xs text-ai-ink-3">
+          每拍写作会从手法池轮换一条写作手段（如「迟一拍揭示」「平直命名」）。你对续写的 Tab 接受 /
+          Esc 放弃会按时间归因到最近一拍的手法上：被接受的手法更常被选用，被反复
+          放弃的会被轮换避开。样本不足 5 条时不影响选择。
+        </p>
+        <div className="space-y-2">
+          {data.technique_stats.map(t => {
+            const sample = t.accepts + t.rejects;
+            const quality = sample === 0 ? 0 : (t.accepts - t.rejects) / sample;
+            return (
+              <div
+                key={t.technique_id}
+                className="flex items-center gap-3 rounded border border-ai-line bg-ai-surface p-2"
+                data-testid={`technique-${t.technique_id}`}
+              >
+                <span className="w-28 font-medium">{t.label}</span>
+                <ConfidenceBar value={(quality + 1) / 2} />
+                <span className="text-xs tabular-nums text-ai-ink-3">
+                  接受 {t.accepts} · 放弃 {t.rejects}
+                  {sample < 5 ? ' · 样本不足' : ''}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </section>
 

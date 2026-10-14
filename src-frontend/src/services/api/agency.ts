@@ -66,6 +66,14 @@ export interface EditorAgreementReport {
   per_kilo_chars: number;
 }
 
+/** P1-5（v0.69.0）：单条手法的作者裁决统计（accept/reject 按时间窗归因）。 */
+export interface TechniqueStat {
+  technique_id: string;
+  label: string;
+  accepts: number;
+  rejects: number;
+}
+
 export interface EvalOverview {
   gate_history: GateHistoryItem[];
   pass_rate: number;
@@ -129,6 +137,7 @@ export interface LearningOverview {
   recent_observations: Observation[];
   unanalyzed_count: number;
   analyze_min_new: number;
+  technique_stats: TechniqueStat[];
 }
 
 export interface AnalyzeOutcome {
@@ -144,6 +153,11 @@ export interface PromoteOutcome {
 
 export function getLearningOverview(storyId: string) {
   return loggedInvoke<LearningOverview>('agency_learning_overview', { story_id: storyId });
+}
+
+/** P1-5：重置手法统计（清空归因基底，后续重新积累）。返回删除行数。 */
+export function resetTechniqueStats(storyId: string) {
+  return loggedInvoke<number>('agency_reset_technique_stats', { story_id: storyId });
 }
 
 export function analyzeLearning(storyId: string) {

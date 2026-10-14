@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.68.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.69.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.69.0 · 你的取舍会教会它选章法（P1-5）
+
+每拍写作会从「人类文笔手法池」轮换一条（迟一拍揭示、平直命名、收束早一拍等八个）。现在
+你对续写的 **Tab 接受 / Esc 放弃**会按时间归因到最近一拍的手法上：「学习中心 → 章法偏好」
+能看到每条手法的接受/放弃统计，被接受的手法更常被选用、被反复放弃的会被绕开（样本不足
+5 条时不参与选择，随时可「重置统计」）。只影响那一条写作手段，不参与任何质量判定。
 
 ### v0.68.1 · CI 收尾：分章切换用例的超时加固（仅测试）
 

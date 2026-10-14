@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1797 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率）
+- `cargo test -p storymoss` ✅ 1807 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 622 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡断言；v0.68.1 分章切换用例 CI 超时加固：本文件 `asyncUtilTimeout` 5s、三处显式等待 10s）
+- `npx vitest run` ✅ 623 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -110,6 +110,29 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.69.0 - 作者裁决回灌每拍手法池（Sherpa 借鉴 P1-5）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用行为数据
+训练散文引擎；StoryMoss 的对位是把作者裁决变成每拍决策的权重。v0.65.0 起每拍注入一条写作
+手法（8 条池按已写篇幅轮换），但作者的 Tab 接受 / Esc 放弃从未影响下一拍用哪条。
+
+**改动**：手法池加稳定 id（`Technique{id,label,text}`）；**V147 `beat_technique_log`** 每拍
+落一行；新模块 `agency::technique_feedback` 按**时间窗**归因反馈（幕前反馈不带 scene_id →
+取「反馈时刻之前最近一拍」且 ≤1 小时、`agent_type` 为 writer），产出统计并可重置；
+`human_voice::choose_technique_index`（纯函数）：样本 <5 走基准轮换、有「质量 ≥0.5 且近期
+未用」的手法则优选、基准位质量 ≤0 则前移避开；`write_beat_once` 选招传入 prompt
+（`render_writer_user_prompt_with_technique`，旧函数保留为 `None` 包装，顺序契约测试不动）、
+Append/NextChapter 两条落库路径写日志、学习中心新增「章法偏好」区块 + 重置命令。纪律：
+只影响一条写作手段，不参与门限。
+
+- **验证**：`cargo test --lib` **1807 passed / 5 ignored（+10）**；vitest **623 passed / 3
+  skipped（+1）**；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`choose_technique_prefers_proven_good_and_avoids_proven_bad`；
+  `stats_attribute_feedback_by_time_window`；`test_continue_logs_beat_technique_and_replays_author_verdict`；
+  `v147_creates_beat_technique_log_idempotently` 等 11 项（详见 CHANGELOG）。
+- **未关闭**：真机未复跑（**不得宣称作者偏好已真正改善续写**）；归因是时间窗近似；
+  「modify」类反馈前端尚未产生。
 
 ### v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）
 
@@ -210,23 +233,6 @@ prompt 顺序契约不变）；开关 `AppConfig::continue_retrieval_enabled`（
 - **未关闭**：真机端到端未复跑（**不得宣称检索已改善续写质量**；真机探针=≥10 章的书+远距离
   细节关键词，观察命中与 token/延迟增量）；本地哈希 embedding 召回有限；无相关性阈值过滤
   （噪声靠块头约束 + 1200 字上限控制）。
-
-### v0.65.4 - v0.65.3 的 CI 收尾（用例隔离）
-
-**为什么还要一版**：v0.65.3 的 tag 构建挂在 `frontend-check`——新增用例在本机（macOS）绿、
-CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFrontstageStore` 是模块级单例，
-同文件上一个用例留下的正文让新用例的 `captured.content` 断言在应用加载完成前就通过
-（CI 报 `Unable to find a label with the text of: 展开章节列表`，章下拉尚未渲染）。
-按「不覆盖已有 tag」的规则单独发版补齐。
-
-**改动（仅测试）**：`FrontstageApp.latest-chapter.test.tsx` 的 `beforeEach` 增加 store 复位
-（`setContent('')` / `setSceneInfo('', '', undefined)` / `setSaveStatus(true, null)`），
-每个用例从「无故事、空正文」冷启动；首次交互改用 `findByLabelText('展开章节列表')` 等候选出。
-
-- **验证**：`npx vitest run` 620 passed / 3 skipped；tsc ✅；聚焦重复跑 3 次稳定绿；
-  把 pre-fix 的 `FrontstageApp.tsx` 换回去该用例仍为红（`Already attempted lazy-load for chapter`），
-  回归语义不变。未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）。
-- **未关闭**：同 v0.65.3（真机端到端未复跑，**不得宣称症状已在真机消失**）。
 
 ## Always Do
 

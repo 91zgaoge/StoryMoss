@@ -252,6 +252,7 @@ tauri::generate_handler! {
     agency::commands::agency_analyze_learning, agency::commands::agency_instinct_feedback,
     agency::commands::agency_promotion_candidates, agency::commands::agency_confirm_promotion,
     agency::commands::agency_reject_promotion, agency::commands::agency_learning_overview,
+    agency::commands::agency_reset_technique_stats,
     agency::commands::agency_list_activities,
     agency::commands::confirm_asset_refresh,
     // Auth commands

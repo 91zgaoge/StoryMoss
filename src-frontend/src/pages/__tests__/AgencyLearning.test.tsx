@@ -34,6 +34,10 @@ vi.mock('@/services/api/agency', () => ({
         evolved_from: [],
       },
     ],
+    technique_stats: [
+      { technique_id: 'late-reveal', label: '迟一拍揭示', accepts: 6, rejects: 1 },
+      { technique_id: 'plain-naming', label: '平直命名', accepts: 0, rejects: 0 },
+    ],
     recent_observations: [
       {
         ts: '2026-07-18T10:00:00+08:00',
@@ -52,6 +56,7 @@ vi.mock('@/services/api/agency', () => ({
   confirmPromotion: (...args: unknown[]) => confirmMock(...args),
   rejectPromotion: vi.fn().mockResolvedValue({}),
   instinctFeedback: vi.fn().mockResolvedValue({}),
+  resetTechniqueStats: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock('@/stores/appStore', () => ({
@@ -74,5 +79,24 @@ describe('AgencyLearning', () => {
     expect(await screen.findByText('当编辑审计连续两轮 revise')).toBeInTheDocument();
     fireEvent.click(await screen.findByText('确认为技能'));
     await waitFor(() => expect(confirmMock).toHaveBeenCalledWith('s1', 'inst-x'));
+  });
+
+  it('渲染章法偏好（手法统计）并可重置（v0.69.0）', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <AgencyLearning />
+      </QueryClientProvider>
+    );
+    expect(await screen.findByTestId('technique-stats')).toBeInTheDocument();
+    expect(await screen.findByTestId('technique-late-reveal')).toBeInTheDocument();
+    expect(screen.getByText('迟一拍揭示')).toBeInTheDocument();
+    expect(screen.getByText(/接受 6 · 放弃 1/)).toBeInTheDocument();
+    // 样本不足的手法给出提示。
+    expect(screen.getByText(/接受 0 · 放弃 0 · 样本不足/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('reset-technique-stats'));
+    const { resetTechniqueStats } = await import('@/services/api/agency');
+    await waitFor(() => expect(resetTechniqueStats).toHaveBeenCalledWith('s1'));
   });
 });

@@ -1,3 +1,22 @@
+*归档于 2026-10-14（v0.69.0）：v0.65.4 摘要。*
+
+### v0.65.4 - v0.65.3 的 CI 收尾（用例隔离）
+
+**为什么还要一版**：v0.65.3 的 tag 构建挂在 `frontend-check`——新增用例在本机（macOS）绿、
+CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFrontstageStore` 是模块级单例，
+同文件上一个用例留下的正文让新用例的 `captured.content` 断言在应用加载完成前就通过
+（CI 报 `Unable to find a label with the text of: 展开章节列表`，章下拉尚未渲染）。
+按「不覆盖已有 tag」的规则单独发版补齐。
+
+**改动（仅测试）**：`FrontstageApp.latest-chapter.test.tsx` 的 `beforeEach` 增加 store 复位
+（`setContent('')` / `setSceneInfo('', '', undefined)` / `setSaveStatus(true, null)`），
+每个用例从「无故事、空正文」冷启动；首次交互改用 `findByLabelText('展开章节列表')` 等候选出。
+
+- **验证**：`npx vitest run` 620 passed / 3 skipped；tsc ✅；聚焦重复跑 3 次稳定绿；
+  把 pre-fix 的 `FrontstageApp.tsx` 换回去该用例仍为红（`Already attempted lazy-load for chapter`），
+  回归语义不变。未改 Rust（沿用 v0.65.2 基线 1780 passed / 5 ignored）。
+- **未关闭**：同 v0.65.3（真机端到端未复跑，**不得宣称症状已在真机消失**）。
+
 *归档于 2026-10-14（v0.68.1）：v0.65.3 摘要。*
 
 ### v0.65.3 - 幕前「续写后正文消失 / 章节点不开」真机缺陷修复

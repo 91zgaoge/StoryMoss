@@ -881,6 +881,29 @@ pub fn render_writer_user_prompt(
     state: Option<&crate::agency::beat_state::BeatState>,
     lock: Option<&crate::agency::continue_director::DirectorLock>,
 ) -> String {
+    render_writer_user_prompt_with_technique(
+        bundle_prompt,
+        card,
+        instruction,
+        current_content,
+        state,
+        lock,
+        None,
+    )
+}
+
+/// 同上，但可指定本拍手法（P1-5 作者裁决回灌：`choose_technique_index`
+/// 的结果）。 `None` 走基准轮换（章法未攒够数据时的默认）。
+#[allow(clippy::too_many_arguments)]
+pub fn render_writer_user_prompt_with_technique(
+    bundle_prompt: &str,
+    card: &SceneBeatCard,
+    instruction: &str,
+    current_content: &str,
+    state: Option<&crate::agency::beat_state::BeatState>,
+    lock: Option<&crate::agency::continue_director::DirectorLock>,
+    technique_index: Option<usize>,
+) -> String {
     let state_full = state
         .map(|s| format!("\n\n{}", s.render_full()))
         .unwrap_or_default();
@@ -907,8 +930,10 @@ pub fn render_writer_user_prompt(
     };
     // v0.65.0：人类文笔基线（固定准则 + 按已写篇幅轮换的本章手法），放在末句
     // 锚点之前——锚点必须保持最后的高显著位置（v0.64.9 续写重演的修复依赖它）。
-    let voice = crate::story_system::human_voice::render_guidance_block_for_progress(
+    // v0.69.0：手法可由作者裁决统计加权指定（P1-5）。
+    let voice = crate::story_system::human_voice::render_guidance_block_at(
         current_content.chars().count(),
+        technique_index,
     );
     format!(
         "{card_full}{lock_block}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\

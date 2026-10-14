@@ -656,12 +656,16 @@ pub struct LearningOverview {
     pub unanalyzed_count: usize,
     /// 手动分析的最小新观察数（= learning::ANALYZE_MIN_NEW），前端按钮阈值用。
     pub analyze_min_new: usize,
+    /// P1-5（v0.69.0）：每拍手法池的作者裁决统计（accept/reject
+    /// 按时间窗归因）。
+    pub technique_stats: Vec<crate::story_system::human_voice::TechniqueStat>,
 }
 
 /// 学习中心聚合：惰性周衰减 + 惰性清理后读取 instincts + candidates + 最近观察
-/// + 未分析计数。
+/// + 未分析计数 + 手法统计（P1-5）。
 fn learning_overview(
     logger: &crate::agency::learning::ObservationLogger,
+    pool: &DbPool,
     story_id: &str,
 ) -> Result<LearningOverview, AppError> {
     // 惰性周衰减（读取时生效，ECC 同参数）
@@ -673,31 +677,52 @@ fn learning_overview(
     let candidates = crate::agency::learning::promotion_candidates(logger, story_id)?;
     let recent_observations = logger.recent(story_id, 20);
     let unanalyzed_count = logger.count_unanalyzed(story_id);
+    let technique_stats =
+        crate::agency::technique_feedback::technique_stats(pool, story_id).unwrap_or_default();
     Ok(LearningOverview {
         instincts,
         candidates,
         recent_observations,
         unanalyzed_count,
         analyze_min_new: crate::agency::learning::ANALYZE_MIN_NEW,
+        technique_stats,
     })
 }
 
-/// 学习中心一页数据（instinct 列表 + 晋升候选 + 观察流 + 未分析计数）。
+/// 学习中心一页数据（instinct 列表 + 晋升候选 + 观察流 + 未分析计数 +
+/// 手法统计）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_learning_overview(
     story_id: String,
+    pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<LearningOverview, AppError> {
     let dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| AppError::from(format!("app_data_dir: {}", e)))?;
+    let pool = pool.inner().clone();
     tokio::task::spawn_blocking(move || -> Result<LearningOverview, AppError> {
         let logger = crate::agency::learning::ObservationLogger::new(dir);
-        learning_overview(&logger, &story_id)
+        learning_overview(&logger, &pool, &story_id)
     })
     .await
     .map_err(|e| AppError::from(format!("learning overview join error: {}", e)))?
+}
+
+/// P1-5（v0.69.0）：重置手法统计（清空归因基底，后续重新积累）。返回删除行数。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_reset_technique_stats(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        crate::agency::technique_feedback::reset_technique_stats(&pool, &story_id)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("reset technique stats join error: {}", e)))?
 }
 
 /// 列出某 run 的全部活动日志（activity + progress），供前端轮询拉取。
@@ -912,7 +937,8 @@ mod tests {
             );
         }
 
-        let ov = learning_overview(&logger, "s1").unwrap();
+        let pool = crate::db::create_test_pool().unwrap();
+        let ov = learning_overview(&logger, &pool, "s1").unwrap();
         assert_eq!(ov.instincts.len(), 3);
         assert!(
             ov.instincts.iter().any(|i| i.id == "inst-promoted"),

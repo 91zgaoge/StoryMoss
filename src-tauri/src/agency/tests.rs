@@ -1288,6 +1288,174 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
     );
 }
 
+/// P1-5（v0.69.0）：每拍手法落库 + 作者裁决回灌（避开被反复放弃的手法）。
+#[tokio::test]
+async fn test_continue_logs_beat_technique_and_replays_author_verdict() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "手法回灌".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    let opening = "<p>阿苔在雪夜渡口停下。</p>";
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(opening.into()),
+                outline_content: Some("本章：阿苔追查断灯绳。".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // 第一拍：无统计 → 基准轮换（进度 <800 → idx0「迟一拍揭示」）。
+    let beat1 = pass_grade_content("第一拍：手法落库。");
+    let mock1 = MockLlm::scripted(vec![beat1.as_str(), beat1.as_str()]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock1.clone());
+    coordinator
+        .run_continue(
+            "tf-1",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch1.id.clone(),
+            },
+            "续写",
+            Some(opening),
+        )
+        .await
+        .unwrap();
+    {
+        // 落库一行，且 prompt 用的就是落库的那条手法。
+        let recent =
+            crate::agency::technique_feedback::recent_technique_ids(&pool, &story.id, 3).unwrap();
+        assert_eq!(recent.len(), 1, "每拍应落一行手法");
+        let used_text = crate::story_system::human_voice::TECHNIQUE_POOL
+            .iter()
+            .find(|t| t.id == recent[0])
+            .map(|t| t.text)
+            .expect("落库的 technique_id 必须在池内");
+        assert!(
+            mock1.calls.lock().unwrap()[0].contains(used_text),
+            "prompt 必须包含落库的那条手法"
+        );
+    }
+
+    // 造作者裁决：把第二拍的**基准位手法**标记为 5 次放弃（插同手法拍行 +
+    // 窗口内反馈 → 归因成立）。第二拍因此应避开它。
+    let content1 = scene_repo
+        .get_by_id(&ch1.id)
+        .unwrap()
+        .and_then(|s| s.content)
+        .unwrap_or_default();
+    let progress = content1.chars().count();
+    let base_idx = crate::story_system::human_voice::base_technique_index(progress);
+    let base_id = crate::story_system::human_voice::TECHNIQUE_POOL[base_idx].id;
+    assert_ne!(
+        base_id, "late-reveal",
+        "测试假设：第二拍进度 {progress} 的基准手法与第一拍不同"
+    );
+    {
+        let conn = pool.get().unwrap();
+        let now = chrono::Local::now();
+        // 5 拍同手法（40~36 分钟前），随后 5 条放弃反馈（35 分钟前起，落在
+        // 最近一拍的 1 小时窗口内、且晚于这些拍）。
+        for i in 0..5 {
+            let at = (now - chrono::Duration::minutes(40 - i)).to_rfc3339();
+            conn.execute(
+                "INSERT INTO beat_technique_log \
+                 (id, story_id, scene_id, chapter_number, beat_no, technique_id, created_at) \
+                 VALUES (?1, ?2, ?3, 1, 1, ?4, ?5)",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    story.id,
+                    ch1.id,
+                    base_id,
+                    at
+                ],
+            )
+            .unwrap();
+        }
+        for i in 0..5 {
+            let at = (now - chrono::Duration::minutes(35 - i)).to_rfc3339();
+            conn.execute(
+                "INSERT INTO user_feedback_log \
+                 (id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, \
+                  final_text, metadata, created_at) \
+                 VALUES (?1, ?2, NULL, NULL, 'reject', 'writer', '', '', NULL, ?3)",
+                rusqlite::params![uuid::Uuid::new_v4().to_string(), story.id, at],
+            )
+            .unwrap();
+        }
+    }
+
+    // 第二拍：基准位已被证明不佳 → 避开（前移到下一条未证明不佳且近期未用）。
+    let beat2 = pass_grade_content("第二拍：避开不佳手法。");
+    let mock2 = MockLlm::scripted(vec![beat2.as_str(), beat2.as_str()]);
+    let coordinator2 = AgencyCoordinator::for_test(pool.clone(), mock2.clone());
+    coordinator2
+        .run_continue(
+            "tf-2",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch1.id.clone(),
+            },
+            "续写",
+            Some(&content1),
+        )
+        .await
+        .unwrap();
+    let recent =
+        crate::agency::technique_feedback::recent_technique_ids(&pool, &story.id, 1).unwrap();
+    let latest_id = recent.first().expect("第二拍应落库").clone();
+    assert_ne!(latest_id, base_id, "被反复放弃的手法应被避开");
+    let latest_text = crate::story_system::human_voice::TECHNIQUE_POOL
+        .iter()
+        .find(|t| t.id == latest_id)
+        .map(|t| t.text)
+        .unwrap();
+    assert!(
+        mock2.calls.lock().unwrap()[0].contains(latest_text),
+        "第二拍 prompt 必须包含新选中的手法"
+    );
+
+    // 统计可见：被放弃的手法 5 次放弃、0 接受，质量分为负。
+    let stats = crate::agency::technique_feedback::technique_stats(&pool, &story.id).unwrap();
+    let bad = stats.iter().find(|s| s.technique_id == base_id).unwrap();
+    assert_eq!(bad.rejects, 5);
+    assert_eq!(bad.accepts, 0);
+    assert!(bad.quality() < 0.0);
+}
+
 /// P0-1（v0.66.0）：续写检索门——召回第 2 章远距离细节注入 writer prompt；
 /// 当前章（第 3 章）记录必须排除；无向量库时整块缺席（生产降级路径）。
 #[tokio::test]

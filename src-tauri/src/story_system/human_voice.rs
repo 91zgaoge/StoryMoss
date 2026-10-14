@@ -637,36 +637,189 @@ pub fn render_guidance_rules() -> String {
     .join("\n")
 }
 
+/// 手法条目：稳定 id（落库/统计用，v0.69.0 P1-5）+ 中文标签 + 注入文本。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Technique {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub text: &'static str,
+}
+
 /// 本章手法池（按章号轮换，一次只给一条）。
 ///
 /// 依据 sepia 的「Select, don't accumulate」：人类文本的多样性来自**每篇选
 /// 3–5 个手法**，不是把全部规则堆上去——堆满会变成新的机器指纹（过度纠正）。
 /// 逐章轮换让全书在多个人类手法之间散射，而不是每章同一个模子。
-pub const TECHNIQUE_POOL: &[&str] = &[
-    "本章手法｜迟一拍揭示：把本场最要紧的信息放到段落最后一句，而不是开头先交代。",
-    "本章手法｜无用细节：写一个不服务情节的具体细节（灯油的价钱、旧疤、招牌上的错字），不解释它。",
-    "本章手法｜配角不互识：让两个在场者只通过第三人认识，或干脆互不搭理；不是所有人都彼此有戏。",
-    "本章手法｜离题回忆：让某人走神想起与主线无关的旧事（二十字以内），立即收回，不解释关联。",
-    "本章手法｜时间错位：插入一句回望或预叙，打散线性；不超两行。",
-    "本章手法｜不体面的举动：给主角一个不高尚、不必要但真实的小动作（抠桌面、抢话、说谎）。",
-    "本章手法｜平直命名：至少一次用直白句说出情绪或关系，不比喻、不身体反应。",
-    "本章手法｜收束早一拍：本段在「还想再写一句」的地方停下，把余味留给空白。",
+///
+/// v0.69.0（P1-5）：每条带稳定 id——每拍用哪条会落库（`beat_technique_log`），
+/// 作者对续写的接受/放弃按时间窗归因到手法上，反哺轮换（见
+/// `choose_technique_index`）。
+pub const TECHNIQUE_POOL: &[Technique] = &[
+    Technique {
+        id: "late-reveal",
+        label: "迟一拍揭示",
+        text: "本章手法｜迟一拍揭示：把本场最要紧的信息放到段落最后一句，而不是开头先交代。",
+    },
+    Technique {
+        id: "useless-detail",
+        label: "无用细节",
+        text: "本章手法｜无用细节：写一个不服务情节的具体细节（灯油的价钱、旧疤、招牌上的错字），不解释它。",
+    },
+    Technique {
+        id: "strangers",
+        label: "配角不互识",
+        text: "本章手法｜配角不互识：让两个在场者只通过第三人认识，或干脆互不搭理；不是所有人都彼此有戏。",
+    },
+    Technique {
+        id: "tangent-memory",
+        label: "离题回忆",
+        text: "本章手法｜离题回忆：让某人走神想起与主线无关的旧事（二十字以内），立即收回，不解释关联。",
+    },
+    Technique {
+        id: "time-shift",
+        label: "时间错位",
+        text: "本章手法｜时间错位：插入一句回望或预叙，打散线性；不超两行。",
+    },
+    Technique {
+        id: "unseemly-act",
+        label: "不体面的举动",
+        text: "本章手法｜不体面的举动：给主角一个不高尚、不必要但真实的小动作（抠桌面、抢话、说谎）。",
+    },
+    Technique {
+        id: "plain-naming",
+        label: "平直命名",
+        text: "本章手法｜平直命名：至少一次用直白句说出情绪或关系，不比喻、不身体反应。",
+    },
+    Technique {
+        id: "early-close",
+        label: "收束早一拍",
+        text: "本章手法｜收束早一拍：本段在「还想再写一句」的地方停下，把余味留给空白。",
+    },
 ];
+
+/// 手法标签（未知 id 原样返回）。
+pub fn technique_label(technique_id: &str) -> String {
+    TECHNIQUE_POOL
+        .iter()
+        .find(|t| t.id == technique_id)
+        .map(|t| t.label.to_string())
+        .unwrap_or_else(|| technique_id.to_string())
+}
 
 /// 取本章手法（章号轮换；章号缺失时用 0）。
 pub fn technique_for_chapter(chapter_number: i64) -> &'static str {
     let idx = chapter_number.rem_euclid(TECHNIQUE_POOL.len() as i64) as usize;
-    TECHNIQUE_POOL[idx]
+    TECHNIQUE_POOL[idx].text
 }
 
-/// 按「已写正文字数」轮换手法。
+/// 轮换基准下标：按「已写正文字数」每约 800 字换一个。
 ///
 /// 每拍写作提示词的组装点拿不到章号（`render_writer_user_prompt` 的参数从
-/// 各处来），但正文长度是天然进度标尺：每约 800 字换一个手法，同一章的不同
-/// 拍之间自然散射，跨章也不会停在同一手法上；且完全确定、可测。
+/// 各处来），但正文长度是天然进度标尺：同一章的不同拍之间自然散射，跨章也
+/// 不会停在同一手法上；且完全确定、可测。
+pub fn base_technique_index(prose_chars: usize) -> usize {
+    (prose_chars / 800) % TECHNIQUE_POOL.len()
+}
+
+/// 按「已写正文字数」轮换手法（无反馈数据的基准轮换）。
 pub fn technique_for_progress(prose_chars: usize) -> &'static str {
-    let idx = (prose_chars / 800) % TECHNIQUE_POOL.len();
-    TECHNIQUE_POOL[idx]
+    TECHNIQUE_POOL[base_technique_index(prose_chars)].text
+}
+
+// ---------- 作者裁决回灌（P1-5，v0.69.0） ----------
+
+/// 一条手法至少攒到多少样本才有「意见」（不足则继续按基准轮换）。
+pub const TECHNIQUE_MIN_SAMPLE: usize = 5;
+/// 质量分 ≥ 此值视为「已被作者接受」（优先选用）。
+pub const TECHNIQUE_GOOD_QUALITY: f64 = 0.5;
+/// 质量分 ≤ 此值视为「已被证明不佳」（轮换命中时前移避开）。
+pub const TECHNIQUE_BAD_QUALITY: f64 = 0.0;
+/// 最近这么多拍的用过的 id 不重复选（避免连续同一手法）。
+pub const TECHNIQUE_RECENT_EXCLUDE: usize = 3;
+
+/// 单条手法的作者裁决统计（accept/reject 按时间窗归因）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TechniqueStat {
+    pub technique_id: String,
+    pub label: String,
+    pub accepts: usize,
+    pub rejects: usize,
+}
+
+impl TechniqueStat {
+    pub fn sample(&self) -> usize {
+        self.accepts + self.rejects
+    }
+
+    /// 质量分：(接受 − 放弃) / 样本，范围 [-1, 1]；无样本为 0。
+    pub fn quality(&self) -> f64 {
+        if self.sample() == 0 {
+            0.0
+        } else {
+            (self.accepts as f64 - self.rejects as f64) / self.sample() as f64
+        }
+    }
+}
+
+/// 在基准轮换之上叠加作者裁决（P1-5）：
+/// 1. 有「已被接受」（质量 ≥ 0.5 且样本 ≥ 5）且最近几拍未用过的手法 →
+///    选质量最高 者（并列取更小下标，确定性）；
+/// 2. 否则若基准轮换命中的手法「已被证明不佳」（质量 ≤ 0）→ 向前找第一条
+///    「未证明不佳且最近未用」的手法；
+/// 3. 否则照旧按基准轮换。
+///
+/// 纯函数：给定 (进度, 最近用过的 id, 统计) 结果确定——测试与复现都稳定。
+pub fn choose_technique_index(
+    prose_chars: usize,
+    recent_ids: &[String],
+    stats: &[TechniqueStat],
+) -> usize {
+    let quality_of = |idx: usize| -> Option<f64> {
+        let id = TECHNIQUE_POOL[idx].id;
+        stats
+            .iter()
+            .find(|s| s.technique_id == id)
+            .filter(|s| s.sample() >= TECHNIQUE_MIN_SAMPLE)
+            .map(|s| s.quality())
+    };
+    let is_recent = |idx: usize| -> bool {
+        let id = TECHNIQUE_POOL[idx].id;
+        recent_ids.iter().any(|r| r == id)
+    };
+    let base = base_technique_index(prose_chars);
+
+    // 1) 优选已被接受且近期未用的手法。
+    let mut best: Option<(usize, f64)> = None;
+    for idx in 0..TECHNIQUE_POOL.len() {
+        if is_recent(idx) {
+            continue;
+        }
+        if let Some(q) = quality_of(idx) {
+            if q >= TECHNIQUE_GOOD_QUALITY && best.map(|(_, best_q)| q > best_q).unwrap_or(true) {
+                best = Some((idx, q));
+            }
+        }
+    }
+    if let Some((idx, _)) = best {
+        return idx;
+    }
+
+    // 2) 基准命中「已被证明不佳」→ 前移避开。
+    if let Some(q) = quality_of(base) {
+        if q <= TECHNIQUE_BAD_QUALITY {
+            let n = TECHNIQUE_POOL.len();
+            for step in 1..=n {
+                let idx = (base + step) % n;
+                let bad = quality_of(idx)
+                    .map(|q| q <= TECHNIQUE_BAD_QUALITY)
+                    .unwrap_or(false);
+                if !bad && !is_recent(idx) {
+                    return idx;
+                }
+            }
+        }
+    }
+    base
 }
 
 /// 渲染注入块：固定准则 + 本章手法（约 500 字，逐拍注入）。
@@ -680,11 +833,15 @@ pub fn render_guidance_block(chapter_number: i64) -> String {
 
 /// 渲染注入块（按已写正文字数轮换手法）。
 pub fn render_guidance_block_for_progress(prose_chars: usize) -> String {
-    format!(
-        "{}\n{}",
-        render_guidance_rules(),
-        technique_for_progress(prose_chars)
-    )
+    render_guidance_block_at(prose_chars, None)
+}
+
+/// 渲染注入块（可指定手法下标；`None` 走基准轮换）。
+pub fn render_guidance_block_at(prose_chars: usize, technique_index: Option<usize>) -> String {
+    let idx = technique_index
+        .map(|i| i % TECHNIQUE_POOL.len())
+        .unwrap_or_else(|| base_technique_index(prose_chars));
+    format!("{}\n{}", render_guidance_rules(), TECHNIQUE_POOL[idx].text)
 }
 
 /// 渲染给编辑器的审查块（无发现时返回 None，不产生空块）。
@@ -912,6 +1069,87 @@ mod tests {
             "注入块过长: {}",
             block.chars().count()
         );
+    }
+
+    #[test]
+    fn technique_ids_are_stable_and_labeled() {
+        let mut ids: Vec<&str> = TECHNIQUE_POOL.iter().map(|t| t.id).collect();
+        assert_eq!(ids.len(), 8);
+        ids.sort_unstable();
+        let mut dedup = ids.clone();
+        dedup.dedup();
+        assert_eq!(ids, dedup, "手法 id 必须唯一（落库/统计的键）");
+        for t in TECHNIQUE_POOL {
+            assert!(!t.label.is_empty(), "{} 缺中文标签", t.id);
+            assert!(
+                t.text.starts_with("本章手法｜") && t.text.contains(t.label),
+                "注入文本与标签不一致: {}",
+                t.id
+            );
+        }
+        assert_eq!(technique_label("plain-naming"), "平直命名");
+        assert_eq!(technique_label("unknown-id"), "unknown-id");
+    }
+
+    fn stat(id: &str, accepts: usize, rejects: usize) -> TechniqueStat {
+        TechniqueStat {
+            technique_id: id.to_string(),
+            label: technique_label(id),
+            accepts,
+            rejects,
+        }
+    }
+
+    #[test]
+    fn choose_technique_falls_back_to_rotation_without_enough_data() {
+        // 无统计 → 基准轮换。
+        assert_eq!(choose_technique_index(0, &[], &[]), base_technique_index(0));
+        // 样本不足（<5）→ 仍按基准轮换。
+        let thin = vec![stat("late-reveal", 2, 0)];
+        let base = base_technique_index(0);
+        assert_eq!(choose_technique_index(0, &[], &thin), base);
+    }
+
+    #[test]
+    fn choose_technique_prefers_proven_good_and_avoids_proven_bad() {
+        // 基准位（prose=0 → idx0 late-reveal）已被证明不佳；
+        // plain-naming（idx6）已被接受 → 优选它。
+        let stats = vec![
+            stat("late-reveal", 0, 5),  // quality -1.0
+            stat("plain-naming", 5, 0), // quality 1.0
+        ];
+        assert_eq!(choose_technique_index(0, &[], &stats), 6);
+
+        // 优选的手法最近用过 → 回落到「避开不佳」路径：从基准向前找第一条
+        // 未证明不佳且近期未用的。
+        let recent = vec!["plain-naming".to_string()];
+        assert_eq!(choose_technique_index(0, &recent, &stats), 1);
+
+        // 无成熟优选、基准也不差 → 照旧基准。
+        let mild = vec![stat("late-reveal", 4, 1), stat("plain-naming", 4, 1)];
+        assert_eq!(choose_technique_index(0, &[], &mild), 0);
+    }
+
+    #[test]
+    fn choose_technique_skips_recent_when_advancing() {
+        let stats = vec![stat("late-reveal", 0, 5), stat("useless-detail", 0, 5)];
+        // 基准 0 不佳，1 也不佳且近期用过 → 前移到 2。
+        let recent = vec!["useless-detail".to_string()];
+        assert_eq!(choose_technique_index(0, &recent, &stats), 2);
+        // 全部不佳/近期用过时兜底回基准（不 panic、确定性）。
+        let all_recent: Vec<String> = TECHNIQUE_POOL.iter().map(|t| t.id.to_string()).collect();
+        assert_eq!(choose_technique_index(0, &all_recent, &stats), 0);
+    }
+
+    #[test]
+    fn render_guidance_block_at_respects_index_and_stays_bounded() {
+        let text = render_guidance_block_at(0, Some(6));
+        assert!(text.contains("本章手法｜平直命名"));
+        assert!(!text.contains("本章手法｜迟一拍揭示"));
+        assert!(text.chars().count() < 700, "注入块过长");
+        // 越界下标回绕；None 走基准。
+        assert!(render_guidance_block_at(0, Some(8 + 6)).contains("平直命名"));
+        assert!(render_guidance_block_at(0, None).contains("本章手法｜迟一拍揭示"));
     }
 
     #[test]

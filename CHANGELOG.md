@@ -2,6 +2,59 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.69.0（2026-10-14）
+
+**P1-5 作者裁决回灌每拍手法池（Sherpa 借鉴第四版）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用行为数据训练散文
+引擎；StoryMoss 的正确对位是「把作者裁决变成每拍决策的权重」。v0.65.0 起每拍会注入一条
+写作手法（8 条池按已写篇幅轮换），但作者对续写的 Tab 接受 / Esc 放弃从未影响过下一拍用哪条
+——学的存起来了，用的还是固定节奏。
+
+### 变更
+
+- 手法池加稳定 id（`Technique { id, label, text }`，8 条）；注入文本与轮换行为不变。
+- **V147 `beat_technique_log`**：每拍落一行（story/scene/chapter/beat_no/technique_id）。
+- 新模块 `agency::technique_feedback`：作者反馈按**时间窗**归因——幕前反馈不带 scene_id
+  （且 chapter_id 语义不稳定），取「反馈时刻之前最近一拍」且间隔 ≤ 1 小时、`agent_type`
+  为 writer（手法只注入主续写路径）；产出 8 条统计（accepts/rejects/quality）；
+  `reset_technique_stats` 清空归因基底（后续重新积累）。
+- `human_voice::choose_technique_index`（纯函数，给定输入确定）：无数据或样本 < 5 → 基准
+  轮换；有「质量 ≥ 0.5 且样本 ≥ 5 且最近 3 拍未用」的手法 → 优选质量最高者；基准位质量 ≤ 0
+  → 前移避开（跳过同样不佳与近期用过的）。
+- 接线：`write_beat_once` 选招并传入 prompt（新增
+  `render_writer_user_prompt_with_technique`，旧函数保留为 `None` 包装——既有 prompt 顺序
+  契约测试不受影响）；Append 与 NextChapter 两条落库路径写 `beat_technique_log`；
+  `agency_learning_overview` 增加 `technique_stats`；新命令 `agency_reset_technique_stats`；
+  学习中心新增「章法偏好」区块（每条手法的接受/放弃/样本不足提示 + 重置统计）。
+- 纪律：只影响提示词里的一条写作手段，不参与质量门限、不改正文与资产。
+
+### 测试与验收
+
+- `cargo test --lib` **1807 passed / 5 ignored（+10）**：手法池 id 稳定且文本与标签一致、
+  无数据回落基准轮换、优选已被接受并避开已被证明不佳、前移时跳过近期用过、指定下标渲染
+  且有界、落库与最近取值、**反馈按时间窗归因**（窗口外/非 writer 不归因）、重置清空、
+  V147 幂等迁移、coordinator 端到端（第一拍落库且 prompt 含该手法 → 造 5 次放弃 →
+  第二拍避开并落新手法 → 统计可见）。
+- 前端 vitest **623 passed / 3 skipped（+1）**：学习中心「章法偏好」渲染与重置命令；
+  clippy 0 error / fmt / guard / tsc / playwright 39 passed / 5 skipped 全绿。
+
+### 契约
+
+`technique_ids_are_stable_and_labeled`；`choose_technique_falls_back_to_rotation_without_enough_data`；
+`choose_technique_prefers_proven_good_and_avoids_proven_bad`；`choose_technique_skips_recent_when_advancing`；
+`render_guidance_block_at_respects_index_and_stays_bounded`；`record_writes_row_and_recent_returns_newest_first`；
+`stats_attribute_feedback_by_time_window`；`reset_clears_attribution_base`；
+`v147_creates_beat_technique_log_idempotently`；
+`test_continue_logs_beat_technique_and_replays_author_verdict`；前端「章法偏好（手法统计）并可重置」。
+
+### 未关闭
+
+- 真机端到端未复跑：需真机连续续写若干拍 + Tab/Esc，观察学习中心统计与下一拍手法变化——
+  **不得宣称作者偏好已真正改善续写**。
+- 归因是时间窗**近似**（幕前反馈不带 scene_id，多拍快速连发时可能归错拍）；
+- 「modify」类反馈前端尚未产生（当前只有 accept/reject 进入统计）。
+
 ## v0.68.1（2026-10-14）
 
 **v0.68.0 的 CI 收尾：分章切换用例的 CI 超时加固（仅测试）。**

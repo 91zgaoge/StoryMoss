@@ -30,6 +30,7 @@ pub mod repository;
 pub mod retrieval;
 pub mod roles;
 pub mod session;
+pub mod technique_feedback;
 pub mod tool_loop;
 pub mod tools;
 

@@ -3388,7 +3388,7 @@ impl AgencyCoordinator {
             PersistMode::Append { scene_id } => Some(scene_id.as_str()),
             PersistMode::NextChapter { .. } => None,
         };
-        let (draft, card) = self
+        let (draft, card, technique_index) = self
             .write_beat_once(
                 budget,
                 run_id,
@@ -3443,6 +3443,13 @@ impl AgencyCoordinator {
             .map_err(|e| AppError::from(format!("append persist join error: {}", e)))??;
             self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
             self.close_beat_loop(run_id, story_id, &card, &increment);
+            // P1-5：落本拍手法（作者裁决回灌的归因基底；best-effort）
+            self.record_beat_technique_log(
+                story_id,
+                Some(&outcome.scene_id),
+                outcome.chapter_number,
+                technique_index,
+            );
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
             self.checkpoint_auto(
@@ -3492,6 +3499,13 @@ impl AgencyCoordinator {
                 Some(&card),
             )
             .await?;
+        // P1-5：落本拍手法（NextChapter 路径；best-effort）
+        self.record_beat_technique_log(
+            story_id,
+            Some(&result.scene_id),
+            result.chapter_number,
+            technique_index,
+        );
         self.spawn_editor_qc(
             run_id,
             story_id,
@@ -4525,7 +4539,7 @@ impl AgencyCoordinator {
         instruction: &str,
         current_content: Option<&str>,
         scene_id: Option<&str>,
-    ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard), AppError> {
+    ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard, usize), AppError> {
         let key = format!("第{}章", chapter_number);
         let _ = premise;
         let pool = self.pool.clone();
@@ -4648,6 +4662,26 @@ impl AgencyCoordinator {
         };
         // 关系不变量拦下的行（锁 + 关系表两条注入路径共用一份报告）。
         let mut relation_alerts: Vec<String> = Vec::new();
+        // P1-5（v0.69.0）：作者裁决回灌——读手法统计与最近用过的手法，在基准轮换
+        // 之上选本拍手法（无数据/样本不足时即基准轮换；纯函数、给定输入确定）。
+        let technique_index = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let progress = current_content.unwrap_or("").chars().count();
+            self.db(move || {
+                use crate::{agency::technique_feedback as tf, story_system::human_voice as hv};
+                let stats = tf::technique_stats(&pool, &sid).unwrap_or_default();
+                let recent = tf::recent_technique_ids(&pool, &sid, hv::TECHNIQUE_RECENT_EXCLUDE)
+                    .unwrap_or_default();
+                Ok(hv::choose_technique_index(progress, &recent, &stats))
+            })
+            .await
+            .unwrap_or_else(|_| {
+                crate::story_system::human_voice::base_technique_index(
+                    current_content.unwrap_or("").chars().count(),
+                )
+            })
+        };
         let (user, admitted, l2, lock) = if let Some(ref mut p) = parts {
             let (mut admitted, mut l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let mut lock = compile_continue_director(
@@ -4742,13 +4776,14 @@ impl AgencyCoordinator {
                 &continuity_blocks,
             );
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
-            let user = crate::agency::beat_card::render_writer_user_prompt(
+            let user = crate::agency::beat_card::render_writer_user_prompt_with_technique(
                 &assets,
                 &card,
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
                 Some(&lock),
+                Some(technique_index),
             );
             (user, admitted, l2, lock)
         } else {
@@ -4772,13 +4807,14 @@ impl AgencyCoordinator {
                 .await;
             crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
-            let user = crate::agency::beat_card::render_writer_user_prompt(
+            let user = crate::agency::beat_card::render_writer_user_prompt_with_technique(
                 "",
                 &card,
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
                 Some(&lock),
+                Some(technique_index),
             );
             (user, admitted, l2, lock)
         };
@@ -5063,7 +5099,43 @@ impl AgencyCoordinator {
                 )
             })
             .await?;
-        Ok((item, card))
+        Ok((item, card, technique_index))
+    }
+
+    /// P1-5：把本拍用的手法落库（归因基底；best-effort，失败只告警）。
+    fn record_beat_technique_log(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_number: i32,
+        technique_index: usize,
+    ) {
+        use crate::story_system::human_voice::TECHNIQUE_POOL;
+        let technique_id = TECHNIQUE_POOL[technique_index % TECHNIQUE_POOL.len()].id;
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let scene = scene_id.map(str::to_string);
+        tauri::async_runtime::spawn_blocking(move || {
+            let beat_no = match pool.get() {
+                Ok(conn) => {
+                    crate::creative_engine::expansion::read_beat_counters(&conn, &sid).append_beats
+                }
+                Err(e) => {
+                    log::warn!("[technique] 读拍计数器失败（非阻塞）: {e}");
+                    return;
+                }
+            };
+            if let Err(e) = crate::agency::technique_feedback::record_beat_technique(
+                &pool,
+                &sid,
+                scene.as_deref(),
+                chapter_number,
+                beat_no,
+                technique_id,
+            ) {
+                log::warn!("[technique] 手法落库失败（非阻塞）: {e}");
+            }
+        });
     }
 
     /// 写一章草稿：tool_loop 路径，仅供批量续写 `run_continue_batch`。

@@ -1,8 +1,21 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.68.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.69.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.69.0 变更说明
+
+- **Rust +10（1807 passed / 5 ignored）**：手法回灌（P1-5）——id 稳定与标签一致、
+  无数据回落基准轮换、优选已被接受并避开已被证明不佳、前移跳过近期用过、指定下标渲染有界、
+  落库与最近取值、时间窗归因（窗口外/非 writer 归因失败）、重置清空、V147 幂等迁移、
+  coordinator 端到端（`test_continue_logs_beat_technique_and_replays_author_verdict`：
+  第一拍落库且 prompt 含该手法 → 造 5 次放弃 → 第二拍避开并落新手法 → 统计可见）。
+  跑法：`cargo test --lib technique`。
+- **前端 +1（623 passed / 3 skipped）**：学习中心「章法偏好」渲染（接受/放弃/样本不足）
+  与「重置统计」命令；tsc / playwright 39 passed / 5 skipped 全绿。
+- **真机探针（手动，未跑）**：真机连续续写若干拍 + Tab/Esc → 学习中心统计变化 → 下一拍
+  手法是否避开被放弃者；**未跑通前不得宣称作者偏好已真正改善续写**。
 
 ### v0.68.1 变更说明
 
