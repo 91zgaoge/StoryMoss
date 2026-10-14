@@ -1,8 +1,21 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.70.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.71.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.71.0 变更说明
+
+- **Rust +3（1816 passed / 5 ignored）**：稳定性回归门 + 概念体检——`serial_stability_across_beats`
+  （四拍串联：死亡落库 / 死亡重演被拦 / 物品归属被拦 / 知识越界被拦；违规稿不落库、合规稿落库、
+  死亡状态仍在）、`logline_split_keeps_single_line_and_extracts_diagnostics`、
+  `problem_logline_carries_three_checks`；守卫 2 项
+  （`serial_harness_module_is_registered_and_cfg_test` /
+  `serial_harness_keeps_cross_beat_probes_and_violation_markers`，跑法
+  `cargo test --test serial_harness_guard`）。
+- 前端未改动：tsc / vitest（625 passed / 3 skipped）沿用 v0.70.0 基线。
+- **真机探针（手动，未跑）**：真机连续续写若出现「死人复活/物品归属/知识越界」应被拦下进
+  质量债；**未跑通前不得宣称长篇稳定性已在真机达成**。
 
 ### v0.70.0 变更说明
 

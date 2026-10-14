@@ -895,6 +895,20 @@ mod tests {
     }
 
     #[test]
+    fn problem_logline_carries_three_checks() {
+        // P2-9（v0.71.0）：创世概念体检三问必须齐备（张力/赌注/心理），且输出
+        // 格式明确「首行 logline + 三行诊断」——防后续编辑悄悄删掉。
+        let content = resolve_prompt_default("agency_problem_logline")
+            .expect("agency_problem_logline 必须已注册");
+        for needle in ["张力：", "赌注：", "心理：", "第一行", "logline"] {
+            assert!(
+                content.contains(needle),
+                "agency_problem_logline 缺少概念体检要素: {needle}"
+            );
+        }
+    }
+
+    #[test]
     fn test_v03015_scene_outline_prompt_registered() {
         let content = resolve_prompt_default("scene_outline");
         assert!(content.is_some(), "scene_outline 提示词应已注册");

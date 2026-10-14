@@ -2,6 +2,50 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.71.0（2026-10-14）
+
+**P2-6 长篇稳定性回归门 + P2-9 创世概念体检（Sherpa 借鉴收尾两小项）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 的 P2 清单。两件事都小、但缺口
+真实：①「零连续性衰减」此前只有单场景探针（三把尺子契约测的是同一故事内的静态断言），没有
+**多拍串联**的回归门——第 N 拍写死的人，第 N+1 拍还能不能复活？②创世概念只有「生成」，没有
+Sherpa 第 1 步说的「像资深编辑一样审视」（张力 / 赌注 / 心理）。
+
+### 变更
+
+- **P2-6 `agency::serial_harness`**（确定性、全程 MockLlm、随 `cargo test` 进 CI）：同一场景
+  四拍串联——①写死角色 → 保存钩子刷新 → 持久 dead 名单；②重演「登时气绝」→ 探针命中 →
+  合规重试稿落库；③让在场角色使用「持有者不在场」的物品 → 归属探针命中 → 合规稿落库；
+  ④说出 `secrets_unknown` → 泄密探针命中 → 合规稿落库。尾部**串联断言**：四拍之后违规句
+  一次都没落库、死亡状态仍在。守卫测试 `src-tauri/tests/serial_harness_guard.rs` 防回归门
+  变空门（注册方式 / 关键探针 / 违规句锚点）。
+- **P2-9 概念体检**：`agency_problem_logline` 增加三问（张力 / 赌注 / 心理）与「首行 logline +
+  三行诊断」输出格式；`split_logline_diagnostics` 切分诊断——**只记日志（advisory），不阻塞、
+  不污染 premise**；模型未按新格式输出时整段照旧当 logline（不误伤旧行为）；registry 契约
+  测试防三问被删。
+
+### 测试与验收
+
+- `cargo test --lib` **1816 passed / 5 ignored（+3）**：`serial_stability_across_beats`
+  （四拍串联）、`logline_split_keeps_single_line_and_extracts_diagnostics`（单行 / 新格式 /
+  多行非诊断 / 空输入四态）、`problem_logline_carries_three_checks`（契约）。
+- 守卫：`serial_harness_module_is_registered_and_cfg_test` /
+  `serial_harness_keeps_cross_beat_probes_and_violation_markers`。
+- 前端未改动（vitest 625 passed / 3 skipped）；clippy 0 error / fmt / guard / tsc 全绿。
+
+### 契约
+
+`serial_stability_across_beats`；`serial_harness_module_is_registered_and_cfg_test`；
+`serial_harness_keeps_cross_beat_probes_and_violation_markers`；
+`logline_split_keeps_single_line_and_extracts_diagnostics`；`problem_logline_carries_three_checks`。
+
+### 未关闭
+
+- 真机端到端未复跑；serial harness 测的是**跨拍约束回路**（脚本正文），不是模型文笔——
+  不得据此宣称「长篇质量稳定」。
+- 概念体检的「三行诊断」依赖模型遵循新格式；不遵循时静默退回旧行为（无诊断、logline 照旧）。
+- 三问诊断目前只进日志，无 UI 展示。
+
 ## v0.70.0（2026-10-14）
 
 **P1-3 卷/弧中层计划：把「季→弧」这一层补上（Sherpa 借鉴第五版）。**

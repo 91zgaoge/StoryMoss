@@ -1952,7 +1952,14 @@ impl AgencyCoordinator {
                 log::warn!("agency: PROBLEM logline 生成失败 run={} err={}", run_id, e);
                 AppError::from(format!("logline 生成失败: {}", e))
             })?;
-        Ok(text.trim().to_string())
+        // P2-9（v0.71.0）：概念体检——模型被要求在第一行 logline 之后附
+        // 「张力/赌注/心理」三行诊断；这里切出来只记日志（advisory，不阻塞、
+        // 不进入 premise）。模型没按格式输出时整段照旧当 logline。
+        let (logline, diagnostics) = split_logline_diagnostics(&text);
+        for line in &diagnostics {
+            log::info!("agency: 概念体检 run={run_id} {line}");
+        }
+        Ok(logline)
     }
 
     /// 概念包单调用（Phase A，Producer 档，经 BudgetedLlm 记账/限流）。
@@ -7703,9 +7710,60 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
     render_parts(&parts, &admitted, "", "", None, None, &[], &[])
 }
 
+/// P2-9（v0.71.0）：切分 logline 产出——首行 logline，其余「张力/赌注/心理」
+/// 三行诊断（advisory）。**只有确实出现诊断标记才切分**，否则整段照旧当 logline
+/// （模型未按新格式输出时不误伤）。
+pub(crate) fn split_logline_diagnostics(raw: &str) -> (String, Vec<String>) {
+    let lines: Vec<&str> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    const DIAG_MARKERS: &[&str] = &["张力", "赌注", "心理"];
+    let has_diagnostics = lines[1..]
+        .iter()
+        .any(|l| DIAG_MARKERS.iter().any(|m| l.starts_with(m)));
+    if !has_diagnostics {
+        return (raw.trim().to_string(), Vec::new());
+    }
+    let logline = lines[0].to_string();
+    let diagnostics = lines[1..].iter().take(3).map(|s| s.to_string()).collect();
+    (logline, diagnostics)
+}
+
 #[cfg(test)]
 mod depth_assets_outline_tests {
     use super::{normalize_outline, outline_value_is_empty, parse_lenient, DepthAssets};
+
+    #[test]
+    fn logline_split_keeps_single_line_and_extracts_diagnostics() {
+        // 旧格式（只有一行）→ 原样返回，无诊断。
+        let (logline, diags) = super::split_logline_diagnostics(
+            "当一个拾荒者捡到星环碎片后，必须穿过辐射区，否则家园将覆灭。",
+        );
+        assert!(logline.starts_with("当一个拾荒者"));
+        assert!(diags.is_empty());
+
+        // 新格式（首行 logline + 三行诊断）→ 切分，诊断不入 logline。
+        let raw = "当一个拾荒者捡到星环碎片后，必须穿过辐射区，否则家园将覆灭。\n张力：辐射区每次深入都缩短寿数。\n赌注：家园与母亲。\n心理：他必须证明拾荒者也配活着。";
+        let (logline, diags) = super::split_logline_diagnostics(raw);
+        assert!(!logline.contains("张力"), "诊断不得进入 logline: {logline}");
+        assert!(logline.ends_with('。'));
+        assert_eq!(diags.len(), 3);
+        assert!(diags[0].starts_with("张力"));
+
+        // 多行但不是诊断格式（旧模型输出）→ 整段保留，不截断。
+        let raw = "第一句设定。\n第二句冲突与代价。";
+        let (logline, diags) = super::split_logline_diagnostics(raw);
+        assert!(logline.contains("第二句冲突与代价"));
+        assert!(diags.is_empty());
+
+        // 空输入不 panic。
+        assert_eq!(super::split_logline_diagnostics("  ").0, "");
+    }
 
     #[test]
     fn structured_outline_object_parses_and_normalizes() {

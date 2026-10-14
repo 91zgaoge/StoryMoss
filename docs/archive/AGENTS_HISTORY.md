@@ -1,3 +1,34 @@
+*归档于 2026-10-14（v0.71.0）：v0.67.0 摘要。*
+
+### v0.67.0 - 纲层失效与局部重规划（Sherpa 借鉴 P0-2）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 指出——Sherpa 的层级
+规划器「识别变化、追踪下游影响、仅重规划受影响的部分」；StoryMoss 的失效重算（v0.64.11/12）
+覆盖物料层（章摘要/分层摘要/快照/关系审计），但**章纲（计划层）不在失效范围内**：改了第 3 章，
+第 4 章以后的章纲不受任何影响（改稿后的计划漂移是长篇工作流里的静默缺口）。
+
+**改动**：`recompute` 新增 `KIND_CHAPTER_OUTLINE`（**刻意不入 `ALL_KINDS`**——计划不是物料，
+不参与后台自动重算）+ `mark_stale_kind`/`clear_stale_kind` + `should_auto_recompute` 过滤
+非物料类（防永不自动清除的计划标记每轮提交空转触发重算）。新模块 `agency::outline_replan`：
+`chapter_outline_candidates`（复用 `chapter_plan_from_scene_outline`，手写大纲不误伤）+
+`mark_outline_stale_for_edit`（确有下游章纲才标记，from=编辑章+1）+
+`preview`（重生成 ≤3 章新纲、**不落库**）+
+`apply`（只落库作者勾选条目，`set_chapter_plan_prefix` 保留卡块；确认到第 M 章后标记
+清理后重标到 M+1，全部处理完才清除）。`update_scene` 在覆盖已有正文且确有下游章纲时标记。
+命令 `preview/apply_chapter_outline_replans` + `dismiss_stale_material`；维护页
+「物料重算」新增中文标签、新旧章纲对照对话框（**默认全部不勾选**）与「忽略」，
+且「重算」按钮起始章不再被计划层行拉低。
+
+- **验证**：`cargo test --lib` **1792 passed / 5 ignored（+4）**（三态标记 / 自动重算排除 /
+  预览-应用往返含标记推进 / 非法条目跳过）；vitest **622 passed / 3 skipped（+2）**（预览
+  勾选应用只提交勾选项 + 忽略）；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`mark_outline_stale_only_when_downstream_plans_exist`；
+  `outline_kind_is_excluded_from_auto_recompute`；`preview_and_apply_round_trip`；
+  `apply_skips_mismatched_scene_and_empty_plan`；前端「章纲待重规划：预览后勾选应用」/
+  「忽略清掉标记」。
+- **未关闭**：真机端到端未复跑（编辑旧章 → 维护页 → 预览/应用 → 标记推进或清除），
+  **不得宣称计划漂移已在真机闭环**；重规划手动触发（不自动改写）；每轮上限 3 章。
+
 *归档于 2026-10-14（v0.70.0）：v0.66.0 摘要。*
 
 ### v0.66.0 - 续写检索接线（Sherpa 借鉴 P0-1）

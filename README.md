@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.70.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.71.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.71.0 · 长篇稳定性回归门 + 创世概念体检
+
+两项工程加固：①**多拍串联回归门**（随单测进 CI）——同一场景连写四拍，验证「第 1 拍写死的人
+不会被第 2 拍复活、不在场持有者的物品不会被使用、角色不会说出自己还不知道的秘密」；违规稿
+必须被探针拦下并换成合规稿。②**创世概念体检**：生成 logline 时先过三问（张力从哪来 / 失败
+失去什么 / 为何非做不可），并附三行诊断（记入日志，不影响流程）。
 
 ### v0.70.0 · 长篇补上「卷」这一层（P1-3）
 

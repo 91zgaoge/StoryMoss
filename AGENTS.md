@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1813 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲）
+- `cargo test -p storymoss` ✅ 1816 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
@@ -110,6 +110,22 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.71.0 - 长篇稳定性回归门 + 创世概念体检（Sherpa 借鉴 P2-6/P2-9）
+
+**改动**：①P2-6 `agency::serial_harness`（确定性 MockLlm、进 CI）：同场景四拍串联验证跨拍
+状态约束——写死 → 重演死亡被拦 / 使用不在场持有者物品被拦 / 说出 secrets_unknown 被拦，
+违规稿不得落库、合规重试稿落库、死亡状态四拍后仍在；守卫测试
+`tests/serial_harness_guard.rs` 防回归门变空门。②P2-9 概念体检：`agency_problem_logline`
+加三问（张力/赌注/心理）与「首行 logline + 三行诊断」格式；`split_logline_diagnostics`
+切分（advisory 只记日志、不污染 premise、旧格式不误伤）；registry 契约测试防三问被删。
+
+- **验证**：`cargo test --lib` **1816 passed / 5 ignored（+3）** + 守卫 2 项；前端未改动
+  （vitest 625 / 3 skipped）；clippy 0 error / fmt / guard / tsc 全绿。
+- **契约**：`serial_stability_across_beats`；`logline_split_keeps_single_line_and_extracts_diagnostics`；
+  `problem_logline_carries_three_checks`；`serial_harness_keeps_cross_beat_probes_and_violation_markers`。
+- **未关闭**：真机未复跑；harness 测跨拍约束回路而非模型文笔；概念体检诊断依赖模型遵循格式
+  （不遵循则静默退回旧行为）；诊断只进日志无 UI。
 
 ### v0.70.0 - 卷/弧中层计划：VOLUME 合同（Sherpa 借鉴 P1-3）
 
@@ -192,35 +208,6 @@ gate 记录，配 `human_signals`（修改率）对照。`agency_eval_overview` 
   `short_evidence_and_missing_final_are_not_judgeable`；`v146_creates_editor_gate_records_idempotently`。
 - **未关闭**：真机未复跑（需 ≥3 章后人工核对 1 个样本），**不得宣称判官质量已可量化到可信**；
   未覆盖「误报」维度（需作者显式忽略/回退信号）；一致率只报不改。
-
-### v0.67.0 - 纲层失效与局部重规划（Sherpa 借鉴 P0-2）
-
-**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 指出——Sherpa 的层级
-规划器「识别变化、追踪下游影响、仅重规划受影响的部分」；StoryMoss 的失效重算（v0.64.11/12）
-覆盖物料层（章摘要/分层摘要/快照/关系审计），但**章纲（计划层）不在失效范围内**：改了第 3 章，
-第 4 章以后的章纲不受任何影响（改稿后的计划漂移是长篇工作流里的静默缺口）。
-
-**改动**：`recompute` 新增 `KIND_CHAPTER_OUTLINE`（**刻意不入 `ALL_KINDS`**——计划不是物料，
-不参与后台自动重算）+ `mark_stale_kind`/`clear_stale_kind` + `should_auto_recompute` 过滤
-非物料类（防永不自动清除的计划标记每轮提交空转触发重算）。新模块 `agency::outline_replan`：
-`chapter_outline_candidates`（复用 `chapter_plan_from_scene_outline`，手写大纲不误伤）+
-`mark_outline_stale_for_edit`（确有下游章纲才标记，from=编辑章+1）+
-`preview`（重生成 ≤3 章新纲、**不落库**）+
-`apply`（只落库作者勾选条目，`set_chapter_plan_prefix` 保留卡块；确认到第 M 章后标记
-清理后重标到 M+1，全部处理完才清除）。`update_scene` 在覆盖已有正文且确有下游章纲时标记。
-命令 `preview/apply_chapter_outline_replans` + `dismiss_stale_material`；维护页
-「物料重算」新增中文标签、新旧章纲对照对话框（**默认全部不勾选**）与「忽略」，
-且「重算」按钮起始章不再被计划层行拉低。
-
-- **验证**：`cargo test --lib` **1792 passed / 5 ignored（+4）**（三态标记 / 自动重算排除 /
-  预览-应用往返含标记推进 / 非法条目跳过）；vitest **622 passed / 3 skipped（+2）**（预览
-  勾选应用只提交勾选项 + 忽略）；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
-- **契约**：`mark_outline_stale_only_when_downstream_plans_exist`；
-  `outline_kind_is_excluded_from_auto_recompute`；`preview_and_apply_round_trip`；
-  `apply_skips_mismatched_scene_and_empty_plan`；前端「章纲待重规划：预览后勾选应用」/
-  「忽略清掉标记」。
-- **未关闭**：真机端到端未复跑（编辑旧章 → 维护页 → 预览/应用 → 标记推进或清除），
-  **不得宣称计划漂移已在真机闭环**；重规划手动触发（不自动改写）；每轮上限 3 章。
 
 ## Always Do
 
