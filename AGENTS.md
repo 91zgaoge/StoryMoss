@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1816 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检）
+- `cargo test -p storymoss` ✅ 1816 passed / 6 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
@@ -110,6 +110,23 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.72.0 - 人类语料校准（Sherpa 借鉴 P2-7）
+
+**改动**：引入 `resources/voice_corpus/`（6 部 PG 公版中文小说、各取正文前 2 万字符，附来源/许可）
++ `human_voice::corpus_calibration` 探针（`#[ignore]`，打印逐篇规则命中与 SD/CV 分位，可落 JSON，
+语料缺失跳过不红）。**据证据调整**：`FLAT_RUN_LEN` 3 → 4（人类语料 5/6 篇命中「恰好 3 句」、
+机器腔样本该规则零命中——3 是噪声门；提到 4 后人类只剩 1/6、机器腔命中数不变）；
+**解耦隐患修复**：句长离散度指标不再与发现门共用常量（新增 `SD_MIN_PARAGRAPH_SENTENCES=3`，
+否则改门会让指标从 12–14 漂到 6–9）。报告
+`docs/audits/2026-10-14-human-voice-corpus-calibration.md`（含未动规则理由：语气词规则在明清
+文言上 1/6 误报但放宽会削弱现代语域判别力；段落 CV 单独无判别力、「且无短段」合取承重）。
+
+- **验证**：`cargo test --lib` **1816 passed / 6 ignored（+1 ignored）**；机器腔探针复跑命中不降
+  （5 条）、人类对照样本 0 误报；clippy 0 error / fmt / guard / tsc / vitest 625 全绿。
+- **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`（更新）；
+  `voice_corpus_calibration_probe`（ignore）。
+- **未关闭**：明清白话 ≠ 现代网文语域（下限参照）；未断言人类语料命中率上限；探针不进 CI。
 
 ### v0.71.0 - 长篇稳定性回归门 + 创世概念体检（Sherpa 借鉴 P2-6/P2-9）
 
@@ -184,30 +201,6 @@ Append/NextChapter 两条落库路径写日志、学习中心新增「章法偏�
   未改 Rust（沿用 v0.68.0 基线 1797 passed / 5 ignored）。
 - **未关闭**：v0.66.0 / v0.68.0 的 tag 构建因超时未产出安装包（其 `tauri-build`/上传步骤随之
   跳过，不污染 `latest.json`）；本版构建通过后以本版为发布版本。
-
-### v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4）
-
-**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用「评估器与
-人类审阅者 80–90% 匹配率」证明判官可用；StoryMoss 的 editor 判 blocking 时必须引用草稿原文
-（`blocking_issues[].evidence`），但这条材料此前被压平成字符串、从未落库，没有指标回答
-「编辑判的问题，作者后来改了吗」。
-
-**改动**：**V146 `editor_gate_records`**（每次 gate 判定落一行；findings_json 原样保留含
-evidence 的结构；写入点在 `evaluate_gate_impl` 三条调用路径共用，best-effort）。新模块
-`agency::editor_agreement`：**引用幸存判定**（确定性）——引用的原文在作者改后成稿里近逐字
-留存（char-bigram 包含率 ≥0.8；引用 ≥6 字才可判）= 未采纳，被删/被改写 = 采纳；每章取最新
-gate 记录，配 `human_signals`（修改率）对照。`agency_eval_overview` 新增 `editor_agreement`
-段；AgencyEval 页新增「判官一致率」卡（总采纳率 / 阻断命中 / 命中密度 + 每章
-阻断·可判·采纳率·修改率对照表）。**只报不改**：不参与门限、不自动调权重；评审模型档位
-（editor 默认落 Background，`llm/service.rs:267-280`）仅在文档说明。
-
-- **验证**：`cargo test --lib` **1797 passed / 5 ignored（+5）**（引用三态 / 归一 / 记录取舍与
-  计分 / 短引用与无成稿不可判 / V146 幂等）；vitest 622（AgencyEval 卡渲染断言）；
-  clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
-- **契约**：`quote_survival_three_states`；`compute_agreement_joins_records_and_final_text`；
-  `short_evidence_and_missing_final_are_not_judgeable`；`v146_creates_editor_gate_records_idempotently`。
-- **未关闭**：真机未复跑（需 ≥3 章后人工核对 1 个样本），**不得宣称判官质量已可量化到可信**；
-  未覆盖「误报」维度（需作者显式忽略/回退信号）；一致率只报不改。
 
 ## Always Do
 

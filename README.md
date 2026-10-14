@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.71.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.72.0 · 文笔基线阈值第一次有数据支撑
+
+引入 6 部公版中文小说（约 12 万字）做人类语料测量：**「三句近等长」在人类文本里本就常见**
+（6 篇中 5 篇命中）——把它从「机器指纹」降级、把这条确定性规则的门提到四句（人类语料命中降到
+1/6，机器腔样本命中数不变）；同时修掉「发现门改一下、句长指标跟着漂」的耦合隐患。测量数据、
+未动规则与理由见 [校准报告](docs/audits/2026-10-14-human-voice-corpus-calibration.md)。
 
 ### v0.71.0 · 长篇稳定性回归门 + 创世概念体检
 

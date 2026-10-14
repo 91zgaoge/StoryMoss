@@ -39,12 +39,25 @@ const FLAT_RATIO: f64 = 1.33;
 /// 参与节奏判定的最短句（字）；过短句属对话/动作节拍，不参与。
 const FLAT_MIN_SENTENCE_CHARS: usize = 10;
 /// 连续几句近等长即报。
-const FLAT_RUN_LEN: usize = 3;
+///
+/// P2-7（v0.72.0）语料校准：公版人类语料（6 部明清白话、约 12 万字）中「恰好 3
+/// 句」 的近等长连串在 6 篇里出现 5
+/// 次（每篇最多一次），而机器腔样本在本规则上零命中 ——3 是噪声门而非判别门，
+/// 提高到 4（人类语料只剩 1/6 篇命中）。 指标层（句长离散度）与 editor
+/// 审查清单的措辞不变。
+const FLAT_RUN_LEN: usize = 4;
 /// 段落长度变异系数低于此值、且段落数够多 → 段落过于均匀。
 const PARAGRAPH_CV_FLOOR: f64 = 0.30;
 const PARAGRAPH_MIN_COUNT: usize = 6;
 /// 短段（≤此字数）视为「一句话成段」的人类参差。
 const SHORT_PARAGRAPH_CHARS: usize = 40;
+/// 参与句长离散度（`sentence_len_sd`）计算的段落最少句数。
+///
+/// **与 `FLAT_RUN_LEN` 解耦**：v0.72.0 语料校准时把发现门从 3 提到
+/// 4，若共用同一 常量，指标会跟着变（实测同一语料 SD 从 12-14 掉到
+/// 6-9）——指标是历史基线 （v0.65.0 记录 6.24 vs
+/// 14.97）的一部分，必须与发现门独立。
+const SD_MIN_PARAGRAPH_SENTENCES: usize = 3;
 
 /// 花式对话标签（轮换它们是「机器优雅」；重复「说/道」才是人类常态）。
 const FANCY_SPEECH_TAGS: &[&str] = &[
@@ -403,7 +416,7 @@ pub fn analyze_human_voice(text: &str) -> HumanVoiceReport {
     let mut sd_max = 0.0f64;
     for para in &paras {
         let sents = split_sentences(para);
-        if sents.len() < FLAT_RUN_LEN {
+        if sents.len() < SD_MIN_PARAGRAPH_SENTENCES {
             continue;
         }
         let lens: Vec<f64> = sents.iter().map(|s| sentence_len(s) as f64).collect();
@@ -888,9 +901,10 @@ mod tests {
 
     #[test]
     fn flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose() {
-        // 三句长度趋同（每句 10 字以上、彼此相差不到三分之一）→ 报
+        // 四句长度趋同（每句 10 字以上、彼此相差不到三分之一）→ 报
+        // （v0.72.0 语料校准后门从 3 提到 4：3 句连串在人类公版语料里常见）
         let flat =
-            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。";
+            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。窗外的雪落在檐上，一层压着一层。";
         let report = analyze_human_voice(flat);
         assert!(
             report.findings.iter().any(|f| f.rule == "flat-rhythm"),
@@ -898,7 +912,16 @@ mod tests {
             report.findings
         );
 
-        // 长短短参差 → 不报
+        // 恰好三句近等长（校准前的报点）→ 不报；长短短参差 → 不报
+        let three =
+            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。";
+        assert!(
+            !analyze_human_voice(three)
+                .findings
+                .iter()
+                .any(|f| f.rule == "flat-rhythm"),
+            "三句连串在人类语料里常见，不应报（v0.72.0 语料校准）"
+        );
         let varied =
             "他推开门。里面很暗，只有窗台上一盏灯亮着，灯芯烧得歪歪扭扭，像随时要灭。她抬头。";
         let varied_report = analyze_human_voice(varied);
@@ -1156,12 +1179,168 @@ mod tests {
     fn audit_block_is_bounded_and_empty_when_clean() {
         assert!(render_audit_block(&HumanVoiceReport::default(), 6).is_none());
         let report = analyze_human_voice(
-            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。",
+            "他推开门走了进去，屋里没人。她抬头看了他一眼，没有作声。桌上摆着两杯还温着的茶。窗外的雪落在檐上，一层压着一层。",
         );
         let block = render_audit_block(&report, 6).expect("应有块");
         assert!(block.contains("人类文笔基线"));
         let summary = summarize_findings(&report);
         assert!(!summary.is_empty() && summary.len() <= 6);
+    }
+}
+
+/// P2-7（v0.72.0）：人类语料校准探针。
+///
+/// 阈值此前是手调的（`FLAT_RATIO` / `PARAGRAPH_CV_FLOOR` /
+/// 各规则的内联计数门）。 本探针把人工语料（默认
+/// `resources/voice_corpus/`——六部公版明清白话小说的 前 2 万字节选；可用
+/// `STORYMOSS_VOICE_CORPUS` 指向别的目录）跑一遍： 按篇统计各规则命中数 +
+/// 关键指标的分布（p10/p50/p90），可写 JSON 报告 （`STORYMOSS_VOICE_OUT`）。
+///
+/// 定位与边界：这是一次**测量**，不是自动调参——报告用于人工对照阈值。语料是
+/// 明清白话，**register
+/// 与现代网文不同**（更少语气词、更多文言残留），因此本报告
+/// 是「人类文本在这些规则上会怎样」的下限参照；阈值改动仍需现代语域样本
+/// （作者自己的旧稿）复核。
+#[cfg(test)]
+mod corpus_calibration {
+    use super::*;
+
+    fn corpus_dir() -> std::path::PathBuf {
+        if let Ok(dir) = std::env::var("STORYMOSS_VOICE_CORPUS") {
+            return std::path::PathBuf::from(dir);
+        }
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("resources")
+            .join("voice_corpus")
+    }
+
+    fn percentile(sorted: &[f64], p: f64) -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
+        let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
+        sorted[idx.min(sorted.len() - 1)]
+    }
+
+    /// 语料校准探针（opt-in）：`cargo test --lib corpus_calibration --
+    /// --ignored --nocapture`。
+    #[test]
+    #[ignore = "opt-in human corpus calibration: needs resources/voice_corpus (public-domain samples)"]
+    fn voice_corpus_calibration_probe() {
+        let dir = corpus_dir();
+        let entries: Vec<_> = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "txt").unwrap_or(false))
+                .collect(),
+            Err(e) => {
+                println!("[语料校准] 跳过：读取 {} 失败（{e}）", dir.display());
+                return;
+            }
+        };
+        if entries.is_empty() {
+            println!("[语料校准] 跳过：{} 下没有 .txt 语料", dir.display());
+            return;
+        }
+
+        let mut rows: Vec<(String, VoiceMetrics, Vec<String>)> = Vec::new();
+        for path in entries {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let report = analyze_human_voice(&text);
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let kinds: Vec<String> = report
+                .findings
+                .iter()
+                .map(|f| format!("{}:{}", f.kind, f.detail))
+                .collect();
+            rows.push((name, report.metrics, kinds));
+        }
+        assert!(!rows.is_empty(), "语料目录存在但没有任何可用文件");
+
+        println!("[语料校准] 语料：{}（{} 篇）", dir.display(), rows.len());
+        for (name, metrics, kinds) in &rows {
+            println!(
+                "  {name}: 句 {} / 段 {} / 句长SD {:.2} / 段落CV {:.2} / 平铺连串 {} / \
+                 具身化 {} / 平直命名 {} / 语气词 {} / 花式标签 {} / 平直标签 {} / \
+                 连词堆叠 {} / 双音节填充 {} / 抽象包装 {} | 命中 {} 条 {:?}",
+                metrics.sentence_count,
+                metrics.paragraph_count,
+                metrics.sentence_len_sd,
+                metrics.paragraph_cv,
+                metrics.flat_run_max,
+                metrics.embodied_count,
+                metrics.plain_emotion_count,
+                metrics.mood_particle_count,
+                metrics.fancy_tag_distinct,
+                metrics.plain_tag_count,
+                metrics.connective_stack_count,
+                metrics.disyllabic_padding_count,
+                metrics.abstract_wrapper_count,
+                kinds.len(),
+                kinds
+            );
+        }
+
+        let mut sd: Vec<f64> = rows.iter().map(|r| r.1.sentence_len_sd).collect();
+        let mut cv: Vec<f64> = rows.iter().map(|r| r.1.paragraph_cv).collect();
+        sd.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        cv.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let total_findings: usize = rows.iter().map(|r| r.2.len()).sum();
+        println!(
+            "[语料校准] 句长SD p10/p50/p90 = {:.2} / {:.2} / {:.2}；段落CV = {:.2} / {:.2} / {:.2}",
+            percentile(&sd, 0.1),
+            percentile(&sd, 0.5),
+            percentile(&sd, 0.9),
+            percentile(&cv, 0.1),
+            percentile(&cv, 0.5),
+            percentile(&cv, 0.9)
+        );
+        println!(
+            "[语料校准] 人类语料命中合计 {total_findings} 条（篇均 {:.1}）——对照规则门：\
+             命中应集中在少数篇/少数规则，若某规则在人类语料上普遍命中，说明该规则需复核",
+            total_findings as f64 / rows.len() as f64
+        );
+
+        if let Ok(out) = std::env::var("STORYMOSS_VOICE_OUT") {
+            let json = serde_json::json!({
+                "corpus_dir": dir.display().to_string(),
+                "files": rows.iter().map(|(name, m, kinds)| serde_json::json!({
+                    "name": name,
+                    "metrics": m,
+                    "findings": kinds,
+                })).collect::<Vec<_>>(),
+                "sentence_len_sd": {"p10": percentile(&sd, 0.1), "p50": percentile(&sd, 0.5), "p90": percentile(&sd, 0.9)},
+                "paragraph_cv": {"p10": percentile(&cv, 0.1), "p50": percentile(&cv, 0.5), "p90": percentile(&cv, 0.9)},
+                "total_findings": total_findings,
+            });
+            if let Err(e) = std::fs::write(
+                &out,
+                serde_json::to_string_pretty(&json).unwrap_or_default(),
+            ) {
+                println!("[语料校准] 写报告失败 {out}: {e}");
+            } else {
+                println!("[语料校准] 报告已写入 {out}");
+            }
+        }
+
+        // 结构断言（不进 CI：本探针 ignore）：指标必须有限、非零样本。
+        for (name, metrics, _) in &rows {
+            assert!(
+                metrics.sentence_count > 0 && metrics.paragraph_count > 0,
+                "{name} 应切出句子与段落"
+            );
+            assert!(
+                metrics.sentence_len_sd.is_finite() && metrics.paragraph_cv.is_finite(),
+                "{name} 指标必须有限"
+            );
+        }
     }
 }
 

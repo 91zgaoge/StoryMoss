@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.71.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.72.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.72.0 变更说明
+
+- **Rust +1 ignored（1816 passed / 6 ignored）**：人类语料校准探针（P2-7）——
+  `cargo test --lib corpus_calibration -- --ignored --nocapture`（可选
+  `STORYMOSS_VOICE_CORPUS` / `STORYMOSS_VOICE_OUT`）；`FLAT_RUN_LEN` 3→4 后
+  `flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose` 契约更新为「四句连串报、
+  三句连串不报」；`machine_probe` 复跑机器腔 5 条命中不降、人类对照 0 误报。
+- 前端未改动：tsc / vitest（625 passed / 3 skipped）沿用 v0.71.0 基线。
+- **语义边界**：语料为明清白话，报告是下限参照；现代语域阈值改动需另行采样。
 
 ### v0.71.0 变更说明
 

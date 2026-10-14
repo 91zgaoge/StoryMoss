@@ -1,3 +1,29 @@
+*归档于 2026-10-14（v0.72.0）：v0.68.0 摘要。*
+
+### v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 用「评估器与
+人类审阅者 80–90% 匹配率」证明判官可用；StoryMoss 的 editor 判 blocking 时必须引用草稿原文
+（`blocking_issues[].evidence`），但这条材料此前被压平成字符串、从未落库，没有指标回答
+「编辑判的问题，作者后来改了吗」。
+
+**改动**：**V146 `editor_gate_records`**（每次 gate 判定落一行；findings_json 原样保留含
+evidence 的结构；写入点在 `evaluate_gate_impl` 三条调用路径共用，best-effort）。新模块
+`agency::editor_agreement`：**引用幸存判定**（确定性）——引用的原文在作者改后成稿里近逐字
+留存（char-bigram 包含率 ≥0.8；引用 ≥6 字才可判）= 未采纳，被删/被改写 = 采纳；每章取最新
+gate 记录，配 `human_signals`（修改率）对照。`agency_eval_overview` 新增 `editor_agreement`
+段；AgencyEval 页新增「判官一致率」卡（总采纳率 / 阻断命中 / 命中密度 + 每章
+阻断·可判·采纳率·修改率对照表）。**只报不改**：不参与门限、不自动调权重；评审模型档位
+（editor 默认落 Background，`llm/service.rs:267-280`）仅在文档说明。
+
+- **验证**：`cargo test --lib` **1797 passed / 5 ignored（+5）**（引用三态 / 归一 / 记录取舍与
+  计分 / 短引用与无成稿不可判 / V146 幂等）；vitest 622（AgencyEval 卡渲染断言）；
+  clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`quote_survival_three_states`；`compute_agreement_joins_records_and_final_text`；
+  `short_evidence_and_missing_final_are_not_judgeable`；`v146_creates_editor_gate_records_idempotently`。
+- **未关闭**：真机未复跑（需 ≥3 章后人工核对 1 个样本），**不得宣称判官质量已可量化到可信**；
+  未覆盖「误报」维度（需作者显式忽略/回退信号）；一致率只报不改。
+
 *归档于 2026-10-14（v0.71.0）：v0.67.0 摘要。*
 
 ### v0.67.0 - 纲层失效与局部重规划（Sherpa 借鉴 P0-2）

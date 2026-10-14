@@ -2,6 +2,51 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.72.0（2026-10-14）
+
+**P2-7 人类语料校准：human_voice 阈值第一次有数据支撑（Sherpa 借鉴收尾）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md` P2-7——human_voice 的阈值此前
+是手调的。本版引入公版中文小说语料（6 部明清白话、约 12 万字）做**测量**，并据证据修正
+一处阈值、顺手修掉一处指标耦合隐患。
+
+### 变更
+
+- **语料与探针**：`resources/voice_corpus/`（6 部 Project Gutenberg 公版中文小说正文前 2 万
+  字符，附来源与许可说明）+ `human_voice::corpus_calibration` 探针（`#[ignore]`，
+  `--nocapture` 打印逐篇规则命中与句长 SD / 段落 CV 分位；`STORYMOSS_VOICE_OUT` 可落 JSON；
+  语料缺失时打印跳过、不进 CI、不变红）。
+- **据证据修正 `FLAT_RUN_LEN` 3 → 4**：6 篇人类语料中 5 篇命中「恰好 3 句近等长」，而机器腔
+  样本在该规则上**零命中**——3 是噪声门而非判别门；提到 4 后人类语料只剩 1/6 篇命中
+  （《比目魚》的 7 句连串），机器腔命中数不变（5 条）。
+- **修掉一处隐患**：句长离散度指标此前与发现门共用 `FLAT_RUN_LEN` 作段落过滤——改门会连带
+  改指标（实测同一语料 SD 从 12–14 掉到 6–9）。新增 `SD_MIN_PARAGRAPH_SENTENCES = 3` 解耦，
+  指标回到 v0.65.0 基线口径。
+- **报告**：`docs/audits/2026-10-14-human-voice-corpus-calibration.md`（逐篇数据 + 修正动作 +
+  未动规则与理由）。两条重要记录：①`mood-particle-absent` 在明清文言上 1/6 误报但**不放宽**
+  （register 不同，放宽会削弱现代语域判别力；该规则本就是 advisory、editor 不得据此判
+  blocking）；②**段落 CV 单独无判别力**（人类语料中位数 0.28 < 门 0.30），零误报靠「且无短段」
+  合取——该合取承重，后续不得拆开。
+
+### 测试与验收
+
+- `cargo test --lib` **1816 passed / 6 ignored（+1 ignored）**：新增
+  `voice_corpus_calibration_probe`（ignore）；`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`
+  契约更新为「四句连串报、三句连串不报」；`machine_probe` 复跑**机器腔命中不降（5 条）、
+  人类对照样本 0 误报**。
+- clippy 0 error / fmt / guard / tsc / vitest 625 passed / 3 skipped 全绿。
+
+### 契约
+
+`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`（更新）；
+`voice_corpus_calibration_probe`（`#[ignore]`，语料目录驱动）。
+
+### 未关闭
+
+- 语料是**明清白话 ≠ 现代网文语域**（更少语气词、段落更整）：本报告是下限参照，现代语域
+  校准需要作者旧稿或另行采集——报告已写明。
+- 未对「人类语料命中率上限」做断言（观测值 2/6 篇、每篇最多 1 条）；探针不进 CI。
+
 ## v0.71.0（2026-10-14）
 
 **P2-6 长篇稳定性回归门 + P2-9 创世概念体检（Sherpa 借鉴收尾两小项）。**
