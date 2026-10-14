@@ -230,6 +230,12 @@ pub struct AppConfig {
     /// 关掉则只记失效标记，作者在运行维护页手动重算。
     #[serde(default = "default_auto_recompute_after_edit")]
     pub auto_recompute_after_edit: bool,
+    /// v0.66.0：续写前做一次前文检索并把相关原文摘录注入 writer prompt
+    /// （默认开；P0-1 检索接线，见
+    /// docs/audits/2026-10-14-sherpa-benchmark-analysis.md）。
+    /// 关掉则完全不检索、不消耗 embedding。
+    #[serde(default = "default_continue_retrieval_enabled")]
+    pub continue_retrieval_enabled: bool,
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
     #[serde(default = "default_concurrency")]
     pub book_deconstruction_concurrency: usize,
@@ -437,6 +443,10 @@ fn default_max_feedback_loops() -> u32 {
 }
 
 fn default_auto_recompute_after_edit() -> bool {
+    true
+}
+
+fn default_continue_retrieval_enabled() -> bool {
     true
 }
 
@@ -1087,6 +1097,7 @@ impl Default for AppConfig {
             tool_temperature: None,
             agent_mappings,
             auto_recompute_after_edit: true,
+            continue_retrieval_enabled: true,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,

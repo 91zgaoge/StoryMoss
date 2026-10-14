@@ -1288,6 +1288,170 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
     );
 }
 
+/// P0-1（v0.66.0）：续写检索门——召回第 2 章远距离细节注入 writer prompt；
+/// 当前章（第 3 章）记录必须排除；无向量库时整块缺席（生产降级路径）。
+#[tokio::test]
+async fn test_continue_injects_retrieval_block_and_degrades_without_store() {
+    crate::embeddings::embedding::init_embedding_model().ok();
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "检索门".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c2', ?1, '苏会山', '行商', '谨慎', '保住玉佩', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        // 已有关系行 → ensure_seed_relationships 短路（否则会多花一次 Producer
+        // 调用）。
+        conn.execute(
+            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, description, created_at)
+             VALUES ('r1', ?1, 'c1', 'c2', '盟友', '旧识', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = SceneRepository::new(pool.clone());
+    // 第 1 章带章纲：bundle 固定按第 1 章加载 → chapter_plan_missing=false，
+    // 不触发章纲生成，mock 队列只花在正文上。
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                outline_content: Some("本章：阿苔捡到断灯绳。".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let ch3 = scene_repo.create(&story.id, 3, Some("第三章")).unwrap();
+    let opening = "<p>阿苔在雪夜渡口见到苏会山。</p>";
+    scene_repo
+        .update(
+            &ch3.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(opening.into()),
+                outline_content: Some("本章：苏会山归还玉佩。".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // 向量库：第 2 章（应召回）与第 3 章（当前章，应排除）。
+    let store: Arc<dyn crate::ports::VectorStore> =
+        Arc::new(crate::ports::testing::FakeVectorStore::new());
+    let distant = "第2章: 雪夜渡口，苏会山把祖传玉佩交给阿苔，嘱她勿示于人。";
+    store
+        .upsert(crate::vector::VectorRecord {
+            id: "s_ch2".into(),
+            story_id: story.id.clone(),
+            chapter_id: "c2".into(),
+            chapter_number: 2,
+            text: distant.into(),
+            record_type: "chapter_summary".into(),
+            metadata: None,
+            embedding: crate::embeddings::embedding::embed_text(distant).unwrap(),
+        })
+        .await
+        .unwrap();
+    let current = "第3章: 当前章正文不应被检索到。";
+    store
+        .upsert(crate::vector::VectorRecord {
+            id: "s_ch3".into(),
+            story_id: story.id.clone(),
+            chapter_id: "c3".into(),
+            chapter_number: 3,
+            text: current.into(),
+            record_type: "chapter_summary".into(),
+            metadata: None,
+            embedding: crate::embeddings::embedding::embed_text(current).unwrap(),
+        })
+        .await
+        .unwrap();
+
+    // 两次响应：正文 + 探针缺口重试（重试 best-effort，用同一文本即稳定）。
+    let beat = pass_grade_content("第三拍：玉佩归还。");
+    let mock = MockLlm::scripted(vec![beat.as_str(), beat.as_str()]);
+    let coordinator = AgencyCoordinator::for_test_with_store(pool.clone(), mock.clone(), store);
+    coordinator
+        .run_continue(
+            "ap-r1",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch3.id.clone(),
+            },
+            "让苏会山把玉佩还给阿苔",
+            Some(opening),
+        )
+        .await
+        .unwrap();
+    {
+        let calls = mock.calls.lock().unwrap();
+        let prompt = calls.first().expect("应有一次正文生成");
+        assert!(
+            prompt.contains(crate::agency::retrieval::RETRIEVAL_BLOCK_HEADER),
+            "检索块应注入 writer prompt"
+        );
+        assert!(prompt.contains("玉佩交给阿苔"), "应召回到第 2 章远距离细节");
+        assert!(
+            !prompt.contains("当前章正文不应被检索到"),
+            "当前章记录必须排除"
+        );
+    }
+
+    // 降级：无向量库（生产缺 State / 测试无注入）时整块缺席。
+    let beat2 = pass_grade_content("第四拍：无检索。");
+    let mock2 = MockLlm::scripted(vec![beat2.as_str(), beat2.as_str()]);
+    let coordinator2 = AgencyCoordinator::for_test(pool.clone(), mock2.clone());
+    coordinator2
+        .run_continue(
+            "ap-r2",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch3.id.clone(),
+            },
+            "继续",
+            Some("<p>阿苔在雪夜渡口见到苏会山。</p><p>（续）</p>"),
+        )
+        .await
+        .unwrap();
+    let calls2 = mock2.calls.lock().unwrap();
+    let prompt2 = calls2.first().expect("应有一次正文生成");
+    assert!(
+        !prompt2.contains(crate::agency::retrieval::RETRIEVAL_BLOCK_HEADER),
+        "无向量库时不得注入检索块"
+    );
+}
+
 #[test]
 fn pass_grade_content_survives_sanitize_and_self_repeat_gate() {
     let text = pass_grade_content("前缀。");

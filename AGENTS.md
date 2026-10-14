@@ -97,10 +97,10 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1780 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线）
+- `cargo test -p storymoss` ✅ 1788 passed / 5 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 620 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开）
-- `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭）
+- `npx playwright test` ✅ 39 passed / 5 skipped（门禁仍非阻塞，见未关闭；v0.66.0 未改前端沿用此基线）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
@@ -110,6 +110,38 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.66.0 - 续写检索接线（Sherpa 借鉴 P0-1）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 指出——Sherpa 的「叙事
+世界模型」是「状态跟踪 + 按需检索」一对，StoryMoss 的状态侧（KG/知识边界/物品账本/分层摘要）
+在生产路径，检索侧（LanceDB 向量检索）实现完整却**零生成调用**：`QueryPipeline` 模块级
+`#![allow(dead_code)]`（`memory/query.rs:1`）、写时 Bundle 的参考场景退化为关键词重叠 top 3
+（`write_time_bundle.rs:213-226`）。本版把「按需取精确上下文」接进续写主路径。
+
+**改动**：新增 `src-tauri/src/agency/retrieval.rs`（纯函数 + fetch）——`build_retrieval_query`
+以节拍卡为查询源（在场角色名 ≤4 / 地点 / 冲突双方 ≤2 / 下一节点 / 指令 ≤40 字，总 ≤200 字）；
+`render_retrieval_block` 排除当前章及以后、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、
+摘录「【】」降级「「」」防段落标记混淆；`fetch_retrieval_block` 走 `embed_text_async`（全局
+provider，缺省哈希回退）+ `ports::VectorStore::search`（`text_search` 是前缀 LIKE，中文多词
+召回不了，弃用；RRF 在此场景等价向量路），任何失败静默降级。`AgencyCoordinator` 生产从 Tauri
+State `try_state` 取库（拿不到即跳过）、`#[cfg(test)] for_test_with_store` 注入；注入点在
+`write_beat_once` 的 `continuity_blocks` 生成后、`render_parts` 前（受保护段，位于 Bundle 区，
+prompt 顺序契约不变）；开关 `AppConfig::continue_retrieval_enabled`（默认开，配置文件项）。
+
+- **验证**：`cargo test --lib` **1788 passed / 5 ignored（+8）**：7 项单测（query 组装/截断/去重、
+  块渲染排除当前章/上限/同章去重/括号清洗/空结果、章号前缀剥离）+ **召回探针**（FakeVectorStore
+  埋「第 2 章 玉佩交给苏会山」→ 写第 40 章召回到）+ coordinator 集成（检索块进 prompt、当前章
+  记录排除、无库整块缺席降级）。clippy 0 error / fmt / guard ✅；前端未改动（vitest 620 / 3
+  skipped、playwright 39 / 5 skipped 沿用 v0.65.4 基线）。
+- **契约**：`retrieval_recall_probe_finds_distant_detail`；
+  `test_continue_injects_retrieval_block_and_degrades_without_store`；
+  `block_excludes_current_and_future_chapters`；`block_caps_items_chars_and_dedupes_chapters`；
+  `block_sanitizes_prompt_markers_and_returns_none_when_empty`；`query_collects_card_slots_and_instruction_with_caps`；
+  `query_ignores_empty_slots_and_truncates_long_instruction`；`excerpt_strips_redundant_chapter_prefix`。
+- **未关闭**：真机端到端未复跑（**不得宣称检索已改善续写质量**；真机探针=≥10 章的书+远距离
+  细节关键词，观察命中与 token/延迟增量）；本地哈希 embedding 召回有限；无相关性阈值过滤
+  （噪声靠块头约束 + 1200 字上限控制）。
 
 ### v0.65.4 - v0.65.3 的 CI 收尾（用例隔离）
 
@@ -173,14 +205,6 @@ CI（Linux）红，根因是**用例隔离**而非产品代码：幕前 `useFron
 - **验证**：`cargo test --lib` 1778 passed / 5 ignored（+1，v0.65.0 基线 1777）；fmt / 格式守卫通过。
 - **契约**：`test_v0650_human_voice_doctrine_in_prompts`（六个写作/规划/审查提示词必须分别携带人类文笔基线要素，防后续编辑悄悄改掉）。
 - **未关闭**：同 v0.65.0（叙事架构层无确定性检查；真机端到端未复跑）。
-
-### v0.65.0 - 人类文笔基线（sepia / StoryScope 方法落地）
-
-**为什么**：主创的文笔「明显是 AI 写的」不是词句问题，而是**分布偏移**——把公认的 AI 特征反向拉满会造出新的机器感（sepia：时间非线性人类中位 2.4/5，不是 5/5；中文人类语料 30% 的文章含「不是…而是」，单例是正常语域）。**做法**：`story_system::human_voice`（纯函数，0 LLM）只收**跨语言/跨模型世代方向一致**的形态——句长离散度（唯一方向一致的句法指标）、语气词缺失（中文人类密度 5 倍）、情绪具身化独大（机器 81% 用身体反应承载情绪，人类 38%，人类反而更常直说「她害怕」）、连词堆叠、双音节填充、花式对话标签轮换、抽象包装、段落过匀；**方向矛盾项一律不入规则**（标点密度、平均句长、段落数、词汇多样性）。写作端 `agency::beat_card::render_writer_user_prompt` 注入 7 条固定准则 + **8 条手法池按已写篇幅轮换**（Select, don't accumulate：多样性来自每篇选 3–5 个手法，不是堆满；置于末句锚点之前，锚点保持最后的高显著位）；`render_writer_system_from_bundle` 追加常驻准则（用户覆盖模板也生效）；editor 资产加【人类文笔基线】块 + 诊断纪律（按两组逐条核查——一次通读只看得到最扎眼的一两项；每条阻断引用一处原文；白名单：语法干净/单个破折号/单个「不是…而是」/正式语域都不是 AI 证据；修正优先删换其次加）；commit 把发现并入 `review_result`。**校准既有模块**：`prose_lint` 的「不是…而是」改聚集（≥2）才报；`anti_ai` 三处方向错误的判定修正（平直命名情绪不是缺陷、重复「说」是常态、感官密度低不是 AI 指纹），并修复对话提取只认弯引号导致「」体例下整块漏检。
-
-- **验证**：`cargo test --lib` 1778 passed / 5 ignored（+15）；vitest 609 / 3 skipped；clippy 0 error；fmt / prettier / guard / tsc 全绿。**验收探针**（ignored 手动跑）：机器腔样本命中 5 条（embodied-only / fancy-speech-tags / connective-stack / disyllabic-padding / abstract-wrapper），人类腔样本 **0 误报**；句长 SD 6.24 对 14.97、语气词 0 对 4、平直命名 0 对 2。
-- **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`；`embodied_only_is_a_deficit_not_plain_naming`；`mood_particle_absence_only_with_dialogue`；`fancy_tags_flagged_only_when_plain_said_is_absent`；`connective_stack_and_disyllabic_padding_are_detected`；`abstract_wrapper_needs_cluster`；`clean_literary_text_produces_no_findings`；`technique_rotates_by_chapter_and_guidance_is_compact`；`audit_block_is_bounded_and_empty_when_clean`；`writer_prompt_carries_human_voice_guidance_before_ending_anchor`；`plain_emotion_naming_is_not_flagged_but_embodied_only_is`；`repeated_plain_speech_tag_is_not_flagged_but_fancy_rotation_is`；`sentence_rhythm_uses_dispersion_not_mean_length`；`flags_not_x_but_y_only_when_clustered`；`test_v0650_human_voice_doctrine_in_prompts`。
-- **未关闭**：叙事架构层（主题不解释 / 结局非「主角选择+接纳+成长」三脚架 / 配角不互识）只落在提示词与审查清单，无确定性检查（需跨章语义，确定性规则做不了，单次 LLM 自评天然盲——sepia 实测自评塌缩到一两个维度，留待分组多次诊断）；真机端到端未复跑（本机库无章节正文），**不得宣称续写质量已修复**。
 
 ## Always Do
 

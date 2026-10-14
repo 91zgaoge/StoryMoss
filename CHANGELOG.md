@@ -2,6 +2,64 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.66.0（2026-10-14）
+
+**P0-1 检索接线：把「按需取精确上下文」接进续写路径（Sherpa 借鉴第一版）。**
+
+缘起：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Pocket FM Sherpa 的「叙事世界
+模型」是「状态跟踪 + 按需检索」一对；StoryMoss 的状态侧（KG / 知识边界 / 物品账本 / 分层摘要）
+早已在生产路径，检索侧（LanceDB 向量检索）实现完整却从未被生成消费（`QueryPipeline` 零调用
+方、写时 Bundle 的参考场景退化为关键词重叠 top 3）。本版新增 `agency::retrieval` 检索门：
+续写前以节拍卡为查询源（在场角色名 / 地点 / 冲突双方 / 下一节点 / 指令）做一次轻量向量检索，
+把前文相关原文摘录作为**只读块**注入 writer prompt。
+
+### 变更
+
+- 新增 `src-tauri/src/agency/retrieval.rs`：`build_retrieval_query`（纯函数，≤200 字）+
+  `render_retrieval_block`（排除当前章及以后、score 降序、同章去重、≤4 条 × ≤240 字、
+  块 ≤1200 字、摘录中「【】」降级为「「」」防与 prompt 段落标记混淆）+
+  `fetch_retrieval_block`（embed → `ports::VectorStore::search`；无库 / 嵌入失败 / 检索失败
+  一律静默降级，绝不阻断续写）。
+- `AgencyCoordinator`：生产从 Tauri State 取向量库（`try_state`，拿不到即跳过）；`#[cfg(test)]`
+  增加 `for_test_with_store` 注入通道（生产零改动）。
+- 注入点：`write_beat_once` 的 `continuity_blocks` 生成后、`render_parts` 前（受保护段，
+  位于 Bundle 区，不进「【节拍摘要】↔末句锚点」区间——既有 prompt 顺序契约不变）。
+- 开关：`AppConfig::continue_retrieval_enabled`（默认开；配置文件项，关掉完全不检索、
+  不消耗 embedding）。
+- 用向量路 `search` 而非 `hybrid_search`：`text_search` 是前缀 LIKE（`text LIKE 'query%'`），
+  中文多词查询实际召回不了，RRF 融合在此场景等价于向量路排序。
+
+### 测试与验收
+
+- `cargo test --lib` **1788 passed / 5 ignored**（+8）：
+  - 单测 7 项：query 组装/截断/去重、块渲染（排除当前章/条数上限/同章去重/括号清洗/空结果）、
+    章号前缀剥离；
+  - **召回探针**（玉佩测试本地化）：FakeVectorStore 埋「第 2 章 玉佩交给苏会山」→ 写第 40 章
+    召回到该细节；
+  - coordinator 集成：`for_test_with_store` 断言检索块进入 writer prompt、当前章记录被排除；
+    无向量库时整块缺席（降级路径）。
+- 说明：审计文档原计划的 `evals/` JSON 场景无法注入向量库，改为上述确定性单测 +
+  coordinator 测试（更可回归）；`agency::eval_harness` 三场景不变（无 store 自动跳过）。
+- clippy 0 error / fmt / guard ✅；前端未改动（vitest 620 / 3 skipped、playwright 39 / 5 skipped
+  沿用 v0.65.4 基线）。
+
+### 契约
+
+`query_collects_card_slots_and_instruction_with_caps`；
+`query_ignores_empty_slots_and_truncates_long_instruction`；
+`block_excludes_current_and_future_chapters`；`block_caps_items_chars_and_dedupes_chapters`；
+`block_sanitizes_prompt_markers_and_returns_none_when_empty`；`excerpt_strips_redundant_chapter_prefix`；
+`retrieval_recall_probe_finds_distant_detail`；
+`test_continue_injects_retrieval_block_and_degrades_without_store`。
+
+### 未关闭
+
+- 真机端到端未复跑：**不得宣称检索已改善续写质量**；真机探针（≥10 章的书、指令含远距离
+  细节关键词 → 观察注入块命中与 token/延迟增量）待跑。
+- 本地哈希 embedding 下召回有限（未配置语义 provider 时）；检索质量随远程 embedding 提升。
+- 检索块暂不做相关性阈值过滤（RRF/余弦分不可直接当阈值用），噪声靠块头「仅在与本拍相关时
+  承接细节」+ 1200 字上限控制；多查询与阈值校准留后续。
+
 ## v0.65.4（2026-10-09）
 
 **v0.65.3 的 CI 收尾：幕前用例隔离（store 单例跨用例污染）。**

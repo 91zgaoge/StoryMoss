@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.65.4-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.66.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,14 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.66.0 · 续写会去翻前文了：检索接线（P0-1）
+
+写作时最怕的不是没灵感，而是「第 3 章埋的玉佩，写到第 40 章时系统手里没有它」。本版把
+**前文检索**接进续写路径：每次续写前，系统以本拍任务卡为线索（在场角色、地点、对峙双方、
+下一节点、你的指令）去向量库里翻一遍前文，把真正相关的**原文摘录**带进写作上下文——
+只读注入、失败静默跳过、不改任何门限。检索在配置里 `continue_retrieval_enabled`（默认开）
+可关。验收上：埋在第 2 章的细节在写第 40 章时能被召回（确定性探针），当前章记录绝不重复注入。
 
 ### v0.64.12 · 改旧章后自动重算，且只算真改过的章
 

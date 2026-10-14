@@ -1015,6 +1015,7 @@ function assertUnreachable(x: never): never {
 - `coordinator.rs`：创世/续写协调器——质量门判定（`evaluate_gate`）、并行稳态循环（编辑审第 N 章与主创写第 N+1 章并发）、request_id 定点取消
 - `continue_loop.rs`：续写后台回流/活动日志；`run_asset_ingest` 供续写与观察共用
 - `observe.rs`：手写/粘贴正文观察编排（设计 `docs/plans/2026-08-17-prose-observe-agency-design.md`）
+- `retrieval.rs`：续写检索门（v0.66.0，P0-1 检索接线）——以节拍卡为查询源做一次向量检索，把前文相关原文摘录作为只读块注入 writer prompt（`build_retrieval_query` / `render_retrieval_block` / `fetch_retrieval_block`；失败静默降级）
 - `gate.rs`：质量门规则复检（规则问题归并 + 复检上下文构建）；门径为编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配
 - `budget.rs`：AgencyBudget——按角色并发信号量（writer/producer/editor）+ run 级 token 预算硬上限（默认 30 万 tokens）+ agency 全局 LLM 并发闸门（跨 run 在途上限 3，request_id RAII 注册，锁序：先 run 级角色预算后全局闸门）
 - `materialize.rs`：创作资产自动落库（characters / world_buildings / story_outlines）
@@ -1058,6 +1059,8 @@ function assertUnreachable(x: never): never {
 - **学习中心页**：前端 `AgencyLearning`——模式列表与置信度、晋升提案确认/拒绝、观察流、手动「立即分析」；`agency_learning_overview` 聚合 IPC。
 - **代理工作室页**：前端 `AgencyStudio`——三角色实时状态卡 + 黑板分区视图（事件驱动刷新）+ 活动时间线。
 - **eval 纳入 CI 专用门禁**：CI 新增 `cargo test --lib agency::eval_harness` step；检查点对比 UI（`agency_compare_checkpoints` 前端落地）；`agency_eval_overview` 新增 story 级 token 聚合（每 run `MAX(tokens_used)` 去重后跨 run 求和）；rule grader 追读力口径对齐生产实现。
+
+**续写检索门（v0.66.0，P0-1 检索接线；缘起 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`）**：Sherpa 的叙事世界模型是「状态跟踪 + 按需检索」一对——StoryMoss 的状态侧（KG/知识边界/物品账本/分层摘要）早已在生产路径，检索侧（LanceDB 向量检索）实现完整却从未被生成消费（`QueryPipeline` 零调用方、写时 Bundle 参考场景退化为关键词重叠 top 3）。本层把检索接进续写主路径：`write_beat_once` 在 `continuity_blocks` 生成后、`render_parts` 前，以节拍卡为查询源（在场角色名 ≤4 / 地点 / 冲突双方 ≤2 / 下一节点 / 指令 ≤40 字，总 ≤200 字）调 `embed_text_async`（全局语义 provider，缺省哈希回退）+ `ports::VectorStore::search`（向量路；`text_search` 是前缀 LIKE，中文多词召回不了故弃用），把 top 结果渲染成【前文相关原文（检索）】块——排除当前章及以后、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、摘录「【】」降级「「」」防与 prompt 段落标记混淆。纪律：只读注入（不改门限/不改落库）、任何失败静默降级不阻断续写、无向量库（`try_state` 取不到）即跳过。开关 `AppConfig::continue_retrieval_enabled`（默认开）。测试：召回探针（FakeVectorStore 埋第 2 章细节 → 写第 40 章召回到）+ coordinator 注入/降级集成。
 
 **创世快速路径（v0.30.1）**：原六阶段串行流程（12-18 次 LLM 调用）压缩为三阶段 4 次调用——Phase A 概念包单调用（Producer 档，一次产出 title/genre/logline/角色卡）→ Phase B 双模式编排（可用生成模型 >1 时主创首章 ∥ 管理深度资产 `tokio::join!` 并行；≤1 即单模型时主创优先先出首章、深度资产随后串行）→ Phase C 编辑质量门/修订/装配（与 legacy 共用 `review_and_assemble`），典型远程模型首章 ≤3 分钟。回退规则：任一单调用解析失败即回退原串行多轮流程（`run_genesis_legacy_inner`，概念包结果复用）；取消信号不属于快速路径失败，直接传播收敛为 cancelled，不进入 legacy、不产生 fallback 遥测。主创模型优先（Tool 档互斥）：`pick_fastest_for_role` 在 TTFB 排序与健康回退两个分支都排除 active/creative 模型，管理/编辑不再与主创同模型；排除后无候选（单模型场景）回退允许 active，不饿死 Tool 档。smart_execute 超时回退统一为 600s（原配置加载失败时回退 180s）。
 

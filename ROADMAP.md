@@ -1,8 +1,23 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-10-09（v0.65.4：v0.65.3 的 CI 收尾——新增用例在 Linux 因幕前 store 单例跨用例污染而 flaky（`captured.content` 断言在应用加载完成前通过 → CI 报找不到章节下拉），`beforeEach` 增加 store 复位 + 首次交互等候选出；v0.65.3：幕前「续写后正文消失 / 章节点不开」真机缺陷修复——①懒加载守卫只 add 不 delete，章懒加载过一次后本次会话内再也点不开（日志 `Already attempted lazy-load`）→ 改为在途去重 + 可重试；②`RichTextEditor` 的「有焦点不强制 setContent / Tab 接受后 30s 禁同步」两道守卫把**无交互的分章自动切换**的新章正文挡掉（屏幕停在旧章、章标题已切走）→ 以章 id 为文档身份，切章优先于两道守卫；③`selectChapter` 无条件清空未确认幽灵续文 → 新纯函数 `isGhostDeliveredInContent` 判定是否已随新章正文呈现，未呈现则保留并提示。回归探针修复前逐条复跑为红。v0.65.2：主续写路径 system 提示词（CONTINUE_BEAT_SYSTEM，用户不可覆盖）补文笔准则 + 短剧路径按剧本语域补可拍性约束。v0.65.1：v0.65.0 收尾——叙事架构层入章纲规划、删优于加的改写纪律、六提示词契约测试。v0.65.0：人类文笔基线——sepia/StoryScope 方法落地：`story_system::human_voice` 确定性基线（句长离散度/语气词缺失/情绪具身化独大/连词堆叠/双音节填充/花式对话标签/抽象包装/段落过匀）、写作提示词注入固定准则+手法轮换、editor 诊断纪律与白名单、commit 记录；校准 prose_lint 与 anti_ai 方向错误的判定。v0.64.12：自动后台重算 + 指纹感知（只重算真改过的章）。v0.64.11：物料失效重算 + 关系归一 + 摘要失败可见。v0.64.10：冲突升级/衰减——同一对峙不得连拍复述，探针两缺口入库。v0.64.9：续写重演修复——卡块不再回灌成章纲、兜底「下一拍」不落库、新章补章纲；投影 writer 恢复落库。v0.64.8：称号幻影行随死者一并排除；v0.64.7：死人不得复活——角色生死状态持久化 + V142 存量回填 + 注入路径排除 + 作者改判）
+> 最后更新: 2026-10-14（v0.66.0：续写检索接线——Sherpa 借鉴 P0-1，见 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`：新增 `agency::retrieval` 检索门，续写前以节拍卡为查询源（在场角色/地点/冲突双方/下一节点/指令）做一次向量检索，把前文相关原文摘录作为**只读块**注入 writer prompt（排除当前章、≤4 条×≤240 字、块 ≤1200 字、摘录「【】」降级防段落标记混淆）；生产从 Tauri State `try_state` 取库、失败静默降级；开关 `continue_retrieval_enabled`（默认开）。召回探针（第 2 章玉佩 → 写第 40 章召回到）+ coordinator 注入/降级测试，`cargo test --lib` 1788 passed / 5 ignored（+8）。**未关闭**：真机端到端未复跑，不得宣称检索已改善续写质量。v0.65.4：v0.65.3 的 CI 收尾（用例隔离）；v0.65.3：幕前「续写后正文消失 / 章节点不开」真机缺陷修复（懒加载守卫可重试 / 切章以章 id 为文档身份 / 幽灵不静默丢弃）；v0.65.2：主续写 system 补文笔准则；v0.65.1：叙事架构层入章纲规划 + 删优于加改写纪律；v0.65.0：人类文笔基线（sepia 方法落地））
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
+
+### ✨ v0.66.0 - 续写检索接线（Sherpa 借鉴 P0-1） ✅ (2026-10-14)
+
+- 新增 `src-tauri/src/agency/retrieval.rs`：`build_retrieval_query`（节拍卡 → ≤200 字查询）+
+  `render_retrieval_block`（排除当前章、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、
+  摘录「【】」→「「」」）+ `fetch_retrieval_block`（embed → `ports::VectorStore::search`，
+  失败静默降级；`text_search` 前缀 LIKE 中文召回不了弃用）
+- `AgencyCoordinator`：`try_state` 生产取库 + `#[cfg(test)] for_test_with_store` 注入；
+  注入点在 `write_beat_once` 的 `continuity_blocks` 生成后、`render_parts` 前（Bundle 区受保护段，
+  prompt 顺序契约不变）；开关 `AppConfig::continue_retrieval_enabled`（默认开）
+- 验证：`cargo test --lib` 1788 passed / 5 ignored（+8：7 单测 + 召回探针 + coordinator
+  注入/降级）；clippy 0 error / fmt / guard ✅；前端未改动（vitest 620 / playwright 39 沿用基线）
+- **未关闭**：真机端到端未复跑（真机探针：≥10 章的书 + 远距离细节关键词，观察命中与
+  token/延迟增量）；本地哈希 embedding 召回有限；无相关性阈值过滤（块头约束 + 字数上限控制）
+- 后续（审计文档 P0-2/P1-4 已排期）：v0.67.0 纲层失效与重规划；v0.68.0 判官一致率
 
 ### ✨ v0.65.4 - v0.65.3 的 CI 收尾（用例隔离） ✅ (2026-10-09)
 

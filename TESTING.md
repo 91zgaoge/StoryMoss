@@ -1,8 +1,24 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.65.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.66.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.66.0 变更说明
+
+- **Rust +8（1788 passed / 5 ignored）**：续写检索门（P0-1）——
+  `agency::retrieval` 7 单测（query 组装/截断/去重、块渲染排除当前章与未来章、条数/字数上限、
+  同章去重、`【】`→`「」` 清洗与空结果 `None`、章号前缀剥离）；
+  **召回探针** `retrieval_recall_probe_finds_distant_detail`（FakeVectorStore 埋「第 2 章
+  玉佩交给苏会山」→ 写第 40 章召回到该细节；空库 / 无库 / 空查询三类降级为 `None`）；
+  coordinator 集成 `test_continue_injects_retrieval_block_and_degrades_without_store`
+  （`for_test_with_store` 断言检索块进入 writer prompt、当前章记录被排除；无向量库整块缺席）。
+  跑法：`cargo test --lib retrieval`；CI 门禁 `cargo test --lib`（含 eval harness 三场景，
+  无向量库自动跳过检索）。
+- 前端未改动：`npx tsc --noEmit` / `npx vitest run`（620 passed / 3 skipped）/
+  `npx playwright test`（39 passed / 5 skipped）沿用 v0.65.4 基线。
+- **真机探针（手动，未跑）**：≥10 章的书，指令含远距离细节关键词 → 观察【前文相关原文（检索）】
+  块命中与 token/延迟增量；**未跑通前不得宣称检索已改善续写质量**。
 
 ### v0.65.4 变更说明
 

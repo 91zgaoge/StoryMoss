@@ -965,6 +965,10 @@ pub struct AgencyCoordinator {
     run_deadline: Mutex<Option<std::time::Instant>>,
     /// 一次 write_beat_once 内冻结节拍卡/阵容（对照 grok-bot memory freeze）。
     continue_freeze: Arc<crate::agency::continue_freeze::ContinueFreezeMap>,
+    /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
+    /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
+    #[cfg(test)]
+    test_vector_store: Option<Arc<dyn crate::ports::VectorStore>>,
     /// 测试用活动信号记录（app_handle=None 时 emit 静默，单测借此验证
     /// 角色/action/detail 配对）。格式 "role|action|detail"。
     #[cfg(test)]
@@ -982,6 +986,8 @@ impl AgencyCoordinator {
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             #[cfg(test)]
+            test_vector_store: None,
+            #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
     }
@@ -997,8 +1003,48 @@ impl AgencyCoordinator {
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             #[cfg(test)]
+            test_vector_store: None,
+            #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// P0-1 测试构造：额外注入向量库（生产走 Tauri State）。
+    #[cfg(test)]
+    pub fn for_test_with_store(
+        pool: DbPool,
+        llm: Arc<dyn LoopLlm>,
+        store: Arc<dyn crate::ports::VectorStore>,
+    ) -> Self {
+        let mut coordinator = Self::for_test(pool, llm);
+        coordinator.test_vector_store = Some(store);
+        coordinator
+    }
+
+    /// P0-1：取向量库。生产从 Tauri State 拿（setup 已 manage；try_state 不
+    /// panic，拿不到即跳过检索）；测试走注入。
+    fn retrieval_store(&self) -> Option<Arc<dyn crate::ports::VectorStore>> {
+        #[cfg(test)]
+        if let Some(store) = &self.test_vector_store {
+            return Some(store.clone());
+        }
+        let app = self.app_handle.as_ref()?;
+        app.try_state::<Arc<dyn crate::ports::VectorStore>>()
+            .map(|state| state.inner().clone())
+    }
+
+    /// P0-1：续写检索开关（默认开，配置键 `continue_retrieval_enabled`）。
+    /// 无 UI 环境（测试）按开启处理，是否真的检索由向量库可用性决定。
+    fn retrieval_enabled(&self) -> bool {
+        let Some(app) = self.app_handle.as_ref() else {
+            return true;
+        };
+        let Ok(dir) = app.path().app_data_dir() else {
+            return true;
+        };
+        crate::config::AppConfig::load(&dir)
+            .map(|config| config.continue_retrieval_enabled)
+            .unwrap_or(true)
     }
 
     /// 按正文重写生产资产。不创建会挡住续写的 Agency run。
@@ -1237,6 +1283,8 @@ impl AgencyCoordinator {
             model_count_override: self.model_count_override,
             run_deadline: Mutex::new(None),
             continue_freeze: self.continue_freeze.clone(),
+            #[cfg(test)]
+            test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
@@ -2986,6 +3034,8 @@ impl AgencyCoordinator {
                 run_deadline: Mutex::new(None),
                 continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
                 #[cfg(test)]
+                test_vector_store: None,
+                #[cfg(test)]
                 activity_log: Mutex::new(Vec::new()),
             };
             let timed = tokio::time::timeout(std::time::Duration::from_secs(300), async {
@@ -4627,7 +4677,7 @@ impl AgencyCoordinator {
                 crate::agency::continue_director::sanitize_bundle_relations(&filtered, &lock);
             p.bundle.relationship_lines = filtered;
             relation_alerts.extend(bundle_dropped);
-            let continuity_blocks = {
+            let mut continuity_blocks = {
                 let pool = self.pool.clone();
                 let sid = story_id.to_string();
                 let names = admitted.clone();
@@ -4665,6 +4715,22 @@ impl AgencyCoordinator {
                 .await
                 .unwrap_or_default()
             };
+            // P0-1（v0.66.0）：按需检索——以节拍卡为查询源，把前文相关原文
+            // 摘录作为只读块注入（Sherpa 借鉴：状态跟踪之外的另一半是检索）。
+            // 只读：不改门限/不改落库；任何失败在 fetch 内静默降级。
+            if self.retrieval_enabled() {
+                let query = crate::agency::retrieval::build_retrieval_query(&card, instr);
+                if let Some(block) = crate::agency::retrieval::fetch_retrieval_block(
+                    self.retrieval_store().as_ref(),
+                    story_id,
+                    &query,
+                    chapter_number,
+                )
+                .await
+                {
+                    continuity_blocks.push(block);
+                }
+            }
             let assets = render_parts(
                 p,
                 &admitted,
