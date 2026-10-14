@@ -1,5 +1,8 @@
 # StoryMoss「创作方法论」在创世过程中的应用审计报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../../CHANGELOG.md)。
+
+
 > **审计日期：** 2026-07-09  
 > **代码基线：** 工作区当前 master 线（含 v0.26.28+ 策略前移、v0.26.44 开篇骨架、v0.26.46 题材画像 ensure 进行中）  
 > **范围：** 方法论资产目录 → StrategySelector 选择 → Genesis quick/background 注入 → TriShot 首章 Writer → 落库与续写回流  

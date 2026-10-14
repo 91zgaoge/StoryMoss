@@ -3,6 +3,7 @@ import { Hero } from "./components/Hero";
 import { TrioSection } from "./components/TrioSection";
 import { LoopSection } from "./components/LoopSection";
 import { CraftSection } from "./components/CraftSection";
+import { LongformSection } from "./components/LongformSection";
 import { ScreensSection } from "./components/ScreensSection";
 import { QuickStart } from "./components/QuickStart";
 import { PricingSection } from "./components/PricingSection";
@@ -18,6 +19,7 @@ export default function App() {
         <TrioSection />
         <LoopSection />
         <CraftSection />
+        <LongformSection />
         <ScreensSection />
         <QuickStart />
         <PricingSection />

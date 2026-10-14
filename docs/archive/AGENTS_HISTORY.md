@@ -1,3 +1,20 @@
+*归档于 2026-10-14（v0.72.1）：v0.68.1 摘要。*
+
+### v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）
+
+**为什么**：v0.68.0 的 tag 构建挂在 `frontend-check`——`FrontstageApp.split-auto-switch.test.tsx`
+在 Linux CI 上有两条用例先后因 `waitFor` 超时失败（默认 1s 上界下 `chapterListReloadCalls()
+.length` 0>0；另一条 5s 上界在 5015ms 超时）。同内容在 **v0.67.0 的 tag 构建全绿、本机重复跑
+全绿、v0.66.0（未改前端）同样红**——纯时序抖动，非产品缺陷。按「不覆盖已有 tag」规则单独发版。
+
+**改动（仅测试）**：`configure({ asyncUtilTimeout: 5000 })` 统一该文件等待上界；三处曾超时的
+显式等待 5s → 10s。产品代码零改动。
+
+- **验证**：vitest 622 passed / 3 skipped；该文件连续重复跑 3 次全绿；tsc / prettier ✅；
+  未改 Rust（沿用 v0.68.0 基线 1797 passed / 5 ignored）。
+- **未关闭**：v0.66.0 / v0.68.0 的 tag 构建因超时未产出安装包（其 `tauri-build`/上传步骤随之
+  跳过，不污染 `latest.json`）；本版构建通过后以本版为发布版本。
+
 *归档于 2026-10-14（v0.72.0）：v0.68.0 摘要。*
 
 ### v0.68.0 - 判官一致率（Sherpa 借鉴 P1-4）

@@ -1,5 +1,8 @@
 # StoryMoss 提示词工程审计分析报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > **审计日期**：2026-06-27
 > **审计版本**：v0.23.64
 > **审计范围**：智能创作全链路的提示词应用——注册表、注入路径、资产消费、质量与协同

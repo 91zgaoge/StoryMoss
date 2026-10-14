@@ -1,5 +1,8 @@
 # Brooks-Lint Health Dashboard
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 **Mode:** Health Dashboard
 **Scope:** StoryMoss（草苔）v0.26.28 → v0.26.29 热修复前基线 — /Users/yuzaimu/projects/StoryMoss 全项目
 > 注：本扫描在 v0.26.29 文档/版本号提交前执行，代码功能与 v0.26.29 一致，仅版本元数据不同。

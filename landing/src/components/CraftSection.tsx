@@ -10,12 +10,12 @@ const GRADERS = [
   {
     key: "model",
     name: "编辑裁决",
-    desc: "五维审查打分，每条意见都引用原文作证。",
+    desc: "八维审查打分，每条意见都引用原文作证。",
   },
   {
     key: "human",
     name: "你的手感",
-    desc: "你改了多少，它记多少——修改率回流成信号。",
+    desc: "你改了多少，它记多少——修改率不参与加权，单独回流成信号。",
   },
 ];
 
@@ -53,7 +53,7 @@ export function CraftSection() {
         <SectionHeader
           kicker="品质"
           title="每一章，都要过审"
-          lead="四级评分者从机械规则到你的手感层层把关；评分、检查点、用量全部留痕，打开「创作评估」就能看见工作室的健康曲线。"
+          lead="从机械规则到编辑裁决，三级加权过闸（0.2 / 0.3 / 0.5）；你的修改率作为独立信号回流。评分、检查点、用量全部留痕，打开「创作评估」就能看见工作室的健康曲线。"
         />
 
         <div className="grid gap-5 md:grid-cols-2">
@@ -79,7 +79,9 @@ export function CraftSection() {
 
         <Reveal className="mt-10">
           <p className="text-sm text-dim">
-            里程碑检查点支持「现在 vs 当时」对比；评估场景随 CI 运行，回归即红。
+            里程碑检查点支持「现在 vs
+            当时」对比；「判官一致率」按你的改动核对每条审查意见——编辑判得准不准，你说了算。评估场景随
+            CI 运行，回归即红。
           </p>
         </Reveal>
       </div>

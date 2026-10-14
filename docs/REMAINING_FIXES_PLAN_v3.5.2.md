@@ -1,5 +1,8 @@
 # StoryMoss v3.5.2 剩余修复实施计划书
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > 制定时间: 2026-04-22
 > 基于: `docs/FULL_CODE_AUDIT_REPORT.md` 审计报告
 > 前置条件: v3.5.1 已推送 GitHub，139 测试全部通过

@@ -10,12 +10,12 @@ const STEPS = [
   {
     icon: Eye,
     title: "它观察",
-    desc: "后台分析器把反复出现的模式沉淀为「模式卡」：什么有效、什么被否决。",
+    desc: "后台分析器把反复有效的做法沉淀为「已学模式」：什么有效、什么被否决。你对续写的接受与放弃也会归到对应的写作手法上（章法偏好）。",
   },
   {
     icon: Sprout,
     title: "你确认",
-    desc: "模式攒够置信度、跨故事复现，学习中心把晋升提案交到你手上，一键确认。",
+    desc: "已学模式攒够置信度、跨故事复现，学习中心把晋升提案交到你手上，一键确认。",
   },
   {
     icon: Wand2,
@@ -67,7 +67,7 @@ export function LoopSection() {
         <Reveal className="mt-12">
           <div className="surface-1 flex flex-col gap-3 rounded-lg border border-subtle p-5 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-mist">
-              模式卡「开头避免天气描写」的置信度
+              已学模式「开头避免天气描写」的置信度
             </p>
             <div className="flex items-center gap-3">
               <div

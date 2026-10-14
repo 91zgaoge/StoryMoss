@@ -1,5 +1,8 @@
 # StoryMoss「拆书」全过程审计报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../../CHANGELOG.md)。
+
+
 > **审计日期：** 2026-07-09  
 > **代码基线：** v0.26.45（inspected）  
 > **范围：** 产品入口 → 解析分块 → AnalysisPipeline → LitSeg → 落库 → 转故事 → 续写回流  

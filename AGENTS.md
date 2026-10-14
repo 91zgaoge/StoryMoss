@@ -111,6 +111,24 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.72.1 - 文档与官网同步（无代码变更）
+
+**为什么**：Sherpa 借鉴清单八项在 v0.66.0–v0.72.0 全部落地后，专题文档与官网内容落后于实现
+（专题文档停在 v0.17–v0.23 口径、审计无落地状态、官网仍写「五维审查/模式卡/四级评分者」）。
+
+**改动**：①专题文档——`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md`
+「增补与更正」（创世/续写主线、新资产/新表/VOLUME 语义/注入块）、`docs/MODULE_CHARTER.md` agency
+行 + 关键子模块登记 + prompts 禁依赖规则、`docs/TROUBLESHOOTING.md` 4 条新排查 + 版本/死链修复、
+`KIMI.md` 版本、`docs/USER_GUIDE.md` 头部；②审计落地状态——Sherpa 审计加「落地状态」表（八项→
+版本与契约，P2-8 未落地）、ai-novel 审计加「八、落地状态补记」、project-review 加治理注记、
+laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 顶部清单补 v0.66–v0.72.1 八条；
+⑤官网新增「长篇」区块（按需检索/卷纲/改稿不漂/跨拍守卫）+ 修正三处过时文案 + CTA/meta/测试。
+代码零改动。
+
+- **验证**：Rust 基线不变（1816 passed / 6 ignored）；官网 vitest **25 passed**（+1）、tsc / build /
+  prettier 全绿；推送触发 deploy-landing。
+- **未关闭**：官网截图仍为 2026-07 旧版（需运行应用重截）；`public/screenshots/` 5 张未引用图保留。
+
 ### v0.72.0 - 人类语料校准（Sherpa 借鉴 P2-7）
 
 **改动**：引入 `resources/voice_corpus/`（6 部 PG 公版中文小说、各取正文前 2 万字符，附来源/许可）
@@ -186,21 +204,6 @@ Append/NextChapter 两条落库路径写日志、学习中心新增「章法偏�
   `v147_creates_beat_technique_log_idempotently` 等 11 项（详见 CHANGELOG）。
 - **未关闭**：真机未复跑（**不得宣称作者偏好已真正改善续写**）；归因是时间窗近似；
   「modify」类反馈前端尚未产生。
-
-### v0.68.1 - v0.68.0 的 CI 收尾（分章切换用例超时加固，仅测试）
-
-**为什么**：v0.68.0 的 tag 构建挂在 `frontend-check`——`FrontstageApp.split-auto-switch.test.tsx`
-在 Linux CI 上有两条用例先后因 `waitFor` 超时失败（默认 1s 上界下 `chapterListReloadCalls()
-.length` 0>0；另一条 5s 上界在 5015ms 超时）。同内容在 **v0.67.0 的 tag 构建全绿、本机重复跑
-全绿、v0.66.0（未改前端）同样红**——纯时序抖动，非产品缺陷。按「不覆盖已有 tag」规则单独发版。
-
-**改动（仅测试）**：`configure({ asyncUtilTimeout: 5000 })` 统一该文件等待上界；三处曾超时的
-显式等待 5s → 10s。产品代码零改动。
-
-- **验证**：vitest 622 passed / 3 skipped；该文件连续重复跑 3 次全绿；tsc / prettier ✅；
-  未改 Rust（沿用 v0.68.0 基线 1797 passed / 5 ignored）。
-- **未关闭**：v0.66.0 / v0.68.0 的 tag 构建因超时未产出安装包（其 `tauri-build`/上传步骤随之
-  跳过，不污染 `latest.json`）；本版构建通过后以本版为发布版本。
 
 ## Always Do
 

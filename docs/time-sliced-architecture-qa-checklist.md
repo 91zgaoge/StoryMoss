@@ -1,5 +1,8 @@
 # 分时介入架构 — QA 验收清单
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > 创建日期: 2026-06-14
 > 对应设计: [`2026-06-14-time-sliced-intervention-design.md`](./plans/2026-06-14-time-sliced-intervention-design.md)
 > 用途: 分时架构实施后的验收检查清单。**所有项必须通过才能标记为已验收。**

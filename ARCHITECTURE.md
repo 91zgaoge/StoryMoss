@@ -1,5 +1,21 @@
-# StoryMoss (草苔) v0.65.4 架构文档
+# StoryMoss (草苔) v0.72.1 架构文档
 
+> **v0.72.1**：**无架构变更**——文档与官网同步：新增/更新专题文档（`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md` 增补与更正、`docs/MODULE_CHARTER.md` 关键子模块登记、`docs/TROUBLESHOOTING.md` 新功能排查、`docs/audits/*` 落地状态补记与历史快照横幅）；官网 `landing/` 新增「长篇」区块（按需检索 / 卷纲 / 改稿不漂 / 跨拍守卫），并修正「五维审查→八维」「模式卡→已学模式」「四级评分者→三级加权 + 修改率独立信号」等过时文案。
+>
+> **v0.72.0**：**人类语料校准**——`resources/voice_corpus/`（6 部 Project Gutenberg 公版中文小说，各取正文前 2 万字符）+ `human_voice::corpus_calibration` 探针（`#[ignore]`，`STORYMOSS_VOICE_CORPUS`/`STORYMOSS_VOICE_OUT`）；据证据把 `FLAT_RUN_LEN` 3→4（人类语料 5/6 篇命中「恰好 3 句」、机器腔样本该规则零命中），并把句长离散度指标与发现门解耦（新增 `SD_MIN_PARAGRAPH_SENTENCES`，防指标随门漂移）；报告 `docs/audits/2026-10-14-human-voice-corpus-calibration.md`。
+>
+> **v0.71.0**：**长篇稳定性回归门 + 创世概念体检**——`agency::serial_harness`（`#[cfg(test)]`，确定性 MockLlm、随 `cargo test` 进 CI）：同场景四拍串联验证跨拍状态约束（死亡落库 / 死亡重演被拦 / 物品归属被拦 / 知识越界被拦；违规稿不得落库、合规重试稿落库、死亡状态仍在），守卫 `tests/serial_harness_guard.rs`；`agency_problem_logline` 增三问（张力/赌注/心理）与「首行 logline + 三行诊断」格式，`coordinator::split_logline_diagnostics` 切分（advisory 只记日志、旧格式不误伤，契约 `problem_logline_carries_three_checks`）。
+>
+> **v0.70.0**：**卷/弧中层计划（VOLUME 合同）**——`story_system::volume_plan`（卷纲存 `story_contracts` 的 VOLUME 合同：同卷号原地更新 / version 递增；`volume_overview` 状态机 no_plan/in_volume/past_end；`render_volume_block_for_chapter` 注入块）+ `AgencyCoordinator::generate_volume_plan`（Producer 一次 JSON 调用 + 资产 `agency_volume_planner_system.md`；作者在维护页显式触发）+ `generate_chapter_outline` 注入 `volume` 变量（`scene_outline.md` 的 `{{#if volume}}` 条件块，无卷纲时 prompt 逐字不变）+ 指南针规模接卷 + 命令 `volume_plan_overview` / `generate_volume_plan` + 维护页「卷纲」页签与合同页展示。
+>
+> **v0.69.0**：**作者裁决回灌手法池**——手法池加稳定 id（`Technique{id,label,text}`）；V147 `beat_technique_log` 每拍落一行（Append 与 NextChapter 两条落库路径，拍序号取 `read_beat_counters().append_beats`）；`agency::technique_feedback` 按时间窗（≤1 小时、`agent_type=writer`）把 Tab/Esc 归因到最近一拍的手法，产出 `TechniqueStat` 并可重置；`human_voice::choose_technique_index`（纯函数）在基准轮换之上优选已被接受 / 避开已被证明不佳（`render_writer_user_prompt_with_technique` 注入，旧函数保留 `None` 包装）；`agency_learning_overview` 增统计 + 命令 `agency_reset_technique_stats` + 学习中心「章法偏好」。
+>
+> **v0.68.0**：**判官一致率**——V146 `editor_gate_records`（`evaluate_gate_impl` 三条调用路径共用写入，findings_json 原样保留含 evidence 的结构）+ `agency::editor_agreement`（引用幸存判定：归一后 char-bigram 包含率 ≥0.8、引用 ≥6 字才可判；每章取最新 gate 记录，配 `human_signals` 修改率对照）+ `agency_eval_overview` 新段 + AgencyEval「判官一致率」卡（只报不改）。
+>
+> **v0.67.0**：**纲层失效与局部重规划**——`recompute::KIND_CHAPTER_OUTLINE`（**不入 `ALL_KINDS`**，`should_auto_recompute` 过滤以防空转）+ `mark_stale_kind`/`clear_stale_kind`；`agency::outline_replan`（候选复用 `chapter_plan_from_scene_outline`；`mark_outline_stale_for_edit` 确有下游才标记；`preview` ≤3 章不落库；`apply` 只落库作者勾选条目并推进失效标记）；`update_scene` 覆盖已有正文时标记；命令 `preview/apply_chapter_outline_replans` + `dismiss_stale_material` + 维护页新旧章纲对照对话框（默认全不勾选）。
+>
+> **v0.66.0**：**续写检索接线**——`agency::retrieval`（节拍卡 → ≤200 字查询 → `embed_text_async` + `ports::VectorStore::search` → 【前文相关原文（检索）】只读块：排除当前章及以后、score 降序同章去重、≤4 条 × ≤240 字、块 ≤1200 字、摘录「【】」降级「「」」；失败静默降级）；注入点在 `write_beat_once` 的 continuity_blocks 生成后、`render_parts` 前（Bundle 区受保护段）；`AgencyCoordinator` 生产 `try_state` 取库 + `#[cfg(test)] for_test_with_store` 注入；开关 `AppConfig::continue_retrieval_enabled`（默认开）。
+>
 > **v0.65.4**：**无架构变更**——v0.65.3 的 CI 收尾（测试用例隔离：幕前 `useFrontstageStore` 为模块级单例，`FrontstageApp.latest-chapter.test.tsx` 的 `beforeEach` 复位 store 并等候选出，消除 Linux 上的 flaky）。
 >
 > **v0.65.3**：**幕前切章链路三处缺陷修复**（真机《帝国的烟火》第 2→3 章自动分章）——①`FrontstageApp.selectChapter` 的懒加载守卫 `lazyLoadingChapterIdsRef` 语义由「已尝试即永久封锁」改为「在途去重 + 可重试」（`finally` 释放；`opts.lazyLoadRetried` 仅用于中止递归重入，v0.26.6 防死循环契约不变）；②`RichTextEditor` 外部内容同步引入**文档身份（章 id）**：`chapterId` 变化时优先于「编辑器有焦点不强制 setContent」（W2-F1）与「Tab 接受后 30s 禁外部 setContent」（v0.24.9）两道守卫，并豁免 1s/3 次同步熔断计数——同章后台同步仍照旧让位于守卫；③`selectChapter` 不再无条件 `setGeneratedText('')`，改用纯函数 `isGhostDeliveredInContent`（`utils/textCleanup`）判定未确认幽灵续文是否已随新章正文呈现（整体/前缀或幽灵结尾），未呈现则保留 + 顶栏提示。契约：`RichTextEditor 切章正文同步` / 懒加载可重开 / 分章幽灵保留与清空 / `isGhostDeliveredInContent` 5 用例。

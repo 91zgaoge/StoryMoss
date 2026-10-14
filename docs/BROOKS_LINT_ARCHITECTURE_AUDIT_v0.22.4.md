@@ -1,5 +1,8 @@
 # Brooks-Lint Review
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 **Mode:** Architecture Audit
 **Scope:** StoryMoss (草苔) v0.22.4 全项目 — Rust 后端 (`src-tauri/src`)、前端 (`src-frontend/src`)、模板与资产 (`templates/`)
 **Health Score:** 18/100

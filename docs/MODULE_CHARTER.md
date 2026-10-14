@@ -27,6 +27,7 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 3. `memory` 禁止依赖 `agents`（目标状态）。
 4. `creative_engine` 禁止依赖 `agents`（目标状态）。
 5. 业务模块之间的具体行为依赖应通过 trait/接口抽象，而非直接互相引用。
+6. `prompts` 禁止导入 `agency`（组装器在 prompts，上下文仍由 agency 编译；见 `scripts/architecture_guard.py` 的 `PROHIBITED`）。
 
 ---
 
@@ -40,6 +41,7 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `creative_engine` | 创作资产（风格、方法论、桥段卡、TimeSliced）与上下文构建 | `domain`, `db`, `llm`, `memory`, `router`, `story_system`, `task_system` | `agents` | 🟡 `context_builder.rs`, `workflow/engine.rs` 仍引用 agents 类型 |
 | `agents` | 创作编排、prompt 组装、Writer/Inspector 闭环 | `domain`, `db`, `llm`, `memory`, `prompts`, `router`, `story_system`, `task_system` | `creative_engine`（应通过 domain 类型或 trait） | 🟡 service.rs 仍引用 creative_engine::methodology/style |
 | `memory` | 知识图谱、向量索引、短期记忆、MemoryPack 编排 | `domain`, `db`, `llm`, `vector`, `embeddings`, `router` | `agents` | 🟡 `mod.rs` 仍有少量 agents 引用 |
+| `agency` | 多代理创作框架（创世 2.0）：黑板 + 三角色 + 续写/写作主路径 + 质量门 + 投影/回灌/回归门 | `domain`, `db`, `llm`, `prompts`, `router`, `story_system`, `memory`, `creative_engine`, `vector`（经 ports trait） | `prompts`（反向；prompts 禁导入 agency） | ✅ 已落地 |
 | `story_system` | 合同树、SceneCommit、追读力、投影写入 | `domain`, `db`, `llm`, `memory`, `vector`, `automation`, `state_sync` | `agents`, `creative_engine`（核心域应保持独立） | ✅ 已落地 |
 | `reading_power` | 追读力评估与债务管理 | `domain`, `db` | `agents`, `creative_engine` | ✅ 已落地 |
 | `audit` | 五维质量审计、OpeningClarityGate | `domain`, `db`, `creative_engine`, `llm` | `agents` | ✅ 已落地 |
@@ -54,6 +56,23 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `vector` | 向量存储抽象（LanceDB） | `db`, `error`, `embeddings` | 业务模块 | ✅ 已落地 |
 | `embeddings` | Embedding 生成 Provider | `error`, `config` | 业务模块 | ✅ 已落地 |
 | `book_deconstruction` | 拆书解析、分析、向量 embedding | `db`, `llm`, `narrative`, `vector`, `embeddings`, `task_system` | `agents`, `creative_engine`（拆书应为独立分析域） | ✅ 已落地 |
+
+---
+
+## 关键子模块登记（v0.60.0–v0.72.0 新增）
+
+> 顶层模块内部的子模块只登记「跨模块被依赖 / 承载关键不变量」者，其余以源码文档为准。
+
+| 子模块 | 职责一句话 | 引入版本 |
+|---|---|---|
+| `story_system::volume_plan` | 卷/弧中层计划：VOLUME 合同存取（同卷号原地更新）、卷纲状态机（no_plan/in_volume/past_end）、章纲注入块与指南针接卷 | v0.70.0 |
+| `story_system::human_voice` | 人类文笔基线：确定性规则（8 条）+ 手法池（含稳定 id 与作者裁决加权选择）+ 语料校准探针 | v0.65.0 / v0.69.0 / v0.72.0 |
+| `story_system::recompute` | 物料失效与指纹感知重算（章摘要 / 段摘要 / 快照；`chapter_outline` 单列不入 `ALL_KINDS`） | v0.64.11 / v0.67.0 |
+| `agency::retrieval` | 续写按需检索门：节拍卡 → 查询 → 向量检索 → 只读注入块（失败静默降级） | v0.66.0 |
+| `agency::outline_replan` | 纲层失效与局部重规划：候选判定 / 确有下游才标记 / 预览不落库 / 只落库作者勾选条目 | v0.67.0 |
+| `agency::editor_agreement` | 判官一致率：gate 裁决落库（V146）+ 引用幸存判定 + 每章采纳率与修改率对照 | v0.68.0 |
+| `agency::technique_feedback` | 手法回灌：每拍手法落库（V147）+ 反馈按时间窗归因 + 统计/重置 | v0.69.0 |
+| `agency::serial_harness` | 长篇稳定性回归门（`#[cfg(test)]`）：四拍串联跨状态约束，随 `cargo test` 进 CI；守卫 `tests/serial_harness_guard.rs` | v0.71.0 |
 
 ---
 

@@ -1,5 +1,8 @@
 # StoryMoss 后台资产 × 智能创作流程 深度审计报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > 审计日期：2026-06-20
 > 审计范围：`src-tauri/src/` 全量后端资产（技能/能力/方法论/提示词/风格/网文资产/状态/记忆）与智能创作流程（`smart_execute` → `PlanGenerator` → `PlanExecutor` → `AgentOrchestrator`）的关联
 > 审计方法：5 路并行代码追踪，覆盖能力层、方法论/提示词/风格层、网文资产层、状态/记忆层、创作流程端到端

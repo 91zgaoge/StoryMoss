@@ -81,7 +81,7 @@ StoryMoss is built around AI assistance, not bolted-on:
 ```
 
 ### GitHub Actions (Cross-Platform)
-- Push to `master` → `v0.22.2-nightly` prerelease (overwrites)
+- Push to `master` → `<version>-nightly` prerelease (overwrites)
 - Push tag `v*` → Stable release (independent, non-overwriting)
 - Platforms: `windows-latest`, `ubuntu-latest`, `macos-latest`
 

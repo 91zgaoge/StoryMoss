@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.72.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.72.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.72.1 变更说明
+
+- **无代码变更**：应用侧基线沿用 v0.72.0（`cargo test --lib` 1816 passed / 6 ignored；
+  前端 625 passed / 3 skipped）。本版为专题文档与官网同步。
+- **官网（landing）测试**：`cd landing && npm test` → vitest **25 passed / 7 files**（新增
+  `LongformSection` 渲染用例）；`npx tsc --noEmit` / `npm run build` / `npx prettier --check` 全绿。
+- **未关闭**：官网截图仍为 2026-07 旧版（幕前/幕后/知识图谱三张），需运行应用重新截取后替换
+  `landing/public/screenshots/`。
 
 ### v0.72.0 变更说明
 

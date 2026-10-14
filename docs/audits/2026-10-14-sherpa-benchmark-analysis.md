@@ -292,6 +292,25 @@ Sherpa 的⑥⑦两步（音频生产、全球分发、分成变现）不是技�
 
 ---
 
+## 四·补：落地状态（2026-10-14 补记）
+
+本文 §四 的可借鉴清单在写作后即按顺序落地，版本对应如下（每项均带契约/探针，详见 CHANGELOG 与
+ROADMAP；**真机端到端均未复跑**，各版本文档已如实标注）：
+
+| 项 | 版本 | 落地形态 | 关键契约/探针 |
+|---|---|---|---|
+| P0-1 检索接线 | **v0.66.0** | `agency::retrieval`（节拍卡 → 向量检索 → 【前文相关原文（检索）】只读块；失败静默降级；开关 `continue_retrieval_enabled`） | `retrieval_recall_probe_finds_distant_detail`；`test_continue_injects_retrieval_block_and_degrades_without_store` |
+| P0-2 纲层失效与局部重规划 | **v0.67.0** | `KIND_CHAPTER_OUTLINE`（不入 `ALL_KINDS`）+ `agency::outline_replan`（预览不落库 / 只落库勾选条目）+ 维护页对照对话框 | `preview_and_apply_round_trip`；`outline_kind_is_excluded_from_auto_recompute` |
+| P1-4 判官一致率 | **v0.68.0** | V146 `editor_gate_records` + `agency::editor_agreement`（引用幸存判定）+ AgencyEval 卡片 | `quote_survival_three_states`；`compute_agreement_joins_records_and_final_text` |
+| P1-5 手法回灌 | **v0.69.0** | V147 `beat_technique_log` + `agency::technique_feedback`（时间窗归因）+ `choose_technique_index` + 学习中心「章法偏好」 | `stats_attribute_feedback_by_time_window`；`test_continue_logs_beat_technique_and_replays_author_verdict` |
+| P1-3 卷/弧中层计划 | **v0.70.0** | `story_system::volume_plan`（VOLUME 合同）+ `generate_volume_plan` + 章纲注入 + 指南针接卷 + 维护页「卷纲」 | `test_chapter_outline_prompt_carries_volume_goal`；`overview_states_progressively` |
+| P2-6 长篇稳定性回归门 | **v0.71.0** | `agency::serial_harness`（四拍串联，进 CI）+ 守卫 `tests/serial_harness_guard.rs` | `serial_stability_across_beats` |
+| P2-9 创世概念体检 | **v0.71.0** | `agency_problem_logline` 三问 + `split_logline_diagnostics`（advisory 只记日志） | `problem_logline_carries_three_checks` |
+| P2-7 人类语料校准 | **v0.72.0** | `resources/voice_corpus/` + `corpus_calibration` 探针；`FLAT_RUN_LEN` 3→4、指标与发现门解耦 | `voice_corpus_calibration_probe`（ignore）；校准报告 `docs/audits/2026-10-14-human-voice-corpus-calibration.md` |
+| P2-8 投稿/有声就绪包 | **未落地** | 按本文触发的条件（作者有分发渠道或明确要求）待启 | — |
+
+---
+
 ## 五、明确不借鉴的
 
 | 不借鉴 | 理由 |

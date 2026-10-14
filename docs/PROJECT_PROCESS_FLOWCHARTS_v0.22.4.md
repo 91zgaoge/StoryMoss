@@ -1,5 +1,8 @@
 # StoryMoss 项目流程图技术文档
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > **版本**：v0.22.4（草苔）  
 > **最后更新**：2026-06-21  
 > **文档定位**：面向架构师/核心开发者的技术流程全景图，覆盖创世、拆书、智能创作主路径、79+ 提示词、43 个网文题材模板、40+ 创意资产、Story System 合同/提交链/追读力/审计/记忆等子系统。  

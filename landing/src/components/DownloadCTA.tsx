@@ -23,7 +23,7 @@ export function DownloadCTA() {
           </h2>
           <p className="text-pretty mb-10 max-w-[520px] leading-relaxed text-mist">
             v{release.version} ·
-            多代理创作框架、持续学习、创作评估全部就位。本地运行，开源可审计。
+            多代理创作框架、按需检索、卷纲计划、持续学习与创作评估全部就位。本地运行，开源可审计。
           </p>
           <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
             <DownloadButton variant="primary" />

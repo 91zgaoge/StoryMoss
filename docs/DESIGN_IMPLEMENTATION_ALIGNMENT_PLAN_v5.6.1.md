@@ -1,5 +1,8 @@
 # StoryMoss v5.6.1 设计-实现对齐全面修复计划
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > **审计日期**: 2026-05-08
 > **审计范围**: 幕前幕后自动关联、后台自动化、智能化创作飞轮全链路
 > **审计方法**: 静态代码审计 + 文档对比 + 关键路径追踪 + 多代理并行审查

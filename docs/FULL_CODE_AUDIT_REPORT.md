@@ -1,5 +1,8 @@
 # StoryMoss v3.5.0 全面功能审计报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > 审计时间: 2026-04-22
 > 审计范围: 后端 Rust + 前端 TypeScript，共 5 个模块
 > 总计发现: **20 项问题**（6 项 P0 致命，14 项 P1 重要）

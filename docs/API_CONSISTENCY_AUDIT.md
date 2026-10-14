@@ -1,5 +1,8 @@
 # StoryMoss 前后端接口一致性审计报告
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > 生成时间: 2026-04-14
 > 审计范围: 所有 Tauri 注册命令 vs 前端 `invoke` 调用
 

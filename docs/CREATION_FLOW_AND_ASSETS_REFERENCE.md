@@ -3,10 +3,57 @@
 > **文档定位**：本文是 StoryMoss 后端"智能创作流程"与"后台资产"的**权威参考**。
 > 每次阅读项目代码时，从此文档入手即可快速掌握：资产有哪些、流程怎么走、资产在哪个环节注入、各自发挥什么作用。
 >
-> **代码基准**：v0.17.x（含 P0-P3 审计优化），2026-06-20
+> **代码基准**：v0.17.x（含 P0-P3 审计优化），2026-06-20；**增补至 v0.72.1**（见下方「v0.60.0–v0.72.1 增补与更正」）
 > **维护规则**：创作流程或资产架构有变动时，同步更新本文
 
 > ⚠️ **历史参考说明**：GenesisPipeline 已于 v0.27.0 起被 Agency 多代理创作框架（`src-tauri/src/agency/`）完全取代并从代码库移除，本文档中创世分支相关内容（如 `narrative/genesis.rs`、快速/后台两阶段管线）均为历史参考。新流程见 `ARCHITECTURE.md` 的「Agency 多代理创作框架（创世 2.0）」章节与设计文档 `docs/plans/2026-07-17-agency-multi-agent-framework-design.md`。
+
+---
+
+## v0.60.0–v0.72.1 增补与更正（2026-10-14 补记）
+
+> 本节的定位：**正文若与本节冲突，以本节为准**。正文停留在 v0.17.x 口径——创世/续写主线、
+> 部分路径与清单已过时；此处只更正会导致误读的部分，不重写全文。
+
+### 更正一：创世与续写主线
+
+- **创世**：正文的 GenesisPipeline（快速/后台两阶段）已于 v0.27.0 被 **Agency 多代理框架（创世 2.0）**
+  取代并从代码库移除；现行链路见 `ARCHITECTURE.md`「Agency 多代理创作框架（创世 2.0）」。
+- **续写**：v0.41.0 起 **Agency 是唯一续写路径**（`run_continue` → 节拍卡 → writer prompt）；
+  正文把 planner / TimeSliced / Full 当作续写主干的部分仅作历史参考。
+- 提示词资产与注入表在正文 §3.9 / §5 仍可用于理解「资产类别」，但**消费点以 ARCHITECTURE 与源码为准**。
+
+### 增补一：新提示词资产与变量（v0.70.0）
+
+- `resources/prompts/agency/agency_volume_planner_system.md`（卷纲规划师 system；Producer 档一次 JSON
+  调用，消费点 `agency/coordinator.rs::generate_volume_plan`）。
+- `resources/prompts/planner/scene_outline.md` 新增 `volume` 变量（`{{#if volume}}` 条件块）；
+  变量注入在 `generate_chapter_outline` 内（`render_volume_block_for_chapter` 产出
+  「【本卷计划（第 N 卷：第 x–y 章）】+ 卷内进度」）。
+- `resources/prompts/agency/agency_problem_logline.md`（v0.71.0）新增三问与「首行 logline + 三行诊断」
+  输出格式；诊断由 `split_logline_diagnostics` 切分后只记日志（不进入 premise）。
+
+### 增补二：新数据表（v0.68.0 / v0.69.0）
+
+| 迁移 | 表 | 用途 |
+|---|---|---|
+| V146 | `editor_gate_records` | 每次 gate 判定的裁决记录（findings_json 原样保留含 evidence 的结构）——判官一致率的数据源 |
+| V147 | `beat_technique_log` | 每拍「用了哪条写作手法」的归因基底（story/scene/chapter/beat_no/technique_id） |
+
+### 增补三：新增注入块与资产语义
+
+- **续写 writer prompt** 新增【前文相关原文（检索·仅在与本拍相关时承接细节，勿整段复述）】块
+  （v0.66.0；`agency::retrieval`，位于 Bundle 区受保护段；开关 `continue_retrieval_enabled`）。
+- **章纲生成 prompt** 新增「本卷计划 + 卷内进度」（v0.70.0；无卷纲时 prompt 与旧版逐字一致）。
+- **`story_contracts` 的 VOLUME 合同**（v0.70.0）：卷纲的真源——同卷号原地更新（version 递增）、
+  状态机 `no_plan / in_volume / past_end`；存取与渲染见 `story_system::volume_plan`。
+- **gate 审查区之外的两个新台账**（供运行维护/创作评估页）：`quality_debts`（v0.63.0）、
+  `story_material_staleness`（v0.64.11，含 `chapter_outline` 单类）——正文 §5 的资产清单未含，属新增。
+
+### 增补四：图与路径
+
+- 正文中 `src/agency/**` 已并入 `src-tauri/src/agency/**`；`src-frontend/**` 为唯一前端根。
+- 新增子模块与职责见 `docs/MODULE_CHARTER.md`「关键子模块登记」表。
 
 ---
 

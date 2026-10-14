@@ -2,6 +2,59 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.72.1（2026-10-14）
+
+**文档与官网同步（无代码变更）。**
+
+Sherpa 借鉴清单（P0-1/P0-2/P1-3/P1-4/P1-5/P2-6/P2-7/P2-9）在 v0.66.0–v0.72.0 全部落地后，
+把「专题文档」与「官网内容」一次性对齐到当前实现；代码零改动（Rust 1816 passed / 6 ignored
+基线不变）。
+
+### 文档
+
+- **专题文档同步**：
+  - `docs/FEATURES.md`：新增「v0.60.0–v0.72.0 新功能补充」（三把尺子→文笔基线→长篇四件套
+    逐项；内部项标注清楚），并更正路径与版本声明。
+  - `docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md`：新增「v0.60.0–v0.72.1 增补与更正」——
+    更正创世/续写主线（Agency 唯一路径）、补新提示词资产（`agency_volume_planner_system`、
+    `scene_outline` 的 `volume` 变量、logline 三问）、新表（V146/V147）、VOLUME 合同语义、
+    新增注入块、`quality_debts` / `story_material_staleness` 台账。
+  - `docs/MODULE_CHARTER.md`：模块表补 `agency` 顶层行；新增「关键子模块登记」
+    （volume_plan / human_voice / recompute / retrieval / outline_replan / editor_agreement /
+    technique_feedback / serial_harness）；核心规则补「prompts 禁导入 agency」。
+  - `docs/TROUBLESHOOTING.md`：新增 4 条新功能排查（检索块不出现 / 卷纲生成失败 /
+    章纲待重规划 / 一致率与章法偏好为空），修正 Rust 版本要求与两条死链。
+  - `KIMI.md`：版本 v0.22.2 → v0.72.1。
+  - `docs/USER_GUIDE.md`：头部版本行与更新提示同步。
+- **审计落地状态**：`docs/audits/2026-10-14-sherpa-benchmark-analysis.md` 增「落地状态」表
+  （八项 → 版本与契约；P2-8 明确未落地及触发条件）；`2026-10-06-ai-novel-landscape-comparison.md`
+  增「八、落地状态补记」（P0–P2 逐项 → 版本）；`2026-10-06-project-review-v0.58.0.md` 增
+  治理行动项落地注记；`2026-10-09-laya-...md` 修正漂移的 ROADMAP 引用并标注登记状态。
+- **历史快照横幅**：16 份自标版本的旧审计/计划（`docs/AUDIT_*`、`docs/BROOKS_LINT_*`、
+  `docs/*_v0.2*`、`docs/optimization-plan.md`、`docs/PROJECT_PROCESS_FLOWCHARTS_v0.22.4.md`、
+  `docs/audits/2026-07-09-*` 等）加一行「历史快照，现状以 ARCHITECTURE/PROJECT_STATUS 为准」。
+- `ARCHITECTURE.md` 顶部架构变更清单补 v0.66.0–v0.72.1 八条（此前停在 v0.65.4）；
+  `.specify/memory/constitution.md` 的 nightly 命名示例改为 `<version>-nightly`。
+
+### 官网（`landing/`）
+
+- **新增「长篇」区块**（`LongformSection`，导航锚点 `#longform`，位于「品质」之后）：
+  写第 300 章去翻第 3 章（按需检索）/ 卷与弧（中观计划）/ 改了旧章下游不悄悄过期 /
+  死人不复活·秘密不提前说（跨拍守卫）——v0.66.0–v0.72.0 交付的用户价值首次上站。
+- **修正过时文案**：「五维审查」→ 八维（与 `agency_editor_auditor_system.md` 的 8 维 rubric
+  一致）；「模式卡」→「已学模式」（与学习中心 UI 一致）；「四级评分者」→ 三级加权
+  （0.2/0.3/0.5）+「修改率不参与加权，单独回流」；循环学习节补「章法偏好」（取舍回灌）；
+  CTA 与 `index.html` meta 描述同步补「按需检索 / 卷纲」。
+- 官网测试 24 → **25 passed**（新增 `LongformSection` 渲染用例）；`npm run build` 通过。
+
+### 验证
+
+- 仓库：`cargo test --lib` **1816 passed / 6 ignored** 基线不变（未改 Rust）；前端未改动。
+- 官网：`npm test`（vitest **25 passed / 7 files**）、`npx tsc --noEmit`、`npm run build`、
+  `npx prettier --check` 全绿；推送触发 `deploy-landing` 部署。
+- **未关闭**：官网截图仍为 2026-07 版本（幕前/幕后/知识图谱三张，早于 v0.43+ 视觉改版）——
+  需运行应用重新截取；`public/screenshots/` 另有 5 张未被引用的旧图（留作后续功能区素材）。
+
 ## v0.72.0（2026-10-14）
 
 **P2-7 人类语料校准：human_voice 阈值第一次有数据支撑（Sherpa 借鉴收尾）。**

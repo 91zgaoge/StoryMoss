@@ -1,5 +1,8 @@
 # StoryMoss 后台创作资产清单 × 智能创作流程断链审计（v0.22.4）
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 > **文档定位**：本文是 v0.22.4 针对「后台创作资产是否被智能创作流程充分利用」的专项审计。包含：
 > 1. 后台全部创作资产清单与功能说明
 > 2. 智能创作全流程与提示词注入点梳理

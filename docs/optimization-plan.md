@@ -1,5 +1,8 @@
 # StoryMoss 完善与优化计划
 
+> ⚠️ **历史快照**：本文记录当时版本的代码状态，非现状。现行流程与资产以 [ARCHITECTURE.md](../ARCHITECTURE.md)（Agency 多代理创作框架）与 [PROJECT_STATUS.md](../PROJECT_STATUS.md) 为准；最新变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+
 ## Context
 
 基于对 StoryMoss 代码库的深度审计，项目在功能层面极其丰富（AI 辅助长篇小说创作的完整链路），但积累了显著的技术债务。核心问题包括：前端内存泄漏、后端命令层单体化（3445 行的 story_commands.rs）、双前端系统并存、全局状态管理粗糙、状态同步缺口、构建工具链缺失。本计划旨在分阶段、有依赖地清理债务，提升稳定性、可维护性和开发效率。
