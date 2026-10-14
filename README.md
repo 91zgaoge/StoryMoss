@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,14 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.72.3 · 真机换模复测：章纲回来了
+
+上一版真机验收留下两个「模型侧」问题，本版把归因查到底：**章纲拿不到输出是工具档模型端点已死**
+（换到可用的 Qwen3.5 后，章纲 1835 字、卷纲完整产出）；**质量门不产裁决是我们探针的路由 bug**
+（修好后编辑档一次产出完整 8 维裁决并落库）——探针同时升级为三档路由 + 换模矩阵（每个模型直接跑
+「连通 / 章纲 / 编辑裁决」三列），换配置前可以先试穿。完整证据与换模结论见
+[真机探针报告 §五](docs/audits/2026-10-14-real-machine-probe-report.md)。
 
 ### v0.72.2 · 真机验收 + 官网换真机实拍
 

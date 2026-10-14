@@ -332,6 +332,19 @@ export function getMockTauriInitScript() {
           case 'check_auto_write_quota':
           case 'check_auto_revise_quota':
             return { allowed: true, remaining: 10, daily_limit: 10, daily_used: 0 };
+          // 自动更新检查：App.tsx 的 useUpdater(true) 在挂载 5s 后触发
+          // check_update。此前未实现 → 默认 null → 读 .has_update 抛错 →
+          // 页面加载类用例的「无 console 错误」断言在用例耗时超过 5s
+          // （慢机/并行负载）时偶发失败。返回「无更新」即静默。
+          case 'get_current_version':
+            return '0.72.3';
+          case 'check_update':
+            return {
+              has_update: false,
+              current_version: '0.72.3',
+              latest_version: null,
+              update_info: null,
+            };
           case 'plugin:event|listen':
             return Math.random().toString(36).substring(2);
           case 'plugin:event|unlisten':

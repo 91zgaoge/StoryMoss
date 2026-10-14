@@ -6398,7 +6398,7 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
 /// RevisionRequired；否则 weighted < 0.75 修订；否则放行。每次判定
 /// （含 Failed）落审查区 item_type="gate"，key =
 /// gate-{draft.key}-r{round}。行为规格见 evaluate_gate 文档。
-async fn editor_verdict_prose_fallback(
+pub(crate) async fn editor_verdict_prose_fallback(
     llm: &Arc<dyn LoopLlm>,
     budget: &Arc<AgencyBudget>,
     pool: &DbPool,

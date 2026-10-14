@@ -17,6 +17,8 @@
 //!   Support/com.storymoss.app/cinema_ai.db`）
 //! - `STORYMOSS_PROBE_MODEL`  profile id 或 model 名（默认取配置的
 //!   creative_model_id → deepseek → 第一个 OpenAI 兼容）
+//! - `STORYMOSS_PROBE_TOOL_MODEL`    覆盖生产档（Tool：章节纲/规划/世界构建）
+//! - `STORYMOSS_PROBE_EDITOR_MODEL`  覆盖编辑档（Background：质量门裁决）
 //! - `STORYMOSS_PROBE_CONFIG_DIR` 覆盖配置目录
 //!
 //! **安全**：库与向量库一律复制到临时目录后再操作；真机文件只读。读不到的配置/
@@ -43,6 +45,8 @@ use crate::{
 
 const ENV_DB: &str = "STORYMOSS_DB";
 const ENV_MODEL: &str = "STORYMOSS_PROBE_MODEL";
+const ENV_TOOL_MODEL: &str = "STORYMOSS_PROBE_TOOL_MODEL";
+const ENV_EDITOR_MODEL: &str = "STORYMOSS_PROBE_EDITOR_MODEL";
 const ENV_CONFIG_DIR: &str = "STORYMOSS_PROBE_CONFIG_DIR";
 
 fn env_var(name: &str) -> Option<String> {
@@ -128,7 +132,8 @@ fn build_adapter(profile: &LlmProfile) -> Box<dyn LlmAdapter> {
             max_tokens,
             profile.temperature,
             profile.timeout_seconds,
-            10,
+            60, // v0.72.3: 与生产默认一致（10s 对本地 MoE 大提示词的
+            // 非流式调用过短——首响应头即被误判连接超时）
             300, // 真机慢模型首块超时放宽（探针专用；生产走配置/candidate 机制）
         )),
         LlmProvider::Ollama => Box::new(OllamaAdapter::new(
@@ -138,7 +143,8 @@ fn build_adapter(profile: &LlmProfile) -> Box<dyn LlmAdapter> {
             max_tokens,
             profile.temperature,
             profile.timeout_seconds,
-            10,
+            60, // v0.72.3: 与生产默认一致（10s 对本地 MoE 大提示词的
+            // 非流式调用过短——首响应头即被误判连接超时）
             300, // 真机慢模型首块超时放宽（探针专用；生产走配置/candidate 机制）
         )),
         _ => Box::new(OpenAiAdapter::new(
@@ -148,7 +154,8 @@ fn build_adapter(profile: &LlmProfile) -> Box<dyn LlmAdapter> {
             max_tokens,
             profile.temperature,
             profile.timeout_seconds,
-            10,
+            60, // v0.72.3: 与生产默认一致（10s 对本地 MoE 大提示词的
+            // 非流式调用过短——首响应头即被误判连接超时）
             300, // 真机慢模型首块超时放宽（探针专用；生产走配置/candidate 机制）
         )),
     }
@@ -156,26 +163,39 @@ fn build_adapter(profile: &LlmProfile) -> Box<dyn LlmAdapter> {
 
 /// 真实模型 + 调用记录（断言 prompt 内容用）。
 ///
-/// 按 `TaskType` 模拟应用的**角色路由**：编辑审查（Editing）走 Background
-/// 档模型， 其余（写作/规划）走 Creative 档——与 `llm_for_run(role)`
-/// 的生产行为同构。
+/// 按 `TaskType` 模拟应用的**三档角色路由**（生产为 `llm_for_run(role)` 按
+/// context_label 映射 Creative/Tool/Background）：
+/// - 编辑审查（Proofreading/Editing）→ Background 档（`agency_editor`）
+/// - 生产/规划（WorldBuilding/Analysis）→ Tool 档（`agency_producer`，
+///   章节纲/卷纲/世界构建）
+/// - 其余（CreativeWriting 等写作）→ Creative 档（`agency_writer`）
 struct ProbeLlm {
     creative: Box<dyn LlmAdapter>,
+    tool: Box<dyn LlmAdapter>,
     editor: Box<dyn LlmAdapter>,
     temperature: f32,
-    calls: Mutex<Vec<(String, String)>>,
+    calls: Mutex<Vec<ProbeCall>>,
     responses: Mutex<Vec<(String, usize, String)>>,
     errors: Mutex<Vec<String>>,
+}
+
+/// 一次探针模型调用的记录（kind + 实际服务档 + user prompt 原文）。
+struct ProbeCall {
+    kind: String,
+    route: &'static str,
+    user: String,
 }
 
 impl ProbeLlm {
     fn new(
         creative: Box<dyn LlmAdapter>,
+        tool: Box<dyn LlmAdapter>,
         editor: Box<dyn LlmAdapter>,
         temperature: f32,
     ) -> Arc<Self> {
         Arc::new(Self {
             creative,
+            tool,
             editor,
             temperature,
             calls: Mutex::new(Vec::new()),
@@ -184,10 +204,11 @@ impl ProbeLlm {
         })
     }
 
-    fn adapter_for(&self, task: TaskType) -> &dyn LlmAdapter {
+    fn adapter_for(&self, task: TaskType) -> (&'static str, &dyn LlmAdapter) {
         match task {
-            TaskType::Editing => &*self.editor,
-            _ => &*self.creative,
+            TaskType::Proofreading | TaskType::Editing => ("editor(Background)", &*self.editor),
+            TaskType::WorldBuilding | TaskType::Analysis => ("tool(Tool)", &*self.tool),
+            _ => ("creative(Creative)", &*self.creative),
         }
     }
 
@@ -200,9 +221,14 @@ impl ProbeLlm {
         json: bool,
         kind: &'static str,
     ) -> Result<String, AppError> {
+        let (route, adapter) = self.adapter_for(task);
         {
             let mut calls = self.calls.lock().unwrap_or_else(|p| p.into_inner());
-            calls.push((kind.to_string(), user.to_string()));
+            calls.push(ProbeCall {
+                kind: kind.to_string(),
+                route,
+                user: user.to_string(),
+            });
         }
         let request = GenerateRequest {
             prompt: user.to_string(),
@@ -220,7 +246,7 @@ impl ProbeLlm {
             trace_id: None,
             tools: None,
         };
-        match self.adapter_for(task).generate(request).await {
+        match adapter.generate(request).await {
             Ok(resp) => {
                 self.responses
                     .lock()
@@ -266,8 +292,18 @@ impl ProbeLlm {
             .unwrap_or_else(|p| p.into_inner())
             .iter()
             .rev()
-            .find(|(k, _)| k == kind)
-            .map(|(_, u)| u.clone())
+            .find(|c| c.kind == kind)
+            .map(|c| c.user.clone())
+    }
+
+    /// 每次调用实际服务的档位（kind → route），供探针打印路由证据。
+    fn routes(&self) -> Vec<(String, &'static str)> {
+        self.calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .map(|c| (c.kind.clone(), c.route))
+            .collect()
     }
 }
 
@@ -310,14 +346,35 @@ impl super::tool_loop::LoopLlm for ProbeLlm {
     }
 }
 
-/// 编辑档模型：优先 `background_model_id`（应用把编辑路由到 Background 档），
-/// 回退到写作档；超时同样放宽到 300s。
+/// 编辑档模型：env 覆盖 → `background_model_id`（应用把编辑路由到 Background
+/// 档）→ 写作档；超时同样放宽到 300s。
 fn resolve_editor_profile(cfg: &AppConfig, creative: &LlmProfile) -> LlmProfile {
-    let mut picked = cfg
-        .background_model_id
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .and_then(|id| cfg.llm_profiles.get(id).cloned())
+    let mut picked = env_var(ENV_EDITOR_MODEL)
+        .and_then(|want| pick_profile(cfg, Some(want.as_str())).ok())
+        .or_else(|| {
+            cfg.background_model_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .and_then(|id| cfg.llm_profiles.get(id).cloned())
+        })
+        .unwrap_or_else(|| creative.clone());
+    if picked.timeout_seconds < 300 {
+        picked.timeout_seconds = 300;
+    }
+    picked
+}
+
+/// 生产档模型：env 覆盖 → `tool_model_id`（应用把 `agency_producer`
+/// 的章节纲/规划/世界构建路由到 Tool 档）→ 写作档；超时同样放宽到 300s。
+fn resolve_tool_profile(cfg: &AppConfig, creative: &LlmProfile) -> LlmProfile {
+    let mut picked = env_var(ENV_TOOL_MODEL)
+        .and_then(|want| pick_profile(cfg, Some(want.as_str())).ok())
+        .or_else(|| {
+            cfg.tool_model_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .and_then(|id| cfg.llm_profiles.get(id).cloned())
+        })
         .unwrap_or_else(|| creative.clone());
     if picked.timeout_seconds < 300 {
         picked.timeout_seconds = 300;
@@ -532,12 +589,18 @@ async fn real_machine_probe_continue_retrieval_technique_agreement() {
     };
 
     let editor_profile = resolve_editor_profile(&cfg, &profile);
+    let tool_profile = resolve_tool_profile(&cfg, &profile);
+    println!(
+        "[真机探针] 生产档（章节纲/规划）模型: {}（{}）",
+        tool_profile.model, tool_profile.id
+    );
     println!(
         "[真机探针] 编辑档模型: {}（{}）",
         editor_profile.model, editor_profile.id
     );
     let llm = ProbeLlm::new(
         build_adapter(&profile),
+        build_adapter(&tool_profile),
         build_adapter(&editor_profile),
         cfg.continuation_temperature.unwrap_or(profile.temperature),
     );
@@ -701,18 +764,28 @@ async fn real_machine_probe_continue_retrieval_technique_agreement() {
                     gate_failed_without_verdict = true;
                 }
             }
-            let gate_rows: i64 = pool
-                .get()
-                .ok()
-                .and_then(|conn| {
-                    conn.query_row(
-                        "SELECT COUNT(*) FROM editor_gate_records WHERE story_id = ?1",
-                        rusqlite::params![story_id],
-                        |r| r.get::<_, i64>(0),
-                    )
+            // 落库走 detach 的 spawn_blocking（best-effort）：轮询等待至多
+            // 10s， 与手法落库同款（v0.72.3：修探针读到「0
+            // 行」的时序假象）。
+            let mut gate_rows: i64 = 0;
+            for _ in 0..20 {
+                gate_rows = pool
+                    .get()
                     .ok()
-                })
-                .unwrap_or(0);
+                    .and_then(|conn| {
+                        conn.query_row(
+                            "SELECT COUNT(*) FROM editor_gate_records WHERE story_id = ?1",
+                            rusqlite::params![story_id],
+                            |r| r.get::<_, i64>(0),
+                        )
+                        .ok()
+                    })
+                    .unwrap_or(0);
+                if gate_rows > 0 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
             println!("[真机探针] editor_gate_records 行数: {gate_rows}");
             if !gate_failed_without_verdict {
                 assert!(
@@ -770,12 +843,18 @@ async fn real_machine_probe_volume_plan_and_outline_injection() {
         return;
     };
     let editor_profile = resolve_editor_profile(&cfg, &profile);
+    let tool_profile = resolve_tool_profile(&cfg, &profile);
+    println!(
+        "[真机探针] 生产档（章节纲/规划）模型: {}（{}）",
+        tool_profile.model, tool_profile.id
+    );
     println!(
         "[真机探针] 编辑档模型: {}（{}）",
         editor_profile.model, editor_profile.id
     );
     let llm = ProbeLlm::new(
         build_adapter(&profile),
+        build_adapter(&tool_profile),
         build_adapter(&editor_profile),
         cfg.continuation_temperature.unwrap_or(profile.temperature),
     );
@@ -854,7 +933,11 @@ async fn real_machine_probe_volume_plan_and_outline_injection() {
         outline_prompt.contains(&goal_line),
         "章纲 prompt 应包含卷目标片段「{goal_line}」"
     );
-    println!("[真机探针] 章纲 prompt 已含本卷计划与卷目标 ✓");
+    println!(
+        "[真机探针] 章纲 prompt 已含本卷计划与卷目标 ✓（prompt {} 字，开头：{}）",
+        outline_prompt.chars().count(),
+        outline_prompt.chars().take(60).collect::<String>()
+    );
 }
 
 /// 探针 3：真机纲层重规划预览（v0.67.0）。
@@ -880,12 +963,18 @@ async fn real_machine_probe_outline_replan_preview() {
         return;
     };
     let editor_profile = resolve_editor_profile(&cfg, &profile);
+    let tool_profile = resolve_tool_profile(&cfg, &profile);
+    println!(
+        "[真机探针] 生产档（章节纲/规划）模型: {}（{}）",
+        tool_profile.model, tool_profile.id
+    );
     println!(
         "[真机探针] 编辑档模型: {}（{}）",
         editor_profile.model, editor_profile.id
     );
     let llm = ProbeLlm::new(
         build_adapter(&profile),
+        build_adapter(&tool_profile),
         build_adapter(&editor_profile),
         cfg.continuation_temperature.unwrap_or(profile.temperature),
     );
@@ -948,4 +1037,221 @@ async fn real_machine_probe_outline_replan_preview() {
         "预览不得写入（章纲候选应仍是原有集合）"
     );
     println!("[真机探针] 预览未落库 ✓（勾选后才写）");
+}
+
+/// 探针 4：**角色换模矩阵**——决定 `creative/tool/background_model_id` 怎么换。
+///
+/// 对配置里的每个 profile 跑三条与生产同形的短任务（全部真机端点直连）：
+/// 1) 连通：33 字提示 / 32 token（复刻应用启动时的模型健康探测，推理模型在
+///    这类短任务上最易暴露「content 为空」）；
+/// 2) **章节纲产出**：真机故事上下文 + `scene_outline` 同款 system
+///    （`TaskType::Analysis`、2048 token；生产由 Tool 档承担）——≥50 字才算产出
+///    （与 `generate_chapter_outline` 的门一致）；
+/// 3) **编辑裁决 JSON**：直接调用生产函数
+///    `editor_verdict_prose_fallback`（质量门最后一道兜底；
+///    `agency_editor_auditor_system`
+///    + 只输出 JSON 强约束 + `parse_lenient` 解析）——能解析出 `EditorVerdict`
+///    才算「该模型可当编辑（Background）档」。
+///
+/// 只打印矩阵、不红（死端点/空产出记 0 字）；角色该怎么换由本矩阵证据决定，
+/// 换完用探针 1/2 复跑验收（`STORYMOSS_PROBE_TOOL_MODEL` /
+/// `STORYMOSS_PROBE_EDITOR_MODEL` 可先试穿再落地）。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_role_model_viability() {
+    let Some(cfg) = real_config() else { return };
+    let (tmp, _db, _vs) = copy_real_state();
+    let pool = crate::db::connection::init_db(&tmp, None).expect("打开副本库并迁移");
+    let Some((story_id, _scene, chapter, content)) = pick_latest_story(&pool) else {
+        println!("[真机探针] 跳过：没有带正文的场景");
+        return;
+    };
+    println!(
+        "[真机探针] 角色换模矩阵：story={story_id} 第{chapter}章（草稿 {} 字）",
+        content.chars().count()
+    );
+
+    // 与生产 `generate_chapter_outline`
+    // 同源的上下文（故事大纲/人物/前序进度）。
+    let story_outline: String = {
+        use crate::db::repositories::StoryOutlineRepository;
+        StoryOutlineRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .ok()
+            .flatten()
+            .map(|o| o.content.chars().take(800).collect())
+            .unwrap_or_default()
+    };
+    let characters: String = {
+        use crate::db::repositories::CharacterRepository;
+        CharacterRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap_or_default()
+            .iter()
+            .take(8)
+            .map(|c| {
+                format!(
+                    "- {}：性格{}",
+                    c.name,
+                    c.personality.as_deref().unwrap_or("-")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let outline_user = format!(
+        "【故事大纲】\n{story_outline}\n\n【主要人物】\n{characters}\n\n【本章】第{chapter}章\n\n请生成本章大纲（200-400 字），只输出正文。"
+    );
+    let outline_system =
+        "你是专业的小说场景规划师，只输出本场景的执行大纲，不要输出 JSON 或整本书弧线规划。";
+    let budget = Arc::new(crate::agency::budget::AgencyBudget::new(
+        crate::agency::budget::DEFAULT_RUN_TOKEN_BUDGET,
+    ));
+
+    let mut profiles: Vec<LlmProfile> = cfg.llm_profiles.values().cloned().collect();
+    profiles.sort_by(|a, b| a.id.cmp(&b.id));
+    let role_of = |id: &str| -> String {
+        let mut roles = Vec::new();
+        if cfg.creative_model_id.as_deref() == Some(id) {
+            roles.push("当前=Creative(写作)");
+        }
+        if cfg.tool_model_id.as_deref() == Some(id) {
+            roles.push("当前=Tool(章节纲/规划)");
+        }
+        if cfg.background_model_id.as_deref() == Some(id) {
+            roles.push("当前=Background(编辑)");
+        }
+        if cfg.active_llm_profile.as_deref() == Some(id) {
+            roles.push("当前=active");
+        }
+        if roles.is_empty() {
+            "当前=未指派".to_string()
+        } else {
+            roles.join(" / ")
+        }
+    };
+
+    for profile in &profiles {
+        let mut p = profile.clone();
+        if p.timeout_seconds < 300 {
+            p.timeout_seconds = 300;
+        }
+        println!(
+            "\n===== {} | model={} @ {:?} | {} =====",
+            p.id,
+            p.model,
+            p.api_base,
+            role_of(&p.id)
+        );
+
+        // (1) 连通（短任务）
+        let started = std::time::Instant::now();
+        let ping = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            build_adapter(&p).generate(GenerateRequest {
+                prompt: "请回复两个字：收到".to_string(),
+                max_tokens: Some(32),
+                temperature: Some(0.2),
+                system_prompt: Some("你是助手，直接回复用户要求的文字。".to_string()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        match ping {
+            Ok(Ok(resp)) => println!(
+                "  [连通] content {} 字 / {:.1}s：{}",
+                resp.content.chars().count(),
+                started.elapsed().as_secs_f64(),
+                resp.content.chars().take(40).collect::<String>()
+            ),
+            Ok(Err(e)) => println!("  [连通] 失败：{e}"),
+            Err(_) => println!("  [连通] 超时（>120s）"),
+        }
+
+        // (2) 章节纲产出（生产由 Tool 档承担）
+        let started = std::time::Instant::now();
+        let outline = tokio::time::timeout(
+            std::time::Duration::from_secs(180),
+            build_adapter(&p).generate(GenerateRequest {
+                prompt: outline_user.clone(),
+                max_tokens: Some(2048),
+                temperature: Some(0.7),
+                system_prompt: Some(outline_system.to_string()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        match outline {
+            Ok(Ok(resp)) => {
+                let n = resp.content.trim().chars().count();
+                if n >= 50 {
+                    println!(
+                        "  [章纲] ✅ 产出 {n} 字 / {:.1}s：{}…",
+                        started.elapsed().as_secs_f64(),
+                        resp.content.chars().take(80).collect::<String>()
+                    );
+                } else {
+                    println!(
+                        "  [章纲] ❌ 仅 {n} 字（<50 字会被生产丢弃）/ {:.1}s：{:?}",
+                        started.elapsed().as_secs_f64(),
+                        resp.content.chars().take(60).collect::<String>()
+                    );
+                }
+            }
+            Ok(Err(e)) => println!("  [章纲] ❌ 失败：{e}"),
+            Err(_) => println!("  [章纲] ❌ 超时（>180s）"),
+        }
+
+        // (3) 编辑裁决（生产函数：质量门的散文回退；
+        // 能解析出裁决才算可当编辑档）
+        let llm3 = ProbeLlm::new(
+            build_adapter(&p),
+            build_adapter(&p),
+            build_adapter(&p),
+            cfg.continuation_temperature.unwrap_or(0.5),
+        );
+        let llm_dyn: Arc<dyn super::tool_loop::LoopLlm> = llm3.clone();
+        let draft = crate::agency::models::BoardItem::new(
+            "probe-viability",
+            &story_id,
+            crate::agency::models::BoardZone::Draft,
+            "chapter",
+            format!("第{chapter}章"),
+            content.clone(),
+            "探针草稿",
+            crate::agency::models::AgentRole::LeadWriter,
+            "active",
+        );
+        let started = std::time::Instant::now();
+        let verdict = tokio::time::timeout(
+            std::time::Duration::from_secs(180),
+            super::coordinator::editor_verdict_prose_fallback(
+                &llm_dyn,
+                &budget,
+                &pool,
+                &draft,
+                "续写《帝国的烟火》下一章",
+            ),
+        )
+        .await;
+        match verdict {
+            Ok(Ok(v)) => println!(
+                "  [编辑裁决] ✅ 解析出裁决 / {:.1}s：verdict={} blocking={} score={:?} comments={}",
+                started.elapsed().as_secs_f64(),
+                v.verdict,
+                v.blocking_issues.len(),
+                v.score,
+                v.comments.chars().take(40).collect::<String>()
+            ),
+            Ok(Err(e)) => {
+                let head = llm3
+                    .last_response("complete")
+                    .map(|(n, h)| format!("应答 {n} 字：{h}"))
+                    .unwrap_or_else(|| "无应答记录".to_string());
+                println!("  [编辑裁决] ❌ 失败：{e}｜{head}");
+            }
+            Err(_) => println!("  [编辑裁决] ❌ 超时（>180s）"),
+        }
+    }
+    println!("\n[真机探针] 矩阵完成：按 [章纲] 与 [编辑裁决] 两列的证据指定 tool_model_id / background_model_id。");
 }

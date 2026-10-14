@@ -1,8 +1,29 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.72.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.72.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.72.3 变更说明
+
+- **真机探针工具链修正（+1 ignored，1816 passed / 10 ignored）**：
+  ①`ProbeLlm` 三档路由（`CreativeWriting`→创作 / `WorldBuilding|Analysis`→工具 /
+  `Proofreading|Editing`→编辑）——旧版只认 `TaskType::Editing`，而编辑审计的角色任务类型是
+  `Proofreading`，编辑调用实际全打到创作档（v0.72.2「发现 b」即此假象）；
+  ②`build_adapter` 连接超时 10s→60s（对齐生产默认；10s 会把本地模型大提示词的非流式调用
+  误判为连接超时）；③gate 记录读取加 10s 轮询（落库走 detach 的 `spawn_blocking`，
+  立刻读库的「0 行」是时序假象）。
+- **新探针** `real_machine_probe_role_model_viability`：对配置里每个档案直连跑
+  「连通 / 章纲式产出 / 编辑裁决 JSON（直接调用生产 `editor_verdict_prose_fallback`）」三列矩阵，
+  为「哪个模型当哪一档」提供证据；配 `STORYMOSS_PROBE_TOOL_MODEL` /
+  `STORYMOSS_PROBE_EDITOR_MODEL` 可先试穿再落地。
+- **E2E flake 修复**：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version`——
+  `useUpdater(true)`（App.tsx）挂载 5s 后自动检查，mock 未实现时慢机/并行负载下
+  「页面加载无 console 错误」类用例偶发红（症状：`Cannot read properties of null (reading 'has_update')`）。
+- **换档后真机复测**（读真机配置）：章纲 1835 字（2544 字提示词含【本卷计划】注入）/ 卷纲 ✅ /
+  质量门完整 8 维裁决 + `editor_gate_records` 落库 ✅ / 续写 1515 字 + 检索块 + 手法落库 ✅。
+- **验证**：`cargo test --lib` 1816 passed / 10 ignored；clippy 0 error；
+  tsc / vitest 625 passed / playwright 39 passed（5 skipped）/ fmt / prettier / guard 全绿。
 
 ### v0.72.2 变更说明
 

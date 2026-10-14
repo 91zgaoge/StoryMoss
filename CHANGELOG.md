@@ -2,6 +2,59 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.72.3（2026-10-15）
+
+**真机换模复测工具链 + 换模决策入档（测试与文档；产品行为零改动）。**
+
+v0.72.2 的真机探针在「哪个模型坏了、坏在哪」上给出过两条错误归因（章纲空产出归因写作档推理模型、
+质量门不产裁决归因编辑档模型）。本版修正探针的档位路由并复测，把归因与换模结论按证据重写；
+用户已按结论换档（**工具模型 → Qwen3.5-27B；后台任务模型 → 新的本地 MLX 档**），复测全绿。
+
+### 修复（测试基建）
+
+- `ProbeLlm` 改为**三档路由**：`CreativeWriting`→创作 / `WorldBuilding|Analysis`→工具 /
+  `Proofreading|Editing`→编辑——旧版只把 `TaskType::Editing` 认作编辑档，而编辑审计的角色规格
+  任务类型是 `Proofreading`，导致编辑调用全打到创作档 deepseek 上（v0.72.2 的发现 b 即此假象）。
+- `build_adapter` 连接超时 10s→60s（对齐生产默认；10s 会把本地模型大提示词的非流式调用误判为
+  「连接超时」——实测章纲调用曾被误杀）。
+- gate 记录读取加 10s 轮询：`persist_gate_record` 走 detach 的 `spawn_blocking`，旧探针立刻读库
+  拿到「0 行」是时序假象（本轮实测行已落库）。
+
+### 新增（测试基建）
+
+- 探针 4 `real_machine_probe_role_model_viability`：对配置里每个档案直连跑「连通 / 章纲式产出 /
+  编辑裁决 JSON（直接调用生产散文回退函数）」三列矩阵，一眼看出谁能当哪一档。
+- 环境变量 `STORYMOSS_PROBE_TOOL_MODEL` / `STORYMOSS_PROBE_EDITOR_MODEL`（换模前先试穿）；
+  探针 2 打印章纲 prompt 长度与开头（注入调试可见性）。
+- `editor_verdict_prose_fallback` 提升为 `pub(crate)`（探针复用生产函数，行为不变）。
+- `e2e/mock-tauri.ts` 补 `check_update` / `get_current_version` handler：`useUpdater(true)`
+  （`App.tsx`）挂载 5s 后自动检查更新，mock 未实现时慢机/并行负载下页面加载类用例的
+  「无 console 错误」断言偶发红（`Cannot read properties of null (reading 'has_update')`）——
+  本轮全量跑复现 3 例、补 mock 后复跑 39 passed，属既有 flake 修复。
+
+### 真机换模复测（全部读真机配置，默认档位）
+
+- **工具档 = Qwen3.5-27B-Uncensored-Q4_K_M**：卷纲 ✅ + 章纲 **1835 字**（`scene_outline`
+  2544 字提示词，含【本卷计划】注入断言）——替换掉端点已死的 Gemma-4-31B 后，章纲路径修复。
+- **后台档 = Qwen3.8-Flash-Next-MLX（`127.0.0.1:11234`，262k 上下文）**：矩阵章纲 384 字、
+  编辑裁决 9.8s ✅；全链路质量门产出完整 8 维裁决并落 `editor_gate_records` ✅。
+- **创作档 = deepseek-flash**：正文 1515 字 / 103s ✅；结构/裁决类调用仍间歇空响应（矩阵里
+  单发裁决应答 0 字），维持「只做写作」定位。
+- 观察点：新编辑档打分偏宽（8 维全 5.0，Qwen3.5 同期 4.0–4.5），加权门仍拦下（0.72 < 0.75），
+  待判官一致率数据累积后评判；「合同兑现 0.00」换档前后一致出现，疑为既有现象待单查。
+- 报告：`docs/audits/2026-10-14-real-machine-probe-report.md` 修正发现 a/b 归因，新增
+  「§五 换模决策」与「§5.6 换档后复测」。
+
+### 验证
+
+- `cargo test --lib` 1816 passed / 10 ignored；clippy 0 error；fmt / architecture_guard ✅
+  （产品代码仅一处 `pub(crate)` 可见性）。
+- `npx tsc --noEmit` ✅；vitest 625 passed / 3 skipped；`npx playwright test` 39 passed / 5 skipped
+  （补 mock 后）；prettier（前端 + 官网）/ 官网 `npm test` 25 passed / 官网 build ✅。
+
+**未关闭**：编辑档宽严待判官一致率数据；「合同兑现 0.00」待单查；v0.72.2 的发现 c（仪表盘窄屏
+竖排）/ d（图谱画布不渲染）仍未修；真机「续写 → 后台质检 → toast」链路由手动续写观察。
+
 ## v0.72.2（2026-10-14）
 
 **真机功能探针（v0.66.0–v0.72.0 首次真机验收）+ 官网截图换真机实拍。**

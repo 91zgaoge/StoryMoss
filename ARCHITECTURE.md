@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.72.2 架构文档
+# StoryMoss (草苔) v0.72.3 架构文档
 
+> **v0.72.3**：**无架构变更**——真机探针工具链修正（`ProbeLlm` 三档路由：`CreativeWriting`→创作 / `WorldBuilding|Analysis`→工具 / `Proofreading|Editing`→编辑；连接超时 10s→60s 对齐生产；gate 记录读取加 10s 轮询；新增换模矩阵探针与两个档位 env 覆盖）；`editor_verdict_prose_fallback` 提为 `pub(crate)`（探针复用生产函数，行为不变）；`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version`（修既有 flake）。归因修正与换模结论见 `docs/audits/2026-10-14-real-machine-probe-report.md` §五/§5.6。
+>
 > **v0.72.2**：**无架构变更**——新增真机功能探针 `agency::real_machine_probes`（`#[cfg(test)]`，全 `#[ignore]`）：真机库/向量库副本 + 真机 AppConfig 构造真实适配器（写作档 `creative_model_id` / 编辑档 `background_model_id`，按 `TaskType` 路由，与生产 `llm_for_run(role)` 同构），三项探针覆盖续写检索/手法/质量门、卷纲 + 章纲注入、重规划预览；`life_status` 真机探针加数据形态守卫。结论与四个发现见 `docs/audits/2026-10-14-real-machine-probe-report.md`；官网三张截图换真机实拍。
 >
 > **v0.72.1**：**无架构变更**——文档与官网同步：新增/更新专题文档（`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md` 增补与更正、`docs/MODULE_CHARTER.md` 关键子模块登记、`docs/TROUBLESHOOTING.md` 新功能排查、`docs/audits/*` 落地状态补记与历史快照横幅）；官网 `landing/` 新增「长篇」区块（按需检索 / 卷纲 / 改稿不漂 / 跨拍守卫），并修正「五维审查→八维」「模式卡→已学模式」「四级评分者→三级加权 + 修改率独立信号」等过时文案。

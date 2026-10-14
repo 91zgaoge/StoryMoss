@@ -2255,3 +2255,25 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
 - **验证**：`cargo test --lib` 1643 passed / 3 ignored（+15）；`npx vitest run` 590 passed / 3 skipped（+5）；tsc / nightly fmt / prettier / architecture_guard 全绿。
 - **契约**：`test_edit_early_chapter_creates_downstream_impacts_only_for_shared_entities`（帖主测试③）；`test_persist_knowledge_updates_moves_secret_from_unknown_to_known`；`test_knowledge_boundary_detects_unknown_secret_leak` / `..._hidden_truth_reveal`；`test_possession_conflict_flags_absent_holder_but_allows_transfer` / `..._lost_item_reuse`；`test_continuity_gaps_reads_db_and_respects_planned_text`；`test_ubiquitous_entity_is_filtered_out`；`CascadeCenter` 5 用例。
 - **未关闭**：真机三把尺子端到端复跑（P3 三测试套件收口）；**不得宣称续写质量已修复**；网站发布仍待 Apple 公证解阻。
+
+*归档于 2026-10-15（v0.72.3）：v0.70.0 摘要。*
+
+### v0.70.0 - 卷/弧中层计划：VOLUME 合同（Sherpa 借鉴 P1-3）
+
+**为什么**：审计 `docs/audits/2026-10-14-sherpa-benchmark-analysis.md`——Sherpa 的层级规划器
+是「季→弧→序列→剧集→场景」；StoryMoss 的三幕书纲与逐章章纲之间没有正向计划层（段摘要每
+10 章是回顾不是计划），而 `story_contracts` 的 `VOLUME` 类型早已定义、读路径已实现、全库无
+写入方。
+
+**改动**：新模块 `story_system/volume_plan`（卷纲存 VOLUME 合同；同卷号原地更新、version
+递增；状态机 no_plan/in_volume/past_end；渲染注入块）；`AgencyCoordinator::generate_volume_plan`
+（Producer JSON 调用 + 新资产 `agency_volume_planner_system.md`；作者显式触发）；章纲生成
+注入 `volume` 变量（`scene_outline.md` 的 `{{#if volume}}` 条件块——无卷纲时 prompt 逐字不变）；
+指南针规模接卷；运行维护「卷纲」页签 + 合同页展示；命令两件。
+
+- **验证**：`cargo test --lib` **1813 passed / 5 ignored（+6）**；vitest **625 passed / 3
+  skipped（+3）**；clippy 0 error / fmt / guard / tsc / playwright 39 全绿。
+- **契约**：`test_chapter_outline_prompt_carries_volume_goal`；`overview_states_progressively`；
+  `save_list_and_current_round_trip`；`compass_scale_links_to_volume_plan` 等（详见 CHANGELOG）。
+- **未关闭**：真机未复跑（**不得宣称中观计划已在真机生效**）；卷纲 v1 不可手改；章号顺延
+  不重编号卷范围；短剧未接卷纲。
