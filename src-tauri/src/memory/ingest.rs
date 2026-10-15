@@ -5,9 +5,15 @@
 //! Step 1: 分析 - 使用LLM深入分析内容
 //! Step 2: 生成 - 基于分析结果生成结构化知识
 
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use chrono::Local;
+use once_cell::sync::Lazy;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -39,8 +45,39 @@ pub struct IngestJob {
 }
 
 /// Ingest管道
+/// Ingest 只需「按任务/提示词要一段生成文本」这一件事——抽成窄接口：
+/// 生产传真实 `LlmService`（含任意 Tauri 运行时），测试可注入计数桩，
+/// 不必构造 `LlmService<Wry>`（v0.73.0：
+/// 让「同内容不再重复走链」可端到端回归）。
+#[async_trait::async_trait]
+pub trait IngestLlm: Send + Sync + 'static {
+    async fn ingest_generate(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<crate::llm::adapter::GenerateResponse, crate::error::AppError>;
+}
+
+#[async_trait::async_trait]
+impl<R: tauri::Runtime> IngestLlm for LlmService<R> {
+    async fn ingest_generate(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<crate::llm::adapter::GenerateResponse, crate::error::AppError> {
+        self.generate_for_task(task, prompt, max_tokens, temperature, context_label)
+            .await
+    }
+}
+
 pub struct IngestPipeline {
-    llm_service: LlmService,
+    llm_service: std::sync::Arc<dyn IngestLlm>,
     pool: Option<DbPool>,
     app_handle: Option<tauri::AppHandle>,
 }
@@ -390,9 +427,9 @@ fn extract_json(content: &str) -> Result<String, String> {
 }
 
 impl IngestPipeline {
-    pub fn new(llm_service: LlmService) -> Self {
+    pub fn new(llm_service: impl IngestLlm) -> Self {
         Self {
-            llm_service,
+            llm_service: std::sync::Arc::new(llm_service),
             pool: None,
             app_handle: None,
         }
@@ -436,6 +473,17 @@ impl IngestPipeline {
             }
         }
 
+        // v0.73.0：同内容结果复用（见下文缓存说明）——命中即整链跳过，
+        // 不再发任何 LLM 调用；未命中则照常跑并在成功后写缓存。
+        if let Some(cached) = ingest_result_cache_lookup(&content.story_id, &content.text) {
+            log::info!(
+                "[IngestPipeline] 同内容命中结果缓存（跳过重复 ingest）story={} source={}",
+                content.story_id,
+                content.source
+            );
+            return Ok(cached);
+        }
+
         let job_id = uuid::Uuid::new_v4().to_string();
         let resource_type = content
             .scene_id
@@ -456,7 +504,10 @@ impl IngestPipeline {
         let result = self.run_ingest(content, cancel).await;
 
         match &result {
-            Ok(_) => {
+            Ok(ingested) => {
+                // 成功结果写缓存：同内容的第二次 ingest（另一条后台路径）
+                // 直接复用，0 次 LLM。
+                ingest_result_cache_store(&content.story_id, &content.text, ingested);
                 if let Err(e) = self.complete_job(&job_id) {
                     log::warn!("[IngestPipeline] Failed to complete job record: {}", e);
                 }
@@ -565,14 +616,30 @@ impl IngestPipeline {
             }
         }
 
+        // Step 2/3：两步行内 LLM 都只依赖 Step 1 的分析结果，彼此独立——
+        // v0.73.0 起并发跑，把这条链的墙钟从一个接一个的三连降到两轮
+        // （本地单槽模型由服务端排队，外网模型则真正并行）。两步的提示词、
+        // 解析与重试策略均未改动，产出与串行时一致。
+        // 注意：两步的错误类型是 `Box<dyn Error>`（非 Send）——join 期间跨越
+        // 另一支的 await 会污染整个 future 的 Send 性（Tauri 命令要求 Send），
+        // 故在 join 内先收敛为 `String`，join 外再还原为 `Box<dyn Error>`。
+        let (knowledge_res, events_res) = tokio::join!(
+            async {
+                self.generate_knowledge(&analysis, cancel)
+                    .await
+                    .map_err(|e| e.to_string())
+            },
+            async {
+                self.extract_narrative_events(content, &analysis, cancel)
+                    .await
+                    .map_err(|e| e.to_string())
+            },
+        );
         // Step 2: 生成阶段 — 结构化知识档案
-        let knowledge = self.generate_knowledge(&analysis, cancel).await?;
+        let knowledge = knowledge_res.map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
         // Step 3: LitSeg 叙事事件提取 — 从文本中提取推动情节的关键事件
-        let mut narrative_events = self
-            .extract_narrative_events(content, &analysis, cancel)
-            .await
-            .unwrap_or_default();
+        let mut narrative_events = events_res.unwrap_or_default();
 
         // Step 3b: 构建事件因果链并保存到数据库
         Self::build_event_chain(&mut narrative_events);
@@ -1079,7 +1146,7 @@ impl IngestPipeline {
             }
             let response = self
                 .llm_service
-                .generate_for_task(
+                .ingest_generate(
                     TaskType::Analysis,
                     prompt,
                     None,
@@ -1209,7 +1276,7 @@ impl IngestPipeline {
             }
             let response = self
                 .llm_service
-                .generate_for_task(
+                .ingest_generate(
                     TaskType::WorldBuilding,
                     prompt,
                     None,
@@ -1320,7 +1387,7 @@ impl IngestPipeline {
 
             let response = self
                 .llm_service
-                .generate_for_task(
+                .ingest_generate(
                     TaskType::Analysis,
                     current_prompt,
                     None,
@@ -2035,6 +2102,96 @@ pub struct IngestResult {
     pub narrative_events: Vec<NarrativeEvent>,
 }
 
+// =============================================================================
+// v0.73.0：同内容 ingest 结果缓存（消除重复走链）
+// =============================================================================
+//
+// 同一章正文会被两条后台路径各 ingest 一次：续写后的「资产回流」
+// （`agency::continue_loop::run_asset_ingest`，source=`agency:scene:*`）与
+// 停笔 30s 后的自动提交（`SceneCommitService::run_kg_ingest`，
+// source=`chapter:*`）。此前两次都要完整跑「分析 → 生成知识 → 叙事事件」
+// 三次 LLM 调用（各最多 3 次重试），而这些 LLM 调用还共享全局单槽
+// `BACKGROUND_LLM_SEMAPHORE`——一次重复就是最长 9 次串行调用。
+//
+// 正文指纹相同的第二次 ingest 直接复用第一次的结果：调用方拿到的
+// analysis/entities/relations/narrative_events 与重新跑一次等价，但 0 次 LLM。
+// 缓存只在**成功**后写入、TTL 到期或超过容量即淘汰；正文一变指纹就不同，
+// 天然不会复用旧结果。关系证据标记沿用首次调用的 source（`agency:scene:*`
+// 或 `chapter:*`）——两种标记都会被场景编辑的撤回路径同时匹配
+// （`relation_retract` 的 stale_markers），语义不变。
+
+/// 缓存条数上限（每条约几 KB；超出淘汰最旧）。
+const INGEST_CACHE_CAP: usize = 16;
+/// 缓存有效期：覆盖「续写 → 30s 提交」窗口，且不让隔夜的旧结果留存。
+const INGEST_CACHE_TTL: Duration = Duration::from_secs(900);
+
+struct CachedIngest {
+    story_id: String,
+    hash: u64,
+    stored_at: Instant,
+    result: IngestResult,
+}
+
+static INGEST_RESULT_CACHE: Lazy<Mutex<Vec<CachedIngest>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+/// FNV-1a 64：正文去首尾空白后的指纹（变一字节即不同）。
+pub fn ingest_text_hash(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.trim().as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// 查缓存：同一故事 + 同一正文指纹在 TTL 内已成功 ingest → 返回结果副本。
+pub fn ingest_result_cache_lookup(story_id: &str, text: &str) -> Option<IngestResult> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let hash = ingest_text_hash(text);
+    let mut cache = INGEST_RESULT_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    cache.retain(|e| e.stored_at.elapsed() < INGEST_CACHE_TTL);
+    cache
+        .iter()
+        .rev()
+        .find(|e| e.story_id == story_id && e.hash == hash)
+        .map(|e| e.result.clone())
+}
+
+/// 写缓存（仅成功结果；同签名旧条目先删）。
+pub fn ingest_result_cache_store(story_id: &str, text: &str, result: &IngestResult) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let hash = ingest_text_hash(text);
+    let mut cache = INGEST_RESULT_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    cache.retain(|e| {
+        e.stored_at.elapsed() < INGEST_CACHE_TTL && !(e.story_id == story_id && e.hash == hash)
+    });
+    cache.push(CachedIngest {
+        story_id: story_id.to_string(),
+        hash,
+        stored_at: Instant::now(),
+        result: result.clone(),
+    });
+    while cache.len() > INGEST_CACHE_CAP {
+        cache.remove(0);
+    }
+}
+
+/// 测试/复算辅助：清空缓存（缓存是进程级，跨测试需隔离）。
+pub fn clear_ingest_result_cache() {
+    INGEST_RESULT_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clear();
+}
+
 /// Ingest批次（用于批量处理）
 pub struct IngestBatch {
     pub contents: Vec<IngestContent>,
@@ -2075,6 +2232,195 @@ impl Default for IngestBatch {
 mod tests {
     use super::*;
     use crate::db::connection::create_test_pool;
+
+    // ---- v0.73.0：同内容 ingest 结果缓存（消除重复走链） ----
+
+    /// 缓存是进程级全局：涉及 `clear_ingest_result_cache` 的用例必须串行
+    /// （否则并行用例互相清空导致假红）。
+    static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn sample_ingest_result() -> IngestResult {
+        IngestResult {
+            analysis: ContentAnalysis {
+                entities: vec![],
+                relationships: vec![],
+                events: vec![],
+                sentiment: SentimentAnalysis {
+                    overall: String::new(),
+                    intensity: 0.0,
+                    arc: vec![],
+                },
+                foreshadowing: vec![],
+                themes: vec![],
+                world_building: None,
+                scene_outline: None,
+                story_delta: None,
+                knowledge_updates: vec![],
+                timeline_events: vec![],
+                item_holdings: vec![],
+            },
+            knowledge: GeneratedKnowledge {
+                entities: vec![],
+                relations: vec![],
+                events: vec![],
+            },
+            entities: vec![],
+            relations: vec![],
+            narrative_events: vec![],
+        }
+    }
+
+    /// 同一故事 + 同一正文指纹命中；正文一变、换故事、空正文、
+    /// 清缓存后均不命中； 同签名重复写入只留一条。（**单测试内完成**：
+    /// 缓存是进程级全局， 拆成两个并行用例会互相 clear。）
+    #[test]
+    fn ingest_cache_round_trip_guards_and_dedupe() {
+        let _guard = CACHE_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        clear_ingest_result_cache();
+        let result = sample_ingest_result();
+        ingest_result_cache_store("story-a", "苏福贵把匣子推到案上。", &result);
+
+        assert!(
+            ingest_result_cache_lookup("story-a", "苏福贵把匣子推到案上。").is_some(),
+            "同内容应命中"
+        );
+        assert!(
+            ingest_result_cache_lookup("story-a", "  苏福贵把匣子推到案上。\n").is_some(),
+            "首尾空白不算内容变化"
+        );
+        assert!(
+            ingest_result_cache_lookup("story-a", "苏福贵把匣子推到案下。").is_none(),
+            "正文改动一字即不得复用"
+        );
+        assert!(
+            ingest_result_cache_lookup("story-b", "苏福贵把匣子推到案上。").is_none(),
+            "跨故事不得复用"
+        );
+
+        // 空正文不入缓存
+        ingest_result_cache_store("story-a", "   ", &result);
+        assert!(
+            ingest_result_cache_lookup("story-a", "   ").is_none(),
+            "空正文不入缓存"
+        );
+
+        // 同签名重复 store 只保留最新一条（不重复堆积）
+        ingest_result_cache_store("story-a", "正文", &result);
+        ingest_result_cache_store("story-a", "正文", &result);
+        {
+            let cached = INGEST_RESULT_CACHE
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                cached
+                    .iter()
+                    .filter(|e| e.story_id == "story-a" && e.hash == ingest_text_hash("正文"))
+                    .count(),
+                1,
+                "同签名应只留一条"
+            );
+        }
+
+        clear_ingest_result_cache();
+        assert!(
+            ingest_result_cache_lookup("story-a", "苏福贵把匣子推到案上。").is_none(),
+            "清缓存后不得命中（测试隔离）"
+        );
+    }
+
+    #[test]
+    fn ingest_text_hash_is_stable_and_change_sensitive() {
+        assert_eq!(ingest_text_hash("abc"), ingest_text_hash(" abc \n"));
+        assert_ne!(ingest_text_hash("abc"), ingest_text_hash("abd"));
+    }
+
+    /// 端到端：同内容第二次 `ingest()` 命中缓存 → **0 次 LLM**；
+    /// 正文一变 → 重新走链（计数上升）。
+    #[tokio::test]
+    async fn ingest_second_call_with_same_text_skips_llm_entirely() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        /// 计数桩：按提示词形态返回各自可解析的最小 JSON。
+        struct CountingStub {
+            calls: std::sync::Arc<AtomicUsize>,
+        }
+
+        #[async_trait::async_trait]
+        impl super::IngestLlm for CountingStub {
+            async fn ingest_generate(
+                &self,
+                _task: TaskType,
+                prompt: String,
+                _max_tokens: Option<i32>,
+                _temperature: Option<f32>,
+                _context_label: Option<&str>,
+            ) -> Result<crate::llm::adapter::GenerateResponse, crate::error::AppError> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let content = if prompt.contains("叙事事件") || prompt.contains("事件提取")
+                {
+                    r#"{"events":[]}"#
+                } else if prompt.contains("知识库条目") {
+                    r#"{"entities":[],"relations":[],"events":[]}"#
+                } else {
+                    r#"{"entities":[],"relationships":[],"events":[],"sentiment":{"overall":"中性","intensity":0.3,"arc":[]}}"#
+                };
+                Ok(crate::llm::adapter::GenerateResponse {
+                    content: content.to_string(),
+                    model: "counting-stub".to_string(),
+                    tokens_used: 1,
+                    cost: 0.0,
+                    tool_calls: vec![],
+                })
+            }
+        }
+
+        let _guard = CACHE_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        clear_ingest_result_cache();
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let pool = create_test_pool().unwrap();
+        let pipeline = IngestPipeline::new(CountingStub {
+            calls: calls.clone(),
+        })
+        .with_pool(pool.clone());
+        let content = IngestContent {
+            text: "苏福贵把匣子推到案上，景亲王没有看匣，只看着他。".to_string(),
+            source: "test:cache".to_string(),
+            story_id: "cache-story".to_string(),
+            scene_id: None,
+        };
+
+        pipeline
+            .ingest(&content)
+            .await
+            .expect("第一次 ingest 应成功");
+        let first_calls = calls.load(Ordering::SeqCst);
+        assert!(
+            first_calls >= 3,
+            "第一次应真的走链（分析/知识/事件 ≥3 次 LLM），实际 {first_calls}"
+        );
+
+        pipeline
+            .ingest(&content)
+            .await
+            .expect("第二次 ingest 应成功");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            first_calls,
+            "同内容第二次 ingest 不得再调 LLM（应命中缓存）"
+        );
+
+        let mut changed = content.clone();
+        changed.text = "苏福贵把匣子推到案下。".to_string();
+        pipeline
+            .ingest(&changed)
+            .await
+            .expect("改文后 ingest 应成功");
+        assert!(
+            calls.load(Ordering::SeqCst) > first_calls,
+            "正文一变应重新走链（计数必须上升）"
+        );
+        clear_ingest_result_cache();
+    }
 
     #[test]
     fn test_extract_json_from_markdown_code_block() {

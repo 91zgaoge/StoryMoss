@@ -110,15 +110,46 @@ impl SceneCommitService {
             llm_service
         };
 
-        // 章节语义摘要（P1-A，v0.61.0）：LLM 压缩 100-150 字；失败回退截断。
-        // 此前是「正文前 1000 字截断」，既不是摘要也不带状态变化。
-        let (summary, summary_quality) = super::chapter_summary::summarize_chapter_with_quality(
-            Some(&self.pool),
-            content.unwrap_or(""),
-            chapter_number,
-            llm_ref,
-        )
-        .await;
+        // v0.73.0：章节语义摘要（P1-A，v0.61.0）与 mini review 合并为**一次**
+        // LLM 调用（`chapter_commit_digest`）——两个提示词此前各发一次、吃的是
+        // 同一段正文与同一套合同变量，仍共享全局单槽后台 LLM 许可，每章固定
+        // 两次串行调用。合并路径解析失败/接口异常时完整回退到原来的两步
+        // （行为与旧版逐字一致），连续失败 3 次后本会话停用合并路径。
+        let (summary, summary_quality, mut review_result) =
+            match super::chapter_summary::summarize_and_review_chapter(
+                Some(&self.pool),
+                content.unwrap_or(""),
+                chapter_number,
+                &contract,
+                llm_ref,
+            )
+            .await
+            {
+                Some((summary, quality, review)) => (summary, quality, review),
+                None => {
+                    // 章节语义摘要：LLM 压缩 100-150 字；失败回退截断。
+                    let (summary, quality) =
+                        super::chapter_summary::summarize_chapter_with_quality(
+                            Some(&self.pool),
+                            content.unwrap_or(""),
+                            chapter_number,
+                            llm_ref,
+                        )
+                        .await;
+                    // Mini review（LLM 失败自动回退启发式）
+                    let review =
+                        mini_review::run_mini_review(content.unwrap_or(""), &contract, llm_ref)
+                            .await
+                            .unwrap_or_else(|e| {
+                                log::warn!(
+                                    "[SceneCommitService] mini review 失败（非阻塞）: {}",
+                                    e
+                                );
+                                mini_review::heuristic_review(content.unwrap_or(""), &contract)
+                            });
+                    (summary, quality, review)
+                }
+            };
         // v0.64.11：摘要回退（无 LLM / 调用失败 / 输出不合格 /
         // 正文为空）不再静默—— 记质量债，运行维护页可见（真机第 9
         // 章摘要为空、段摘要 0 行此前无人察觉）。
@@ -136,15 +167,6 @@ impl SceneCommitService {
                 log::warn!("[SceneCommitService] 记录摘要质量债失败（非阻塞）: {e}");
             }
         }
-
-        // Mini review（LLM 失败自动回退启发式）
-        let mut review_result =
-            mini_review::run_mini_review(content.unwrap_or(""), &contract, llm_ref)
-                .await
-                .unwrap_or_else(|e| {
-                    log::warn!("[SceneCommitService] mini review 失败（非阻塞）: {}", e);
-                    mini_review::heuristic_review(content.unwrap_or(""), &contract)
-                });
 
         // P2-A（v0.62.0）：确定性文本质检——注入术语泄漏 / 否定排比 / 章尾预告腔
         // 等形态在 LLM 评审里天然难被抓住，这里低成本兜底并记入 commit 结果。
@@ -638,6 +660,9 @@ impl SceneCommitService {
             scene_id: None,
         };
 
+        // v0.73.0：`IngestPipeline` 内部带「同内容结果缓存」——续写后的资产
+        // 回流若已对同一正文跑过 ingest，这里直接复用结果（0 次 LLM），
+        // KG 落库与状态增量照常（幂等 upsert）。
         match pipeline.ingest(&ingest_content).await {
             Ok(result) => {
                 let kg_repo =

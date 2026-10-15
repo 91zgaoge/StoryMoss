@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.72.3 架构文档
+# StoryMoss (草苔) v0.73.0 架构文档
 
+> **v0.73.0**：**后台 LLM 链条效率改造**（无外部依赖变化）——①`memory/ingest` 增加「同故事 + 正文指纹」结果缓存（`ingest_result_cache_lookup/store`，TTL 900s/16 条/仅成功写），`ingest_with_cancel` 入口命中即整链跳过：同一正文被「资产回流」与「30s 提交」两条路径各跑一次的重复链（最长 9 次串行 LLM）降为 0；②该链 Step2/Step3 改 `tokio::join!` 并发（错误类型在 join 内收敛为 String 以保 Send）；③新增窄接口 `IngestLlm`（`LlmService<R>` 全运行时实现，IngestPipeline 持有 `Arc<dyn IngestLlm>`）；④提交链合并调用：新资产 `chapter_commit_digest` +`chapter_summary::{build_digest_prompt, parse_commit_digest, summarize_and_review_chapter}`（`auto_commit` happy path 每章 2 次 LLM → 1 次，失败回退旧两步，连续失败 3 次熔断）；⑤`life_status::refresh_after_text` 扫描备忘（故事/章/指纹 300s；`revive` 失效备忘）。
+>
 > **v0.72.3**：**无架构变更**——真机探针工具链修正（`ProbeLlm` 三档路由：`CreativeWriting`→创作 / `WorldBuilding|Analysis`→工具 / `Proofreading|Editing`→编辑；连接超时 10s→60s 对齐生产；gate 记录读取加 10s 轮询；新增换模矩阵探针与两个档位 env 覆盖）；`editor_verdict_prose_fallback` 提为 `pub(crate)`（探针复用生产函数，行为不变）；`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version`（修既有 flake）。归因修正与换模结论见 `docs/audits/2026-10-14-real-machine-probe-report.md` §五/§5.6。
 >
 > **v0.72.2**：**无架构变更**——新增真机功能探针 `agency::real_machine_probes`（`#[cfg(test)]`，全 `#[ignore]`）：真机库/向量库副本 + 真机 AppConfig 构造真实适配器（写作档 `creative_model_id` / 编辑档 `background_model_id`，按 `TaskType` 路由，与生产 `llm_for_run(role)` 同构），三项探针覆盖续写检索/手法/质量门、卷纲 + 章纲注入、重规划预览；`life_status` 真机探针加数据形态守卫。结论与四个发现见 `docs/audits/2026-10-14-real-machine-probe-report.md`；官网三张截图换真机实拍。

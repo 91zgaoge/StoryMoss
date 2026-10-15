@@ -2,6 +2,50 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.0（2026-10-15）
+
+**后台 LLM 链条效率改造（决策引擎 Laya 经评估后全线不采用）。**
+
+背景：对全项目 60+ 个「判断/选择」环节做完盘（`docs/audits/2026-10-15-decision-points-inventory.md`），
+并对 Laya Decision API 做了约 100 次真机实测（意图分类 64%、检索相关性 3/3 反向、文笔打分无区分度等）。
+作者决策：**全部环节不接 Laya**；改为直接改造后台 LLM 链条本身——每章固定几次串行后台 LLM 是真正的热点。
+
+### 效率改造（三处，均有回归测试）
+
+1. **IngestPipeline 同内容结果复用**（最大单点）：同一章正文此前会被两条后台路径各 ingest 一次
+   （续写后的「资产回流」+ 停笔 30s 的自动提交），每次都要跑「分析 → 生成知识 → 叙事事件」三次 LLM
+   （各最多 3 次重试）且共享全局单槽 `BACKGROUND_LLM_SEMAPHORE`——一次重复最长 9 次串行调用。
+   现在同一 (故事, 正文指纹) 的第二次 ingest 直接复用上一次结果：**0 次 LLM**；正文一改指纹即不同，
+   天然不复用；缓存只在成功后写入、TTL 900s、容量 16 条。
+2. **Step2/Step3 并发**：这两步行内 LLM 只依赖 Step1 的分析结果，改 `tokio::join!` 并发——
+   该链墙钟从「三连」降到两轮（提示词/解析/重试策略均未改）。
+3. **提交链「摘要 + mini review」合并为一次调用**（新资产 `chapter_commit_digest`）：此前每章固定两次
+   LLM（`chapter_summary` 400tok + `mini_review` 800tok，同一段正文、同一套合同变量、同样串行）。
+   合并路径解析失败/接口异常 → **完整回退**到原来的两步（行为与旧版一致）；连续失败 3 次后本会话停用
+   合并路径（不适配的模型上不会反复多花一次调用）。
+4. **死亡扫描去重**：`refresh_after_text` 同 (故事, 章, 正文指纹) 在 300s 内只扫一遍——保存链与提交链
+   此前对同一段正文各扫一整章；作者改判存活（`revive`）会失效备忘，保证改判后能重新标死。
+
+### 内部改进（测试性）
+
+- `memory::ingest::IngestLlm` 窄接口：IngestPipeline 只依赖「按任务要一段文本」，生产传真实 `LlmService`
+  （任意 Tauri 运行时），测试可注入计数桩——「同内容第二次 ingest = 0 次 LLM」成为可回归的端到端用例。
+
+### 验证
+
+- `cargo test --lib` **1826 passed / 10 ignored**（+10：缓存语义 3、端到端 0 调用 1、合并调用解析/契约/熔断 6）；
+  clippy 0 error；fmt / architecture_guard ✅。
+- 关键回归用例：`ingest_second_call_with_same_text_skips_llm_entirely`（计数桩证明第二次 0 调用、改文后计数上升）；
+  `ingest_cache_round_trip_guards_and_dedupe`；`commit_digest_parses_summary_and_review_together` /
+  `commit_digest_rejects_bad_shapes_and_clamps_scores` / `commit_digest_streak_gates_availability` /
+  `chapter_commit_digest_carries_both_output_contracts`（提示词资产契约）；
+  `refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`。
+- 前/后端既有门全绿：tsc / vitest 625 / playwright 39 / prettier（前端 + 官网）。
+
+**未关闭**：真机端到端未复跑（每章后台 LLM 调用次数与耗时的前后对比需要在真机跑一次续写 + 停笔提交才能读数，
+**不得宣称真机耗时已下降**）；`maybe_enrich_director_lock` 的每拍门控与网关 keepalive 惰性化经评估后未做
+（判据风险大于收益，见盘点文档 §五）；决策引擎（Laya）全线不采用。
+
 ## v0.72.3（2026-10-15）
 
 **真机换模复测工具链 + 换模决策入档（测试与文档；产品行为零改动）。**

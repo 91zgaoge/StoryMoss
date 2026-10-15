@@ -894,6 +894,31 @@ mod tests {
         }
     }
 
+    /// v0.73.0 契约：提交合并调用（摘要 + 快评）的提示词资产必须同时携带
+    /// 两段产出契约与全部合同变量——它是 `auto_commit` happy path 的唯一
+    /// LLM 提示词，缺字段会让合并路径永远解析失败并静默退回两步。
+    #[test]
+    fn chapter_commit_digest_carries_both_output_contracts() {
+        let content = resolve_prompt_default("chapter_commit_digest")
+            .unwrap_or_else(|| panic!("chapter_commit_digest 提示词应已注册"));
+        for needle in [
+            "\"summary\"",
+            "\"dimensions\"",
+            "\"review_summary\"",
+            "\"issues\"",
+            "{{content}}",
+            "{{world_rules}}",
+            "{{chapter_goal}}",
+            "{{must_cover_nodes}}",
+            "{{forbidden_zones}}",
+        ] {
+            assert!(
+                content.contains(needle),
+                "chapter_commit_digest 缺少「{needle}」"
+            );
+        }
+    }
+
     #[test]
     fn problem_logline_carries_three_checks() {
         // P2-9（v0.71.0）：创世概念体检三问必须齐备（张力/赌注/心理），且输出

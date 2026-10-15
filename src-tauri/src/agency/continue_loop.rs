@@ -471,6 +471,8 @@ pub async fn run_asset_ingest(
         story_id: story_id.to_string(),
         scene_id: Some(scene_id.to_string()),
     };
+    // v0.73.0：`IngestPipeline` 内部已带「同内容结果缓存」——同一正文被
+    // 提交链 ingest 过时，这里直接复用其结果（0 次 LLM），无需在此判重。
     let exit = match pipeline
         .ingest_with_cancel(&ingest_content, Some(&cancel))
         .await

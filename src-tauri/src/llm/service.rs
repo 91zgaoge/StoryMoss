@@ -2726,6 +2726,7 @@ pub(crate) fn is_silent_background_label(label: &str) -> bool {
             | "bg-auto-rewriter"
             | "bg-ingest"
             | "bg-producer-resume"
+            | "background-commit-digest"
             | "记忆-内容分析"
             | "记忆-生成知识"
             | "记忆-叙事事件提取"

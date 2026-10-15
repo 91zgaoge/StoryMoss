@@ -55,7 +55,8 @@ pub async fn run_mini_review(
     Ok(heuristic_review(content, contract))
 }
 
-fn build_prompt_vars(
+/// 合并调用（`chapter_commit_digest`）与本模块共用同一套合同变量。
+pub(crate) fn build_prompt_vars(
     content: &str,
     contract: &RuntimeContract,
 ) -> std::collections::HashMap<String, String> {
@@ -142,16 +143,19 @@ fn parse_review_json(text: &str) -> Result<ReviewResult, AppError> {
         text
     };
 
-    let mut result: ReviewResult = serde_json::from_str(json_text)
+    let result: ReviewResult = serde_json::from_str(json_text)
         .map_err(|e| AppError::internal(format!("mini_review JSON 解析失败: {}", e)))?;
 
-    // 校验并归一化分数
+    Ok(clamp_review(result))
+}
+
+/// 校验并归一化分数（0..=1）。合并调用（chapter_commit_digest）复用。
+pub(crate) fn clamp_review(mut result: ReviewResult) -> ReviewResult {
     result.score = result.score.clamp(0.0, 1.0);
     for d in &mut result.dimensions {
         d.score = d.score.clamp(0.0, 1.0);
     }
-
-    Ok(result)
+    result
 }
 
 /// 启发式 review：基于关键词匹配合同节点、禁忌区、世界规则和内容长度。

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.72.3
+- **版本**: v0.73.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1816 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1826 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 39 passed / 5 skipped（v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -110,6 +110,26 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.0 - 后台 LLM 链条效率改造（决策引擎 Laya 全线不采用）
+
+**为什么**：对全项目 60+ 个判断/选择环节做完盘（`docs/audits/2026-10-15-decision-points-inventory.md`）+
+对 Laya Decision API 做约 100 次真机实测（意图分类 64%、检索相关性 3/3 反向、文笔打分无区分度、
+`score` 不带 criteria 直接 500）。作者决策：**全部环节不接 Laya**；真正的热点是后台 LLM 链条本身。
+
+**改动**：①`memory/ingest` **同内容结果复用**——同一正文被「资产回流」与「30s 提交」两条路径各 ingest
+一次，第二次直接复用结果（0 次 LLM，最长省 9 次串行调用；指纹变即不复用；TTL 900s/16 条）；
+②Step2/Step3 改 `tokio::join!` 并发（墙钟三连→两轮，提示词/解析/重试未改）；③提交链**摘要 + mini
+review 合并为一次调用**（新资产 `chapter_commit_digest`；失败完整回退旧两步，连续失败 3 次停用合并路径）；
+④`life_status::refresh_after_text` 同 (故事, 章, 指纹) 300s 内只扫一遍（`revive` 失效备忘）；
+⑤内部窄接口 `IngestLlm`（生产传真实 `LlmService`，测试注入计数桩）。
+
+- **验证**：`cargo test --lib` **1826 passed / 10 ignored（+10）**；clippy 0 error；fmt / guard ✅；
+  tsc / vitest 625 / playwright 39 / prettier ✅。回归用例：`ingest_second_call_with_same_text_skips_llm_entirely`
+  （计数桩：第二次 0 调用、改文后计数上升）、`commit_digest_*`（解析/钳分/熔断/资产契约）、
+  `refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`。
+- **未关闭**：真机端到端未复跑（**不得宣称真机耗时已下降**）；`maybe_enrich_director_lock` 门控与网关
+  keepalive 惰性化评估后未做（风险大于收益）；Laya 全线不采用。
 
 ### v0.72.3 - 真机换模复测工具链 + 换模决策入档（测试与文档）
 
@@ -191,22 +211,6 @@ laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 
 - **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`（更新）；
   `voice_corpus_calibration_probe`（ignore）。
 - **未关闭**：明清白话 ≠ 现代网文语域（下限参照）；未断言人类语料命中率上限；探针不进 CI。
-
-### v0.71.0 - 长篇稳定性回归门 + 创世概念体检（Sherpa 借鉴 P2-6/P2-9）
-
-**改动**：①P2-6 `agency::serial_harness`（确定性 MockLlm、进 CI）：同场景四拍串联验证跨拍
-状态约束——写死 → 重演死亡被拦 / 使用不在场持有者物品被拦 / 说出 secrets_unknown 被拦，
-违规稿不得落库、合规重试稿落库、死亡状态四拍后仍在；守卫测试
-`tests/serial_harness_guard.rs` 防回归门变空门。②P2-9 概念体检：`agency_problem_logline`
-加三问（张力/赌注/心理）与「首行 logline + 三行诊断」格式；`split_logline_diagnostics`
-切分（advisory 只记日志、不污染 premise、旧格式不误伤）；registry 契约测试防三问被删。
-
-- **验证**：`cargo test --lib` **1816 passed / 5 ignored（+3）** + 守卫 2 项；前端未改动
-  （vitest 625 / 3 skipped）；clippy 0 error / fmt / guard / tsc 全绿。
-- **契约**：`serial_stability_across_beats`；`logline_split_keeps_single_line_and_extracts_diagnostics`；
-  `problem_logline_carries_three_checks`；`serial_harness_keeps_cross_beat_probes_and_violation_markers`。
-- **未关闭**：真机未复跑；harness 测跨拍约束回路而非模型文笔；概念体检诊断依赖模型遵循格式
-  （不遵循则静默退回旧行为）；诊断只进日志无 UI。
 
 ## Always Do
 

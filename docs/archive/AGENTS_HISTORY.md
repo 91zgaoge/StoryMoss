@@ -2277,3 +2277,21 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
   `save_list_and_current_round_trip`；`compass_scale_links_to_volume_plan` 等（详见 CHANGELOG）。
 - **未关闭**：真机未复跑（**不得宣称中观计划已在真机生效**）；卷纲 v1 不可手改；章号顺延
   不重编号卷范围；短剧未接卷纲。
+
+*归档于 2026-10-15（v0.73.0）：v0.71.0 摘要。*
+
+### v0.71.0 - 长篇稳定性回归门 + 创世概念体检（Sherpa 借鉴 P2-6/P2-9）
+
+**改动**：①P2-6 `agency::serial_harness`（确定性 MockLlm、进 CI）：同场景四拍串联验证跨拍
+状态约束——写死 → 重演死亡被拦 / 使用不在场持有者物品被拦 / 说出 secrets_unknown 被拦，
+违规稿不得落库、合规重试稿落库、死亡状态四拍后仍在；守卫测试
+`tests/serial_harness_guard.rs` 防回归门变空门。②P2-9 概念体检：`agency_problem_logline`
+加三问（张力/赌注/心理）与「首行 logline + 三行诊断」格式；`split_logline_diagnostics`
+切分（advisory 只记日志、不污染 premise、旧格式不误伤）；registry 契约测试防三问被删。
+
+- **验证**：`cargo test --lib` **1816 passed / 5 ignored（+3）** + 守卫 2 项；前端未改动
+  （vitest 625 / 3 skipped）；clippy 0 error / fmt / guard / tsc 全绿。
+- **契约**：`serial_stability_across_beats`；`logline_split_keeps_single_line_and_extracts_diagnostics`；
+  `problem_logline_carries_three_checks`；`serial_harness_keeps_cross_beat_probes_and_violation_markers`。
+- **未关闭**：真机未复跑；harness 测跨拍约束回路而非模型文笔；概念体检诊断依赖模型遵循格式
+  （不遵循则静默退回旧行为）；诊断只进日志无 UI。

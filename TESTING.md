@@ -1,8 +1,20 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.72.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.0 变更说明
+
+- **后台 LLM 链条效率改造（1826 passed / 10 ignored，+10 用例）**：
+  ①`ingest_second_call_with_same_text_skips_llm_entirely`——计数桩端到端证明「同内容第二次 ingest = 0 次
+  LLM、改文后计数上升」（依赖新增窄接口 `IngestLlm`，测试无需 Tauri 运行时）；
+  ②`ingest_cache_round_trip_guards_and_dedupe` / `ingest_text_hash_is_stable_and_change_sensitive`
+  （缓存作用域、空白归一、同签名去重、清缓存；进程级缓存用例以 `CACHE_TEST_LOCK` 串行防互相清空）；
+  ③`commit_digest_*` 六例：合并输出解析（含思考链/围栏剥离）、坏形态拒绝与分数钳位、提示词资产契约
+  （`chapter_commit_digest_carries_both_output_contracts`）、连续失败熔断门；
+  ④`refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`（扫描去重 + `revive` 失效后能重标）。
+- **未改动**：前端与官网代码零改动；Laya 决策引擎经评估后全线不采用（盘点文档归档）。
 
 ### v0.72.3 变更说明
 

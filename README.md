@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.72.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,14 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.0 · 后台更轻：同一段正文不再重复喂给模型
+
+把全项目 60 多个「判断」环节盘了一遍、也把外部决策引擎（Laya）实测了一轮（结论：准确率不够，全线不采用）。
+真正省下来的是后台的重复劳动：一章正文此前会被两条后台路径各分析一次（续写后的资产回流 + 停笔 30 秒的
+自动入库），每次都是三次模型调用起步——现在同一段正文**第二次直接复用结果，0 次调用**；提交时的
+「章节摘要 + 快速审校」也从两次调用合并成一次（解析失败自动回退旧路线）；正文里的人物生死扫描同样
+只扫一遍。正文一改，全部照常重算。详见 [盘点文档](docs/audits/2026-10-15-decision-points-inventory.md)。
 
 ### v0.72.3 · 真机换模复测：章纲回来了
 

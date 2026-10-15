@@ -123,7 +123,48 @@ pub fn mark_dead(
 /// 作者改判存活（假死/诈死情节）：清列 + 去掉标记。
 pub fn revive(pool: &DbPool, story_id: &str, name: &str) -> Result<usize, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::character_life::revive_on(&conn, story_id, name).map_err(|e| e.to_string())
+    let changed =
+        crate::db::character_life::revive_on(&conn, story_id, name).map_err(|e| e.to_string())?;
+    // v0.73.0：改判后同内容不应再被备忘拦下重标——清掉该故事的扫描备忘。
+    drop(conn);
+    invalidate_scan_memo(story_id);
+    Ok(changed)
+}
+
+/// v0.73.0：同一 (story, chapter, 正文指纹) 在 TTL 内只扫一次。
+///
+/// `update_scene` 保存时扫一遍、随后的 `auto_commit` 对同一段正文再扫一遍
+/// （真机每章固定两次整章扫描）。扫描是纯确定性规则，同内容结果必然相同——
+/// 第二次直接命中备忘跳过；`revive`（作者改判存活）会清掉该故事的备忘，
+/// 避免改判后同内容不再重标。
+const SCAN_MEMO_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const SCAN_MEMO_CAP: usize = 64;
+
+struct ScanMemo {
+    story_id: String,
+    chapter: i32,
+    hash: u64,
+    at: std::time::Instant,
+}
+
+static SCAN_MEMO: once_cell::sync::Lazy<std::sync::Mutex<Vec<ScanMemo>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+
+fn text_hash(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.trim().as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// 清掉某故事的扫描备忘（作者改判存活后必须调用，见 `revive`）。
+pub fn invalidate_scan_memo(story_id: &str) {
+    SCAN_MEMO
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .retain(|m| m.story_id != story_id);
 }
 
 /// 章节正文写成死亡 → 立刻把死亡落成持久事实。返回本次新标记的姓名。
@@ -139,6 +180,23 @@ pub fn refresh_after_text(
 ) -> Vec<String> {
     if text.trim().is_empty() {
         return Vec::new();
+    }
+    // 同内容短窗口内已扫过 → 直接返回（第二次调用不再整章扫描）。
+    let hash = text_hash(text);
+    let chapter_key = chapter_number.unwrap_or(-1);
+    {
+        let mut memo = SCAN_MEMO.lock().unwrap_or_else(|p| p.into_inner());
+        memo.retain(|m| m.at.elapsed() < SCAN_MEMO_TTL);
+        if memo
+            .iter()
+            .any(|m| m.story_id == story_id && m.chapter == chapter_key && m.hash == hash)
+        {
+            log::debug!(
+                "[life_status] 第{}章同内容已扫描过（跳过重复整章扫描）",
+                chapter_key
+            );
+            return Vec::new();
+        }
     }
     let alive: Vec<String> = match pool.get() {
         Ok(conn) => match crate::db::character_life::alive_names_on(&conn, story_id) {
@@ -172,6 +230,20 @@ pub fn refresh_after_text(
             }
             Ok(false) => {}
             Err(e) => log::warn!("[life_status] 标记「{name}」失败: {e}"),
+        }
+    }
+    // 记入备忘：同内容的下一次调用（提交链）不再整章扫描。
+    {
+        let mut memo = SCAN_MEMO.lock().unwrap_or_else(|p| p.into_inner());
+        memo.retain(|m| m.at.elapsed() < SCAN_MEMO_TTL);
+        memo.push(ScanMemo {
+            story_id: story_id.to_string(),
+            chapter: chapter_key,
+            hash,
+            at: std::time::Instant::now(),
+        });
+        while memo.len() > SCAN_MEMO_CAP {
+            memo.remove(0);
         }
     }
     marked
@@ -235,6 +307,37 @@ mod tests {
             dead_marker_map(&pool, &story_id).get("明成公主"),
             Some(&Some(2))
         );
+    }
+
+    /// v0.73.0：同 (story, chapter, 正文指纹) 在 TTL 内只扫一次——
+    /// 保存链与随后的提交链此前对同一段正文各扫一整章。
+    #[test]
+    fn refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        seed_character(&pool, &story_id, "明成公主");
+        let text = "明成公主的尸体躺在原处，短刃落在她手边。";
+
+        let first = refresh_after_text(&pool, &story_id, Some(5), text);
+        assert_eq!(first, vec!["明成公主".to_string()]);
+
+        // 同章同内容第二次：命中备忘，不再整章扫描（返回空 = 本次无新标记）
+        let second = refresh_after_text(&pool, &story_id, Some(5), text);
+        assert!(second.is_empty(), "同内容第二次应跳过扫描: {second:?}");
+
+        // 内容一变（哪怕一字）→ 不命中备忘，正常扫描
+        let changed = refresh_after_text(&pool, &story_id, Some(5), "明成公主的尸体已被抬走。");
+        assert!(changed.is_empty(), "已死者不重复标记，但扫描本身应真的跑过");
+
+        // 作者改判存活 → 备忘失效 → 同内容再扫能重新标记
+        revive(&pool, &story_id, "明成公主").expect("改判存活");
+        let after_revive = refresh_after_text(&pool, &story_id, Some(5), text);
+        assert_eq!(
+            after_revive,
+            vec!["明成公主".to_string()],
+            "改判后同内容必须能重新标记（备忘已失效）"
+        );
+        invalidate_scan_memo(&story_id);
     }
 
     #[test]
