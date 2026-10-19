@@ -1,0 +1,94 @@
+name: Sync Release to Website
+
+# 手工把某个稳定 tag 的 GitHub Release 产物重新同步到 storymoss.top。
+# 用途：官网镜像损坏/落后时的救火（例如 v0.73.0 被 nightly 并发上传写坏），
+# 以及发布后需要重新上传而不想重跑整条构建链的场景。
+#
+# 只允许稳定 tag；拒绝 prerelease；拒绝把官网版本降级。
+# 上传前后都做真实 minisign 校验（compile-free，Node 内置 Ed25519+BLAKE2b）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Stable release tag to sync (e.g. v0.73.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: storymoss-release-upload
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            landing/package.json
+            landing/package-lock.json
+
+      - name: Validate tag and download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Refusing to sync '${TAG}': expected a stable tag such as v0.73.0"
+            exit 1
+          fi
+
+          PRE=$(gh release view "${TAG}" --repo "${REPO}" --json isPrerelease --jq .isPrerelease)
+          if [ "${PRE}" = "true" ]; then
+            echo "::error::Refusing to sync prerelease ${TAG} to the stable website channel"
+            exit 1
+          fi
+
+          # 不允许把官网通道回退到旧版本（等于版本时允许，用于重新同步）。
+          TAG_VERSION="${TAG#v}"
+          REMOTE_VERSION=$(curl -fsSL "https://storymoss.top/releases/latest.json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' \
+            || true)
+          if [ -n "${REMOTE_VERSION}" ]; then
+            NEWEST=$(printf '%s\n%s\n' "${REMOTE_VERSION}" "${TAG_VERSION}" | sort -V | tail -1)
+            if [ "${NEWEST}" != "${TAG_VERSION}" ]; then
+              echo "::error::Refusing to downgrade website from ${REMOTE_VERSION} to ${TAG_VERSION}"
+              exit 1
+            fi
+            echo "Website version ${REMOTE_VERSION}; syncing ${TAG_VERSION}"
+          fi
+
+          mkdir -p artifacts
+          gh release download "${TAG}" --repo "${REPO}" --dir artifacts
+          ls -la artifacts
+
+      - name: Install landing dependencies (basic-ftp)
+        working-directory: landing
+        run: npm ci
+
+      - name: Validate manifest and artifact signatures
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts --check-only
+
+      - name: Upload release artifacts to storymoss.top
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_REMOTE_DIR: /releases
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts
+
+      - name: Verify website mirror artifacts
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts --verify-mirror

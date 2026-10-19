@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## 未发布（发布流水线修复，无应用代码变更）
+
+**修复 v0.73.0 官网更新包 `The signature verification failed`。**
+
+- 根因：同一提交同时触发 nightly 与 v0.73.0 稳定构建，两个 `upload-to-website` job 并发向 FTP 同一路径上传同名产物；macOS 更新包被写坏（稳定版/nightly 签名都验不过），官网 `latest.json` 还残留 nightly 清单。
+- 官网更新通道只允许稳定 tag 写入；nightly 仅保留 GitHub Release。
+- 镜像上传 job 增加 `concurrency: storymoss-release-upload` 串行；macOS 更新包在镜像侧改用版本化文件名。
+- 上传前 `--check-only`、上传后 `--verify-mirror` 均做真实 minisign 校验（Node 内置 Ed25519 + BLAKE2b）。
+- 新增 `Sync Release to Website` 手工工作流，用于 v0.73.0 这类镜像损坏的重新同步（拒绝 prerelease 与版本降级）。
+- 教训入档 `docs/archive/LESSONS_LEARNED.md` 经验 10。
+
 ## v0.73.0（2026-10-15）
 
 **后台 LLM 链条效率改造（决策引擎 Laya 经评估后全线不采用）。**

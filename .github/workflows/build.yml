@@ -523,10 +523,18 @@ jobs:
 
   # Sync signed release artifacts to storymoss.top via FTP
   # continue-on-error: FTP 服务器磁盘满等基础设施故障不应阻塞构建
+  #
+  # 只有稳定 tag 可以写官网更新通道。nightly 与稳定版版本号相同、产物同名，
+  # v0.73.0 就是两个 upload job 同时写同一路径把 macOS 包写坏的（见
+  # docs/archive/LESSONS_LEARNED.md）。nightly 仍留在 GitHub Release。
+  # concurrency：任何剩余的镜像上传（例如两个 tag 挨得很近）串行执行。
   upload-to-website:
     needs: [tauri-build]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    concurrency:
+      group: storymoss-release-upload
+      cancel-in-progress: false
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -548,16 +556,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node -p "require('./src-frontend/package.json').version")
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          else
-            TAG="v${VERSION}-nightly"
-          fi
+          TAG="${GITHUB_REF_NAME}"
           echo "Downloading release assets for tag: ${TAG}"
           mkdir -p artifacts
           gh release download "${TAG}" --repo "${{ github.repository }}" --dir artifacts
           ls -la artifacts
+
+      # 上传前门禁：清单里的每个平台必须与本地产物字节级签名一致，
+      # 防止把 nightly 清单和稳定版产物混在一起发出去。
+      - name: Validate manifest and artifact signatures
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts --check-only
 
       - name: Upload release artifacts to storymoss.top
         env:
@@ -568,18 +576,10 @@ jobs:
           FTP_REMOTE_DIR: /releases
         run: node .github/scripts/upload-releases-ftp.mjs artifacts
 
-      - name: Verify latest.json is accessible
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsSIL "https://storymoss.top/releases/latest.json" >/dev/null 2>&1; then
-              echo "✅ https://storymoss.top/releases/latest.json is accessible"
-              exit 0
-            fi
-            echo "attempt ${i}/30..."
-            sleep 10
-          done
-          echo "❌ latest.json not accessible after upload"
-          exit 1
+      # 上传后验收：重新从官网下载每个更新产物并验证 minisign 签名。
+      # v0.73.0 的事故（官网产物稳定版/nightly 签名都验不过）会在这里直接红。
+      - name: Verify website mirror artifacts
+        run: node .github/scripts/upload-releases-ftp.mjs artifacts --verify-mirror
 
   # tag 发布后确认 GitHub Release 含 latest.json（应用内升级器依赖）
   verify-updater-manifest:
