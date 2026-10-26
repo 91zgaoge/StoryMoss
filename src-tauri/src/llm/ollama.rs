@@ -131,7 +131,7 @@ impl OllamaAdapter {
         request: GenerateRequest,
         specs: &[crate::llm::adapter::ToolSpec],
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         let mut messages = Vec::new();
         if let Some(sys) = request
@@ -165,12 +165,12 @@ impl OllamaAdapter {
             tools: Some(openai_tools_payload(specs)),
         };
 
-        let response = send_with_connection_timeout(
+        let response = send_with_response_timeout(
             self.client
                 .post(format!("{}/api/chat", self.api_base))
                 .header("Content-Type", "application/json")
                 .json(&chat_req),
-            self.connect_timeout,
+            self.first_chunk_timeout,
         )
         .await?;
 
@@ -212,7 +212,7 @@ impl LlmAdapter for OllamaAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         if let Some(specs) = request.tools.as_ref().filter(|s| !s.is_empty()).cloned() {
             return self.generate_chat(request, &specs).await;
@@ -245,12 +245,12 @@ impl LlmAdapter for OllamaAdapter {
                 .map(|f| f.ollama_value().to_string()),
         };
 
-        let response = send_with_connection_timeout(
+        let response = send_with_response_timeout(
             self.client
                 .post(format!("{}/api/generate", self.api_base))
                 .header("Content-Type", "application/json")
                 .json(&ollama_req),
-            self.connect_timeout,
+            self.first_chunk_timeout,
         )
         .await?;
 
@@ -316,13 +316,18 @@ impl LlmAdapter for OllamaAdapter {
                 .map(|f| f.ollama_value().to_string()),
         };
 
-        let response = self
-            .client
-            .post(format!("{}/api/generate", self.api_base))
-            .header("Content-Type", "application/json")
-            .json(&ollama_req)
-            .send()
-            .await?;
+        let response = match super::adapter::send_with_response_timeout(
+            self.client
+                .post(format!("{}/api/generate", self.api_base))
+                .header("Content-Type", "application/json")
+                .json(&ollama_req),
+            self.first_chunk_timeout,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(e.to_string().into()),
+        };
 
         if !response.status().is_success() {
             let error_text = response.text().await?;

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.5 架构文档
+# StoryMoss (草苔) v0.73.6 架构文档
 
+> **v0.73.6**：**超时语义拆分**——`llm/adapter` 新增 `send_with_response_timeout`：TCP/TLS 建连由 `ClientBuilder::connect_timeout` 负责，响应头等待改用「首字节超时」（`llm_first_chunk_timeout_secs`，默认 180s），超时映射为 `RESPONSE_HEADERS_TIMEOUT_MARKER`；`AppError` 新增 `LlmResponseTimeout`（code `LLM_RESPONSE_TIMEOUT`，severity Retry，仅额外重试 1 次）。OpenAI/Anthropic/Ollama 的非流式与流式请求全部接入；后端默认连接超时 15→60、服务层兜底 60/180。正文读取仍走 per-chunk + 绝对截止时间。
+>
 > **v0.73.5**：**无架构变更**——`FrontstageLauncher` 定位从右上（`top-4 right-4`）改为右下（`bottom-6 right-6`），避免遮挡页头操作按钮与右上角通知；无数据/接口变化。
 >
 > **v0.73.4**：**无架构变更**——CI 的 `e2e-check` 固定 `ubuntu-24.04`（`ubuntu-latest` 升级到 26.04 后 Playwright 不支持）；应用代码零改动。

@@ -419,7 +419,10 @@ pub fn effective_writer_max_tokens(configured: i32, target_words: u32) -> i32 {
 }
 
 fn default_llm_connect_timeout() -> u64 {
-    15
+    // v0.73.6: 15 → 60，与前端「模型 → 超时」默认值一致。15s 对推理模型
+    // （先思考再返回）过于激进，且与 UI 展示的 60 不一致，用户会看到
+    // 「连接模型超时（15000ms）」却找不到 15 这个值。
+    60
 }
 fn default_smart_execute_timeout() -> u64 {
     600

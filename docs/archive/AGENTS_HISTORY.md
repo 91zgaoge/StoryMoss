@@ -1,3 +1,24 @@
+*归档于 2026-10-26（v0.73.6）：v0.73.1 摘要。*
+
+### v0.73.1 - 模型超时设置回到「模型」页签 + 设置页健壮性修复
+
+**为什么**：用户反馈「设置模型超时的页面看不到了」。真机/渲染复现确认：超时设置仍在，但
+v0.26.39 信息架构重排删掉「通用设置」页签后，它被并进「写作」页签最下方（写作策略卡片之后，
+约第 3 屏），旧深链 `general` 又被映射到只剩版本信息的「关于」页——入口实际不可发现；同期
+`docs/USER_GUIDE.md` 仍写「通用设置」，文档口径也在误导。
+
+**改动**：①`GeneralSettings` 新增 `timeouts` 区段，超时面板从 `show('writing')` 拆出；
+②`Settings` 的模型页签新增「超时」子页签（管理 / 路由模拟 / 健康 / 超时），由
+`<GeneralSettings sections={['timeouts']} />` 渲染，五个超时项与 onBlur 保存逻辑不变；
+③`normalizeSettingsTab` 支持 `timeout`/`timeouts` 深链并自动切到该子页签；
+④`WorkflowSettings` 对 `list_workflows` 返回非数组（如 null）改用 `Array.isArray` 兜底——
+此前会让整页被错误边界替换为「应用出错」，写作页签内容一并消失（e2e mock 未实现该命令时必现）。
+
+- **验证**：`npx tsc --noEmit` ✅；`vitest` 625 passed / 3 skipped；`playwright` **41 passed / 5 skipped**
+  （+2 回归：模型页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃）；prettier ✅；
+  实测超时设置从模型页签一键直达（原先需在写作页签滚动约 2.5 屏）。
+- **文档**：`docs/USER_GUIDE.md` 同步设置页标签结构；landing `FALLBACK_VERSION` 0.73.0 → 0.73.1。
+
 *归档于 2026-10-26（v0.73.5）：v0.73.0 摘要。*
 
 ### v0.73.0 - 后台 LLM 链条效率改造（决策引擎 Laya 全线不采用）

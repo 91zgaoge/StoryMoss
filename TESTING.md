@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.5)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.6)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.6 变更说明
+
+- **超时语义拆分（+1 回归，1828 passed / 10 ignored）**：
+  `response_headers_timeout_uses_dedicated_marker`——本地起一个只接受连接、不回任何响应字节的
+  TCP 服务，`send_with_response_timeout` 必须在超时后返回 `LLM_RESPONSE_HEADERS_TIMEOUT` 标记
+  （服务层映射为 `LLM_RESPONSE_TIMEOUT`），而不是误判为连接超时。
+- **实现**：TCP 建连仍走 `connect_timeout`；响应头等待改用首字节超时（默认 180s）；
+  后端连接超时默认 15→60；`is_retriable_error` / 错误码覆盖新类型。
+- **未改动**：前端零改动；vitest 625 / playwright 42 passed / 5 skipped。
 
 ### v0.73.5 变更说明
 

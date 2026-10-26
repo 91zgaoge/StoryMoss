@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.6（2026-10-26）
+
+**修复推理模型被 15 秒「连接超时」误杀（超时语义拆分为 TCP 连接 / 首字节 / 正文）。**
+
+- **现象**：用户日志中 `deepseek-v4-flash` 的非流式调用反复在 15000ms 报 `LLM_CONNECTION_TIMEOUT`，重试仍失败，`smart_execute` 在 255–267s 后整体失败；而设置页显示的连接超时是 60s。
+- **根因**：适配器把「连接已建立后等待响应头」也压在 `llm_connect_timeout_secs` 上。推理模型先思考再返回响应头，15s 一到就被判连接失败；该设置本应只约束 TCP/TLS 建连。
+- **修复**：①TCP 建连仍由 `ClientBuilder::connect_timeout` 负责；②非流式与流式请求的响应头等待改用「首字节超时」（默认 180s），新增 `LLM_RESPONSE_TIMEOUT` 错误（可重试 1 次，文案明确指向首字节设置）；③后端默认连接超时 15→60，与前端「模型 → 超时」一致，服务层兜底 30/60→60/180；④新增本地 TCP「只建连不回包」回归测试，确保该场景归类为首字节超时而非连接超时。
+- **验证**：`cargo test --lib` **1828 passed / 10 ignored**（+1）；clippy 0 error；fmt / guard 全绿；前端零改动。
+
 ## v0.73.5（2026-10-26）
 
 **幕后「开幕前」悬浮按钮移至右下角，不再遮挡页头操作。**

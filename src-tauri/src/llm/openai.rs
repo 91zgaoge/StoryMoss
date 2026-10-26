@@ -299,7 +299,7 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
@@ -320,25 +320,25 @@ impl LlmAdapter for OpenAiAdapter {
         let primary_url = format!("{}/chat/completions", self.api_base);
         let fallback_url = format!("{}/v1/chat/completions", self.api_base);
 
-        let mut response = send_with_connection_timeout(
+        let mut response = send_with_response_timeout(
             self.client
                 .post(&primary_url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&openai_req),
-            self.connect_timeout,
+            self.first_chunk_timeout,
         )
         .await?;
 
         // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            response = send_with_connection_timeout(
+            response = send_with_response_timeout(
                 self.client
                     .post(&fallback_url)
                     .header("Authorization", format!("Bearer {}", self.api_key))
                     .header("Content-Type", "application/json")
                     .json(&openai_req),
-                self.connect_timeout,
+                self.first_chunk_timeout,
             )
             .await?;
         }
@@ -393,25 +393,35 @@ impl LlmAdapter for OpenAiAdapter {
             response_format: request.response_format.as_ref().map(|f| f.openai_value()),
         };
 
-        let mut response = self
-            .client
-            .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&openai_req)
-            .send()
-            .await?;
+        let mut response = match super::adapter::send_with_response_timeout(
+            self.client
+                .post(format!("{}/chat/completions", self.api_base))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&openai_req),
+            self.first_chunk_timeout,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(e.to_string().into()),
+        };
 
         // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            response = self
-                .client
-                .post(format!("{}/v1/chat/completions", self.api_base))
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(&openai_req)
-                .send()
-                .await?;
+            response = match super::adapter::send_with_response_timeout(
+                self.client
+                    .post(format!("{}/v1/chat/completions", self.api_base))
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&openai_req),
+                self.first_chunk_timeout,
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => return Err(e.to_string().into()),
+            };
         }
 
         if !response.status().is_success() {

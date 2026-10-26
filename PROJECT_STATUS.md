@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.5 项目完成状态
+# StoryMoss (草苔) v0.73.6 项目完成状态
 
+> 最后更新: 2026-10-26（**v0.73.6：超时语义拆分（推理模型不再被 15s 误杀）**——用户日志中 deepseek-v4-flash 非流式调用反复在 15000ms 报 `LLM_CONNECTION_TIMEOUT`，根因是「等待响应头」被压在了连接超时上。现在 TCP 建连由 `connect_timeout` 负责，响应头等待改用「首字节超时」（默认 180s，新增 `LLM_RESPONSE_TIMEOUT` 可重试 1 次），后端连接超时默认 15→60。`cargo test --lib` **1828 passed / 10 ignored**（+1 回归）。）
+>
 > 最后更新: 2026-10-26（**v0.73.5：幕前启动器移至右下角**——日志页右上「复制」等页头按钮被悬浮的「开幕前」启动器遮挡（1680px 窗口）；`FrontstageLauncher` 从 `top-4 right-4 z-50` 改为 `bottom-6 right-6 z-40`，让出页头与右上角 toast 区域。新增 Playwright 回归（1680px 日志页「复制」trial click，旧位置已实测复现拦截）。playwright **42 passed / 5 skipped**（+1）。）
 >
 > 最后更新: 2026-10-26（**v0.73.4：E2E 任务固定 Ubuntu 24.04**——GitHub `ubuntu-latest` 当天指向 Ubuntu 26.04，当前 Playwright 不支持该平台，`e2e-check` 在未改前端代码的提交上误红；`.github/workflows/build.yml` 的 e2e 任务显式 `runs-on: ubuntu-24.04`，经验入档 LESSONS 12。无应用代码变更。）

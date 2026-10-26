@@ -7,6 +7,8 @@ use tokio::time::timeout;
 
 /// 适配器内部用于标识连接阶段超时的错误标记。
 pub const CONNECTION_TIMEOUT_MARKER: &str = "LLM_CONNECTION_TIMEOUT";
+/// 适配器内部用于标识「连接已建立但未在首字节时限内返回响应头」的错误标记。
+pub const RESPONSE_HEADERS_TIMEOUT_MARKER: &str = "LLM_RESPONSE_HEADERS_TIMEOUT";
 /// 适配器内部用于标识生成/读取阶段超时的错误标记。
 pub const GENERATION_TIMEOUT_MARKER: &str = "LLM_GENERATION_TIMEOUT";
 
@@ -26,6 +28,30 @@ pub async fn send_with_connection_timeout(
             }
         }
         Err(_) => Err(CONNECTION_TIMEOUT_MARKER.into()),
+    }
+}
+
+/// 发送 HTTP 请求并等待响应头（首字节），用于非流式调用。
+///
+/// v0.73.6: TCP/TLS 建连由 `ClientBuilder::connect_timeout` 负责；此处的
+/// 超时是「连接建立后等模型返回响应头」的时限，语义对齐用户设置里的
+/// 「首字节超时」。此前这里误用 `connect_timeout`（15s）：deepseek 等
+/// 推理模型在非流式调用中原生思考阶段不返回响应头，15s 一到就被判成
+/// 「连接模型超时」，重试也仍卡在同一阶段。
+pub async fn send_with_response_timeout(
+    request: reqwest::RequestBuilder,
+    response_timeout: Duration,
+) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
+    match timeout(response_timeout, request.send()).await {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(e)) => {
+            if e.is_timeout() {
+                Err(CONNECTION_TIMEOUT_MARKER.into())
+            } else {
+                Err(e.into())
+            }
+        }
+        Err(_) => Err(RESPONSE_HEADERS_TIMEOUT_MARKER.into()),
     }
 }
 
@@ -417,5 +443,30 @@ mod native_tools_contract {
         assert_eq!(calls[0].name, "story_info");
         assert_eq!(calls[0].id, "toolu_1");
         assert_eq!(calls[0].arguments, serde_json::json!({}));
+    }
+
+    /// v0.73.6: 连接已建立但服务端迟迟不返回响应头 → 必须归类为首字节超时，
+    /// 不能被误判为「连接超时」（此前 15s 杀掉推理模型的思考阶段）。
+    #[tokio::test]
+    async fn response_headers_timeout_uses_dedicated_marker() {
+        use tokio::{io::AsyncReadExt, net::TcpListener};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            // 读完请求头后保持连接、不回任何响应字节
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let req = reqwest::Client::new()
+            .post(format!("http://{}/v1/chat/completions", addr))
+            .json(&serde_json::json!({"model": "x", "messages": []}));
+        let err = send_with_response_timeout(req, Duration::from_millis(100))
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), RESPONSE_HEADERS_TIMEOUT_MARKER);
     }
 }

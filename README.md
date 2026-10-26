@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.5-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.6-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.6 · 推理模型不再被 15 秒「连接超时」误杀
+
+此前「连接超时」把等待模型返回响应头也算进去了：会先思考再作答的推理模型（如 deepseek 推理档）
+只要思考超过 15 秒就被判连接失败，重试仍卡在同一处，最终整轮创作失败。现在超时拆成三段——
+TCP 建连、首字节（默认 180 秒）、正文生成；连接超时只管建连，首字节超时单独可调，报错也会
+明确告诉你卡在哪一段。
 
 ### v0.73.5 · 幕前入口换到右下角，不再压住页头按钮
 

@@ -115,7 +115,7 @@ impl LlmAdapter for AnthropicAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
@@ -142,14 +142,14 @@ impl LlmAdapter for AnthropicAdapter {
                 .map(|s| anthropic_tools_payload(s)),
         };
 
-        let response = send_with_connection_timeout(
+        let response = send_with_response_timeout(
             self.client
                 .post(format!("{}/messages", self.api_base))
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .header("Content-Type", "application/json")
                 .json(&anthropic_req),
-            self.connect_timeout,
+            self.first_chunk_timeout,
         )
         .await?;
 
@@ -230,16 +230,21 @@ impl LlmAdapter for AnthropicAdapter {
             tools: None,
         };
 
-        let response = self
-            .client
-            .post(format!("{}/messages", self.api_base))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .json(&anthropic_req)
-            .send()
-            .await?;
+        let response = match super::adapter::send_with_response_timeout(
+            self.client
+                .post(format!("{}/messages", self.api_base))
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream")
+                .json(&anthropic_req),
+            self.first_chunk_timeout,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(e.to_string().into()),
+        };
 
         if !response.status().is_success() {
             let error_text = response.text().await?;

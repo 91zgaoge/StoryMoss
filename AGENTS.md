@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.5
+- **版本**: v0.73.6
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,7 +105,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1827 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1828 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 42 passed / 5 skipped（v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -118,6 +118,23 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.6 - 超时语义拆分：TCP 连接 / 首字节 / 正文生成
+
+**为什么**：用户真机日志显示 deepseek-v4-flash 的非流式调用反复在 **15000ms** 报
+`LLM_CONNECTION_TIMEOUT`（重试仍失败，`smart_execute` 255–267s 后整体失败），而设置页写着
+连接超时 60s。根因是适配器把「连接已建立后等待响应头」也压在了 `llm_connect_timeout_secs` 上：
+推理模型先思考再返回响应头，15s 一到就被判连接失败。
+
+**改动**：①`adapter::send_with_response_timeout`——TCP 建连仍由
+`ClientBuilder::connect_timeout` 负责，响应头等待改用「首字节超时」（默认 180s）；
+②新增 `AppError::LlmResponseTimeout`（code `LLM_RESPONSE_TIMEOUT`，severity Retry，
+仅额外重试 1 次），文案明确指向「首字节超时」设置；③后端默认连接超时 15→60（与前端一致），
+`LlmService` 兜底 30/60→60/180；④OpenAI/Anthropic/Ollama 三适配器的非流式与流式请求全部接入；
+⑤回归测试 `response_headers_timeout_uses_dedicated_marker`（本地 TCP 只建连不回包）。
+
+- **验证**：`cargo test --lib` **1828 passed / 10 ignored**（+1）；clippy 0 error；fmt / guard 全绿；前端零改动。
+- **未关闭**：真机创世未复跑（deepseek-flash 工具档与创作档的下一次实跑仍需观察首字节耗时）。
 
 ### v0.73.5 - 幕前启动器移至右下角（不再遮挡页头按钮）
 
@@ -174,25 +191,6 @@ type:
 `docs/archive/LESSONS_LEARNED.md` 经验 11（格式检查必须有确定版本，先比工具链版本再考虑 reformat）。
 
 - **验证**：`cargo +nightly-2026-10-05 fmt -- --check` ✅；Rust 代码零改动，`check`/`clippy`/`test` 基线不变。
-
-### v0.73.1 - 模型超时设置回到「模型」页签 + 设置页健壮性修复
-
-**为什么**：用户反馈「设置模型超时的页面看不到了」。真机/渲染复现确认：超时设置仍在，但
-v0.26.39 信息架构重排删掉「通用设置」页签后，它被并进「写作」页签最下方（写作策略卡片之后，
-约第 3 屏），旧深链 `general` 又被映射到只剩版本信息的「关于」页——入口实际不可发现；同期
-`docs/USER_GUIDE.md` 仍写「通用设置」，文档口径也在误导。
-
-**改动**：①`GeneralSettings` 新增 `timeouts` 区段，超时面板从 `show('writing')` 拆出；
-②`Settings` 的模型页签新增「超时」子页签（管理 / 路由模拟 / 健康 / 超时），由
-`<GeneralSettings sections={['timeouts']} />` 渲染，五个超时项与 onBlur 保存逻辑不变；
-③`normalizeSettingsTab` 支持 `timeout`/`timeouts` 深链并自动切到该子页签；
-④`WorkflowSettings` 对 `list_workflows` 返回非数组（如 null）改用 `Array.isArray` 兜底——
-此前会让整页被错误边界替换为「应用出错」，写作页签内容一并消失（e2e mock 未实现该命令时必现）。
-
-- **验证**：`npx tsc --noEmit` ✅；`vitest` 625 passed / 3 skipped；`playwright` **41 passed / 5 skipped**
-  （+2 回归：模型页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃）；prettier ✅；
-  实测超时设置从模型页签一键直达（原先需在写作页签滚动约 2.5 屏）。
-- **文档**：`docs/USER_GUIDE.md` 同步设置页标签结构；landing `FALLBACK_VERSION` 0.73.0 → 0.73.1。
 
 ## Always Do
 

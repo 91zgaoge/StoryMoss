@@ -1173,6 +1173,9 @@ impl<R: Runtime> LlmService<R> {
         match error {
             // v0.11.8: 连接阶段超时可重试 1 次；生成阶段超时不可重试。
             AppError::LlmConnectionTimeout { .. } => true,
+            // v0.73.6: 首字节超时（连接已建立但模型迟迟不返回响应头）同样可重试
+            // 1 次——典型场景是推理模型非流式调用的思考阶段。
+            AppError::LlmResponseTimeout { .. } => true,
             AppError::LlmGenerationTimeout { .. } => false,
             // v0.11.2: 模型响应超时通常是服务端/本地模型无法及时处理，重试只会
             // 让用户等待更久（候选阶段 120s 超时 × 重试会轻松超过 500s）。
@@ -1214,19 +1217,19 @@ impl<R: Runtime> LlmService<R> {
     /// 创建适配器（优先从缓存获取）
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
         let timeout_seconds = Self::effective_timeout_seconds(profile);
-        // v0.15.5: 从 AppConfig 读取，默认 30s
+        // v0.73.6: 与 AppConfig/前端默认值对齐（连接 60s / 首字节 180s）。
         let connect_timeout_seconds = self
             .config
             .lock()
             .ok()
             .map(|c| c.llm_connect_timeout_secs)
-            .unwrap_or(30u64);
+            .unwrap_or(60u64);
         let first_chunk_timeout_seconds = self
             .config
             .lock()
             .ok()
             .map(|c| c.llm_first_chunk_timeout_secs)
-            .unwrap_or(60u64);
+            .unwrap_or(180u64);
 
         let key = Self::adapter_cache_key(
             profile,
@@ -1729,13 +1732,19 @@ impl<R: Runtime> LlmService<R> {
         let timeout_seconds =
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let max_retries = max_retries_override.unwrap_or(2u32);
-        // v0.15.5: 从 AppConfig 读取，默认 30s
+        // v0.73.6: 与 AppConfig/前端默认值对齐（连接 60s / 首字节 180s）。
         let connect_timeout_seconds = self
             .config
             .lock()
             .ok()
             .map(|c| c.llm_connect_timeout_secs)
-            .unwrap_or(30u64);
+            .unwrap_or(60u64);
+        let first_chunk_timeout_seconds = self
+            .config
+            .lock()
+            .ok()
+            .map(|c| c.llm_first_chunk_timeout_secs)
+            .unwrap_or(180u64);
 
         if !is_silent_background {
             self.workflow_log(
@@ -1777,6 +1786,12 @@ impl<R: Runtime> LlmService<R> {
                                 Err(AppError::llm_connection_timeout(
                                     connect_timeout_seconds * 1000,
                                 ))
+                            } else if err_msg
+                                .contains(super::adapter::RESPONSE_HEADERS_TIMEOUT_MARKER)
+                            {
+                                Err(AppError::llm_response_timeout(
+                                    first_chunk_timeout_seconds * 1000,
+                                ))
                             } else if err_msg.contains(super::adapter::GENERATION_TIMEOUT_MARKER) {
                                 Err(AppError::llm_generation_timeout(timeout_seconds * 1000))
                             } else {
@@ -1799,8 +1814,10 @@ impl<R: Runtime> LlmService<R> {
                 Err(e) => {
                     result = Err(e.clone());
                     let is_connection_timeout = matches!(e, AppError::LlmConnectionTimeout { .. });
-                    let can_retry = if is_connection_timeout {
-                        // 连接超时仅额外重试 1 次（attempt 0 -> attempt 1）
+                    let is_response_timeout = matches!(e, AppError::LlmResponseTimeout { .. });
+                    let can_retry = if is_connection_timeout || is_response_timeout {
+                        // 连接/首字节超时仅额外重试 1 次（attempt 0 -> attempt
+                        // 1）
                         attempt == 0
                     } else {
                         Self::is_retriable_error(&e) && attempt < max_retries
@@ -1936,6 +1953,7 @@ impl<R: Runtime> LlmService<R> {
                     e,
                     AppError::LlmTimeout { .. }
                         | AppError::LlmConnectionTimeout { .. }
+                        | AppError::LlmResponseTimeout { .. }
                         | AppError::LlmGenerationTimeout { .. }
                 );
                 let duration = start_time.elapsed().as_millis() as u64;
@@ -3052,10 +3070,12 @@ mod tests {
         use crate::error::AppError;
 
         let connection_err = AppError::llm_connection_timeout(10_000);
+        let response_err = AppError::llm_response_timeout(180_000);
         let generation_err = AppError::llm_generation_timeout(120_000);
         let generic_timeout = AppError::llm_timeout(120_000);
 
         assert!(LlmService::<Wry>::is_retriable_error(&connection_err));
+        assert!(LlmService::<Wry>::is_retriable_error(&response_err));
         assert!(!LlmService::<Wry>::is_retriable_error(&generation_err));
         assert!(!LlmService::<Wry>::is_retriable_error(&generic_timeout));
     }
@@ -3067,6 +3087,10 @@ mod tests {
         assert_eq!(
             AppError::llm_connection_timeout(10_000).code(),
             "LLM_CONNECTION_TIMEOUT"
+        );
+        assert_eq!(
+            AppError::llm_response_timeout(180_000).code(),
+            "LLM_RESPONSE_TIMEOUT"
         );
         assert_eq!(
             AppError::llm_generation_timeout(120_000).code(),
