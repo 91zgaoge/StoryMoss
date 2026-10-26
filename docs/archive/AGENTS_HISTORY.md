@@ -1,3 +1,22 @@
+*归档于 2026-10-26（v0.73.1）：v0.72.0 摘要。*
+
+### v0.72.0 - 人类语料校准（Sherpa 借鉴 P2-7）
+
+**改动**：引入 `resources/voice_corpus/`（6 部 PG 公版中文小说、各取正文前 2 万字符，附来源/许可）
++ `human_voice::corpus_calibration` 探针（`#[ignore]`，打印逐篇规则命中与 SD/CV 分位，可落 JSON，
+语料缺失跳过不红）。**据证据调整**：`FLAT_RUN_LEN` 3 → 4（人类语料 5/6 篇命中「恰好 3 句」、
+机器腔样本该规则零命中——3 是噪声门；提到 4 后人类只剩 1/6、机器腔命中数不变）；
+**解耦隐患修复**：句长离散度指标不再与发现门共用常量（新增 `SD_MIN_PARAGRAPH_SENTENCES=3`，
+否则改门会让指标从 12–14 漂到 6–9）。报告
+`docs/audits/2026-10-14-human-voice-corpus-calibration.md`（含未动规则理由：语气词规则在明清
+文言上 1/6 误报但放宽会削弱现代语域判别力；段落 CV 单独无判别力、「且无短段」合取承重）。
+
+- **验证**：`cargo test --lib` **1816 passed / 6 ignored（+1 ignored）**；机器腔探针复跑命中不降
+  （5 条）、人类对照样本 0 误报；clippy 0 error / fmt / guard / tsc / vitest 625 全绿。
+- **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`（更新）；
+  `voice_corpus_calibration_probe`（ignore）。
+- **未关闭**：明清白话 ≠ 现代网文语域（下限参照）；未断言人类语料命中率上限；探针不进 CI。
+
 *归档于 2026-10-14（v0.72.2）：v0.69.0 摘要。*
 
 ### v0.69.0 - 作者裁决回灌每拍手法池（Sherpa 借鉴 P1-5）

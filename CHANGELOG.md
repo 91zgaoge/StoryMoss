@@ -2,9 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
-## 未发布（发布流水线修复，无应用代码变更）
+## v0.73.1（2026-10-26）
 
-**修复 v0.73.0 官网更新包 `The signature verification failed`。**
+**模型超时设置回到「模型」页签 + 设置页健壮性修复。**
+
+- **入口迁移**：超时设置此前藏在「写作」页签最下方（写作策略卡片之后，约第 3 屏），v0.26.39 信息架构重排删掉「通用设置」页签后很难找到。现迁到「模型」页签新增的「超时」子页签（管理 / 路由模拟 / 健康 / 超时），五个超时项与保存逻辑不变。
+- **深链**：`timeout` / `timeouts` 深链直达「模型 → 超时」。
+- **健壮性**：`WorkflowSettings` 对 `list_workflows` 返回非数组（如 null）不再崩溃——此前会让整页被错误边界替换为「应用出错」，写作页签内容（含原超时设置）随之消失。
+- **文档**：同步 `docs/USER_GUIDE.md` 的设置页标签结构（旧文写的「通用设置」页签已不存在）。
+- **验证**：`npx tsc --noEmit`、`vitest 625 passed / 3 skipped`、`playwright 41 passed / 5 skipped`（+2 回归：模型页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃）、prettier 全绿。
+
+**发布流水线修复（无应用代码变更，随本版纳入）**：修复 v0.73.0 官网更新包 `The signature verification failed`。
 
 - 根因：同一提交同时触发 nightly 与 v0.73.0 稳定构建，两个 `upload-to-website` job 并发向 FTP 同一路径上传同名产物；macOS 更新包被写坏（稳定版/nightly 签名都验不过），官网 `latest.json` 还残留 nightly 清单。
 - 官网更新通道只允许稳定 tag 写入；nightly 仅保留 GitHub Release。

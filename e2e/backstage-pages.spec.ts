@@ -153,6 +153,45 @@ test.describe('Backstage 页面加载测试', () => {
     await expect(page.locator('main').first()).toContainText('账号');
   });
 
+  test('超时设置可从模型页签直达（v0.73.1 迁移）', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', err => pageErrors.push(err.message));
+
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/index.html');
+
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+
+    // 模型页签默认选中「管理」，切到「超时」
+    await page.getByRole('button', { name: '超时', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '超时设置' }).last()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText('连接超时（秒）')).toBeVisible();
+    await expect(page.getByText('首字节超时（秒）')).toBeVisible();
+
+    expect(pageErrors).toHaveLength(0);
+  });
+
+  test('写作页签在 list_workflows 返回 null 时不崩溃', async ({ page }) => {
+    // mock 对未实现命令统一返回 null：既覆盖 WorkflowSettings 的数组防御，
+    // 也保证写作策略面板仍可渲染（v0.73.1 前这里会整页报「应用出错」）。
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/index.html');
+
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+
+    const settingsTabs = page.getByTestId('settings-tabs');
+    await settingsTabs.getByRole('button', { name: '写作', exact: true }).click();
+
+    await expect(page.getByRole('heading', { name: '写作策略' }).first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByRole('heading', { name: '应用出错' })).toHaveCount(0);
+  });
+
   test('世界构建页面加载无报错', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', msg => {

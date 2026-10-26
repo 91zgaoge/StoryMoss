@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.1 变更说明
+
+- **设置页入口迁移回归（playwright +2，41 passed / 5 skipped）**：
+  ①「超时设置可从模型页签直达」——设置 → 模型 → 超时，断言面板与两项输入标签可见，且无 pageerror；
+  ②「写作页签在 list_workflows 返回 null 时不崩溃」——e2e mock 对未实现命令返回 null，覆盖
+  `WorkflowSettings` 新增的 `Array.isArray` 防御，断言写作策略可见且无「应用出错」。
+- **设计**：超时面板由 `GeneralSettings sections={['timeouts']}` 渲染，`writing` 区段不再包含它；
+  模型页签子导航为 管理 / 路由模拟 / 健康 / 超时。
+- **未改动**：Rust 侧零改动，`cargo test --lib` 1826 passed / 10 ignored 基线不变；vitest 625 passed / 3 skipped。
 
 ### v0.73.0 变更说明
 

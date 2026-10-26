@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.0
+- **版本**: v0.73.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -107,7 +107,7 @@ type:
 - `cargo test -p storymoss` ✅ 1826 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
-- `npx playwright test` ✅ 39 passed / 5 skipped（v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
+- `npx playwright test` ✅ 41 passed / 5 skipped（v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly fmt` ✅
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
@@ -117,6 +117,25 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.1 - 模型超时设置回到「模型」页签 + 设置页健壮性修复
+
+**为什么**：用户反馈「设置模型超时的页面看不到了」。真机/渲染复现确认：超时设置仍在，但
+v0.26.39 信息架构重排删掉「通用设置」页签后，它被并进「写作」页签最下方（写作策略卡片之后，
+约第 3 屏），旧深链 `general` 又被映射到只剩版本信息的「关于」页——入口实际不可发现；同期
+`docs/USER_GUIDE.md` 仍写「通用设置」，文档口径也在误导。
+
+**改动**：①`GeneralSettings` 新增 `timeouts` 区段，超时面板从 `show('writing')` 拆出；
+②`Settings` 的模型页签新增「超时」子页签（管理 / 路由模拟 / 健康 / 超时），由
+`<GeneralSettings sections={['timeouts']} />` 渲染，五个超时项与 onBlur 保存逻辑不变；
+③`normalizeSettingsTab` 支持 `timeout`/`timeouts` 深链并自动切到该子页签；
+④`WorkflowSettings` 对 `list_workflows` 返回非数组（如 null）改用 `Array.isArray` 兜底——
+此前会让整页被错误边界替换为「应用出错」，写作页签内容一并消失（e2e mock 未实现该命令时必现）。
+
+- **验证**：`npx tsc --noEmit` ✅；`vitest` 625 passed / 3 skipped；`playwright` **41 passed / 5 skipped**
+  （+2 回归：模型页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃）；prettier ✅；
+  实测超时设置从模型页签一键直达（原先需在写作页签滚动约 2.5 屏）。
+- **文档**：`docs/USER_GUIDE.md` 同步设置页标签结构；landing `FALLBACK_VERSION` 0.73.0 → 0.73.1。
 
 ### v0.73.0 - 后台 LLM 链条效率改造（决策引擎 Laya 全线不采用）
 
@@ -201,23 +220,6 @@ laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 
 - **验证**：Rust 基线不变（1816 passed / 6 ignored）；官网 vitest **25 passed**（+1）、tsc / build /
   prettier 全绿；推送触发 deploy-landing。
 - **未关闭**：官网截图仍为 2026-07 旧版（需运行应用重截）；`public/screenshots/` 5 张未引用图保留。
-
-### v0.72.0 - 人类语料校准（Sherpa 借鉴 P2-7）
-
-**改动**：引入 `resources/voice_corpus/`（6 部 PG 公版中文小说、各取正文前 2 万字符，附来源/许可）
-+ `human_voice::corpus_calibration` 探针（`#[ignore]`，打印逐篇规则命中与 SD/CV 分位，可落 JSON，
-语料缺失跳过不红）。**据证据调整**：`FLAT_RUN_LEN` 3 → 4（人类语料 5/6 篇命中「恰好 3 句」、
-机器腔样本该规则零命中——3 是噪声门；提到 4 后人类只剩 1/6、机器腔命中数不变）；
-**解耦隐患修复**：句长离散度指标不再与发现门共用常量（新增 `SD_MIN_PARAGRAPH_SENTENCES=3`，
-否则改门会让指标从 12–14 漂到 6–9）。报告
-`docs/audits/2026-10-14-human-voice-corpus-calibration.md`（含未动规则理由：语气词规则在明清
-文言上 1/6 误报但放宽会削弱现代语域判别力；段落 CV 单独无判别力、「且无短段」合取承重）。
-
-- **验证**：`cargo test --lib` **1816 passed / 6 ignored（+1 ignored）**；机器腔探针复跑命中不降
-  （5 条）、人类对照样本 0 误报；clippy 0 error / fmt / guard / tsc / vitest 625 全绿。
-- **契约**：`flat_rhythm_flags_uniform_sentence_run_but_not_varied_prose`（更新）；
-  `voice_corpus_calibration_probe`（ignore）。
-- **未关闭**：明清白话 ≠ 现代网文语域（下限参照）；未断言人类语料命中率上限；探针不进 CI。
 
 ## Always Do
 

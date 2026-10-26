@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.1 · 超时设置搬到「模型」页签，一键可达
+
+模型超时设置以前藏在「写作」页签最下面（要滚过整张写作策略卡片），页签重组后很难找到。现在它是
+**设置 → 模型 → 超时** 的并列子页签（管理 / 路由模拟 / 健康 / 超时），连接超时、首字节超时、单步
+超时、生成总超时、前端超时五项一屏可见，保存逻辑不变。同时修掉一个会让设置页整页变成「应用出错」
+的隐患：工作流列表数据异常时不再拖垮整个页面。
 
 ### v0.73.0 · 后台更轻：同一段正文不再重复喂给模型
 

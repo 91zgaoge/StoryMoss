@@ -18,6 +18,7 @@ import {
   Palette,
   Info,
   Plug,
+  Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
@@ -48,7 +49,7 @@ export type SettingsTabType =
   | 'about'
   | 'account';
 
-type ModelSubTab = 'manage' | 'routing' | 'health';
+type ModelSubTab = 'manage' | 'routing' | 'health' | 'timeout';
 
 const SETTINGS_TABS: { id: SettingsTabType; label: string; icon: React.ElementType }[] = [
   { id: 'models', label: '模型', icon: Cpu },
@@ -66,7 +67,8 @@ function normalizeSettingsTab(raw: string | null | undefined): SettingsTabType |
   if (raw === 'editor' || raw === 'appearance') return 'appearance';
   if (raw === 'general') return 'about';
   if (raw === 'methodology' || raw === 'workflows') return 'writing';
-  if (raw === 'routing' || raw === 'health') return 'models';
+  if (raw === 'routing' || raw === 'health' || raw === 'timeout' || raw === 'timeouts')
+    return 'models';
   if (raw === 'stats') return 'about'; // 统计已迁至数据洞察
   if (raw === 'mcp') return 'extensions';
   if (SETTINGS_TABS.some(t => t.id === raw)) return raw as SettingsTabType;
@@ -92,6 +94,7 @@ export function Settings() {
       setActiveTab(normalized);
       if (settingsTab === 'routing') setModelSubTab('routing');
       if (settingsTab === 'health') setModelSubTab('health');
+      if (settingsTab === 'timeout' || settingsTab === 'timeouts') setModelSubTab('timeout');
       setSettingsTab(null);
       if (normalized === 'appearance') {
         setTimeout(() => {
@@ -111,6 +114,7 @@ export function Settings() {
         setActiveTab(normalized);
         if (detail?.tab === 'routing') setModelSubTab('routing');
         if (detail?.tab === 'health') setModelSubTab('health');
+        if (detail?.tab === 'timeout' || detail?.tab === 'timeouts') setModelSubTab('timeout');
       }
     };
     window.addEventListener('switch-settings-tab', handler);
@@ -208,6 +212,7 @@ export function Settings() {
                           { id: 'manage' as const, label: '管理', icon: Cpu },
                           { id: 'routing' as const, label: '路由模拟', icon: Route },
                           { id: 'health' as const, label: '健康', icon: HeartPulse },
+                          { id: 'timeout' as const, label: '超时', icon: Clock },
                         ] as const
                       ).map(sub => {
                         const Icon = sub.icon;
@@ -245,6 +250,7 @@ export function Settings() {
                         <ModelHealthPanel />
                       </Panel>
                     )}
+                    {modelSubTab === 'timeout' && <GeneralSettings sections={['timeouts']} />}
                   </div>
                 )}
                 {activeTab === 'agents' && (

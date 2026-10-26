@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/Button';
 import { useWorkflows, useReloadWorkflows } from '@/hooks/useWorkflows';
 
 export function WorkflowSettings() {
-  const { data: workflows = [], isLoading } = useWorkflows();
+  const { data, isLoading } = useWorkflows();
+  // IPC / mock 可能返回 null，非数组时按空列表渲染，避免整页被错误边界替换
+  const workflows = Array.isArray(data) ? data : [];
   const reload = useReloadWorkflows();
 
   return (

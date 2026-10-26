@@ -153,7 +153,14 @@ export function ColorThemeSelector() {
 }
 
 // v0.26.39: 可按 sections 选择性渲染，供设置页重组复用
-export type GeneralSection = 'about' | 'book' | 'agent' | 'writing' | 'prompts' | 'appearance';
+export type GeneralSection =
+  | 'about'
+  | 'book'
+  | 'agent'
+  | 'writing'
+  | 'timeouts'
+  | 'prompts'
+  | 'appearance';
 
 export function GeneralSettings({
   sections,
@@ -895,142 +902,139 @@ export function GeneralSettings({
               </div>
             </div>
           </Panel>
+        </>
+      )}
 
-          {/* v0.16.0 超时设置 */}
-          <Panel title="超时设置">
-            <div className="p-2">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-cinema-gold" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-medium text-white">超时设置</h3>
-                  <p className="text-sm text-gray-500">
-                    模型连接与生成各阶段的等待时间上限。自托管模型建议调高，云端 API 可调低
-                  </p>
-                </div>
+      {/* v0.16.0 超时设置；v0.73.1 从写作页签迁至模型页签，与模型连接语义就近 */}
+      {show('timeouts') && (
+        <Panel title="超时设置">
+          <div className="p-2">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-cinema-gold" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* 连接超时 */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    连接超时（秒）
-                    <span className="text-gray-600 ml-1">
-                      — 与模型服务端建立网络连接的最大等待时间
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={timeoutValues.llm_connect_timeout_secs}
-                    onChange={e =>
-                      handleTimeoutChange('llm_connect_timeout_secs', Number(e.target.value))
-                    }
-                    onBlur={() => handleTimeoutBlur('llm_connect_timeout_secs')}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    自托管模型（vllm/Ollama）建议 30，云端 API 建议 10
-                  </p>
-                </div>
-                {/* 首字节超时 */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    首字节超时（秒）
-                    <span className="text-gray-600 ml-1">
-                      — 发送请求后等待 AI 开始输出第一个字的时间
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={300}
-                    value={timeoutValues.llm_first_chunk_timeout_secs}
-                    onChange={e =>
-                      handleTimeoutChange('llm_first_chunk_timeout_secs', Number(e.target.value))
-                    }
-                    onBlur={() => handleTimeoutBlur('llm_first_chunk_timeout_secs')}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    模型冷启动（加载到显存）可能需要更长时间，可调至 120
-                  </p>
-                </div>
-                {/* 单步超时 */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    单步超时（秒）
-                    <span className="text-gray-600 ml-1">
-                      — 单个写作步骤（如质检、改写）的最大执行时间
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={300}
-                    value={timeoutValues.executor_step_timeout_secs}
-                    onChange={e =>
-                      handleTimeoutChange('executor_step_timeout_secs', Number(e.target.value))
-                    }
-                    onBlur={() => handleTimeoutBlur('executor_step_timeout_secs')}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">单步超时应小于总超时，默认 90 秒</p>
-                </div>
-                {/* 生成总超时 */}
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    生成总超时（秒）
-                    <span className="text-gray-600 ml-1">
-                      — 从开始创作到必须返回结果的总时间上限
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    min={30}
-                    max={1800}
-                    value={timeoutValues.smart_execute_total_timeout_secs}
-                    onChange={e =>
-                      handleTimeoutChange(
-                        'smart_execute_total_timeout_secs',
-                        Number(e.target.value)
-                      )
-                    }
-                    onBlur={() => handleTimeoutBlur('smart_execute_total_timeout_secs')}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    慢模型建议 300，快模型可设 120。应大于所有单步超时
-                  </p>
-                </div>
-                {/* 前端超时 */}
-                <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-400 mb-1">
-                    前端超时（秒）
-                    <span className="text-gray-600 ml-1">
-                      — 界面等待后端响应的最长时间，超过此值弹出诊断卡片
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    min={30}
-                    max={1800}
-                    value={timeoutValues.frontend_timeout_secs}
-                    onChange={e =>
-                      handleTimeoutChange('frontend_timeout_secs', Number(e.target.value))
-                    }
-                    onBlur={() => handleTimeoutBlur('frontend_timeout_secs')}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    应大于后端总超时（留 20-30 秒余量），默认 200
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-lg font-medium text-white">超时设置</h3>
+                <p className="text-sm text-gray-500">
+                  模型连接与生成各阶段的等待时间上限。自托管模型建议调高，云端 API 可调低
+                </p>
               </div>
             </div>
-          </Panel>
-        </>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 连接超时 */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  连接超时（秒）
+                  <span className="text-gray-600 ml-1">
+                    — 与模型服务端建立网络连接的最大等待时间
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={timeoutValues.llm_connect_timeout_secs}
+                  onChange={e =>
+                    handleTimeoutChange('llm_connect_timeout_secs', Number(e.target.value))
+                  }
+                  onBlur={() => handleTimeoutBlur('llm_connect_timeout_secs')}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  自托管模型（vllm/Ollama）建议 30，云端 API 建议 10
+                </p>
+              </div>
+              {/* 首字节超时 */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  首字节超时（秒）
+                  <span className="text-gray-600 ml-1">
+                    — 发送请求后等待 AI 开始输出第一个字的时间
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={300}
+                  value={timeoutValues.llm_first_chunk_timeout_secs}
+                  onChange={e =>
+                    handleTimeoutChange('llm_first_chunk_timeout_secs', Number(e.target.value))
+                  }
+                  onBlur={() => handleTimeoutBlur('llm_first_chunk_timeout_secs')}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  模型冷启动（加载到显存）可能需要更长时间，可调至 120
+                </p>
+              </div>
+              {/* 单步超时 */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  单步超时（秒）
+                  <span className="text-gray-600 ml-1">
+                    — 单个写作步骤（如质检、改写）的最大执行时间
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={300}
+                  value={timeoutValues.executor_step_timeout_secs}
+                  onChange={e =>
+                    handleTimeoutChange('executor_step_timeout_secs', Number(e.target.value))
+                  }
+                  onBlur={() => handleTimeoutBlur('executor_step_timeout_secs')}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">单步超时应小于总超时，默认 90 秒</p>
+              </div>
+              {/* 生成总超时 */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  生成总超时（秒）
+                  <span className="text-gray-600 ml-1">— 从开始创作到必须返回结果的总时间上限</span>
+                </label>
+                <input
+                  type="number"
+                  min={30}
+                  max={1800}
+                  value={timeoutValues.smart_execute_total_timeout_secs}
+                  onChange={e =>
+                    handleTimeoutChange('smart_execute_total_timeout_secs', Number(e.target.value))
+                  }
+                  onBlur={() => handleTimeoutBlur('smart_execute_total_timeout_secs')}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  慢模型建议 300，快模型可设 120。应大于所有单步超时
+                </p>
+              </div>
+              {/* 前端超时 */}
+              <div className="md:col-span-2">
+                <label className="block text-xs text-gray-400 mb-1">
+                  前端超时（秒）
+                  <span className="text-gray-600 ml-1">
+                    — 界面等待后端响应的最长时间，超过此值弹出诊断卡片
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={30}
+                  max={1800}
+                  value={timeoutValues.frontend_timeout_secs}
+                  onChange={e =>
+                    handleTimeoutChange('frontend_timeout_secs', Number(e.target.value))
+                  }
+                  onBlur={() => handleTimeoutBlur('frontend_timeout_secs')}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  应大于后端总超时（留 20-30 秒余量），默认 200
+                </p>
+              </div>
+            </div>
+          </div>
+        </Panel>
       )}
 
       {/* v0.19.0 提示词注册表入口 */}
