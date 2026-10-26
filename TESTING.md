@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.5)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.5 变更说明
+
+- **幕前启动器不再遮挡页头按钮（playwright +1，42 passed / 5 skipped）**：
+  `日志页右上「复制」按钮不被幕前悬浮启动器遮挡`——1680px 视口进入日志页，对「复制」执行
+  `click({ trial: true })`，若被悬浮层拦截会直接失败（旧 `top-4 right-4` 位置下已用该用例复现红）。
+- **实现**：`FrontstageLauncher` 定位改为 `bottom-6 right-6`，为页头操作与右上角 toast 让位。
+- **未改动**：Rust 1827 passed / 10 ignored；vitest 625 passed / 3 skipped。
 
 ### v0.73.4 变更说明
 

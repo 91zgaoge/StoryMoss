@@ -47,7 +47,9 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
   if (!isVisible) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+    // v0.73.5: 改到右下角。原先 top-4 right-4 会压住各页右上角的操作按钮
+    // （日志页「复制」、设置页「导出/导入」等），并与右上角 toast 重叠。
+    <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
       <button
         onClick={handleOpenFrontstage}
         className={`

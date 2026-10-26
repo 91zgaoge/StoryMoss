@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.4 项目完成状态
+# StoryMoss (草苔) v0.73.5 项目完成状态
 
+> 最后更新: 2026-10-26（**v0.73.5：幕前启动器移至右下角**——日志页右上「复制」等页头按钮被悬浮的「开幕前」启动器遮挡（1680px 窗口）；`FrontstageLauncher` 从 `top-4 right-4 z-50` 改为 `bottom-6 right-6 z-40`，让出页头与右上角 toast 区域。新增 Playwright 回归（1680px 日志页「复制」trial click，旧位置已实测复现拦截）。playwright **42 passed / 5 skipped**（+1）。）
+>
 > 最后更新: 2026-10-26（**v0.73.4：E2E 任务固定 Ubuntu 24.04**——GitHub `ubuntu-latest` 当天指向 Ubuntu 26.04，当前 Playwright 不支持该平台，`e2e-check` 在未改前端代码的提交上误红；`.github/workflows/build.yml` 的 e2e 任务显式 `runs-on: ubuntu-24.04`，经验入档 LESSONS 12。无应用代码变更。）
 >
 > 最后更新: 2026-10-26（**v0.73.3：创世管理 Agent 熔断 salvage + 单调用回退**——用户真机创世报「管理 Agent 被熔断（达到最大轮数），资产生产未完成」；legacy 创世此前对 producer 熔断直接判死、已写资产作废。现在熔断后先落库已有资产并继续首章（进度 degraded），`spawn_producer_resume` 后台补齐世界/大纲/关系；黑板无可用资产时走一次单调用 JSON 回退（复用 producer 系统提示词）产出最小资产包；Producer `max_turns` 12→16，熔断日志记录每轮 action。`cargo test --lib` **1827 passed / 10 ignored**（+2 回归）。**未关闭**：真机创世未复跑（需 deepseek-flash + Qwen3.5 工具档再验）。）

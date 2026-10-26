@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.5（2026-10-26）
+
+**幕后「开幕前」悬浮按钮移至右下角，不再遮挡页头操作。**
+
+- **现象**：日志页右上角「复制」按钮被悬浮的「开幕前」启动器盖住，点击无效（1680px 窗口）；设置页「导出/导入」等页头按钮同样可能被遮挡，且启动器与右上角 toast 区域重叠。
+- **修复**：`FrontstageLauncher` 从 `fixed top-4 right-4 z-50` 改为 `fixed bottom-6 right-6 z-40`，让出页头与通知区域。
+- **回归**：新增 Playwright 用例——1680px 视口下进入日志页，对「复制」按钮做 trial click（含 hit-target 检查）；旧位置会因悬浮层拦截指针而失败，新位置通过。
+- **验证**：playwright **42 passed / 5 skipped**（+1）；tsc / vitest 625 passed 全绿；Rust 零改动。
+
 ## v0.73.4（2026-10-26）
 
 **E2E 任务固定 Ubuntu 24.04（CI 环境漂移修复，无应用代码变更）。**

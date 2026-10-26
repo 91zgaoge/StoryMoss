@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.4
+- **版本**: v0.73.5
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -108,7 +108,7 @@ type:
 - `cargo test -p storymoss` ✅ 1827 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
-- `npx playwright test` ✅ 41 passed / 5 skipped（v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
+- `npx playwright test` ✅ 42 passed / 5 skipped（v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
@@ -118,6 +118,19 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.5 - 幕前启动器移至右下角（不再遮挡页头按钮）
+
+**为什么**：用户截图反馈日志页右上角「复制」按钮被悬浮的「开幕前」启动器盖住、无法点击
+（1680px 窗口）。`FrontstageLauncher` 原为 `fixed top-4 right-4 z-50`：既压住各页页头右侧按钮
+（日志页「复制」、设置页「导出/导入」），又与右上角 toast 区域重叠。
+
+**改动**：定位改为 `fixed bottom-6 right-6 z-40`；右上让给页头操作与 toast，右下为常规浮动位，
+后台页无固定于右下的控件。新增 Playwright 回归：1680px 视口进入日志页，对「复制」执行
+`click({ trial: true })`——旧位置下会因悬浮层拦截指针而失败（已实测复现），新位置通过。
+
+- **验证**：playwright **42 passed / 5 skipped**（+1）；tsc / vitest 625 passed 全绿；Rust 零改动。
+- **未关闭**：无。
 
 ### v0.73.4 - E2E 任务固定 Ubuntu 24.04（CI 环境漂移修复，无应用代码变更）
 
@@ -180,26 +193,6 @@ v0.26.39 信息架构重排删掉「通用设置」页签后，它被并进「�
   （+2 回归：模型页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃）；prettier ✅；
   实测超时设置从模型页签一键直达（原先需在写作页签滚动约 2.5 屏）。
 - **文档**：`docs/USER_GUIDE.md` 同步设置页标签结构；landing `FALLBACK_VERSION` 0.73.0 → 0.73.1。
-
-### v0.73.0 - 后台 LLM 链条效率改造（决策引擎 Laya 全线不采用）
-
-**为什么**：对全项目 60+ 个判断/选择环节做完盘（`docs/audits/2026-10-15-decision-points-inventory.md`）+
-对 Laya Decision API 做约 100 次真机实测（意图分类 64%、检索相关性 3/3 反向、文笔打分无区分度、
-`score` 不带 criteria 直接 500）。作者决策：**全部环节不接 Laya**；真正的热点是后台 LLM 链条本身。
-
-**改动**：①`memory/ingest` **同内容结果复用**——同一正文被「资产回流」与「30s 提交」两条路径各 ingest
-一次，第二次直接复用结果（0 次 LLM，最长省 9 次串行调用；指纹变即不复用；TTL 900s/16 条）；
-②Step2/Step3 改 `tokio::join!` 并发（墙钟三连→两轮，提示词/解析/重试未改）；③提交链**摘要 + mini
-review 合并为一次调用**（新资产 `chapter_commit_digest`；失败完整回退旧两步，连续失败 3 次停用合并路径）；
-④`life_status::refresh_after_text` 同 (故事, 章, 指纹) 300s 内只扫一遍（`revive` 失效备忘）；
-⑤内部窄接口 `IngestLlm`（生产传真实 `LlmService`，测试注入计数桩）。
-
-- **验证**：`cargo test --lib` **1826 passed / 10 ignored（+10）**；clippy 0 error；fmt / guard ✅；
-  tsc / vitest 625 / playwright 39 / prettier ✅。回归用例：`ingest_second_call_with_same_text_skips_llm_entirely`
-  （计数桩：第二次 0 调用、改文后计数上升）、`commit_digest_*`（解析/钳分/熔断/资产契约）、
-  `refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`。
-- **未关闭**：真机端到端未复跑（**不得宣称真机耗时已下降**）；`maybe_enrich_director_lock` 门控与网关
-  keepalive 惰性化评估后未做（风险大于收益）；Laya 全线不采用。
 
 ## Always Do
 

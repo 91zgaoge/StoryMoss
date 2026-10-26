@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.4 架构文档
+# StoryMoss (草苔) v0.73.5 架构文档
 
+> **v0.73.5**：**无架构变更**——`FrontstageLauncher` 定位从右上（`top-4 right-4`）改为右下（`bottom-6 right-6`），避免遮挡页头操作按钮与右上角通知；无数据/接口变化。
+>
 > **v0.73.4**：**无架构变更**——CI 的 `e2e-check` 固定 `ubuntu-24.04`（`ubuntu-latest` 升级到 26.04 后 Playwright 不支持）；应用代码零改动。
 >
 > **v0.73.3**：**创世编排韧性（无数据层/外部依赖变化）**——legacy genesis 的 Producer 熔断从「直接 Err」改为 salvage：黑板已有资产先 `materialize_assets` 落库，首章继续，`spawn_producer_resume` 后台补齐世界/大纲/关系；黑板无可用资产时走 `producer_direct_fallback`（单调用 JSON，不走 tool_loop，复用 `agency_producer_system`）。Producer `max_turns` 12→16。熔断日志记录逐轮 action 便于诊断。

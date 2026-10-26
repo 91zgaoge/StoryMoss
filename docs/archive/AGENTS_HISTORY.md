@@ -1,3 +1,25 @@
+*归档于 2026-10-26（v0.73.5）：v0.73.0 摘要。*
+
+### v0.73.0 - 后台 LLM 链条效率改造（决策引擎 Laya 全线不采用）
+
+**为什么**：对全项目 60+ 个判断/选择环节做完盘（`docs/audits/2026-10-15-decision-points-inventory.md`）+
+对 Laya Decision API 做约 100 次真机实测（意图分类 64%、检索相关性 3/3 反向、文笔打分无区分度、
+`score` 不带 criteria 直接 500）。作者决策：**全部环节不接 Laya**；真正的热点是后台 LLM 链条本身。
+
+**改动**：①`memory/ingest` **同内容结果复用**——同一正文被「资产回流」与「30s 提交」两条路径各 ingest
+一次，第二次直接复用结果（0 次 LLM，最长省 9 次串行调用；指纹变即不复用；TTL 900s/16 条）；
+②Step2/Step3 改 `tokio::join!` 并发（墙钟三连→两轮，提示词/解析/重试未改）；③提交链**摘要 + mini
+review 合并为一次调用**（新资产 `chapter_commit_digest`；失败完整回退旧两步，连续失败 3 次停用合并路径）；
+④`life_status::refresh_after_text` 同 (故事, 章, 指纹) 300s 内只扫一遍（`revive` 失效备忘）；
+⑤内部窄接口 `IngestLlm`（生产传真实 `LlmService`，测试注入计数桩）。
+
+- **验证**：`cargo test --lib` **1826 passed / 10 ignored（+10）**；clippy 0 error；fmt / guard ✅；
+  tsc / vitest 625 / playwright 39 / prettier ✅。回归用例：`ingest_second_call_with_same_text_skips_llm_entirely`
+  （计数桩：第二次 0 调用、改文后计数上升）、`commit_digest_*`（解析/钳分/熔断/资产契约）、
+  `refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`。
+- **未关闭**：真机端到端未复跑（**不得宣称真机耗时已下降**）；`maybe_enrich_director_lock` 门控与网关
+  keepalive 惰性化评估后未做（风险大于收益）；Laya 全线不采用。
+
 *归档于 2026-10-26（v0.73.4）：v0.72.3 摘要。*
 
 ### v0.72.3 - 真机换模复测工具链 + 换模决策入档（测试与文档）

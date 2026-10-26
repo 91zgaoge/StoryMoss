@@ -213,6 +213,28 @@ test.describe('Backstage 页面加载测试', () => {
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
 
+  test('日志页右上「复制」按钮不被幕前悬浮启动器遮挡（v0.73.5）', async ({ page }) => {
+    // 用户截图宽度 1680：内容区右缘约 40px，旧版 top-4 right-4 启动器会压住页头按钮
+    await page.setViewportSize({ width: 1680, height: 900 });
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/index.html');
+
+    // 日志入口在 Sidebar 的「诊断」分组（默认折叠）
+    await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
+    const aside = page.locator('aside');
+    await expect(aside).toBeVisible({ timeout: 10000 });
+    await aside.getByRole('button', { name: /诊断/ }).click();
+    await aside.getByRole('button', { name: /^日志/ }).click();
+    await expect(page.locator('h1')).toContainText('日志查看器', { timeout: 10000 });
+
+    // 启动器应可见（mock 实现了 get_window_state），但位于右下角
+    const launcher = page.getByRole('button', { name: /^(开幕前|幕前已开启)$/ });
+    await expect(launcher).toBeVisible({ timeout: 10000 });
+
+    // trial click 会执行 hit-target 检查：若仍被悬浮层盖住会直接失败
+    await page.getByRole('button', { name: /复制/, exact: false }).click({ trial: true });
+  });
+
   test('知识图谱页面加载无报错', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', msg => {
