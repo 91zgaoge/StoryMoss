@@ -31,7 +31,10 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             role,
             prompt_id: "agency_producer_system",
             task_type: TaskType::WorldBuilding,
-            max_turns: 12,
+            // v0.73.3: 12 → 16。创世资产至少 5 类（世界观/角色/关系/大纲/
+            // 伏笔），叠加初始读取与模型自愈重试，12 轮容易在写完关键资产
+            // 前耗尽；16 轮给「写完即 final」留出余量。
+            max_turns: 16,
             max_output_tokens: 4096,
             context_budget_chars: 16_000,
         },

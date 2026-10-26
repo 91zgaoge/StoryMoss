@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.2 架构文档
+# StoryMoss (草苔) v0.73.3 架构文档
 
+> **v0.73.3**：**创世编排韧性（无数据层/外部依赖变化）**——legacy genesis 的 Producer 熔断从「直接 Err」改为 salvage：黑板已有资产先 `materialize_assets` 落库，首章继续，`spawn_producer_resume` 后台补齐世界/大纲/关系；黑板无可用资产时走 `producer_direct_fallback`（单调用 JSON，不走 tool_loop，复用 `agency_producer_system`）。Producer `max_turns` 12→16。熔断日志记录逐轮 action 便于诊断。
+>
 > **v0.73.2**：**无架构变更**——CI 与 pre-commit 的 rustfmt 固定到 `nightly-2026-10-05`（nightly 漂移会改变中文注释换行，导致 Windows 构建误报格式失败）；应用代码零改动。
 >
 > **v0.73.1**：**无架构变更**（设置页信息架构微调 + 健壮性修复）——超时面板从 `GeneralSettings` 的 `writing` 区段拆为独立 `timeouts` 区段（`GeneralSection` 新增成员），由设置页「模型」页签新增的「超时」子页签渲染（`timeout`/`timeouts` 深链在 `normalizeSettingsTab` 归一）；`WorkflowSettings` 对 `list_workflows` 返回值加 `Array.isArray` 兜底，避免非数组数据触发 ErrorBoundary 整页降级；后端、数据层与 LLM 链路零改动。

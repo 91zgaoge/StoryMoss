@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.3 · 创世不再被「管理 Agent 轮数耗尽」一票否决
+
+创世时管理 Agent 要在有限轮数里写完世界观、角色、关系、大纲、伏笔。轮数用完时，旧版会把整轮创世
+判死、已写资产作废——你看到的就是「创作引擎遇到致命错误」。现在改成先救再补：已写入的资产照常
+落库、第一章继续写，缺的资产由后台补齐；如果管理 Agent 完全没产出，会自动切到单调用 JSON 模式
+补一份最小资产包。管理 Agent 轮数上限也从 12 提到 16。
 
 ### v0.73.2 · 构建流水线：格式检查固定工具链
 

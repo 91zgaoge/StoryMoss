@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.2
+- **版本**: v0.73.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,7 +105,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1826 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1827 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 41 passed / 5 skipped（v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -118,6 +118,24 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.3 - 创世管理 Agent 熔断 salvage + 单调用回退
+
+**为什么**：用户真机创世报「创作引擎遇到致命错误：管理 Agent 被熔断（达到最大轮数），资产生产
+未完成」。检查发现 legacy 创世对 producer 熔断直接 Err，熔断前写入黑板的资产全部作废；而 producer
+要求 5 类资产、tool_loop 仅 12 轮，快速路径回退后更容易耗尽。
+
+**改动**：①`run_genesis_legacy_inner` 熔断后不再直接失败：先落库黑板已有资产、
+`emit_progress(assets, degraded)`，继续首章，`spawn_producer_resume` 后台补齐世界/大纲/关系；
+②黑板无可用资产时走 `producer_direct_fallback`（单调用直接输出 JSON，复用
+`agency_producer_system`，产出世界观/2 角色/关系/大纲/伏笔后写黑板，不新增提示词资产）；
+③Producer `max_turns` 12→16，任务提示「写完必需资产立即 final」；④熔断日志记录每轮 action
+（tool 名/final/parse_fail），让「详见 run 日志」有据可查。
+
+- **验证**：`cargo test --lib` **1827 passed / 10 ignored**（+2 回归：`test_genesis_salvages_producer_assets_on_max_turns` /
+  `test_genesis_recovers_with_producer_direct_fallback`；原 MaxTurns 致命错误断言改为 salvage 成功断言）；
+  clippy 0 error；fmt（`nightly-2026-10-05`）/ guard 全绿；前端零改动（仅版本号）。
+- **未关闭**：真机创世未复跑（需用 deepseek-flash 创作档 + Qwen3.5 工具档再验一次首章产出）。
 
 ### v0.73.2 - CI 格式检查固定 rustfmt 版本（无应用代码变更）
 
@@ -198,24 +216,6 @@ gate 记录读取加 10s 轮询（落库走 detach 写，旧探针「0 行」是
   待判官一致率数据累积后评判；「合同兑现 0.00」换档前后一致出现，疑为既有现象待单查。
 - **未关闭**：v0.72.2 的发现 c（仪表盘窄屏竖排）/ d（图谱画布不渲染）仍未修；真机「续写 → 后台质检
   → toast」链路由手动续写观察。
-
-### v0.72.2 - 真机功能探针（v0.66.0–v0.72.0 首次真机验收）+ 官网换实拍
-
-**新增（测试基建，全 `#[ignore]`）**：`agency::real_machine_probes`——真机库/向量库副本 + 真机
-AppConfig 构造真实适配器（写作档 `creative_model_id`、编辑档 `background_model_id`，按 `TaskType`
-路由），三项探针：①续写（检索块注入 + 手法落库 + 同步质量门 → 判官裁决落库）；②卷纲生成 +
-章纲 prompt 注入契约；③重规划预览与「预览不落库」。`life_status` 真机探针加数据形态守卫。
-
-**真机结论**：✅ v0.66 检索（第 1/2 章原文按细节召回，增量 1510 字/100s）；✅ v0.69 手法落库；
-✅ v0.70 卷纲 + 章纲注入契约；✅ v0.67 预览不落库；✅ v0.72 语料校准对真机 3 章 0 误报；
-⚠️ v0.68 链路可达但编辑档模型不产出裁决。**发现**：①deepseek-flash 是推理模型（长输出 content
-空 → 章纲类任务不可用）；②真机质量门编辑档达最大轮数熔断（审查打折，建议换遵循 JSON 的模型）；
-③仪表盘「创作路径」面板 ≤1115pt 文字竖排；④知识图谱画布真机不渲染（待复现）。
-**官网**：三张截图换真机实拍（旧图实为连接错误态截图）。
-
-- **验证**：`cargo test --lib` 1816 passed / 9 ignored（+3 ignored）；clippy/fmt/guard ✅；
-  官网 25 passed / tsc / prettier / build ✅。
-- **未关闭**：发现 a/b 需换模型后复跑；c/d 未修；后台质检链路真机手动续写观察。
 
 ## Always Do
 

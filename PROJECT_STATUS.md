@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.2 项目完成状态
+# StoryMoss (草苔) v0.73.3 项目完成状态
 
+> 最后更新: 2026-10-26（**v0.73.3：创世管理 Agent 熔断 salvage + 单调用回退**——用户真机创世报「管理 Agent 被熔断（达到最大轮数），资产生产未完成」；legacy 创世此前对 producer 熔断直接判死、已写资产作废。现在熔断后先落库已有资产并继续首章（进度 degraded），`spawn_producer_resume` 后台补齐世界/大纲/关系；黑板无可用资产时走一次单调用 JSON 回退（复用 producer 系统提示词）产出最小资产包；Producer `max_turns` 12→16，熔断日志记录每轮 action。`cargo test --lib` **1827 passed / 10 ignored**（+2 回归）。**未关闭**：真机创世未复跑（需 deepseek-flash + Qwen3.5 工具档再验）。）
+>
 > 最后更新: 2026-10-26（**v0.73.2：CI 格式检查固定 rustfmt 版本**——v0.73.1 推送后 Windows `rust-check` 在「Check Rust formatting」红，而本次未改任何 `.rs`；根因是 CI 每日拉最新 nightly rustfmt（Windows 当天为 2026-10-25 版），`wrap_comments` 换行算法变化。`.github/workflows/build.yml` 与 `.githooks/pre-commit` 固定 `nightly-2026-10-05`，经验入档 LESSONS 11。无应用代码变更。）
 >
 > 最后更新: 2026-10-26（**v0.73.1：模型超时设置回到「模型」页签 + 设置页健壮性修复**——超时面板从「写作」页签最下方迁到「模型」页签新增的「超时」子页签（管理 / 路由模拟 / 健康 / 超时），`timeout`/`timeouts` 深链直达；`WorkflowSettings` 对 `list_workflows` 返回非数组时用 `Array.isArray` 兜底，不再整页被错误边界替换；`docs/USER_GUIDE.md` 同步标签结构。验证：tsc ✅、vitest 625 passed / 3 skipped、playwright **41 passed / 5 skipped**（+2 回归）、prettier ✅；Rust 侧无改动，1826 passed / 10 ignored 基线不变。）

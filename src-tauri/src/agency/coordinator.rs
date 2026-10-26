@@ -2299,6 +2299,148 @@ impl AgencyCoordinator {
         .await
     }
 
+    /// 管理 Agent 单调用回退（v0.73.3）：tool_loop 熔断且黑板无可用资产时，
+    /// 直接请求一份最小资产包 JSON（世界观 / 角色卡 / 关系 / 第一卷大纲 /
+    /// 伏笔），绕过 ReAct 工具循环。与 writer_prose_fallback 同理——本地/
+    /// 推理模型对「直接输出 JSON」的遵从度远高于逐轮 action 格式。
+    /// 写入黑板资产区后由调用方统一 materialize；无有效角色卡时 Err。
+    async fn producer_direct_fallback(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<usize, AppError> {
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let base =
+            resolve_role_prompt_with_pool(&self.pool, "agency_producer_system", premise).await;
+        let system = format!(
+            "{base}\n\n【重要】本次为单调用回退模式：不要使用任何工具，不要输出 markdown 代码块或解释，只直接输出一个 JSON 对象。"
+        );
+        let user = format!(
+            "故事前提：{premise}\n\n请一次性输出最小可用创作资产包。只输出一个 JSON 对象（不要 markdown、不要解释）：\n\
+             {{\"world\":\"世界观（200-400字）\",\"characters\":[{{\"name\":\"真名\",\"background\":\"背景\",\"personality\":\"性格\",\"goals\":\"欲望/目标\",\"emotional_core\":\"情感内核\",\"emotional_trigger\":\"情感触发点\",\"emotional_wound\":\"情感创伤\",\"emotional_need\":\"情感需求\"}}],\"relationships\":[{{\"source\":\"角色A\",\"target\":\"角色B\",\"relationship_type\":\"社会关系\",\"emotional_bond\":\"A对B的真实情感\",\"emotional_intensity\":0.8,\"reverse_emotional_bond\":\"B对A的真实情感\",\"reverse_emotional_intensity\":0.6,\"description\":\"关系概述\"}}],\"outline\":\"第一卷大纲（300-600字）\",\"foreshadowing\":[\"伏笔1\",\"伏笔2\"]}}\n\
+             要求：characters 至少 2 人；relationships 至少 1 条且 source/target 与角色 name 一致。"
+        );
+        let raw = llm
+            .complete(&system, &user, TaskType::WorldBuilding, 4096)
+            .await?;
+        let value = parse_lenient::<serde_json::Value>(&raw).ok_or_else(|| {
+            AppError::from(format!(
+                "资产回退 JSON 解析失败: {}",
+                raw.chars().take(120).collect::<String>()
+            ))
+        })?;
+
+        // (item_type, key, content, summary)
+        let mut items: Vec<(&'static str, String, String, String)> = Vec::new();
+        if let Some(world) = value.get("world").and_then(|v| v.as_str()) {
+            if !world.trim().is_empty() {
+                let summary: String = world.chars().take(60).collect();
+                items.push(("world", "世界观".to_string(), world.to_string(), summary));
+            }
+        }
+        if let Some(chars) = value.get("characters").and_then(|v| v.as_array()) {
+            for c in chars {
+                let name = c
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                let content = serde_json::to_string(c).unwrap_or_default();
+                if content.is_empty() || content == "null" {
+                    continue;
+                }
+                let summary: String = c
+                    .get("background")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .chars()
+                    .take(60)
+                    .collect();
+                items.push(("character", name, content, summary));
+            }
+        }
+        if let Some(rels) = value.get("relationships").and_then(|v| v.as_array()) {
+            if !rels.is_empty() {
+                let content = serde_json::to_string(rels).unwrap_or_default();
+                items.push((
+                    "relationship",
+                    "relationships".to_string(),
+                    content,
+                    "角色情感关系".to_string(),
+                ));
+            }
+        }
+        if let Some(outline) = value.get("outline") {
+            let text = match outline {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            if !text.trim().is_empty() {
+                let summary: String = text.chars().take(60).collect();
+                items.push(("outline", "第一卷大纲".to_string(), text, summary));
+            }
+        }
+        if let Some(fs) = value.get("foreshadowing") {
+            let text = match fs {
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| v.to_string())
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            if !text.trim().is_empty() {
+                let summary: String = text.chars().take(60).collect();
+                items.push(("foreshadowing", "伏笔清单".to_string(), text, summary));
+            }
+        }
+
+        let has_character = items.iter().any(|(t, _, _, _)| *t == "character");
+        if !has_character {
+            return Err(AppError::from(
+                "资产回退缺少有效角色卡（characters 为空或无 name）",
+            ));
+        }
+
+        let board = self.board();
+        let mut written = 0usize;
+        for (item_type, key, content, summary) in items {
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let sid = story_id.to_string();
+            self.db(move || {
+                board_c.write(
+                    &rid,
+                    &sid,
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    item_type,
+                    &key,
+                    &content,
+                    &summary,
+                )
+            })
+            .await?;
+            written += 1;
+        }
+        Ok(written)
+    }
+
     /// Legacy writer 熔断回退：本地模型无法输出 JSON action（连续解析失败）
     /// 时，改走自由体散文单调用（与快速路径 writer_first_chapter 同模式）。
     /// 读黑板资产区构建上下文，产出 >200 字符即写入 draft 区并返回该条目；
@@ -2480,9 +2622,9 @@ impl AgencyCoordinator {
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_task = if crate::intent::looks_like_short_drama_request(premise) {
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、按集节拍的大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。本故事为竖屏短剧：每集结尾留下下一步问题；遵守用户给出的集数/时长/场景上限（若有）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。"
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、按集节拍的大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。本故事为竖屏短剧：每集结尾留下下一步问题；遵守用户给出的集数/时长/场景上限（若有）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。轮数有限：不要反复读取同一资产；写完必需资产后立即输出 final。"
         } else {
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。"
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。轮数有限：不要反复读取同一资产；写完必需资产后立即输出 final。"
         };
         let producer_out = self
             .run_role_with_llm_and_budget(
@@ -2497,15 +2639,111 @@ impl AgencyCoordinator {
             )
             .await
             .map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
-        if producer_out.aborted {
-            return Err(AppError::from(circuit_break_message(
-                "管理 Agent",
-                "资产生产未完成",
-                circuit_break_reason(&producer_out),
-            )));
-        }
+        // v0.73.3: 管理 Agent 熔断不再直接判死创世。熔断前黑板可能已有资产
+        // （快速路径回退时角色卡已写入，或 producer 写了一半），先 salvage
+        // 落库并转后台补齐；黑板确实没有可用资产时才走一次「直接输出
+        // JSON」的单调用回退。此前这里直接 Err，用户侧表现为「创作引擎遇到
+        // 致命错误」且已写好的资产全部作废。
+        let producer_aborted = producer_out.aborted;
+        let abort_reason = if producer_aborted {
+            let reason = circuit_break_reason(&producer_out);
+            let turn_summary: Vec<&str> = producer_out
+                .turns
+                .iter()
+                .map(|t| match &t.action {
+                    Some(crate::agency::tool_loop::LoopAction::Tool { name, .. }) => name.as_str(),
+                    Some(crate::agency::tool_loop::LoopAction::Final { .. }) => "final",
+                    None => "parse_fail",
+                })
+                .collect();
+            log::warn!(
+                "agency: 管理 Agent tool_loop 熔断（{}），turns={:?}，尝试 salvage run={}",
+                reason,
+                turn_summary,
+                run_id
+            );
+            self.emit_progress(
+                run_id,
+                "assets",
+                "degraded",
+                &format!("管理 Agent 熔断（{}），已保留部分资产并转后台补齐", reason),
+            );
+            Some(reason)
+        } else {
+            None
+        };
         self.check_cancel(cancel)?;
-        self.emit_activity(run_id, AgentRole::Producer, "done", "资产");
+        self.emit_activity(
+            run_id,
+            AgentRole::Producer,
+            "done",
+            if producer_aborted {
+                "资产（部分）"
+            } else {
+                "资产"
+            },
+        );
+
+        // 熔断且黑板无可用资产：单调用回退（不走 tool_loop）。
+        if producer_aborted {
+            let board_c = board.clone();
+            let rid = run_id.to_string();
+            let assets = self
+                .db(move || board_c.list_zone(&rid, BoardZone::Asset))
+                .await?;
+            let has_usable = assets.iter().any(|i| {
+                i.status == "active"
+                    && !i.content.trim().is_empty()
+                    && matches!(
+                        i.item_type.as_str(),
+                        "character"
+                            | "world"
+                            | "worldbuilding"
+                            | "world_building"
+                            | "outline"
+                            | "story_outline"
+                            | "foreshadowing"
+                            | "relationship"
+                            | "emotional_relationship"
+                            | "bond"
+                    )
+            });
+            if !has_usable {
+                let reason = abort_reason.unwrap_or("达到最大轮数");
+                match self
+                    .producer_direct_fallback(run_id, &story_id, premise, budget)
+                    .await
+                {
+                    Ok(n) if n > 0 => {
+                        log::warn!(
+                            "agency: 管理 Agent 单调用回退写入 {} 条资产 run={}",
+                            n,
+                            run_id
+                        );
+                        self.emit_progress(
+                            run_id,
+                            "assets",
+                            "degraded",
+                            "管理 Agent 已切换单调用回退并产出最小资产",
+                        );
+                    }
+                    Ok(_) => {
+                        return Err(AppError::from(circuit_break_message(
+                            "管理 Agent",
+                            "资产生产未完成",
+                            reason,
+                        )));
+                    }
+                    Err(e) => {
+                        return Err(AppError::from(format!(
+                            "{}（单调用回退亦失败：{}）",
+                            circuit_break_message("管理 Agent", "资产生产未完成", reason),
+                            e
+                        )));
+                    }
+                }
+            }
+        }
 
         // producer 完成后落库（黑板资产区 →
         // characters/world_buildings/story_outlines）
@@ -2523,6 +2761,10 @@ impl AgencyCoordinator {
             .await
             .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             log::info!("agency: 资产落库 {} 条", inserted);
+        }
+        // v0.73.3: 熔断 salvage 后由后台补齐世界/大纲/关系，不阻塞首章。
+        if producer_aborted {
+            self.spawn_producer_resume(run_id, &story_id);
         }
         // 资产阶段完成：自动会话快照（best-effort）
         self.snapshot_phase(run_id, "assets", "auto").await;

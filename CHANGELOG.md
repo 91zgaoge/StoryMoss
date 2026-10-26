@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.3（2026-10-26）
+
+**创世不再因管理 Agent 轮数耗尽整体失败（熔断 salvage + 单调用回退）。**
+
+- **现象**：创世偶发「创作引擎遇到致命错误 · 管理 Agent 被熔断（达到最大轮数），资产生产未完成」；一轮创世直接失败，熔断前已写入的资产全部作废。
+- **根因**：快速路径失败后回退 legacy 串行流程，管理 Agent 走 tool_loop（原 12 轮上限）；创世要求世界观 / 角色 / 关系 / 大纲 / 伏笔至少 5 类资产，叠加初始读取与自愈重试，模型容易在写完前耗尽轮数，而 legacy 对熔断直接返回致命错误。
+- **修复**：①管理 Agent 熔断后先落库黑板已有资产并继续首章（进度记为 degraded），由 `spawn_producer_resume` 后台补齐世界 / 大纲 / 关系；②黑板确无可用资产时走一次「直接输出 JSON」的单调用回退（复用 `agency_producer_system`，不新增提示词资产），产出最小资产包；③Producer `max_turns` 12 → 16，任务文案增加「写完必需资产立即 final」；④熔断时把每轮 action 摘要写入 run 日志，排查时不再无据可查。
+- **验证**：`cargo test --lib` **1827 passed / 10 ignored**（+2 回归：熔断 salvage / 单调用回退；原「MaxTurns 必须致命」断言改为 salvage 成功断言）；clippy 0 error；`cargo +nightly-2026-10-05 fmt` / 架构守卫 / 前端门（零改动）全绿。
+
 ## v0.73.2（2026-10-26）
 
 **CI 格式检查固定 rustfmt 版本（无应用代码变更）。**

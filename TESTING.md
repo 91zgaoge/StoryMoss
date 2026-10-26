@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.3 变更说明
+
+- **创世管理 Agent 熔断韧性（+2 回归，1827 passed / 10 ignored）**：
+  ①`test_genesis_salvages_producer_assets_on_max_turns`——producer 耗尽 16 轮后，已写黑板的世界观资产
+  被 materialize 落库，首章继续产出（原用例断言「MaxTurns 必须致命」，按新契约改为 salvage 成功断言）；
+  ②`test_genesis_recovers_with_producer_direct_fallback`——producer 连续 3 次解析失败且黑板无资产时，
+  单调用 JSON 回退产出 2 张角色卡并落库，创世继续。
+- **新增实现**：`producer_direct_fallback`（单调用、复用 `agency_producer_system`）；前端零改动。
+- **未改动**：vitest 625 passed / 3 skipped；playwright 41 passed / 5 skipped。
 
 ### v0.73.2 变更说明
 

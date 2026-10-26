@@ -202,25 +202,76 @@ async fn test_circuit_break_message_includes_parse_failure_reason() {
     assert!(err.to_string().contains("被熔断"), "保留熔断措辞: {}", err);
 }
 
-/// 熔断错误消息必须带主因：producer 反复调用工具不出 final、耗尽
-/// max_turns（12）→ "达到最大轮数"。
+/// v0.73.3: producer 反复调用工具不出 final、耗尽 max_turns（16）不再判死
+/// 创世——已写入的资产 salvage 落库，首章继续产出（后台补齐在测试环境
+/// no-op）。此前这里要求整轮创世返回「达到最大轮数」错误。
 #[tokio::test]
-async fn test_circuit_break_message_includes_max_turns_reason() {
+async fn test_genesis_salvages_producer_assets_on_max_turns() {
     let pool = create_test_pool().unwrap();
     let tool_call = r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#;
-    let mut lines = vec![r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#];
-    lines.extend(std::iter::repeat(tool_call).take(12));
-    let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(lines));
-    let err = coordinator
-        .run_genesis("r-mt", LONG_PREMISE)
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("达到最大轮数"),
-        "熔断消息应含主因: {}",
-        err
+    let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+    let write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
+        chapter
     );
-    assert!(err.to_string().contains("被熔断"), "保留熔断措辞: {}", err);
+    let mut lines = vec![r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#];
+    lines.extend(std::iter::repeat(tool_call).take(16));
+    // 16 条资产 >3 → writer 前先跑一次检索规划（消耗一条响应）
+    lines.push(r#"{"keys":["世界观"]}"#);
+    lines.push(write.as_str());
+    lines.push(r#"{"type":"final","content":"第一章完成"}"#);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(lines));
+    let result = coordinator.run_genesis("r-mt", LONG_PREMISE).await.unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    assert_eq!(repo.get_run("r-mt").unwrap().unwrap().status, "completed");
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let snap = board.snapshot("r-mt").unwrap();
+    assert!(
+        snap.assets.iter().any(|i| i.item_type == "world"),
+        "producer 熔断前写入的资产应被 salvage: {:?}",
+        snap.assets
+    );
+    assert_eq!(snap.drafts.len(), 1);
+    assert!(result.chapter_chars > 0);
+}
+
+/// v0.73.3: producer 连续解析失败且黑板无资产 → 单调用回退（直接输出
+/// JSON）产出最小资产包，创世继续而非报「创作引擎遇到致命错误」。
+#[tokio::test]
+async fn test_genesis_recovers_with_producer_direct_fallback() {
+    let pool = create_test_pool().unwrap();
+    let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+    let write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
+        chapter
+    );
+    let fallback_pack = r#"{"world":"双星废土，辐射带隔绝了旧城与绿洲。","characters":[{"name":"林雪","background":"拾荒者","personality":"克制","goals":"找到星海遗迹","emotional_core":"守护","emotional_trigger":"旧信","emotional_wound":"家园衰败","emotional_need":"被理解"},{"name":"沈夜","background":"守夜人","personality":"冷硬","goals":"阻止掠夺者","emotional_core":"赎罪","emotional_trigger":"刀背上的雨","emotional_wound":"旧战友之死","emotional_need":"被信任"}],"relationships":[{"source":"林雪","target":"沈夜","relationship_type":"旧识","emotional_bond":"依赖","emotional_intensity":0.7,"reverse_emotional_bond":"保护","reverse_emotional_intensity":0.8,"description":"彼此唯一可信的人"}],"outline":"第一卷：拾荒者循坐标穿越辐射区，在遗迹前与守夜人汇合。","foreshadowing":["星图碎片","守夜人旧刀"]}"#;
+    let coordinator = AgencyCoordinator::for_test(
+        pool.clone(),
+        MockLlm::scripted(vec![
+            r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
+            "不是 JSON",
+            "还不是",
+            "依然不是", // producer 连续解析失败 → aborted
+            fallback_pack,
+            // 回退资产 >3 条 → writer 前先跑一次检索规划（消耗一条响应）
+            r#"{"keys":["世界观","林雪","沈夜"]}"#,
+            write.as_str(),
+            r#"{"type":"final","content":"第一章完成"}"#,
+        ]),
+    );
+    let result = coordinator.run_genesis("r-fb", LONG_PREMISE).await.unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    assert_eq!(repo.get_run("r-fb").unwrap().unwrap().status, "completed");
+    let conn = pool.get().unwrap();
+    let chars: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM characters WHERE story_id = ?1",
+            rusqlite::params![result.story_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(chars >= 2, "单调用回退应落库至少 2 张角色卡: {}", chars);
 }
 
 // v0.30.35：test_genesis_aborts_when_editor_aborted 已移除--editor 质检后台
