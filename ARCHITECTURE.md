@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.3 架构文档
+# StoryMoss (草苔) v0.73.4 架构文档
 
+> **v0.73.4**：**无架构变更**——CI 的 `e2e-check` 固定 `ubuntu-24.04`（`ubuntu-latest` 升级到 26.04 后 Playwright 不支持）；应用代码零改动。
+>
 > **v0.73.3**：**创世编排韧性（无数据层/外部依赖变化）**——legacy genesis 的 Producer 熔断从「直接 Err」改为 salvage：黑板已有资产先 `materialize_assets` 落库，首章继续，`spawn_producer_resume` 后台补齐世界/大纲/关系；黑板无可用资产时走 `producer_direct_fallback`（单调用 JSON，不走 tool_loop，复用 `agency_producer_system`）。Producer `max_turns` 12→16。熔断日志记录逐轮 action 便于诊断。
 >
 > **v0.73.2**：**无架构变更**——CI 与 pre-commit 的 rustfmt 固定到 `nightly-2026-10-05`（nightly 漂移会改变中文注释换行，导致 Windows 构建误报格式失败）；应用代码零改动。

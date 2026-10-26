@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.3
+- **版本**: v0.73.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -119,6 +119,18 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.73.4 - E2E 任务固定 Ubuntu 24.04（CI 环境漂移修复，无应用代码变更）
+
+**为什么**：v0.73.2/v0.73.3 的 `e2e-check` 在未改前端代码的提交上红：
+`ERROR: Playwright does not support chromium on ubuntu26.04-x64`。GitHub 当天把 `ubuntu-latest`
+指向 Ubuntu 26.04，当前 Playwright 尚不支持该平台；本机与上一轮 24.04 构建全绿。
+
+**改动**：`.github/workflows/build.yml` 的 `e2e-check` 显式 `runs-on: ubuntu-24.04`（其余任务不变）；
+经验入档 `docs/archive/LESSONS_LEARNED.md` 经验 12（`*-latest` 镜像也是依赖）。
+
+- **验证**：本地 playwright 41 passed / 5 skipped；Rust 1827 passed / 10 ignored 基线不变。
+- **未关闭**：待 Playwright 支持 26.04 后再评估是否回到 `ubuntu-latest`。
+
 ### v0.73.3 - 创世管理 Agent 熔断 salvage + 单调用回退
 
 **为什么**：用户真机创世报「创作引擎遇到致命错误：管理 Agent 被熔断（达到最大轮数），资产生产
@@ -188,34 +200,6 @@ review 合并为一次调用**（新资产 `chapter_commit_digest`；失败完�
   `refresh_dedupes_identical_scan_within_ttl_but_not_after_invalidate`。
 - **未关闭**：真机端到端未复跑（**不得宣称真机耗时已下降**）；`maybe_enrich_director_lock` 门控与网关
   keepalive 惰性化评估后未做（风险大于收益）；Laya 全线不采用。
-
-### v0.72.3 - 真机换模复测工具链 + 换模决策入档（测试与文档）
-
-**为什么**：v0.72.2 的真机探针在「哪个模型坏了、坏在哪」上给出过两条错误归因（章纲空产出归因写作档
-推理模型、质量门不产裁决归因编辑档模型）。本版修正探针**三档路由**并按证据重写归因；用户已据此换档
-（工具模型 → `Qwen3.5-27B-Uncensored-Q4_K_M`；后台任务模型 → 新的本地 MLX 档
-`Qwen3.8-Flash-Next-MLX-Serve`，`127.0.0.1:11234`，262k 上下文；创作档 deepseek-flash 不变），复测全绿。
-
-**改动（测试基建 + 一处 `pub(crate)`）**：`ProbeLlm` 三档路由（`CreativeWriting`→创作 /
-`WorldBuilding|Analysis`→工具 / `Proofreading|Editing`→编辑）——旧版只认 `TaskType::Editing`，而编辑
-审计的角色规格任务类型是 `Proofreading`，编辑调用实际全打到创作档 deepseek 上（旧「发现 b」即此假象）；
-`build_adapter` 连接超时 10s→60s（对齐生产；10s 会把本地模型大提示词的非流式调用误判为连接超时）；
-gate 记录读取加 10s 轮询（落库走 detach 写，旧探针「0 行」是时序假象）；新增探针 4
-`real_machine_probe_role_model_viability`（每个档案直连跑 连通/章纲/编辑裁决 三列矩阵）与
-`STORYMOSS_PROBE_TOOL_MODEL`、`STORYMOSS_PROBE_EDITOR_MODEL` 覆盖；`editor_verdict_prose_fallback`
-提为 `pub(crate)`；`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version`（修一处既有 e2e flake）。
-报告 `docs/audits/2026-10-14-real-machine-probe-report.md` 修正发现 a/b 归因 + 新增「§五 换模决策」与
-「§5.6 换档后复测」。
-
-- **验证**：换档后复测（读真机配置）——探针 2 章纲 **1835 字**（2544 字提示词含【本卷计划】注入）✅、
-  卷纲 ✅；探针 1 续写 1515 字 + 检索块 + 手法落库 + 质量门完整 8 维裁决 + `editor_gate_records` 1 行 ✅；
-  矩阵三档：Qwen3.5 章纲/裁决 ✅、新 MLX 章纲/裁决 ✅、deepseek 章纲 ✅ 但结构类调用间歇空响应。
-  `cargo test --lib` 1816 passed / 10 ignored；clippy 0 error；tsc / vitest 625 / playwright 39 / fmt /
-  prettier / guard 全绿。
-- **观察点**：新编辑档打分偏宽（8 维全 5.0，Qwen3.5 同期 4.0–4.5），加权门仍拦下（0.72 < 0.75），
-  待判官一致率数据累积后评判；「合同兑现 0.00」换档前后一致出现，疑为既有现象待单查。
-- **未关闭**：v0.72.2 的发现 c（仪表盘窄屏竖排）/ d（图谱画布不渲染）仍未修；真机「续写 → 后台质检
-  → toast」链路由手动续写观察。
 
 ## Always Do
 

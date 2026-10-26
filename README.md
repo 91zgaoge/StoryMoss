@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.4-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.4 · 构建流水线：E2E 任务固定 Ubuntu 24.04
+
+GitHub 的 `ubuntu-latest` 镜像当天升级到 Ubuntu 26.04，当前 Playwright 尚不支持该平台，前端 E2E
+任务在未改任何代码的提交上也会失败。现在 E2E 任务固定跑在 Ubuntu 24.04，应用代码零改动。
 
 ### v0.73.3 · 创世不再被「管理 Agent 轮数耗尽」一票否决
 

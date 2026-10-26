@@ -197,7 +197,11 @@ jobs:
   # 因此 E2E 失败不阻塞整体工作流；单元测试与构建检查才是可靠质量门。
   e2e-check:
     needs: [frontend-check, rust-check]
-    runs-on: ubuntu-latest
+    # v0.73.4：固定 ubuntu-24.04。2026-10-26 起 `ubuntu-latest` 已指向 26.04，
+    # 当前 Playwright 不支持 `ubuntu26.04-x64`（install 直接报错），
+    # e2e-check 在未改任何前端代码的提交上误红。等 Playwright 支持后
+    # 再评估是否回到 ubuntu-latest。
+    runs-on: ubuntu-24.04
     # v0.59.2：提升为阻塞门。前置条件已满足：载入期空写竞态已修（见
     # useScenePersistence 的 loadGuard），frontstage-editing 的固定 sleep
     # 改为轮询断言，本地连续两轮全量 39 passed / 0 failed。

@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.4 变更说明
+
+- **CI e2e 任务固定 runner（无应用代码变更）**：`ubuntu-latest` 于 2026-10-26 指向 Ubuntu 26.04，
+  当前 Playwright 不支持 `ubuntu26.04-x64`，`e2e-check` 在未改前端代码的提交上误红；
+  `.github/workflows/build.yml` 的 e2e 任务改为 `runs-on: ubuntu-24.04`。
+- **测试基线不变**：Rust 1827 passed / 10 ignored；vitest 625 passed / 3 skipped；playwright 41 passed / 5 skipped。
 
 ### v0.73.3 变更说明
 

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.4（2026-10-26）
+
+**E2E 任务固定 Ubuntu 24.04（CI 环境漂移修复，无应用代码变更）。**
+
+- **现象**：v0.73.2/v0.73.3 的 GitHub Actions `e2e-check` 在未改前端代码的提交上失败，日志为
+  `ERROR: Playwright does not support chromium on ubuntu26.04-x64`。
+- **根因**：GitHub 于 2026-10-26 将 `ubuntu-latest` 指向 Ubuntu 26.04，当前 Playwright 版本尚不支持该平台；
+  本机与旧镜像（24.04）全绿。
+- **修复**：`.github/workflows/build.yml` 的 `e2e-check` 显式 `runs-on: ubuntu-24.04`，其余任务不变；
+  经验入档 `docs/archive/LESSONS_LEARNED.md` 经验 12。
+- **验证**：本地 playwright 41 passed / 5 skipped；Rust 1827 passed / 10 ignored 基线不变；应用代码零改动。
+
 ## v0.73.3（2026-10-26）
 
 **创世不再因管理 Agent 轮数耗尽整体失败（熔断 salvage + 单调用回退）。**
