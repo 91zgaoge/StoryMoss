@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.2（2026-10-26）
+
+**CI 格式检查固定 rustfmt 版本（无应用代码变更）。**
+
+- **现象**：v0.73.1 推送后 Windows `rust-check` 在「Check Rust formatting」失败，报 16 处中文注释换行 diff（8 个文件）；本次提交未改任何 `.rs`，本机与 Linux/macOS 同提交均通过。
+- **根因**：CI 每次安装当天最新 nightly rustfmt（Windows 当天拿到 2026-10-25 版），`wrap_comments` 换行算法变化，与仓库现状（2026-10-05 版格式）不一致——工具链漂移，不是代码回归。
+- **修复**：`.github/workflows/build.yml` 与 `.githooks/pre-commit` 固定 `nightly-2026-10-05`；`AGENTS.md` / `TESTING.md` 记录该版本；教训入档 `docs/archive/LESSONS_LEARNED.md` 经验 11。
+- **验证**：`cargo +nightly-2026-10-05 fmt -- --check` 本地通过；Rust 代码零改动，`check`/`clippy`/`test` 基线不变。
+
 ## v0.73.1（2026-10-26）
 
 **模型超时设置回到「模型」页签 + 设置页健壮性修复。**

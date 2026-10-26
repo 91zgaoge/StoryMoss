@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.2 · 构建流水线：格式检查固定工具链
+
+v0.73.1 推送后 Windows 构建在「Rust 格式检查」失败，但那次提交一行 Rust 都没改——根因是 CI 每天拉
+最新 nightly rustfmt，其注释换行规则变了。现在格式检查固定 `nightly-2026-10-05`（CI 与提交钩子同版本），
+构建不再被上游工具链漂移打断。应用代码零改动。
 
 ### v0.73.1 · 超时设置搬到「模型」页签，一键可达
 

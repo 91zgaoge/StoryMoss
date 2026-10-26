@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.2 变更说明
+
+- **CI 格式检查固定 rustfmt 版本（无应用代码变更）**：nightly rustfmt 于 2026-10-25 起改变中文注释
+  换行，Windows `rust-check` 在未改 `.rs` 的提交上误报格式失败。CI 与 pre-commit 固定
+  `nightly-2026-10-05`；本地用 `cargo +nightly-2026-10-05 fmt -- --check` 验证。
+- **测试基线不变**：Rust 1826 passed / 10 ignored；vitest 625 passed / 3 skipped；playwright 41 passed / 5 skipped。
 
 ### v0.73.1 变更说明
 

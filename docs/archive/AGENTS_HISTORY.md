@@ -1,3 +1,23 @@
+*归档于 2026-10-26（v0.73.2）：v0.72.1 摘要。*
+
+### v0.72.1 - 文档与官网同步（无代码变更）
+
+**为什么**：Sherpa 借鉴清单八项在 v0.66.0–v0.72.0 全部落地后，专题文档与官网内容落后于实现
+（专题文档停在 v0.17–v0.23 口径、审计无落地状态、官网仍写「五维审查/模式卡/四级评分者」）。
+
+**改动**：①专题文档——`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md`
+「增补与更正」（创世/续写主线、新资产/新表/VOLUME 语义/注入块）、`docs/MODULE_CHARTER.md` agency
+行 + 关键子模块登记 + prompts 禁依赖规则、`docs/TROUBLESHOOTING.md` 4 条新排查 + 版本/死链修复、
+`KIMI.md` 版本、`docs/USER_GUIDE.md` 头部；②审计落地状态——Sherpa 审计加「落地状态」表（八项→
+版本与契约，P2-8 未落地）、ai-novel 审计加「八、落地状态补记」、project-review 加治理注记、
+laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 顶部清单补 v0.66–v0.72.1 八条；
+⑤官网新增「长篇」区块（按需检索/卷纲/改稿不漂/跨拍守卫）+ 修正三处过时文案 + CTA/meta/测试。
+代码零改动。
+
+- **验证**：Rust 基线不变（1816 passed / 6 ignored）；官网 vitest **25 passed**（+1）、tsc / build /
+  prettier 全绿；推送触发 deploy-landing。
+- **未关闭**：官网截图仍为 2026-07 旧版（需运行应用重截）；`public/screenshots/` 5 张未引用图保留。
+
 *归档于 2026-10-26（v0.73.1）：v0.72.0 摘要。*
 
 ### v0.72.0 - 人类语料校准（Sherpa 借鉴 P2-7）

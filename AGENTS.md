@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.1
+- **版本**: v0.73.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -58,11 +58,12 @@ node scripts/cdp-inspect.js           # CDP 截图
 
 ## Pre-commit 格式守卫
 
-仓库内置 `.githooks/pre-commit`：提交前自动检查本次 staged 的 Rust（`cargo +nightly fmt -- --check`）与前端（`prettier --check`）代码是否已格式化，未格式化则拒绝提交，对齐 CI 的 fmt 检查。
+仓库内置 `.githooks/pre-commit`：提交前自动检查本次 staged 的 Rust（`cargo +nightly-2026-10-05 fmt -- --check`）与前端（`prettier --check`）代码是否已格式化，未格式化则拒绝提交，对齐 CI 的 fmt 检查。
 
 - **首次克隆后启用**：`git config core.hooksPath .githooks`
+- **工具链**：`rustup toolchain install nightly-2026-10-05 --profile minimal --component rustfmt`。nightly rustfmt 会随版本漂移改变中文注释换行（2026-10-25 版起与仓库现状不一致，Windows CI 直接红），CI 与钩子固定同一版本，见 `docs/archive/LESSONS_LEARNED.md` 经验 11。
 - **行为**：仅检查本次 `git add` 进来的 `.rs` / `.ts` / `.tsx` / `.css` / `.json` 代码文件，纯文档/配置提交不受影响；失败时打印 diff 并给出修复命令。
-- **修复**：按提示执行 `(cd src-tauri && cargo +nightly fmt)` 或 `(cd src-frontend && npm run format)`，再 `git add -u && git commit`。
+- **修复**：按提示执行 `(cd src-tauri && cargo +nightly-2026-10-05 fmt)` 或 `(cd src-frontend && npm run format)`，再 `git add -u && git commit`。
 - **紧急绕过**：`git commit --no-verify`（仅限紧急情况，CI 仍会兜底检查）。
 
 ## 强制构建规则（用户级）
@@ -108,7 +109,7 @@ type:
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 41 passed / 5 skipped（v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
-- `cargo +nightly fmt` ✅
+- `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
@@ -117,6 +118,19 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.2 - CI 格式检查固定 rustfmt 版本（无应用代码变更）
+
+**为什么**：v0.73.1 推送后 Windows `rust-check` 在「Check Rust formatting」红——本次没改任何
+`.rs`，本机（nightly 2026-10-05）与 Linux/macOS 都通过。根因是 CI 的
+`rustup component add rustfmt --toolchain nightly` 每天拉最新：Windows 当天拿到 2026-10-25 版，
+`wrap_comments` 换行算法变化，与仓库现状不一致（16 处中文注释 diff）。
+
+**改动**：`.github/workflows/build.yml` 与 `.githooks/pre-commit` 固定 `nightly-2026-10-05`；
+钩子在工具链缺失时给出安装命令；本文件与 `TESTING.md` 记录版本；经验入档
+`docs/archive/LESSONS_LEARNED.md` 经验 11（格式检查必须有确定版本，先比工具链版本再考虑 reformat）。
+
+- **验证**：`cargo +nightly-2026-10-05 fmt -- --check` ✅；Rust 代码零改动，`check`/`clippy`/`test` 基线不变。
 
 ### v0.73.1 - 模型超时设置回到「模型」页签 + 设置页健壮性修复
 
@@ -202,24 +216,6 @@ AppConfig 构造真实适配器（写作档 `creative_model_id`、编辑档 `bac
 - **验证**：`cargo test --lib` 1816 passed / 9 ignored（+3 ignored）；clippy/fmt/guard ✅；
   官网 25 passed / tsc / prettier / build ✅。
 - **未关闭**：发现 a/b 需换模型后复跑；c/d 未修；后台质检链路真机手动续写观察。
-
-### v0.72.1 - 文档与官网同步（无代码变更）
-
-**为什么**：Sherpa 借鉴清单八项在 v0.66.0–v0.72.0 全部落地后，专题文档与官网内容落后于实现
-（专题文档停在 v0.17–v0.23 口径、审计无落地状态、官网仍写「五维审查/模式卡/四级评分者」）。
-
-**改动**：①专题文档——`docs/FEATURES.md` 新功能补充、`docs/CREATION_FLOW_AND_ASSETS_REFERENCE.md`
-「增补与更正」（创世/续写主线、新资产/新表/VOLUME 语义/注入块）、`docs/MODULE_CHARTER.md` agency
-行 + 关键子模块登记 + prompts 禁依赖规则、`docs/TROUBLESHOOTING.md` 4 条新排查 + 版本/死链修复、
-`KIMI.md` 版本、`docs/USER_GUIDE.md` 头部；②审计落地状态——Sherpa 审计加「落地状态」表（八项→
-版本与契约，P2-8 未落地）、ai-novel 审计加「八、落地状态补记」、project-review 加治理注记、
-laya 审计修正引用；③16 份历史快照加横幅；④`ARCHITECTURE.md` 顶部清单补 v0.66–v0.72.1 八条；
-⑤官网新增「长篇」区块（按需检索/卷纲/改稿不漂/跨拍守卫）+ 修正三处过时文案 + CTA/meta/测试。
-代码零改动。
-
-- **验证**：Rust 基线不变（1816 passed / 6 ignored）；官网 vitest **25 passed**（+1）、tsc / build /
-  prettier 全绿；推送触发 deploy-landing。
-- **未关闭**：官网截图仍为 2026-07 旧版（需运行应用重截）；`public/screenshots/` 5 张未引用图保留。
 
 ## Always Do
 

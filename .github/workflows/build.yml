@@ -106,12 +106,14 @@ jobs:
           workspaces: src-tauri
           shared-key: tauri-v${{ steps.get_cargo_version.outputs.version }}
 
-      - name: Install rustfmt nightly
-        run: rustup component add rustfmt --toolchain nightly
+      # nightly 的 rustfmt 会随版本漂移改变中文注释换行（2026-10-25 版起与仓库现状不一致，
+      # Windows 构建直接红）。固定到与仓库格式一致的 nightly，保证跨平台可复现。
+      - name: Install rustfmt nightly (pinned)
+        run: rustup toolchain install nightly-2026-10-05 --profile minimal --component rustfmt
 
       - name: Check Rust formatting
         working-directory: src-tauri
-        run: cargo +nightly fmt -- --check
+        run: cargo +nightly-2026-10-05 fmt -- --check
 
       # TODO: 修复 471 个已有 Clippy 警告后恢复 -D warnings
       - name: Run Clippy

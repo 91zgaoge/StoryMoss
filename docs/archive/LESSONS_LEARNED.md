@@ -182,6 +182,31 @@
 
 ---
 
+## 经验 11：格式化工具链必须固定版本（nightly rustfmt 会漂移）
+
+**来源**：2026-10-26 v0.73.1 推送后 Windows `rust-check` 在「Check Rust formatting」直接红
+
+**现象**：本次提交只改前端与版本号，`src-tauri` 下 `.rs` 一行未动；本机 `cargo +nightly fmt -- --check`
+通过，Linux/macOS 同提交也通过。Windows job 却在 16 处中文注释换行上报 diff
+（`agency/coordinator.rs`、`agents/orchestrator.rs`、`llm/service.rs`、`planner/mod.rs` 等 8 个文件）。
+
+**根因**：CI 用 `rustup component add rustfmt --toolchain nightly` 拉**当天最新** nightly。Windows runner
+当天拿到 2026-10-25 版，rustfmt 的注释换行（`wrap_comments = true`）算法变了；本机与上一次 v0.73.0
+构建用的是 2026-10-05 版。**工具链漂移，不是代码回归**——但足以让发布构建红。
+
+**修复**：
+- CI 格式检查固定 `nightly-2026-10-05`（`rustup toolchain install ... --profile minimal --component rustfmt`）；
+- `.githooks/pre-commit` 使用同一固定版本，工具链缺失时给出安装命令；
+- `AGENTS.md` / `TESTING.md` 记录该版本，避免下一位维护者用最新 nightly 造出新的全仓库 reformat。
+
+**经验**：
+- **格式检查必须有确定版本**。只要 rustfmt 用 nightly，不固定就迟早会因上游算法变化而红；
+  「本地通过」不能证明 CI 通过，必须核对**工具链版本**是否一致。
+- **「没改 Rust 却 fmt 失败」先比版本，不要急着全仓库 reformat**：reformat 会把上游的临时风格
+  固化进代码，下一次漂移再红一次；固定版本才是根治。
+
+---
+
 ## 反模式清单
 
 | 反模式 | 症状 | 推荐方案 |
@@ -197,4 +222,4 @@
 
 ---
 
-_最后更新: 2026-10-19_
+_最后更新: 2026-10-26_

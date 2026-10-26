@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Pre-commit 格式守卫：仅检查本次 staged 的 Rust / 前端代码是否已格式化。
-# 对齐 CI 的 `cargo +nightly fmt -- --check` 与 `prettier --check`。
+# 对齐 CI 的 `cargo +$FMT_TOOLCHAIN fmt -- --check` 与 `prettier --check`。
 # 紧急绕过：git commit --no-verify
 # 注意：不用 `set -u`——macOS bash 3.2 下空数组 "${arr[@]}" 会触发 unbound variable。
 set -eo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT" || exit 1
+
+# nightly rustfmt 会随版本漂移改变中文注释换行，必须与 CI 固定同一版本
+# （见 .github/workflows/build.yml 与 docs/archive/LESSONS_LEARNED.md 经验 11）。
+FMT_TOOLCHAIN="nightly-2026-10-05"
 
 fail_msg() {
     echo "" >&2
@@ -28,12 +32,17 @@ for f in "${staged[@]}"; do
     case "$f" in src-tauri/*.rs) rs+=("${f#src-tauri/}");; esac
 done
 if [ ${#rs[@]} -gt 0 ]; then
-    if rust_out=$(cd src-tauri && cargo +nightly fmt -- --check "${rs[@]}" 2>&1); then
+    if ! rustup toolchain list 2>/dev/null | grep -q "^${FMT_TOOLCHAIN}"; then
+        fail_msg "未安装格式检查工具链 ${FMT_TOOLCHAIN}" \
+                 "rustup toolchain install ${FMT_TOOLCHAIN} --profile minimal --component rustfmt"
+        exit 1
+    fi
+    if rust_out=$(cd src-tauri && cargo +"${FMT_TOOLCHAIN}" fmt -- --check "${rs[@]}" 2>&1); then
         :
     else
         printf '%s\n' "$rust_out" >&2
-        fail_msg "Rust 代码未格式化（cargo +nightly fmt）" \
-                 "(cd src-tauri && cargo +nightly fmt)"
+        fail_msg "Rust 代码未格式化（cargo +${FMT_TOOLCHAIN} fmt）" \
+                 "(cd src-tauri && cargo +${FMT_TOOLCHAIN} fmt)"
         exit 1
     fi
 fi
