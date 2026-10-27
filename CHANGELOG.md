@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.8（2026-10-28）
+
+**续写空正文跨档兜底：创作模型只输出思考时不再整轮失败。**
+
+- **现象**：真机续写报 `agency: write_beat_once 过短（0 字符），续写回退仍失败`，`smart_execute` 234 秒后以 Fatal 结束。
+- **根因**：创作档模型（deepseek-j 等推理模型）非流式调用只返回推理、正文 0 字符；旧逻辑只用同一模型再试一次，仍空就判死整轮。网关虽把空正文视为候选失败，但失败后 `generate_for_request` 会回退旧路径并直接返回空串，绕过了空正文闸门。
+- **修复**：主创档两次未产出正文时，按「后台档（EditorAuditor）→ 工具档（Producer）」各尝试一次，接受 ≥200 字符的正文；时间不足时跳过。最终失败信息明确提示「检查创作模型是否只输出思考，或切换到能产出正文的模型」。
+- **验证**：Rust **1834 passed / 10 ignored**（+1 回归：`test_continue_writer_falls_back_to_background_role_on_empty`）；clippy 0 error；前端零改动。
+
 ## v0.73.7（2026-10-27）
 
 **创世稳定性与模型配置四项修复：空正文冷却、默认模型可删、上下文自动探测、日志本地时间。**

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.7
+- **版本**: v0.73.8
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,7 +105,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1833 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1834 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 42 passed / 5 skipped（v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -118,6 +118,22 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.8 - 续写空正文跨档兜底
+
+**为什么**：真机续写报 `agency: write_beat_once 过短（0 字符），续写回退仍失败`，234 秒后 Fatal。
+创作档模型（deepseek-j 等推理模型）非流式只返回推理、正文 0 字符；旧逻辑只用同一模型重试一次，
+仍空就判死整轮。网关虽把空正文视为候选失败，但失败后 `generate_for_request` 回退旧路径并直接
+返回空串，绕过了空正文闸门。
+
+**改动**：`write_beat_once` 在主创档两次未产出正文后，按「后台档（EditorAuditor）→ 工具档
+（Producer）」各兜底一次，接受 ≥200 字符的正文；时间不足（`writer_retry_has_time`）时跳过。
+最终失败文案改为「主创/后台/工具档回退均未产出正文……请检查创作模型是否只输出思考」。
+
+- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（+1 回归：
+  `test_continue_writer_falls_back_to_background_role_on_empty`；既有「不得进 tool_loop」用例的
+  调用次数断言更新为 5）；clippy 0 error；fmt / guard 全绿；前端零改动。
+- **未关闭**：真机续写未复跑（需用同一台机器上「只输出思考」的创作档验证兜底实际产出）。
 
 ### v0.73.7 - 空正文冷却 + 默认模型可删 + 上下文自动探测 + 日志本地时间
 
@@ -181,24 +197,6 @@ type:
 
 - **验证**：本地 playwright 41 passed / 5 skipped；Rust 1827 passed / 10 ignored 基线不变。
 - **未关闭**：待 Playwright 支持 26.04 后再评估是否回到 `ubuntu-latest`。
-
-### v0.73.3 - 创世管理 Agent 熔断 salvage + 单调用回退
-
-**为什么**：用户真机创世报「创作引擎遇到致命错误：管理 Agent 被熔断（达到最大轮数），资产生产
-未完成」。检查发现 legacy 创世对 producer 熔断直接 Err，熔断前写入黑板的资产全部作废；而 producer
-要求 5 类资产、tool_loop 仅 12 轮，快速路径回退后更容易耗尽。
-
-**改动**：①`run_genesis_legacy_inner` 熔断后不再直接失败：先落库黑板已有资产、
-`emit_progress(assets, degraded)`，继续首章，`spawn_producer_resume` 后台补齐世界/大纲/关系；
-②黑板无可用资产时走 `producer_direct_fallback`（单调用直接输出 JSON，复用
-`agency_producer_system`，产出世界观/2 角色/关系/大纲/伏笔后写黑板，不新增提示词资产）；
-③Producer `max_turns` 12→16，任务提示「写完必需资产立即 final」；④熔断日志记录每轮 action
-（tool 名/final/parse_fail），让「详见 run 日志」有据可查。
-
-- **验证**：`cargo test --lib` **1827 passed / 10 ignored**（+2 回归：`test_genesis_salvages_producer_assets_on_max_turns` /
-  `test_genesis_recovers_with_producer_direct_fallback`；原 MaxTurns 致命错误断言改为 salvage 成功断言）；
-  clippy 0 error；fmt（`nightly-2026-10-05`）/ guard 全绿；前端零改动（仅版本号）。
-- **未关闭**：真机创世未复跑（需用 deepseek-flash 创作档 + Qwen3.5 工具档再验一次首章产出）。
 
 ## Always Do
 

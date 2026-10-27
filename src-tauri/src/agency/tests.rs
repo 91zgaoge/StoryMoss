@@ -2017,6 +2017,91 @@ async fn test_continue_writer_prose_fallback() {
     assert_eq!(run.status, "completed");
 }
 
+/// v0.73.8: 创作档连续空正文时，自动换后台档/工具档兜底产出正文，
+/// 不再以「write_beat_once 过短（0 字符）」判死整轮续写。
+#[tokio::test]
+async fn test_continue_writer_falls_back_to_background_role_on_empty() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "续写跨档兜底".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("第一章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let chapter2 = pass_grade_content("后台档兜底正文：");
+    let llm = MockLlm::scripted(vec![
+        // generate_chapter_outline
+        "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
+        "短", // 主创 first
+        "短", // 主创同模型 short retry
+        chapter2.as_str(), // 后台档（EditorAuditor）兜底
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let result = coordinator
+        .run_continue(
+            "rc-cross-role",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.chapter_number, 2);
+    let scene = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_id(&result.scene_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        scene.content.as_deref().map(str::trim_end),
+        Some(chapter2.trim_end()),
+        "应采用后台档兜底的正文"
+    );
+    let run = AgencyRepository::new(pool.clone())
+        .get_run("rc-cross-role")
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, "completed");
+}
+
 /// 散文回退仍过短时，不得再进入 `write_chapter` tool_loop。
 /// 诊断：complete() 空 CoT → 散文过短 → tool_loop 重烧同一膨胀 prompt，
 /// 直到前端 600s 看门狗取消。
@@ -2085,8 +2170,8 @@ async fn test_continue_prose_fallback_failure_does_not_enter_tool_loop() {
     );
     assert_eq!(
         llm.calls.lock().unwrap().len(),
-        3,
-        "大纲 + complete + 续写回退；不得再进 write_chapter（会再调大纲/tool_loop）"
+        5,
+        "大纲 + complete + 续写回退 + 后台/工具档各一次兜底；不得再进 write_chapter（会再调大纲/tool_loop）"
     );
     assert_eq!(
         AgencyRepository::new(pool)

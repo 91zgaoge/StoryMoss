@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.7)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.8)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.8 变更说明
+
+- **续写空正文跨档兜底（+1 回归，1834 passed / 10 ignored）**：
+  `test_continue_writer_falls_back_to_background_role_on_empty`——主创档两次返回「短」后，
+  后台档兜底产出正文并完成装配；同时更新 `test_continue_prose_fallback_failure_does_not_enter_tool_loop`
+  的调用次数断言（大纲 + 主创 + 同模型重试 + 后台/工具档各一次 = 5，仍不得进入 write_chapter tool_loop）。
+- **实现**：`write_beat_once` 未达 200 字符时按 EditorAuditor → Producer 各兜底一次（时间不足跳过），
+  最终错误文案提示检查创作模型是否只输出思考。
+- **未改动**：前端零改动；vitest 625 / playwright 42 passed / 5 skipped。
 
 ### v0.73.7 变更说明
 

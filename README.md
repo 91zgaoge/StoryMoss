@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.7-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.8-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.8 · 续写遇到「只思考不写正文」的模型会自动换档
+
+创作模型连续两次没产出正文时，续写不再直接判死：会依次用后台档、工具档各补写一次，拿到正文
+就继续装配。如果所有档位都写不出，错误信息会直接说明「请检查创作模型是否只输出思考，或切换到
+能产出正文的模型」。
 
 ### v0.73.7 · 空转模型会被自动降权，模型配置更省心
 

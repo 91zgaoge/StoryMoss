@@ -5290,8 +5290,60 @@ impl AgencyCoordinator {
             }
         }
         if text.chars().count() < 200 {
+            // v0.73.8: 同一模型两次空正文/过短时，换后台档、工具档再试一次。
+            // 典型场景：创作档是推理模型，非流式只返回思考、正文 0 字符；
+            // 此前会直接判死整轮续写（真机 `write_beat_once 过短（0 字符）`）。
+            if writer_retry_has_time(self.remaining_run_secs()) {
+                for role in [AgentRole::EditorAuditor, AgentRole::Producer] {
+                    log::warn!(
+                        "agency: write_beat_once 主创空/过短，尝试 {:?} 档兜底 run={}",
+                        role,
+                        run_id
+                    );
+                    let fallback_llm = BudgetedLlm::new(
+                        self.llm_for_run(run_id, role, story_id),
+                        budget.clone(),
+                        role,
+                    );
+                    match fallback_llm
+                        .complete(&system, &user, TaskType::CreativeWriting, 8192)
+                        .await
+                    {
+                        Ok(t) => {
+                            let t = crate::agents::orchestrator::sanitize_novel_output(t.trim());
+                            if t.chars().count() >= 200 {
+                                log::warn!(
+                                    "agency: write_beat_once {:?} 档兜底成功（{} 字符）run={}",
+                                    role,
+                                    t.chars().count(),
+                                    run_id
+                                );
+                                text = t;
+                                break;
+                            }
+                            log::warn!(
+                                "agency: write_beat_once {:?} 档兜底仍过短（{} 字符）run={}",
+                                role,
+                                t.chars().count(),
+                                run_id
+                            );
+                        }
+                        Err(e) => log::warn!(
+                            "agency: write_beat_once {:?} 档兜底失败 run={} err={}",
+                            role,
+                            run_id,
+                            e
+                        ),
+                    }
+                    if !writer_retry_has_time(self.remaining_run_secs()) {
+                        break;
+                    }
+                }
+            }
+        }
+        if text.chars().count() < 200 {
             return Err(AppError::from(format!(
-                "agency: write_beat_once 过短（{} 字符），续写回退仍失败 run={}",
+                "agency: write_beat_once 过短（{} 字符），主创/后台/工具档回退均未产出正文 run={}（请检查创作模型是否只输出思考、或切换到能产出正文的模型）",
                 text.chars().count(),
                 run_id
             )));

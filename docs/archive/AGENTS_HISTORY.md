@@ -1,3 +1,23 @@
+*归档于 2026-10-28（v0.73.8）：v0.73.3 摘要。*
+
+### v0.73.3 - 创世管理 Agent 熔断 salvage + 单调用回退
+
+**为什么**：用户真机创世报「创作引擎遇到致命错误：管理 Agent 被熔断（达到最大轮数），资产生产
+未完成」。检查发现 legacy 创世对 producer 熔断直接 Err，熔断前写入黑板的资产全部作废；而 producer
+要求 5 类资产、tool_loop 仅 12 轮，快速路径回退后更容易耗尽。
+
+**改动**：①`run_genesis_legacy_inner` 熔断后不再直接失败：先落库黑板已有资产、
+`emit_progress(assets, degraded)`，继续首章，`spawn_producer_resume` 后台补齐世界/大纲/关系；
+②黑板无可用资产时走 `producer_direct_fallback`（单调用直接输出 JSON，复用
+`agency_producer_system`，产出世界观/2 角色/关系/大纲/伏笔后写黑板，不新增提示词资产）；
+③Producer `max_turns` 12→16，任务提示「写完必需资产立即 final」；④熔断日志记录每轮 action
+（tool 名/final/parse_fail），让「详见 run 日志」有据可查。
+
+- **验证**：`cargo test --lib` **1827 passed / 10 ignored**（+2 回归：`test_genesis_salvages_producer_assets_on_max_turns` /
+  `test_genesis_recovers_with_producer_direct_fallback`；原 MaxTurns 致命错误断言改为 salvage 成功断言）；
+  clippy 0 error；fmt（`nightly-2026-10-05`）/ guard 全绿；前端零改动（仅版本号）。
+- **未关闭**：真机创世未复跑（需用 deepseek-flash 创作档 + Qwen3.5 工具档再验一次首章产出）。
+
 *归档于 2026-10-27（v0.73.7）：v0.73.2 摘要。*
 
 ### v0.73.2 - CI 格式检查固定 rustfmt 版本（无应用代码变更）
