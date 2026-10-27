@@ -36,6 +36,7 @@ tauri::generate_handler! {
     config::update_agent_mapping,
     config::test_model_connection,
     config::fetch_models,
+    config::detect_model_context,
     router::simulate_route,
     router::benchmark_model_for_task,
     router::get_model_health_reports,

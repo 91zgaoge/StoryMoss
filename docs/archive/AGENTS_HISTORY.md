@@ -1,3 +1,18 @@
+*归档于 2026-10-27（v0.73.7）：v0.73.2 摘要。*
+
+### v0.73.2 - CI 格式检查固定 rustfmt 版本（无应用代码变更）
+
+**为什么**：v0.73.1 推送后 Windows `rust-check` 在「Check Rust formatting」红——本次没改任何
+`.rs`，本机（nightly 2026-10-05）与 Linux/macOS 都通过。根因是 CI 的
+`rustup component add rustfmt --toolchain nightly` 每天拉最新：Windows 当天拿到 2026-10-25 版，
+`wrap_comments` 换行算法变化，与仓库现状不一致（16 处中文注释 diff）。
+
+**改动**：`.github/workflows/build.yml` 与 `.githooks/pre-commit` 固定 `nightly-2026-10-05`；
+钩子在工具链缺失时给出安装命令；本文件与 `TESTING.md` 记录版本；经验入档
+`docs/archive/LESSONS_LEARNED.md` 经验 11（格式检查必须有确定版本，先比工具链版本再考虑 reformat）。
+
+- **验证**：`cargo +nightly-2026-10-05 fmt -- --check` ✅；Rust 代码零改动，`check`/`clippy`/`test` 基线不变。
+
 *归档于 2026-10-26（v0.73.6）：v0.73.1 摘要。*
 
 ### v0.73.1 - 模型超时设置回到「模型」页签 + 设置页健壮性修复

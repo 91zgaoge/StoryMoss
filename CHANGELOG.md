@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.7（2026-10-27）
+
+**创世稳定性与模型配置四项修复：空正文冷却、默认模型可删、上下文自动探测、日志本地时间。**
+
+- **空正文冷却**：deepseek 等推理模型可能返回「推理 token 有、正文 0 字符」。旧网关虽会换下一个候选，但用户显式指定的角色模型每轮仍被强制置顶，于是每次调用都先空转一次，600 秒预算被耗尽。现在连续 2 次空正文后进入 10 分钟冷却（探测成功不清零，只有真实非空生成才清零），冷却期内不再置顶/优先，候选评分额外 -1000。
+- **默认模型可删**：`remove_llm_profile` 以前拒绝删除 `is_default` 模型，用户以为删掉了、实际配置仍在，`tool_model_id` 继续指向已下线端点（日志中的 `delete_model failed`）。现在允许删除并自动提升剩余启用模型为默认，同时清空 active/角色引用；配置加载时也会自愈失效的角色引用。
+- **上下文自动探测**：新增 `detect_model_context` 命令，按「OpenAI 兼容 `/models`（vLLM `max_model_len` / OpenRouter `context_length`）→ Ollama `/api/show` → 内置型号目录」检测最大上下文；模型编辑弹窗新增「上下文长度 + 自动检测」，留空保存时自动探测；旧配置中一律 8192 的已知型号会在加载时自动校正。
+- **日志时间本地化**：日志页与前端诊断卡片此前直接显示 UTC（比本地早 8 小时），现统一转本地时间。
+- **验证**：Rust **1833 passed / 10 ignored**（+6）；tsc / vitest 625 / playwright **42 passed / 5 skipped**；clippy 0 error。
+
 ## v0.73.6（2026-10-26）
 
 **修复推理模型被 15 秒「连接超时」误杀（超时语义拆分为 TCP 连接 / 首字节 / 正文）。**

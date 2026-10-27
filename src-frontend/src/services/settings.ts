@@ -260,6 +260,21 @@ export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Prom
   }
 }
 
+// v0.73.7: 自动检测模型最大上下文长度
+export interface ModelContextInfo {
+  max_context_length: number | null;
+  source: 'api' | 'ollama' | 'catalog' | 'unknown';
+}
+
+export async function detectModelContext(params: {
+  provider: string;
+  model: string;
+  apiBase?: string;
+  apiKey?: string;
+}): Promise<ModelContextInfo> {
+  return loggedInvoke<ModelContextInfo>('detect_model_context', params);
+}
+
 // 获取模型提供商列表
 export function getModelProviders(): Array<{
   id: string;

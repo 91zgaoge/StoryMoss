@@ -1,8 +1,19 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.6)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.7)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.7 变更说明
+
+- **空正文冷却（+3 测试，1833 passed / 10 ignored）**：`empty_content_demotes_after_two_failures_and_clears_on_real_success`
+  / `empty_content_failure_does_not_affect_other_models` / `clear_demotion_also_resets_empty_content_streak`。
+- **默认模型删除与上下文目录**：`test_remove_default_llm_profile_promotes_next_and_clears_roles`（替换旧的
+  「默认模型不可删」断言）、`catalog_context_length_recognizes_common_models`、`context_from_model_entry_recognizes_common_fields`。
+- **上下文自动探测**：`detect_model_context` 命令（OpenAI 兼容 /models → Ollama /api/show → 内置目录），
+  模型弹窗「上下文长度 + 自动检测」，留空保存自动探测。
+- **日志时间**：日志页与诊断卡片改为本地时间。
+- **未改动**：vitest 625 / playwright 42 passed / 5 skipped。
 
 ### v0.73.6 变更说明
 

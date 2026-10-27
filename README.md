@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.6-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.7-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.7 · 空转模型会被自动降权，模型配置更省心
+
+- **空正文冷却**：推理模型出现「只有思考、没有正文」时，连续两次后 10 分钟内不再被优先调用，避免每轮都先等它空转、把 600 秒预算耗光。
+- **默认模型可以删了**：以前删除默认模型会失败（提示被忽略后，模型仍在配置里继续被调用）。现在会自动把另一台启用模型设为默认，并清掉模型角色引用。
+- **上下文长度自动检测**：模型弹窗新增「上下文长度 + 自动检测」，支持服务端 `/models`、Ollama `/api/show` 与内置型号目录；留空保存会自动探测，不再一律 8192。
+- **日志时间显示本地时间**（此前是 UTC，差 8 小时）。
 
 ### v0.73.6 · 推理模型不再被 15 秒「连接超时」误杀
 

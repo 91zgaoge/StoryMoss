@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.6 架构文档
+# StoryMoss (草苔) v0.73.7 架构文档
 
+> **v0.73.7**：**模型配置与网关韧性**——①`model_gateway::health::HealthRecord` 新增 `empty_content_failures/last_empty_content_at`，连续 2 次空正文后 10 分钟冷却（探测成功不清零）；`GatewayExecutor::select_candidates` 对冷却模型 -1000 并跳过显式角色置顶，`resolve_role_model` 同样跳过；②`AppConfig::remove_llm_profile` 允许删除默认模型（提升剩余启用模型为默认、清空 active/角色引用），`load` 自愈失效角色引用；③新增 `config::commands::detect_model_context`（OpenAI 兼容 /models → Ollama /api/show → 内置目录），`catalog_context_length` 提供离线参考值；`update_model` 持久化 `max_context_length`；④日志页/诊断卡片本地时间。
+>
 > **v0.73.6**：**超时语义拆分**——`llm/adapter` 新增 `send_with_response_timeout`：TCP/TLS 建连由 `ClientBuilder::connect_timeout` 负责，响应头等待改用「首字节超时」（`llm_first_chunk_timeout_secs`，默认 180s），超时映射为 `RESPONSE_HEADERS_TIMEOUT_MARKER`；`AppError` 新增 `LlmResponseTimeout`（code `LLM_RESPONSE_TIMEOUT`，severity Retry，仅额外重试 1 次）。OpenAI/Anthropic/Ollama 的非流式与流式请求全部接入；后端默认连接超时 15→60、服务层兜底 60/180。正文读取仍走 per-chunk + 绝对截止时间。
 >
 > **v0.73.5**：**无架构变更**——`FrontstageLauncher` 定位从右上（`top-4 right-4`）改为右下（`bottom-6 right-6`），避免遮挡页头操作按钮与右上角通知；无数据/接口变化。

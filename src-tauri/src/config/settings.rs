@@ -764,6 +764,59 @@ pub fn default_max_context_length() -> u32 {
     8192
 }
 
+/// v0.73.7: 内置型号上下文目录（离线兜底）。
+///
+/// 云端 OpenAI 兼容 `/v1/models` 大多不返回上下文长度，Ollama/vLLM 才会；
+/// 这里按型号名给出保守参考值，避免新模型一律落 8192 导致长提示被路由
+/// 过滤掉。用户仍可在模型编辑弹窗里手动覆盖。
+pub fn catalog_context_length(model: &str) -> Option<u32> {
+    let m = model.trim().to_ascii_lowercase();
+    if m.is_empty() {
+        return None;
+    }
+    // 先匹配具体型号，避免 "gpt-4" 抢先命中 "gpt-4o"
+    if m.contains("claude") {
+        return Some(200_000);
+    }
+    if m.contains("gemini") {
+        return Some(1_048_576);
+    }
+    if m.contains("deepseek") {
+        return Some(131_072);
+    }
+    if m.contains("gpt-4.1") || m.contains("gpt-4o") || m.contains("gpt-4-turbo") {
+        return Some(128_000);
+    }
+    if m.contains("gpt-3.5") {
+        return Some(16_385);
+    }
+    if m.contains("gpt-4") {
+        return Some(8_192);
+    }
+    if m.contains("o1") || m.contains("o3") || m.contains("o4") {
+        return Some(200_000);
+    }
+    if m.contains("qwen") {
+        return Some(131_072);
+    }
+    if m.contains("llama-3") || m.contains("llama3") {
+        return Some(131_072);
+    }
+    if m.contains("llama-2") || m.contains("llama2") {
+        return Some(4_096);
+    }
+    if m.contains("mixtral") || m.contains("mistral") {
+        return Some(32_768);
+    }
+    if m.contains("gemma") {
+        return Some(8_192);
+    }
+    if m.contains("phi-3") || m.contains("phi3") {
+        return Some(131_072);
+    }
+    None
+}
+
 /// 模型来源 — 决定配额和用量统计策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1268,8 +1321,25 @@ impl AppConfig {
         // 为已有 LLM profile 补齐路由相关字段（从旧版本迁移）
         for profile in config.llm_profiles.values_mut() {
             if profile.max_context_length == 0 {
-                profile.max_context_length = 8192;
+                profile.max_context_length = catalog_context_length(&profile.model)
+                    .unwrap_or_else(default_max_context_length);
                 needs_save = true;
+            } else if profile.max_context_length == default_max_context_length() {
+                // v0.73.7: 旧版本对所有新模型一律写 8192；已知云端型号
+                // （deepseek/qwen/gpt-4o…）按内置目录纠正，避免长提示被
+                // 路由的上下文闸门误过滤。用户手动改成其它值则尊重不动。
+                if let Some(detected) = catalog_context_length(&profile.model) {
+                    if detected != profile.max_context_length {
+                        log::info!(
+                            "[AppConfig] 自动校正模型 {} 上下文长度 {} → {}",
+                            profile.model,
+                            profile.max_context_length,
+                            detected
+                        );
+                        profile.max_context_length = detected;
+                        needs_save = true;
+                    }
+                }
             }
             // 根据 capabilities 推断 kind（旧版本只有 Chat/Multimodal 两种）
             if profile.kind == ModelKind::Chat
@@ -1342,6 +1412,42 @@ impl AppConfig {
                 .or_else(|| config.embedding_profiles.values().next())
                 .map(|p| p.id.clone());
             needs_save = true;
+        }
+
+        // v0.73.7: 角色模型引用失效自愈——模型被删除/禁用后
+        // creative/tool/background_model_id 可能仍指向它（旧版默认模型不可删，
+        // 用户以为删掉了），导致后台继续调用死模型。加载时统一清空引用，
+        // 让网关回退到自动分配。
+        {
+            let profiles = &config.llm_profiles;
+            let invalid_role = |id: &Option<String>| -> bool {
+                id.as_ref()
+                    .is_some_and(|mid| profiles.get(mid).map_or(true, |p| !p.enabled))
+            };
+            if invalid_role(&config.creative_model_id) {
+                log::warn!(
+                    "[AppConfig] creative_model_id 指向不存在/已禁用模型，已清空: {:?}",
+                    config.creative_model_id
+                );
+                config.creative_model_id = None;
+                needs_save = true;
+            }
+            if invalid_role(&config.tool_model_id) {
+                log::warn!(
+                    "[AppConfig] tool_model_id 指向不存在/已禁用模型，已清空: {:?}",
+                    config.tool_model_id
+                );
+                config.tool_model_id = None;
+                needs_save = true;
+            }
+            if invalid_role(&config.background_model_id) {
+                log::warn!(
+                    "[AppConfig] background_model_id 指向不存在/已禁用模型，已清空: {:?}",
+                    config.background_model_id
+                );
+                config.background_model_id = None;
+                needs_save = true;
+            }
         }
 
         if needs_save {
@@ -1559,67 +1665,72 @@ impl AppConfig {
 
     /// 删除LLM配置
     pub fn remove_llm_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
-        if let Some(profile) = self.llm_profiles.get(profile_id) {
-            if profile.is_default && self.llm_profiles.len() > 1 {
-                return Err(AppError::ValidationFailed {
-                    message: "Cannot delete the default profile".to_string(),
-                    field: Some("profile_id".to_string()),
-                });
-            }
-            self.llm_profiles.remove(profile_id);
-
-            // 如果删除的是当前活跃配置，重置
-            if self.active_llm_profile.as_deref() == Some(profile_id) {
-                self.active_llm_profile = self
-                    .llm_profiles
-                    .values()
-                    .find(|p| p.is_default)
-                    .map(|p| p.id.clone());
-            }
-            // v0.23.66: 清除该模型的所有角色分配
-            if self.creative_model_id.as_deref() == Some(profile_id) {
-                self.creative_model_id = None;
-            }
-            if self.tool_model_id.as_deref() == Some(profile_id) {
-                self.tool_model_id = None;
-            }
-            if self.background_model_id.as_deref() == Some(profile_id) {
-                self.background_model_id = None;
-            }
-            Ok(())
-        } else {
-            Err(AppError::NotFound {
+        let Some(profile) = self.llm_profiles.get(profile_id) else {
+            return Err(AppError::NotFound {
                 resource: "llm_profile".to_string(),
                 id: profile_id.to_string(),
-            })
+            });
+        };
+        // v0.73.7: 默认模型不再阻止删除。旧实现直接拒绝，用户以为删掉了，
+        // 但配置里仍在（且角色/活跃引用继续指向它），后台仍会调用死模型。
+        let removed_was_default = profile.is_default;
+        self.llm_profiles.remove(profile_id);
+
+        // 默认模型被删或配置里已没有默认项：提升剩余第一个启用模型
+        if removed_was_default || !self.llm_profiles.values().any(|p| p.is_default) {
+            if let Some(next) = self.llm_profiles.values_mut().find(|p| p.enabled) {
+                next.is_default = true;
+            }
         }
+
+        // 如果删除的是当前活跃配置，重置：优先默认且启用 → 任一启用 → 默认
+        if self.active_llm_profile.as_deref() == Some(profile_id) {
+            self.active_llm_profile = self
+                .llm_profiles
+                .values()
+                .find(|p| p.is_default && p.enabled)
+                .or_else(|| self.llm_profiles.values().find(|p| p.enabled))
+                .or_else(|| self.llm_profiles.values().find(|p| p.is_default))
+                .map(|p| p.id.clone());
+        }
+        // v0.23.66: 清除该模型的所有角色分配
+        if self.creative_model_id.as_deref() == Some(profile_id) {
+            self.creative_model_id = None;
+        }
+        if self.tool_model_id.as_deref() == Some(profile_id) {
+            self.tool_model_id = None;
+        }
+        if self.background_model_id.as_deref() == Some(profile_id) {
+            self.background_model_id = None;
+        }
+        Ok(())
     }
 
     /// 删除嵌入模型配置
     pub fn remove_embedding_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
-        if let Some(profile) = self.embedding_profiles.get(profile_id) {
-            if profile.is_default && self.embedding_profiles.len() > 1 {
-                return Err(AppError::ValidationFailed {
-                    message: "Cannot delete the default profile".to_string(),
-                    field: Some("profile_id".to_string()),
-                });
-            }
-            self.embedding_profiles.remove(profile_id);
-
-            if self.active_embedding_profile.as_deref() == Some(profile_id) {
-                self.active_embedding_profile = self
-                    .embedding_profiles
-                    .values()
-                    .find(|p| p.is_default)
-                    .map(|p| p.id.clone());
-            }
-            Ok(())
-        } else {
-            Err(AppError::NotFound {
+        let Some(profile) = self.embedding_profiles.get(profile_id) else {
+            return Err(AppError::NotFound {
                 resource: "embedding_profile".to_string(),
                 id: profile_id.to_string(),
-            })
+            });
+        };
+        let removed_was_default = profile.is_default;
+        self.embedding_profiles.remove(profile_id);
+
+        if removed_was_default || !self.embedding_profiles.values().any(|p| p.is_default) {
+            if let Some(next) = self.embedding_profiles.values_mut().next() {
+                next.is_default = true;
+            }
         }
+
+        if self.active_embedding_profile.as_deref() == Some(profile_id) {
+            self.active_embedding_profile = self
+                .embedding_profiles
+                .values()
+                .next()
+                .map(|p| p.id.clone());
+        }
+        Ok(())
     }
 
     /// 迁移旧版配置

@@ -22,6 +22,14 @@ pub struct HealthRecord {
     /// 完全不可见，活跃模型仍被 `+1000` 强制置顶。此计数让连续
     /// 失败的活跃模型降级，交给其他健康候选接管；成功 1 次即清零。
     pub consecutive_failures: u32,
+    /// v0.73.7: 连续「真实调用返回空正文」次数。
+    ///
+    /// 推理模型可能把 token 全烧在 `reasoning_content` 上、`content` 为空；
+    /// 这不同于普通失败：探测用的短提示词通常能返回内容，所以探测成功
+    /// **不能**清零此计数（只有真实非空生成才清零）。
+    pub empty_content_failures: u32,
+    /// v0.73.7: 最近一次空正文失败时间（冷却窗口起点）。
+    pub last_empty_content_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// 健康注册表
@@ -219,6 +227,50 @@ impl HealthRegistry {
             .unwrap_or(0)
     }
 
+    /// v0.73.7: 记录一次「真实调用返回空正文」。
+    ///
+    /// 与 `record_failure` 分开记账：探测成功不会清零它，避免「短提示词能答、
+    /// 长任务空正文」的模型在每次 keepalive 后又被重新置顶。
+    pub fn record_empty_content(&mut self, model_id: &str, model_name: &str) {
+        let record = self.records.entry(model_id.to_string()).or_default();
+        record.empty_content_failures = record.empty_content_failures.saturating_add(1);
+        record.last_empty_content_at = Some(chrono::Utc::now());
+        record.snapshot.model_id = model_id.to_string();
+        if record.snapshot.model_name.is_empty() {
+            record.snapshot.model_name = model_name.to_string();
+        }
+    }
+
+    /// v0.73.7: 真实调用返回非空正文，清零空正文连续计数。
+    pub fn clear_empty_content_failures(&mut self, model_id: &str) {
+        if let Some(record) = self.records.get_mut(model_id) {
+            record.empty_content_failures = 0;
+            record.last_empty_content_at = None;
+        }
+    }
+
+    /// v0.73.7: 是否因连续空正文暂时不应被优先选择（阈值 2，冷却 10 分钟）。
+    ///
+    /// 10 分钟覆盖单次创世/续写 run；冷却结束后给模型一次重新置顶的机会，
+    /// 避免用户修复服务后要重启应用。
+    pub fn empty_content_demoted(&self, model_id: &str) -> bool {
+        const THRESHOLD: u32 = 2;
+        const COOLDOWN_MINUTES: i64 = 10;
+        let Some(record) = self.records.get(model_id) else {
+            return false;
+        };
+        if record.empty_content_failures < THRESHOLD {
+            return false;
+        }
+        match record.last_empty_content_at {
+            Some(ts) => {
+                chrono::Utc::now().signed_duration_since(ts)
+                    < chrono::Duration::minutes(COOLDOWN_MINUTES)
+            }
+            None => false,
+        }
+    }
+
     /// v0.26.54: 用户显式重选模型时清除粘性降级。
     ///
     /// 连续失败阈值会让模型失去强制置顶资格；若用户在设置里再次指定该模型
@@ -234,6 +286,8 @@ impl HealthRegistry {
             return;
         };
         record.consecutive_failures = 0;
+        record.empty_content_failures = 0;
+        record.last_empty_content_at = None;
         if matches!(
             record.snapshot.status,
             HealthStatus::Unhealthy | HealthStatus::Degraded
@@ -494,5 +548,53 @@ mod tests {
         assert_eq!(registry.get("ds").unwrap().status, HealthStatus::Unknown);
         // no-op for missing
         registry.clear_demotion("missing");
+    }
+
+    // v0.73.7: 空正文冷却测试
+
+    #[test]
+    fn empty_content_demotes_after_two_failures_and_clears_on_real_success() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("m", HealthStatus::Healthy));
+
+        registry.record_empty_content("m", "M");
+        assert!(!registry.empty_content_demoted("m"), "单次空正文不降级");
+
+        registry.record_empty_content("m", "M");
+        assert!(
+            registry.empty_content_demoted("m"),
+            "连续 2 次空正文应进入冷却"
+        );
+
+        // 探测成功（record_success）不清零空正文计数
+        registry.record_success("m", "M");
+        assert!(
+            registry.empty_content_demoted("m"),
+            "探测成功不能清空空正文冷却"
+        );
+
+        // 真实非空生成成功才清零
+        registry.clear_empty_content_failures("m");
+        assert!(!registry.empty_content_demoted("m"));
+    }
+
+    #[test]
+    fn empty_content_failure_does_not_affect_other_models() {
+        let mut registry = HealthRegistry::new();
+        registry.record_empty_content("a", "A");
+        registry.record_empty_content("a", "A");
+        assert!(registry.empty_content_demoted("a"));
+        assert!(!registry.empty_content_demoted("b"));
+    }
+
+    #[test]
+    fn clear_demotion_also_resets_empty_content_streak() {
+        let mut registry = HealthRegistry::new();
+        registry.record_empty_content("m", "M");
+        registry.record_empty_content("m", "M");
+        assert!(registry.empty_content_demoted("m"));
+
+        registry.clear_demotion("m");
+        assert!(!registry.empty_content_demoted("m"));
     }
 }

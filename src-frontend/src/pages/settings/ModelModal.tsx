@@ -9,6 +9,7 @@ import {
   getProviderDefaultModels,
   fetchModelsFromApi,
   getModelApiKey,
+  detectModelContext,
 } from '@/services/settings';
 import toast from 'react-hot-toast';
 import type {
@@ -36,6 +37,7 @@ interface ModelFormData {
   frequency_penalty?: number;
   presence_penalty?: number;
   dimensions?: number;
+  max_context_length?: number;
   is_default?: boolean;
   enabled?: boolean;
   system_prompt_override?: string;
@@ -132,6 +134,53 @@ export function ModelModal({
   const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
+  // v0.73.7: 上下文长度自动检测
+  const [isDetectingContext, setIsDetectingContext] = useState(false);
+  const [contextSource, setContextSource] = useState<string | null>(null);
+
+  const formatContext = (n: number) => (n >= 1024 ? `${Math.round(n / 1024)}K` : `${n}`);
+
+  const contextSourceLabel =
+    contextSource === 'api'
+      ? '已从服务端 /models 检测'
+      : contextSource === 'ollama'
+        ? '已从 Ollama /api/show 检测'
+        : contextSource === 'catalog'
+          ? '内置型号目录参考值（可手动覆盖）'
+          : contextSource === 'unknown'
+            ? '未检测到，请手动填写'
+            : null;
+
+  const detectContext = async (modelOverride?: string, silent = false) => {
+    const provider = getValues('provider');
+    const modelId = (modelOverride ?? getValues('model') ?? '').trim();
+    if (!modelId) {
+      if (!silent) toast.error('请先填写模型 ID');
+      return;
+    }
+    setIsDetectingContext(true);
+    try {
+      const info = await detectModelContext({
+        provider,
+        model: modelId,
+        apiBase: getValues('api_base') || undefined,
+        apiKey: getValues('api_key') || undefined,
+      });
+      setContextSource(info.source);
+      if (info.max_context_length) {
+        setValue('max_context_length', info.max_context_length);
+        if (!silent) {
+          toast.success(`已检测：${formatContext(info.max_context_length)} tokens`);
+        }
+      } else if (!silent) {
+        toast.error('未能自动检测，请手动填写上下文长度');
+      }
+    } catch (e) {
+      if (!silent) toast.error(extractMessage(e));
+    } finally {
+      setIsDetectingContext(false);
+    }
+  };
 
   const onSubmit = async (data: ModelFormData) => {
     const payload: {
@@ -151,6 +200,7 @@ export function ModelModal({
       presence_penalty?: number;
       capabilities?: ModelCapability[];
       dimensions?: number;
+      max_context_length?: number;
     } = {
       name: data.name,
       provider: data.provider,
@@ -202,6 +252,28 @@ export function ModelModal({
 
     if (effectiveType === 'embedding') {
       payload.dimensions = Number(data.dimensions);
+    }
+
+    // v0.73.7: 未填写上下文长度时自动检测；失败不阻断保存，后端按型号
+    // 目录兜底（catalog_context_length）。
+    if (effectiveType === 'chat' || effectiveType === 'multimodal') {
+      let contextLength = Number(data.max_context_length);
+      if (!Number.isFinite(contextLength) || contextLength <= 0) {
+        try {
+          const info = await detectModelContext({
+            provider: data.provider,
+            model: data.model,
+            apiBase: data.api_base || undefined,
+            apiKey: data.api_key || undefined,
+          });
+          if (info.max_context_length) contextLength = info.max_context_length;
+        } catch {
+          // 探测失败：交给后端目录/默认值
+        }
+      }
+      if (Number.isFinite(contextLength) && contextLength > 0) {
+        payload.max_context_length = contextLength;
+      }
     }
 
     setIsSubmitting(true);
@@ -302,7 +374,10 @@ export function ModelModal({
                         <button
                           key={m}
                           type="button"
-                          onClick={() => setValue('model', m, { shouldValidate: true })}
+                          onClick={() => {
+                            setValue('model', m, { shouldValidate: true });
+                            void detectContext(m, true);
+                          }}
                           className="px-2 py-1 text-xs bg-cinema-700 hover:bg-cinema-600 text-gray-300 rounded-md transition-colors"
                         >
                           {m}
@@ -491,6 +566,42 @@ export function ModelModal({
                       placeholder="默认不设置"
                       className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                     />
+                  </div>
+                  {/* v0.73.7: 上下文长度自动检测 */}
+                  <div className="col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">
+                      上下文长度（tokens）
+                      <span className="text-xs text-gray-500 ml-2">
+                        — 路由判断提示词是否装得下；留空保存时自动检测
+                      </span>
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        {...register('max_context_length', { valueAsNumber: true })}
+                        type="number"
+                        min={512}
+                        step={1024}
+                        placeholder="留空自动检测（默认 8192）"
+                        className="flex-1 px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void detectContext()}
+                        disabled={isDetectingContext}
+                        className="px-3 py-2 bg-cinema-700 hover:bg-cinema-600 disabled:opacity-50 text-gray-300 text-sm rounded-xl transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        {isDetectingContext ? (
+                          <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        )}
+                        自动检测
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {contextSourceLabel ??
+                        '检测顺序：服务端 /models（vLLM·OpenRouter）→ Ollama /api/show → 内置型号目录'}
+                    </p>
                   </div>
                 </div>
               </div>

@@ -1564,7 +1564,8 @@ const FrontstageApp: React.FC = () => {
         promptText.length > 12000 ? `${promptText.substring(0, 12000)}\n...（已截断）` : promptText;
 
       const info: Record<string, string> = {
-        发生时间: new Date().toISOString(),
+        // v0.73.7: 诊断信息用本地时间（旧版 toISOString 为 UTC，与用户时钟差 8 小时）
+        发生时间: new Date().toLocaleString('zh-CN', { hour12: false }),
         应用版本: backendVersion,
         AI生成模式: settings?.generation_mode ?? 'auto',
         当前模型ID: activeChatModel?.id || activeChatModelId || '未配置',

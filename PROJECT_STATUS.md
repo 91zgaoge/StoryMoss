@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.6 项目完成状态
+# StoryMoss (草苔) v0.73.7 项目完成状态
 
+> 最后更新: 2026-10-27（**v0.73.7：空正文冷却 + 默认模型可删 + 上下文自动探测 + 日志本地时间**——①推理模型返回「推理 token 有、正文 0 字符」时，显式角色模型连续 2 次空正文后进入 10 分钟冷却，不再每轮置顶空转；②默认模型允许删除并自动提升剩余启用模型，同时清空 active/角色引用，配置加载自愈失效引用（修复「已删除模型仍在调用」）；③新增 `detect_model_context`（/models → Ollama /api/show → 内置目录），模型弹窗可自动检测上下文长度，留空保存自动探测；④日志页与诊断卡片改本地时间。Rust **1833 passed / 10 ignored**（+6）。）
+>
 > 最后更新: 2026-10-26（**v0.73.6：超时语义拆分（推理模型不再被 15s 误杀）**——用户日志中 deepseek-v4-flash 非流式调用反复在 15000ms 报 `LLM_CONNECTION_TIMEOUT`，根因是「等待响应头」被压在了连接超时上。现在 TCP 建连由 `connect_timeout` 负责，响应头等待改用「首字节超时」（默认 180s，新增 `LLM_RESPONSE_TIMEOUT` 可重试 1 次），后端连接超时默认 15→60。`cargo test --lib` **1828 passed / 10 ignored**（+1 回归）。）
 >
 > 最后更新: 2026-10-26（**v0.73.5：幕前启动器移至右下角**——日志页右上「复制」等页头按钮被悬浮的「开幕前」启动器遮挡（1680px 窗口）；`FrontstageLauncher` 从 `top-4 right-4 z-50` 改为 `bottom-6 right-6 z-40`，让出页头与右上角 toast 区域。新增 Playwright 回归（1680px 日志页「复制」trial click，旧位置已实测复现拦截）。playwright **42 passed / 5 skipped**（+1）。）

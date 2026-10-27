@@ -200,7 +200,12 @@ fn build_llm_profile(
         enabled: config.enabled.unwrap_or(true),
         kind,
         capabilities,
-        max_context_length: config.max_context_length.unwrap_or(8192),
+        // v0.73.7: 未显式填写时按型号目录兜底，避免一律 8192
+        max_context_length: config
+            .max_context_length
+            .filter(|v| *v > 0)
+            .or_else(|| catalog_context_length(&config.model))
+            .unwrap_or_else(default_max_context_length),
         quality_tier: parse_quality_tier(config.quality_tier.as_deref()),
         speed_tier: parse_speed_tier(config.speed_tier.as_deref()),
         cost_per_1k_input: config.cost_per_1k_input,
@@ -963,6 +968,12 @@ pub fn update_model(
             if let Some(enabled) = config.enabled {
                 profile.enabled = enabled;
             }
+            // v0.73.7: 上下文长度（用户手填或前端自动检测值）
+            if let Some(ctx) = config.max_context_length {
+                if ctx > 0 {
+                    profile.max_context_length = ctx;
+                }
+            }
         }
         ModelType::Embedding => {
             // 先处理默认标记（避免与后续 get_mut 冲突）
@@ -1673,9 +1684,217 @@ pub async fn fetch_models(
     )))
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelContextInfo {
+    pub max_context_length: Option<u32>,
+    /// 检测来源：api / ollama / catalog / unknown
+    pub source: String,
+}
+
+fn context_from_model_entry(entry: &serde_json::Value) -> Option<u32> {
+    for key in [
+        "context_length",
+        "max_model_len",
+        "max_context_length",
+        "context_window",
+        "max_input_tokens",
+        "n_ctx",
+    ] {
+        if let Some(v) = entry.get(key).and_then(|v| v.as_u64()) {
+            if v > 0 {
+                return Some(v.min(u32::MAX as u64) as u32);
+            }
+        }
+    }
+    // 部分代理把能力信息放在 meta 里
+    if let Some(meta) = entry.get("meta").and_then(|m| m.as_object()) {
+        for key in ["context_length", "max_model_len", "n_ctx"] {
+            if let Some(v) = meta.get(key).and_then(|v| v.as_u64()) {
+                if v > 0 {
+                    return Some(v.min(u32::MAX as u64) as u32);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// v0.73.7: 自动检测模型最大上下文长度。
+///
+/// 顺序：Ollama `/api/show` → OpenAI 兼容 `/models`（vLLM 的 max_model_len、
+/// OpenRouter 的 context_length 等）→ 内置型号目录 → unknown。
+/// 供模型编辑弹窗「自动检测」按钮与保存前兜底使用；失败不阻断保存。
+#[command]
+pub async fn detect_model_context(
+    provider: String,
+    model: String,
+    api_base: Option<String>,
+    api_key: Option<String>,
+) -> Result<ModelContextInfo, AppError> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(AppError::validation_failed(
+            "模型 ID 不能为空",
+            None::<String>,
+        ));
+    }
+    let base = api_base
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    let provider_l = provider.trim().to_ascii_lowercase();
+    let key = api_key.unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .map_err(AppError::from)?;
+
+    // 1) Ollama：/api/show -> model_info["*.context_length"]
+    if provider_l == "ollama" {
+        let ollama_base = base
+            .trim_end_matches("/v1")
+            .trim_end_matches('/')
+            .to_string();
+        if !ollama_base.is_empty() {
+            let url = format!("{}/api/show", ollama_base);
+            if let Ok(resp) = client
+                .post(&url)
+                .json(&serde_json::json!({"name": model}))
+                .send()
+                .await
+            {
+                if resp.status().is_success() {
+                    if let Ok(body) = resp.text().await {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(info) = v.get("model_info").and_then(|x| x.as_object()) {
+                                let mut best = 0u64;
+                                for (k, val) in info {
+                                    if k.ends_with(".context_length")
+                                        || k == "general.context_length"
+                                    {
+                                        if let Some(n) = val.as_u64() {
+                                            best = best.max(n);
+                                        }
+                                    }
+                                }
+                                if best > 0 {
+                                    return Ok(ModelContextInfo {
+                                        max_context_length: Some(best.min(u32::MAX as u64) as u32),
+                                        source: "ollama".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) OpenAI 兼容 /models
+    if !base.is_empty() {
+        let urls = if base.ends_with("/v1") {
+            vec![format!("{}/models", base)]
+        } else {
+            vec![format!("{}/v1/models", base), format!("{}/models", base)]
+        };
+        for url in urls {
+            let mut req = client.get(&url);
+            if !key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key));
+            }
+            let Ok(resp) = req.send().await else {
+                continue;
+            };
+            if !resp.status().is_success() {
+                continue;
+            }
+            let Ok(body) = resp.text().await else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
+                continue;
+            };
+            let entries = v
+                .get("data")
+                .and_then(|d| d.as_array())
+                .or_else(|| v.as_array());
+            let Some(entries) = entries else {
+                continue;
+            };
+            let entry_id = |e: &serde_json::Value| -> String {
+                e.get("id")
+                    .or_else(|| e.get("model"))
+                    .or_else(|| e.get("name"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let model_l = model.to_ascii_lowercase();
+            let found = entries
+                .iter()
+                .find(|e| entry_id(e) == model)
+                .and_then(context_from_model_entry)
+                .or_else(|| {
+                    entries
+                        .iter()
+                        .find(|e| entry_id(e).to_ascii_lowercase().contains(&model_l))
+                        .and_then(context_from_model_entry)
+                })
+                .or_else(|| {
+                    entries
+                        .iter()
+                        .find(|e| {
+                            let id = entry_id(e).to_ascii_lowercase();
+                            !id.is_empty() && model_l.contains(&id)
+                        })
+                        .and_then(context_from_model_entry)
+                });
+            if let Some(n) = found {
+                return Ok(ModelContextInfo {
+                    max_context_length: Some(n),
+                    source: "api".to_string(),
+                });
+            }
+        }
+    }
+
+    // 3) 内置型号目录
+    if let Some(n) = catalog_context_length(&model) {
+        return Ok(ModelContextInfo {
+            max_context_length: Some(n),
+            source: "catalog".to_string(),
+        });
+    }
+
+    Ok(ModelContextInfo {
+        max_context_length: None,
+        source: "unknown".to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_from_model_entry_recognizes_common_fields() {
+        assert_eq!(
+            context_from_model_entry(&serde_json::json!({"max_model_len": 32768})),
+            Some(32768)
+        );
+        assert_eq!(
+            context_from_model_entry(&serde_json::json!({"context_length": 128000})),
+            Some(128000)
+        );
+        assert_eq!(
+            context_from_model_entry(&serde_json::json!({"meta": {"n_ctx": 8192}})),
+            Some(8192)
+        );
+        assert_eq!(context_from_model_entry(&serde_json::json!({})), None);
+    }
 
     fn enabled_chat_profile(id: &str) -> LlmProfile {
         LlmProfile {

@@ -88,7 +88,9 @@ export function Logs() {
   const handleCopy = () => {
     const text =
       source === 'workflow'
-        ? filteredLogs.map(l => `[${l.ts}] ${l.level} ${l.phase} — ${l.message}`).join('\n')
+        ? filteredLogs
+            .map(l => `[${formatLocalLogTime(l.ts)}] ${l.level} ${l.phase} — ${l.message}`)
+            .join('\n')
         : systemLogs.data || '';
     navigator.clipboard.writeText(text);
     toast.success('已复制到剪贴板');
@@ -254,6 +256,15 @@ export function Logs() {
   );
 }
 
+function formatLocalLogTime(ts: string): string {
+  // v0.73.7: 日志 JSON 的 ts 是 UTC ISO 串；旧实现直接 slice(11,23) 显示
+  // UTC，用户看到的时间比本地时间早 8 小时。这里统一转本地时间。
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts.slice(11, 23);
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
 function LogRow({
   entry,
   expanded,
@@ -263,7 +274,7 @@ function LogRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const time = entry.ts.slice(11, 23); // HH:MM:SS.mmm
+  const time = formatLocalLogTime(entry.ts);
   const hasDetails = entry.details && Object.keys(entry.details).length > 0;
 
   return (

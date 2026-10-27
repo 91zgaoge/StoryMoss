@@ -184,20 +184,30 @@ impl<R: Runtime> GatewayExecutor<R> {
             if !self.is_promotable_user_model(&profile.id) {
                 self.clear_model_demotion(&profile.id);
             }
-            if self.is_promotable_user_model(&profile.id) {
+            // v0.73.7: 连续空正文的显式角色模型在冷却期内不置顶，
+            // 交给自动分配/候选打分（否则每轮都要先等它空转一次）。
+            let empty_demoted = self.empty_content_demoted(&profile.id);
+            if empty_demoted {
+                log::warn!(
+                    "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 连续返回空正文，冷却期内跳过置顶",
+                    role,
+                    profile.id
+                );
+            } else if self.is_promotable_user_model(&profile.id) {
                 log::info!(
                     "[Gateway] resolve_role_model: 使用角色指定模型 {:?} → {}",
                     role,
                     profile.id
                 );
                 return Some(profile.clone());
+            } else {
+                // 角色模型不在注册表 → fall through 到自动分配
+                log::warn!(
+                    "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 不可置顶，回退自动分配",
+                    role,
+                    profile.id
+                );
             }
-            // 角色模型不在注册表 → fall through 到自动分配
-            log::warn!(
-                "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 不可置顶，回退自动分配",
-                role,
-                profile.id
-            );
         }
 
         // 2. 自动分配
@@ -489,6 +499,29 @@ impl<R: Runtime> GatewayExecutor<R> {
         }
     }
 
+    /// v0.73.7: 记录一次空正文（推理模型 content 为空）失败。
+    fn record_empty_content_failure(&self, model_id: &str, model_name: &str) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_empty_content(model_id, model_name);
+        }
+    }
+
+    /// v0.73.7: 真实非空生成成功，清零空正文连续计数。
+    fn clear_empty_content_failure(&self, model_id: &str) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.clear_empty_content_failures(model_id);
+        }
+    }
+
+    /// v0.73.7: 模型是否因连续空正文处于冷却期。
+    fn empty_content_demoted(&self, model_id: &str) -> bool {
+        self.health_registry()
+            .lock()
+            .ok()
+            .map(|guard| guard.empty_content_demoted(model_id))
+            .unwrap_or(false)
+    }
+
     /// v0.23.59: 供 LlmService 调用的公开标记 Unhealthy 接口。
     ///
     /// `generate_with_fastest` 在 5s 预探测失败时调用此方法标记模型，
@@ -567,6 +600,11 @@ impl<R: Runtime> GatewayExecutor<R> {
                                 super::types::HealthStatus::Unknown => score *= 0.5,
                                 _ => {}
                             }
+                        }
+                        // v0.73.7: 连续空正文（推理模型 token 全烧在 CoT）的
+                        // 模型在冷却期内大幅降权，避免每轮调用先等它空转。
+                        if h.empty_content_demoted(&m.id) {
+                            score -= 1000.0;
                         }
                     }
 
@@ -703,8 +741,16 @@ impl<R: Runtime> GatewayExecutor<R> {
         // 降级仅约束「自动活跃模型」置顶；Unhealthy 仍由 is_promotable 拒绝。
         if let Some(ref promote) = promotion_profile {
             log::debug!("[Gateway] select_candidates: 置顶模型={}", promote.id);
+            let empty_demoted = self.empty_content_demoted(&promote.id);
             let demoted = !is_role && self.model_demoted(&promote.id);
-            if demoted {
+            if empty_demoted {
+                // v0.73.7: 显式角色模型不受普通粘性降级约束，但连续空正文
+                // 是功能性问题（模型无法产出正文），必须让出首位。
+                log::warn!(
+                    "[Gateway] select_candidates: 模型 {} 连续返回空正文，冷却期内跳过置顶",
+                    promote.id
+                );
+            } else if demoted {
                 let failures = self
                     .health_registry()
                     .lock()
@@ -1324,6 +1370,9 @@ impl<R: Runtime> GatewayExecutor<R> {
                         super::types::HealthStatus::Degraded,
                         Some(e.to_string()),
                     );
+                    // v0.73.7: 空正文单独记账——探测成功不能清零，连续 2 次后
+                    // 冷却期内不再优先选择，避免每轮调用都先等它空转。
+                    self.record_empty_content_failure(&candidate.model_id, &candidate.model_name);
                     last_error = Some(e);
                     continue;
                 }
@@ -1331,6 +1380,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                     // v0.23.59: 真实调用成功，重置连续失败计数，
                     // 恢复强制置顶资格
                     self.record_gateway_success(&candidate.model_id, &candidate.model_name);
+                    // v0.73.7: 真实非空正文才清空空正文冷却
+                    self.clear_empty_content_failure(&candidate.model_id);
                     if let (Some(trace_id), Some(store)) =
                         (request.trace_id.as_ref(), trace_store.as_ref())
                     {

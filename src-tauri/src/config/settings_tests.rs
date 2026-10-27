@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_llm_profile_fails_for_default_when_multiple() {
+    fn test_remove_default_llm_profile_promotes_next_and_clears_roles() {
         let mut config = AppConfig::default();
         // 默认只有一个，再添加一个让总数 > 1
         let second = LlmProfile {
@@ -348,10 +348,30 @@ mod tests {
         };
         config.add_llm_profile(second).unwrap();
 
-        // 尝试删除默认配置（Qwen 是默认的）
-        let result = config.remove_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message().contains("default"));
+        // v0.73.7: 默认模型不再阻止删除；删除后应提升剩余模型为默认，
+        // 并清空 active/角色引用（否则后台继续调用已删模型）。
+        let default_id = "Qwen3.5-27B-Uncensored-Q4_K_M".to_string();
+        config.creative_model_id = Some(default_id.clone());
+        config.tool_model_id = Some(default_id.clone());
+        config.background_model_id = Some(default_id.clone());
+        config.active_llm_profile = Some(default_id.clone());
+
+        config.remove_llm_profile(&default_id).unwrap();
+        assert!(!config.llm_profiles.contains_key(&default_id));
+        assert!(config.llm_profiles.values().any(|p| p.is_default));
+        assert_eq!(config.creative_model_id, None);
+        assert_eq!(config.tool_model_id, None);
+        assert_eq!(config.background_model_id, None);
+        assert_eq!(config.active_llm_profile, Some("second".to_string()));
+    }
+
+    #[test]
+    fn catalog_context_length_recognizes_common_models() {
+        assert_eq!(catalog_context_length("deepseek-chat"), Some(131_072));
+        assert_eq!(catalog_context_length("gpt-4o"), Some(128_000));
+        assert_eq!(catalog_context_length("gpt-4"), Some(8_192));
+        assert_eq!(catalog_context_length("qwen2.5-14b"), Some(131_072));
+        assert_eq!(catalog_context_length("unknown-model"), None);
     }
 
     #[test]
