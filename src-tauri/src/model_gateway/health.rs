@@ -249,12 +249,14 @@ impl HealthRegistry {
         }
     }
 
-    /// v0.73.7: 是否因连续空正文暂时不应被优先选择（阈值 2，冷却 10 分钟）。
+    /// v0.73.10: 是否因空正文暂时不应被优先选择（阈值 1，冷却 10 分钟）。
     ///
+    /// 单次空正文就降权：真机 `Ds10`（死端点）一次调用耗 155 秒才返回
+    /// 0 字符，若等「连续 2 次」耗尽 310 秒，600 秒的创世预算直接被吃掉。
     /// 10 分钟覆盖单次创世/续写 run；冷却结束后给模型一次重新置顶的机会，
     /// 避免用户修复服务后要重启应用。
     pub fn empty_content_demoted(&self, model_id: &str) -> bool {
-        const THRESHOLD: u32 = 2;
+        const THRESHOLD: u32 = 1;
         const COOLDOWN_MINUTES: i64 = 10;
         let Some(record) = self.records.get(model_id) else {
             return false;
@@ -553,17 +555,14 @@ mod tests {
     // v0.73.7: 空正文冷却测试
 
     #[test]
-    fn empty_content_demotes_after_two_failures_and_clears_on_real_success() {
+    fn empty_content_demotes_after_first_failure_and_clears_on_real_success() {
         let mut registry = HealthRegistry::new();
         registry.update(make_snapshot("m", HealthStatus::Healthy));
 
         registry.record_empty_content("m", "M");
-        assert!(!registry.empty_content_demoted("m"), "单次空正文不降级");
-
-        registry.record_empty_content("m", "M");
         assert!(
             registry.empty_content_demoted("m"),
-            "连续 2 次空正文应进入冷却"
+            "v0.73.10: 单次空正文立即进入冷却（死端点单次可能耗时 155s）"
         );
 
         // 探测成功（record_success）不清零空正文计数

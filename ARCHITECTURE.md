@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.9 架构文档
+# StoryMoss (草苔) v0.73.10 架构文档
 
+> **v0.73.10**：**空正文冷却阈值 2 → 1**——`HealthRegistry::empty_content_demoted` 单次真实空正文即进入 10 分钟冷却（探测成功不清零、真实非空生成才清零），避免死端点单次 155 秒的调用被重复置顶。
+>
 > **v0.73.9**：**故事切换事件补全**——新增命令 `notify_frontstage_story_selected`（仅 `StateSync::emit_story_selected`，不显示/聚焦窗口）；幕后故事卡片点击、Stories/Sidebar 的「开幕前」、`FrontstageLauncher` 均携带 `currentStory`（无选中时退回 `show_frontstage`）；幕前 `onStorySelected` 在生成中改为 toast 提示。
 >
 > **v0.73.8**：**续写跨档兜底**——`AgencyCoordinator::write_beat_once` 在创作档两次未产出正文（<200 字符）后，按 `AgentRole::EditorAuditor`（后台档）→ `AgentRole::Producer`（工具档）各调用一次同一 system/user prompt，接受 ≥200 字符的正文；`writer_retry_has_time` 不足时跳过。避免推理模型只输出思考时整轮续写 Fatal。

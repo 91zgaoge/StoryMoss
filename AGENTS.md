@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.9
+- **版本**: v0.73.10
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -119,6 +119,21 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.73.10 - 空正文冷却阈值 2 → 1（死端点单次 155s 即降权）
+
+**为什么**：v0.73.8 创世仍 600s 超时。日志显示工具档 `Ds10`
+（`Qwen3.5-27B-Uncensored-Q4_K_M`，`10.62.239.13:17098`）单次调用等 **155 秒**才返回 0 字符，
+下一轮仍被排第一；连续 2 次才冷却等于先烧掉 310 秒。
+
+**改动**：`HealthRegistry::empty_content_demoted` 阈值 2 → 1——真实调用一次空正文即进入
+10 分钟冷却（探测成功不清零、真实非空生成才清零的语义不变）。配合 v0.73.7 的
+`resolve_role_model` 跳过与候选 -1000，后续轮次不再重复等待死端点。
+
+- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（用例改为「首次空正文即降权」）；
+  clippy 0 error；fmt / guard 全绿；前端零改动。
+- **清理提醒**：用户配置中该模型仍在（`is_default=true` + `tool_model_id`），需在
+  设置 → 模型 → 管理删除 “Ds10”（`deepseek-v4.1-flash` / `10.62.239.13:17098`）。
+
 ### v0.73.9 - 多部小说切换：卡片点击 / 开幕前同步到幕前
 
 **为什么**：幕后有多部小说时，点击另一部小说卡片后切到幕前，幕前仍停在旧故事。根因是故事
@@ -189,19 +204,6 @@ type:
 
 - **验证**：`cargo test --lib` **1828 passed / 10 ignored**（+1）；clippy 0 error；fmt / guard 全绿；前端零改动。
 - **未关闭**：真机创世未复跑（deepseek-flash 工具档与创作档的下一次实跑仍需观察首字节耗时）。
-
-### v0.73.5 - 幕前启动器移至右下角（不再遮挡页头按钮）
-
-**为什么**：用户截图反馈日志页右上角「复制」按钮被悬浮的「开幕前」启动器盖住、无法点击
-（1680px 窗口）。`FrontstageLauncher` 原为 `fixed top-4 right-4 z-50`：既压住各页页头右侧按钮
-（日志页「复制」、设置页「导出/导入」），又与右上角 toast 区域重叠。
-
-**改动**：定位改为 `fixed bottom-6 right-6 z-40`；右上让给页头操作与 toast，右下为常规浮动位，
-后台页无固定于右下的控件。新增 Playwright 回归：1680px 视口进入日志页，对「复制」执行
-`click({ trial: true })`——旧位置下会因悬浮层拦截指针而失败（已实测复现），新位置通过。
-
-- **验证**：playwright **42 passed / 5 skipped**（+1）；tsc / vitest 625 passed 全绿；Rust 零改动。
-- **未关闭**：无。
 
 ## Always Do
 

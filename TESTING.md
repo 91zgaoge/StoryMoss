@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.9)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.10)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.10 变更说明
+
+- **空正文冷却阈值 2 → 1（无新增用例，1834 passed / 10 ignored）**：
+  `empty_content_demotes_after_first_failure_and_clears_on_real_success`——单次真实调用空正文即降权；
+  探测成功不清零、真实非空生成才清零的语义不变。原因：死端点单次调用可达 155 秒，等 2 次会吃掉 310 秒。
+- **未改动**：前端零改动；vitest 625 / playwright 43 passed / 5 skipped。
 
 ### v0.73.9 变更说明
 
