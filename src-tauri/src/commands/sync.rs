@@ -63,6 +63,21 @@ pub fn open_story_in_frontstage(
     Ok(())
 }
 
+/// v0.73.9: 幕后点击故事卡片（不打开窗口）时同步选中到幕前。
+///
+/// 此前卡片点击只更新幕后 `currentStory`，幕前仍停在旧故事；只有卡片上的
+/// 小「打开」按钮会发 storySelected。这里只广播事件，不显示/聚焦幕前窗口，
+/// 避免用户在幕后浏览时被强行弹窗打断。
+#[tauri::command(rename_all = "snake_case")]
+pub fn notify_frontstage_story_selected(
+    story_id: String,
+    title: Option<String>,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    crate::state_sync::service::StateSync::emit_story_selected(&app, &story_id, title.as_deref());
+    Ok(())
+}
+
 /// 显示 backstage 窗口
 #[tauri::command(rename_all = "snake_case")]
 pub fn show_backstage(

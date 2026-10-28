@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.8 架构文档
+# StoryMoss (草苔) v0.73.9 架构文档
 
+> **v0.73.9**：**故事切换事件补全**——新增命令 `notify_frontstage_story_selected`（仅 `StateSync::emit_story_selected`，不显示/聚焦窗口）；幕后故事卡片点击、Stories/Sidebar 的「开幕前」、`FrontstageLauncher` 均携带 `currentStory`（无选中时退回 `show_frontstage`）；幕前 `onStorySelected` 在生成中改为 toast 提示。
+>
 > **v0.73.8**：**续写跨档兜底**——`AgencyCoordinator::write_beat_once` 在创作档两次未产出正文（<200 字符）后，按 `AgentRole::EditorAuditor`（后台档）→ `AgentRole::Producer`（工具档）各调用一次同一 system/user prompt，接受 ≥200 字符的正文；`writer_retry_has_time` 不足时跳过。避免推理模型只输出思考时整轮续写 Fatal。
 >
 > **v0.73.7**：**模型配置与网关韧性**——①`model_gateway::health::HealthRecord` 新增 `empty_content_failures/last_empty_content_at`，连续 2 次空正文后 10 分钟冷却（探测成功不清零）；`GatewayExecutor::select_candidates` 对冷却模型 -1000 并跳过显式角色置顶，`resolve_role_model` 同样跳过；②`AppConfig::remove_llm_profile` 允许删除默认模型（提升剩余启用模型为默认、清空 active/角色引用），`load` 自愈失效角色引用；③新增 `config::commands::detect_model_context`（OpenAI 兼容 /models → Ollama /api/show → 内置目录），`catalog_context_length` 提供离线参考值；`update_model` 持久化 `max_context_length`；④日志页/诊断卡片本地时间。

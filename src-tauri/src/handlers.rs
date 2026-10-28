@@ -20,6 +20,7 @@ tauri::generate_handler! {
     commands::sync::notify_frontstage_data_refresh,
     commands::sync::show_backstage,
     commands::sync::open_story_in_frontstage,
+    commands::sync::notify_frontstage_story_selected,
     commands::sync::cancel_genesis_pipeline,
     // Settings commands
     config::get_settings,

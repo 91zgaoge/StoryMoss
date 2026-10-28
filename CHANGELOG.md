@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.9（2026-10-28）
+
+**多部小说时，幕后点卡片 / 开幕前会真正切换到对应故事。**
+
+- **现象**：幕后有多部小说时，点击另一部小说卡片后切到幕前，幕前仍停在旧故事。
+- **根因**：故事卡片点击只更新幕后 `currentStory` 并弹 toast，从未通知幕前；只有卡片上的小「打开」按钮会广播 `storySelected`。底部「开幕前」启动器、侧栏「打开幕前写作」与故事页的「开幕前」也只 `show_frontstage`，不带故事。
+- **修复**：新增 `notify_frontstage_story_selected`（只广播选中事件，不弹窗/抢焦点）；故事卡片点击、Stories「开幕前」、Sidebar「打开幕前写作」、全局 `FrontstageLauncher` 全部携带当前故事；幕前生成中收到切换请求改为 toast 提示（不再静默丢弃）。
+- **验证**：playwright **43 passed / 5 skipped**（+1：卡片点击调用同步命令）；tsc / vitest 625 全绿；Rust 1834 passed / 10 ignored 基线不变。
+
 ## v0.73.8（2026-10-28）
 
 **续写空正文跨档兜底：创作模型只输出思考时不再整轮失败。**

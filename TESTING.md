@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.8)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.9)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.9 变更说明
+
+- **故事切换同步（playwright +1，43 passed / 5 skipped）**：
+  `故事卡片点击同步选中到幕前`——点击故事卡片后断言 `__calls` 中出现
+  `notify_frontstage_story_selected` 且 `story_id` 正确。
+- **实现**：新增 `notify_frontstage_story_selected` 命令（只广播 `storySelected`，不显示/聚焦幕前）；
+  故事卡片、Stories/Sidebar 的「开幕前」、全局 `FrontstageLauncher` 均携带 `currentStory`；
+  幕前生成中收到切换请求改为 toast 提示。
+- **未改动**：Rust 1834 passed / 10 ignored；vitest 625 passed / 3 skipped。
 
 ### v0.73.8 变更说明
 

@@ -483,8 +483,18 @@ export function Stories() {
     );
   };
 
-  const handleSelectStory = (story: Story) => {
+  const handleSelectStory = async (story: Story) => {
     setCurrentStory(story);
+    // v0.73.9: 点击卡片也要同步到幕前（此前只有卡片上的「打开」按钮会发
+    // storySelected，点卡片后切幕前仍停在旧故事）。只广播选中事件，不弹窗。
+    try {
+      await loggedInvoke<unknown>('notify_frontstage_story_selected', {
+        story_id: story.id,
+        title: story.title,
+      });
+    } catch (error) {
+      storiesLogger.error('Failed to sync story selection to frontstage', { error });
+    }
     toast.success(`已选择 "${story.title}"`);
   };
 
@@ -542,7 +552,15 @@ export function Stories() {
 
   const handleOpenFrontstage = async () => {
     try {
-      await loggedInvoke<unknown>('show_frontstage');
+      // v0.73.9: 带当前故事打开，避免幕前仍停在上一部作品
+      if (currentStory) {
+        await loggedInvoke<unknown>('open_story_in_frontstage', {
+          story_id: currentStory.id,
+          title: currentStory.title,
+        });
+      } else {
+        await loggedInvoke<unknown>('show_frontstage');
+      }
       toast.success('幕前写作界面已打开');
     } catch (error) {
       storiesLogger.error('Failed to open frontstage', { error });

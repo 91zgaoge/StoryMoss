@@ -192,6 +192,27 @@ test.describe('Backstage 页面加载测试', () => {
     await expect(page.getByRole('heading', { name: '应用出错' })).toHaveCount(0);
   });
 
+  test('故事卡片点击同步选中到幕前（v0.73.9）', async ({ page }) => {
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/index.html');
+
+    await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('故事库');
+
+    // 点击故事卡片（标题冒泡到 Card onClick）
+    await page.getByRole('heading', { name: '测试故事' }).first().click();
+
+    // 卡片点击必须广播 storySelected 给幕前（旧版只有卡片上的「打开」会发）
+    const call = await page.evaluate(() =>
+      (window as any).__calls?.find(
+        (c: any) => c.cmd === 'notify_frontstage_story_selected'
+      )
+    );
+    expect(call, '卡片点击应调用 notify_frontstage_story_selected').toBeTruthy();
+    expect(call.args.story_id).toBe('test-story-1');
+  });
+
   test('世界构建页面加载无报错', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', msg => {

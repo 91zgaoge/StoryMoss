@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, ExternalLink } from 'lucide-react';
 import { loggedInvoke } from '@/services/tauri';
+import { useAppStore } from '@/stores/appStore';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
@@ -19,6 +20,8 @@ interface FrontstageLauncherProps {
 
 export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps) {
   const [isVisible, setIsVisible] = useState(false);
+  // v0.73.9: 打开幕前时带上幕后当前选中的故事，避免多部作品时停在旧故事
+  const currentStory = useAppStore(s => s.currentStory);
 
   useEffect(() => {
     // Check if Tauri API is available
@@ -35,7 +38,14 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
 
   const handleOpenFrontstage = async () => {
     try {
-      await loggedInvoke<unknown>('show_frontstage');
+      if (currentStory) {
+        await loggedInvoke<unknown>('open_story_in_frontstage', {
+          story_id: currentStory.id,
+          title: currentStory.title,
+        });
+      } else {
+        await loggedInvoke<unknown>('show_frontstage');
+      }
       toast.success('幕前写作界面已打开');
       onToggle();
     } catch (error) {

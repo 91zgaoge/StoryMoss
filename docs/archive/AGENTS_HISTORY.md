@@ -1,3 +1,17 @@
+*归档于 2026-10-28（v0.73.9）：v0.73.4 摘要。*
+
+### v0.73.4 - E2E 任务固定 Ubuntu 24.04（CI 环境漂移修复，无应用代码变更）
+
+**为什么**：v0.73.2/v0.73.3 的 `e2e-check` 在未改前端代码的提交上红：
+`ERROR: Playwright does not support chromium on ubuntu26.04-x64`。GitHub 当天把 `ubuntu-latest`
+指向 Ubuntu 26.04，当前 Playwright 尚不支持该平台；本机与上一轮 24.04 构建全绿。
+
+**改动**：`.github/workflows/build.yml` 的 `e2e-check` 显式 `runs-on: ubuntu-24.04`（其余任务不变）；
+经验入档 `docs/archive/LESSONS_LEARNED.md` 经验 12（`*-latest` 镜像也是依赖）。
+
+- **验证**：本地 playwright 41 passed / 5 skipped；Rust 1827 passed / 10 ignored 基线不变。
+- **未关闭**：待 Playwright 支持 26.04 后再评估是否回到 `ubuntu-latest`。
+
 *归档于 2026-10-28（v0.73.8）：v0.73.3 摘要。*
 
 ### v0.73.3 - 创世管理 Agent 熔断 salvage + 单调用回退

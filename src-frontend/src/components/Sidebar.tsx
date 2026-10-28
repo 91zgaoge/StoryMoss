@@ -167,7 +167,15 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
 
   const handleOpenFrontstage = async () => {
     try {
-      await loggedInvoke<unknown>('show_frontstage');
+      // v0.73.9: 带当前选中故事打开，避免幕前停在上一次的作品
+      if (currentStory) {
+        await loggedInvoke<unknown>('open_story_in_frontstage', {
+          story_id: currentStory.id,
+          title: currentStory.title,
+        });
+      } else {
+        await loggedInvoke<unknown>('show_frontstage');
+      }
       toast.success('幕前写作界面已打开');
     } catch (error) {
       sidebarLogger.error('Failed to open frontstage', { error });

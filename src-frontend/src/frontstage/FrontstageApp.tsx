@@ -591,7 +591,10 @@ const FrontstageApp: React.FC = () => {
     // （selectStory 内取 chapter_number 最大章）。
     onStorySelected: storyId => {
       // 生成中/创世装配期间不切换，避免打断在途内容
-      if (isGeneratingRef.current || isGenesisSettingUpRef.current) return;
+      if (isGeneratingRef.current || isGenesisSettingUpRef.current) {
+        toast('正在生成，完成后请再切换故事');
+        return;
+      }
       const current = currentStoryRef.current;
       if (current?.id === storyId) {
         // 同一故事也重新定位到最新章节
