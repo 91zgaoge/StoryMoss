@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.12 项目完成状态
+# StoryMoss (草苔) v0.73.13 项目完成状态
 
+> 最后更新: 2026-10-29（**v0.73.13：补回 `get_canonical_state` 命令 + 日志可读性**——该命令在 refactor 回滚（b4448325）后只剩 `handlers.rs` 一行注释，前端执行面板每次挂载打三条失败 IPC 并静默显示「铺垫阶段」；现新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 聚合快照）并注册，白名单同步删除。顺带给 `candidate_try` 日志加请求前缀、失败日志行带错误原因。Rust **1838 passed / 10 ignored**（+4）；vitest **634 passed / 3 skipped**（+7）。）
+>
 > 最后更新: 2026-10-29（**v0.73.12：幕前「文思活跃」改用动态火焰**——活跃态 Flame 加 `wensi-flame` 类，1.15s 缩放/旋转/暖光跳动；被动与关闭态保持静态星星/关闭图标，形成明显对比；`prefers-reduced-motion` 下停用动画。vitest **627 passed / 3 skipped**（+2）。）
 >
 > 最后更新: 2026-10-28（**v0.73.11：手法落库竞态修复（发布流水线）**——v0.73.10 tag 构建在 Ubuntu 偶发挂 `test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 读到空表）；`record_beat_technique_log` 改为 await 落库。目标用例连续 5 次通过；Rust **1834 passed / 10 ignored**。v0.73.10 的构建因此未上传官网，以 v0.73.11 为准。）

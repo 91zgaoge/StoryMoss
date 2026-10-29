@@ -1143,10 +1143,13 @@ impl<R: Runtime> GatewayExecutor<R> {
             "[Gateway] 进入候选链循环, {} 个候选项",
             decision.candidates.len()
         );
+        // v0.73.13: 创作链路会并发发起多个 generate，可见消息里带上请求前缀
+        // 才能把交错打印的候选链分开（完整 id 仍在 details 里）。
+        let request_tag: String = request.request_id.chars().take(8).collect();
         for (idx, candidate) in decision.candidates.iter().enumerate() {
             self.workflow_log(
                 "gateway.generate.candidate_try",
-                format!("尝试候选 [{}/{}]: {} ({})", idx + 1, decision.candidates.len(), candidate.model_name, candidate.model_id),
+                format!("尝试候选 [{}/{}] req={}: {} ({})", idx + 1, decision.candidates.len(), request_tag, candidate.model_name, candidate.model_id),
                 Some(serde_json::json!({"request_id": request.request_id, "idx": idx, "model_id": candidate.model_id})),
             );
             let profile = self.registry_guard().get(&candidate.model_id).cloned();

@@ -238,6 +238,7 @@ tauri::generate_handler! {
     creation_commands::recommend_payoff_timing,
     creation_commands::update_payoff_ledger_fields,
     // Canonical state commands
+    canonical_state::commands::get_canonical_state,
     // Structured outline commands
     creation_commands::generate_scene_outline,
     creation_commands::generate_scene_draft,

@@ -333,3 +333,40 @@ fn test_narrative_phase_resolution_when_all_major_payoffs_resolved() {
     // 有低重要性伏笔但无主要伏笔未回收，场景数 >= 50 → Resolution
     assert_eq!(snapshot.narrative_phase, NarrativePhase::Resolution);
 }
+
+/// v0.73.13: 前端 `useExecutionState` 只读这两个字段，命令层必须把它们
+/// 原样序列化出去（snake_case，逾期伏笔是数组）。历史上命令缺失导致
+/// 执行面板静默显示「铺垫阶段」，这里钉死线上契约。
+#[test]
+fn test_load_canonical_state_command_payload_shape() {
+    let pool = create_test_pool().unwrap();
+    let story_repo = StoryRepository::new(pool.clone());
+    let story = story_repo
+        .create(CreateStoryRequest {
+            title: "测试故事".to_string(),
+            description: None,
+            genre: Some("奇幻".to_string()),
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+
+    let snapshot =
+        crate::canonical_state::commands::load_canonical_state(pool.clone(), &story.id).unwrap();
+    let value = serde_json::to_value(&snapshot).unwrap();
+
+    assert_eq!(value["story_id"], story.id);
+    assert_eq!(value["narrative_phase"], "Setup");
+    assert!(value["story_context"]["overdue_payoffs"].is_array());
+}
+
+#[test]
+fn test_load_canonical_state_rejects_unknown_story() {
+    let pool = create_test_pool().unwrap();
+    assert!(
+        crate::canonical_state::commands::load_canonical_state(pool, "story-does-not-exist")
+            .is_err()
+    );
+}

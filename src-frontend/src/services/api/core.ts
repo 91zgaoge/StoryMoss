@@ -26,7 +26,23 @@ function sanitizeArgs(
   return sanitized;
 }
 
-/** 带日志追踪的 invoke 包装 */
+/** 把 invoke 拒绝值压成一行原因，日志页直接可见（结构化错误仍在 metadata 里） */
+function describeError(error: unknown): string {
+  let text: string;
+  if (typeof error === 'string') {
+    text = error;
+  } else if (error instanceof Error) {
+    text = error.message;
+  } else {
+    try {
+      text = JSON.stringify(error) ?? String(error);
+    } catch {
+      text = String(error);
+    }
+  }
+  return text.length > 300 ? `${text.slice(0, 300)}...` : text;
+}
+
 /** 带日志追踪的 invoke 包装 — 统一导出供全局使用 */
 export async function loggedInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const start = performance.now();
@@ -39,7 +55,10 @@ export async function loggedInvoke<T>(cmd: string, args?: Record<string, unknown
     return result;
   } catch (error) {
     const duration = Math.round(performance.now() - start);
-    apiLogger.error(`✗ ${cmd} failed (${duration}ms)`, { error, args: safeArgs });
+    apiLogger.error(`✗ ${cmd} failed (${duration}ms): ${describeError(error)}`, {
+      error,
+      args: safeArgs,
+    });
     throw error;
   }
 }

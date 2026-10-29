@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.12 架构文档
+# StoryMoss (草苔) v0.73.13 架构文档
 
+> **v0.73.13**：**新增一条 IPC 命令**——`canonical_state/commands.rs::get_canonical_state`（`#[tauri::command(rename_all = "snake_case")]`，内部 `spawn_blocking` 调 `CanonicalStateManager::get_snapshot_sync`，同步 rusqlite 聚合不占 tokio worker），注册进 `handlers.rs` 的 `generate_handler![]`；`verify-ipc-manifest.py` 白名单移除该命令，并跳过 `__tests__`/`*.test|spec.*`。
+>
 > **v0.73.12**：**无架构变更**——幕前文思活跃图标加 `wensi-flame` 类与 `wensi-flame-flicker` CSS 动画（缩放/旋转/暖光），被动与关闭态保持静态；`prefers-reduced-motion` 下停用。
 >
 > **v0.73.11**：**无架构变更**——`record_beat_technique_log` 从 fire-and-forget `spawn_blocking` 改为 `async fn` + await（单行 INSERT），消除续写返回后立即读取 `beat_technique_log` 的竞态；Append/NextChapter 两条路径同步 `.await`。

@@ -1,8 +1,22 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.12)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.13)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.13 变更说明
+
+- **补回 `get_canonical_state`（Rust +4，1838 passed / 10 ignored）**：
+  ①`tests/ipc_registry_contract_test.rs` 两条源码契约——`handlers.rs` 必须真的注册
+  `canonical_state::commands::get_canonical_state`，且「Canonical state」段落不能只剩注释
+  （防 2026-06 的 refactor 回滚事故重演）；②`canonical_state::tests` 两条功能用例——载荷形状
+  （`narrative_phase` / `story_context.overdue_payoffs`，前端只读这两个字段）与未知故事报错。
+- **前端（vitest +7，634 passed / 3 skipped）**：`useExecutionState.test.tsx` 三条（取数映射、
+  未收录阶段降级 Setup、命令失败静默降级不卡加载态）；`services/api/__tests__/core.test.ts`
+  四条（字符串/`Error`/结构化错误进日志行、超长截断）。
+- **守卫**：`verify-ipc-manifest.py` 移除 `get_canonical_state` 白名单，并跳过
+  `__tests__`/`*.test|spec.*`（测试里的假命令名不是运行时契约）。
+- **未改动**：playwright 43 passed / 5 skipped。
 
 ### v0.73.12 变更说明
 

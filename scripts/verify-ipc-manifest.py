@@ -142,6 +142,12 @@ def extract_frontend_commands(directory: Path) -> Tuple[Set[str], Set[Tuple[str,
 
     for ext in ("*.ts", "*.tsx"):
         for file_path in directory.rglob(ext):
+            # 测试文件会故意用假命令名（验证失败日志、错误分支），
+            # 它们不构成运行时 IPC 契约，扫进来只会逼着测试起假命令。
+            if "__tests__" in file_path.parts or file_path.name.endswith(
+                (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
+            ):
+                continue
             try:
                 content = file_path.read_text(encoding="utf-8")
             except Exception as e:
@@ -162,7 +168,6 @@ def extract_frontend_commands(directory: Path) -> Tuple[Set[str], Set[Tuple[str,
 FRONTEND_ORPHAN_ALLOWLIST = {
     "auto_write_cancel",
     "auto_revise_cancel",
-    "get_canonical_state",
 }
 
 

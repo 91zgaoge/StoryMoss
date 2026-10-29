@@ -2533,3 +2533,21 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
   `problem_logline_carries_three_checks`；`serial_harness_keeps_cross_beat_probes_and_violation_markers`。
 - **未关闭**：真机未复跑；harness 测跨拍约束回路而非模型文笔；概念体检诊断依赖模型遵循格式
   （不遵循则静默退回旧行为）；诊断只进日志无 UI。
+
+*归档于 2026-10-29（v0.73.13）：v0.73.8 摘要（根文件只保留最近 5 个版本）。*
+
+### v0.73.8 - 续写空正文跨档兜底
+
+**为什么**：真机续写报 `agency: write_beat_once 过短（0 字符），续写回退仍失败`，234 秒后 Fatal。
+创作档模型（deepseek-j 等推理模型）非流式只返回推理、正文 0 字符；旧逻辑只用同一模型重试一次，
+仍空就判死整轮。网关虽把空正文视为候选失败，但失败后 `generate_for_request` 回退旧路径并直接
+返回空串，绕过了空正文闸门。
+
+**改动**：`write_beat_once` 在主创档两次未产出正文后，按「后台档（EditorAuditor）→ 工具档
+（Producer）」各兜底一次，接受 ≥200 字符的正文；时间不足（`writer_retry_has_time`）时跳过。
+最终失败文案改为「主创/后台/工具档回退均未产出正文……请检查创作模型是否只输出思考」。
+
+- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（+1 回归：
+  `test_continue_writer_falls_back_to_background_role_on_empty`；既有「不得进 tool_loop」用例的
+  调用次数断言更新为 5）；clippy 0 error；fmt / guard 全绿；前端零改动。
+- **未关闭**：真机续写未复跑（需用同一台机器上「只输出思考」的创作档验证兜底实际产出）。

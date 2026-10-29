@@ -3,6 +3,7 @@
 //! 提供统一的故事状态快照，整合分散在各模块中的状态信息，
 //! 为 AI 续写提供准确的"当前处于故事哪个阶段"、"有哪些伏笔需要兑现"等上下文。
 
+pub mod commands;
 pub mod manager;
 
 pub use manager::CanonicalStateManager;

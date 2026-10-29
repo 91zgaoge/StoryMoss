@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.12
+- **版本**: v0.73.13
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,9 +105,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1834 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1838 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / IPC 注册表契约 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 627 passed / 3 skipped（v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 634 passed / 3 skipped（v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 43 passed / 5 skipped（v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -118,6 +118,30 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.13 - 补回 get_canonical_state 命令 + 日志可读性
+
+**为什么**：日志持续出现 `✗ get_canonical_state failed (1–44ms)`，每次进幕后「场景」页连打三条
+（React Query `retry: 2` 的 1s/2s 退避）。面板不崩但静默降级——叙事阶段恒为「铺垫阶段」，
+逾期伏笔数退化成「状态为 setup 的伏笔条数」。根因是 `get_canonical_state` 在 refactor 回滚
+（b4448325）后只剩 `handlers.rs` 里一行 `// Canonical state commands` 注释，命令本体与注册
+一并丢失；`verify-ipc-manifest.py` 把它列进白名单，IPC 一致性检查因此一直绿。
+
+**改动**：①新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 调
+`CanonicalStateManager::get_snapshot_sync`，同步 DB 查询不得占 tokio worker），注册进
+`generate_handler![]`，并从 `FRONTEND_ORPHAN_ALLOWLIST` 删除；②`verify-ipc-manifest.py` 跳过
+`__tests__` 与 `*.test|spec.*`（测试里的假命令名不构成运行时契约，否则新测试会让守卫误红）；
+③`gateway.generate.candidate_try` 可见消息加 `req=<前 8 位>`，并发 generate 的候选链可对齐；
+④`loggedInvoke` 失败行带错误原因（字符串/`Error.message`/结构化 JSON，超 300 字符截断）。
+
+- **验证**：`cargo test --lib` **1838 passed / 10 ignored**（+4：命令注册契约 2、载荷契约与
+  未知故事报错 2）；vitest **634 passed / 3 skipped**（+7）；tsc / clippy 0 error / fmt / guard /
+  IPC manifest 全绿；playwright 基线不变。
+- **契约**：`tests/ipc_registry_contract_test.rs` 断言 `handlers.rs` 里必须真有
+  `canonical_state::commands::get_canonical_state`，且「Canonical state」段落不能只有注释；
+  `test_load_canonical_state_command_payload_shape` 钉住前端只读的两个字段
+  （`narrative_phase`、`story_context.overdue_payoffs`）。
+- **未关闭**：真机未复跑（需在幕后场景页确认阶段徽章随故事推进变化，而非恒为「铺垫阶段」）。
 
 ### v0.73.12 - 文思活跃改用动态火焰图标
 
@@ -177,22 +201,6 @@ Append 与 NextChapter 两条路径同步 `.await`。
   `__calls` 中出现 `notify_frontstage_story_selected` 且 story_id 正确）；tsc / vitest 625 全绿；
   Rust 1834 passed / 10 ignored 基线不变。
 - **未关闭**：双窗口真机手动切换未复测（e2e 只能断言事件已发出）。
-
-### v0.73.8 - 续写空正文跨档兜底
-
-**为什么**：真机续写报 `agency: write_beat_once 过短（0 字符），续写回退仍失败`，234 秒后 Fatal。
-创作档模型（deepseek-j 等推理模型）非流式只返回推理、正文 0 字符；旧逻辑只用同一模型重试一次，
-仍空就判死整轮。网关虽把空正文视为候选失败，但失败后 `generate_for_request` 回退旧路径并直接
-返回空串，绕过了空正文闸门。
-
-**改动**：`write_beat_once` 在主创档两次未产出正文后，按「后台档（EditorAuditor）→ 工具档
-（Producer）」各兜底一次，接受 ≥200 字符的正文；时间不足（`writer_retry_has_time`）时跳过。
-最终失败文案改为「主创/后台/工具档回退均未产出正文……请检查创作模型是否只输出思考」。
-
-- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（+1 回归：
-  `test_continue_writer_falls_back_to_background_role_on_empty`；既有「不得进 tool_loop」用例的
-  调用次数断言更新为 5）；clippy 0 error；fmt / guard 全绿；前端零改动。
-- **未关闭**：真机续写未复跑（需用同一台机器上「只输出思考」的创作档验证兜底实际产出）。
 
 ## Always Do
 

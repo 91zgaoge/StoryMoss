@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.13（2026-10-29）
+
+**补回 `get_canonical_state` 命令：执行面板不再永远显示「铺垫阶段」，同时补上两处日志可读性。**
+
+- **现象**：日志里持续出现 `✗ get_canonical_state failed (1–44ms)`，每次进入幕后「场景」页连打三条（React Query `retry: 2` 的 1s/2s 退避）。面板不崩，但叙事阶段恒为「铺垫阶段」，逾期伏笔数退化成「状态为 setup 的伏笔条数」。
+- **根因**：`get_canonical_state` 在一次 refactor 回滚（b4448325）后只剩 `handlers.rs` 里一行 `// Canonical state commands` 注释，命令本体与注册一并丢失；前端 `useExecutionState` 仍在调用。`verify-ipc-manifest.py` 当时把它列进 `FRONTEND_ORPHAN_ALLOWLIST`，所以 IPC 一致性检查一直是绿的。
+- **修复**：新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 调 `CanonicalStateManager::get_snapshot_sync`，避免同步 DB 查询占死 tokio worker），注册进 `generate_handler!`；从白名单删除该命令。顺带让 `verify-ipc-manifest.py` 跳过 `__tests__`/`*.test|spec.*`（测试里的假命令名不构成运行时契约）。
+- **日志可读性**：①`gateway.generate.candidate_try` 的可见消息加 `req=<前 8 位请求 id>`，并发 `generate` 交错打印的候选链可以对齐；②`loggedInvoke` 失败行带上错误原因（字符串 / `Error.message` / 结构化 JSON，超 300 字符截断），不再只有 `✗ cmd failed (12ms)`。
+- **验证**：Rust **1838 passed / 10 ignored**（+4：命令注册契约 2、命令载荷契约与未知故事报错 2）；vitest **634 passed / 3 skipped**（+7：hook 取数与降级 3、失败日志 4）；tsc / clippy / fmt / guard / IPC manifest 全绿。
+
 ## v0.73.12（2026-10-29）
 
 **幕前「文思活跃」图标改为跳动火焰，与被动的静态星星形成对比。**

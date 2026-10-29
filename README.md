@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.12-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.13-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.13 · 场景页的「叙事阶段」终于会动了
+
+幕后「场景」页会显示故事当前处在铺垫、上升、冲突激化、高潮、回落还是收尾阶段，并据此提示逾期
+伏笔。此前它一直停在「铺垫阶段」——不是故事没推进，而是一个后端命令在早先的重构回滚里丢了，
+前端每次进页面调用都失败，只好退回默认值。本版补回该命令，阶段与逾期伏笔按真实进度显示；日志
+里的失败行也会带上具体原因，并发模型调用的候选链可以按请求对齐了。
 
 ### v0.73.12 · 文思活跃换成一团跳动的火
 
