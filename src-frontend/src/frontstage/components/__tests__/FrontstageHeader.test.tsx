@@ -207,6 +207,25 @@ describe('FrontstageHeader', () => {
     expect(screen.getByTitle('文思已关闭')).toBeInTheDocument();
   });
 
+  it('文思活跃使用动态火焰图标，被动保持静态图标', () => {
+    const { rerender } = render(<FrontstageHeader {...defaultProps} wensiMode="active" />);
+    expect(document.querySelector('.wensi-flame')).not.toBeNull();
+
+    rerender(<FrontstageHeader {...defaultProps} wensiMode="passive" />);
+    expect(document.querySelector('.wensi-flame')).toBeNull();
+  });
+
+  it('活跃火焰有跳动动画，且尊重减少动态偏好', () => {
+    const css = readFileSync(cssPath, 'utf-8');
+    expect(css).toMatch(
+      /\.wensi-active\s+\.wensi-flame\s*\{[^}]*animation:\s*wensi-flame-flicker/s
+    );
+    expect(css).toMatch(/@keyframes\s+wensi-flame-flicker/);
+
+    const reduced = css.slice(css.indexOf('prefers-reduced-motion: reduce'));
+    expect(reduced).toMatch(/\.wensi-active\s+\.wensi-flame\s*\{[^}]*animation:\s*none/s);
+  });
+
   it('创世进行中应显示三 Agent（主创/管理/编辑审计）的动作与进度', async () => {
     render(<FrontstageHeader {...defaultProps} />);
     await waitFor(() => {

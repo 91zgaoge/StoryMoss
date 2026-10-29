@@ -733,6 +733,40 @@ body {
   justify-content: center;
 }
 
+/* v0.73.12: 文思活跃 — 火焰跳动 + 暖光，与被动态的静态星星形成鲜明对比 */
+.wensi-mode-toggle.wensi-active .wensi-flame {
+  transform-origin: 50% 85%;
+  animation: wensi-flame-flicker 1.15s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--terracotta) 65%, transparent));
+}
+
+@keyframes wensi-flame-flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(-1deg);
+    opacity: 0.92;
+  }
+  25% {
+    transform: scale(1.14, 0.94) rotate(1.5deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.94, 1.1) rotate(-1.5deg);
+    opacity: 0.82;
+  }
+  70% {
+    transform: scale(1.08, 0.98) rotate(1deg);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wensi-mode-toggle.wensi-active .wensi-flame {
+    animation: none;
+    filter: none;
+  }
+}
+
 /* 禅模式按钮 */
 .zen-mode-btn {
   width: 28px;

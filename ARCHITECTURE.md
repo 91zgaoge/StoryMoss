@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.11 架构文档
+# StoryMoss (草苔) v0.73.12 架构文档
 
+> **v0.73.12**：**无架构变更**——幕前文思活跃图标加 `wensi-flame` 类与 `wensi-flame-flicker` CSS 动画（缩放/旋转/暖光），被动与关闭态保持静态；`prefers-reduced-motion` 下停用。
+>
 > **v0.73.11**：**无架构变更**——`record_beat_technique_log` 从 fire-and-forget `spawn_blocking` 改为 `async fn` + await（单行 INSERT），消除续写返回后立即读取 `beat_technique_log` 的竞态；Append/NextChapter 两条路径同步 `.await`。
 >
 > **v0.73.10**：**空正文冷却阈值 2 → 1**——`HealthRegistry::empty_content_demoted` 单次真实空正文即进入 10 分钟冷却（探测成功不清零、真实非空生成才清零），避免死端点单次 155 秒的调用被重复置顶。

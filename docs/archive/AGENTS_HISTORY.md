@@ -1,3 +1,26 @@
+*归档于 2026-10-29（v0.73.12）：v0.73.7 摘要。*
+
+### v0.73.7 - 空正文冷却 + 默认模型可删 + 上下文自动探测 + 日志本地时间
+
+**为什么**：真机创世 600s 超时的日志显示 `deepseek-v4` 返回「推理 token 4590 / 正文 0 字符」，
+网关换候选后会成功，但用户显式指定的创作模型每轮仍被强制置顶，导致每次调用都先空转一次；
+同时用户「早已不用」的 Qwen3.5 仍在 `llm_profiles` 且 `is_default=true`，删除被
+`Cannot delete the default profile` 拒绝（日志 `delete_model failed`），`tool_model_id` 继续
+指向已下线端点；日志页直接显示 UTC，与本机时间差 8 小时；模型上下文长度前端从未暴露、后端一律 8192。
+
+**改动**：①网关「空正文冷却」——`HealthRegistry` 新增 `empty_content_failures/last_empty_content_at`，
+连续 2 次空正文后 10 分钟冷却（探测成功不清零、真实非空生成才清零）；冷却期内
+`resolve_role_model` 跳过显式角色置顶、`select_candidates` 额外 -1000 并跳过 +1000 置顶；
+②`remove_llm_profile` 允许删除默认模型并提升剩余启用模型为默认，同时清空 active/角色引用；
+`AppConfig::load` 自愈失效的角色引用；③新增 `detect_model_context` 命令（OpenAI 兼容 `/models`
+的 `max_model_len/context_length` → Ollama `/api/show` → 内置型号目录），模型弹窗新增
+「上下文长度 + 自动检测」，留空保存自动探测；旧配置的 8192 已知型号加载时按目录校正；
+④日志页与诊断卡片统一转本地时间。
+
+- **验证**：`cargo test --lib` **1833 passed / 10 ignored**（+6）；clippy 0 error；tsc / vitest 625 /
+  playwright 42 passed / 5 skipped；fmt（`nightly-2026-10-05`）/ guard 全绿。
+- **未关闭**：真机创世未复跑；内置型号目录为保守参考值，未知型号仍需手动填上下文。
+
 *归档于 2026-10-28（v0.73.11）：v0.73.6 摘要。*
 
 ### v0.73.6 - 超时语义拆分：TCP 连接 / 首字节 / 正文生成

@@ -461,7 +461,8 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
             >
               <span className="wensi-icon">
                 {wensiMode === 'active' ? (
-                  <Flame className="w-3.5 h-3.5" />
+                  // v0.73.12: 活跃态用跳动火焰，与被动态的静态星星形成对比
+                  <Flame className="w-3.5 h-3.5 wensi-flame" />
                 ) : wensiMode === 'passive' ? (
                   <Sparkles className="w-3.5 h-3.5" />
                 ) : (

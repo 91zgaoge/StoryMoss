@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.12（2026-10-29）
+
+**幕前「文思活跃」图标改为跳动火焰，与被动的静态星星形成对比。**
+
+- **现象**：文思三态按钮在活跃模式虽然已用火焰图标，但是静态的，和被动模式的星星几乎一样，不易一眼分辨当前是否在主动续写。
+- **改动**：活跃态火焰增加 `wensi-flame-flicker` 动画（缩放/轻微旋转 + 陶土色暖光 drop-shadow），被动/关闭态保持静态；`prefers-reduced-motion` 下自动停用动画与光晕。
+- **验证**：vitest **627 passed / 3 skipped**（+2：活跃态带 `wensi-flame`、被动态无；CSS 动画与 reduced-motion 契约）；tsc / playwright 43 passed / 5 skipped；Rust 零改动。
+
 ## v0.73.11（2026-10-28）
 
 **修复 v0.73.10 发布构建的偶发测试失败（手法落库改为 await）。**

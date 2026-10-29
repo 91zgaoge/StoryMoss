@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.11)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.12)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.12 变更说明
+
+- **文思活跃火焰动画（vitest +2，627 passed / 3 skipped）**：
+  ①活跃态渲染 `.wensi-flame`、被动态不渲染；②CSS 含 `wensi-flame-flicker` 关键帧与
+  `prefers-reduced-motion` 下的 `animation: none` 契约。
+- **实现**：`FrontstageHeader` 活跃分支给 Flame 加 `wensi-flame` 类；`frontstage.css` 增加
+  缩放/旋转/暖光动画，被动与关闭态保持静态。
+- **未改动**：playwright 43 passed / 5 skipped；Rust 1834 passed / 10 ignored。
 
 ### v0.73.11 变更说明
 

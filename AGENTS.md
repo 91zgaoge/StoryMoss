@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.11
+- **版本**: v0.73.12
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -107,7 +107,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1834 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 625 passed / 3 skipped（+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 627 passed / 3 skipped（v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 43 passed / 5 skipped（v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -118,6 +118,19 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.12 - 文思活跃改用动态火焰图标
+
+**为什么**：幕前文思三态按钮在活跃模式已是火焰，但为静态图标，与被动模式的星星区分度不足，
+用户不易一眼判断当前是否在主动续写。
+
+**改动**：活跃态 Flame 加 `wensi-flame` 类，`frontstage.css` 新增 `wensi-flame-flicker`
+动画（缩放 + 轻微旋转 + 陶土色 drop-shadow 暖光）；被动/关闭态保持静态；
+`prefers-reduced-motion: reduce` 下停用动画与光晕。
+
+- **验证**：vitest **627 passed / 3 skipped**（+2：活跃态带 `.wensi-flame` 而被动态无；
+  CSS 含关键帧与 reduced-motion 契约）；tsc / playwright 43 passed / 5 skipped；Rust 零改动。
+- **未关闭**：无。
 
 ### v0.73.11 - 手法落库竞态修复（v0.73.10 发布构建失败）
 
@@ -180,27 +193,6 @@ Append 与 NextChapter 两条路径同步 `.await`。
   `test_continue_writer_falls_back_to_background_role_on_empty`；既有「不得进 tool_loop」用例的
   调用次数断言更新为 5）；clippy 0 error；fmt / guard 全绿；前端零改动。
 - **未关闭**：真机续写未复跑（需用同一台机器上「只输出思考」的创作档验证兜底实际产出）。
-
-### v0.73.7 - 空正文冷却 + 默认模型可删 + 上下文自动探测 + 日志本地时间
-
-**为什么**：真机创世 600s 超时的日志显示 `deepseek-v4` 返回「推理 token 4590 / 正文 0 字符」，
-网关换候选后会成功，但用户显式指定的创作模型每轮仍被强制置顶，导致每次调用都先空转一次；
-同时用户「早已不用」的 Qwen3.5 仍在 `llm_profiles` 且 `is_default=true`，删除被
-`Cannot delete the default profile` 拒绝（日志 `delete_model failed`），`tool_model_id` 继续
-指向已下线端点；日志页直接显示 UTC，与本机时间差 8 小时；模型上下文长度前端从未暴露、后端一律 8192。
-
-**改动**：①网关「空正文冷却」——`HealthRegistry` 新增 `empty_content_failures/last_empty_content_at`，
-连续 2 次空正文后 10 分钟冷却（探测成功不清零、真实非空生成才清零）；冷却期内
-`resolve_role_model` 跳过显式角色置顶、`select_candidates` 额外 -1000 并跳过 +1000 置顶；
-②`remove_llm_profile` 允许删除默认模型并提升剩余启用模型为默认，同时清空 active/角色引用；
-`AppConfig::load` 自愈失效的角色引用；③新增 `detect_model_context` 命令（OpenAI 兼容 `/models`
-的 `max_model_len/context_length` → Ollama `/api/show` → 内置型号目录），模型弹窗新增
-「上下文长度 + 自动检测」，留空保存自动探测；旧配置的 8192 已知型号加载时按目录校正；
-④日志页与诊断卡片统一转本地时间。
-
-- **验证**：`cargo test --lib` **1833 passed / 10 ignored**（+6）；clippy 0 error；tsc / vitest 625 /
-  playwright 42 passed / 5 skipped；fmt（`nightly-2026-10-05`）/ guard 全绿。
-- **未关闭**：真机创世未复跑；内置型号目录为保守参考值，未知型号仍需手动填上下文。
 
 ## Always Do
 
