@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.10)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.11)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.11 变更说明
+
+- **手法落库竞态修复（1834 passed / 10 ignored）**：`record_beat_technique_log` 从 fire-and-forget
+  `spawn_blocking` 改为 `async fn` + await；`test_continue_logs_beat_technique_and_replays_author_verdict`
+  连续 5 次通过（此前在 CI Ubuntu 偶发读到空表）。
+- **未改动**：前端零改动；vitest 625 / playwright 43 passed / 5 skipped。
 
 ### v0.73.10 变更说明
 

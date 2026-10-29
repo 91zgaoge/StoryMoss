@@ -3698,7 +3698,8 @@ impl AgencyCoordinator {
                 Some(&outcome.scene_id),
                 outcome.chapter_number,
                 technique_index,
-            );
+            )
+            .await;
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
             self.checkpoint_auto(
@@ -3754,7 +3755,8 @@ impl AgencyCoordinator {
             Some(&result.scene_id),
             result.chapter_number,
             technique_index,
-        );
+        )
+        .await;
         self.spawn_editor_qc(
             run_id,
             story_id,
@@ -5473,8 +5475,13 @@ impl AgencyCoordinator {
         Ok((item, card, technique_index))
     }
 
-    /// P1-5：把本拍用的手法落库（归因基底；best-effort，失败只告警）。
-    fn record_beat_technique_log(
+    /// P1-5：把本拍用的手法落库（归因基底；失败只告警）。
+    ///
+    /// v0.73.11: 改为 await 落库。此前是 fire-and-forget `spawn_blocking`，
+    /// 测试在续写返回后立刻查 `beat_technique_log` 会偶发读到空表（CI
+    /// `test_continue_logs_beat_technique_and_replays_author_verdict` 失败）；
+    /// 真实链路里若进程随即退出也可能丢掉这一拍归因。单行 INSERT，开销可忽略。
+    async fn record_beat_technique_log(
         &self,
         story_id: &str,
         scene_id: Option<&str>,
@@ -5486,7 +5493,7 @@ impl AgencyCoordinator {
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let scene = scene_id.map(str::to_string);
-        tauri::async_runtime::spawn_blocking(move || {
+        let joined = tauri::async_runtime::spawn_blocking(move || {
             let beat_no = match pool.get() {
                 Ok(conn) => {
                     crate::creative_engine::expansion::read_beat_counters(&conn, &sid).append_beats
@@ -5506,7 +5513,11 @@ impl AgencyCoordinator {
             ) {
                 log::warn!("[technique] 手法落库失败（非阻塞）: {e}");
             }
-        });
+        })
+        .await;
+        if let Err(e) = joined {
+            log::warn!("[technique] 手法落库任务 join 失败: {e}");
+        }
     }
 
     /// 写一章草稿：tool_loop 路径，仅供批量续写 `run_continue_batch`。

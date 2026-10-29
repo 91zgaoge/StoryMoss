@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.10
+- **版本**: v0.73.11
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -119,6 +119,20 @@ type:
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
 
+### v0.73.11 - 手法落库竞态修复（v0.73.10 发布构建失败）
+
+**为什么**：v0.73.10 的 tag 构建在 Ubuntu `rust-check` 挂
+`test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 应有 1 行、
+实际 0 行）；同一提交 master 构建通过，属竞态。根因是 `record_beat_technique_log` 用
+fire-and-forget `spawn_blocking` 写库，测试在续写返回后立即查询，慢机/并行负载下读到空表；
+真实链路进程随即退出时也可能丢归因。
+
+**改动**：`record_beat_technique_log` 改为 `async fn` 并 await 落库（单行 INSERT，开销可忽略），
+Append 与 NextChapter 两条路径同步 `.await`。
+
+- **验证**：目标用例连续 5 次通过；`cargo test --lib` **1834 passed / 10 ignored**；clippy / fmt / guard 全绿。
+- **发布**：v0.73.10 tag 构建因此未上传官网（latest.json 仍为 0.73.9）；以 v0.73.11 为准。
+
 ### v0.73.10 - 空正文冷却阈值 2 → 1（死端点单次 155s 即降权）
 
 **为什么**：v0.73.8 创世仍 600s 超时。日志显示工具档 `Ds10`
@@ -187,23 +201,6 @@ type:
 - **验证**：`cargo test --lib` **1833 passed / 10 ignored**（+6）；clippy 0 error；tsc / vitest 625 /
   playwright 42 passed / 5 skipped；fmt（`nightly-2026-10-05`）/ guard 全绿。
 - **未关闭**：真机创世未复跑；内置型号目录为保守参考值，未知型号仍需手动填上下文。
-
-### v0.73.6 - 超时语义拆分：TCP 连接 / 首字节 / 正文生成
-
-**为什么**：用户真机日志显示 deepseek-v4-flash 的非流式调用反复在 **15000ms** 报
-`LLM_CONNECTION_TIMEOUT`（重试仍失败，`smart_execute` 255–267s 后整体失败），而设置页写着
-连接超时 60s。根因是适配器把「连接已建立后等待响应头」也压在了 `llm_connect_timeout_secs` 上：
-推理模型先思考再返回响应头，15s 一到就被判连接失败。
-
-**改动**：①`adapter::send_with_response_timeout`——TCP 建连仍由
-`ClientBuilder::connect_timeout` 负责，响应头等待改用「首字节超时」（默认 180s）；
-②新增 `AppError::LlmResponseTimeout`（code `LLM_RESPONSE_TIMEOUT`，severity Retry，
-仅额外重试 1 次），文案明确指向「首字节超时」设置；③后端默认连接超时 15→60（与前端一致），
-`LlmService` 兜底 30/60→60/180；④OpenAI/Anthropic/Ollama 三适配器的非流式与流式请求全部接入；
-⑤回归测试 `response_headers_timeout_uses_dedicated_marker`（本地 TCP 只建连不回包）。
-
-- **验证**：`cargo test --lib` **1828 passed / 10 ignored**（+1）；clippy 0 error；fmt / guard 全绿；前端零改动。
-- **未关闭**：真机创世未复跑（deepseek-flash 工具档与创作档的下一次实跑仍需观察首字节耗时）。
 
 ## Always Do
 

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.10 项目完成状态
+# StoryMoss (草苔) v0.73.11 项目完成状态
 
+> 最后更新: 2026-10-28（**v0.73.11：手法落库竞态修复（发布流水线）**——v0.73.10 tag 构建在 Ubuntu 偶发挂 `test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 读到空表）；`record_beat_technique_log` 改为 await 落库。目标用例连续 5 次通过；Rust **1834 passed / 10 ignored**。v0.73.10 的构建因此未上传官网，以 v0.73.11 为准。）
+>
 > 最后更新: 2026-10-28（**v0.73.10：空正文冷却阈值 2 → 1**——死端点 `Ds10` 单次调用 155 秒才返回 0 字符，连续 2 次才冷却会先烧掉 310 秒；现在一次空正文即进入 10 分钟冷却，不再重复置顶。该模型仍在配置中，需在设置 → 模型 → 管理删除 “Ds10”。Rust **1834 passed / 10 ignored**。）
 >
 > 最后更新: 2026-10-28（**v0.73.9：多部小说切换修复**——故事卡片点击此前只更新幕后状态，从未通知幕前；只有卡片上的「打开」会发 `storySelected`。新增 `notify_frontstage_story_selected`（只广播不弹窗），卡片点击、Stories/Sidebar 的「开幕前」、全局启动器均携带当前故事；生成中收到切换改为 toast 提示。playwright **43 passed / 5 skipped**（+1）。）

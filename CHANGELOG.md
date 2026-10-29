@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.11（2026-10-28）
+
+**修复 v0.73.10 发布构建的偶发测试失败（手法落库改为 await）。**
+
+- **现象**：v0.73.10 的 tag 构建在 Ubuntu `rust-check` 挂 `test_continue_logs_beat_technique_and_replays_author_verdict`（断言 `beat_technique_log` 应有 1 行、实际 0 行）；同一提交的 master 构建通过，属竞态。
+- **根因**：`record_beat_technique_log` 用 fire-and-forget `spawn_blocking` 写库，测试在续写返回后立即查询，慢机/并行负载下会读到空表；真实链路里进程随即退出时也可能丢掉这一拍归因。
+- **修复**：改为 `async fn` 并 await 落库（单行 INSERT，开销可忽略），Append 与 NextChapter 两条调用路径同步 `.await`。
+- **验证**：目标用例连续 5 次通过；`cargo test --lib` **1834 passed / 10 ignored**；clippy / fmt / guard 全绿；前端零改动。
+- **发布说明**：v0.73.10 的 tag 构建因此失败、未上传官网（当时 `latest.json` 仍为 0.73.9）；请以 **v0.73.11** 为准，功能与 v0.73.10 相同。
+
 ## v0.73.10（2026-10-28）
 
 **空正文冷却阈值 2 → 1：死端点单次 155 秒不再重复消耗创世预算。**

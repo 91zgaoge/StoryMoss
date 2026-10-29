@@ -1,3 +1,22 @@
+*归档于 2026-10-28（v0.73.11）：v0.73.6 摘要。*
+
+### v0.73.6 - 超时语义拆分：TCP 连接 / 首字节 / 正文生成
+
+**为什么**：用户真机日志显示 deepseek-v4-flash 的非流式调用反复在 **15000ms** 报
+`LLM_CONNECTION_TIMEOUT`（重试仍失败，`smart_execute` 255–267s 后整体失败），而设置页写着
+连接超时 60s。根因是适配器把「连接已建立后等待响应头」也压在了 `llm_connect_timeout_secs` 上：
+推理模型先思考再返回响应头，15s 一到就被判连接失败。
+
+**改动**：①`adapter::send_with_response_timeout`——TCP 建连仍由
+`ClientBuilder::connect_timeout` 负责，响应头等待改用「首字节超时」（默认 180s）；
+②新增 `AppError::LlmResponseTimeout`（code `LLM_RESPONSE_TIMEOUT`，severity Retry，
+仅额外重试 1 次），文案明确指向「首字节超时」设置；③后端默认连接超时 15→60（与前端一致），
+`LlmService` 兜底 30/60→60/180；④OpenAI/Anthropic/Ollama 三适配器的非流式与流式请求全部接入；
+⑤回归测试 `response_headers_timeout_uses_dedicated_marker`（本地 TCP 只建连不回包）。
+
+- **验证**：`cargo test --lib` **1828 passed / 10 ignored**（+1）；clippy 0 error；fmt / guard 全绿；前端零改动。
+- **未关闭**：真机创世未复跑（deepseek-flash 工具档与创作档的下一次实跑仍需观察首字节耗时）。
+
 *归档于 2026-10-28（v0.73.10）：v0.73.5 摘要。*
 
 ### v0.73.5 - 幕前启动器移至右下角（不再遮挡页头按钮）

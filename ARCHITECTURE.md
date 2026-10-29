@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.10 架构文档
+# StoryMoss (草苔) v0.73.11 架构文档
 
+> **v0.73.11**：**无架构变更**——`record_beat_technique_log` 从 fire-and-forget `spawn_blocking` 改为 `async fn` + await（单行 INSERT），消除续写返回后立即读取 `beat_technique_log` 的竞态；Append/NextChapter 两条路径同步 `.await`。
+>
 > **v0.73.10**：**空正文冷却阈值 2 → 1**——`HealthRegistry::empty_content_demoted` 单次真实空正文即进入 10 分钟冷却（探测成功不清零、真实非空生成才清零），避免死端点单次 155 秒的调用被重复置顶。
 >
 > **v0.73.9**：**故事切换事件补全**——新增命令 `notify_frontstage_story_selected`（仅 `StateSync::emit_story_selected`，不显示/聚焦窗口）；幕后故事卡片点击、Stories/Sidebar 的「开幕前」、`FrontstageLauncher` 均携带 `currentStory`（无选中时退回 `show_frontstage`）；幕前 `onStorySelected` 在生成中改为 toast 提示。
