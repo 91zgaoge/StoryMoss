@@ -150,6 +150,12 @@ impl CharacterRepository {
         // Compatibility fallback: rows that exist only in the legacy
         // `characters` table (e.g. older code paths or tests that
         // insert directly).
+        //
+        // Ingest-created characters keep a different id in `characters` than
+        // in `kg_entities` (asset_bridge registers them by name), so an
+        // id-only `NOT IN` would return the same person twice — the canonical
+        // kg card plus the legacy row. Exclude legacy rows whose name already
+        // has a canonical Character entity.
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
              dynamic_traits, source, is_auto_generated, created_at, updated_at, \
@@ -158,6 +164,13 @@ impl CharacterRepository {
              FROM characters
              WHERE story_id = ?1 AND id NOT IN (
                  SELECT id FROM kg_entities WHERE story_id = ?1 AND entity_type = 'Character'
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM kg_entities k
+                 WHERE k.story_id = characters.story_id
+                   AND k.entity_type = 'Character'
+                   AND k.is_archived = 0
+                   AND k.name = characters.name
              )",
         )?;
         let legacy_rows = stmt
@@ -321,17 +334,21 @@ impl CharacterRepository {
         )?;
 
         // Keep the legacy `characters` table in sync inside the same
-        // transaction.
-        tx.execute(
-            "UPDATE characters SET name = COALESCE(?2, name),
+        // transaction. Ingest-created characters have a different id in
+        // `characters` than in `kg_entities` (asset_bridge registers them by
+        // name), so an id-only UPDATE silently misses them — the row keeps the
+        // pre-edit name and the writer/continuation side keeps reading the old
+        // identity. Fall back to the pre-edit name when the id does not match.
+        const LEGACY_UPDATE_SET: &str = "name = COALESCE(?2, name),
                  background = COALESCE(?3, background),
                  personality = COALESCE(?4, personality),
                  goals = COALESCE(?5, goals),
                  appearance = COALESCE(?6, appearance),
                  gender = COALESCE(?7, gender),
                  age = COALESCE(?8, age),
-                 updated_at = ?9
-             WHERE id = ?1",
+                 updated_at = ?9";
+        let legacy_count = tx.execute(
+            &format!("UPDATE characters SET {LEGACY_UPDATE_SET} WHERE id = ?1"),
             params![
                 id,
                 name.as_deref(),
@@ -344,6 +361,27 @@ impl CharacterRepository {
                 now
             ],
         )?;
+        if legacy_count == 0 {
+            tx.execute(
+                &format!(
+                    "UPDATE characters SET {LEGACY_UPDATE_SET} \
+                     WHERE story_id = ?10 AND name = ?11"
+                ),
+                params![
+                    id,
+                    name.as_deref(),
+                    background.as_deref(),
+                    personality.as_deref(),
+                    goals.as_deref(),
+                    appearance.as_deref(),
+                    gender.as_deref(),
+                    age,
+                    now,
+                    &entity.story_id,
+                    &entity.name
+                ],
+            )?;
+        }
 
         tx.commit()?;
         Ok(count)
@@ -740,6 +778,122 @@ mod tests {
         assert_eq!(entity.attributes["appearance"].as_str(), Some("新外貌"));
         // 未提供的字段保持不变
         assert!(entity.attributes["personality"].is_null());
+    }
+
+    #[test]
+    fn test_update_character_renames_legacy_row_when_ids_diverge() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo.create(story_req("角色改名")).unwrap();
+        let repo = CharacterRepository::new(pool.clone());
+        let now = chrono::Local::now().to_rfc3339();
+        let conn = pool.get().unwrap();
+
+        // ingest 建的角色：kg_entities 与 characters 的 id 不同（asset_bridge
+        // 按名字注册）。编辑时只能按旧名找回 legacy 行。
+        conn.execute(
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, \
+             last_updated, is_archived) VALUES ('kg-1', ?1, '林琳', 'Character', '{}', ?2, ?2, 0)",
+            params![&story.id, &now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, source, is_auto_generated, \
+             created_at, updated_at) VALUES ('legacy-1', ?1, '林琳', '旧背景', 'ingest', 1, ?2, ?2)",
+            params![&story.id, &now],
+        )
+        .unwrap();
+        drop(conn);
+
+        let count = repo
+            .update(
+                "kg-1",
+                Some("林夏".to_string()),
+                Some("新背景".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let conn = pool.get().unwrap();
+        let (legacy_name, legacy_bg): (String, String) = conn
+            .query_row(
+                "SELECT name, COALESCE(background, '') FROM characters WHERE id = 'legacy-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(legacy_name, "林夏", "legacy 行必须跟随改名");
+        assert_eq!(legacy_bg, "新背景", "legacy 行字段也要同步");
+        drop(conn);
+
+        // 只改字段、不改名时同样要落到 legacy 行
+        repo.update(
+            "kg-1",
+            None,
+            None,
+            Some("冷静".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let conn = pool.get().unwrap();
+        let personality: String = conn
+            .query_row(
+                "SELECT COALESCE(personality, '') FROM characters WHERE id = 'legacy-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(personality, "冷静");
+    }
+
+    /// 回归：kg 与 legacy 行 id 不同但同名时，列表只能出现一张角色卡；
+    /// 只在 legacy 表里的角色仍要保留。
+    #[test]
+    fn test_get_by_story_does_not_duplicate_same_name_with_different_ids() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo.create(story_req("角色去重")).unwrap();
+        let repo = CharacterRepository::new(pool.clone());
+        let now = chrono::Local::now().to_rfc3339();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, \
+             last_updated, is_archived) VALUES ('kg-1', ?1, '林夏', 'Character', '{}', ?2, ?2, 0)",
+            params![&story.id, &now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, source, is_auto_generated, created_at, \
+             updated_at) VALUES ('legacy-1', ?1, '林夏', 'ingest', 1, ?2, ?2)",
+            params![&story.id, &now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, source, is_auto_generated, created_at, \
+             updated_at) VALUES ('legacy-only', ?1, '谢慈', 'ingest', 1, ?2, ?2)",
+            params![&story.id, &now],
+        )
+        .unwrap();
+        drop(conn);
+
+        let characters = repo.get_by_story(&story.id).unwrap();
+        let names: Vec<&str> = characters.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), 2, "同名不应重复出现：{names:?}");
+        assert!(names.contains(&"林夏"));
+        assert!(names.contains(&"谢慈"), "仅在 legacy 表的角色必须保留");
+        assert_eq!(
+            characters.iter().find(|c| c.name == "林夏").unwrap().id,
+            "kg-1",
+            "优先使用 kg 实体 id"
+        );
     }
 
     #[test]

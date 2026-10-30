@@ -1908,6 +1908,40 @@ impl IngestPipeline {
         Ok(entities)
     }
 
+    /// 查询 story 下的别称 → 规范名映射（`character_aliases` 指向
+    /// `characters`）。作者改名后旧称呼登记为别称，这里用它把旧称呼在
+    /// 实体链接阶段接回本人，避免旧名重新长出一个幻影角色。
+    async fn load_alias_canonical_names(
+        &self,
+        story_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
+        let Some(pool) = &self.pool else {
+            return Ok(std::collections::HashMap::new());
+        };
+        let pool = pool.clone();
+        let story_id = story_id.to_string();
+
+        let map = tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+            let mut stmt = conn.prepare(
+                "SELECT ca.alias, c.name FROM character_aliases ca \
+                 JOIN characters c ON c.id = ca.character_id \
+                 WHERE ca.story_id = ?1",
+            )?;
+            let rows = stmt.query_map([&story_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let result: Result<std::collections::HashMap<_, _>, _> = rows.collect();
+            result
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {}", e))??;
+
+        Ok(map)
+    }
+
     /// 实体链接：按名称去重，合并属性，返回 (去重后实体列表, name -> final_id
     /// 映射)
     async fn link_entities(
@@ -1917,13 +1951,23 @@ impl IngestPipeline {
     ) -> Result<(Vec<Entity>, std::collections::HashMap<String, String>), Box<dyn std::error::Error>>
     {
         let existing = self.load_existing_entities(story_id).await?;
+        let alias_names = self.load_alias_canonical_names(story_id).await?;
 
         let mut final_entities = Vec::new();
         let mut name_to_id: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
         for new_entity in new_entities {
-            if let Some(existing_entity) = existing.iter().find(|e| e.name == new_entity.name) {
+            // 先按精确名匹配；未命中再看别称表，把旧称呼接回规范名实体。
+            let matched = existing
+                .iter()
+                .find(|e| e.name == new_entity.name)
+                .or_else(|| {
+                    alias_names
+                        .get(&new_entity.name)
+                        .and_then(|canonical| existing.iter().find(|e| &e.name == canonical))
+                });
+            if let Some(existing_entity) = matched {
                 // 命中已有实体：复用ID，合并属性，保留最新嵌入
                 name_to_id.insert(new_entity.name.clone(), existing_entity.id.clone());
                 let merged_attrs =
@@ -1931,7 +1975,8 @@ impl IngestPipeline {
                 final_entities.push(Entity {
                     id: existing_entity.id.clone(),
                     story_id: new_entity.story_id,
-                    name: new_entity.name,
+                    // 别称命中时保留规范名，避免 upsert 把实体改回旧称呼
+                    name: existing_entity.name.clone(),
                     entity_type: new_entity.entity_type,
                     attributes: merged_attrs,
                     embedding: new_entity
@@ -1961,17 +2006,37 @@ impl IngestPipeline {
     }
 }
 
-/// 合并两个 JSON 对象，overlay 覆盖 base 中的同名字段
+/// 合并两个 JSON 对象，overlay 覆盖 base 中的同名字段。
+///
+/// 唯一的例外：base 已有非空值时，overlay 的空值（空串 / null / 空数组 /
+/// 空对象）不覆盖。角色编辑后的 ingest 可能对作者刚填的字段返回空串，
+/// 直接覆盖会把用户输入抹掉；非空的新值仍然照常刷新。
 fn merge_json_objects(base: &serde_json::Value, overlay: &serde_json::Value) -> serde_json::Value {
     match (base, overlay) {
         (serde_json::Value::Object(base_map), serde_json::Value::Object(overlay_map)) => {
             let mut result = base_map.clone();
             for (k, v) in overlay_map.iter() {
-                result.insert(k.clone(), v.clone());
+                let should_write = match result.get(k) {
+                    None => true,
+                    Some(existing) => !value_is_empty(v) || value_is_empty(existing),
+                };
+                if should_write {
+                    result.insert(k.clone(), v.clone());
+                }
             }
             serde_json::Value::Object(result)
         }
         _ => overlay.clone(),
+    }
+}
+
+fn value_is_empty(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(s) => s.trim().is_empty(),
+        serde_json::Value::Array(a) => a.is_empty(),
+        serde_json::Value::Object(o) => o.is_empty(),
+        _ => false,
     }
 }
 
@@ -2329,9 +2394,123 @@ mod tests {
     }
 
     #[test]
+    fn merge_json_objects_does_not_erase_existing_with_empty_overlay() {
+        let base = serde_json::json!({
+            "background": "档案室",
+            "personality": "",
+            "goals": "查清真相",
+        });
+        let overlay = serde_json::json!({
+            "background": "",
+            "personality": "冷静强势",
+            "goals": null,
+            "appearance": "工装",
+        });
+        let merged = merge_json_objects(&base, &overlay);
+        assert_eq!(merged["background"], "档案室", "空值不得覆盖作者已填内容");
+        assert_eq!(merged["personality"], "冷静强势", "空字段应被新值补齐");
+        assert_eq!(merged["goals"], "查清真相", "null 不得覆盖已有值");
+        assert_eq!(merged["appearance"], "工装", "新字段照常写入");
+    }
+
+    #[test]
     fn ingest_text_hash_is_stable_and_change_sensitive() {
         assert_eq!(ingest_text_hash("abc"), ingest_text_hash(" abc \n"));
         assert_ne!(ingest_text_hash("abc"), ingest_text_hash("abd"));
+    }
+
+    /// 改名后旧称呼登记为别称：再次 ingest 到旧名文本时，实体链接必须
+    /// 复用原实体 id、保留规范名，不能重新长出一个幻影角色。
+    #[tokio::test]
+    async fn link_entities_reuses_canonical_entity_for_renamed_alias() {
+        use chrono::Local;
+
+        struct NoopLlm;
+        #[async_trait::async_trait]
+        impl IngestLlm for NoopLlm {
+            async fn ingest_generate(
+                &self,
+                _task: TaskType,
+                _prompt: String,
+                _max_tokens: Option<i32>,
+                _temperature: Option<f32>,
+                _context_label: Option<&str>,
+            ) -> Result<crate::llm::adapter::GenerateResponse, crate::error::AppError> {
+                Ok(crate::llm::adapter::GenerateResponse {
+                    content: r#"{"entities":[]}"#.to_string(),
+                    model: "noop".to_string(),
+                    tokens_used: 0,
+                    cost: 0.0,
+                    tool_calls: vec![],
+                })
+            }
+        }
+
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "别称链接".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let now = Local::now().to_rfc3339();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, \
+             last_updated, is_archived) VALUES ('kg-lin', ?1, '林夏', 'Character', '{}', ?2, ?2, 0)",
+            rusqlite::params![&story.id, &now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, source, is_auto_generated, created_at, \
+             updated_at) VALUES ('legacy-lin', ?1, '林夏', 'user_created', 0, ?2, ?2)",
+            rusqlite::params![&story.id, &now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO character_aliases (id, story_id, character_id, alias, source, created_at) \
+             VALUES ('alias-1', ?1, 'legacy-lin', '林琳', 'rename', ?2)",
+            rusqlite::params![&story.id, &now],
+        )
+        .unwrap();
+        drop(conn);
+
+        let pipeline = IngestPipeline::new(NoopLlm).with_pool(pool);
+        let new_entity = Entity {
+            id: uuid::Uuid::new_v4().to_string(),
+            story_id: story.id.clone(),
+            name: "林琳".to_string(),
+            entity_type: EntityType::Character,
+            attributes: serde_json::json!({"background": "档案室"}),
+            embedding: None,
+            first_seen: Local::now(),
+            last_updated: Local::now(),
+            confidence_score: None,
+            access_count: 0,
+            last_accessed: None,
+            is_archived: false,
+            archived_at: None,
+            source: None,
+            is_auto_generated: None,
+        };
+        let (entities, name_to_id) = pipeline
+            .link_entities(vec![new_entity], &story.id)
+            .await
+            .unwrap();
+
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].id, "kg-lin", "必须复用原实体 id");
+        assert_eq!(entities[0].name, "林夏", "保留规范名，不得被旧称呼改回");
+        assert_eq!(
+            name_to_id.get("林琳").map(String::as_str),
+            Some("kg-lin"),
+            "关系抽取按旧称呼也能挂回原实体"
+        );
     }
 
     /// 端到端：同内容第二次 `ingest()` 命中缓存 → **0 次 LLM**；

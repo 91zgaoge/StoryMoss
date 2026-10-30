@@ -1156,6 +1156,7 @@ pub mod V144__relationship_kind_normalization;
 pub mod V145__summary_source_hash;
 pub mod V146__editor_gate_records;
 pub mod V147__beat_technique_log;
+pub mod V148__dedupe_character_entities;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1249,5 +1250,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V145__summary_source_hash::Migration),
         Box::new(V146__editor_gate_records::Migration),
         Box::new(V147__beat_technique_log::Migration),
+        Box::new(V148__dedupe_character_entities::Migration),
     ]
 }

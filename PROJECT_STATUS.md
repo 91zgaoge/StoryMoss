@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.13 项目完成状态
+# StoryMoss (草苔) v0.73.14 项目完成状态
 
+> 最后更新: 2026-10-30（**v0.73.14：角色改名去重 + 风格弹窗可确认**——编辑角色后的 ingest 改用 `save_entities_batch`（按链接 id upsert），`CharacterRepository::update` 在 id 未命中时按旧名回退更新 legacy 行，`get_by_story` 按名字排除已由 kg 实体表示的行，改名登记旧名别称并同步场景出场/冲突 token，新增 V148 迁移合并存量同名重复角色；写作风格弹窗限高可滚动、单一风格先选中再确认、右上角可关闭。Rust **1844 passed / 10 ignored**（+6）；vitest **639 passed / 3 skipped**（+5）。）
+>
 > 最后更新: 2026-10-29（**v0.73.13：补回 `get_canonical_state` 命令 + 日志可读性**——该命令在 refactor 回滚（b4448325）后只剩 `handlers.rs` 一行注释，前端执行面板每次挂载打三条失败 IPC 并静默显示「铺垫阶段」；现新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 聚合快照）并注册，白名单同步删除。顺带给 `candidate_try` 日志加请求前缀、失败日志行带错误原因。Rust **1838 passed / 10 ignored**（+4）；vitest **634 passed / 3 skipped**（+7）。）
 >
 > 最后更新: 2026-10-29（**v0.73.12：幕前「文思活跃」改用动态火焰**——活跃态 Flame 加 `wensi-flame` 类，1.15s 缩放/旋转/暖光跳动；被动与关闭态保持静态星星/关闭图标，形成明显对比；`prefers-reduced-motion` 下停用动画。vitest **627 passed / 3 skipped**（+2）。）

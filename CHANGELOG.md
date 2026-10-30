@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.73.14（2026-10-30）
+
+**修复角色改名生成重复角色、续写人物混淆，以及写作风格弹窗找不到确认/关闭按钮。**
+
+- **现象 1（角色）**：编辑角色后，尤其是改名字，角色列表会多出一张同名角色卡；用户担心续写时出现两个同一个人。真机截图里同一部小说出现两张「林夏」、两张「林琳」。
+- **根因 1**：`update_character` 在编辑后触发的 ingest 把实体链接已经对齐的 ID 丢掉，逐条调用 `create_entity` 重新生成 UUID——**每编辑一次就多插一行同名实体**。此外，自动识别的角色在 `characters` 与 `kg_entities` 里的 id 本来就不同（`asset_bridge` 按名字注册），`repo.update` 只按 id 更新导致 legacy 行永远保留旧名，而 `get_by_story` 的 legacy 兜底只按 id 判重，于是同一人再次以旧名/新名出现。改名后旧称呼也没有登记，后续 ingest 遇到旧名会再长出幻影角色。
+- **修复 1**：①编辑后的 ingest 改用 `save_entities_batch`（按链接后的 id upsert）；②`CharacterRepository::update` 在 id 未命中时按旧名回退更新 legacy 行；③`get_by_story` 的 legacy 兜底按名字排除已有 kg 实体的行；④改名时把旧名登记为别称、同步场景「出场角色/角色冲突」token 与物品持有名；⑤`link_entities` 支持别称解析，旧称呼回收原实体；⑥新增 **V148** 迁移合并存量同名重复角色（属性、关系、场景提及、`memory_items` 改线到保留行）；⑦实体属性合并时空值不再覆盖作者已填内容。
+- **现象 2（风格弹窗）**：混合风格配置面板太高，保存/取消按钮被挤出窗口，用户找不到确认和关闭；单一风格点一下直接关窗，看不出是否选中。
+- **修复 2**：风格配置抽成 `StyleDnaModal`：弹窗限高 `max-h-[calc(100dvh-2rem)]`、内容区滚动、底部操作区始终可见；单一风格改为「先选中（勾选 + 当前标记）再点确定」，新增右上角关闭、Esc 关闭与保存失败 toast；混合面板的保存/取消 sticky 在滚动区底部。
+- **验证**：Rust **1844 passed / 10 ignored**（+6：V148 迁移、改名场景 token/别称、legacy 行回退改名、列表同名去重、别称实体链接、空值不覆盖属性）；vitest **639 passed / 3 skipped**（+5：单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 已有混合配置异步回填）；tsc / clippy / fmt / guard / IPC manifest 全绿。
+
 ## v0.73.13（2026-10-29）
 
 **补回 `get_canonical_state` 命令：执行面板不再永远显示「铺垫阶段」，同时补上两处日志可读性。**

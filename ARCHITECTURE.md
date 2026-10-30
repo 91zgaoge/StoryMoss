@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.13 架构文档
+# StoryMoss (草苔) v0.73.14 架构文档
 
+> **v0.73.14**：**角色身份一致性 + 风格弹窗组件化**——`commands/character.rs::update_character` 的编辑后 ingest 从逐条 `create_entity`（重新生成 UUID）改为 `KnowledgeGraphRepository::save_entities_batch`（按 `link_entities` 对齐的 id upsert）；`CharacterRepository::update` 在 kg id 未命中时按旧名回退更新 legacy `characters` 行，`get_by_story` 的 legacy 兜底按名字排除已有 kg 实体的行；改名登记 `character_aliases` 并调用 `character_identity::rename_scene_character_refs` 改写场景出场/冲突 token；`IngestPipeline::link_entities` 增加别称→规范名解析；新增 Rust 迁移 **V148** 合并 `kg_entities` 中同名 Character 实体。前端新增 `components/style/StyleDnaModal.tsx`（限高/滚动/固定操作区/先选后确认），Stories 只负责开关。
+>
 > **v0.73.13**：**新增一条 IPC 命令**——`canonical_state/commands.rs::get_canonical_state`（`#[tauri::command(rename_all = "snake_case")]`，内部 `spawn_blocking` 调 `CanonicalStateManager::get_snapshot_sync`，同步 rusqlite 聚合不占 tokio worker），注册进 `handlers.rs` 的 `generate_handler![]`；`verify-ipc-manifest.py` 白名单移除该命令，并跳过 `__tests__`/`*.test|spec.*`。
 >
 > **v0.73.12**：**无架构变更**——幕前文思活跃图标加 `wensi-flame` 类与 `wensi-flame-flicker` CSS 动画（缩放/旋转/暖光），被动与关闭态保持静态；`prefers-reduced-motion` 下停用。

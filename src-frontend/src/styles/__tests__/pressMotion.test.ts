@@ -34,18 +34,21 @@ describe('press 运动令牌', () => {
     expect(css).toMatch(/prefers-reduced-motion[\s\S]*--transition-spring:\s*0\.01s linear/);
   });
 
-  it('SceneEditor 与 Stories 页签走 duration-500 ease-spring', () => {
+  it('SceneEditor 与风格弹窗页签走 duration-500 ease-spring', () => {
     const scene = readFileSync(resolve(frontendRoot, 'src/components/SceneEditor.tsx'), 'utf-8');
-    const stories = readFileSync(resolve(frontendRoot, 'src/pages/Stories.tsx'), 'utf-8');
+    const styleModal = readFileSync(
+      resolve(frontendRoot, 'src/components/style/StyleDnaModal.tsx'),
+      'utf-8'
+    );
     expect(scene).toMatch(/duration-500 ease-spring/);
-    expect(stories).toMatch(/duration-500 ease-spring/);
+    expect(styleModal).toMatch(/duration-500 ease-spring/);
   });
 
   it('弹簧接线在 reduced-motion 下冻结为 0.01s linear', () => {
     const files = [
       'src/components/ui/Panel.tsx',
       'src/components/SceneEditor.tsx',
-      'src/pages/Stories.tsx',
+      'src/components/style/StyleDnaModal.tsx',
       'src/pages/settings/ModelCard.tsx',
     ];
     for (const rel of files) {

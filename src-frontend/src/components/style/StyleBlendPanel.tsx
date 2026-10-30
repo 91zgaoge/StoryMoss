@@ -9,6 +9,7 @@ interface StyleBlendPanelProps {
   initialBlend?: StyleBlendConfig;
   onSave: (blend: StyleBlendConfig) => void;
   onCancel: () => void;
+  isSaving?: boolean;
 }
 
 function computeRole(weight: number): BlendRole {
@@ -22,6 +23,7 @@ export function StyleBlendPanel({
   initialBlend,
   onSave,
   onCancel,
+  isSaving = false,
 }: StyleBlendPanelProps) {
   const [configName, setConfigName] = useState(initialBlend?.name || '默认混合');
   const [components, setComponents] = useState<BlendComponent[]>(initialBlend?.components || []);
@@ -53,6 +55,15 @@ export function StyleBlendPanel({
   useEffect(() => {
     setErrors(validate());
   }, [components, validate]);
+
+  // 混合配置是异步加载的：面板先挂载、`initialBlend` 后到。只在加载完成时
+  // 回填一次，避免切页签重取配置把用户尚未保存的调整覆盖掉。
+  useEffect(() => {
+    if (!initialBlend) return;
+    setConfigName(initialBlend.name || '默认混合');
+    setComponents(initialBlend.components || []);
+    setDriftEnabled(initialBlend.drift_check_enabled ?? true);
+  }, [initialBlend]);
 
   const handleWeightChange = (index: number, newWeightPercent: number) => {
     const newComps = [...components];
@@ -211,12 +222,18 @@ export function StyleBlendPanel({
         </div>
       )}
 
-      {/* 按钮 */}
-      <div className="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+      {/* 按钮：sticky 在滚动区底部，内容再长也始终能看到保存/取消 */}
+      <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-cinema-700 bg-cinema-850/95 px-6 py-4 backdrop-blur">
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={isSaving}>
           取消
         </Button>
-        <Button variant="primary" size="sm" onClick={handleSave} disabled={errors.length > 0}>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleSave}
+          disabled={errors.length > 0 || isSaving}
+          isLoading={isSaving}
+        >
           保存配置
         </Button>
       </div>

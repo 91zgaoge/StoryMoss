@@ -163,6 +163,52 @@ pub fn record_aliases(
     Ok(reports)
 }
 
+/// 作者改名：把场景元数据里的「出场角色 / 角色冲突」名字 token 从旧名改成新名。
+///
+/// 只改结构化字段（`scenes` / `scene_versions` 的 JSON 数组），不改正文散文：
+/// 历史章节里的旧称呼属于已写下的内容，旧名由调用方登记为别称，后续 ingest
+/// 仍能把旧称呼解析回本人。幂等：没有旧名 token 时返回 0。
+pub fn rename_scene_character_refs(
+    conn: &Connection,
+    story_id: &str,
+    old_name: &str,
+    new_name: &str,
+) -> Result<usize, rusqlite::Error> {
+    let old_name = old_name.trim();
+    let new_name = new_name.trim();
+    if old_name.is_empty() || new_name.is_empty() || old_name == new_name {
+        return Ok(0);
+    }
+    let mut changed = 0usize;
+    for col in ["characters_present", "character_conflicts"] {
+        changed += conn.execute(
+            &format!(
+                "UPDATE scenes SET {col} = REPLACE({col}, ?3, ?4) \
+                 WHERE story_id = ?1 AND {col} LIKE ?2"
+            ),
+            params![
+                story_id,
+                format!("%\"{old_name}\"%"),
+                format!("\"{old_name}\""),
+                format!("\"{new_name}\"")
+            ],
+        )?;
+        changed += conn.execute(
+            &format!(
+                "UPDATE scene_versions SET {col} = REPLACE({col}, ?3, ?4) \
+                 WHERE {col} LIKE ?2 AND scene_id IN (SELECT id FROM scenes WHERE story_id = ?1)"
+            ),
+            params![
+                story_id,
+                format!("%\"{old_name}\"%"),
+                format!("\"{old_name}\""),
+                format!("\"{new_name}\"")
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
 /// 把 `from_id` 合并进 `to_id`：改线所有引用、去重关系与场景关联、改写正文名字
 /// token、 搬迁别称，最后删除 `from` 行。调用方负责事务（本函数只发语句）。
 pub fn merge_characters(
@@ -451,6 +497,52 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rel, su, "关系应指向本人");
+    }
+
+    /// 作者改名：场景元数据里的旧名 token 跟随改成新名；旧名登记别称后
+    /// 仍能解析回本人（续写正文里出现旧称呼不会长出幻影角色）。
+    #[test]
+    fn rename_rewrites_scene_tokens_and_keeps_old_name_resolvable() {
+        let pool = create_test_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let story = seed(&pool);
+        let lin = add_character(&conn, &story, "林夏");
+        let scene_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, characters_present, \
+             character_conflicts, execution_stage, created_at, updated_at) \
+             VALUES (?1, ?2, 1, ?3, '[]', 'drafting', '2026-01-01T00:00:00+08:00', \
+             '2026-01-01T00:00:00+08:00')",
+            params![scene_id, story, r#"["林琳","谢慈"]"#.to_string()],
+        )
+        .unwrap();
+
+        let changed = rename_scene_character_refs(&conn, &story, "林琳", "林夏").unwrap();
+        assert_eq!(changed, 1, "只改命中的名字 token");
+
+        let present: String = conn
+            .query_row(
+                "SELECT characters_present FROM scenes WHERE id = ?1",
+                [&scene_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(present, r#"["林夏","谢慈"]"#);
+
+        record_aliases(&conn, &story, &lin, &["林琳".to_string()], "rename").unwrap();
+        assert_eq!(
+            resolve_character_id(&conn, &story, "林琳")
+                .unwrap()
+                .as_deref(),
+            Some(lin.as_str()),
+            "旧名应通过别称表解析回本人"
+        );
+
+        // 幂等：再改一次没有旧名 token
+        assert_eq!(
+            rename_scene_character_refs(&conn, &story, "林琳", "林夏").unwrap(),
+            0
+        );
     }
 
     /// 没有任何依据时不得乱并：精确名与别称表都不命中 → 返回

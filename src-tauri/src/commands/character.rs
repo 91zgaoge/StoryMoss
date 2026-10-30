@@ -169,6 +169,65 @@ pub fn update_character(
             &story_id,
         );
 
+        // v0.73.14：改名必须同时维护 legacy 身份：
+        // 1) `characters` 行已由 repo.update 按 id（或旧名回退）改名；
+        // 2) 旧名登记为别称，后续 ingest 遇到旧称呼仍解析回本人；
+        // 3) 场景元数据里的出场角色/冲突 token 跟随改名。
+        // 正文散文不改写：历史章节里的旧称呼属于已写下的内容，由别称兜底。
+        if let (Some(old), Some(new_name)) = (old_character.as_ref(), name_for_ingest.as_deref()) {
+            let new_name = new_name.trim();
+            if !new_name.is_empty() && old.name.trim() != new_name {
+                if let Ok(conn) = pool.get() {
+                    let legacy_id: Option<String> = conn
+                        .query_row(
+                            "SELECT id FROM characters \
+                             WHERE story_id = ?1 AND (id = ?2 OR name = ?3) LIMIT 1",
+                            rusqlite::params![&story_id, &id, new_name],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    if let Some(legacy_id) = legacy_id {
+                        if let Err(e) = crate::db::character_identity::record_aliases(
+                            &conn,
+                            &story_id,
+                            &legacy_id,
+                            std::slice::from_ref(&old.name),
+                            "rename",
+                        ) {
+                            log::warn!(
+                                "[update_character] 登记旧名别称失败 {} -> {}: {}",
+                                old.name,
+                                new_name,
+                                e
+                            );
+                        }
+                        let _ = conn.execute(
+                            "UPDATE item_holdings SET holder_name = ?3 \
+                             WHERE story_id = ?1 AND holder_character_id = ?2",
+                            rusqlite::params![&story_id, &legacy_id, new_name],
+                        );
+                    }
+                    match crate::db::character_identity::rename_scene_character_refs(
+                        &conn, &story_id, &old.name, new_name,
+                    ) {
+                        Ok(0) => {}
+                        Ok(n) => log::info!(
+                            "[update_character] 改名后改写 {} 处场景角色名 token：{} -> {}",
+                            n,
+                            old.name,
+                            new_name
+                        ),
+                        Err(e) => log::warn!(
+                            "[update_character] 改写场景角色名失败 {} -> {}: {}",
+                            old.name,
+                            new_name,
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+
         // D1 Phase 4: 角色敏感字段变更触发级联改写（在 Ingest spawn
         // 之前执行，避免变量所有权冲突）
         if let Some(ref old) = old_character {
@@ -300,20 +359,22 @@ pub fn update_character(
                 Ok(result) => {
                     let kg_repo =
                         crate::db::repositories::KnowledgeGraphRepository::new(pool_for_kg);
-                    for entity in &result.entities {
-                        let _ = kg_repo.create_entity(
-                            &story_id_for_ingest,
-                            &entity.name,
-                            &entity.entity_type.to_string(),
-                            &entity.attributes,
-                            entity.embedding.clone(),
-                        );
+                    // 必须按 link_entities 对齐后的实体 ID upsert。旧实现逐条
+                    // create_entity 会重新生成 UUID：编辑任一字段后，同名角色
+                    // 都会在 kg_entities 多出一行——改名时用户看到的就是
+                    // “改名生成了一个新角色”，续写提示词里也会有两个同名人。
+                    match kg_repo.save_entities_batch(&result.entities) {
+                        Ok(saved) => log::info!(
+                            "[AutoIngest] Character {}: {} entities upserted to KG",
+                            character_id,
+                            saved
+                        ),
+                        Err(e) => log::warn!(
+                            "[AutoIngest] Character {}: KG upsert failed: {}",
+                            character_id,
+                            e
+                        ),
                     }
-                    log::info!(
-                        "[AutoIngest] Character {}: {} entities saved to KG",
-                        character_id,
-                        result.entities.len()
-                    );
                     let _ = crate::state_sync::StateSync::emit_data_refresh(
                         &app_handle_clone,
                         Some(&story_id_for_ingest),

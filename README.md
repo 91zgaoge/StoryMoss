@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.13-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.73.14-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -106,6 +106,14 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.73.14 · 改名不再多出一个角色，风格弹窗有了确定按钮
+
+编辑角色（尤其是改名）后，角色列表会冒出同名角色卡，续写提示词里也可能出现两个同名人。
+原因是编辑后的知识回写每次都重新分配实体 ID，而自动识别的角色在两个表里的 ID 本来就不一致。
+本版改为按已对齐的 ID 覆盖写入，改名时同步旧称呼与场景出场名单，并在启动时自动合并历史遗留的
+同名重复角色。写作风格弹窗也重做了操作区：弹窗限高可滚动，保存/取消固定在底部，单一风格改为
+先勾选再点「确定」，右上角随时可关闭。
 
 ### v0.73.13 · 场景页的「叙事阶段」终于会动了
 

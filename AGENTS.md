@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.13
+- **版本**: v0.73.14
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,9 +105,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1838 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / IPC 注册表契约 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1844 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / IPC 注册表契约 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 634 passed / 3 skipped（v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 639 passed / 3 skipped（v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 43 passed / 5 skipped（v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -118,6 +118,24 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.73.14 - 角色改名不再生成重复角色 + 风格弹窗可确认
+
+**为什么**：真机反馈两件事：①编辑角色（尤其改名）后列表多出同名角色卡，用户担心续写人物混乱；
+②混合风格找不到确认/关闭按钮，单一风格看不出是否选中。根因：编辑后的 ingest 丢掉已链接的实体
+ID、逐条 `create_entity` 重新生成 UUID；自动识别角色在 `characters` 与 `kg_entities` 中 id 不同，
+`repo.update` 只按 id 更新、`get_by_story` 只按 id 判重，旧名 legacy 行因此再次出现。
+
+**改动**：①`update_character` 的 ingest 改 `save_entities_batch`（按链接 id upsert）；
+②`CharacterRepository::update` id 未命中时按旧名回退更新 legacy 行；③`get_by_story` legacy 兜底
+按名字排除已有 kg 实体；④改名登记旧名别称、同步场景出场/冲突 token 与物品持有名；
+⑤`link_entities` 支持别称解析，旧称呼回收原实体；⑥V148 迁移合并存量同名重复角色；⑦实体属性
+合并时空值不覆盖作者已填内容；⑧风格弹窗抽成 `StyleDnaModal`：限高 + 内容区滚动 + 底部固定操作区，
+单一风格先选中再点确定，新增右上角关闭 / Esc / 保存失败 toast，混合面板按钮 sticky。
+
+- **验证**：Rust **1844 passed / 10 ignored**（+6）；vitest **639 passed / 3 skipped**（+5）；
+  tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：真机双窗口未复测；关系表对 ingest 建角色的 id 映射（legacy vs kg）是既有问题，本版未动。
 
 ### v0.73.13 - 补回 get_canonical_state 命令 + 日志可读性
 
@@ -184,23 +202,6 @@ Append 与 NextChapter 两条路径同步 `.await`。
   clippy 0 error；fmt / guard 全绿；前端零改动。
 - **清理提醒**：用户配置中该模型仍在（`is_default=true` + `tool_model_id`），需在
   设置 → 模型 → 管理删除 “Ds10”（`deepseek-v4.1-flash` / `10.62.239.13:17098`）。
-
-### v0.73.9 - 多部小说切换：卡片点击 / 开幕前同步到幕前
-
-**为什么**：幕后有多部小说时，点击另一部小说卡片后切到幕前，幕前仍停在旧故事。根因是故事
-卡片点击只更新幕后 `currentStory` 并弹 toast，从未通知幕前；只有卡片上的小「打开」按钮会广播
-`storySelected`。底部「开幕前」启动器、侧栏「打开幕前写作」与故事页「开幕前」也只
-`show_frontstage`，不带故事。
-
-**改动**：①新增 `notify_frontstage_story_selected`（只广播 `storySelected`，不显示/聚焦幕前窗口）；
-②故事卡片点击、Stories「开幕前」、Sidebar「打开幕前写作」、全局 `FrontstageLauncher` 均携带
-`currentStory`（无选中时退回 `show_frontstage`）；③幕前生成中收到切换请求改为 toast 提示，
-不再静默丢弃。
-
-- **验证**：playwright **43 passed / 5 skipped**（+1：`故事卡片点击同步选中到幕前`，断言
-  `__calls` 中出现 `notify_frontstage_story_selected` 且 story_id 正确）；tsc / vitest 625 全绿；
-  Rust 1834 passed / 10 ignored 基线不变。
-- **未关闭**：双窗口真机手动切换未复测（e2e 只能断言事件已发出）。
 
 ## Always Do
 

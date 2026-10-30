@@ -1,8 +1,22 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.13)
+# 🧪 StoryMoss 自动化测试环境 (v0.73.14)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.73.14 变更说明
+
+- **角色身份去重（Rust +6，1844 passed / 10 ignored）**：
+  ①`V148__dedupe_character_entities` 迁移用例——同名重复角色保留与 `characters`
+  同 id 的行，属性缺口补齐，关系/`memory_items`/场景提及改线，幂等；
+  ②`character_identity::rename_rewrites_scene_tokens_and_keeps_old_name_resolvable`——
+  改名同步场景 token，旧名登记别称后仍解析回本人；③`CharacterRepository::update`
+  在 kg/legacy id 不一致时按旧名回退改名；④`get_by_story` 同名不重复、仅 legacy 行保留；
+  ⑤`link_entities` 别称命中复用原实体 id 与规范名；⑥实体属性合并时空值不覆盖已有值。
+- **前端（vitest +5，639 passed / 3 skipped）**：`StyleDnaModal` 五条——单一风格先选中
+  再点确定才落库、关闭不落库、弹窗限高且操作区可见、混合页签固定按钮并可保存、
+  已有混合配置异步加载后回填到面板。
+- **真机未复测**：迁移在用户下一次启动时执行；建议升级后先打开「资料」页确认重复角色卡合并。
 
 ### v0.73.13 变更说明
 
